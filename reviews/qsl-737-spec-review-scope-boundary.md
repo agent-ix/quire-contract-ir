@@ -50,3 +50,22 @@ scope:
   excerpt: Whether the reader should also accept a conforming argument at a Reference<P> parameter. FR-322 Reference conformance owns reference conformance; this requirement leaves it unchanged.
 bindings: []
 ```
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | medium | Since the first review, QSpec FR-322-AC-69 (the amendment for QSL-737) also admits a conforming record at a `case` arm body against the `case` result type and at a `value`/`union_value` payload position. The reader compares both exactly today: `union_arms_hold` compares each arm body's type node with `result_type` (operations.rs:1451-1452), and the union-value check compares each payload term's type node with the member's payload type (operations.rs:1574-1578, `type-mismatch`). FR-347 still says "It changes nothing else", and no IR requirement covers these two positions. QSL FR-359 item 5 puts a child in union payloads. Cover them in this PR, or state them as dependencies with the QSL-737 ticket. The function-body root against the function's type, also in FR-322-AC-69, was not traced in the reader. | spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md:35-39 |
+| FND-003 | low | The new "Function-call arguments" section states a target rule with no AC, and defers it to "a later amendment" with no ticket, Open Question or dependency edge naming the blocking QSpec criterion (FR-322-AC-70). Nothing tracks the deferral. Add a Dependencies entry naming FR-322-AC-70 and the tracking ticket. | spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md:143-153 |
+
+## Dispositions
+
+Round 1; reviewed 66a261051c487bebfe2637e155d815f4d308f68d.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 66a261051c487bebfe2637e155d815f4d308f68d |
+
+## Disposition round 1 verdict
+
+**CONDITIONAL**: FND-001 is fixed. FR-347 now relaxes the field-read operand (`member_of`) by the same rule, through new AC-9. This agrees with QSL FR-359 item 2 (the read names the declaring record and is resolved among `P`'s effective members) and with QSpec FR-322-AC-69. The ordering is consistent with `check_model_member`: the operand check comes before the name resolution at `arguments/0`, so an unrelated operand or object operand refuses at `arguments/0`, and a descendant-only field named on `P` refuses at `name`. See SR-8683 FND-004 for the object-type gate this also needs. New FND-002 (medium) and FND-003 (low) are open.

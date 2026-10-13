@@ -54,3 +54,15 @@ scope:
   excerpt: A walk charges one work unit per supertypes edge followed, to the same meter as the member resolution of FR-038-AC-30. An exact match charges none. A limit one below the work a read used returns incomplete for work.
 bindings: []
 ```
+
+## Dispositions
+
+Round 1; reviewed 66a261051c487bebfe2637e155d815f4d308f68d.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 66a261051c487bebfe2637e155d815f4d308f68d |
+
+## Disposition round 1 verdict
+
+**PASS**: the work rule now names the whole reused walk. Traced against `DomainModel::ancestors` (model_members.rs:826-847): `GiftTaxedMoney` costs 2 at both `Money` and `TaxedMoney`. The diamond pops C (1, extend A), A (2), B (3, extend A), A (4, already reached), so it costs 4, which matches "each ancestor's edges followed once". An exact match short-circuits in `conforms_to` and costs 0.

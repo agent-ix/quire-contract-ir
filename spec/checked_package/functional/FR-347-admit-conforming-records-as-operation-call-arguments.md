@@ -1,6 +1,6 @@
 ---
 id: FR-347
-title: "Admit a conforming record as an operation-call argument or field-read operand"
+title: "Admit a conforming record at operation-call, field-read, case-arm, union-payload and function-call positions"
 type: FR
 relationships:
   - target: ix://agent-ix/quire-contract-ir/StR-001
@@ -16,7 +16,7 @@ relationships:
   - target: ix://agent-ix/quire-spec-language/FR-359
     type: references
 ---
-# FR-347: Admit a conforming record as an operation-call argument or field-read operand
+# FR-347: Admit a conforming record at operation-call, field-read, case-arm, union-payload and function-call positions
 
 ## Description
 
@@ -32,11 +32,12 @@ such a call. Today FR-038 "Model-owned members" step 4's operation check
 compares each argument's type node with the parameter's declared type by node
 key alone, so a child passed to a parent-typed parameter refuses
 `ill_typed`/`operator-ineligible`. This requirement replaces that exact
-comparison for a record-typed parameter. QSpec FR-322-AC-69 likewise relaxes the
-operand of a `record.project` field read, and the reader's field check is
-exact today (the operand's type node must equal the member's `declaration`),
-so a field read over a child-typed operand refuses; this requirement relaxes
-that check by the same rule. It changes nothing else.
+comparison for a record-typed parameter. QSpec FR-322-AC-69 relaxes other
+positions the same way, and this requirement states the reader's rule at each
+one the reader checks today: a field-read operand, a `case` arm body, a
+`union_value` payload and, with FR-322-AC-70's `parameters` member, a
+`function.call` argument. A function or expression body root is compared with
+nothing today, so it needs no change. This requirement changes nothing else.
 
 A record **conforms** to a record `P` when it is `P` or `P` is among its
 ancestors at any depth. The relation is one-way: a child conforms to its
@@ -115,18 +116,48 @@ another selected document, refuses `ill_typed`/`operator-ineligible` at that
 argument. The first offending argument in position order is reported, and the
 arity check still precedes the argument checks.
 
-### Field projection over a conforming operand
+### Field projection over a record operand (two changes)
 
-For a `field` member whose `declaration` is a record value type `P` (the
-declaration QSL FR-359 item 2 names: the record that declares the field), the
-operand's type node (argument 0) is admitted when it is `P` or the same
-conformance holds as above: a recovered `model`/`record_value_type` node of
-the same selected document with a supertype chain to `P`. The field is
-resolved by name among `P`'s effective members as before, so a field declared
-only by a descendant of `P` is not found and refuses at the member's `name`.
-An operand of an object type, or of a record that does not conform, refuses
-`ill_typed`/`operator-ineligible` at `arguments/0`. The result type is the
-type `P` gives the field, compared with `result_type` as before.
+Today every `field` member read whose declaring node is a model record refuses
+`ill_typed`/`operator-ineligible` at the member's `name`: `check_model_member`
+requires the recovered owner to be an object type, and an owner that
+declares a record is not one. No admitted package reads a record field. This
+requirement makes two changes.
+
+1. **Record owners.** A `field` member read whose `declaration` is a record
+   value type `P` recovers `P`'s owner and resolves the field by name among
+   `P`'s effective members, own and inherited from `P`'s ancestors, as
+   FR-038 step 3 does for an object type. The member type is compared with
+   `result_type` by node key as before. The object-type requirement stays for
+   an `operation` member, and a record owns no operation (refused at `name`).
+2. **Conforming operand.** The operand's type node (argument 0) is admitted
+   when it is `P` (exact) or a recovered `model`/`record_value_type` node of
+   the same selected document with a supertype chain to `P`. A field declared
+   only by a descendant of `P` is not found among `P`'s effective members and
+   refuses at the member's `name`. An operand of an object type, or of a
+   record that does not conform, refuses `ill_typed`/`operator-ineligible` at
+   `arguments/0`.
+
+### Case arm bodies and union payloads
+
+Today a `case` arm body must have exactly the application's `result_type`
+(`union_arms_hold`), and a `union_value` payload term must have exactly the
+member's declared payload type. Where the expected type is a record value
+type, an arm body or payload term whose type is a recovered
+`model`/`record_value_type` conforming to it is admitted by the rule above;
+every other expected type, and every binder's `semantic_type` (a binder is
+bound to the payload type, not an argument), stays exact. A failing arm body
+refuses as today (`union_arms` not holding: `ill_typed`/`operator-ineligible`
+at the `case` application's arguments), a failing payload `ill_typed`/
+`type-mismatch` at the `union_value` node.
+
+### Result positions
+
+The reader compares no function or expression body root with the node's
+declared `semantic_type` today, so a conforming record at a body-root result
+position already admits and needs no change. This is stated so that it stays
+true: a record that does not conform there is also not refused by this
+requirement.
 
 ### Work accounting
 
@@ -142,15 +173,18 @@ returns `incomplete` for `work`.
 
 ### Function-call arguments
 
-A `quire.op.function.call` argument is not covered yet: the checked package's
-`function` node does not carry its declared parameter types. QSpec FR-322 is
-adding that parameter list. When it lands, the reader's target rule for
-`function.call` is: first the argument count equals the parameter count, else
-`ill_typed`/`operator-ineligible` at `arguments`; then each argument, in
-position order, is its parameter's type exactly, or conforms to it when the
-parameter is a record value type, by the rule above, with the same refusal at
-the first offending argument. A later amendment states it as acceptance
-criteria.
+Today the reader compares neither the number nor the types of a
+`quire.op.function.call`'s arguments with the callee (FR-038, "Documented
+limits"). When the callee `function` node carries the optional `parameters`
+member (QSpec FR-322-AC-70), the reader SHALL check, in this order: the
+argument count equals the parameter count, else `ill_typed`/
+`operator-ineligible` at `arguments`; then each argument in position order is
+its parameter's type exactly, or conforms to it when the parameter is a
+record value type, else the same refusal at that argument. A callee without
+`parameters` is unchecked as today. A callee reached by a
+`dependency_reference` has a package-independent signature (FR-038), which
+names no model-owned record, so a record argument at such a parameter stays
+exact.
 
 ### Scope
 
@@ -166,12 +200,16 @@ with that form.
 | FR-347-AC-1 | Over a selected document declaring `Money`, `TaxedMoney` with supertype `Money`, `GiftTaxedMoney` with supertype `TaxedMoney`, an unrelated record `Voucher`, and an object type with the operation `charge(m: Money)`, a call whose argument is typed at `Money` admits (control, exact), one typed at `TaxedMoney` admits, and one typed at `GiftTaxedMoney` (grandchild) admits. The child cases admit with no `supertypes` member and no conversion node in the package. | Test (TC-448) |
 | FR-347-AC-2 | In the same document a call to `charge(m: Money)` whose argument is typed at `Voucher` (unrelated) refuses `ill_typed`/`operator-ineligible` at `/semantic_graph/nodes/{n}/body/arguments/1`. | Test (TC-448) |
 | FR-347-AC-3 | A call to `settle(t: TaxedMoney)` with an argument typed at `Money` (the ancestor) refuses `ill_typed`/`operator-ineligible` at that argument, and so does a call to `grandsettle(g: GiftTaxedMoney)` with an argument typed at `TaxedMoney` (an intermediate ancestor) or at `Money`. `settle` with a `GiftTaxedMoney` argument admits. | Test (TC-448) |
-| FR-347-AC-4 | A parameter typed `Integer`, `Int[0, 9]`, `Boolean`, `Reference<O>` or `Set<Money>[0, 1]` (declared with multiplicity `[0, 1]`, unique) is compared by node key exactly: an argument typed `TaxedMoney` and one typed `Set<TaxedMoney>[0, 1]` at the `Set<Money>[0, 1]` parameter, an `Int[0, 5]` argument at an `Int[0, 9]` parameter and a `Reference` of a subtype at a `Reference<O>` parameter each refuse `ill_typed`/`operator-ineligible` at the argument; the same parameter with its exact argument admits. A hand-built package whose argument is typed `Option<Money>` at a `Money` parameter refuses the same way. | Test (TC-448) |
+| FR-347-AC-4 | A parameter typed `Integer`, `Int[0, 9]`, `Boolean`, `Reference<O>` or `Set<Money>[0, 1]` (declared with multiplicity `[0, 1]`, unique and unordered) is compared by node key exactly: an argument typed `TaxedMoney` and one typed `Set<TaxedMoney>[0, 1]` at the `Set<Money>[0, 1]` parameter, an `Int[0, 5]` argument at an `Int[0, 9]` parameter and a `Reference` of a subtype at a `Reference<O>` parameter each refuse `ill_typed`/`operator-ineligible` at the argument; the same parameter with its exact argument admits. A hand-built package whose argument is typed `Option<Money>` at a `Money` parameter refuses the same way. | Test (TC-448) |
 | FR-347-AC-5 | An argument typed at a `composite_type`/`record` node with a source owner, with the same name and fields as `TaxedMoney`, refuses `ill_typed`/`operator-ineligible` at `charge(m: Money)`: ancestry is read from the selected document only. A `TaxedMoney` record of a second selected document does not conform to the first document's `Money` and refuses the same way. | Test (TC-448) |
 | FR-347-AC-6 | A call with two record-typed parameters, a conforming first and a non-conforming second argument, refuses at argument 2 (the second parameter); with both non-conforming it refuses at argument 1. A call with the wrong argument count refuses at `arguments` before any argument is judged, as before. | Test (TC-448) |
 | FR-347-AC-7 | The receiver of a call to `charge` typed at a `Reference` of a subtype of the declaring object refuses `ill_typed`/`operator-ineligible` at `arguments/0`, as before this requirement, and an admitted call's `result_type` that differs from the operation's declared result type by key still refuses `ill_typed`/`operator-ineligible` at `result_type`. | Test (TC-448) |
 | FR-347-AC-8 | Conformance of a `GiftTaxedMoney` argument charges 2 `work` units at a `Money` parameter and also 2 at a `TaxedMoney` parameter (the walk does not stop at the parameter's record); with a diamond `D` (supertypes `B`, `C`; each with supertype `A`) the argument `D` at an `A` parameter charges 4. An exact argument charges none. For each, a work limit one below the measured total returns `incomplete` for `work` and the exact total admits. | Test (TC-448) |
-| FR-347-AC-9 | A `record.project` read of `occurred_at` declared by `OrderPlaced`, with `declaration` naming `OrderPlaced`, admits over an operand typed `OrderPlaced`, an `ExpressOrderPlaced` child and a `RushOrderPlaced` grandchild. It refuses `ill_typed`/`operator-ineligible` at `arguments/0` over an unrelated record and over an object type, and a read of `promised_by` (declared only by the child) with `declaration` naming `OrderPlaced` refuses at the member's `name`. | Test (TC-448) |
+| FR-347-AC-9 | A `record.project` read of `occurred_at` declared by `OrderPlaced`, with `declaration` naming `OrderPlaced`, admits over an operand typed `OrderPlaced` (the exact record read, which refuses today), over an `ExpressOrderPlaced` child and over a `RushOrderPlaced` grandchild, and admits an inherited field read over a child-typed `declaration` (`order_id` named on `ExpressOrderPlaced`). It refuses `ill_typed`/`operator-ineligible` at `arguments/0` over an unrelated record and over an object type, a read of `promised_by` (declared only by the child) with `declaration` naming `OrderPlaced` refuses at the member's `name`, and an `operation` member naming a record refuses at `name`. | Test (TC-448) |
+| FR-347-AC-10 | A `case` over a union whose arm bodies are typed `TaxedMoney` and `Money` with `result_type` `Money` admits; an arm body typed `Voucher` or `Money` at `result_type` `TaxedMoney` refuses `ill_typed`/`operator-ineligible`; a binder whose `semantic_type` is a conforming child of the payload type refuses (binders stay exact); a non-record `result_type` stays exact. | Test (TC-448) |
+| FR-347-AC-11 | A `union_value` whose member payload is declared `Money` admits a payload term typed `TaxedMoney` and `GiftTaxedMoney`, and refuses `Voucher` and `Money` at a `TaxedMoney` payload with `ill_typed`/`type-mismatch` at the node; a non-record payload stays exact. | Test (TC-448) |
+| FR-347-AC-12 | A `function` node whose body root is typed `TaxedMoney` with declared `semantic_type` `Money` admits, and so does a body root typed `Voucher` (the reader compares no body root with the declared type), as before this requirement. | Test (TC-448) |
+| FR-347-AC-13 | A `function.call` whose callee `parameters` are `[Money, Integer]` admits arguments `[Money, Integer]`, `[TaxedMoney, Integer]` and `[GiftTaxedMoney, Integer]`; refuses `ill_typed`/`operator-ineligible` at `arguments` for one or three arguments, at the argument for `[Voucher, Integer]`, `[Money, Int[0, 5]]` and a `parameters` of `[TaxedMoney, Integer]` with a `Money` first argument; and checks nothing for a callee without `parameters`. | Test (TC-448) |
 
 ## Open Questions
 
@@ -184,6 +222,7 @@ with that form.
 
 - [FR-038](./FR-038-consume-checked-package-v2.md) owns the operation check,
   the owner recovery and the ancestor walk this requirement reuses.
-- QSpec FR-322 is to state record-operand conformance for operation-call
-  arguments (QSL FR-359 cross-repo requirement 5); this requirement states the
-  reader's rule and follows FR-322 where it differs.
+- QSpec FR-322-AC-69 (conforming records) and FR-322-AC-70 (the `parameters`
+  member of a `function` node) are the producer side of this rule (QSL FR-359
+  cross-repo requirement 5); this requirement states the reader's rule and
+  follows them where it differs.

@@ -12,7 +12,7 @@ relationships:
 
 ## Description
 
-Verify FR-347-AC-1 through FR-347-AC-9: the V2 reader admits an operation-call
+Verify FR-347-AC-1 through FR-347-AC-13: the V2 reader admits an operation-call
 argument whose record type conforms to the parameter's declared record type,
 refuses an unrelated, ancestor or foreign-document record with
 `ill_typed`/`operator-ineligible` at the argument, and keeps every
@@ -31,7 +31,9 @@ declarable; the collection vectors use the `[0, 1]` unique multiplicity),
 and a diamond `D` (supertypes `B`, `C`; each with supertype `A`) with an
 operation over `A`. For field reads, add `OrderPlaced` with `occurred_at`, its
 child `ExpressOrderPlaced` adding `promised_by`, and grandchild
-`RushOrderPlaced`. Build a checked package for each call below,
+`RushOrderPlaced`; a union with a `Money` payload member and a `case` over it;
+a `function` node with `semantic_type` `Money`; and a callee with
+`parameters` `[Money, Integer]` (authored as the producer's AC-70 member). Build a checked package for each call below,
 computing every expected node id through `quire-canonical`, not through the
 reader, and read each.
 
@@ -53,7 +55,9 @@ argument read at a `Money` and at a `TaxedMoney` parameter (both 2) and of
 `D` at `A` (4), then read at each limit and one below. Field reads: `occurred_at`
 over `OrderPlaced`, child and grandchild operands (admit), over an unrelated
 record and an object type (refuse at `arguments/0`), and `promised_by` named on
-`OrderPlaced` (refuse at `name`).
+`OrderPlaced` (refuse at `name`); the exact `OrderPlaced` read and an inherited
+read named on the child (admit); case arms, union payloads, the function body
+root and `function.call` argument counts and types per AC-10 to AC-13.
 
 ## Expected Results
 

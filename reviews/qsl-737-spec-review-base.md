@@ -98,3 +98,24 @@ scope:
   excerpt: Reading a selected domain package and resolving a model-owned member are charged to the work limit; a limit one below the work a read used returns incomplete for work with the pointer /lock/model_selections/<i> of the row, and the exact work admits.
 bindings: []
 ```
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | medium | The new "Field projection over a conforming operand" section says the field "is resolved by name among `P`'s effective members as before", and FR-347-AC-9 expects an exact `OrderPlaced` operand to be admitted. Today every model-owned record field read refuses at the member's `name` before resolution runs: `check_model_member` requires `owner.object_type()`, which reads only `object_types`, so a `record_value_type` declaring node returns `ineligible(member_at("name"))` (operations.rs:2108-2110, model_members.rs:1226-1228). No test on main admits a known field read over a model record; TC-056 tests only the unknown-field refusal. So "as before" is false, and the requirement does not state the second change it needs: for a `field` member, the object-type gate is lifted for a record declaring node. State that change in the section and in "It changes nothing else". QSL FR-359-AC-3's read-back depends on it. | spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md:118-129,174 |
+| FND-005 | low | Public-repo leak check: the "Function-call arguments" section says "QSpec FR-322 is adding that parameter list". That describes content of an unmerged private QSpec change (a `function` node parameter list) that no public source states. Cite the dependency by FR/AC id or ticket only, with no design description. | spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md:143-153 |
+
+## Dispositions
+
+Round 1; reviewed 66a261051c487bebfe2637e155d815f4d308f68d (fix commit on top of 70f0c54b, merge-base origin/main 6e45fd57).
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 66a261051c487bebfe2637e155d815f4d308f68d |
+| FND-002 | fixed | 66a261051c487bebfe2637e155d815f4d308f68d |
+| FND-003 | fixed | 66a261051c487bebfe2637e155d815f4d308f68d |
+
+## Disposition round 1 verdict
+
+**CONDITIONAL**: FND-001..003 are fixed. FND-001: AC-4 now uses `Set<Money>[0, 1]`, which `slot_type` yields for a `[0, 1]` unique, unordered parameter (`CollectionKind::of(false, true)` = `Set`, bounds `(0, 1)`), and the hand-built `Option<Money>` argument at a `Money` parameter falls to the exact comparison and refuses. FND-002: AC-7 states the `arguments/0` refusal that operations.rs:2127-2129 gives. FND-003: the spec/tests.md row now carries the FR-347 status clause. New FND-004 (medium) and FND-005 (low) are open. The title change, the TC-448 and matrix updates, and the IDs (unique across origin refs and open PRs #368 and #375) are fine. `quire validate` passes 752/752 at the head. Strict coverage gives 53 unbacked rows: main's 42 plus 11 planned (FR-347, TC-448, AC-1..9).
