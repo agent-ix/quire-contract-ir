@@ -1017,6 +1017,10 @@ reader runs FR-322's four steps:
    member's `name`, two refuse `ambiguous_declaration`/`ambiguous-name`.
 4. **Member type**, compared with the application's `result_type` by node key.
 
+   An operation call's argument types are compared with its parameters' by node
+   key, except that an argument whose record conforms to a record-typed
+   parameter's record is admitted ([FR-347](./FR-347-admit-conforming-records-as-operation-call-arguments.md)).
+
 #### Selected relationship declarations (IR-661)
 
 The reader SHALL read relationships in the Semantic IR 2.0.0 shape owned by
@@ -3761,7 +3765,7 @@ an empty leaf list:
 
 | Catalogued operation | Leaf source | Selected compared type after earlier checks |
 | --- | --- | --- |
-| `structural.eq`, `structural.ne` | `operand:0` | The first operand's declared type: a `literal`'s `type`, a `reference`'s target when it is type-shaped, or otherwise that target node's `semantic_type`. A reference to an expression node with an application at its body root selects that node's `semantic_type`, which must equal the body's `result_type`; an application cannot occur inline in `arguments`. Its family must already fit `structural_kind`, and `same_type` must hold. |
+| `structural.eq`, `structural.ne` | `operand:0` | The first operand's declared type: a `literal`'s `type`, a `reference`'s target when it is type-shaped, or otherwise that target node's `semantic_type`. A reference to an expression node with an application at its body root selects that node's `semantic_type`, which must equal the body's `result_type`, or for a record result conform to it ([FR-347](./FR-347-admit-conforming-records-as-operation-call-arguments.md) "Result positions"); an application cannot occur inline in `arguments`. Its family must already fit `structural_kind`, and `same_type` must hold. |
 | `collection.contains` | `inner:0` | The element type of the first operand's `sequence`, `set`, `bag` or `ordered_set` type, through permitted alias and bounded-domain forwarding. The first operand must already fit `collection_kind` and its second operand must satisfy the catalogued `inner_type` constraint. Selection adds no leading `inner` path segment. |
 | `collection.set`, `.bag`, `.ordered_set`, `.map`, `.flat_map`, `.flatten`, `.convert` | `result_inner` | The result's element type only when the admitted `result_type` resolves to `set`, `bag` or `ordered_set`. A valid `sequence` result expects no leaves, even if its element type is text. Selection adds no leading `inner` segment. |
 
