@@ -28,7 +28,15 @@ consumption. Contract IR emits this wire; codegen consumption remains IR-744.
 ## Inputs
 
 An immutable admitted `quire.checked-package/v2`, its selected admitted
-dependency packages, requested item set, lowering profile and resource limits.
+dependency packages, requested item set, resolved `CompleteLoweringProfileV2`
+and resource limits. The resolved profile owns `reference: LoweringProfileRef`,
+`required_source_selections: Vec<CheckedSelection>`, and its existing
+`supported_tags`, `require_bounds`, and `work_limit`. `CheckedSelection` is the
+existing typed FR-322 `Selection` `{role, definition}`, where `definition` is
+`DefinitionRef` `{authority, identity}`. The producer of the resolved profile
+supplies its declared requirements directly; no lookup from the reference,
+parsed identifier, display name, or untyped settings map substitutes for them.
+The requirements are lowering input, not emitted ContractPackage members.
 
 ## Outputs
 
@@ -59,6 +67,23 @@ refuses admission. Presentation is excluded. Identity is not native semantic
 authority.
 
 ## Behavior
+
+QSpec FR-330's "Typed source-selection compatibility" is the sole owner of
+source-selection matching, its charged per-request procedure, refusal precedence
+and exact lock preservation. The lowerer SHALL implement that contract using
+its typed `CompleteLoweringProfileV2.required_source_selections` field and
+existing FR-038 per-request work meter. The lowerer SHALL NOT introduce a separately
+normalized requirement representation, replacement budget or reference-derived
+requirement lookup.
+
+The typed adapter SHALL map FR-330's compatibility refusal to the existing
+`CompleteLoweringRecordV2::InvalidInput { node_id }` and its `invalid_input` wire
+projection. A stopped charge maps to the existing `Failed` variant for `Work`,
+retaining the specified requested key, limit and consumed counter; it does not
+convert a work failure into an input refusal. Continued lowering uses that same
+meter. The output adapter retains `profile.reference` as the sole emitted
+lowering-profile value and retains the original checked source provenance under
+FR-330, without adding a requirement member, diagnostic payload or vocabulary.
 
 One call SHALL assemble the graph from its `lowered` records and the admitted
 local nodes those reach: each node once. An explicit recursion group's represented
@@ -123,6 +148,7 @@ identity unchanged.
 | FR-035-AC-6 | For an admitted lowered root, the typed view returns that exact root and each local node reached through `semantic_type`, declared `dependencies` or validated body references once in ascending typed-key order; independently walking those three edge sources yields the same key set, including a shared or cyclic reference, and every returned node retains its exact source correspondence. | Test |
 | FR-035-AC-7 | A selected dependency reference in the view retains its selected dependency identity and target key and cannot be satisfied by an identically keyed local node or an absent, stale or wrong selected package; every lowered-root view exposes both bound and claim typed-key subsets, possibly empty, exactly matching Contract IR's existing lowering classification in typed-key order. | Test |
 | FR-035-AC-8 | Querying a non-`lowered` requested key returns its exact typed disposition, while an unrequested or absent key returns typed absence even if its node occurs only as another root's reached meaning; neither returns a fabricated closure, and querying the view changes none of the six FR-330 wire properties or identity. | Test |
+| FR-035-AC-9 | The typed profile exposes `required_source_selections: Vec<CheckedSelection>` and the IR adapter conforms to QSpec FR-330-AC-10 and TC-935: input refusals use `InvalidInput { node_id }`/`invalid_input`, work stops use existing `Failed`/`Work` with unchanged key/limit/consumed counters, and successful checks continue the existing FR-038 meter without reset. The adapter preserves exact source provenance and emits only `profile.reference`, with no duplicated requirement wire field or new refusal payload. | Test |
 
 ## Dependencies
 

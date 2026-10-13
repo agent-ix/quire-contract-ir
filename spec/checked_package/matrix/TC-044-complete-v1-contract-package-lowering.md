@@ -7,12 +7,14 @@ relationships:
     type: verifies
   - target: ix://agent-ix/quire-specification/TC-217
     type: references
+  - target: ix://agent-ix/quire-specification/TC-935
+    type: references
 ---
 # TC-044: Complete-V1 target-neutral ContractPackage lowering conforms
 
 ## Description
 
-Verify FR-035-AC-1 through FR-035-AC-4 against the FR-330 package contract and
+Verify FR-035-AC-1 through FR-035-AC-4 and FR-035-AC-9 against the FR-330 package contract and
 FR-322's selected-dependency and tagged-reference rules. Focused FR-330
 emitter and reader controls run in TC-047; the broader TC-044 cases remain
 to be verified against the completed change.
@@ -50,6 +52,31 @@ local nodes. Explicit same-group recursion admits as keyed references, while
 an undeclared cycle refuses. Every admitted local reference targets a
 compatible local node and every admitted dependency reference targets only its
 selected admitted package.
+
+
+## Typed source-selection adapter conformance
+
+Use QSpec [TC-935](ix://agent-ix/quire-specification/TC-935) as the single owner
+of the matching, missing, differing-identity and unrelated-selection fixtures,
+empty/duplicate/order controls and exact/one-under compatibility work vectors.
+Do not copy or independently redefine their selection values or expected
+matching semantics here.
+
+Construct the actual IR `CompleteLoweringProfileV2` from each vector's resolved
+profile input using its `required_source_selections: Vec<CheckedSelection>`
+field. Drive the IR lowering and FR-330 wire adapter, then compare each typed
+record and serialized projection with TC-935's authoritative expected result.
+For an input refusal, assert the existing `InvalidInput { node_id }` variant and
+its exact two-member wire record; for every work-boundary case, assert existing
+`Failed`/`Work`, unchanged requested key, exact limit/consumed fields and their
+canonical decimal-string wire projection. The matching one-under control must
+fail through the real continued node/body/edge walk, proving no replacement
+meter was allocated by the IR adapter. Compare the adapter's full source lock
+and package id with the retained originating values and its emitted profile
+reference with the actual typed `profile.reference`, including refused results.
+No requirement field or new failure payload is serialized. These adapter
+assertions discharge FR-035-AC-9 while semantic expectations remain owned by
+FR-330-AC-10/TC-935.
 
 ## Status
 
