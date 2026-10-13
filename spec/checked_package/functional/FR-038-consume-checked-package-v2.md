@@ -1017,6 +1017,10 @@ reader runs FR-322's four steps:
    member's `name`, two refuse `ambiguous_declaration`/`ambiguous-name`.
 4. **Member type**, compared with the application's `result_type` by node key.
 
+   An operation call's argument types are compared with its parameters' by node
+   key, except that an argument whose record conforms to a record-typed
+   parameter's record is admitted ([FR-347](./FR-347-admit-conforming-records-as-operation-call-arguments.md)).
+
 #### Selected relationship declarations (IR-661)
 
 The reader SHALL read relationships in the Semantic IR 2.0.0 shape owned by
