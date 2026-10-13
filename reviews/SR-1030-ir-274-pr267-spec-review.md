@@ -40,7 +40,7 @@ What I measured:
   AC-95). The TC-048 procedure matches AC-95. The `tests.md` counts are
   unchanged and still true: AC-89 to AC-95 are 🚧 planned.
 - `make spec` was run in a detached throwaway worktree under
-  /home/peter/dev/worktrees, since removed. Results: validate exit 0, one
+  <worktrees directory>, since removed. Results: validate exit 0, one
   grammar finding (FR-014 `ac:vague-response`), and `--strict` 23 unbacked
   with 0 contradicted. That is the baseline.
 - `git diff --check` is clean. No line outside the three intended edits
