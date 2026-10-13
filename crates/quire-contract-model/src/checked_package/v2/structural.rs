@@ -359,12 +359,15 @@ pub(super) fn validate_structural_nodes(
 fn parameter_defect(node: &CheckedSemanticNodeV2, graph: &Graph<'_>) -> Option<Defect> {
     let is_binder_type = node.semantic_type != node.node_id
         && graph.kind(&node.semantic_type).is_some_and(|kind| {
-            matches!(
-                kind.tag(),
-                CheckedNodeTag::ScalarType
-                    | CheckedNodeTag::CompositeType
-                    | CheckedNodeTag::BoundedDomain
-            )
+            // Implements: FR-347. a binder may also be typed at a model record value type,
+            // the type a conforming argument is checked against.
+            kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
+                || matches!(
+                    kind.tag(),
+                    CheckedNodeTag::ScalarType
+                        | CheckedNodeTag::CompositeType
+                        | CheckedNodeTag::BoundedDomain
+                )
         });
     if !is_binder_type {
         return Some(Defect::SemanticType);

@@ -76,5 +76,7 @@ admits and one less returns `incomplete` for `work`.
 
 ## Status
 
-PLANNED / UNRUN: no implementation yet. Target file
-`tests/it/checked_package_v2_operation_arguments.rs`.
+IMPLEMENTED (QSL-737): `tests/it/checked_package_v2_operation_arguments.rs`
+holds one tagged test per criterion, FR-347-AC-1 through FR-347-AC-14. Each
+package is built in the test from the preimages, every key through
+`quire-canonical`, over a Semantic IR 2.0.0 document the lock selects.

@@ -1145,6 +1145,15 @@ impl<'m> ModelOwners<'m> {
         Ok(owner)
     }
 
+    /// Implements: FR-347. the record value type whose model declaration node key is
+    /// `key`, `None` when `key` names no selected record.
+    pub(super) fn record_by_key(&self, key: &str) -> Option<Owner<'m>> {
+        self.by_key
+            .get(key)
+            .copied()
+            .filter(|owner| owner.form == DeclarationForm::RecordValueType)
+    }
+
     /// An owned copy of the key index, which an admitted package retains
     /// after the documents it borrows are gone.
     pub(super) fn index(&self) -> DeclarationIndex {
