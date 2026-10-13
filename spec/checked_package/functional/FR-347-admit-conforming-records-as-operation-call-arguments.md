@@ -35,7 +35,7 @@ key alone, so a child passed to a parent-typed parameter refuses
 comparison for a record-typed parameter. QSpec FR-322-AC-69 relaxes other
 positions the same way, and this requirement states the reader's rule at each
 one the reader checks today: a field-read operand, a `case` arm body, a
-`union_value` payload and, with FR-322-AC-70's `parameters` member, a
+`union_value` payload and, with the callee's body `parameters` binding (FR-322-AC-70), a
 `function.call` argument. A function or expression body root is compared with
 nothing today, so it needs no change. This requirement changes nothing else.
 
@@ -175,16 +175,31 @@ returns `incomplete` for `work`.
 
 Today the reader compares neither the number nor the types of a
 `quire.op.function.call`'s arguments with the callee (FR-038, "Documented
-limits"). When the callee `function` node carries the optional `parameters`
-member (QSpec FR-322-AC-70), the reader SHALL check, in this order: the
-argument count equals the parameter count, else `ill_typed`/
-`operator-ineligible` at `arguments`; then each argument in position order is
-its parameter's type exactly, or conforms to it when the parameter is a
-record value type, else the same refusal at that argument. A callee without
-`parameters` is unchecked as today. A callee reached by a
-`dependency_reference` has a package-independent signature (FR-038), which
-names no model-owned record, so a record argument at such a parameter stays
-exact.
+limits"). This requirement adds both checks, from the callee function node's
+body (QSpec FR-322-AC-70).
+
+- **Where the declared types come from.** The callee is argument 0, a
+  `reference` to a `function` node of this package. The function node's body
+  is an `aggregate` of bindings whose first binding, `parameters`, is an
+  `aggregate` of `reference` terms to the `value`/`parameter` nodes in
+  parameter order, including a parameter the function's body never reads. The
+  declared type of parameter `i` is the `semantic_type` of the node the
+  `i`th reference names. The reader reads nothing else for the signature.
+- **The checks, in order.** The number of arguments after the callee equals
+  the number of references in `parameters`, else `ill_typed`/
+  `operator-ineligible` at `arguments`. Then each argument, in position
+  order, has its parameter's type node exactly, or conforms to it when the
+  parameter's type is a record value type, by the rule above, else
+  `ill_typed`/`operator-ineligible` at that argument.
+- **No `parameters` binding.** A callee function node whose body holds no
+  `parameters` binding takes no checks, as today.
+- **Dependency callee.** A callee reached by a `dependency_reference` names a
+  node of a supplied dependency package, whose body the reader can index. It
+  must have a package-independent signature (FR-038), which names no
+  model-owned record, so a record parameter there cannot be conformed to and
+  stays exact. Whether to apply the count and exact-type checks to a
+  dependency callee's `parameters` binding is not decided here; this
+  requirement applies them to a `reference` callee only.
 
 ### Scope
 
@@ -209,7 +224,7 @@ with that form.
 | FR-347-AC-10 | A `case` over a union whose arm bodies are typed `TaxedMoney` and `Money` with `result_type` `Money` admits; an arm body typed `Voucher` or `Money` at `result_type` `TaxedMoney` refuses `ill_typed`/`operator-ineligible`; a binder whose `semantic_type` is a conforming child of the payload type refuses (binders stay exact); a non-record `result_type` stays exact. | Test (TC-448) |
 | FR-347-AC-11 | A `union_value` whose member payload is declared `Money` admits a payload term typed `TaxedMoney` and `GiftTaxedMoney`, and refuses `Voucher` and `Money` at a `TaxedMoney` payload with `ill_typed`/`type-mismatch` at the node; a non-record payload stays exact. | Test (TC-448) |
 | FR-347-AC-12 | A `function` node whose body root is typed `TaxedMoney` with declared `semantic_type` `Money` admits, and so does a body root typed `Voucher` (the reader compares no body root with the declared type), as before this requirement. | Test (TC-448) |
-| FR-347-AC-13 | A `function.call` whose callee `parameters` are `[Money, Integer]` admits arguments `[Money, Integer]`, `[TaxedMoney, Integer]` and `[GiftTaxedMoney, Integer]`; refuses `ill_typed`/`operator-ineligible` at `arguments` for one or three arguments, at the argument for `[Voucher, Integer]`, `[Money, Int[0, 5]]` and a `parameters` of `[TaxedMoney, Integer]` with a `Money` first argument; and checks nothing for a callee without `parameters`. | Test (TC-448) |
+| FR-347-AC-13 | A `function.call` whose callee is a `reference` to a `function` node with body binding `parameters` = `[reference(p0), reference(p1)]`, `p0` typed `Money` and `p1` typed `Integer`, admits arguments `[Money, Integer]`, `[TaxedMoney, Integer]` and `[GiftTaxedMoney, Integer]`. It refuses `ill_typed`/`operator-ineligible` at `arguments` for one or three arguments, and at the argument for `[Voucher, Integer]`, `[Money, Int[0, 5]]` and, with `p0` typed `TaxedMoney`, `[Money, Integer]`. A parameter the function body never reads still counts: a callee with three `parameters` references and a body reading one refuses two arguments. A callee function node with no `parameters` binding takes no argument check. | Test (TC-448) |
 
 ## Open Questions
 
@@ -222,7 +237,7 @@ with that form.
 
 - [FR-038](./FR-038-consume-checked-package-v2.md) owns the operation check,
   the owner recovery and the ancestor walk this requirement reuses.
-- QSpec FR-322-AC-69 (conforming records) and FR-322-AC-70 (the `parameters`
-  member of a `function` node) are the producer side of this rule (QSL FR-359
+- QSpec FR-322-AC-69 (conforming records) and FR-322-AC-70 (the callee's body
+  `parameters` binding) are the producer side of this rule (QSL FR-359
   cross-repo requirement 5); this requirement states the reader's rule and
   follows them where it differs.
