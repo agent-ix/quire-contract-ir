@@ -225,9 +225,11 @@ QSpec FR-322-AC-70 is the rule that uses it.
 ### Record-typed binders and payloads
 
 A conforming record reaches these positions as a `value`/`parameter` node
-typed at the record, or as the payload of a union. FR-038 therefore admits a
+typed at the record, or as the payload of a union. FR-038 admits a
 `model`/`record_value_type` declaration node as a parameter's binder type and
-as a union payload type node; before this requirement it admitted neither.
+as a union payload type node. It admits no other `model` node there: a
+parameter typed at an object type, and a union payload naming one, are refused
+as FR-038 states.
 
 ### Scope
 

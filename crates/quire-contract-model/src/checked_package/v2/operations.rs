@@ -1402,7 +1402,8 @@ fn union_type<'g>(
 /// `aggregate` of a binder aggregate and the arm body; the binder aggregate
 /// holds as many `reference`s to `value`/`parameter` nodes as the member's
 /// payload arity, each binder's `semantic_type` the payload type at its
-/// position; and every arm body has the application's `result_type`.
+/// position; and every arm body has the application's `result_type`, or
+/// conforms to it when that is a record value type (FR-347).
 fn union_arms_hold(
     application: Application<'_>,
     scrutinee: usize,
@@ -1543,7 +1544,8 @@ fn case_placement_defect(position: usize, graph: &Graph<'_>) -> Option<Validatio
 /// (`invalid_package`/`duplicate-member`) and every payload reference names a
 /// type node (`ill_typed`/`operator-ineligible`); a union value's
 /// `semantic_type` is a union type node, its binding names a member of it, and
-/// its payload terms are that member's payload in count and in type
+/// its payload terms are that member's payload in count and in type, a record
+/// payload type also admitting a conforming record (FR-347)
 /// (`ill_typed`/`type-mismatch`). Each is located at the node. A body that is
 /// not its form's closed shape was refused by the structural stage.
 fn union_defect(
@@ -2288,10 +2290,12 @@ fn check_state_clause_result(
 /// FR-322 "Model-owned members" steps 2 to 4 for a `field` or `operation`
 /// member whose declaring node is a model declaration node, at the
 /// application's `operator-ineligible` check. A field is read over an
-/// operand of the declaring node's type (`member_of`); an operation is
-/// dispatched on a `Reference<X>` receiver of that node, with one argument
-/// per parameter, each of its parameter's type node. The member type is
-/// compared with the application's `result_type` by node key.
+/// operand of the declaring node's type, or of a record conforming to it when
+/// that is a record value type (`member_of`); an operation is dispatched on a
+/// `Reference<X>` receiver of that node, with one argument per parameter,
+/// each of its parameter's type node, or a record conforming to a record
+/// parameter's type (FR-347). The member type is compared with the
+/// application's `result_type` by node key.
 fn check_model_member(
     application: Application<'_>,
     operation: &OperationWire,

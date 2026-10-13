@@ -1419,3 +1419,44 @@ fn tc_448_a_malformed_parameters_binding_is_refused_at_the_callee() {
         function_call(&signature, &arguments, members).ineligible(label, callee);
     }
 }
+
+// --- the widening stops at record value types --------------------------------
+
+/// Trace: FR-347-AC-10, FR-347-AC-13
+#[trace("TC-448", "FR-347-AC-10", "FR-347-AC-13")]
+#[test]
+fn tc_448_a_parameter_typed_at_an_object_type_is_still_refused() {
+    let mut scene = ledger_scene();
+    let key = scene.param("object_typed", &Ty::Object("Ledger"));
+    let case = scene.finish().at(&key);
+    let CheckedPackageV2ReadResult::Refused(refusal) = case.read() else {
+        panic!("a parameter typed at an object type must be refused");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause, refusal.path.clone()),
+        (
+            Code::InvalidSemanticGraph,
+            None,
+            Some(pointer(&format!(
+                "/semantic_graph/nodes/{}/semantic_type",
+                case.node
+            )))
+        ),
+        "{refusal:?}"
+    );
+}
+
+/// Trace: FR-347-AC-11
+#[trace("TC-448", "FR-347-AC-11")]
+#[test]
+fn tc_448_a_union_payload_naming_an_object_type_is_still_refused() {
+    let mut scene = ledger_scene();
+    let object = scene.ty(&Ty::Object("Ledger"));
+    let key = scene.union("Holder", &[("Hold", vec![object])]);
+    scene.finish().at(&key).refuses(
+        "object payload",
+        Code::IllTyped,
+        Cause::OperatorIneligible,
+        "",
+    );
+}
