@@ -916,10 +916,10 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
         // systems interface is the `object` family, the `inner:0` result of
         // `quire.op.model.deref`, which only a `field_owner` position admits.
         K::Model(ModelForm::ObjectType | ModelForm::SystemsInterface) => Some("object"),
+        K::Model(ModelForm::VariantType) => Some("enum"),
         K::Model(
             ModelForm::ModelImport
             | ModelForm::ValueType
-            | ModelForm::VariantType
             | ModelForm::RecordValueType
             | ModelForm::EventType
             | ModelForm::StateMachine

@@ -185,8 +185,11 @@ pub(super) fn valid_derived_shape(
     // declaration. Declared nodes retain the ordinary structural preimage.
     let model_owned = matches!(
         kind,
-        CheckedNodeKind::Model(super::ModelForm::ObjectType | super::ModelForm::SystemsInterface)
-            | CheckedNodeKind::Relation(super::RelationForm::Relationship)
+        CheckedNodeKind::Model(
+            super::ModelForm::ObjectType
+                | super::ModelForm::VariantType
+                | super::ModelForm::SystemsInterface
+        ) | CheckedNodeKind::Relation(super::RelationForm::Relationship)
     ) || (kind == CheckedNodeKind::Model(super::ModelForm::RecordValueType)
         && matches!(
             node.owner.as_ref(),
@@ -554,8 +557,8 @@ mod tests {
             MemberType::Reference(target) => {
                 wire(&key, "composite_type", "reference", &key, over(target))
             }
-            MemberType::Record(_) => {
-                panic!("a record is a selected declaration, not a derived node")
+            MemberType::Record(_) | MemberType::Variant(_) => {
+                panic!("a model type is a selected declaration, not a derived node")
             }
             MemberType::Option(inner) => {
                 let inner = inner.node_key(BYTES).expect("inner key");

@@ -41,7 +41,7 @@ fn requirement(
                 OwnerRequirement::None
             }
         }
-        ("model", "object_type" | "systems_interface")
+        ("model", "object_type" | "variant_type" | "systems_interface")
         | ("relation", "relationship")
         | ("function", _) => OwnerRequirement::Model,
         _ => OwnerRequirement::None,
@@ -164,6 +164,9 @@ fn model_kind_matches(
             .is_some_and(|declared| !declared.interface),
         CheckedNodeKind::Model(super::ModelForm::RecordValueType) => {
             model.record_types.contains_key(declared)
+        }
+        CheckedNodeKind::Model(super::ModelForm::VariantType) => {
+            model.variant_types.contains_key(declared)
         }
         CheckedNodeKind::Model(super::ModelForm::SystemsInterface) => model
             .object_types

@@ -31,9 +31,10 @@
 //!    `result_type` or argument type is compared by key.
 //!
 //! Scope. [`read_semantic_ir`] reads the declarations these steps consult:
-//! object types, record value types, systems interfaces, integer value types
-//! and relationship declarations, with their fields, operations, supertypes and member
-//! redefinitions. A type of any other FR-208 meaning is recorded as declared,
+//! object types, record value types, variant types, systems interfaces,
+//! integer value types and relationship declarations, with their cases,
+//! fields, operations, supertypes and member redefinitions. A type of any
+//! other FR-208 meaning is recorded as declared,
 //! so a `typeRef` naming it resolves to a declaration with no element type,
 //! but its own body is not read. Field and operation `redefines` references
 //! contribute to the effective-member resolution.
@@ -70,6 +71,7 @@ const NATIVE_NAMES: &[&str] = &[
 mod meaning {
     pub(super) const OBJECT_TYPE: &str = "quire.meaning.model.object-type/v1";
     pub(super) const VALUE_TYPE: &str = "quire.meaning.model.value-type/v1";
+    pub(super) const VARIANT_TYPE: &str = "quire.meaning.model.variant-type/v1";
     pub(super) const RECORD_VALUE_TYPE: &str = "quire.meaning.model.record-value-type/v1";
     pub(super) const SYSTEMS_INTERFACE: &str = "quire.meaning.systems.interface/v1";
     pub(super) const SYSTEMS_CONNECTION: &str = "quire.meaning.systems.connection/v1";
@@ -78,7 +80,7 @@ mod meaning {
         OBJECT_TYPE,
         VALUE_TYPE,
         RECORD_VALUE_TYPE,
-        "quire.meaning.model.variant-type/v1",
+        VARIANT_TYPE,
         "quire.meaning.model.event-type/v1",
         "quire.meaning.model.state-machine/v1",
         "quire.meaning.model.process/v1",
@@ -286,6 +288,8 @@ pub(super) struct DomainModel {
     pub(super) record_types: BTreeMap<Box<str>, FieldBearingTypeDecl>,
     /// Value types, by IR node identity; `None` when not bound as `Int[lo, hi]`.
     pub(super) value_types: BTreeMap<Box<str>, Option<IntegerBounds>>,
+    /// Exact semantic case names of selected variant types, by declaration identity.
+    pub(super) variant_types: BTreeMap<Box<str>, BTreeSet<Box<str>>>,
     /// Relationship declarations, by IR node identity.
     pub(super) relationships: BTreeMap<Box<str>, RelationshipDecl>,
     /// Systems connection declarations that also back relation nodes.
@@ -302,6 +306,7 @@ pub(super) struct DomainModel {
 pub(super) enum DeclarationForm {
     ObjectType,
     RecordValueType,
+    VariantType,
     SystemsInterface,
     Relationship,
 }
@@ -309,7 +314,10 @@ pub(super) enum DeclarationForm {
 impl DeclarationForm {
     pub(super) const fn tag(self) -> &'static str {
         match self {
-            Self::ObjectType | Self::RecordValueType | Self::SystemsInterface => "model",
+            Self::ObjectType
+            | Self::RecordValueType
+            | Self::VariantType
+            | Self::SystemsInterface => "model",
             Self::Relationship => "relation",
         }
     }
@@ -318,6 +326,7 @@ impl DeclarationForm {
         match self {
             Self::ObjectType => "object_type",
             Self::RecordValueType => "record_value_type",
+            Self::VariantType => "variant_type",
             Self::SystemsInterface => "systems_interface",
             Self::Relationship => "relationship",
         }
@@ -536,6 +545,8 @@ pub(super) enum MemberType {
     Reference(Box<str>),
     /// A value record, by its owner-bearing declaration node key.
     Record(Box<str>),
+    /// A selected, self-typed model variant declaration.
+    Variant(Box<str>),
     /// `Option<X>`.
     Option(Box<MemberType>),
     /// `K<E>`, or `K<E>[l, u]` when bounded.
@@ -587,7 +598,7 @@ impl MemberType {
                 StructuralBody::Over(target),
                 bytes,
             ),
-            Self::Record(target) => Ok(target.to_string()),
+            Self::Record(target) | Self::Variant(target) => Ok(target.to_string()),
             Self::Option(inner) => {
                 let inner = inner.node_key(bytes)?;
                 anonymous(
@@ -999,6 +1010,16 @@ impl DomainModel {
             .ok()
             .map(|key| MemberType::Record(key.into()));
         }
+        if self.variant_types.contains_key(type_ref) {
+            return declaration_key(
+                &self.identity,
+                DeclarationForm::VariantType,
+                type_ref,
+                self.bytes,
+            )
+            .ok()
+            .map(|key| MemberType::Variant(key.into()));
+        }
         let object = self.object_types.get(type_ref)?;
         if object.interface {
             return None;
@@ -1094,7 +1115,11 @@ impl<'m> ModelOwners<'m> {
                 .record_types
                 .keys()
                 .map(|node| (node, DeclarationForm::RecordValueType));
-            for (node, form) in objects.chain(records).chain(relationships) {
+            let variants = package
+                .variant_types
+                .keys()
+                .map(|node| (node, DeclarationForm::VariantType));
+            for (node, form) in objects.chain(records).chain(variants).chain(relationships) {
                 charge(index)?;
                 // A key the encoder refuses (a preimage past the byte limit)
                 // refuses the read as `invalid_semantic_graph` at the
@@ -1964,7 +1989,13 @@ fn node_size(value: &Value) -> u64 {
             .map_or(0, Vec::len)
     };
     let mut total = 1_usize;
-    for member in ["fields", "operations", "supertypes", "relationships"] {
+    for member in [
+        "fields",
+        "operations",
+        "supertypes",
+        "relationships",
+        "variants",
+    ] {
         total = total.saturating_add(len(value, member));
     }
     for operation in value
@@ -2021,6 +2052,7 @@ pub(super) fn read_semantic_ir(
         object_types: BTreeMap::new(),
         record_types: BTreeMap::new(),
         value_types: BTreeMap::new(),
+        variant_types: BTreeMap::new(),
         relationships: BTreeMap::new(),
         relation_nodes: BTreeSet::new(),
         other_types: BTreeSet::new(),
@@ -2069,6 +2101,9 @@ pub(super) fn read_semantic_ir(
             }
             meaning::VALUE_TYPE => {
                 model.value_types.insert((*node).into(), None);
+            }
+            meaning::VARIANT_TYPE => {
+                model.variant_types.insert((*node).into(), BTreeSet::new());
             }
             meaning::SYSTEMS_CONNECTION => {
                 model.relation_nodes.insert((*node).into());
@@ -2139,6 +2174,42 @@ pub(super) fn read_semantic_ir(
                     .value_types
                     .insert(node.into(), semantic_ir_value_type(declared));
             }
+            meaning::VARIANT_TYPE => {
+                let cases = match list(declared, "variants") {
+                    Ok(cases) => cases,
+                    Err(refusal) => {
+                        return Err(SelectionRefusal::located(refusal, declared, budget)?.into());
+                    }
+                };
+                let mut names = BTreeSet::new();
+                for case in cases {
+                    let name = match text(case, "name") {
+                        Ok(name) => name,
+                        Err(refusal) => {
+                            return Err(
+                                SelectionRefusal::located(refusal, declared, budget)?.into()
+                            );
+                        }
+                    };
+                    if name.is_empty() || !names.insert(Box::<str>::from(name)) {
+                        return Err(SelectionRefusal::located(
+                            ModelRefusal::malformed(),
+                            declared,
+                            budget,
+                        )?
+                        .into());
+                    }
+                }
+                if names.is_empty() {
+                    return Err(SelectionRefusal::located(
+                        ModelRefusal::malformed(),
+                        declared,
+                        budget,
+                    )?
+                    .into());
+                }
+                model.variant_types.insert(node.into(), names);
+            }
             _ => {}
         }
     }
@@ -2177,6 +2248,7 @@ impl References<'_> {
     /// relationship.
     fn declared_elsewhere(&self, node: &str) -> bool {
         self.model.value_types.contains_key(node)
+            || self.model.variant_types.contains_key(node)
             || self.model.record_types.contains_key(node)
             || self.scope.records.contains(node)
             || self.model.other_types.contains(node)
@@ -2195,6 +2267,7 @@ impl References<'_> {
             None if self.scope.objects.contains(type_ref)
                 || self.scope.records.contains(type_ref)
                 || self.model.value_types.contains_key(type_ref)
+                || self.model.variant_types.contains_key(type_ref)
                 || self.model.other_types.contains(type_ref) => {}
             None if self.scope.refused.contains(type_ref) => {}
             None if self.scope.relationships.contains(type_ref) => {
