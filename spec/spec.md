@@ -93,7 +93,7 @@ the ADR-002 2.0.0 members the V2 wire does not yet carry. FR-346 admits
 QSpec FR-451's abstraction relation body in that reader. FR-347 admits a
 conforming record at operation-call arguments, field reads, case arms, union
 payloads and function-call arguments, and checks function body roots (TC-448
-plans its tests).
+tests it).
 [FR-047](checked_package/functional/FR-047-preserve-first-evidence-entry.md)
 defines the planned evidence-builder repetition policy and typed insertion
 conflicts, with planned runtime controls in

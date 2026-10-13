@@ -1716,7 +1716,8 @@ Four node forms carry these words and are admitted with them, each a closed
 `composite_type`/`union`, `value`/`union_value` and `expression`/`case`. A union
 type node is a source-declared node whose body is an `aggregate` of one `binding`
 per member, each value an `aggregate` of `reference` terms to payload type
-nodes; a duplicated member name refuses `invalid_package` with cause
+nodes (a `model`/`record_value_type` declaration node is one,
+[FR-347](./FR-347-admit-conforming-records-as-operation-call-arguments.md)); a duplicated member name refuses `invalid_package` with cause
 `duplicate-member` and a payload reference to a node that is not a type refuses
 `ill_typed`/`operator-ineligible`, each at the union node. A union type or union value
 body that is not that shape (an empty union with no member, a binding whose value
@@ -2153,7 +2154,8 @@ exactly the shapes QSL fixes.
 
 A `value`/`parameter` node carries no `declaration`. Its `semantic_type` is
 its binder's type: a `scalar_type`, `composite_type` or `bounded_domain`
-node other than itself. Its body is exactly `aggregate{[binding "name" = a
+node other than itself, or a `model`/`record_value_type` declaration node
+([FR-347](./FR-347-admit-conforming-records-as-operation-call-arguments.md)). Its body is exactly `aggregate{[binding "name" = a
 `text` literal typed at a `scalar_type`/`text` node whose value is an
 identifier, binding "level" = an `integer` literal typed at a
 `scalar_type`/`integer` node whose value is a canonical non-negative decimal

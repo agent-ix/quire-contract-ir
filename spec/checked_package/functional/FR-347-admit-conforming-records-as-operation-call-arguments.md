@@ -222,6 +222,13 @@ QSpec FR-322-AC-70 is the rule that uses it.
   FR-038's "Documented limits" state; this requirement applies the checks to a
   `reference` callee only.
 
+### Record-typed binders and payloads
+
+A conforming record reaches these positions as a `value`/`parameter` node
+typed at the record, or as the payload of a union. FR-038 therefore admits a
+`model`/`record_value_type` declaration node as a parameter's binder type and
+as a union payload type node; before this requirement it admitted neither.
+
 ### Scope
 
 Only `record_value_type` is covered. QSL FR-359 also treats an event type as

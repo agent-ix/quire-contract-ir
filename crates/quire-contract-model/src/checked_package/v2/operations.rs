@@ -296,11 +296,14 @@ pub(super) fn validate_operations(
             // No application check applies, but a union type or union value
             // node has its own joins (QSpec FR-440), and the terms of the
             // body are walked for `dependency_reference` (FR-322, step 7).
-            if let Some(failure) = union_defect(position, &graph) {
+            if let Some(failure) = union_defect(position, &graph, owners, meter)? {
                 return Err(failure);
             }
             references.walk_body(Referrer { node, position }, meter)?;
             if let Some(failure) = literal_type_defect(node, position, &graph) {
+                return Err(failure);
+            }
+            if let Some(failure) = body_root_defect(position, &graph, owners, meter)? {
                 return Err(failure);
             }
             continue;
@@ -315,6 +318,9 @@ pub(super) fn validate_operations(
             operation_catalog(),
             meter,
         )? {
+            return Err(failure);
+        }
+        if let Some(failure) = body_root_defect(position, &graph, owners, meter)? {
             return Err(failure);
         }
     }
@@ -735,6 +741,11 @@ fn operation_defect(
         if let Some(failure) =
             check_relationship_member(application, &operation, &arguments, graph, owners, meter)?
         {
+            return Ok(Some(failure));
+        }
+    }
+    if operation.identity.as_ref() == "quire.op.function.call" {
+        if let Some(failure) = check_function_call(application, &arguments, graph, owners, meter)? {
             return Ok(Some(failure));
         }
     }
@@ -1332,6 +1343,7 @@ fn check_operands(
                         required,
                         arguments,
                         graph,
+                        owners,
                         work.meter,
                         work.structural,
                     )?
@@ -1397,6 +1409,7 @@ fn union_arms_hold(
     arms_from: usize,
     arguments: &[Value],
     graph: &Graph<'_>,
+    owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
     structural: &mut StructuralTypes,
 ) -> Result<bool, ValidationFailure> {
@@ -1427,40 +1440,58 @@ fn union_arms_hold(
         .get("result_type")
         .and_then(|value| serde_json::from_value(value.clone()).ok());
     let arms = arguments.get(arms_from..).unwrap_or_default();
-    Ok(arms.len() == members.len()
-        && members.iter().zip(arms).all(|(member, arm)| {
-            let Some([binders, body]) = binding(arm, member.name).and_then(aggregate_members)
-            else {
-                return false;
-            };
-            let binders_hold = aggregate_members(binders).is_some_and(|binders| {
-                binders.len() == member.payload.len()
-                    && binders
-                        .iter()
-                        .zip(&member.payload)
-                        .all(|(binder, payload)| {
-                            reference_term_target(binder)
-                                .and_then(|target| index.get(&target).copied())
-                                .is_some_and(|position| {
-                                    kinds[position] == CheckedNodeKind::Value(ValueForm::Parameter)
-                                        && nodes[position].semantic_type == *payload
-                                })
-                        })
-            });
-            binders_hold
-                && result_type.as_ref().is_some_and(|result| {
-                    operand_type_node(body, nodes, kinds, index).as_ref() == Some(result)
-                })
-        }))
+    if arms.len() != members.len() {
+        return Ok(false);
+    }
+    for (member, arm) in members.iter().zip(arms) {
+        let Some([binders, body]) = binding(arm, member.name).and_then(aggregate_members) else {
+            return Ok(false);
+        };
+        let binders_hold = aggregate_members(binders).is_some_and(|binders| {
+            binders.len() == member.payload.len()
+                && binders
+                    .iter()
+                    .zip(&member.payload)
+                    .all(|(binder, payload)| {
+                        reference_term_target(binder)
+                            .and_then(|target| index.get(&target).copied())
+                            .is_some_and(|position| {
+                                kinds[position] == CheckedNodeKind::Value(ValueForm::Parameter)
+                                    && nodes[position].semantic_type == *payload
+                            })
+                    })
+        });
+        // Implements: FR-347. an arm body conforms to a record `result_type`; a binder is
+        // bound to the payload type and stays exact.
+        let Some(result) = result_type.as_ref() else {
+            return Ok(false);
+        };
+        if !binders_hold
+            || !conforms_to_type(
+                &result.digest,
+                operand_type_node(body, nodes, kinds, index).as_ref(),
+                graph,
+                owners,
+                meter,
+            )?
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// Whether a node of this kind is a type node: a `scalar_type`,
 /// `composite_type` or `bounded_domain`.
 fn is_type_node(kind: CheckedNodeKind) -> bool {
-    matches!(
-        kind.tag(),
-        CheckedNodeTag::ScalarType | CheckedNodeTag::CompositeType | CheckedNodeTag::BoundedDomain
-    )
+    // Implements: FR-347. a model record value type is a type a union payload may name.
+    kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
+        || matches!(
+            kind.tag(),
+            CheckedNodeTag::ScalarType
+                | CheckedNodeTag::CompositeType
+                | CheckedNodeTag::BoundedDomain
+        )
 }
 
 /// Merged QSpec FR-440 join 1, the first check of a node's joins at the
@@ -1515,7 +1546,12 @@ fn case_placement_defect(position: usize, graph: &Graph<'_>) -> Option<Validatio
 /// its payload terms are that member's payload in count and in type
 /// (`ill_typed`/`type-mismatch`). Each is located at the node. A body that is
 /// not its form's closed shape was refused by the structural stage.
-fn union_defect(position: usize, graph: &Graph<'_>) -> Option<ValidationFailure> {
+fn union_defect(
+    position: usize,
+    graph: &Graph<'_>,
+    owners: &ModelOwners<'_>,
+    meter: &mut WorkMeter,
+) -> Result<Option<ValidationFailure>, ValidationFailure> {
     let Graph {
         nodes,
         kinds,
@@ -1523,19 +1559,21 @@ fn union_defect(position: usize, graph: &Graph<'_>) -> Option<ValidationFailure>
     } = *graph;
     let node = &nodes[position];
     let refuse = |code, cause| {
-        ValidationFailure::refused_at(
+        Some(ValidationFailure::refused_at(
             code,
             node_pointer(position),
             Some(cause),
             node.node_id.clone(),
-        )
+        ))
     };
     let kind = kinds[position];
     if kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Union) {
-        let members = union_type_body(&node.body)?;
+        let Some(members) = union_type_body(&node.body) else {
+            return Ok(None);
+        };
         let mut names = BTreeSet::new();
         if !members.iter().all(|member| names.insert(member.name)) {
-            return Some(refuse(
+            return Ok(refuse(
                 CheckedPackageRefusalCode::InvalidPackage,
                 CheckedPackageRefusalCause::DuplicateMember,
             ));
@@ -1548,18 +1586,24 @@ fn union_defect(position: usize, graph: &Graph<'_>) -> Option<ValidationFailure>
                     .get(target)
                     .is_none_or(|&target| is_type_node(kinds[target]))
             });
-        return (!payload_is_type).then(|| {
-            refuse(
+        return Ok((!payload_is_type).then(|| {
+            ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::IllTyped,
-                CheckedPackageRefusalCause::OperatorIneligible,
+                node_pointer(position),
+                Some(CheckedPackageRefusalCause::OperatorIneligible),
+                node.node_id.clone(),
             )
-        });
+        }));
     }
     if kind == CheckedNodeKind::Value(ValueForm::UnionValue) {
-        let (name, payload) = union_value_body(&node.body)?;
+        let Some((name, payload)) = union_value_body(&node.body) else {
+            return Ok(None);
+        };
         // A `semantic_type` that is no node of the graph is the generic edge
         // resolution's refusal, later.
-        let declared = *index.get(&node.semantic_type)?;
+        let Some(&declared) = index.get(&node.semantic_type) else {
+            return Ok(None);
+        };
         let mismatch = || {
             refuse(
                 CheckedPackageRefusalCode::IllTyped,
@@ -1567,21 +1611,206 @@ fn union_defect(position: usize, graph: &Graph<'_>) -> Option<ValidationFailure>
             )
         };
         if kinds[declared] != CheckedNodeKind::CompositeType(CompositeTypeForm::Union) {
-            return Some(mismatch());
+            return Ok(mismatch());
         }
-        let members = union_type_body(&nodes[declared].body)?;
-        let holds = members
-            .iter()
-            .find(|member| member.name == name)
-            .is_some_and(|member| {
-                member.payload.len() == payload.len()
-                    && payload.iter().zip(&member.payload).all(|(term, expected)| {
-                        operand_type_node(term, nodes, kinds, index).as_ref() == Some(expected)
-                    })
-            });
-        return (!holds).then(mismatch);
+        let Some(members) = union_type_body(&nodes[declared].body) else {
+            return Ok(None);
+        };
+        let Some(member) = members.iter().find(|member| member.name == name) else {
+            return Ok(mismatch());
+        };
+        if member.payload.len() != payload.len() {
+            return Ok(mismatch());
+        }
+        // Implements: FR-347. a payload term conforms to a record payload type.
+        for (term, expected) in payload.iter().zip(&member.payload) {
+            if !conforms_to_type(
+                &expected.digest,
+                operand_type_node(term, nodes, kinds, index).as_ref(),
+                graph,
+                owners,
+                meter,
+            )? {
+                return Ok(mismatch());
+            }
+        }
     }
-    None
+    Ok(None)
+}
+
+/// Implements: FR-347. whether the type node `actual` is the type node keyed `expected`
+/// or, when `expected` is a selected record value type, a recovered
+/// `model`/`record_value_type` node of the same selected document with a
+/// chain of declared supertypes to it. Any other type is compared exactly.
+///
+/// The walk is [`DomainModel::conforms_to`](super::model_members::DomainModel),
+/// charged to the selection that declares the expected record; an exact match
+/// charges nothing.
+fn conforms_to_type(
+    expected: &str,
+    actual: Option<&CheckedNodeId>,
+    graph: &Graph<'_>,
+    owners: &ModelOwners<'_>,
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
+    let Some(actual) = actual else {
+        return Ok(false);
+    };
+    if &*actual.digest == expected {
+        return Ok(true);
+    }
+    let Some(parameter) = owners.record_by_key(expected) else {
+        return Ok(false);
+    };
+    let Some(&position) = graph.index.get(actual) else {
+        return Ok(false);
+    };
+    if graph.kinds[position] != CheckedNodeKind::Model(ModelForm::RecordValueType) {
+        return Ok(false);
+    }
+    let Ok(argument) = owners.recover(&graph.nodes[position]) else {
+        return Ok(false);
+    };
+    if argument.form != DeclarationForm::RecordValueType
+        || !std::ptr::eq(argument.package, parameter.package)
+    {
+        return Ok(false);
+    }
+    let mut budget = Budget::new(meter, parameter.selection, parameter.package.bytes);
+    parameter
+        .package
+        .conforms_to(argument.node, parameter.node, &mut budget)
+}
+
+/// Implements: FR-347 "Result positions": the root of a `function` or `expression` node
+/// has the node's `semantic_type`, or conforms to it when that is a record
+/// value type; else `ill_typed`/`type-mismatch` at the node. The root of a
+/// `function` node is the node its body binding `body` references; an
+/// application body is its own root. A node whose body names no root takes
+/// no check.
+fn body_root_defect(
+    position: usize,
+    graph: &Graph<'_>,
+    owners: &ModelOwners<'_>,
+    meter: &mut WorkMeter,
+) -> Result<Option<ValidationFailure>, ValidationFailure> {
+    let Graph {
+        nodes,
+        kinds,
+        index,
+    } = *graph;
+    let node = &nodes[position];
+    let tag = kinds[position].tag();
+    if !matches!(tag, CheckedNodeTag::Function | CheckedNodeTag::Expression) {
+        return Ok(None);
+    }
+    let root_type = if is_application(&node.body) {
+        node.body
+            .get("result_type")
+            .and_then(|value| serde_json::from_value::<CheckedNodeId>(value.clone()).ok())
+    } else if tag == CheckedNodeTag::Function {
+        aggregate_members(&node.body)
+            .and_then(|members| members.iter().find_map(|member| binding(member, "body")))
+            .and_then(|root| operand_type_node(root, nodes, kinds, index))
+    } else {
+        None
+    };
+    let Some(root_type) = root_type else {
+        return Ok(None);
+    };
+    if conforms_to_type(
+        &node.semantic_type.digest,
+        Some(&root_type),
+        graph,
+        owners,
+        meter,
+    )? {
+        return Ok(None);
+    }
+    Ok(Some(ValidationFailure::refused_at(
+        CheckedPackageRefusalCode::IllTyped,
+        node_pointer(position),
+        Some(CheckedPackageRefusalCause::TypeMismatch),
+        node.node_id.clone(),
+    )))
+}
+
+/// Implements: FR-347 "Function-call arguments": the arguments after a `reference`
+/// callee are as many as the callee function node's body binding
+/// `parameters` lists, and each is its parameter's type or conforms to it.
+/// A callee without the binding takes no check; a binding that is present
+/// and malformed is refused at the callee argument.
+fn check_function_call(
+    application: Application<'_>,
+    arguments: &[Value],
+    graph: &Graph<'_>,
+    owners: &ModelOwners<'_>,
+    meter: &mut WorkMeter,
+) -> Result<Option<ValidationFailure>, ValidationFailure> {
+    let Graph {
+        nodes,
+        kinds,
+        index,
+    } = *graph;
+    let ineligible = |path: JsonPointer| {
+        Ok(Some(application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            path,
+            CheckedPackageRefusalCause::OperatorIneligible,
+        )))
+    };
+    let argument_at = |position: usize| application.body(&["arguments"]).index(position);
+    let Some(callee) = arguments.first().and_then(reference_term_target) else {
+        return Ok(None);
+    };
+    let Some(&callee) = index.get(&callee) else {
+        return Ok(None);
+    };
+    if kinds[callee].tag() != CheckedNodeTag::Function {
+        return Ok(None);
+    }
+    let Some(members) = aggregate_members(&nodes[callee].body) else {
+        return Ok(None);
+    };
+    let Some(present) = members
+        .iter()
+        .position(|member| binding(member, "parameters").is_some())
+    else {
+        return Ok(None);
+    };
+    let declared: Option<Vec<CheckedNodeId>> = (present == 0)
+        .then(|| binding(&members[present], "parameters"))
+        .flatten()
+        .and_then(aggregate_members)
+        .and_then(|entries| {
+            entries
+                .iter()
+                .map(|entry| {
+                    let position = *index.get(&reference_term_target(entry)?)?;
+                    (kinds[position] == CheckedNodeKind::Value(ValueForm::Parameter))
+                        .then(|| nodes[position].semantic_type.clone())
+                })
+                .collect()
+        });
+    let Some(declared) = declared else {
+        return ineligible(argument_at(0));
+    };
+    if arguments.len().saturating_sub(1) != declared.len() {
+        return ineligible(application.body(&["arguments"]));
+    }
+    for (offset, expected) in declared.iter().enumerate() {
+        let position = offset.saturating_add(1);
+        if !conforms_to_type(
+            &expected.digest,
+            operand_type_node(&arguments[position], nodes, kinds, index).as_ref(),
+            graph,
+            owners,
+            meter,
+        )? {
+            return ineligible(argument_at(position));
+        }
+    }
+    Ok(None)
 }
 
 /// FR-322 "Reaches over a field": the `reference_edge` constraint of
@@ -2096,7 +2325,17 @@ fn check_model_member(
         Ok(owner) => owner,
         Err(refusal) => return refuse(member_at("declaration"), refusal),
     };
-    if kind == MemberKind::Field && type_node(0).as_ref() != Some(&declaring.node_id) {
+    // Implements: FR-347. the operand is the declaring type, or a record that conforms to
+    // it when that type is a record value type.
+    if kind == MemberKind::Field
+        && !conforms_to_type(
+            &declaring.node_id.digest,
+            type_node(0).as_ref(),
+            graph,
+            owners,
+            meter,
+        )?
+    {
         return ineligible(argument_at(0));
     }
     let name = operation
@@ -2105,9 +2344,14 @@ fn check_model_member(
         .and_then(|member| member.get("name"))
         .and_then(Value::as_str)
         .unwrap_or("");
-    let Some(object) = owner.object_type() else {
+    // A field is read on an object or a record value type; a record owns no
+    // operation.
+    let Some(object) = owner.package.field_owner(owner.node) else {
         return ineligible(member_at("name"));
     };
+    if kind == MemberKind::Operation && owner.form == DeclarationForm::RecordValueType {
+        return ineligible(member_at("name"));
+    }
     let mut budget = Budget::new(meter, owner.selection, owner.package.bytes);
     let resolved = match owner.package.resolve(owner.node, kind, name, &mut budget) {
         Ok(resolved) => resolved,
@@ -2138,8 +2382,13 @@ fn check_model_member(
                 let Ok(expected_key) = expected.node_key(owner.package.bytes) else {
                     return key_refused();
                 };
-                if type_node(position).map(|id| id.digest).as_deref() != Some(expected_key.as_str())
-                {
+                if !conforms_to_type(
+                    &expected_key,
+                    type_node(position).as_ref(),
+                    graph,
+                    owners,
+                    meter,
+                )? {
                     return ineligible(argument_at(position));
                 }
             }
@@ -6240,6 +6489,7 @@ mod tests {
             1,
             &arguments,
             &graph,
+            &ModelOwners::default(),
             &mut WorkMeter::new(1),
             &mut StructuralTypes::default(),
         );
@@ -6250,6 +6500,7 @@ mod tests {
             1,
             &arguments,
             &graph,
+            &ModelOwners::default(),
             &mut WorkMeter::new(0),
             &mut StructuralTypes::default(),
         );
