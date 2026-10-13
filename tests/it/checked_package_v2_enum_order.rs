@@ -279,7 +279,7 @@ const ORDERING: [&str; 4] = [
 const EQUALITY: [&str; 2] = ["quire.op.enum.eq", "quire.op.enum.ne"];
 const FORMS: [Operands; 2] = [Operands::Members, Operands::Parameters];
 
-/// Trace: FR-141-AC-8
+/// Trace: FR-038-AC-238
 #[test]
 fn ordinary_scalar_enum_still_refuses_nonidentifier_cases() {
     let declaration = declaration_with("Status", false, ["Gold Plus", "READY"]);

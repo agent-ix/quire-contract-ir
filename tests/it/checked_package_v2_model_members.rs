@@ -405,7 +405,7 @@ fn variant_package_named(
     (package, evidence, key)
 }
 
-/// Trace: FR-141-AC-7, FR-322-AC-71
+/// Trace: FR-038-AC-237
 #[test]
 fn selected_variant_accepts_exact_utf8_cases() {
     for case in ["Gold", "Gold Plus", "2x", "Café"] {
@@ -419,7 +419,7 @@ fn selected_variant_accepts_exact_utf8_cases() {
     }
 }
 
-/// Trace: FR-141-AC-7, FR-322-AC-71
+/// Trace: FR-038-AC-237
 #[test]
 fn selected_variant_case_keys_bind_exact_case_and_declaration() {
     let (tier, tier_evidence, _) = variant_package_named(
@@ -451,7 +451,7 @@ fn selected_variant_case_keys_bind_exact_case_and_declaration() {
     );
 }
 
-/// Trace: FR-141-AC-7, FR-322-AC-71
+/// Trace: FR-038-AC-236
 #[test]
 fn selected_variant_types_field_parameter_and_result() {
     let (package, evidence, tier) = variant_package(&["Gold"], &["Gold"], true);
@@ -537,7 +537,7 @@ fn variant_binary_package(
     (package, evidence)
 }
 
-/// Trace: FR-141-AC-7, FR-141-AC-8, FR-322-AC-71
+/// Trace: FR-038-AC-237
 #[test]
 fn selected_variant_admits_enum_equality_and_refuses_order_or_structural_equality() {
     for operation in ["quire.op.enum.eq", "quire.op.enum.ne"] {
@@ -576,7 +576,7 @@ fn selected_variant_admits_enum_equality_and_refuses_order_or_structural_equalit
     }
 }
 
-/// Trace: FR-141-AC-8, FR-322-AC-71
+/// Trace: FR-038-AC-238
 #[test]
 fn selected_variant_refuses_absent_case_and_empty_declaration() {
     let (package, evidence, _) = variant_package(&["Gold"], &["Silver"], false);
@@ -602,7 +602,7 @@ fn selected_variant_refuses_absent_case_and_empty_declaration() {
     assert_eq!(refusal.path, Some(pointer("/lock/model_selections/0")));
 }
 
-/// Trace: FR-322-AC-71
+/// Trace: FR-038-AC-236
 #[test]
 fn selected_variant_requires_its_exact_model_owner() {
     let (package, evidence, _) = variant_package(&["Gold"], &["Gold"], false);
@@ -623,7 +623,7 @@ fn selected_variant_requires_its_exact_model_owner() {
     }
 }
 
-/// Trace: FR-322-AC-71
+/// Trace: FR-038-AC-238
 #[test]
 fn selected_variant_cases_are_bound_to_the_selected_document_digest() {
     let (package, _, _) = variant_package(&["Gold"], &["Gold"], false);
