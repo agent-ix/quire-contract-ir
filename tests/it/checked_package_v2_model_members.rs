@@ -449,6 +449,25 @@ fn selected_variant_case_keys_bind_exact_case_and_declaration() {
         tier_nodes[8]["node_id"],
         rank["semantic_graph"]["nodes"][8]["node_id"],
     );
+
+    // A selected document's display alias changes its digest, but the
+    // declaration identity and exact case still determine the member key.
+    let mut alias_document = variant_document_named(TIER, &["Gold", "Gold Plus", "2x", "Café"]);
+    alias_document["types"][1]["displayName"] = json!("Level");
+    let alias_digest = sha256_hex(&canonical(&alias_document));
+    let mut alias_package = tier.clone();
+    alias_package["lock"]["model_selections"][0]["digest"] = json!(alias_digest);
+    refresh_identity(&mut alias_package);
+    let mut alias_evidence = evidence_for(&alias_package);
+    alias_evidence.insert_domain_package_document(alias_digest, canonical(&alias_document));
+    assert!(matches!(
+        read(&alias_package, &alias_evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    assert_eq!(
+        tier_nodes[8]["node_id"],
+        alias_package["semantic_graph"]["nodes"][8]["node_id"],
+    );
 }
 
 /// Trace: FR-038-AC-236
@@ -606,6 +625,16 @@ fn selected_variant_refuses_absent_case_and_empty_declaration() {
 #[test]
 fn selected_variant_requires_its_exact_model_owner() {
     let (package, evidence, _) = variant_package(&["Gold"], &["Gold"], false);
+    let mut missing = package.clone();
+    missing["semantic_graph"]["nodes"][5]
+        .as_object_mut()
+        .expect("variant node")
+        .remove("owner");
+    refresh_identity(&mut missing);
+    let refusal = refused(&missing, &evidence);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+    assert_eq!(refusal.path, Some(pointer("/semantic_graph/nodes/5")));
+
     for owner_node in ["ix://acme/orders/Missing", ORDER] {
         let mut changed = package.clone();
         changed["semantic_graph"]["nodes"][5]["owner"]["node"] = json!(owner_node);
