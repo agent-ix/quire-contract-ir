@@ -69,3 +69,26 @@ Round 1; reviewed 66a261051c487bebfe2637e155d815f4d308f68d.
 ## Disposition round 1 verdict
 
 **CONDITIONAL**: FND-001 is fixed. FR-347 now relaxes the field-read operand (`member_of`) by the same rule, through new AC-9. This agrees with QSL FR-359 item 2 (the read names the declaring record and is resolved among `P`'s effective members) and with QSpec FR-322-AC-69. The ordering is consistent with `check_model_member`: the operand check comes before the name resolution at `arguments/0`, so an unrelated operand or object operand refuses at `arguments/0`, and a descendant-only field named on `P` refuses at `name`. See SR-8683 FND-004 for the object-type gate this also needs. New FND-002 (medium) and FND-003 (low) are open.
+
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | low | "Dependency callee" says whether the count and exact-type checks apply to a dependency callee's `parameters` binding "is not decided here", with no Open Question, ticket or pointer to an owner. The facts it rests on hold: FR-038 makes a dependency callee's signature package-independent, with no `declaration` or `ModelOwner` in its closure, so no model record parameter can occur. FR-038's "Documented limits" already keep a dependency call's arguments unchecked, so the outcome is already decided there. Say "unchecked, as FR-038 'Documented limits' states", or add an Open Question. | spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md:196-202 |
+
+## Dispositions round 2
+
+Round 2; reviewed 8a8cf551e52968fff3631ca733181ad1a89a6c49.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-002 | fixed | 2bea0ab6b2c4a745a10a1d3dd94c1455eb862fa2 |
+| FND-003 | fixed | 2bea0ab6b2c4a745a10a1d3dd94c1455eb862fa2 |
+
+## Disposition round 2 verdict
+
+**CONDITIONAL**: FND-002 and FND-003 are fixed.
+
+FND-002: "Case arm bodies and union payloads" relaxes the two exact comparisons, `union_arms_hold`'s arm body against `result_type` (operations.rs:1451-1452) and `union_defect`'s payload term against the member payload (`type-mismatch` at the node). Binder `semantic_type` stays exact, which matches operations.rs:1445-1446. AC-10 and AC-11 back both. The body-root claim holds: the reader reads no `body` binding of a function node and has no structural rule for `function` bodies. See SR-8683 FND-006 for why pinning that as tested behavior is a defect.
+
+FND-003: the function-call rule is stated with AC-13. Its source, the callee body `parameters` binding, matches QSL FR-092 "Function nodes" (`parameters` = `aggregate{[reference(p0), ..., reference(pn-1)]}` in parameter order, including unread parameters). The count comes first at `arguments`, then exact-or-conforming at each argument. No binding means unchecked, as today. The AC-13 vectors can all be built and checked. New: FND-004 (low).

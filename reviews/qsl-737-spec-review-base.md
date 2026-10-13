@@ -119,3 +119,25 @@ Round 1; reviewed 66a261051c487bebfe2637e155d815f4d308f68d (fix commit on top of
 ## Disposition round 1 verdict
 
 **CONDITIONAL**: FND-001..003 are fixed. FND-001: AC-4 now uses `Set<Money>[0, 1]`, which `slot_type` yields for a `[0, 1]` unique, unordered parameter (`CollectionKind::of(false, true)` = `Set`, bounds `(0, 1)`), and the hand-built `Option<Money>` argument at a `Money` parameter falls to the exact comparison and refuses. FND-002: AC-7 states the `arguments/0` refusal that operations.rs:2127-2129 gives. FND-003: the spec/tests.md row now carries the FR-347 status clause. New FND-004 (medium) and FND-005 (low) are open. The title change, the TC-448 and matrix updates, and the IDs (unique across origin refs and open PRs #368 and #375) are fine. `quire validate` passes 752/752 at the head. Strict coverage gives 53 unbacked rows: main's 42 plus 11 planned (FR-347, TC-448, AC-1..9).
+
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-006 | high | "Result positions" and FR-347-AC-12 make the reader admit a function whose body root is not conforming: a `Voucher` body under declared `Money` is admitted "as before", and the text says this is "stated so that it stays true". QSpec FR-322-AC-69, which this requirement says it follows, refuses a non-conforming body root. So AC-12 pins a known divergence from the producer rule as tested behavior, and a reader fixed to conform would fail the test. The reader can now reach the function body's bindings, since the function-call rule reads the `parameters` binding, so the `body` binding is just as reachable. Either add the body-root check (exact, or conforming for a record result type) or drop AC-12's `Voucher` clause and record the gap as a tracked limit. | spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md:154-160,226 |
+| FND-007 | medium | The case-arm refusal locus is wrong. The text says a failing arm refuses "at the `case` application's arguments", but `union_arms` refuses at the `case` node itself, `/semantic_graph/nodes/{n}` (operations.rs:1341-1345). Fix the text, and pin the locus in FR-347-AC-10. | spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md:141-152,224 |
+| FND-008 | low | FR-347 says the callee's body `parameters` binding comes from QSpec FR-322-AC-70. That criterion's current text in the open QSpec change does not describe a body binding. The binding shape the reader reads is QSL FR-092's "Function nodes" body (`parameters` = `aggregate{[reference(p0), ...]}`). Cite QSL FR-092 as the shape's source and keep FR-322-AC-70 as a pending dependency. | spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md:174-201 |
+| FND-009 | low | The one-line summaries still describe only the operation-call position: spec/spec.md:93-94 ("admits a conforming record as an operation-call argument"), the FR-347 status in spec/checked_package/matrix/tests.md:15, and the TC-448 title. Update them to the five positions. | spec/spec.md:93-94 |
+
+## Dispositions round 2
+
+Round 2; reviewed 8a8cf551e52968fff3631ca733181ad1a89a6c49 (commits 2bea0ab6 and 8a8cf551 on top of 66a26105).
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-004 | fixed | 2bea0ab6b2c4a745a10a1d3dd94c1455eb862fa2 |
+| FND-005 | fixed | 2bea0ab6b2c4a745a10a1d3dd94c1455eb862fa2 |
+
+## Disposition round 2 verdict
+
+**CONDITIONAL**: FND-004 and FND-005 are fixed. FND-004: "Field projection over a record operand (two changes)" now states the record-owner change, which lifts the `owner.object_type()` check at operations.rs:2108-2110 for a `field` member, keeps it for `operation`, and resolves among `P`'s effective members as FR-038 step 3 does. AC-9 adds the exact control, an inherited read and the operation-on-record refusal. FND-005: the private design description is gone, and QSpec is cited by FR-322-AC-69/70 ids only. New: FND-006 (high), FND-007 (medium), FND-008 and FND-009 (low). `quire validate` passes 752/752. Strict coverage gives 57 unbacked rows: main's 42 plus 15 planned (FR-347, TC-448, AC-1..13). The matrix rows and TC-448 list AC-1..13 consistently. IDs are unique across origin refs and open PRs #368 and #375. The commit messages are clean.

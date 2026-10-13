@@ -66,3 +66,18 @@ Round 1; reviewed 66a261051c487bebfe2637e155d815f4d308f68d.
 ## Disposition round 1 verdict
 
 **PASS**: the work rule now names the whole reused walk. Traced against `DomainModel::ancestors` (model_members.rs:826-847): `GiftTaxedMoney` costs 2 at both `Money` and `TaxedMoney`. The diamond pops C (1, extend A), A (2), B (3, extend A), A (4, already reached), so it costs 4, which matches "each ancestor's edges followed once". An exact match short-circuits in `conforms_to` and costs 0.
+
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | medium | The function-call rule reads a function node's body `parameters` binding, but the reader validates nothing in a function node's body today: there is no structural shape rule for `function` nodes, and no code reads a named binding of one. FR-347 does not say what happens when the binding is malformed: `parameters` is not the first binding, or its value is not an `aggregate`, or an entry is not a `reference`, or names a node absent from the graph, or names a node that is not a `value`/`parameter` node (whose `semantic_type` is then not a parameter type). It also does not say whether "first binding" or "a binding named `parameters`" decides. Two implementers would refuse, skip or admit these differently. Each needs a stated outcome (most likely `ill_typed`/`operator-ineligible` at the call's `arguments` or at the callee) and an AC-13 vector. | spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md:181-195,227 |
+| FND-003 | low | The work-accounting rule charges the walk "to the same meter as the member resolution of FR-038-AC-30", whose `incomplete` pointer is the declaring owner's `/lock/model_selections/<i>` row. A case arm, a union payload and a `function.call` argument have no declaring owner, so the row the walk charges and reports for those positions is unstated. Name it, for example the expected record's selection row. AC-8 covers only the operation-call position. | spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md:162-172 |
+
+## Dispositions round 2
+
+Round 2; reviewed 8a8cf551e52968fff3631ca733181ad1a89a6c49. No open findings from round 1: FND-001 was fixed in round 1.
+
+## Disposition round 2 verdict
+
+**CONDITIONAL**: the walk-cost text is unchanged and still correct. New FND-002 (medium) and FND-003 (low).

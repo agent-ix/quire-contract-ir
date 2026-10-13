@@ -1,6 +1,6 @@
 ---
 id: TC-448
-title: "CheckedPackage V2 operation-call arguments admit conforming records and keep other kinds exact"
+title: "CheckedPackage V2 conforming records admit at argument, read, arm, payload, call and result positions and other kinds stay exact"
 type: TC
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-347
@@ -8,11 +8,11 @@ relationships:
   - target: ix://agent-ix/quire-spec-language/FR-359
     type: references
 ---
-# TC-448: CheckedPackage V2 operation-call arguments admit conforming records and keep other kinds exact
+# TC-448: CheckedPackage V2 conforming records admit at argument, read, arm, payload, call and result positions and other kinds stay exact
 
 ## Description
 
-Verify FR-347-AC-1 through FR-347-AC-13: the V2 reader admits an operation-call
+Verify FR-347-AC-1 through FR-347-AC-14: the V2 reader admits an operation-call
 argument whose record type conforms to the parameter's declared record type,
 refuses an unrelated, ancestor or foreign-document record with
 `ill_typed`/`operator-ineligible` at the argument, and keeps every
@@ -59,7 +59,11 @@ record and an object type (refuse at `arguments/0`), and `promised_by` named on
 `OrderPlaced` (refuse at `name`); the exact `OrderPlaced` read and an inherited
 read named on the child (admit); case arms, union payloads, the function body
 root and `function.call` argument counts and types, read from the callee's `parameters`
-binding, per AC-10 to AC-13.
+binding, per AC-10 to AC-13; body roots typed `Money`, child, grandchild
+(admit), `Voucher` and an ancestor at a child-typed declared type (refuse
+`type-mismatch`); and a `parameters` member second in the body, not an
+`aggregate`, with a literal entry, with an absent target and with a non-parameter
+target (AC-14).
 
 ## Expected Results
 

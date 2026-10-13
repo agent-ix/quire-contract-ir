@@ -36,8 +36,8 @@ comparison for a record-typed parameter. QSpec FR-322-AC-69 relaxes other
 positions the same way, and this requirement states the reader's rule at each
 one the reader checks today: a field-read operand, a `case` arm body, a
 `union_value` payload and, with the callee's body `parameters` binding (FR-322-AC-70), a
-`function.call` argument. A function or expression body root is compared with
-nothing today, so it needs no change. This requirement changes nothing else.
+`function.call` argument. It also adds a body-root result check, which the
+reader does not make today. This requirement changes nothing else.
 
 A record **conforms** to a record `P` when it is `P` or `P` is among its
 ancestors at any depth. The relation is one-way: a child conforms to its
@@ -147,17 +147,22 @@ type, an arm body or payload term whose type is a recovered
 `model`/`record_value_type` conforming to it is admitted by the rule above;
 every other expected type, and every binder's `semantic_type` (a binder is
 bound to the payload type, not an argument), stays exact. A failing arm body
-refuses as today (`union_arms` not holding: `ill_typed`/`operator-ineligible`
-at the `case` application's arguments), a failing payload `ill_typed`/
-`type-mismatch` at the `union_value` node.
+refuses as today: the `union_arms` constraint not holding is
+`ill_typed`/`operator-ineligible` at the `case` node itself,
+`/semantic_graph/nodes/{n}`, not at an argument. A failing payload is
+`ill_typed`/`type-mismatch` at the `union_value` node.
 
 ### Result positions
 
 The reader compares no function or expression body root with the node's
-declared `semantic_type` today, so a conforming record at a body-root result
-position already admits and needs no change. This is stated so that it stays
-true: a record that does not conform there is also not refused by this
-requirement.
+declared type today. This requirement adds the check (QSpec FR-322-AC-69
+refuses a body root that does not conform). For a `function` node, the root
+is the node its body binding `body` references; for an `expression` node, it
+is the root application's `result_type`. The root's type node must equal the
+node's `semantic_type`, or, when that is a record value type, conform to it by
+the rule above. Otherwise the reader refuses `ill_typed`/`type-mismatch`, the
+cause of the `union_value` payload comparison, at the node
+(`/semantic_graph/nodes/{n}`). A node whose body names no root takes no check.
 
 ### Work accounting
 
@@ -165,7 +170,12 @@ The walk is the reader's existing ancestor walk, reused whole: it does not
 stop at the parameter's (or `P`'s) record, and it charges one `work` unit for
 every `supertypes` edge reachable from the argument's record, each ancestor's
 edges followed once, to the same meter as the member resolution of
-FR-038-AC-30. A `GiftTaxedMoney` argument therefore costs 2 units at a
+FR-038-AC-30. The row charged, and reported as `incomplete` at
+`/lock/model_selections/<i>`, is the selection of the document that declares
+the expected record (the parameter's, the case result's, the payload's, the
+callee parameter's or the body result's type), because the walk runs in that
+document; the operation-call and field-read rules have the declaring owner's
+row. A `GiftTaxedMoney` argument therefore costs 2 units at a
 `Money` parameter and also at a `TaxedMoney` parameter. In a diamond (`D`
 with supertypes `B` and `C`, each with supertype `A`) the walk costs 4 at any
 ancestor. An exact match charges none. A limit one below the work a read used
@@ -176,7 +186,8 @@ returns `incomplete` for `work`.
 Today the reader compares neither the number nor the types of a
 `quire.op.function.call`'s arguments with the callee (FR-038, "Documented
 limits"). This requirement adds both checks, from the callee function node's
-body (QSpec FR-322-AC-70).
+body. QSL FR-092 "Function nodes" is the source of the body binding shape;
+QSpec FR-322-AC-70 is the rule that uses it.
 
 - **Where the declared types come from.** The callee is argument 0, a
   `reference` to a `function` node of this package. The function node's body
@@ -192,14 +203,21 @@ body (QSpec FR-322-AC-70).
   parameter's type is a record value type, by the rule above, else
   `ill_typed`/`operator-ineligible` at that argument.
 - **No `parameters` binding.** A callee function node whose body holds no
-  `parameters` binding takes no checks, as today.
+  member named `parameters` takes no checks, as today.
+- **Malformed binding.** The binding is the member named `parameters` that is
+  the first member of the body. When a member of that name is present and the
+  binding is malformed, the reader refuses `ill_typed`/`operator-ineligible`
+  at the call's callee argument, `/semantic_graph/nodes/{n}/body/arguments/0`.
+  Malformed means: the member is not the first of the body, its value is not an
+  `aggregate`, an entry is not a `reference`, an entry names no node of the
+  graph, or an entry names a node that is not a `value`/`parameter` node.
 - **Dependency callee.** A callee reached by a `dependency_reference` names a
   node of a supplied dependency package, whose body the reader can index. It
   must have a package-independent signature (FR-038), which names no
   model-owned record, so a record parameter there cannot be conformed to and
-  stays exact. Whether to apply the count and exact-type checks to a
-  dependency callee's `parameters` binding is not decided here; this
-  requirement applies them to a `reference` callee only.
+  stays exact. A `dependency_reference` callee's arguments stay unchecked, as
+  FR-038's "Documented limits" state; this requirement applies the checks to a
+  `reference` callee only.
 
 ### Scope
 
@@ -221,11 +239,11 @@ with that form.
 | FR-347-AC-7 | The receiver of a call to `charge` typed at a `Reference` of a subtype of the declaring object refuses `ill_typed`/`operator-ineligible` at `arguments/0`, as before this requirement, and an admitted call's `result_type` that differs from the operation's declared result type by key still refuses `ill_typed`/`operator-ineligible` at `result_type`. | Test (TC-448) |
 | FR-347-AC-8 | Conformance of a `GiftTaxedMoney` argument charges 2 `work` units at a `Money` parameter and also 2 at a `TaxedMoney` parameter (the walk does not stop at the parameter's record); with a diamond `D` (supertypes `B`, `C`; each with supertype `A`) the argument `D` at an `A` parameter charges 4. An exact argument charges none. For each, a work limit one below the measured total returns `incomplete` for `work` and the exact total admits. | Test (TC-448) |
 | FR-347-AC-9 | A `record.project` read of `occurred_at` declared by `OrderPlaced`, with `declaration` naming `OrderPlaced`, admits over an operand typed `OrderPlaced` (the exact record read, which refuses today), over an `ExpressOrderPlaced` child and over a `RushOrderPlaced` grandchild, and admits an inherited field read over a child-typed `declaration` (`order_id` named on `ExpressOrderPlaced`). It refuses `ill_typed`/`operator-ineligible` at `arguments/0` over an unrelated record and over an object type, a read of `promised_by` (declared only by the child) with `declaration` naming `OrderPlaced` refuses at the member's `name`, and an `operation` member naming a record refuses at `name`. | Test (TC-448) |
-| FR-347-AC-10 | A `case` over a union whose arm bodies are typed `TaxedMoney` and `Money` with `result_type` `Money` admits; an arm body typed `Voucher` or `Money` at `result_type` `TaxedMoney` refuses `ill_typed`/`operator-ineligible`; a binder whose `semantic_type` is a conforming child of the payload type refuses (binders stay exact); a non-record `result_type` stays exact. | Test (TC-448) |
+| FR-347-AC-10 | A `case` over a union whose arm bodies are typed `TaxedMoney` and `Money` with `result_type` `Money` admits; an arm body typed `Voucher` or `Money` at `result_type` `TaxedMoney` refuses `ill_typed`/`operator-ineligible` at the `case` node, `/semantic_graph/nodes/{n}`; a binder whose `semantic_type` is a conforming child of the payload type refuses (binders stay exact); a non-record `result_type` stays exact. | Test (TC-448) |
 | FR-347-AC-11 | A `union_value` whose member payload is declared `Money` admits a payload term typed `TaxedMoney` and `GiftTaxedMoney`, and refuses `Voucher` and `Money` at a `TaxedMoney` payload with `ill_typed`/`type-mismatch` at the node; a non-record payload stays exact. | Test (TC-448) |
-| FR-347-AC-12 | A `function` node whose body root is typed `TaxedMoney` with declared `semantic_type` `Money` admits, and so does a body root typed `Voucher` (the reader compares no body root with the declared type), as before this requirement. | Test (TC-448) |
+| FR-347-AC-12 | A `function` node with declared `semantic_type` `Money` whose `body` binding references a root typed `Money`, `TaxedMoney` or `GiftTaxedMoney` admits, as does an `expression` node whose root application has that `result_type`; a root typed `Voucher`, or typed an ancestor at a child-typed declared type (`Money` under `TaxedMoney`), refuses `ill_typed`/`type-mismatch` at `/semantic_graph/nodes/{n}`; a non-record declared type stays exact. | Test (TC-448) |
 | FR-347-AC-13 | A `function.call` whose callee is a `reference` to a `function` node with body binding `parameters` = `[reference(p0), reference(p1)]`, `p0` typed `Money` and `p1` typed `Integer`, admits arguments `[Money, Integer]`, `[TaxedMoney, Integer]` and `[GiftTaxedMoney, Integer]`. It refuses `ill_typed`/`operator-ineligible` at `arguments` for one or three arguments, and at the argument for `[Voucher, Integer]`, `[Money, Int[0, 5]]` and, with `p0` typed `TaxedMoney`, `[Money, Integer]`. A parameter the function body never reads still counts: a callee with three `parameters` references and a body reading one refuses two arguments. A callee function node with no `parameters` binding takes no argument check. | Test (TC-448) |
-
+| FR-347-AC-14 | A callee function node whose `parameters` member is present and malformed refuses `ill_typed`/`operator-ineligible` at `/semantic_graph/nodes/{n}/body/arguments/0` for each of: the member second in the body, a value that is not an `aggregate`, an entry that is a `literal`, an entry referencing an absent node, and an entry referencing a node that is not a `value`/`parameter` node. | Test (TC-448) |
 ## Open Questions
 
 - Whether the reader should also accept a conforming argument at a
