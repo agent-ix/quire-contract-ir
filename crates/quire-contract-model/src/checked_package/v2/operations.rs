@@ -916,10 +916,10 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
         // systems interface is the `object` family, the `inner:0` result of
         // `quire.op.model.deref`, which only a `field_owner` position admits.
         K::Model(ModelForm::ObjectType | ModelForm::SystemsInterface) => Some("object"),
-        K::Model(ModelForm::VariantType) => Some("enum"),
         K::Model(
             ModelForm::ModelImport
             | ModelForm::ValueType
+            | ModelForm::VariantType
             | ModelForm::RecordValueType
             | ModelForm::EventType
             | ModelForm::StateMachine
@@ -1164,6 +1164,14 @@ pub(super) fn resolve_family_with<'a, E>(
         };
         if !seen.insert(node.node_id.clone()) {
             return Ok(FamilyResolution::Malformed(node.node_id.clone()));
+        }
+        if kind == CheckedNodeKind::Model(ModelForm::VariantType)
+            && matches!(
+                node.owner.as_ref(),
+                Some(super::CheckedNodeOwner::Model { .. })
+            )
+        {
+            return Ok(FamilyResolution::Family("enum"));
         }
         if kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Enum) {
             let ordered = matches!(

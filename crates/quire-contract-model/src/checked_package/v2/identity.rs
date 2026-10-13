@@ -554,10 +554,16 @@ impl NominalGraph<'_> {
     }
 
     fn is_model_variant(&self, id: &CheckedNodeId) -> bool {
-        self.index
-            .get(id)
-            .and_then(|position| self.kinds.get(*position))
-            == Some(&CheckedNodeKind::Model(super::ModelForm::VariantType))
+        let Some(&position) = self.index.get(id) else {
+            return false;
+        };
+        self.kinds.get(position) == Some(&CheckedNodeKind::Model(super::ModelForm::VariantType))
+            && self.nodes.get(position).is_some_and(|node| {
+                matches!(
+                    node.owner.as_ref(),
+                    Some(super::CheckedNodeOwner::Model { .. })
+                )
+            })
     }
 }
 

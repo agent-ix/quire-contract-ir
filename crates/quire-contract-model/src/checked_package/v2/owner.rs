@@ -34,14 +34,14 @@ fn requirement(
         return OwnerRequirement::Source;
     }
     match (node_tag, semantic_form) {
-        ("model", "record_value_type") => {
+        ("model", "record_value_type" | "variant_type") => {
             if self_typed || matches!(owner, Some(CheckedNodeOwner::Model { .. })) {
                 OwnerRequirement::Model
             } else {
                 OwnerRequirement::None
             }
         }
-        ("model", "object_type" | "variant_type" | "systems_interface")
+        ("model", "object_type" | "systems_interface")
         | ("relation", "relationship")
         | ("function", _) => OwnerRequirement::Model,
         _ => OwnerRequirement::None,

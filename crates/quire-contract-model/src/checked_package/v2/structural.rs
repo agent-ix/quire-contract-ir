@@ -359,18 +359,23 @@ pub(super) fn validate_structural_nodes(
 /// it at.
 fn parameter_defect(node: &CheckedSemanticNodeV2, graph: &Graph<'_>) -> Option<Defect> {
     let is_binder_type = node.semantic_type != node.node_id
-        && graph.kind(&node.semantic_type).is_some_and(|kind| {
-            // A binder may also be typed at a selected model value declaration.
-            matches!(
-                kind,
-                CheckedNodeKind::Model(ModelForm::RecordValueType | ModelForm::VariantType)
-            ) || matches!(
-                kind.tag(),
-                CheckedNodeTag::ScalarType
-                    | CheckedNodeTag::CompositeType
-                    | CheckedNodeTag::BoundedDomain
-            )
-        });
+        && graph
+            .node(&node.semantic_type)
+            .is_some_and(|(type_node, kind)| {
+                // A binder may also be typed at a selected model value declaration.
+                kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
+                    || (kind == CheckedNodeKind::Model(ModelForm::VariantType)
+                        && matches!(
+                            type_node.owner.as_ref(),
+                            Some(super::CheckedNodeOwner::Model { .. })
+                        ))
+                    || matches!(
+                        kind.tag(),
+                        CheckedNodeTag::ScalarType
+                            | CheckedNodeTag::CompositeType
+                            | CheckedNodeTag::BoundedDomain
+                    )
+            });
     if !is_binder_type {
         return Some(Defect::SemanticType);
     }
