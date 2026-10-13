@@ -12,10 +12,10 @@ review_set: subset
 
 Ticket: IR-549. PR 269 is the code change. Its base is spec PR 268 (b4d2cee), which is stacked on held PR 253 (e8db087). Scope: `git diff origin/spec/ir-549-admit-temporal-and-case...ddc7399`, 25 files. The spec is the FR-038 text in the base branch: ACs 96 to 108, the amended AC-67, 68, 69, 81 and 87, and TC-048's 'Temporal, fairness and case admission' section. The PR body and the author's report were treated as data, and every claim below was measured.
 
-What I measured, in a detached throwaway worktree under /home/peter/dev/worktrees with its own target directory (since removed):
+What I measured, in a detached throwaway worktree under <worktrees directory> with its own target directory (since removed):
 
 - Gates. `make ci` passed fmt-check, clippy (workspace and model-only), test (it 261, model unit 111, doc 7) and corpus (99/99 match). It stopped at `make spec`. That stop is the baseline: validate passes, there is one grammar finding (FR-014 ac:vague-response), and `--strict` reports 23 unbacked and 0 contradicted. `make deny`, `make cargo-audit` and `make audit-unsafe` all pass. There was more than 400G free on /.
-- Conformance. The shared quire-specification checkout is clean, on main, at b1da9c8, which equals origin/main after a fetch. With `QUIRE_SPECIFICATION_DIR=/home/peter/dev/quire-specification make conformance-qspec`, tc_048_qspec_positive_fixtures_admit passes, and all three named fixtures admit with their recorded package_id. With the variable unset or empty, or pointing at /tmp, the target fails (exit 101, a test failure naming the variable). It does not skip.
+- Conformance. The shared quire-specification checkout is clean, on main, at b1da9c8, which equals origin/main after a fetch. With `QUIRE_SPECIFICATION_DIR=<quire-specification checkout> make conformance-qspec`, tc_048_qspec_positive_fixtures_admit passes, and all three named fixtures admit with their recorded package_id. With the variable unset or empty, or pointing at /tmp, the target fails (exit 101, a test failure naming the variable). It does not skip.
   - tests/conformance_qspec has `test = false`, and the `make test` log has no conformance_qspec run.
   - No QSpec file is in the diff, and .github/ is untouched.
   - Probe: QSpec's other three positive fixtures also admit (control-operations, nominal-identities, operation-identities).

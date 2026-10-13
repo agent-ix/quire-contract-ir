@@ -54,7 +54,7 @@ under its own digest:
 
 Consumers: the only use of `quire_canonical::read` or `ReadError` in this repo
 is `admit_document`, plus one test that unwraps a read of valid bytes. There is
-no use of `Malformed::NumberOutOfRange`. Under /home/peter/dev outside
+no use of `Malformed::NumberOutOfRange`. In the local dev directory outside
 quire-canonical itself and the IR worktrees, nothing references
 `quire_canonical::read`, `ReadError` or `Malformed::NumberOutOfRange`. That
 includes the quire-spec-language clone. The author's outside-consumer check

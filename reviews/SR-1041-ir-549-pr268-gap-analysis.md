@@ -72,7 +72,7 @@ What I measured:
   - quire-spec-language has an exhaustive map_refusal_code and an
     admission-corpus test over CheckedNodeKind::all() (SR-1041 FND-001).
 - `make spec` was run in a detached throwaway worktree under
-  /home/peter/dev/worktrees, since removed. Results: validate passes, one
+  <worktrees directory>, since removed. Results: validate passes, one
   grammar finding (FR-014 ac:vague-response), and --strict 23 unbacked with 0
   contradicted. That is the baseline.
 - AC numbering is stable (AC-66 keeps its number, and AC-96 to AC-101 are new

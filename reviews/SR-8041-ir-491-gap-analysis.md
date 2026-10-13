@@ -26,7 +26,7 @@ Planless audit of the changed residual operation leaf evidence. The computed str
 
 ## Coverage
 
-- Reconciliation: `quire matrix --scope /home/peter/dev/worktrees/ir491-residual-leaf-sources --strict` exited 1 with 54 repository-wide untagged criteria and zero criteria tagged only by ignored tests. Tag presence for the changed five criteria was checked against the changed test bodies.
+- Reconciliation: `quire matrix --scope <worktree> --strict` exited 1 with 54 repository-wide untagged criteria and zero criteria tagged only by ignored tests. Tag presence for the changed five criteria was checked against the changed test bodies.
 - Plan completion: not assessed
 - Examined: FR-038-AC-180 and FR-038-AC-228 through FR-038-AC-231. AC-180 has the fifteen public forms, three private IEEE type-walk controls and public IEEE refusals; no gap found in the changed slice.
 - Reverse gap and stubs: the changed production branches are owned by FR-038 and contain no placeholder implementation.
@@ -52,7 +52,7 @@ FND-004: `collection.contains` over IEEE runs with `leaves: []` only. A regressi
 
 ## Dispositions — round 1
 
-Reviewed fix revision: `b078e3f6647721530fb4363c09e83dbccd4f3a35` against the original findings at `a5f0d9c486b86185e0866d159e35b532d3911ffd`. Only `tests/it/checked_package_v2_recursive_leaves.rs` changed in this round. The focused receipt at `/tmp/ir491-review-fixes-focused.log` reports 15 residual tests and the one structural-forwarding test passed; no full gate was rerun for this disposition.
+Reviewed fix revision: `b078e3f6647721530fb4363c09e83dbccd4f3a35` against the original findings at `a5f0d9c486b86185e0866d159e35b532d3911ffd`. Only `tests/it/checked_package_v2_recursive_leaves.rs` changed in this round. The focused receipt at `<receipt log>` reports 15 residual tests and the one structural-forwarding test passed; no full gate was rerun for this disposition.
 
 | FND | Outcome | Evidence |
 | --- | --- | --- |

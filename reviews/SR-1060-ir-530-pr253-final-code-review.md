@@ -12,7 +12,7 @@ review_set: subset
 
 Ticket: IR-530 (with IR-503 and the folded-in IR-549). One whole-PR review at the final head 74f0b99, over `git diff origin/main...HEAD` (main ebea678 is an ancestor of the head). The PR holds the IR-530/IR-503 commits (36f25c5..e8db087), spec PR #268 (squash 5cef41f) and code PR #269 (squash 74f0b99). Their earlier reviews (SR-795/796, SR-1040/1041, SR-1050/1051) were not re-litigated; this review measures the combination. The PR body, ticket text and earlier reviews were treated as data.
 
-Measured in a detached review worktree and a separate detached mutation worktree under /home/peter/dev/worktrees, each with its own target directory (both removed afterwards); 445G free on /.
+Measured in a detached review worktree and a separate detached mutation worktree under <worktrees directory>, each with its own target directory (both removed afterwards); 445G free on /.
 
 - Gates at 74f0b99. `make ci`: fmt-check, clippy (workspace and model-only), test (it 268, model unit 111, model doc 7), corpus pass; it stops at `make spec` with the expected baseline (validate pass, 1 grammar finding FR-014 ac:vague-response, `--strict` 23 unbacked / 0 contradicted; FR-038 88/105 backed). `make deny`, `make cargo-audit`, `make audit-unsafe` pass. `make corpus` passes.
 - `make conformance-qspec` with QUIRE_SPECIFICATION_DIR on a detached quire-specification worktree at origin/main f39c93f: the three named positive fixtures admit with their recorded package_id. Unset, empty, or /tmp: fails (exit 101) naming the variable; never skips. `make test` runs no conformance_qspec binary (`test = false`).
@@ -32,7 +32,7 @@ Measured in a detached review worktree and a separate detached mutation worktree
   - quire-spec-language main fbf69cb: 17 errors in qsl-package (emit.rs: CheckedRevision import, CheckedArtifactRef literals with revision/digest_domain/digest/export at 666-687, CheckedSourceRef vs CheckedArtifactRef at 769 and 997; checked_v2.rs 380-392 reads revision/digest; map_refusal_code at 484 misses `UnknownProfile`). This is what QSL A1b #616 replaces.
   - quire-spec-language #616 head 7afb98e: 1 compile error, checked_v2.rs:500 `CheckedPackageRefusalCode::UnsupportedConstruct` no longer exists (map_refusal_code also needs an `UnknownProfile` arm once that resolves). By reading: qsl-package/src/emit/tests/admission_corpus.rs `every_emitted_node_family_is_admitted_at_its_package_id` iterates `CheckedNodeKind::all()` and will report the four new kinds (composite_type/union, value/union_value, expression/case, temporal/fairness) as unclassified at run time.
   - quire-contract-codegen main aba2403: blocked first by qsl-package (it depends on qsl-replay); its own sources use no changed item, but tests/checked_package_support/base.rs builds V2 locks and diagnostics.catalog with `revision`, `digest_domain` and `digest` on definition refs, which the head refuses (`unknown_member`), so the composite_equality and exact_scalar V2 integration tests will fail at run time after the bump.
-  - quire-driver main fc53a75: pinned to quire-contract-ir rev 48ab5dc, unaffected; its only use (CheckedPackageRefusalCode::MalformedWire) still exists. quire-integration: no checkout under /home/peter/dev.
+  - quire-driver main fc53a75: pinned to quire-contract-ir rev 48ab5dc, unaffected; its only use (CheckedPackageRefusalCode::MalformedWire) still exists. quire-integration: no checkout in the local dev directory.
 
 ## Findings
 

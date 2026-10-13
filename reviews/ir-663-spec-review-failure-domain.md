@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed only the frozen two-file public diff at 05afc225eba55736ffc0ffd54255e8a966cdec5f against 3ed1f7ceeb682745629d2b99fd517d30689e87fb. Private authority checked locally: QSpec #191 in /home/peter/dev/worktrees/qspec-ir658-merged and /tmp/ix-handoff/ir663-refusal-retention-source-plan.md; no private content is reproduced here. Public source: spec/checked_package/functional/FR-038-consume-checked-package-v2.md and spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md.
+Reviewed only the frozen two-file public diff at 05afc225eba55736ffc0ffd54255e8a966cdec5f against 3ed1f7ceeb682745629d2b99fd517d30689e87fb. Private authority checked locally: QSpec #191 in <worktree> and <receipt directory>; no private content is reproduced here. Public source: spec/checked_package/functional/FR-038-consume-checked-package-v2.md and spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md.
 
 ## Examined public units
 

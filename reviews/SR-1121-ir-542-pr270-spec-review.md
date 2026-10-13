@@ -41,7 +41,7 @@ citations of QSL, and whether the rest of FR-038 still agrees with it.
   and neither is a document the checked-package reader admits. The note's
   "no counterpart here" holds.
 - `make spec` was run in a detached throwaway worktree under
-  /home/peter/dev/worktrees (since removed), on the PR head and on the head
+  <worktrees directory> (since removed), on the PR head and on the head
   merged with origin/main c5fa773. `quire validate` passes on both, with 1
   grammar finding (FR-014 line 137, the baseline). Strict coverage gives
   23 unbacked rows and 0 contradicted on both, which matches the baseline.
@@ -82,13 +82,13 @@ Reviewed at agent-ix/quire-contract-ir@fb44bf440cebcbd92456740f9d48b21383a6e6b8 
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir@ea56b1196a65c2267d96ae1d4acf69945cb96339, the delta 1b6ed14..ea56b11 plus the net change against main c5fa773. `make spec` was run in a detached throwaway worktree (/home/peter/dev/worktrees/ir-270-review-r1, since removed). Validate passes with 1 grammar finding (FR-014, the baseline), and strict coverage gives 23 unbacked and 0 contradicted. `git diff --check` is clean.
+Round 1, reviewed at agent-ix/quire-contract-ir@ea56b1196a65c2267d96ae1d4acf69945cb96339, the delta 1b6ed14..ea56b11 plus the net change against main c5fa773. `make spec` was run in a detached throwaway worktree (<worktree>, since removed). Validate passes with 1 grammar finding (FR-014, the baseline), and strict coverage gives 23 unbacked and 0 contradicted. `git diff --check` is clean.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
 | FND-001 | fixed | ea56b11: the `float_roundtrip` manifest clause and its TC-048 source-level check move to AC-111 (the package document read through `serde_json`). AC-109 now ends "the decision is made on the number's text read by `quire-canonical`, through no `serde_json` value". l.602 now reads "read once by `quire_canonical::read` … digested through `quire-canonical`". Verified at c5fa773 that `read_value` → `strict_parse` (serde_json Deserializer) → `require_canonical_bytes` is the package path, and that `admit_document` uses `quire_canonical::read`. The manifest has only `unbounded_depth` today, and AC-109..111 are marked planned in TC-048 ("no test exists until the IR-542 code change lands") and in the matrix row, which covers the manifest change |
 
-Round 2, reviewed at agent-ix/quire-contract-ir@fb44bf440cebcbd92456740f9d48b21383a6e6b8, the delta ea56b11..fb44bf4. `make spec` was run in a detached throwaway worktree (/home/peter/dev/worktrees/ir-270-review-r2, since removed). Validate passes with 1 grammar finding (FR-014, the baseline), and strict coverage gives 23 unbacked and 0 contradicted. `git diff --check` against c5fa773 is clean.
+Round 2, reviewed at agent-ix/quire-contract-ir@fb44bf440cebcbd92456740f9d48b21383a6e6b8, the delta ea56b11..fb44bf4. `make spec` was run in a detached throwaway worktree (<worktree>, since removed). Validate passes with 1 grammar finding (FR-014, the baseline), and strict coverage gives 23 unbacked and 0 contradicted. `git diff --check` against c5fa773 is clean.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |

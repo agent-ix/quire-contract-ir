@@ -13,7 +13,7 @@ review_set: subset
 Ticket: IR-274 (part A). Plan completion: not assessed.
 
 **Method.** I ran seven mutation probes in a detached throwaway worktree
-outside the repository (`/home/peter/dev/worktrees/ir266-review`). Each one
+outside the repository (`<worktree>`). Each one
 ran the full `cargo test --workspace --all-targets`, and the source was
 restored afterwards (`git status` clean).
 

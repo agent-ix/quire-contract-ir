@@ -31,7 +31,7 @@ Planless traceability check of the PR #301 code and tests against FR-038-AC-151/
 
 ## Coverage
 
-- Reconciliation: `quoin matrix --repo /home/peter/dev/worktrees/review-ir644 --json` (quoin 0.28.1) found 299 criteria, 254 tagged, 43 untagged and 2 method-without-symbol; FR-038's last minted criterion is AC-150. `quire matrix --scope /home/peter/dev/worktrees/review-ir644 --format json` independently has neither AC-151 nor AC-152. The 43 unrelated untagged criteria predate this PR and are not attributed to its diff.
+- Reconciliation: `quoin matrix --repo <worktree> --json` (quoin 0.28.1) found 299 criteria, 254 tagged, 43 untagged and 2 method-without-symbol; FR-038's last minted criterion is AC-150. `quire matrix --scope <worktree> --format json` independently has neither AC-151 nor AC-152. The 43 unrelated untagged criteria predate this PR and are not attributed to its diff.
 - The two new tests carry `#[trace("TC-048", "FR-038-AC-151")]` and `#[trace("TC-048", "FR-038-AC-152")]` and pass in the focused integration run. Their rows follow a blank line after AC-150 in the merged spec at 4d5754b6af95b07ee1977ab1bd58216136aa86d0.
 - Source behavior inventory for this diff: one record-field wrapper branch, one direct-reference branch, one malformed-shape refusal path; all map to the two intended ACs. No source or test stubs found in the diff.
 - Plan completion: not assessed
