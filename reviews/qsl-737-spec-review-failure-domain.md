@@ -81,3 +81,19 @@ Round 2; reviewed 8a8cf551e52968fff3631ca733181ad1a89a6c49. No open findings fro
 ## Disposition round 2 verdict
 
 **CONDITIONAL**: the walk-cost text is unchanged and still correct. New FND-002 (medium) and FND-003 (low).
+
+## Dispositions round 3
+
+Round 3; reviewed 63626fac4a3d2ecb60e01e925a3f5cd000ce5f10.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-002 | fixed | 63626fac4a3d2ecb60e01e925a3f5cd000ce5f10 |
+| FND-003 | fixed | 63626fac4a3d2ecb60e01e925a3f5cd000ce5f10 |
+
+## Disposition round 3 verdict
+
+**PASS**.
+
+- FND-002: "Malformed binding" fixes the binding as the first body member named `parameters`. It gives one outcome, `ill_typed`/`operator-ineligible` at the call's `arguments/0`, for five shapes: not first, not an aggregate, a non-reference entry, an absent node, and a node that is not a `value`/`parameter` node. AC-14 has one vector each. All five can be built. The absent-node vector reaches this check, because the operation stage runs before the graph's generic body-reference edge resolution (FR-038:3839-3844).
+- FND-003: the charged row is the selection of the document that declares the expected record.

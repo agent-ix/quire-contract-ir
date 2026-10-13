@@ -141,3 +141,33 @@ Round 2; reviewed 8a8cf551e52968fff3631ca733181ad1a89a6c49 (commits 2bea0ab6 and
 ## Disposition round 2 verdict
 
 **CONDITIONAL**: FND-004 and FND-005 are fixed. FND-004: "Field projection over a record operand (two changes)" now states the record-owner change, which lifts the `owner.object_type()` check at operations.rs:2108-2110 for a `field` member, keeps it for `operation`, and resolves among `P`'s effective members as FR-038 step 3 does. AC-9 adds the exact control, an inherited read and the operation-on-record refusal. FND-005: the private design description is gone, and QSpec is cited by FR-322-AC-69/70 ids only. New: FND-006 (high), FND-007 (medium), FND-008 and FND-009 (low). `quire validate` passes 752/752. Strict coverage gives 57 unbacked rows: main's 42 plus 15 planned (FR-347, TC-448, AC-1..13). The matrix rows and TC-448 list AC-1..13 consistently. IDs are unique across origin refs and open PRs #368 and #375. The commit messages are clean.
+
+## New findings (disposition pass 3)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-010 | medium | The new body-root check refuses with `ill_typed`/`type-mismatch`, chosen to match the neighbouring `union_value` payload comparison. The open QSpec rule this requirement follows (FR-322-AC-69 and its body-root vectors) refuses a non-conforming function or expression body root with `ill_typed`/`operator-ineligible` at the node. The reader would report a different cause from the producer specification for the same package. Use `operator-ineligible`, or record the divergence and why. | spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md:155-165,244 |
+| FND-011 | low | FR-038's `structural.eq` operand-type table (FR-038:3768) says an expression node's `semantic_type` "must equal the body's `result_type`". FR-347 now admits a conforming record there. Add a pointer from that row to FR-347, so FR-038 does not state an exact rule FR-347 relaxes. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3768 |
+| FND-012 | low | The body-root rule defines the root of a `function` node only through its `body` binding. FR-038 also admits a `function`-tagged node whose body root is an application directly (FR-038-AC-88). For that shape, "a node whose body names no root takes no check" does not say whether the root application's `result_type` is compared. State which. | spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md:155-165 |
+
+## Dispositions round 3
+
+Round 3; reviewed 63626fac4a3d2ecb60e01e925a3f5cd000ce5f10 (one commit on top of 8a8cf551).
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-006 | fixed | 63626fac4a3d2ecb60e01e925a3f5cd000ce5f10 |
+| FND-007 | fixed | 63626fac4a3d2ecb60e01e925a3f5cd000ce5f10 |
+| FND-008 | fixed | 63626fac4a3d2ecb60e01e925a3f5cd000ce5f10 |
+| FND-009 | fixed | 63626fac4a3d2ecb60e01e925a3f5cd000ce5f10 |
+
+## Disposition round 3 verdict
+
+**CONDITIONAL**: FND-006..009 are fixed.
+
+- FND-006: AC-12 now requires the body-root check. The function root is the node the `body` binding references. The expression root is the root application's `result_type`, which the reader can reach at the node body, since an expression node's body root is its application. The definitions match the open QSpec Results rule. The reader makes no admission-time body-root comparison today (the only `semantic_type` against `result_type` comparison is in the comparison-operand accessor, comparison_operands.rs:546-551).
+- FND-007: AC-10 pins the `case` node locus, matching operations.rs:1341-1345.
+- FND-008: QSL FR-092 is cited as the source of the binding shape.
+- FND-009: spec.md, the matrix status and the TC-448 title name all positions.
+
+New: FND-010 (medium), FND-011 and FND-012 (low). `quire validate` passes 752/752. Strict coverage gives 58 unbacked rows: main's 42 plus 16 planned (FR-347, TC-448, AC-1..14). The matrix and TC-448 list AC-1..14. IDs are unique across origin refs and open PRs #368 and #375. The leak check of the new text and commit is clean.

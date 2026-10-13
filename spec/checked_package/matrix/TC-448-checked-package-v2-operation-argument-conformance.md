@@ -60,7 +60,7 @@ record and an object type (refuse at `arguments/0`), and `promised_by` named on
 read named on the child (admit); case arms, union payloads, the function body
 root and `function.call` argument counts and types, read from the callee's `parameters`
 binding, per AC-10 to AC-13; body roots typed `Money`, child, grandchild
-(admit), `Voucher` and an ancestor at a child-typed declared type (refuse
+(admit; for a `function` node via its `body` binding and via an application root), `Voucher` and an ancestor at a child-typed declared type (refuse
 `type-mismatch`); and a `parameters` member second in the body, not an
 `aggregate`, with a literal entry, with an absent target and with a non-parameter
 target (AC-14).
