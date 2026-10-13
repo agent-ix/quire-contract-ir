@@ -5,6 +5,7 @@
 //! of its preimage, computed by `quire-canonical`. Every violation is
 //! `invalid_semantic_graph`.
 
+use super::model_members::DomainModel;
 use super::natural::coprime;
 use super::CheckedPackageLockV2;
 use super::{
@@ -86,7 +87,7 @@ pub struct EnumDeclarationPreimage {
 pub struct EnumMemberPreimage {
     /// Declaring enum node key.
     pub declaration_node_id: CheckedNodeId,
-    /// Member identifier.
+    /// Exact semantic case name; model variants also admit nonidentifier UTF-8.
     pub case: Box<str>,
 }
 
@@ -462,10 +463,20 @@ pub(super) fn validate_nominal_nodes(
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
     lock: &CheckedPackageLockV2,
+    models: &[DomainModel],
     meter: &mut WorkMeter,
     bytes: u64,
 ) -> Result<(), ValidationFailure> {
-    let graph = NominalGraph { nodes, index };
+    let selected_models = models
+        .iter()
+        .map(|model| (model.identity.as_ref(), model))
+        .collect();
+    let graph = NominalGraph {
+        nodes,
+        kinds,
+        index,
+        selected_models,
+    };
     let mut roots = BTreeSet::new();
     for (position, (node, kind)) in nodes.iter().zip(kinds).enumerate() {
         let site = Site { node, position };
@@ -510,7 +521,9 @@ pub(super) fn validate_nominal_nodes(
 
 struct NominalGraph<'a> {
     nodes: &'a [CheckedSemanticNodeV2],
+    kinds: &'a [CheckedNodeKind],
     index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    selected_models: BTreeMap<&'a str, &'a DomainModel>,
 }
 
 impl NominalGraph<'_> {
@@ -519,6 +532,38 @@ impl NominalGraph<'_> {
             .get(id)
             .and_then(|position| self.nodes.get(*position))
             .and_then(|node| node.nominal_identity_preimage.as_ref())
+    }
+
+    fn model_variant_cases(&self, id: &CheckedNodeId) -> Option<&BTreeSet<Box<str>>> {
+        let position = *self.index.get(id)?;
+        if self.kinds.get(position) != Some(&CheckedNodeKind::Model(super::ModelForm::VariantType))
+        {
+            return None;
+        }
+        let node = self.nodes.get(position)?;
+        let Some(super::CheckedNodeOwner::Model {
+            identity,
+            node: owner_node,
+        }) = &node.owner
+        else {
+            return None;
+        };
+        self.selected_models
+            .get(identity.as_ref())
+            .and_then(|model| model.variant_types.get(owner_node))
+    }
+
+    fn is_model_variant(&self, id: &CheckedNodeId) -> bool {
+        let Some(&position) = self.index.get(id) else {
+            return false;
+        };
+        self.kinds.get(position) == Some(&CheckedNodeKind::Model(super::ModelForm::VariantType))
+            && self.nodes.get(position).is_some_and(|node| {
+                matches!(
+                    node.owner.as_ref(),
+                    Some(super::CheckedNodeOwner::Model { .. })
+                )
+            })
     }
 }
 
@@ -665,15 +710,22 @@ fn validate_enum_member(
     graph: &NominalGraph<'_>,
 ) -> Result<(), ValidationFailure> {
     let node = site.node;
-    require(is_identifier(&member.case), || site.preimage(&["case"]))?;
-    let Some(NominalIdentityPreimage::EnumDeclaration(declaration)) =
-        graph.preimage(&member.declaration_node_id)
-    else {
-        return Err(invalid(site.preimage(&["declaration_node_id"])));
-    };
-    require(declaration.members.contains(&member.case), || {
-        site.preimage(&["case"])
-    })?;
+    if graph.is_model_variant(&member.declaration_node_id) {
+        require(!member.case.is_empty(), || site.preimage(&["case"]))?;
+        if let Some(cases) = graph.model_variant_cases(&member.declaration_node_id) {
+            require(cases.contains(&member.case), || site.preimage(&["case"]))?;
+        }
+    } else {
+        require(is_identifier(&member.case), || site.preimage(&["case"]))?;
+        let Some(NominalIdentityPreimage::EnumDeclaration(declaration)) =
+            graph.preimage(&member.declaration_node_id)
+        else {
+            return Err(invalid(site.preimage(&["declaration_node_id"])));
+        };
+        require(declaration.members.contains(&member.case), || {
+            site.preimage(&["case"])
+        })?;
+    }
     require(node.semantic_type == member.declaration_node_id, || {
         site.member("semantic_type")
     })?;

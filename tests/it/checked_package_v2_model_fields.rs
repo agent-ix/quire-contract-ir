@@ -114,6 +114,7 @@ enum Ty {
     /// `Reference<O>`, by the key of `O`'s model declaration node.
     Reference(String),
     Record(String),
+    Variant(String),
     Option(Box<Ty>),
     Collection(Kind, Box<Ty>, Option<(u64, u64)>),
 }
@@ -144,6 +145,7 @@ fn ty_of(member: &CheckedMemberType) -> Ty {
         CheckedMemberType::IntRange { lower, upper } => Ty::Range(*lower, *upper),
         CheckedMemberType::Reference(target) => Ty::Reference(target.digest.to_string()),
         CheckedMemberType::Record(target) => Ty::Record(target.digest.to_string()),
+        CheckedMemberType::Variant(target) => Ty::Variant(target.digest.to_string()),
         CheckedMemberType::Option(element) => Ty::Option(Box::new(ty_of(element))),
         CheckedMemberType::Collection {
             kind,
@@ -216,7 +218,7 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
             let node = wire_node(&key, "composite_type", "reference", &key, &[target], body);
             add(key, node)
         }
-        Ty::Record(target) => target.clone(),
+        Ty::Record(target) | Ty::Variant(target) => target.clone(),
         Ty::Option(element) => {
             let element = type_nodes(element, nodes);
             let body = json!({"term": "aggregate", "members": [reference(&element)]});
@@ -1458,6 +1460,7 @@ fn perturbed(ty: &Ty, other: &str) -> Ty {
         Ty::Range(lower, upper) => Ty::Range(lower - 1, *upper),
         Ty::Reference(_) => Ty::Reference(other.to_owned()),
         Ty::Record(_) => Ty::Record(other.to_owned()),
+        Ty::Variant(_) => Ty::Variant(other.to_owned()),
         Ty::Option(element) => Ty::Option(Box::new(perturbed(element, other))),
         Ty::Collection(kind, element, Some((lower, upper))) => {
             let bounds = if upper > lower {
@@ -1735,6 +1738,7 @@ fn tc_227_the_public_shape_is_closed_and_takes_one_node_id() {
             CheckedMemberType::IntRange { .. } => 2,
             CheckedMemberType::Reference(_) => 3,
             CheckedMemberType::Record(_) => 6,
+            CheckedMemberType::Variant(_) => 7,
             CheckedMemberType::Option(_) => 4,
             CheckedMemberType::Collection { .. } => 5,
         }

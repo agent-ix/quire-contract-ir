@@ -187,11 +187,13 @@ pub(super) fn valid_derived_shape(
         kind,
         CheckedNodeKind::Model(super::ModelForm::ObjectType | super::ModelForm::SystemsInterface)
             | CheckedNodeKind::Relation(super::RelationForm::Relationship)
-    ) || (kind == CheckedNodeKind::Model(super::ModelForm::RecordValueType)
-        && matches!(
-            node.owner.as_ref(),
-            Some(super::CheckedNodeOwner::Model { .. })
-        ));
+    ) || (matches!(
+        kind,
+        CheckedNodeKind::Model(super::ModelForm::RecordValueType | super::ModelForm::VariantType)
+    ) && matches!(
+        node.owner.as_ref(),
+        Some(super::CheckedNodeOwner::Model { .. })
+    ));
     !(node.declaration.is_none()
         && model_owned
         && (node.semantic_type != node.node_id
@@ -554,8 +556,8 @@ mod tests {
             MemberType::Reference(target) => {
                 wire(&key, "composite_type", "reference", &key, over(target))
             }
-            MemberType::Record(_) => {
-                panic!("a record is a selected declaration, not a derived node")
+            MemberType::Record(_) | MemberType::Variant(_) => {
+                panic!("a model type is a selected declaration, not a derived node")
             }
             MemberType::Option(inner) => {
                 let inner = inner.node_key(BYTES).expect("inner key");

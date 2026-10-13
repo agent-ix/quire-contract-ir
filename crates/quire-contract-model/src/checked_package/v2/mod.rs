@@ -1882,6 +1882,7 @@ fn validate_graph(
         &kinds,
         &index,
         &wire.lock,
+        models,
         meter,
         limits.bytes,
     )?;

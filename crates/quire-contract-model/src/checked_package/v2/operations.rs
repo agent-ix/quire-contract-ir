@@ -1165,6 +1165,14 @@ pub(super) fn resolve_family_with<'a, E>(
         if !seen.insert(node.node_id.clone()) {
             return Ok(FamilyResolution::Malformed(node.node_id.clone()));
         }
+        if kind == CheckedNodeKind::Model(ModelForm::VariantType)
+            && matches!(
+                node.owner.as_ref(),
+                Some(super::CheckedNodeOwner::Model { .. })
+            )
+        {
+            return Ok(FamilyResolution::Family("enum"));
+        }
         if kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Enum) {
             let ordered = matches!(
                 &node.nominal_identity_preimage,

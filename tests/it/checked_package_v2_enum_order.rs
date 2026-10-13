@@ -279,6 +279,23 @@ const ORDERING: [&str; 4] = [
 const EQUALITY: [&str; 2] = ["quire.op.enum.eq", "quire.op.enum.ne"];
 const FORMS: [Operands; 2] = [Operands::Members, Operands::Parameters];
 
+/// Trace: FR-038-AC-238
+#[test]
+fn ordinary_scalar_enum_still_refuses_nonidentifier_cases() {
+    let declaration = declaration_with("Status", false, ["Gold Plus", "READY"]);
+    let package = package(
+        "quire.op.enum.eq",
+        &declaration,
+        &declaration,
+        Operands::Members,
+    );
+    let refusal = refused(&package);
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+}
+
 /// Tracing: TC-048, FR-038-AC-42
 #[trace("TC-048", "FR-038-AC-42")]
 #[test]

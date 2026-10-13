@@ -18,9 +18,10 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    derive_structural_candidates, CheckedPackageIncomplete, CheckedPackageLimit,
-    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedSemanticNodeV2,
+    derive_structural_candidates, CheckedCollectionKind, CheckedMemberType,
+    CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedSemanticNodeV2,
 };
 use serde_json::{json, Value};
 use std::sync::LazyLock;
@@ -33,6 +34,7 @@ const ORDER: &str = "ix://acme/orders/Order";
 const CUSTOMER: &str = "ix://acme/orders/Customer";
 const PRIORITY_ORDER: &str = "ix://acme/orders/PriorityOrder";
 const PREFERRED_ORDER: &str = "ix://acme/orders/PreferredOrder";
+const TIER: &str = "ix://acme/orders/Tier";
 
 /// The self-typed Integer and Text scalar type nodes, keyed by
 /// [`structural_key`].
@@ -257,6 +259,421 @@ fn refused(
         CheckedPackageV2ReadResult::Refused(refusal) => refusal,
         other => panic!("expected V2 refusal, got {other:?}"),
     }
+}
+
+/// A selected unordered variant declaration and its exact semantic cases.
+fn variant_document_named(declared: &str, cases: &[&str]) -> Value {
+    let mut document = domain_document(json!({}));
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind": {"module": "acme/orders", "name": "variant"},
+            "construct": {"meaning": "quire.meaning.model.variant-type/v1"},
+        }));
+    document["types"]
+        .as_array_mut()
+        .expect("types")
+        .push(json!({
+            "identity": declared, "displayName": "Tier",
+            "kind": {"module": "acme/orders", "name": "variant"},
+            "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
+            "variants": cases.iter().map(|case| json!({
+                "identity": format!("{declared}/{case}"), "name": case,
+            })).collect::<Vec<_>>(),
+        }));
+    document
+}
+
+fn variant_package(
+    cases: &[&str],
+    emitted: &[&str],
+    typed: bool,
+) -> (Value, quire_contract_model::CheckedPackageEvidence, String) {
+    variant_package_named(TIER, cases, emitted, typed)
+}
+
+fn variant_package_named(
+    declared: &str,
+    cases: &[&str],
+    emitted: &[&str],
+    typed: bool,
+) -> (Value, quire_contract_model::CheckedPackageEvidence, String) {
+    let mut document = variant_document_named(declared, cases);
+    if typed {
+        let order = &mut document["types"][0];
+        let one = json!({"lower": 1, "upper": 1, "ordered": false, "unique": true});
+        order["fields"] = json!([
+            edge_field(ORDER, "tier", declared, "required", one.clone()),
+            edge_field(ORDER, "maybeTier", declared, "optional", one),
+            edge_field(
+                ORDER,
+                "tiers",
+                declared,
+                "required",
+                json!({"lower": 0, "upper": 3, "ordered": true, "unique": false})
+            ),
+        ]);
+        order["operations"][0]["params"] = json!([slot(None, declared)]);
+        order["operations"][0]["returns"] = slot(None, declared);
+    }
+    let (mut package, evidence) = package_over(&document, "total");
+    let key = structural_key(
+        "model",
+        "variant_type",
+        None,
+        Some(json!({"kind": "model", "identity": IDENTITY, "node": declared})),
+        &empty(),
+    );
+    let mut variant = wire_node(&key, "model", "variant_type", &key, &[], empty());
+    variant["owner"] = json!({"kind": "model", "identity": IDENTITY, "node": declared});
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    if typed {
+        let (argument, argument_node) = parameter("argument", "1", &key);
+        nodes[5] = argument_node;
+        let body = &mut nodes[CALL]["body"];
+        body["arguments"][1] = reference(&argument);
+        body["result_type"] = node_id(&key);
+        let call_key = application_node_key("expression", "call", &key, body);
+        let order = nodes[2]["node_id"]["digest"]
+            .as_str()
+            .expect("order")
+            .to_owned();
+        let receiver = nodes[4]["node_id"]["digest"]
+            .as_str()
+            .expect("receiver")
+            .to_owned();
+        let mut dependencies = [argument.as_str(), order.as_str(), receiver.as_str()];
+        dependencies.sort_unstable();
+        nodes[CALL]["node_id"] = node_id(&call_key);
+        nodes[CALL]["semantic_type"] = node_id(&key);
+        nodes[CALL]["dependencies"] = json!(dependencies
+            .iter()
+            .map(|id| node_id(id))
+            .collect::<Vec<_>>());
+    }
+    nodes.insert(5, variant);
+    for case in emitted {
+        let preimage = json!({
+            "version": "quire.enum-member-node/v1",
+            "declaration_node_id": node_id(&key),
+            "case": case,
+        });
+        let member_key = sha256_hex(&canonical(&preimage));
+        let body = literal(&key, "enum", case);
+        let mut member = wire_node(&member_key, "value", "enum_value", &key, &[&key], body);
+        member["nominal_identity_preimage"] = preimage;
+        member["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
+        nodes.push(member);
+    }
+    if typed {
+        for form in ["option", "sequence"] {
+            let body = over_body(&key);
+            let composite = structural_key("composite_type", form, None, None, &body);
+            nodes.push(wire_node(
+                &composite,
+                "composite_type",
+                form,
+                &composite,
+                &[&key],
+                body,
+            ));
+            if form == "sequence" {
+                let bounds = bounds_body("0", "3");
+                let bounded = structural_key(
+                    "bounded_domain",
+                    "collection_bounds",
+                    Some(&composite),
+                    None,
+                    &bounds,
+                );
+                nodes.push(wire_node(
+                    &bounded,
+                    "bounded_domain",
+                    "collection_bounds",
+                    &composite,
+                    &[&composite],
+                    bounds,
+                ));
+            }
+        }
+    }
+    rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
+    (package, evidence, key)
+}
+
+/// Trace: FR-038-AC-237
+#[test]
+fn selected_variant_accepts_exact_utf8_cases() {
+    for case in ["Gold", "Gold Plus", "2x", "Café"] {
+        let (package, evidence, _) =
+            variant_package(&["Gold", "Gold Plus", "2x", "Café"], &[case], false);
+        let result = read(&package, &evidence);
+        assert!(
+            matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+            "{case}: {result:?}"
+        );
+    }
+}
+
+/// Trace: FR-038-AC-237
+#[test]
+fn selected_variant_case_keys_bind_exact_case_and_declaration() {
+    let (tier, tier_evidence, _) = variant_package_named(
+        TIER,
+        &["Gold", "Gold Plus", "2x", "Café"],
+        &["Gold", "Gold Plus", "2x", "Café"],
+        false,
+    );
+    assert!(matches!(
+        read(&tier, &tier_evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    let tier_nodes = tier["semantic_graph"]["nodes"].as_array().expect("nodes");
+    let case_keys: std::collections::BTreeSet<_> = tier_nodes[8..12]
+        .iter()
+        .map(|node| node["node_id"]["digest"].as_str().expect("case key"))
+        .collect();
+    assert_eq!(case_keys.len(), 4);
+
+    let (rank, rank_evidence, _) =
+        variant_package_named("ix://acme/orders/Rank", &["Gold"], &["Gold"], false);
+    assert!(matches!(
+        read(&rank, &rank_evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    assert_ne!(
+        tier_nodes[8]["node_id"],
+        rank["semantic_graph"]["nodes"][8]["node_id"],
+    );
+
+    // A selected document's display alias changes its digest, but the
+    // declaration identity and exact case still determine the member key.
+    let mut alias_document = variant_document_named(TIER, &["Gold", "Gold Plus", "2x", "Café"]);
+    alias_document["types"][1]["displayName"] = json!("Level");
+    let alias_digest = sha256_hex(&canonical(&alias_document));
+    let mut alias_package = tier.clone();
+    alias_package["lock"]["model_selections"][0]["digest"] = json!(alias_digest);
+    refresh_identity(&mut alias_package);
+    let mut alias_evidence = evidence_for(&alias_package);
+    alias_evidence.insert_domain_package_document(alias_digest, canonical(&alias_document));
+    assert!(matches!(
+        read(&alias_package, &alias_evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    assert_eq!(
+        tier_nodes[8]["node_id"],
+        alias_package["semantic_graph"]["nodes"][8]["node_id"],
+    );
+}
+
+/// Trace: FR-038-AC-236
+#[test]
+fn selected_variant_types_field_parameter_and_result() {
+    let (package, evidence, tier) = variant_package(&["Gold"], &["Gold"], true);
+    let admitted = match read(&package, &evidence) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("expected selected field/parameter/result admission: {other:?}"),
+    };
+    for form in ["option", "sequence", "collection_bounds"] {
+        assert!(
+            admitted
+                .graph()
+                .nodes
+                .iter()
+                .any(|node| node.semantic_form.as_ref() == form),
+            "admitted graph omits {form} over Tier"
+        );
+    }
+    let order = structural_key(
+        "model",
+        "object_type",
+        None,
+        Some(json!({"kind": "model", "identity": IDENTITY, "node": ORDER})),
+        &empty(),
+    );
+    let fields = admitted
+        .model_object_fields(&serde_json::from_value(node_id(&order)).expect("node id"))
+        .expect("Order fields");
+    assert!(matches!(
+        fields.field("tier").and_then(|field| field.member_type()),
+        Some(CheckedMemberType::Variant(id)) if id.digest.as_ref() == tier
+    ));
+    assert!(matches!(
+        fields.field("maybeTier").and_then(|field| field.member_type()),
+        Some(CheckedMemberType::Option(inner))
+            if matches!(inner.as_ref(), CheckedMemberType::Variant(id) if id.digest.as_ref() == tier)
+    ));
+    assert!(matches!(
+        fields.field("tiers").and_then(|field| field.member_type()),
+        Some(CheckedMemberType::Collection { kind: CheckedCollectionKind::Sequence, element, bounds: Some((0, 3)) })
+            if matches!(element.as_ref(), CheckedMemberType::Variant(id) if id.digest.as_ref() == tier)
+    ));
+}
+
+fn variant_binary_package(
+    operation: &str,
+) -> (Value, quire_contract_model::CheckedPackageEvidence) {
+    let (mut package, evidence, _) = variant_package(&["Gold", "2x"], &["Gold", "2x"], false);
+    let boolean = structural_key("scalar_type", "boolean", None, None, &empty());
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    let left = nodes[8]["node_id"]["digest"]
+        .as_str()
+        .expect("left")
+        .to_owned();
+    let right = nodes[9]["node_id"]["digest"]
+        .as_str()
+        .expect("right")
+        .to_owned();
+    nodes.push(wire_node(
+        &boolean,
+        "scalar_type",
+        "boolean",
+        &boolean,
+        &[],
+        empty(),
+    ));
+    let body = json!({
+        "term": "application", "operator": "binary",
+        "operation": {"identity": operation, "laws": [], "mode": null, "member": null,
+            "leaves": []},
+        "result_type": node_id(&boolean),
+        "arguments": [reference(&left), reference(&right)],
+    });
+    let key = application_node_key("expression", "binary", &boolean, &body);
+    let mut dependencies = [left.as_str(), right.as_str()];
+    dependencies.sort_unstable();
+    let mut application = wire_node(&key, "expression", "binary", &boolean, &dependencies, body);
+    application["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
+    nodes.push(application);
+    rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
+    (package, evidence)
+}
+
+/// Trace: FR-038-AC-237
+#[test]
+fn selected_variant_admits_enum_equality_and_refuses_order_or_structural_equality() {
+    for operation in ["quire.op.enum.eq", "quire.op.enum.ne"] {
+        let (package, evidence) = variant_binary_package(operation);
+        let result = read(&package, &evidence);
+        assert!(
+            matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+            "{operation}: {result:?}"
+        );
+    }
+    for operation in ["quire.op.enum.lt", "quire.op.structural.eq"] {
+        let (package, evidence) = variant_binary_package(operation);
+        let position = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .len()
+            - 1;
+        let refusal = refused(&package, &evidence);
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::IllTyped,
+            "{operation}"
+        );
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::OperatorIneligible),
+            "{operation}"
+        );
+        assert_eq!(
+            refusal.path,
+            Some(pointer(&format!(
+                "/semantic_graph/nodes/{position}/body/arguments/0"
+            ))),
+            "{operation}"
+        );
+    }
+}
+
+/// Trace: FR-038-AC-238
+#[test]
+fn selected_variant_refuses_absent_case_and_empty_declaration() {
+    let (package, evidence, _) = variant_package(&["Gold"], &["Silver"], false);
+    let refusal = refused(&package, &evidence);
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path,
+        Some(pointer(
+            "/semantic_graph/nodes/8/nominal_identity_preimage/case"
+        ))
+    );
+
+    let (package, evidence, _) = variant_package(&[], &[], false);
+    let refusal = refused(&package, &evidence);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+    assert_eq!(refusal.path, Some(pointer("/lock/model_selections/0")));
+}
+
+/// Trace: FR-038-AC-236
+#[test]
+fn selected_variant_requires_its_exact_model_owner() {
+    let (package, evidence, _) = variant_package(&["Gold"], &["Gold"], false);
+    let mut missing = package.clone();
+    missing["semantic_graph"]["nodes"][5]
+        .as_object_mut()
+        .expect("variant node")
+        .remove("owner");
+    refresh_identity(&mut missing);
+    let refusal = refused(&missing, &evidence);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+    assert_eq!(refusal.path, Some(pointer("/semantic_graph/nodes/5")));
+
+    for owner_node in ["ix://acme/orders/Missing", ORDER] {
+        let mut changed = package.clone();
+        changed["semantic_graph"]["nodes"][5]["owner"]["node"] = json!(owner_node);
+        refresh_identity(&mut changed);
+        let refusal = refused(&changed, &evidence);
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::MissingSelection)
+        );
+        assert_eq!(
+            refusal.path,
+            Some(pointer("/semantic_graph/nodes/5/node_id"))
+        );
+    }
+}
+
+/// Trace: FR-038-AC-238
+#[test]
+fn selected_variant_cases_are_bound_to_the_selected_document_digest() {
+    let (package, _, _) = variant_package(&["Gold"], &["Gold"], false);
+    let digest = package["lock"]["model_selections"][0]["digest"]
+        .as_str()
+        .expect("selection digest");
+    let mut evidence = evidence_for(&package);
+    evidence.insert_domain_package_document(
+        digest,
+        canonical(&variant_document_named(TIER, &["Silver"])),
+    );
+    let refusal = refused(&package, &evidence);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::StaleDependency);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::ByteDigestMismatch)
+    );
+    assert_eq!(
+        refusal.path,
+        Some(pointer("/lock/model_selections/0/digest"))
+    );
 }
 
 /// The position of the `dispatch_call` application in [`package_over`]'s graph.

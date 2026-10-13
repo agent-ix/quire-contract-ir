@@ -12,8 +12,9 @@
 //!   = an identifier text literal typed at a `scalar_type`/`text` node,
 //!   binding "level" = a canonical non-negative integer literal typed at a
 //!   `scalar_type`/`integer` node]}`; its `semantic_type` is the binder's
-//!   type node (a `scalar_type`, `composite_type` or `bounded_domain` node,
-//!   never itself); its body names no node, so `dependencies` is empty. Every
+//!   type node (a `scalar_type`, `composite_type`, `bounded_domain`, or
+//!   selected model value declaration node, never itself); its body names
+//!   no node, so `dependencies` is empty. Every
 //!   occurrence has role `expression`.
 //! - **Operation anchor** (QSpec FR-342): `aggregate{[binding "context" = a
 //!   reference, binding "operation" = an identifier text literal, binding
@@ -358,17 +359,23 @@ pub(super) fn validate_structural_nodes(
 /// it at.
 fn parameter_defect(node: &CheckedSemanticNodeV2, graph: &Graph<'_>) -> Option<Defect> {
     let is_binder_type = node.semantic_type != node.node_id
-        && graph.kind(&node.semantic_type).is_some_and(|kind| {
-            // Implements: FR-347. a binder may also be typed at a model record value type,
-            // the type a conforming argument is checked against.
-            kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
-                || matches!(
-                    kind.tag(),
-                    CheckedNodeTag::ScalarType
-                        | CheckedNodeTag::CompositeType
-                        | CheckedNodeTag::BoundedDomain
-                )
-        });
+        && graph
+            .node(&node.semantic_type)
+            .is_some_and(|(type_node, kind)| {
+                // A binder may also be typed at a selected model value declaration.
+                kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
+                    || (kind == CheckedNodeKind::Model(ModelForm::VariantType)
+                        && matches!(
+                            type_node.owner.as_ref(),
+                            Some(super::CheckedNodeOwner::Model { .. })
+                        ))
+                    || matches!(
+                        kind.tag(),
+                        CheckedNodeTag::ScalarType
+                            | CheckedNodeTag::CompositeType
+                            | CheckedNodeTag::BoundedDomain
+                    )
+            });
     if !is_binder_type {
         return Some(Defect::SemanticType);
     }

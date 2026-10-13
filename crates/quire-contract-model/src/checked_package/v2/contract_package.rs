@@ -2031,6 +2031,7 @@ impl ContractPackageWireV1 {
             &kinds,
             &positions,
             &self.package.source.lock,
+            &[],
             &mut meter,
             limits.bytes,
         )?;
