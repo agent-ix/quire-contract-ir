@@ -1,8 +1,9 @@
 use ix_trace_rs::trace;
 use quire_contract_ir::kani::{
     CapabilityDisposition, CapabilityEntry, DispatchError, DispatchIndex, FiniteInput,
-    FiniteObject, FiniteReference, KaniOutcome, KaniOutcomeKind, KaniProfile, ModuleDescriptor,
-    PopulationCompleteness, ProfileSelection, ResourceBounds, SemanticFamily, PROFILE,
+    FiniteObject, FiniteReference, KaniCancellationSource, KaniOutcome, KaniOutcomeKind,
+    KaniProfile, ModuleDescriptor, PopulationCompleteness, ProfileSelection, ResourceBounds,
+    SemanticFamily, PROFILE,
 };
 use quire_contract_model::{std001_code, Std001Code};
 
@@ -182,7 +183,9 @@ fn tc_042_only_proof_and_counterexample_have_boolean_claims() {
         KaniOutcomeKind::Unavailable,
         KaniOutcomeKind::TimedOut,
         KaniOutcomeKind::ResourceExhausted,
-        KaniOutcomeKind::Cancelled,
+        KaniOutcomeKind::Cancelled {
+            source: KaniCancellationSource::Requested,
+        },
         KaniOutcomeKind::Inconclusive,
     ] {
         assert_eq!(
@@ -191,6 +194,126 @@ fn tc_042_only_proof_and_counterexample_have_boolean_claims() {
                 .boolean_claim(),
             None
         );
+    }
+}
+
+#[trace("TC-449", "FR-030-AC-7")]
+#[test]
+fn kani_cancellation_sources_round_trip_in_the_kind() {
+    for (source, spelling) in [
+        (KaniCancellationSource::Requested, "requested"),
+        (KaniCancellationSource::Deadline, "deadline"),
+    ] {
+        let outcome = KaniOutcome::non_success(
+            KaniOutcomeKind::Cancelled { source },
+            std001_code!("kani_cancelled"),
+            "clause:demo",
+            "profile",
+        )
+        .expect("a source-bearing cancellation is a non-success outcome");
+        assert_eq!(outcome.boolean_claim(), None);
+        let wire = serde_json::to_value(&outcome).expect("outcome serializes");
+        assert_eq!(
+            wire,
+            serde_json::json!({
+                "kind": {"cancelled": {"source": spelling}},
+                "code": "kani_cancelled",
+                "source_id": "clause:demo",
+                "context": "profile"
+            })
+        );
+        let read: KaniOutcome = serde_json::from_value(wire).expect("outcome reads");
+        assert_eq!(read.kind, KaniOutcomeKind::Cancelled { source });
+        assert_eq!(read.boolean_claim(), None);
+        assert_eq!(read, outcome);
+    }
+}
+
+#[trace("TC-449", "FR-030-AC-7")]
+#[test]
+fn malformed_or_mismatched_cancellation_wire_is_refused() {
+    for kind in [
+        serde_json::json!("cancelled"),
+        serde_json::json!({"cancelled": {}}),
+        serde_json::json!({"cancelled": {"source": "unknown"}}),
+        serde_json::json!({"cancelled": {"source": 1}}),
+        serde_json::json!({"cancelled": {"source": "requested", "extra": true}}),
+    ] {
+        let wire = serde_json::json!({
+            "kind": kind,
+            "code": "kani_cancelled",
+            "source_id": "clause:demo",
+            "context": "profile"
+        });
+        assert!(
+            serde_json::from_value::<KaniOutcome>(wire.clone()).is_err(),
+            "unexpectedly accepted {wire}"
+        );
+    }
+    for (field, value) in [
+        ("source", serde_json::json!("deadline")),
+        ("extra", serde_json::json!(true)),
+    ] {
+        let mut wire = serde_json::json!({
+            "kind": "timed_out",
+            "code": "kani_timed_out",
+            "source_id": "clause:demo",
+            "context": "profile"
+        });
+        wire.as_object_mut()
+            .expect("outcome wire is an object")
+            .insert(field.to_owned(), value);
+        assert!(
+            serde_json::from_value::<KaniOutcome>(wire.clone()).is_err(),
+            "unexpectedly accepted {wire}"
+        );
+    }
+}
+
+#[trace("TC-449", "FR-030-AC-7")]
+#[test]
+fn non_cancelled_kinds_retain_their_wire_and_claims() {
+    let cases = [
+        (KaniOutcomeKind::Proved, "proved", Some(true)),
+        (
+            KaniOutcomeKind::Counterexample,
+            "counterexample",
+            Some(false),
+        ),
+        (KaniOutcomeKind::Refused, "refused", None),
+        (KaniOutcomeKind::InvalidInput, "invalid_input", None),
+        (KaniOutcomeKind::IncompleteInput, "incomplete_input", None),
+        (KaniOutcomeKind::Unavailable, "unavailable", None),
+        (KaniOutcomeKind::TimedOut, "timed_out", None),
+        (
+            KaniOutcomeKind::ResourceExhausted,
+            "resource_exhausted",
+            None,
+        ),
+        (KaniOutcomeKind::Inconclusive, "inconclusive", None),
+    ];
+    for (kind, spelling, claim) in cases {
+        let outcome = match kind {
+            KaniOutcomeKind::Proved => KaniOutcome::proved("clause:demo", "profile"),
+            KaniOutcomeKind::Counterexample => {
+                KaniOutcome::counterexample("clause:demo", "profile")
+            }
+            other => KaniOutcome::non_success(
+                other,
+                std001_code!("kani_control"),
+                "clause:demo",
+                "profile",
+            )
+            .expect("a non-success kind"),
+        };
+        let wire = serde_json::to_value(&outcome).expect("outcome serializes");
+        assert_eq!(wire["kind"], spelling);
+        assert!(wire.get("source").is_none());
+        assert_eq!(outcome.boolean_claim(), claim);
+        let read: KaniOutcome = serde_json::from_value(wire).expect("outcome reads");
+        assert_eq!(read.kind, outcome.kind);
+        assert_eq!(read.boolean_claim(), claim);
+        assert_eq!(read, outcome);
     }
 }
 

@@ -5,8 +5,20 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Every terminal bounded-Kani outcome.
+///
+/// A cancelled outcome requires the producer's observed source:
+///
+/// ```compile_fail
+/// use quire_contract_ir::kani::KaniOutcomeKind;
+/// let _ = KaniOutcomeKind::Cancelled;
+/// ```
+///
+/// ```
+/// use quire_contract_ir::kani::{KaniCancellationSource, KaniOutcomeKind};
+/// let _ = KaniOutcomeKind::Cancelled { source: KaniCancellationSource::Requested };
+/// ```
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum KaniOutcomeKind {
     /// The selected finite property was proved under the retained profile and assumptions.
     Proved,
@@ -24,10 +36,23 @@ pub enum KaniOutcomeKind {
     TimedOut,
     /// A selected resource budget was exhausted.
     ResourceExhausted,
-    /// The caller cancelled execution.
-    Cancelled,
+    /// The producer observed cancellation of execution from this source.
+    Cancelled {
+        /// The event source that stopped the run.
+        source: KaniCancellationSource,
+    },
     /// The backend returned no qualified interpretation.
     Inconclusive,
+}
+
+/// The recorded event that cancelled a bounded-Kani run.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KaniCancellationSource {
+    /// The caller requested cancellation through its control handle.
+    Requested,
+    /// The timer owner cancelled the run at its deadline.
+    Deadline,
 }
 
 /// A request to build an outcome that breaks a constructor rule.
@@ -77,7 +102,7 @@ pub(super) enum NonSuccessKind {
     Unavailable,
     TimedOut,
     ResourceExhausted,
-    Cancelled,
+    Cancelled { source: KaniCancellationSource },
     Inconclusive,
 }
 
@@ -91,7 +116,7 @@ impl NonSuccessKind {
             Self::Unavailable => KaniOutcomeKind::Unavailable,
             Self::TimedOut => KaniOutcomeKind::TimedOut,
             Self::ResourceExhausted => KaniOutcomeKind::ResourceExhausted,
-            Self::Cancelled => KaniOutcomeKind::Cancelled,
+            Self::Cancelled { source } => KaniOutcomeKind::Cancelled { source },
             Self::Inconclusive => KaniOutcomeKind::Inconclusive,
         }
     }
@@ -110,7 +135,7 @@ impl TryFrom<KaniOutcomeKind> for NonSuccessKind {
             KaniOutcomeKind::Unavailable => Ok(Self::Unavailable),
             KaniOutcomeKind::TimedOut => Ok(Self::TimedOut),
             KaniOutcomeKind::ResourceExhausted => Ok(Self::ResourceExhausted),
-            KaniOutcomeKind::Cancelled => Ok(Self::Cancelled),
+            KaniOutcomeKind::Cancelled { source } => Ok(Self::Cancelled { source }),
             KaniOutcomeKind::Inconclusive => Ok(Self::Inconclusive),
         }
     }
@@ -118,6 +143,7 @@ impl TryFrom<KaniOutcomeKind> for NonSuccessKind {
 
 /// Typed output which cannot manufacture a Boolean for a non-success state.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KaniOutcome {
     /// Closed outcome kind.
     pub kind: KaniOutcomeKind,
@@ -274,7 +300,7 @@ impl KaniOutcome {
             | KaniOutcomeKind::Unavailable
             | KaniOutcomeKind::TimedOut
             | KaniOutcomeKind::ResourceExhausted
-            | KaniOutcomeKind::Cancelled
+            | KaniOutcomeKind::Cancelled { .. }
             | KaniOutcomeKind::Inconclusive => None,
         }
     }
