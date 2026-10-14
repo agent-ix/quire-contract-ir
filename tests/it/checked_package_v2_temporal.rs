@@ -1949,7 +1949,7 @@ fn tc_048_a_fairness_member_resolves_on_its_declaring_model_node() {
 /// cannot declare the operation named by a temporal fairness member. A value
 /// node cannot declare one either.
 ///
-/// Tracing: TC-303, FR-038-AC-103, FR-370-AC-11
+/// Trace: TC-303, FR-038-AC-103, FR-370-AC-11
 #[trace("TC-303", "FR-038-AC-103", "FR-370-AC-11")]
 #[test]
 fn tc_303_wrong_declaring_nodes_cannot_name_a_fairness_operation() {
