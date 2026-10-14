@@ -14,12 +14,12 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_canonical::{Encode, Error, FixedShape, LimitKind, Limits};
 use quire_contract_model::{
-    CheckedCapability, CheckedCapabilityDisposition, CheckedDependencySelection,
-    CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeId, CheckedNodeProjectionV2,
-    CheckedPackageIdentityPreimageV2, CheckedPackageLockV2, CheckedPackageReadLimits,
-    CheckedPackageRefusal, CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CheckedSelectionRole, CheckedSemanticGraphV2, CheckedSemanticId,
-    CheckedSemanticNodeV2, CheckedSourceMapEntry,
+    encode_checked_package_v2, CheckedCapability, CheckedCapabilityDisposition,
+    CheckedDependencySelection, CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeId,
+    CheckedNodeProjectionV2, CheckedPackageIdentityPreimageV2, CheckedPackageLockV2,
+    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedSelectionRole,
+    CheckedSemanticGraphV2, CheckedSemanticId, CheckedSemanticNodeV2, CheckedSourceMapEntry,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -589,6 +589,39 @@ fn tc_048_a_preimage_projection_nested_100000_deep_encodes_on_a_256_kib_stack() 
 #[test]
 fn tc_048_diagnostic_details_nested_100000_deep_encode_on_a_256_kib_stack() {
     deep_encodes_and_stays_under_a_byte_ceiling::<CheckedDiagnosticsV2>();
+}
+
+/// Trace: FR-051-AC-1, FR-038-AC-77
+#[trace("TC-451", "FR-051-AC-1", "FR-038-AC-77")]
+#[test]
+fn tc_451_typed_envelope_encodes_deep_details_on_a_small_stack() {
+    let value = v2_all_families();
+    let preimage = preimage_of(&value);
+    let package_id: CheckedSemanticId = typed(&value["package_id"]);
+    let lock: CheckedPackageLockV2 = typed(&value["lock"]);
+    let graph = graph_of(&value);
+    let source_map: Vec<CheckedSourceMapEntry> = typed_each(&value["source_map"]);
+    let capabilities: Vec<CheckedCapability> = typed_each(&value["capability_report"]);
+    let mut diagnostics = CheckedDiagnosticsV2::shallow();
+    diagnostics.place(nested(DEEP));
+    let bytes = on_small_stack(move || {
+        let result = encode_checked_package_v2(
+            &preimage,
+            &package_id,
+            &lock,
+            &graph,
+            &source_map,
+            &capabilities,
+            &diagnostics,
+            Limits::new(u64::MAX),
+        );
+        let mut body = diagnostics.take();
+        dismantle(&mut body);
+        result
+    })
+    .expect("deep envelope encodes");
+    let text = String::from_utf8(bytes).expect("canonical UTF-8");
+    assert!(text.contains(&format!("\"details\":[{}]", nested_text(DEEP))));
 }
 
 // ---------------------------------------------------------------------------

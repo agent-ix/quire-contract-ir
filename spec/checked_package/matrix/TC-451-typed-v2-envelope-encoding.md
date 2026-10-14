@@ -13,8 +13,8 @@ relationships:
 ## Description
 
 Verify FR-051-AC-1 through FR-051-AC-3 through the public model-crate
-interface, canonical encoder, and existing V2 reader. This case is planned;
-no implementation or test result is claimed by the specification change.
+interface, canonical encoder, and existing V2 reader. Its IR-focused controls
+are implemented; QSL producer adoption remains separate under QSL-766.
 
 ## Test Procedure
 
@@ -37,7 +37,11 @@ member, adding an unknown top-level member, and duplicating a top-level member;
 assert the reader's typed missing-, unknown-, and duplicate-member refusal,
 with no admitted package. Inspect the private generic envelope declaration:
 its one top-level field list must serve the owned reader, raw-term borrowed
-intake and typed borrowed encoder. The intake's nested raw-term types remain
+intake and typed borrowed encoder, generating serde decode and canonical
+`Encode` dispatch from the same declaration. Check that fixed-depth members
+use `Writer::serialize` and arbitrary-depth terms use their existing iterative
+`Encode` implementations. Encode a deeply nested diagnostic detail on a small
+stack to guard that boundary. The intake's nested raw-term types remain
 intake-only. Find no clone of supplied members, identity derivation, admission,
 third envelope schema or producer byte-limit constant. Compare the default-feature public export set
 with [FR-019](../../model/functional/FR-019-rust-library-interface.md)'s
