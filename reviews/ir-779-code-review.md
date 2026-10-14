@@ -47,3 +47,12 @@ Reviewed the frozen IR-779 API and TC-450 integration test diff against FR-050, 
 | FND-001 | fixed | The query rejects more than 64 guards before entering the per-guard loop, bounding repeated reached-view validation. |
 | FND-002 | fixed | TC-450 now reads checked FR-062 RR-13 RequirementItems from QSL and maps each item's exact path-condition occurrence and polarity into admitted IR. |
 | FND-003 | still-open | FR-062 RR-13 states path conditions are whatever extents and does not impose a 64-guard maximum. The public query therefore refuses valid checked paths above 64, and the code comment's claimed matching QSL depth bound is unsupported. |
+
+## New findings — round 2
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | medium | Distinct guard roots still rerun whole-package reached-closure validation without an aggregate query work bound | crates/quire-contract-model/src/checked_package/v2/contract_package/guard_context.rs:231-233,277-280 |
+
+| FND-003 | fixed | The 64-item ceiling and its public refusal variant were removed; 65 repeated guards now succeed with each occurrence and polarity retained. |
+| FND-004 | still-open | The cache avoids repeated validation only for duplicate node IDs. Every distinct guard node still invokes reached_closure once, so a caller can request many distinct roots and incur a full graph traversal per root with no aggregate query budget. |

@@ -366,6 +366,45 @@ fn tc_450_guard_context_preserves_order_polarity_identity_and_root_accounting() 
             nested_guard.node_id.clone(),
         ],
     );
+    let first_guard = [path_guard(guard_outer.clone(), true)];
+    let (first_guard_context, first_guard_work) =
+        contextual.guard_context_with_work_for_test(&app_id, &app_first, &first_guard, u64::MAX);
+    assert!(matches!(
+        first_guard_context,
+        Ok(ContractGuardContextViewV1::Lowered(_))
+    ));
+    let second_guard_source_count = contextual
+        .wire()
+        .source_map
+        .nodes
+        .iter()
+        .find(|entry| entry.node_id == guard_inner.node_id)
+        .expect("second distinct guard has admitted source entries")
+        .occurrences
+        .len() as u64;
+    let second_root_budget = first_guard_work + 2 + second_guard_source_count;
+    let two_distinct_guards = [
+        path_guard(guard_outer.clone(), true),
+        path_guard(guard_inner.clone(), false),
+    ];
+    let (over_budget, consumed) = contextual.guard_context_with_work_for_test(
+        &app_id,
+        &app_first,
+        &two_distinct_guards,
+        second_root_budget,
+    );
+    let Err(ContractGuardContextErrorV1::Guard(failure)) = over_budget else {
+        panic!("work exhaustion must not return a partial guard context");
+    };
+    assert_eq!(failure.position, 1);
+    assert!(matches!(
+        failure.cause,
+        ContractGuardContextFailureCauseV1::InvalidBody(
+            quire_contract_model::ContractRootViewError::Incomplete(ref incomplete)
+        ) if incomplete.limit_kind == quire_contract_model::CheckedPackageLimit::Work
+            && incomplete.limit == second_root_budget
+    ));
+    assert_eq!(consumed, second_root_budget);
     assert!(contextual.wire().feature_accounting.iter().any(|record| {
         record.node_id() == &guard_outer.node_id
             && record.disposition() == ContractDispositionV1::Lowered

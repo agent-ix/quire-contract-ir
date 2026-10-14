@@ -3,11 +3,10 @@
 
 //! FR-050: read-only admitted path-guard context for one checked application occurrence.
 
-use std::collections::BTreeMap;
-
 use super::{
-    ContractDispositionV1, ContractFeatureRecordV1, ContractPackageV1, ContractProvenanceV1,
-    ContractRootViewError, ContractRootViewV1, ContractSelectedReferenceV1,
+    ContractDispositionV1, ContractFeatureRecordV1, ContractPackageTraversalIndex,
+    ContractPackageV1, ContractProvenanceV1, ContractRootViewError, ContractRootViewV1,
+    ContractSelectedReferenceV1, GuardContextWork,
 };
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedSemanticId, CheckedSourceMapEntry,
@@ -126,32 +125,73 @@ impl ContractPackageV1 {
     /// Queries the ordered guards supplied for one checked application
     /// occurrence. Every guard must be an explicitly lowered root with an
     /// exact admitted `expression` source occurrence and Boolean type. The
-    /// query uses the existing reached-view API for body/dependency validation
-    /// and never infers guard membership. Each unique guard node's reached
-    /// view is validated once per query; repeated occurrences reuse that
-    /// validation while retaining their individual order, polarity and source
-    /// correspondence.
+    /// query shares one package index and work budget across body/dependency
+    /// validation and never infers guard membership. Each unique guard node's
+    /// reached view is validated once per query; repeated occurrences reuse
+    /// that validation while retaining their individual order, polarity and
+    /// source correspondence.
     pub fn guard_context(
         &self,
         expression: &CheckedNodeId,
         application: &super::ContractOccurrenceKeyV1,
         guards: &[ContractPathGuardV1],
     ) -> Result<ContractGuardContextViewV1<'_>, ContractGuardContextErrorV1> {
-        let _application_reached = match self.reached_closure(expression) {
-            Ok(ContractRootViewV1::Absent) => return Ok(ContractGuardContextViewV1::Absent),
-            Ok(ContractRootViewV1::NonLowered(record)) => {
-                return Ok(ContractGuardContextViewV1::NonLowered(record));
-            }
-            Ok(ContractRootViewV1::Lowered(reached)) => reached,
-            Err(error) => return Err(ContractGuardContextErrorV1::ApplicationView(error)),
+        let mut work = GuardContextWork::bounded_query();
+        self.guard_context_with_work_mut(expression, application, guards, &mut work)
+    }
+
+    #[cfg(feature = "fault-injection")]
+    #[doc(hidden)]
+    pub fn guard_context_with_work_for_test(
+        &self,
+        expression: &CheckedNodeId,
+        application: &super::ContractOccurrenceKeyV1,
+        guards: &[ContractPathGuardV1],
+        work_limit: u64,
+    ) -> (
+        Result<ContractGuardContextViewV1<'_>, ContractGuardContextErrorV1>,
+        u64,
+    ) {
+        let mut work = GuardContextWork::with_limit(work_limit);
+        let result = self.guard_context_with_work_mut(expression, application, guards, &mut work);
+        (result, work.consumed)
+    }
+
+    fn guard_context_with_work_mut(
+        &self,
+        expression: &CheckedNodeId,
+        application: &super::ContractOccurrenceKeyV1,
+        guards: &[ContractPathGuardV1],
+        query_work: &mut GuardContextWork,
+    ) -> Result<ContractGuardContextViewV1<'_>, ContractGuardContextErrorV1> {
+        let index = ContractPackageTraversalIndex::build(self, query_work).map_err(|error| {
+            ContractGuardContextErrorV1::ApplicationView(ContractRootViewError::Incomplete(error))
+        })?;
+        let Some(application_record) = index.accounting.get(expression).copied() else {
+            return Ok(ContractGuardContextViewV1::Absent);
         };
-        let application_source = self.sources(&application.node_id).and_then(|sources| {
+        if application_record.disposition() != ContractDispositionV1::Lowered {
+            return Ok(ContractGuardContextViewV1::NonLowered(application_record));
+        }
+        let _application_reached =
+            match self.reached_closure_indexed(expression, &index, query_work) {
+                Ok(ContractRootViewV1::Absent) => return Ok(ContractGuardContextViewV1::Absent),
+                Ok(ContractRootViewV1::NonLowered(record)) => {
+                    return Ok(ContractGuardContextViewV1::NonLowered(record));
+                }
+                Ok(ContractRootViewV1::Lowered(reached)) => reached,
+                Err(error) => return Err(ContractGuardContextErrorV1::ApplicationView(error)),
+            };
+        let application_source = index.sources.get(&application.node_id).and_then(|sources| {
             sources.iter().find(|entry| {
                 entry.node_id == application.node_id
                     && entry.role == application.role
                     && entry.ordinal == application.ordinal
             })
         });
+        query_work.charge(1).map_err(|error| {
+            ContractGuardContextErrorV1::ApplicationView(ContractRootViewError::Incomplete(error))
+        })?;
         if application.node_id != *expression
             || application.role != CheckedOccurrenceRole::Expression
             || application_source.is_none()
@@ -161,11 +201,24 @@ impl ContractPackageV1 {
             });
         }
 
-        let mut admitted_guards = Vec::with_capacity(guards.len());
-        let mut validated_roots = BTreeMap::new();
+        let mut admitted_guards = Vec::new();
+        let mut validated_roots = std::collections::BTreeMap::new();
         for (position, guard) in guards.iter().enumerate() {
             let occurrence = &guard.occurrence;
-            let source = self.sources(&occurrence.node_id).and_then(|sources| {
+            if let Err(error) = query_work.charge(1) {
+                return Err(ContractGuardContextErrorV1::Guard(Box::new(
+                    ContractGuardContextFailureV1 {
+                        position,
+                        occurrence: occurrence.clone(),
+                        cause: ContractGuardContextFailureCauseV1::InvalidBody(
+                            ContractRootViewError::Incomplete(error),
+                        ),
+                        source: None,
+                    },
+                )));
+            }
+            let source_entries = index.sources.get(&occurrence.node_id).copied();
+            let source = source_entries.and_then(|sources| {
                 sources.iter().find(|entry| {
                     entry.node_id == occurrence.node_id
                         && entry.role == occurrence.role
@@ -180,22 +233,28 @@ impl ContractPackageV1 {
                     source: source.cloned(),
                 }))
             };
+            if let Err(error) = query_work.charge(
+                1_u64.saturating_add(
+                    source_entries
+                        .and_then(|entries| u64::try_from(entries.len()).ok())
+                        .unwrap_or(0),
+                ),
+            ) {
+                return Err(failure(
+                    ContractGuardContextFailureCauseV1::InvalidBody(
+                        ContractRootViewError::Incomplete(error),
+                    ),
+                    None,
+                ));
+            }
 
             if occurrence.role != CheckedOccurrenceRole::Expression {
                 return Err(failure(
                     ContractGuardContextFailureCauseV1::WrongOccurrenceRole,
-                    source.or_else(|| {
-                        self.sources(&occurrence.node_id)
-                            .and_then(|sources| sources.first())
-                    }),
+                    source.or_else(|| source_entries.and_then(|sources| sources.first())),
                 ));
             }
-            let Some(record) = self
-                .wire
-                .feature_accounting
-                .iter()
-                .find(|record| record.node_id() == &occurrence.node_id)
-            else {
+            let Some(record) = index.accounting.get(&occurrence.node_id).copied() else {
                 return Err(failure(
                     ContractGuardContextFailureCauseV1::AbsentRoot,
                     source,
@@ -210,7 +269,7 @@ impl ContractPackageV1 {
                 ));
             }
 
-            let Some(sources) = self.sources(&occurrence.node_id) else {
+            let Some(sources) = source_entries else {
                 return Err(failure(
                     ContractGuardContextFailureCauseV1::MissingSourceMapEntry,
                     None,
@@ -229,21 +288,22 @@ impl ContractPackageV1 {
             };
 
             if !validated_roots.contains_key(&occurrence.node_id) {
-                let reached = match self.reached_closure(&occurrence.node_id) {
-                    Ok(ContractRootViewV1::Lowered(reached)) => reached,
-                    Ok(ContractRootViewV1::Absent | ContractRootViewV1::NonLowered(_)) => {
-                        return Err(failure(
-                            ContractGuardContextFailureCauseV1::UnrepresentedRoot,
-                            Some(source),
-                        ));
-                    }
-                    Err(error) => {
-                        return Err(failure(
-                            ContractGuardContextFailureCauseV1::InvalidBody(error),
-                            Some(source),
-                        ));
-                    }
-                };
+                let reached =
+                    match self.reached_closure_indexed(&occurrence.node_id, &index, query_work) {
+                        Ok(ContractRootViewV1::Lowered(reached)) => reached,
+                        Ok(ContractRootViewV1::Absent | ContractRootViewV1::NonLowered(_)) => {
+                            return Err(failure(
+                                ContractGuardContextFailureCauseV1::UnrepresentedRoot,
+                                Some(source),
+                            ));
+                        }
+                        Err(error) => {
+                            return Err(failure(
+                                ContractGuardContextFailureCauseV1::InvalidBody(error),
+                                Some(source),
+                            ));
+                        }
+                    };
                 let expression_node = reached.root;
                 let kind = CheckedNodeTag::from_wire(&expression_node.node_tag)
                     .and_then(|tag| CheckedNodeKind::decode(tag, &expression_node.semantic_form));
@@ -289,6 +349,16 @@ impl ContractPackageV1 {
                     Some(source),
                 ));
             };
+            if let Err(error) = query_work.charge(
+                1_u64.saturating_add(u64::try_from(selected_references.len()).unwrap_or(u64::MAX)),
+            ) {
+                return Err(failure(
+                    ContractGuardContextFailureCauseV1::InvalidBody(
+                        ContractRootViewError::Incomplete(error),
+                    ),
+                    Some(source),
+                ));
+            }
             admitted_guards.push(ContractGuardReferenceV1 {
                 occurrence: occurrence.clone(),
                 holds: guard.holds,
