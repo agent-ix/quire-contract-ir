@@ -15,7 +15,6 @@ use quire_contract_model::{
     ContractGuardContextErrorV1, ContractGuardContextFailureCauseV1, ContractGuardContextViewV1,
     ContractOccurrenceKeyV1, ContractPackageReadResult, ContractPackageV1, ContractPackageWireV1,
     ContractPathGuardV1, ContractResultContextV1, ContractResultViewV1, LoweringProfileRef,
-    CONTRACT_GUARD_CONTEXT_MAX_GUARDS,
 };
 use serde_json::{json, Value};
 
@@ -438,16 +437,19 @@ fn tc_450_guard_context_preserves_order_polarity_identity_and_root_accounting() 
     assert!(!else_view.guards[0].holds);
     let unguarded = lowered(&contextual, &app_id, &app_first, &[]);
     assert!(unguarded.guards.is_empty());
-    let excessive_guards = std::iter::repeat_with(|| path_guard(guard_outer.clone(), true))
-        .take(CONTRACT_GUARD_CONTEXT_MAX_GUARDS + 1)
+    let repeated_guards = (0..65)
+        .map(|position| path_guard(guard_outer.clone(), position % 2 == 0))
         .collect::<Vec<_>>();
-    assert!(matches!(
-        contextual.guard_context(&app_id, &app_first, &excessive_guards),
-        Err(ContractGuardContextErrorV1::GuardLimitExceeded {
-            requested,
-            limit: CONTRACT_GUARD_CONTEXT_MAX_GUARDS,
-        }) if requested == CONTRACT_GUARD_CONTEXT_MAX_GUARDS + 1
-    ));
+    let repeated_view = lowered(&contextual, &app_id, &app_first, &repeated_guards);
+    assert_eq!(repeated_view.guards.len(), repeated_guards.len());
+    assert!(repeated_view
+        .guards
+        .iter()
+        .zip(&repeated_guards)
+        .all(
+            |(actual, supplied)| actual.occurrence == supplied.occurrence
+                && actual.holds == supplied.holds
+        ));
     let result_without_guards = match plain_result_roots
         .result_context(
             &integer_expression.node_id,

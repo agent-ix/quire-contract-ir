@@ -3,6 +3,8 @@
 
 //! FR-050: read-only admitted path-guard context for one checked application occurrence.
 
+use std::collections::BTreeMap;
+
 use super::{
     ContractDispositionV1, ContractFeatureRecordV1, ContractPackageV1, ContractProvenanceV1,
     ContractRootViewError, ContractRootViewV1, ContractSelectedReferenceV1,
@@ -13,10 +15,6 @@ use crate::checked_package::shared::{
 use crate::checked_package::v2::{
     CheckedNodeKind, CheckedNodeTag, CheckedSemanticNodeV2, ScalarTypeForm,
 };
-
-/// Maximum number of ordered guards validated by one query. This matches
-/// QSL's bounded path depth and caps repeated full-graph reached-view work.
-pub const CONTRACT_GUARD_CONTEXT_MAX_GUARDS: usize = 64;
 
 /// One QSL-checked path guard mapped to the exact IR source occurrence.
 ///
@@ -109,13 +107,6 @@ pub enum ContractGuardContextErrorV1 {
     },
     /// Defensive reader-backed validation of the application failed.
     ApplicationView(ContractRootViewError),
-    /// The requested path has more guards than one bounded query admits.
-    GuardLimitExceeded {
-        /// Number of supplied guards.
-        requested: usize,
-        /// Maximum guards admitted by one query.
-        limit: usize,
-    },
     /// The first invalid guard in caller order.
     Guard(Box<ContractGuardContextFailureV1>),
 }
@@ -136,9 +127,10 @@ impl ContractPackageV1 {
     /// occurrence. Every guard must be an explicitly lowered root with an
     /// exact admitted `expression` source occurrence and Boolean type. The
     /// query uses the existing reached-view API for body/dependency validation
-    /// and never infers guard membership. One query accepts at most
-    /// [`CONTRACT_GUARD_CONTEXT_MAX_GUARDS`] guards so repeated reached-view
-    /// validation has a fixed work ceiling.
+    /// and never infers guard membership. Each unique guard node's reached
+    /// view is validated once per query; repeated occurrences reuse that
+    /// validation while retaining their individual order, polarity and source
+    /// correspondence.
     pub fn guard_context(
         &self,
         expression: &CheckedNodeId,
@@ -169,14 +161,8 @@ impl ContractPackageV1 {
             });
         }
 
-        if guards.len() > CONTRACT_GUARD_CONTEXT_MAX_GUARDS {
-            return Err(ContractGuardContextErrorV1::GuardLimitExceeded {
-                requested: guards.len(),
-                limit: CONTRACT_GUARD_CONTEXT_MAX_GUARDS,
-            });
-        }
-
         let mut admitted_guards = Vec::with_capacity(guards.len());
+        let mut validated_roots = BTreeMap::new();
         for (position, guard) in guards.iter().enumerate() {
             let occurrence = &guard.occurrence;
             let source = self.sources(&occurrence.node_id).and_then(|sources| {
@@ -242,35 +228,59 @@ impl ContractPackageV1 {
                 return Err(failure(cause, sources.first()));
             };
 
-            let reached = match self.reached_closure(&occurrence.node_id) {
-                Ok(ContractRootViewV1::Lowered(reached)) => reached,
-                Ok(ContractRootViewV1::Absent | ContractRootViewV1::NonLowered(_)) => {
+            if !validated_roots.contains_key(&occurrence.node_id) {
+                let reached = match self.reached_closure(&occurrence.node_id) {
+                    Ok(ContractRootViewV1::Lowered(reached)) => reached,
+                    Ok(ContractRootViewV1::Absent | ContractRootViewV1::NonLowered(_)) => {
+                        return Err(failure(
+                            ContractGuardContextFailureCauseV1::UnrepresentedRoot,
+                            Some(source),
+                        ));
+                    }
+                    Err(error) => {
+                        return Err(failure(
+                            ContractGuardContextFailureCauseV1::InvalidBody(error),
+                            Some(source),
+                        ));
+                    }
+                };
+                let expression_node = reached.root;
+                let kind = CheckedNodeTag::from_wire(&expression_node.node_tag)
+                    .and_then(|tag| CheckedNodeKind::decode(tag, &expression_node.semantic_form));
+                if !matches!(kind, Some(CheckedNodeKind::Expression(_))) {
                     return Err(failure(
-                        ContractGuardContextFailureCauseV1::UnrepresentedRoot,
+                        ContractGuardContextFailureCauseV1::WrongNodeForm,
                         Some(source),
                     ));
                 }
-                Err(error) => {
+                let Some(type_node) = reached
+                    .nodes
+                    .iter()
+                    .find(|entry| entry.node.node_id == expression_node.semantic_type)
+                    .map(|entry| entry.node)
+                else {
                     return Err(failure(
-                        ContractGuardContextFailureCauseV1::InvalidBody(error),
+                        ContractGuardContextFailureCauseV1::InvalidBody(
+                            ContractRootViewError::Inconsistent,
+                        ),
+                        Some(source),
+                    ));
+                };
+                let type_kind = CheckedNodeTag::from_wire(&type_node.node_tag)
+                    .and_then(|tag| CheckedNodeKind::decode(tag, &type_node.semantic_form));
+                if type_kind != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean)) {
+                    return Err(failure(
+                        ContractGuardContextFailureCauseV1::NonBooleanExpression,
                         Some(source),
                     ));
                 }
-            };
-            let expression_node = reached.root;
-            let kind = CheckedNodeTag::from_wire(&expression_node.node_tag)
-                .and_then(|tag| CheckedNodeKind::decode(tag, &expression_node.semantic_form));
-            if !matches!(kind, Some(CheckedNodeKind::Expression(_))) {
-                return Err(failure(
-                    ContractGuardContextFailureCauseV1::WrongNodeForm,
-                    Some(source),
-                ));
+                validated_roots.insert(
+                    occurrence.node_id.clone(),
+                    (expression_node, reached.selected_references),
+                );
             }
-            let Some(type_node) = reached
-                .nodes
-                .iter()
-                .find(|entry| entry.node.node_id == expression_node.semantic_type)
-                .map(|entry| entry.node)
+            let Some((expression_node, selected_references)) =
+                validated_roots.get(&occurrence.node_id)
             else {
                 return Err(failure(
                     ContractGuardContextFailureCauseV1::InvalidBody(
@@ -279,20 +289,12 @@ impl ContractPackageV1 {
                     Some(source),
                 ));
             };
-            let type_kind = CheckedNodeTag::from_wire(&type_node.node_tag)
-                .and_then(|tag| CheckedNodeKind::decode(tag, &type_node.semantic_form));
-            if type_kind != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean)) {
-                return Err(failure(
-                    ContractGuardContextFailureCauseV1::NonBooleanExpression,
-                    Some(source),
-                ));
-            }
             admitted_guards.push(ContractGuardReferenceV1 {
                 occurrence: occurrence.clone(),
                 holds: guard.holds,
                 expression: expression_node,
                 source,
-                selected_references: reached.selected_references,
+                selected_references: selected_references.clone(),
             });
         }
 

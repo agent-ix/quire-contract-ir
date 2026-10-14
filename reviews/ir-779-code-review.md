@@ -33,3 +33,17 @@ Reviewed the frozen IR-779 API and TC-450 integration test diff against FR-050, 
 | --- | --- | --- | --- |
 | FND-001 | medium | Repeated guards revalidate the entire package without a query work bound | crates/quire-contract-model/src/checked_package/v2/contract_package/guard_context.rs:159-160,225-239 |
 | FND-002 | medium | TC-450 supplies synthetic guards instead of the QSL-checked path condition required by AC-1 | tests/it/admitted_guard_context.rs:70-108,298-315 |
+
+## New findings
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | medium | The new 64-guard ceiling rejects QSL-valid checked paths with more than 64 guards | crates/quire-contract-model/src/checked_package/v2/contract_package/guard_context.rs:17-19,172-176 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The query rejects more than 64 guards before entering the per-guard loop, bounding repeated reached-view validation. |
+| FND-002 | fixed | TC-450 now reads checked FR-062 RR-13 RequirementItems from QSL and maps each item's exact path-condition occurrence and polarity into admitted IR. |
+| FND-003 | still-open | FR-062 RR-13 states path conditions are whatever extents and does not impose a 64-guard maximum. The public query therefore refuses valid checked paths above 64, and the code comment's claimed matching QSL depth bound is unsupported. |
