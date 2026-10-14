@@ -23,7 +23,7 @@ invalid selection outcomes.
    package; consume that fixture here rather than copying its schema or
    synthesizing V2 bytes in the IR test.
 2. Read the package through `CheckedPackageV2::read`, then select the exact
-   `bounded_domain` / `model_population` node identity and its `Expression`
+   `bounded_domain` / `model_population` node identity and its `Type`
    occurrence through a compiled default-feature consumer of
    `quire_contract_model::checked_package`.
 3. Assert each selected result retains its package, population-node identity,
