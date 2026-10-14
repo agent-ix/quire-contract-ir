@@ -119,6 +119,13 @@ this IR specification.
 owns the typed source-obligation correspondence input in the cycle-free model;
 [TC-452](model/matrix/TC-452-source-obligation-correspondence.md) records its
 planned API, mapping and refusal controls.
+[FR-053](model/functional/FR-053-selected-population-binding.md) defines the
+occurrence-scoped, source-backed finite population projection from an admitted
+QSL-produced V2 package; [TC-453](model/matrix/TC-453-selected-population-binding.md)
+records its selected-binding, provenance and typed refusal controls. QSL owns
+checked population typing and lowering; the IR query does not infer a bound
+from domain closure or resource limits, and does not replace
+`model_object_fields` as the edge multiplicity authority.
 STD-001 is the stable diagnostic code registry, FR-044 exports the form of its
 codes as the typed `Std001Code` of the model crate, which `KaniOutcome.code`
 carries, and STD-003 is the closed
