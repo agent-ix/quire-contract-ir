@@ -27,3 +27,9 @@ Replacement spec consistency review of PR #389 at frozen head `f6abcf0f1a95cae9c
 ## Coverage
 
 Compared changed FR-051, TC-451, matrix summary and spec index with current-main FR-019 and the crate root export. Verified the missing inventory entry directly in current source and spec, rather than relying on the earlier stale-base test failure report. Plan completion: not assessed.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | FR-019 now describes the API as implemented and exported, and the inventory includes its function under FR-051. |
