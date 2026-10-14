@@ -30,7 +30,7 @@ multiplicity.
 
 One typed source selection and, when that selection is admitted, one selector.
 An admitted selector names the exact `bounded_domain` / `model_population`
-node identity and its `CheckedOccurrenceRole::Expression` occurrence,
+node identity and its `CheckedOccurrenceRole::Type` occurrence,
 including the ordinal. This node identity is the selected bounded-population
 binding identity. The query does not accept a parameter node as a substitute
 for that identity. A declaration-only selection names a selected
@@ -125,7 +125,7 @@ text or copying the QSL admission schema.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-053-AC-1 | Through a default-feature public model consumer and an admitted QSL-produced V2 package, selecting the exact keyed `bounded_domain` / `model_population` node and its `Expression` occurrence for `Population<T>[N]` returns that node, occurrence, selected `T`, authentic source regions, and inclusive `[0,N]`; `N=0` returns `[0,0]`. Changing only the checked source maximum changes the selected node and returned extent. | Test |
+| FR-053-AC-1 | Through a default-feature public model consumer and an admitted QSL-produced V2 package, selecting the exact keyed `bounded_domain` / `model_population` node and its `Type` occurrence for `Population<T>[N]` returns that node, occurrence, selected `T`, authentic source regions, and inclusive `[0,N]`; `N=0` returns `[0,0]`. Changing only the checked source maximum changes the selected node and returned extent. | Test |
 | FR-053-AC-2 | Two population nodes with the same selected object type but distinct source occurrences retain their own maxima and provenance. A valid package that re-points a parameter's `semantic_type` at the other population node and re-derives affected keys still returns the extent of the node-occurrence pair named by the selector; the query never follows that parameter pointer. Selecting the other node with the first occurrence returns `MissingOccurrence` unless that exact pair is source-mapped. Changing only the Codegen or IR resource ceiling or observed fixture membership does not change either extent. | Test |
 | FR-053-AC-3 | An absent selector yields `Unavailable`; an absent binding identity yields `StaleBinding`, a present binding without the selected occurrence yields `MissingOccurrence`, a foreign package identity yields `ForeignPackage`, and a present non-population binding yields `NotPopulation`; each has no extent. A selector with the right object type but a different binding or occurrence cannot satisfy the request. | Test |
 | FR-053-AC-4 | A selected domain-package PopulationRecord with closed extent but no binding maximum yields `Unbounded`; an open extent or unresolved object/subtype closure maps QSL's typed pre-admission `UnknownClosure` to the distinct typed outcome with no package, binding or finite extent. A consumer can distinguish both from `Unavailable`. Source inspection finds no finite-bound path from closure, resource limits, fixture or member count, or caller-provided maximum. | Test, Inspection |
