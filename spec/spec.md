@@ -111,10 +111,10 @@ defines the planned admitted-package reverse consumer context for an exact
 requested scalar expression; [TC-447](checked_package/matrix/TC-447-admitted-scalar-result-context.md)
 defines its reader-admitted QSL and adverse controls.
 [FR-051](checked_package/functional/FR-051-encode-checked-package-v2-envelope.md)
-defines the planned typed V2 envelope encoder; its planned IR controls are
+defines the typed V2 envelope encoder implemented in the model crate; its
+focused IR controls are
 [TC-451](checked_package/matrix/TC-451-typed-v2-envelope-encoding.md).
-QSL-766 owns the separate producer adoption, not implemented by
-this IR specification.
+QSL-766 owns the separate producer adoption.
 [FR-052](model/functional/FR-052-source-obligation-correspondence.md)
 owns the typed source-obligation correspondence input in the cycle-free model;
 [TC-452](model/matrix/TC-452-source-obligation-correspondence.md) records its

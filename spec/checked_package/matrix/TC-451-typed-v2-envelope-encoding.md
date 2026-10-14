@@ -13,8 +13,8 @@ relationships:
 ## Description
 
 Verify FR-051-AC-1 through FR-051-AC-3 through the public model-crate
-interface, canonical encoder, and existing V2 reader. This case is planned;
-no implementation or test result is claimed by the specification change.
+interface, canonical encoder, and existing V2 reader. Its IR-focused controls
+are implemented; QSL producer adoption remains separate under QSL-766.
 
 ## Test Procedure
 
