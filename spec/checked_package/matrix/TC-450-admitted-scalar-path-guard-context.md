@@ -27,16 +27,19 @@ Query an unguarded item with an empty list. Build a nested two-guard case and
 two items sharing one expression node but carrying different guard occurrence
 lists; assert their exact order and separate polarities.
 
-For each refusal class in FR-050-AC-3, change exactly one guard input or one
-context-root disposition in an otherwise valid case, then query through the
-public API. Include absent, non-lowered and unrepresented roots; missing,
-wrong-key, wrong-role and wrong-ordinal source-map occurrence; a represented
-non-expression node; a represented expression of non-Boolean type; and an
-admitted-then-mutated body/dependency inconsistency at the private defensive
-seam. Supply two guards with the second invalid and assert no first-guard
-prefix is returned. Query a bare application-only package with a guard key
-that was never lowered. As a mutation control, supply a plausible guard key
-with no admitted expression and assert that no assumption can be obtained.
+For each public-query refusal class in FR-050-AC-3, change exactly one guard
+input or context-root disposition in an otherwise reader-admitted package.
+Include absent and non-lowered roots; missing, wrong-key, wrong-role and
+wrong-ordinal source-map occurrence; a represented non-expression node; and a
+represented expression of non-Boolean type. Supply two guards with the second
+invalid and assert no first-guard prefix is returned. Query a bare
+application-only package with a guard key that was never lowered. As a
+mutation control, supply a plausible guard key with no admitted expression
+and assert that no IR guard reference is returned. Separately, mutate an
+FR-330 wire to claim a lowered guard root without representing its node and
+assert reader refusal before any public query. At the private defensive seam,
+mutate an admitted body/dependency after admission and assert an existing
+typed view error without a partial list.
 Flip only `holds` for a valid guard and compare the returned polarity. Supply
 a different, independently valid represented guard to document IR's
 structural boundary: that input may pass IR and therefore cannot establish
@@ -47,16 +50,20 @@ Compare the six-field wire, canonical identity and application
 application-only package with the contextual package to observe the ordinary
 root-driven graph/accounting/identity change. Compare FR-049 result-context
 queries with and without represented guard roots. Compile a public consumer
-that obtains guard references and result context from the same admitted
-package and does not read the original QSL graph.
+that obtains structural guard references and result context from the same
+admitted package and does not read the original QSL graph. CG IR-304 separately
+tests rendering, shared symbolic binding and typed refusal of unsupported
+guards; this IR procedure asserts none of those backend behaviors.
 
 ## Expected Results
 
 Positive queries expose exactly the checked guard list with Boolean
 expressions, source correspondence, package/profile and unchanged order and
 polarity; the unguarded list is empty. Every invalid guard refuses with the
-typed first failing cause and location, without a partial list or rendered
-assumption. A key with no admitted expression never succeeds. Context-only
-roots have ordinary FR-035 accounting records. Queries leave
+typed first failing cause and location, without a partial list or substitute
+reference. Reader-invalid packages refuse before the public query, and the
+private post-admission mutation returns its existing typed view error. A key
+with no admitted expression never succeeds. Context-only roots have ordinary
+FR-035 accounting records. Queries leave
 the package and forward closure unchanged, and FR-049 keeps its existing
 application and optional direct-narrow outcomes.

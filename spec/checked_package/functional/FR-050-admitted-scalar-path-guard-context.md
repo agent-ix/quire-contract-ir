@@ -40,7 +40,7 @@ ordered QSL-checked guard sequence, each mapped to IR's typed
 and lowering profile selected for the application's IR lowering. Each guard
 occurrence retains its `expression` role and ordinal. The caller supplies
 guard expression nodes as additional explicit lowering roots for that same
-call. An empty checked sequence is valid and means no assumptions.
+call. An empty checked sequence is valid and yields an empty guard list.
 
 The guard sequence is supplied at the read-only query boundary. The original
 QSL graph is not a query input.
@@ -51,19 +51,22 @@ For a lowered application, a typed view containing its exact admitted source
 package, selected lowering profile, application occurrence and an
 outermost-first list of guard references. Each reference carries the supplied
 typed occurrence and polarity, its represented Boolean expression key and
-node, and that node's admitted source-map correspondence. A backend can render
-the admitted expression and assume it when `holds` is true or its negation
-when `holds` is false, using the same symbolic variable assignment and profile
-as the application. The view contains no rendered assumption or second graph.
+node, and that node's admitted source-map correspondence. This IR view asserts
+structural admission and polarity only; it does not establish renderability,
+a shared symbolic variable assignment, or
+an executable assumption. The view contains no rendered assumption or second
+graph.
 
 An absent or non-lowered application retains its exact [FR-035](./FR-035-complete-v1-contract-package-lowering.md)
 request disposition. A guard-validation failure returns one typed, located
 cause and no guard list or partial application result. The cause distinguishes
-absent guard root, non-lowered guard root and its disposition, unrepresented
-guard node, missing or mismatched source-map occurrence, wrong occurrence role
-or ordinal, non-Boolean expression, wrong node form, and inconsistent admitted
-package/body. The failing guard's supplied occurrence and list position are
-available to the caller; when a matching admitted source entry exists, its
+absent guard root, non-lowered guard root and its disposition, missing or
+mismatched source-map occurrence, wrong occurrence role or ordinal,
+non-Boolean expression, and wrong node form. A lowered root absent from the
+represented graph cannot pass FR-330 admission; the reader refuses it before
+this public query. A private admitted-then-mutated defensive check may return
+an inconsistent-package/body error. The failing guard's supplied occurrence
+and list position are available to the caller; when a matching admitted source entry exists, its
 locus is retained. Error variants and typed fields, not formatted messages,
 define the API.
 
@@ -111,10 +114,11 @@ guards. A consumer SHALL use this view only with that faithful mapping.
 
 If any guard fails a check, Contract IR SHALL return the first failing guard
 in supplied order with its typed located cause, without exposing a prefix or
-substitute assumption. A package admission failure is returned before the
-query and is never repaired by a supplied guard list. A post-admission body
-inconsistency or exhausted work limit SHALL return the existing typed view
-error without a partial result. Querying SHALL leave all six FR-330 fields,
+substitute reference. A package admission failure, including a lowered root
+without a represented node, is returned before the query and is never
+repaired by a supplied guard list. A post-admission body inconsistency or
+exhausted work limit SHALL return the existing typed view error without a
+partial result. Querying SHALL leave all six FR-330 fields,
 canonical identity, selected profile and application forward closure unchanged.
 The optional direct-narrow rule of FR-049 remains application plus optional
 conversion only; guard roots and this guard query do not alter its selection
@@ -126,8 +130,8 @@ or result-context outcomes.
 | --- | --- | --- |
 | FR-050-AC-1 | For QSL FR-062 RR-13, the checked `rational.div` item supplies the one `y != 0` guard with `holds = true`; after one lowering over application, any selected conversion, and guard roots, the admitted query returns one Boolean expression reference with that exact occurrence, polarity, source package, profile and source-map entry. For a checked else-path item over the same guard expression, `holds = false` is retained, and an empty checked path returns an empty list. | Test |
 | FR-050-AC-2 | Two checked items sharing one application expression node but carrying different ordered guard occurrences retain separate lists and polarities even when all roots are represented in one package. An item with two nested guards returns them outermost first. Repetition of a node key does not collapse distinct occurrences. The query does not infer a guard association from the shared node or source regions. | Test |
-| FR-050-AC-3 | A guard whose requested root is absent, non-lowered, or absent from the represented graph; whose typed key, `expression` role or ordinal lacks an exact admitted source-map entry; whose represented node is not an expression or is not Boolean; or whose admitted dependency/body is inconsistent returns the corresponding typed located cause for the first failing guard, with no returned prefix, substitute assumption or panic. A bare application-only package refuses a supplied guard key even when its source key is otherwise plausible. | Test |
-| FR-050-AC-4 | Mutating only the supplied guard key to one with no admitted expression cannot produce a successful assumption. Mutating only `holds` on an admitted Boolean guard changes only the returned polarity; mutating its ordinal or role to an unrepresented occurrence refuses. An independently valid represented guard substituted from another item's list is structurally valid in IR, so only the QSL checked item and faithful driver mapping establish its membership. | Test |
+| FR-050-AC-3 | The public guard query returns the corresponding typed located cause for the first failing guard, with no returned prefix, substitute reference or panic, for these inputs against a reader-admitted package: an absent or non-lowered guard root; a typed key, `expression` role or ordinal lacking an exact admitted source-map entry; a represented non-expression node; or a non-Boolean expression. An application-only package refuses a supplied guard key lacking its lowering root despite a plausible source key. A malformed FR-330 package claiming a lowered guard root but omitting its represented node refuses at admission; a private admitted-then-mutated body/dependency inconsistency returns the existing typed view error without a partial list. | Test |
+| FR-050-AC-4 | Mutating only the supplied guard key to one with no admitted expression cannot produce a successful IR guard reference. Mutating only `holds` on an admitted Boolean guard changes only the returned polarity; mutating its ordinal or role to an unrepresented occurrence refuses. An independently valid represented guard substituted from another item's list is structurally valid in IR, so only the QSL checked item and faithful driver mapping establish its membership. | Test |
 | FR-050-AC-5 | Every guard root has an ordinary FR-035 accounting record. The query returns references from one reader-admitted six-field FR-330 package and changes neither its wire/identity nor the application's forward closure. Added roots may change that package's graph, accounting and canonical identity. FR-049's application plus optional direct-narrow result outcomes remain unchanged when guards are also represented. | Test |
 
 ## Dependencies
@@ -139,5 +143,8 @@ owns the independent scalar result-context selection. QSpec
 `ix://agent-ix/quire-specification/FR-330` owns the package wire. QSL
 `ix://agent-ix/quire-spec-language/FR-062` owns checked path conditions, and
 `ix://agent-ix/quire-spec-language/FR-075` owns the routed item. The driver
-carries the exact guards and roots; CG renders assumptions and binds
-occurrence-aware proof identity.
+carries the exact guards and roots. CG IR-304 owns rendering a supported
+guard and its polarity as an assumption with the same symbolic variable
+assignment as the application, refusing unsupported guard forms or bindings
+with a typed cause, and binding occurrence-aware proof identity. IR's
+structural reference alone does not discharge those CG obligations.
