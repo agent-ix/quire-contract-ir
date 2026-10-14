@@ -57,11 +57,10 @@ relation. Each accepted row shall retain the exact criterion,
 occurrence, and production-symbol keys plus assertion provenance. Missing
 mapping reasons shall be typed and distinguish at least no authored mapping
 from an explicitly authored absence of a production function. A typed
-top-level error shall distinguish invalid source selection, missing owner
-inventory, incomplete owner inventory, inventory source mismatch, inventory
-scope mismatch, and an inventory item-count mismatch. Its owner context shall
-identify IR V2, QSL, or `quire-code-rs`; incomplete errors shall retain the
-typed owner cause.
+top-level error shall distinguish missing owner inventory, incomplete owner
+inventory, inventory source mismatch, inventory scope mismatch, and an
+inventory item-count mismatch. Its owner context shall identify IR V2, QSL,
+or `quire-code-rs`; incomplete errors shall retain the typed owner cause.
 `SourceCorrespondenceRejection` shall distinguish `ForeignSource`,
 `DanglingCriterion`, `DanglingOccurrence`, `DanglingProductionSymbol`,
 `ConflictingRelation`, and `ConflictingProvenance` reasons.
@@ -72,11 +71,7 @@ typed owner cause.
 
 The public types and constructor shall be defined in the cycle-free
 `quire-contract-model` crate, under the `source_obligation` module. They shall
-use only neutral model-owned identity and provenance types. The model manifest
-and public API shall acquire no dependency on Contract Codegen, QSL,
-`quire-code-rs`, a parser crate, or a proof runner. A downstream Codegen
-adapter may borrow the model census and owner-native values; the dependency
-direction shall remain downstream from the model.
+use neutral model-owned identity and provenance types.
 
 The `SourceObligationInput` constructor shall take the selected source, three
 independently optional owner inventory envelopes, and the author-authored
@@ -120,8 +115,8 @@ when all three required owner envelopes pass these checks.
 `QslCheckedRequirementsAndPendingObligations`, and
 `QuireCodeRsProductionModulesAndFunctions`. Each owner shall supply exactly
 its corresponding scope. `SourceCorrespondenceError` shall expose distinct
-variants `InvalidSourceSelection`, `MissingOwnerInventory`,
-`IncompleteOwnerInventory`, `InventorySourceMismatch`,
+variants `MissingOwnerInventory`, `IncompleteOwnerInventory`,
+`InventorySourceMismatch`,
 `InventoryScopeMismatch`, and `InventoryItemCountMismatch`, retaining the
 owner and the relevant expected and observed source, scope, or counts, and the
 typed incomplete cause where applicable.
@@ -167,7 +162,7 @@ candidate denominator.
 | FR-052-AC-2 | A typed fixture containing two criteria, three semantic occurrences, one empty module, two production functions and explicit many-to-many assertions preserves every inventory row and exactly the asserted valid relations with their selected-source provenance. Unmapped criteria, occurrences, modules and functions remain visible with typed missing reasons. Reordering equivalent inputs yields the same ordered census; removing one occurrence from a complete IR V2 inventory changes it. | Test |
 | FR-052-AC-3 | A foreign source, each dangling endpoint, a foreign inventory entry, an exact duplicate, conflicting inventory facts, conflicting assertion relation facts, and conflicting assertion provenance each receive their named deterministic disposition; rejected entries remain inspectable and never enter accepted relations. | Test |
 | FR-052-AC-4 | Inspection of the public constructor and `SourceObligationInput` signature confirms that the input schema has no result, method, profile, artifact, attempt or run field. | Inspection |
-| FR-052-AC-5 | An external default-feature consumer compiles a borrow of `SourceObligationCensus` and its rows from `quire_contract_model::source_obligation`; the model manifest and public items introduce no QSL, Codegen, `quire-code-rs`, parser or proof-runner dependency. | Test |
+| FR-052-AC-5 | An external default-feature consumer compiles a borrow of `SourceObligationCensus` and its rows from `quire_contract_model::source_obligation`. | Test |
 | FR-052-AC-6 | Omitting each of the three owner envelopes in turn returns `MissingOwnerInventory` naming that owner and no census. Marking each envelope incomplete returns `IncompleteOwnerInventory` with the supplied typed cause and no census. A fully parsed production module with no function facts is accepted as complete, retains the module row, and differs observably from both outcomes. | Test |
 | FR-052-AC-7 | Complete IR V2 scope covers every semantic node and source occurrence in the selected V2 graph; complete QSL scope covers every checked `RequirementRecord` and native pending obligation for the selected request; complete `quire-code-rs` scope covers every selected production module and every function fact, including empty modules. Normal exhaustion is required for `Complete`; an early stop, failed parse/request, unavailable selected module, scope/source mismatch, or item-count mismatch produces a typed error and no census. | Test |
 
@@ -178,6 +173,14 @@ owns candidate eligibility, evidence joins, and projections;
 [AD-008](../../assurance/AD-008-proof-coverage-accounting.md) owns their
 accounting meaning. [FR-019](./FR-019-rust-library-interface.md) owns the
 model crate public-items inventory, and [FR-028](./FR-028-separate-cycle-free-contract-model.md)
-establishes the dependency boundary. The typed inputs retain owner-native
+owns the model dependency boundary. The typed inputs retain owner-native
 identities from the IR V2, QSL, and `quire-code-rs` APIs; this requirement
 defines no replacement parser or owner schema.
+
+The selected source is an existing typed `SourceIdentity` from
+[FR-011](../../core/functional/FR-011-package-identity.md). Its private fields
+are constructed from a `SourceDocumentId` accepted by the validating
+constructor and a `SourceRevision` in the positive, bounded range. Invalid
+source identity values are unrepresentable at this interface. An owner
+inventory that names another valid source uses the distinct
+`InventorySourceMismatch` error.

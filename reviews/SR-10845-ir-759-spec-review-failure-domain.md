@@ -16,3 +16,9 @@ The requirement names foreign, dangling, duplicate and conflicting-input outcome
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | An incomplete inventory is indistinguishable from a complete inventory with omitted or empty facts | FR-052 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | FR-052 now defines owner envelopes, a completeness state, when owners can mark them complete, and distinct missing/incomplete outcomes. |

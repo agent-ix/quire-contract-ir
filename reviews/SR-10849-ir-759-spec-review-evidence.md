@@ -17,3 +17,10 @@ TC-452 supplies a plausible typed fixture and adverse cases for the principal ma
 | --- | --- | --- | --- |
 | FND-001 | medium | AC-4's specified test cannot vary proof, method or profile inputs that the API excludes | FR-052-AC-4 |
 | FND-002 | medium | AC-5's downstream borrow claim needs consumer compile evidence, but its declared method is Inspection only | FR-052-AC-5, TC-452 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | AC-4 now specifies API-signature inspection for the absence of proof/result/method inputs. |
+| FND-002 | fixed | AC-5 now declares Test, and TC-452 compiles an external consumer that borrows the census and rows. |

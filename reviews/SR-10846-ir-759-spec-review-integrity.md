@@ -17,3 +17,10 @@ Identifiers, reference links, FR-019 inventory placement and the spec index vali
 | --- | --- | --- | --- |
 | FND-001 | medium | The spec requires an incomplete-inventory error without defining how inventory completeness is established | FR-052 |
 | FND-002 | medium | Conflicting assertion identities require a typed rejection but no conflict reason is specified or directly tested | FR-052-AC-3, TC-452 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | FR-052 now defines completeness evidence, complete-empty inventories, owner/scope matching, and typed incomplete failures. |
+| FND-002 | fixed | FR-052 names `ConflictingRelation` and `ConflictingProvenance`; AC-3 and TC-452 now exercise each separately. |

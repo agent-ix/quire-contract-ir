@@ -16,3 +16,9 @@ The design spans three authoritative inventory owners and many-to-many correspon
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | Owner-inventory completeness is a high-impact integration risk with no defined completeness signal | FR-052 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | FR-052 now requires owner-issued completeness state after full-scope exhaustion and rejects missing, incomplete, mismatched, or miscounted envelopes. |
