@@ -19,14 +19,7 @@ fn repository() -> PathBuf {
 
 fn metadata(features: &[String]) -> Value {
     let output = Command::new(env!("CARGO"))
-        .args([
-            "metadata",
-            "--locked",
-            "--format-version",
-            "1",
-            "--filter-platform",
-        ])
-        .arg(host())
+        .args(["metadata", "--locked", "--format-version", "1"])
         .args(features)
         .arg("--manifest-path")
         .arg(repository().join("Cargo.toml"))
@@ -38,17 +31,6 @@ fn metadata(features: &[String]) -> Value {
         String::from_utf8_lossy(&output.stderr)
     );
     serde_json::from_slice(&output.stdout).expect("cargo metadata must emit JSON")
-}
-
-fn host() -> String {
-    let output = Command::new("rustc").arg("-vV").output().unwrap();
-    assert!(output.status.success());
-    String::from_utf8(output.stdout)
-        .unwrap()
-        .lines()
-        .find_map(|line| line.strip_prefix("host: "))
-        .unwrap()
-        .to_owned()
 }
 
 fn package<'a>(metadata: &'a Value, name: &str) -> &'a Value {
@@ -242,6 +224,11 @@ fn graph_control_detects_indirect_owners_build_edges_and_cycles_but_excludes_dev
         production_graph(&graph, "model", true).unwrap(),
         BTreeSet::from(["model".into(), "middle".into()])
     );
+    graph["resolve"]["nodes"][1]["deps"] =
+        json!([{"pkg": "owner", "dep_kinds": [{"kind": null, "target": "cfg(windows)"}]}]);
+    assert!(production_graph(&graph, "model", true)
+        .unwrap_err()
+        .contains("owner"));
     graph["resolve"]["nodes"][1]["deps"] = json!([edge("model", Value::Null)]);
     assert!(production_graph(&graph, "model", true)
         .unwrap_err()
@@ -517,6 +504,17 @@ struct Boundary {
     violations: BTreeSet<String>,
 }
 impl<'ast> Visit<'ast> for Boundary {
+    fn visit_item_type(&mut self, item: &'ast syn::ItemType) {
+        if matches!(item.vis, syn::Visibility::Public(_)) {
+            let mut surface = AdmissionSignature::default();
+            surface.visit_type(&item.ty);
+            if surface.has_callback {
+                self.violations.insert(item.ident.to_string());
+            }
+        }
+        visit::visit_item_type(self, item);
+    }
+
     fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
         if matches!(item.vis, syn::Visibility::Public(_)) && admission_callback(&item.sig) {
             self.violations
@@ -659,6 +657,8 @@ fn boundary_control_rejects_copied_owner_types_parsers_callbacks_and_trust_flags
         "pub fn admit(validator: &dyn ExternalValidator) {}",
         "pub trait OwnerValidator { fn validate(&self, bytes: &[u8]) -> bool; }",
         "pub fn admit(validator: fn(&str) -> bool) {}",
+        "pub type Gate = dyn Fn(&[u8]) -> bool; pub fn admit(gate: &Gate) {}",
+        "pub type Gate = fn(&[u8]) -> bool; pub fn admit(gate: Gate) {}",
     ] {
         assert!(!boundary(source).is_empty(), "callback control {source}");
     }
