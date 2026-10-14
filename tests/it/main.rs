@@ -13,6 +13,7 @@ mod support;
 
 mod application_node_identity;
 
+mod admitted_guard_context;
 mod admitted_result_context;
 mod canonical_v1_quire_canonical;
 mod canonicalization;

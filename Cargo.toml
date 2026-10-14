@@ -33,6 +33,13 @@ name = "conformance_qsl_ir769"
 path = "tests/conformance_qsl_ir769/main.rs"
 test = false
 
+# FR-050/TC-450: independently read QSL's checked RequirementItem path
+# conditions before mapping the FR-062 RR-13 guards into admitted IR.
+[[test]]
+name = "conformance_qsl_ir779"
+path = "tests/conformance_qsl_ir779/main.rs"
+test = false
+
 # FR-038-AC-214: 177 MB fixture and three isolated reader processes.
 # Explicitly invoked for the memory gate, excluded from ordinary `make test`.
 [[test]]

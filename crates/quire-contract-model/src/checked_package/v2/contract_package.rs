@@ -1,7 +1,13 @@
 //! FR-035 and QSpec FR-330: the single target-neutral ContractPackage wire.
 
+mod guard_context;
 mod result_context;
 
+pub use guard_context::{
+    ContractGuardContextErrorV1, ContractGuardContextFailureCauseV1, ContractGuardContextFailureV1,
+    ContractGuardContextViewV1, ContractGuardReferenceV1, ContractLoweredGuardContextV1,
+    ContractPathGuardV1,
+};
 pub use result_context::{
     ContractLoweredResultV1, ContractOccurrenceKeyV1, ContractResultBoundV1,
     ContractResultContextV1, ContractResultViewV1,
@@ -341,6 +347,130 @@ pub struct ContractPackageV1 {
     wire: ContractPackageWireV1,
 }
 
+pub(super) struct GuardContextWork {
+    limit: Option<u64>,
+    consumed: u64,
+}
+
+impl GuardContextWork {
+    pub(super) fn unbounded_view() -> Self {
+        Self {
+            limit: None,
+            consumed: 0,
+        }
+    }
+
+    #[cfg(feature = "fault-injection")]
+    pub(super) fn with_limit(limit: u64) -> Self {
+        Self {
+            limit: Some(limit),
+            consumed: 0,
+        }
+    }
+
+    pub(super) fn bounded_query() -> Self {
+        Self {
+            limit: Some(CheckedPackageReadLimits::bounded().work),
+            consumed: 0,
+        }
+    }
+
+    pub(super) fn charge(&mut self, amount: u64) -> Result<(), CheckedPackageIncomplete> {
+        let consumed = self.consumed.saturating_add(amount);
+        if self.limit.is_some_and(|limit| consumed > limit) {
+            return Err(CheckedPackageIncomplete {
+                limit_kind: CheckedPackageLimit::Work,
+                limit: self.limit.unwrap_or(u64::MAX),
+                consumed,
+                path: None,
+            });
+        }
+        self.consumed = consumed;
+        Ok(())
+    }
+}
+
+pub(super) struct ContractPackageTraversalIndex<'a> {
+    positions: BTreeMap<&'a CheckedNodeId, usize>,
+    sources: BTreeMap<&'a CheckedNodeId, &'a [CheckedSourceMapEntry]>,
+    accounting: BTreeMap<&'a CheckedNodeId, &'a ContractFeatureRecordV1>,
+}
+
+fn json_value_count(root: &Value) -> Option<u64> {
+    let mut pending = vec![root];
+    let mut count = 0_u64;
+    while let Some(value) = pending.pop() {
+        count = count.checked_add(1)?;
+        match value {
+            Value::Array(values) => pending.extend(values.iter()),
+            Value::Object(values) => pending.extend(values.values()),
+            _ => {}
+        }
+    }
+    Some(count)
+}
+
+impl<'a> ContractPackageTraversalIndex<'a> {
+    pub(super) fn build(
+        package: &'a ContractPackageV1,
+        work: &mut GuardContextWork,
+    ) -> Result<Self, CheckedPackageIncomplete> {
+        let node_count = u64::try_from(package.wire.semantic_graph.nodes.len()).unwrap_or(u64::MAX);
+        let source_count = package
+            .wire
+            .source_map
+            .nodes
+            .iter()
+            .try_fold(0_u64, |total, entry| {
+                total
+                    .checked_add(1)?
+                    .checked_add(u64::try_from(entry.occurrences.len()).ok()?)
+            })
+            .unwrap_or(u64::MAX);
+        let accounting_count =
+            u64::try_from(package.wire.feature_accounting.len()).unwrap_or(u64::MAX);
+        work.charge(
+            node_count
+                .saturating_add(source_count)
+                .saturating_add(accounting_count),
+        )?;
+
+        let positions = package
+            .wire
+            .semantic_graph
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect();
+        let sources = package
+            .wire
+            .source_map
+            .nodes
+            .iter()
+            .map(|entry| (&entry.node_id, entry.occurrences.as_slice()))
+            .collect();
+        let mut accounting = BTreeMap::new();
+        for record in &package.wire.feature_accounting {
+            accounting
+                .entry(record.node_id())
+                .and_modify(|existing: &mut &ContractFeatureRecordV1| {
+                    if existing.disposition() != ContractDispositionV1::Lowered
+                        && record.disposition() == ContractDispositionV1::Lowered
+                    {
+                        *existing = record;
+                    }
+                })
+                .or_insert(record);
+        }
+        Ok(Self {
+            positions,
+            sources,
+            accounting,
+        })
+    }
+}
+
 /// One reached local node and its exact admitted source correspondence.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractReachedNodeV1<'a> {
@@ -406,6 +536,111 @@ impl From<ValidationFailure> for ContractRootViewError {
 }
 
 impl ContractPackageV1 {
+    pub(super) fn reached_closure_indexed<'a>(
+        &'a self,
+        requested: &CheckedNodeId,
+        index: &ContractPackageTraversalIndex<'a>,
+        work: &mut GuardContextWork,
+    ) -> Result<ContractRootViewV1<'a>, ContractRootViewError> {
+        work.charge(1).map_err(ContractRootViewError::Incomplete)?;
+        let Some(record) = index.accounting.get(requested).copied() else {
+            return Ok(ContractRootViewV1::Absent);
+        };
+        if record.disposition() != ContractDispositionV1::Lowered {
+            return Ok(ContractRootViewV1::NonLowered(record));
+        }
+        let nodes = &self.wire.semantic_graph.nodes;
+        let Some(&root_position) = index.positions.get(requested) else {
+            return Err(ContractRootViewError::Inconsistent);
+        };
+        let root = &nodes[root_position];
+        let mut visited = BTreeSet::new();
+        let mut pending = VecDeque::from([requested.clone()]);
+        let mut selected_references = BTreeSet::new();
+        while let Some(key) = pending.pop_front() {
+            work.charge(1).map_err(ContractRootViewError::Incomplete)?;
+            if !visited.insert(key.clone()) {
+                continue;
+            }
+            let Some(&position) = index.positions.get(&key) else {
+                return Err(ContractRootViewError::Inconsistent);
+            };
+            let node = &nodes[position];
+            let edge_count = u64::try_from(node.dependencies.len())
+                .unwrap_or(u64::MAX)
+                .saturating_add(1);
+            work.charge(edge_count)
+                .map_err(ContractRootViewError::Incomplete)?;
+            pending.push_back(node.semantic_type.clone());
+            pending.extend(node.dependencies.iter().cloned());
+            let at = JsonPointer::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .index(position);
+            let kind = super::decode_node_kind(node, |member| at.clone().key(member))?;
+            let steps = [
+                Step::Key("semantic_graph"),
+                Step::Key("nodes"),
+                Step::Index(position),
+                Step::Key("body"),
+            ];
+            let body_units = json_value_count(&node.body).unwrap_or(u64::MAX);
+            work.charge(body_units.saturating_mul(4))
+                .map_err(ContractRootViewError::Incomplete)?;
+            super::validate_body(
+                kind,
+                &node.body,
+                &Trail::Base(&steps),
+                &mut |target, _site, _at| pending.push_back(target.clone()),
+            )?;
+            let selected = super::dependency_references::selected_reference_targets(&node.body)
+                .map_err(|()| ContractRootViewError::Inconsistent)?;
+            for (package, node) in selected {
+                work.charge(1).map_err(ContractRootViewError::Incomplete)?;
+                selected_references.insert(ContractSelectedReferenceV1 { package, node });
+            }
+        }
+        work.charge(u64::try_from(visited.len()).unwrap_or(u64::MAX))
+            .map_err(ContractRootViewError::Incomplete)?;
+        let reached = visited
+            .iter()
+            .map(|key| {
+                let position = index
+                    .positions
+                    .get(key)
+                    .ok_or(ContractRootViewError::Inconsistent)?;
+                let node = nodes
+                    .get(*position)
+                    .ok_or(ContractRootViewError::Inconsistent)?;
+                let sources = index
+                    .sources
+                    .get(key)
+                    .ok_or(ContractRootViewError::Inconsistent)?;
+                work.charge(1_u64.saturating_add(u64::try_from(sources.len()).unwrap_or(u64::MAX)))
+                    .map_err(ContractRootViewError::Incomplete)?;
+                Ok(ContractReachedNodeV1 { node, sources })
+            })
+            .collect::<Result<Vec<_>, ContractRootViewError>>()?;
+        work.charge(u64::try_from(reached.len()).unwrap_or(u64::MAX))
+            .map_err(ContractRootViewError::Incomplete)?;
+        let classified = reached
+            .iter()
+            .map(|entry| {
+                let tag = CheckedNodeTag::from_wire(&entry.node.node_tag)
+                    .ok_or(ContractRootViewError::Inconsistent)?;
+                Ok((&entry.node.node_id, tag))
+            })
+            .collect::<Result<Vec<_>, ContractRootViewError>>()?;
+        let (bounds, claims) = super::lower::classify_reached_keys(requested, classified);
+        Ok(ContractRootViewV1::Lowered(ContractReachedClosureV1 {
+            root,
+            nodes: reached,
+            selected_references: selected_references.into_iter().collect(),
+            bounds,
+            claims,
+        }))
+    }
+
     /// The exact six-field wire, available for read-only inspection.
     pub fn wire(&self) -> &ContractPackageWireV1 {
         &self.wire
@@ -424,6 +659,23 @@ impl ContractPackageV1 {
         self.wire.source_map.nodes.len() != before
     }
 
+    /// Replace one admitted node body with an invalid value to exercise
+    /// defensive reached-view validation after admission.
+    #[cfg(feature = "fault-injection")]
+    pub fn fault_inject_invalid_body_for_test(&mut self, key: &CheckedNodeId) -> bool {
+        let Some(node) = self
+            .wire
+            .semantic_graph
+            .nodes
+            .iter_mut()
+            .find(|node| &node.node_id == key)
+        else {
+            return false;
+        };
+        node.body = Value::Null;
+        true
+    }
+
     /// The canonical semantic identity retained in the admitted value.
     pub fn identity(&self) -> &CheckedSemanticId {
         &self.wire.identity
@@ -435,108 +687,10 @@ impl ContractPackageV1 {
         &self,
         requested: &CheckedNodeId,
     ) -> Result<ContractRootViewV1<'_>, ContractRootViewError> {
-        let matching = self
-            .wire
-            .feature_accounting
-            .iter()
-            .filter(|record| record.node_id() == requested);
-        let Some(record) = matching
-            .clone()
-            .find(|record| record.disposition() == ContractDispositionV1::Lowered)
-            .or_else(|| matching.into_iter().next())
-        else {
-            return Ok(ContractRootViewV1::Absent);
-        };
-        if record.disposition() != ContractDispositionV1::Lowered {
-            return Ok(ContractRootViewV1::NonLowered(record));
-        }
-
-        let nodes = &self.wire.semantic_graph.nodes;
-        let positions = nodes
-            .iter()
-            .enumerate()
-            .map(|(position, node)| (&node.node_id, position))
-            .collect::<BTreeMap<_, _>>();
-        let Some(&root_position) = positions.get(requested) else {
-            return Err(ContractRootViewError::Inconsistent);
-        };
-        let root = &nodes[root_position];
-        let mut visited = BTreeSet::new();
-        let mut pending = VecDeque::from([requested.clone()]);
-        let mut selected_references = BTreeSet::new();
-        while let Some(key) = pending.pop_front() {
-            if !visited.insert(key.clone()) {
-                continue;
-            }
-            let Some(&position) = positions.get(&key) else {
-                return Err(ContractRootViewError::Inconsistent);
-            };
-            let node = &nodes[position];
-            pending.push_back(node.semantic_type.clone());
-            pending.extend(node.dependencies.iter().cloned());
-            let at = JsonPointer::root()
-                .key("semantic_graph")
-                .key("nodes")
-                .index(position);
-            let kind = super::decode_node_kind(node, |member| at.clone().key(member))?;
-            let steps = [
-                Step::Key("semantic_graph"),
-                Step::Key("nodes"),
-                Step::Index(position),
-                Step::Key("body"),
-            ];
-            super::validate_body(
-                kind,
-                &node.body,
-                &Trail::Base(&steps),
-                &mut |target, _site, _at| pending.push_back(target.clone()),
-            )?;
-            let selected = super::dependency_references::selected_reference_targets(&node.body)
-                .map_err(|()| ContractRootViewError::Inconsistent)?;
-            selected_references.extend(
-                selected
-                    .into_iter()
-                    .map(|(package, node)| ContractSelectedReferenceV1 { package, node }),
-            );
-        }
-        let mapped = self
-            .wire
-            .source_map
-            .nodes
-            .iter()
-            .map(|entry| (&entry.node_id, entry.occurrences.as_slice()))
-            .collect::<BTreeMap<_, _>>();
-        let reached = visited
-            .iter()
-            .map(|key| {
-                let position = positions
-                    .get(key)
-                    .ok_or(ContractRootViewError::Inconsistent)?;
-                let node = nodes
-                    .get(*position)
-                    .ok_or(ContractRootViewError::Inconsistent)?;
-                Ok(ContractReachedNodeV1 {
-                    node,
-                    sources: mapped.get(key).ok_or(ContractRootViewError::Inconsistent)?,
-                })
-            })
-            .collect::<Result<Vec<_>, ContractRootViewError>>()?;
-        let classified = reached
-            .iter()
-            .map(|entry| {
-                let tag = CheckedNodeTag::from_wire(&entry.node.node_tag)
-                    .ok_or(ContractRootViewError::Inconsistent)?;
-                Ok((&entry.node.node_id, tag))
-            })
-            .collect::<Result<Vec<_>, ContractRootViewError>>()?;
-        let (bounds, claims) = super::lower::classify_reached_keys(requested, classified);
-        Ok(ContractRootViewV1::Lowered(ContractReachedClosureV1 {
-            root,
-            nodes: reached,
-            selected_references: selected_references.into_iter().collect(),
-            bounds,
-            claims,
-        }))
+        let mut work = GuardContextWork::unbounded_view();
+        let index = ContractPackageTraversalIndex::build(self, &mut work)
+            .map_err(ContractRootViewError::Incomplete)?;
+        self.reached_closure_indexed(requested, &index, &mut work)
     }
 }
 
