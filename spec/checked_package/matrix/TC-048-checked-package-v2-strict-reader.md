@@ -11,6 +11,8 @@ relationships:
     type: verifies
   - target: ix://agent-ix/quire-specification/TC-217
     type: references
+  - target: ix://agent-ix/quire-specification/TC-931
+    type: references
 ---
 # TC-048: CheckedPackage V2 strict reader re-derives package and nominal identities
 
@@ -86,6 +88,41 @@ raw-digest `wrong-model-selection`, and the `expected` and `actual` digests the 
 
 ## Test Procedure
 
+For FR-038-AC-239 through FR-038-AC-241, construct a local
+`protocol`/`protocol_clause` target and a `protocol`/`protocol_reference`
+carrier using the public typed vocabulary. Give the carrier one `expression`
+occurrence, a closed `reference` body, the target's exact typed key as body
+target and sole dependency, and the target's semantic type. Independently
+compute the carrier's QSL FR-092 structural preimage and canonical key,
+mirror it in the graph identity projection, refresh the package id, and read
+the package through `CheckedPackageV2::read`. Check the typed form, exact
+local target, single graph collection and total source correspondence. Change
+the target, re-derive every affected identity and verify that the carrier key
+changes while the refreshed package admits. Separately build a reader-admissible
+local `protocol` node of form `role` or `control` under its own valid body and
+key. Point a carrier at that exact node, set its sole dependency and semantic
+type to match, independently recompute its structural key, identity
+projection and package id, and assert public-reader admission. This second
+positive control must fail if the target join recognizes only
+`protocol_clause`; it must not be satisfied by merely recognizing the
+carrier's `protocol_reference` form at wire decode.
+
+From that admitting control, separately author an extra dependency and an
+unequal dependency, then a changed body target with the old carrier key.
+Check graph-shape and stale-key refusals before target resolution. For the
+join controls, change body target and sole dependency together to a key
+absent locally, then to a present non-protocol node and to a protocol node
+of unequal semantic type. Re-derive the carrier key, identity projection and
+package id in each case, and check the exact code, cause and `/body/target`
+pointer. Repeat the absent-local case with a selected, supplied admitted
+dependency package containing that same typed key but no local copy. Pair a
+carrier join defect with a valid-key frame or operation defect to check
+declaration-stage precedence. Finally try a non-reference body, a
+`dependency_reference` body, an extra body member, extra occurrence, and
+each forbidden declaration, owner, nominal preimage and recursion member.
+Keep the QSpec fixture in its authoritative checkout; derive the local
+controls and identities in this repository's test builder.
+
 For AC-210 through AC-213, start with valid checked V2 packages, not a
 post-admission mutation of an in-memory graph. Build a self-typed declared
 unit, two values of its type, a Boolean, an Integer, and the selected laws and
@@ -156,6 +193,22 @@ node under another domain package's identity and re-read: it refuses
 `missing_declaration`/`missing-selection` at the member's `declaration`.
 
 ## Expected Results
+
+The valid carrier and rekeyed `protocol_clause` target admit with the exact
+local target and one graph collection. The separately keyed carrier to a
+`role` or `control` protocol target also admits and resolves that exact local
+node; a clause-only target join fails this control. The unequal or extra
+dependency refuses
+`invalid_semantic_graph` at `/dependencies`; the retained stale key refuses
+`invalid_package`/`stale-node-key`. Both absent-local controls refuse
+`missing_declaration`/`missing-name` at `/body/target`, including the one
+whose selected dependency contains the key. The present wrong-tag and
+wrong-type controls refuse `ill_typed`/`operator-ineligible` there. These
+target checks precede frame and operation checks. The non-reference,
+`dependency_reference` and extra-member bodies fail the closed schema;
+the other forbidden carrier members and occurrence count refuse before the
+target join. No negative control is counted as covered by an earlier,
+unrelated identity or evidence refusal.
 
 The positive controls above admit. A wrong quantity operand, an aggregate in
 a Boolean operand slot, or a mixed-family `control.if` branch refuses
