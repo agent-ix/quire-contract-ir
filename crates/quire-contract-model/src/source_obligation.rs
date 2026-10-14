@@ -10,9 +10,7 @@ use std::{collections::BTreeMap, fmt};
 
 use thiserror::Error;
 
-use crate::{
-    CheckedNodeId, CheckedOccurrence, CheckedSemanticId, ClauseRef, RequirementRef, SourceIdentity,
-};
+use crate::{CheckedNodeId, CheckedOccurrence, CheckedSemanticId, ClauseRef, SourceIdentity};
 
 /// The owner whose complete inventory an envelope carries.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -68,6 +66,13 @@ pub enum SourceInventoryIncompleteReason {
         /// Owner-native request cause retained by the adapter.
         cause: Box<str>,
     },
+    /// QSL's type work stopped at its first unaffordable charge.
+    TypeWorkExhausted(SourceTypeExhaustion),
+    /// QSL reported unfinished type admission for a native declaration handle.
+    TypeAdmissionUnfinished {
+        /// Native declaration handle whose type admission did not complete.
+        declaration: SourceDeclarationHandle,
+    },
     /// A selected production module was unavailable or could not be parsed.
     ModuleUnavailable {
         /// Selected module that was unavailable.
@@ -75,6 +80,113 @@ pub enum SourceInventoryIncompleteReason {
         /// Owner-native module cause retained by the adapter.
         cause: Box<str>,
     },
+}
+
+/// QSL's native type-work capacity, without a dependency on QSL.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub enum SourceTypeWorkDimension {
+    /// Inspected or copied bytes.
+    Bytes,
+    /// Entered declarations.
+    Declarations,
+    /// Syntax visits and boundary probes.
+    Expressions,
+    /// Type constraints and lookups.
+    Constraints,
+    /// Dependency visits.
+    Edges,
+    /// Reserved normalization work.
+    Normalization,
+    /// Retained records.
+    Records,
+    /// Maximum inspected depth.
+    Depth,
+}
+
+/// QSL declaration handle projected into the selected binding namespace.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct SourceDeclarationHandle(pub usize);
+
+/// QSL unit handle projected into the selected binding namespace.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct SourceUnitHandle(pub usize);
+
+/// QSL expression handle projected from the original unit.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct SourceExpressionHandle(pub usize);
+
+/// Exact native locus of a pending QSL obligation or exhausted charge.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct SourceObligationSite {
+    /// Handle in the selected binding namespace.
+    pub declaration: SourceDeclarationHandle,
+    /// Handle in that namespace's units.
+    pub unit: SourceUnitHandle,
+    /// Unit-local expression handle, when present.
+    pub expression: Option<SourceExpressionHandle>,
+    /// Inclusive start byte of the original source span.
+    pub start: usize,
+    /// Exclusive end byte of the original source span.
+    pub end: usize,
+}
+
+/// QSL's first unaffordable type-work charge, retaining its native fields.
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct SourceTypeExhaustion {
+    /// Exhausted capacity.
+    pub dimension: SourceTypeWorkDimension,
+    /// Effective capacity limit.
+    pub limit: usize,
+    /// Successfully charged usage or prior depth.
+    pub prior: usize,
+    /// Unpaid increment or requested depth.
+    pub requested: usize,
+    /// Original location where work stopped.
+    pub site: SourceObligationSite,
+}
+
+/// QSL checked requirement map key: wire node plus native role and ordinal.
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct SourceRequirementOccurrenceId {
+    /// Bytes of QSL's existing wire node id; the model computes no digest.
+    pub node: [u8; 32],
+    /// QSL origin role, without restricting its native vocabulary.
+    pub role: Box<str>,
+    /// QSL origin ordinal.
+    pub ordinal: u64,
+}
+
+/// QSL's native pending-obligation kind and any target it carries.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub enum SourcePendingObligationKind {
+    /// Presence of an optional value.
+    Presence,
+    /// Arithmetic result range.
+    ArithmeticRange,
+    /// Nonzero divisor.
+    Nonzero,
+    /// Sum projection range.
+    SumProjection,
+    /// Every intermediate sum prefix.
+    SumPrefixes,
+    /// Totality of the exact callee declaration.
+    PredicateTotal { target: SourceDeclarationHandle },
+    /// Runtime graph closure.
+    GraphClosure,
+    /// Runtime invocation context.
+    InvocationContext,
+    /// Runtime capture input.
+    CaptureInput,
+}
+
+/// Identity of a QSL pending obligation from its exact native site and kind.
+/// Identical site and kind values denote one inventory identity.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct SourcePendingObligationId {
+    /// The native declaration, unit, expression, and span.
+    pub site: SourceObligationSite,
+    /// The native kind, including a predicate target when present.
+    pub kind: SourcePendingObligationKind,
 }
 
 /// Owner-emitted completeness state for one inventory envelope.
@@ -165,7 +277,7 @@ pub enum SourceInventoryIdentity {
     /// A checked source criterion, identified by its native clause reference.
     Criterion(ClauseRef),
     /// A complete checked requirement record reported by QSL.
-    RequirementRecord(RequirementRef),
+    RequirementRecord(SourceRequirementOccurrenceId),
     /// A semantic node from the selected IR V2 graph.
     SemanticNode {
         /// Native checked-node identity.
@@ -176,7 +288,7 @@ pub enum SourceInventoryIdentity {
     /// A source occurrence from the selected IR V2 graph.
     SemanticOccurrence(SourceSemanticOccurrenceId),
     /// A native QSL pending-obligation identity.
-    PendingObligation(CheckedSemanticId),
+    PendingObligation(SourcePendingObligationId),
     /// A selected production module.
     ProductionModule(SourceProductionModuleId),
     /// A selected production function.
@@ -200,10 +312,10 @@ impl SourceInventoryIdentity {
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum InventoryKey {
     Criterion(ClauseRef),
-    RequirementRecord(RequirementRef),
+    RequirementRecord(SourceRequirementOccurrenceId),
     SemanticNode(CheckedNodeId),
     SemanticOccurrence(SourceSemanticOccurrenceId),
-    PendingObligation(CheckedSemanticId),
+    PendingObligation(SourcePendingObligationId),
     ProductionModule(SourceProductionModuleId),
     ProductionFunction(SourceProductionFunctionId),
 }
@@ -217,7 +329,7 @@ impl From<&SourceInventoryIdentity> for InventoryKey {
                 Self::SemanticNode(identity.clone())
             }
             SourceInventoryIdentity::SemanticOccurrence(id) => Self::SemanticOccurrence(id.clone()),
-            SourceInventoryIdentity::PendingObligation(id) => Self::PendingObligation(id.clone()),
+            SourceInventoryIdentity::PendingObligation(id) => Self::PendingObligation(*id),
             SourceInventoryIdentity::ProductionModule(id) => Self::ProductionModule(id.clone()),
             SourceInventoryIdentity::ProductionFunction(id) => Self::ProductionFunction(id.clone()),
         }
@@ -867,10 +979,6 @@ pub fn build_source_obligation_census(
         .iter()
         .map(|r| r.criterion.clone())
         .collect::<std::collections::BTreeSet<_>>();
-    let mapped_requirements = mapped_criteria
-        .iter()
-        .map(|criterion| criterion.requirement().clone())
-        .collect::<std::collections::BTreeSet<_>>();
     let mapped_occurrences = accepted
         .iter()
         .filter(|r| r.production_function.is_some())
@@ -895,16 +1003,18 @@ pub fn build_source_obligation_census(
         {
             continue;
         }
+        // Assertions name criteria, IR occurrences, and production functions.
+        // A QSL record or pending obligation has no asserted endpoint here.
         let mapped = match &row.identity {
             SourceInventoryIdentity::Criterion(id) => mapped_criteria.contains(id),
-            SourceInventoryIdentity::RequirementRecord(id) => mapped_requirements.contains(id),
+            SourceInventoryIdentity::RequirementRecord(_) => false,
             SourceInventoryIdentity::SemanticOccurrence(id) => mapped_occurrences.contains(id),
             SourceInventoryIdentity::ProductionFunction(id) => mapped_functions.contains(id),
             SourceInventoryIdentity::ProductionModule(id) => mapped_modules.contains(id),
             SourceInventoryIdentity::SemanticNode { identity, .. } => accepted
                 .iter()
                 .any(|r| r.production_function.is_some() && &r.occurrence.node == identity),
-            SourceInventoryIdentity::PendingObligation(id) => selected.iter().any(|candidate| matches!(&candidate.identity, SourceInventoryIdentity::SemanticNode { semantic, .. } if semantic == id)),
+            SourceInventoryIdentity::PendingObligation(_) => false,
         };
         row.disposition = if mapped {
             SourceInventoryDisposition::Mapped

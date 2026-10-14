@@ -8,11 +8,13 @@ use ix_trace_rs::trace;
 use quire_contract_model::source_obligation::{
     build_source_obligation_census, SourceAssertionId, SourceAssertionProvenance,
     SourceContractAuthorId, SourceCorrespondenceAssertion, SourceCorrespondenceError,
-    SourceCorrespondenceRejectionReason, SourceInventoryCompleteness, SourceInventoryDisposition,
-    SourceInventoryEnvelope, SourceInventoryIdentity, SourceInventoryIncompleteReason,
-    SourceInventoryOwner, SourceInventoryRow, SourceInventoryScope, SourceMissingMappingReason,
-    SourceObligationInput, SourceProductionFunctionId, SourceProductionModuleId,
-    SourceSemanticOccurrenceId,
+    SourceCorrespondenceRejectionReason, SourceDeclarationHandle, SourceExpressionHandle,
+    SourceInventoryCompleteness, SourceInventoryDisposition, SourceInventoryEnvelope,
+    SourceInventoryIdentity, SourceInventoryIncompleteReason, SourceInventoryOwner,
+    SourceInventoryRow, SourceInventoryScope, SourceMissingMappingReason, SourceObligationInput,
+    SourceObligationSite, SourcePendingObligationId, SourcePendingObligationKind,
+    SourceProductionFunctionId, SourceProductionModuleId, SourceRequirementOccurrenceId,
+    SourceSemanticOccurrenceId, SourceTypeExhaustion, SourceTypeWorkDimension, SourceUnitHandle,
 };
 
 const SOURCE_OBLIGATION_API: &str =
@@ -42,6 +44,30 @@ fn semantic(name: &str) -> CheckedSemanticId {
         domain: "quire.semantic-obligation/v1".into(),
         algorithm: "sha256".into(),
         digest: format!("{name:0<64}").into(),
+    }
+}
+
+fn qsl_requirement(node: u8, role: &str, ordinal: u64) -> SourceRequirementOccurrenceId {
+    SourceRequirementOccurrenceId {
+        node: [node; 32],
+        role: role.into(),
+        ordinal,
+    }
+}
+
+fn qsl_pending(
+    expression: Option<usize>,
+    kind: SourcePendingObligationKind,
+) -> SourcePendingObligationId {
+    SourcePendingObligationId {
+        site: SourceObligationSite {
+            declaration: SourceDeclarationHandle(1),
+            unit: SourceUnitHandle(2),
+            expression: expression.map(SourceExpressionHandle),
+            start: 10,
+            end: 20,
+        },
+        kind,
     }
 }
 
@@ -174,11 +200,31 @@ fn fixture() -> Fixture {
             inventory_item(&source, SourceInventoryIdentity::Criterion(c2.clone())),
             inventory_item(
                 &source,
-                SourceInventoryIdentity::RequirementRecord(c1.requirement().clone()),
+                SourceInventoryIdentity::RequirementRecord(qsl_requirement(1, "expression", 0)),
             ),
-            inventory_item(&source, SourceInventoryIdentity::PendingObligation(s1)),
-            inventory_item(&source, SourceInventoryIdentity::PendingObligation(s2)),
-            inventory_item(&source, SourceInventoryIdentity::PendingObligation(s3)),
+            inventory_item(
+                &source,
+                SourceInventoryIdentity::PendingObligation(qsl_pending(
+                    Some(0),
+                    SourcePendingObligationKind::Presence,
+                )),
+            ),
+            inventory_item(
+                &source,
+                SourceInventoryIdentity::PendingObligation(qsl_pending(
+                    Some(1),
+                    SourcePendingObligationKind::Nonzero,
+                )),
+            ),
+            inventory_item(
+                &source,
+                SourceInventoryIdentity::PendingObligation(qsl_pending(
+                    Some(2),
+                    SourcePendingObligationKind::PredicateTotal {
+                        target: SourceDeclarationHandle(3),
+                    },
+                )),
+            ),
         ],
     );
     let code = make_envelope(
@@ -577,10 +623,15 @@ fn tc_452_missing_incomplete_scope_source_and_count_never_return_a_census() {
             SourceInventoryOwner::IrV2 => SourceInventoryIncompleteReason::EarlyStop {
                 owner: missing_owner,
             },
-            SourceInventoryOwner::Qsl => SourceInventoryIncompleteReason::RequestFailed {
-                owner: missing_owner,
-                cause: "checked RequirementRecord request failed".into(),
-            },
+            SourceInventoryOwner::Qsl => {
+                SourceInventoryIncompleteReason::TypeWorkExhausted(SourceTypeExhaustion {
+                    dimension: SourceTypeWorkDimension::Records,
+                    limit: 4,
+                    prior: 4,
+                    requested: 1,
+                    site: qsl_pending(Some(0), SourcePendingObligationKind::Presence).site,
+                })
+            }
             SourceInventoryOwner::QuireCodeRs => {
                 SourceInventoryIncompleteReason::ModuleUnavailable {
                     module: SourceProductionModuleId::new("src/lib.rs"),
@@ -753,4 +804,103 @@ fn tc_452_input_permutation_preserves_ordered_census_and_inventory_removal_chang
         .rejected_assertions()
         .iter()
         .any(|entry| entry.reason() == SourceCorrespondenceRejectionReason::DanglingOccurrence));
+}
+
+/// Trace: FR-052-AC-6, FR-052-AC-7
+#[trace("TC-452", "FR-052-AC-6", "FR-052-AC-7")]
+#[test]
+fn tc_452_qsl_native_keys_and_distinct_incomplete_causes() {
+    let mut f = fixture();
+    let base = qsl_pending(
+        Some(4),
+        SourcePendingObligationKind::PredicateTotal {
+            target: SourceDeclarationHandle(7),
+        },
+    );
+    let mut different_declaration = base;
+    different_declaration.site.declaration = SourceDeclarationHandle(2);
+    let mut different_unit = base;
+    different_unit.site.unit = SourceUnitHandle(3);
+    let mut different_span_start = base;
+    different_span_start.site.start += 1;
+    let mut different_span_end = base;
+    different_span_end.site.end += 1;
+    let pending = [
+        base,
+        different_declaration,
+        different_unit,
+        qsl_pending(None, base.kind),
+        different_span_start,
+        different_span_end,
+        qsl_pending(
+            Some(4),
+            SourcePendingObligationKind::PredicateTotal {
+                target: SourceDeclarationHandle(8),
+            },
+        ),
+        qsl_pending(Some(4), SourcePendingObligationKind::Presence),
+    ];
+    let requirements = [
+        qsl_requirement(1, "expression", 0),
+        qsl_requirement(2, "expression", 0),
+        qsl_requirement(1, "claim", 0),
+        qsl_requirement(1, "expression", 1),
+    ];
+    let mut qsl = requirements
+        .into_iter()
+        .map(|id| inventory_item(&f.source, SourceInventoryIdentity::RequirementRecord(id)))
+        .collect::<Vec<_>>();
+    qsl.extend(
+        pending
+            .into_iter()
+            .map(|id| inventory_item(&f.source, SourceInventoryIdentity::PendingObligation(id))),
+    );
+    qsl.push(inventory_item(
+        &f.source,
+        SourceInventoryIdentity::PendingObligation(base),
+    ));
+    f.qsl = make_envelope(SourceInventoryOwner::Qsl, &f.source, qsl);
+    let census = build(f).expect("complete native QSL tuples");
+    assert_eq!(
+        census
+            .inventory_rows()
+            .iter()
+            .filter(|row| row.owner() == SourceInventoryOwner::Qsl)
+            .count(),
+        12,
+        "only the identical native pending tuple collapses"
+    );
+    assert!(census
+        .inventory_rows()
+        .iter()
+        .filter(|row| row.owner() == SourceInventoryOwner::Qsl)
+        .all(|row| {
+            row.disposition()
+                == &SourceInventoryDisposition::ZeroMappings(
+                    SourceMissingMappingReason::NoAuthoredMapping,
+                )
+        }));
+
+    let mut unfinished = fixture();
+    unfinished.qsl = SourceInventoryEnvelope::new(
+        SourceInventoryOwner::Qsl,
+        unfinished.source.clone(),
+        SourceInventoryScope::QslCheckedRequirementsAndPendingObligations,
+        unfinished.qsl.item_count(),
+        SourceInventoryCompleteness::Incomplete(
+            SourceInventoryIncompleteReason::TypeAdmissionUnfinished {
+                declaration: SourceDeclarationHandle(9),
+            },
+        ),
+        unfinished.qsl.items().to_vec(),
+    );
+    assert!(matches!(
+        build(unfinished),
+        Err(SourceCorrespondenceError::IncompleteOwnerInventory {
+            owner: SourceInventoryOwner::Qsl,
+            cause: SourceInventoryIncompleteReason::TypeAdmissionUnfinished {
+                declaration: SourceDeclarationHandle(9)
+            },
+        })
+    ));
 }
