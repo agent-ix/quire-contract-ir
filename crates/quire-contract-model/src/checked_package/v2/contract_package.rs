@@ -6,7 +6,7 @@ mod result_context;
 pub use guard_context::{
     ContractGuardContextErrorV1, ContractGuardContextFailureCauseV1, ContractGuardContextFailureV1,
     ContractGuardContextViewV1, ContractGuardReferenceV1, ContractLoweredGuardContextV1,
-    ContractPathGuardV1,
+    ContractPathGuardV1, CONTRACT_GUARD_CONTEXT_MAX_GUARDS,
 };
 pub use result_context::{
     ContractLoweredResultV1, ContractOccurrenceKeyV1, ContractResultBoundV1,

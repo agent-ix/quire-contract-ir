@@ -14,6 +14,10 @@ use crate::checked_package::v2::{
     CheckedNodeKind, CheckedNodeTag, CheckedSemanticNodeV2, ScalarTypeForm,
 };
 
+/// Maximum number of ordered guards validated by one query. This matches
+/// QSL's bounded path depth and caps repeated full-graph reached-view work.
+pub const CONTRACT_GUARD_CONTEXT_MAX_GUARDS: usize = 64;
+
 /// One QSL-checked path guard mapped to the exact IR source occurrence.
 ///
 /// The caller preserves QSL's checked order and maps each `PathGuard` to this
@@ -105,6 +109,13 @@ pub enum ContractGuardContextErrorV1 {
     },
     /// Defensive reader-backed validation of the application failed.
     ApplicationView(ContractRootViewError),
+    /// The requested path has more guards than one bounded query admits.
+    GuardLimitExceeded {
+        /// Number of supplied guards.
+        requested: usize,
+        /// Maximum guards admitted by one query.
+        limit: usize,
+    },
     /// The first invalid guard in caller order.
     Guard(Box<ContractGuardContextFailureV1>),
 }
@@ -124,8 +135,10 @@ impl ContractPackageV1 {
     /// Queries the ordered guards supplied for one checked application
     /// occurrence. Every guard must be an explicitly lowered root with an
     /// exact admitted `expression` source occurrence and Boolean type. The
-    /// query reuses the existing reached view for body/dependency validation;
-    /// it neither rebuilds the graph nor infers guard membership.
+    /// query uses the existing reached-view API for body/dependency validation
+    /// and never infers guard membership. One query accepts at most
+    /// [`CONTRACT_GUARD_CONTEXT_MAX_GUARDS`] guards so repeated reached-view
+    /// validation has a fixed work ceiling.
     pub fn guard_context(
         &self,
         expression: &CheckedNodeId,
@@ -153,6 +166,13 @@ impl ContractPackageV1 {
         {
             return Err(ContractGuardContextErrorV1::InvalidApplicationOccurrence {
                 application: application.clone(),
+            });
+        }
+
+        if guards.len() > CONTRACT_GUARD_CONTEXT_MAX_GUARDS {
+            return Err(ContractGuardContextErrorV1::GuardLimitExceeded {
+                requested: guards.len(),
+                limit: CONTRACT_GUARD_CONTEXT_MAX_GUARDS,
             });
         }
 

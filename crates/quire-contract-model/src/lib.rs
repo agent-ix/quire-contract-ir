@@ -140,8 +140,8 @@ pub use checked_package::{
     EnumMemberPreimage, ExpressionForm, FunctionForm, JsonPointer, LoweringProfileRef, ModelForm,
     NominalIdentityPreimage, NominalOwner, ProtocolForm, RelationForm, ScalarTypeForm, StateForm,
     StructuralCandidateError, StructuralCandidates, TemporalForm, UnitPreimage, ValueForm,
-    CHECKED_PACKAGE_V2, CONTRACT_IR_SEMANTIC_DOMAIN, CONTRACT_PACKAGE_VERSION,
-    DOMAIN_PACKAGE_DIGEST, PACKAGE_DOMAIN_V2,
+    CHECKED_PACKAGE_V2, CONTRACT_GUARD_CONTEXT_MAX_GUARDS, CONTRACT_IR_SEMANTIC_DOMAIN,
+    CONTRACT_PACKAGE_VERSION, DOMAIN_PACKAGE_DIGEST, PACKAGE_DOMAIN_V2,
 };
 pub use code::{Std001Code, Std001CodeError};
 pub use conformance::{

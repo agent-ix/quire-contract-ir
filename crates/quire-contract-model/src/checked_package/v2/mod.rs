@@ -61,7 +61,7 @@ pub use contract_package::{
     ContractReachedNodeV1, ContractRefusalSourcesV1, ContractRequestSourcesV1,
     ContractResultBoundV1, ContractResultContextV1, ContractResultViewV1, ContractRootViewError,
     ContractRootViewV1, ContractSelectedReferenceV1, ContractSemanticGraphV1, ContractSourceMapV1,
-    ContractSourceV1,
+    ContractSourceV1, CONTRACT_GUARD_CONTEXT_MAX_GUARDS,
 };
 pub use identity::*;
 pub use lower::*;
