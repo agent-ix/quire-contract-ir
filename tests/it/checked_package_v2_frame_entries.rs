@@ -1513,7 +1513,9 @@ fn record_package_for(document: &Value) -> Value {
 
 fn read_record_package(package: &Value, document: &Value, work: u64) -> CheckedPackageV2ReadResult {
     let mut evidence = evidence_for(package);
-    evidence.insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document));
+    evidence
+        .insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document))
+        .expect("distinct record document key");
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = work;
     CheckedPackageV2::read(&canonical(package), limits, &evidence)

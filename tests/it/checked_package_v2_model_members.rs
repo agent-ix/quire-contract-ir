@@ -461,7 +461,9 @@ fn selected_variant_case_keys_bind_exact_case_and_declaration() {
     alias_package["lock"]["model_selections"][0]["digest"] = json!(alias_digest);
     refresh_identity(&mut alias_package);
     let mut alias_evidence = evidence_for(&alias_package);
-    alias_evidence.insert_domain_package_document(alias_digest, canonical(&alias_document));
+    alias_evidence
+        .insert_domain_package_document(alias_digest, canonical(&alias_document))
+        .expect("distinct alias document key");
     assert!(matches!(
         read(&alias_package, &alias_evidence),
         CheckedPackageV2ReadResult::Admitted(_)
@@ -662,10 +664,12 @@ fn selected_variant_cases_are_bound_to_the_selected_document_digest() {
         .as_str()
         .expect("selection digest");
     let mut evidence = evidence_for(&package);
-    evidence.insert_domain_package_document(
-        digest,
-        canonical(&variant_document_named(TIER, &["Silver"])),
-    );
+    evidence
+        .insert_domain_package_document(
+            digest,
+            canonical(&variant_document_named(TIER, &["Silver"])),
+        )
+        .expect("distinct selected document key");
     let refusal = refused(&package, &evidence);
     assert_eq!(refusal.code, CheckedPackageRefusalCode::StaleDependency);
     assert_eq!(
