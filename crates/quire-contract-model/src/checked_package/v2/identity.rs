@@ -346,6 +346,7 @@ impl NominalKind {
             ) => None,
             K::Protocol(
                 ProtocolForm::ProtocolClause
+                | ProtocolForm::ProtocolReference
                 | ProtocolForm::Role
                 | ProtocolForm::Channel
                 | ProtocolForm::Queue

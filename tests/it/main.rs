@@ -40,6 +40,7 @@ mod checked_package_v2_operand_families;
 mod checked_package_v2_operation_arguments;
 mod checked_package_v2_owners;
 mod checked_package_v2_parameters;
+mod checked_package_v2_protocol_reference;
 mod checked_package_v2_reader;
 mod checked_package_v2_recursive_leaves;
 mod checked_package_v2_require_bounds;

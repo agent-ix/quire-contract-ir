@@ -1464,6 +1464,7 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | TemporalForm::Activation
             | TemporalForm::Deadline,
         ) => true,
+        K::Protocol(ProtocolForm::ProtocolReference) => true,
         K::Protocol(
             ProtocolForm::ProtocolClause
             | ProtocolForm::Role
@@ -1507,6 +1508,17 @@ fn validate_body(
     at: &Trail<'_>,
     visit: &mut ReferenceVisitor<'_>,
 ) -> Result<u64, ValidationFailure> {
+    if kind == CheckedNodeKind::Protocol(ProtocolForm::ProtocolReference)
+        && !body.as_object().is_some_and(|object| {
+            super::common::exact_members(object, &["term", "target"])
+                && body.get("term").and_then(Value::as_str) == Some("reference")
+        })
+    {
+        return Err(refuse(
+            CheckedPackageRefusalCode::MalformedWire,
+            at.pointer(),
+        ));
+    }
     match body_grammar(kind) {
         BodyGrammar::Frame => frame::read_frame_body(body, at).map(|(_, work)| work),
         BodyGrammar::AbstractionRelation => abstraction::scan_body(body, at, visit),
@@ -1641,6 +1653,7 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
         ) => BodyGrammar::Term,
         K::Protocol(
             ProtocolForm::ProtocolClause
+            | ProtocolForm::ProtocolReference
             | ProtocolForm::Role
             | ProtocolForm::Channel
             | ProtocolForm::Queue
@@ -1984,6 +1997,7 @@ fn validate_graph(
         limits.bytes,
     )?;
     validate_declaration_names(&graph.nodes, &index)?;
+    validate_protocol_references(&graph.nodes, &kinds, &index)?;
     // FR-038 "The timed interval form" stage 2: the last graph check of the
     // nodes before the frame step.
     validate_timed_bounds_reduced(&graph.nodes, &index, meter)?;
@@ -2097,6 +2111,51 @@ fn validate_graph(
         return Err(refuse(CheckedPackageRefusalCode::StaleDependency, path));
     }
     Ok((kinds, declarations))
+}
+
+/// Joins the already keyed protocol-reference carriers to this graph alone.
+/// This declaration-stage check precedes frame and operation validation.
+fn validate_protocol_references(
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+) -> Result<(), ValidationFailure> {
+    for (&carrier_id, &position) in index {
+        if kinds.get(position) != Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolReference))
+        {
+            continue;
+        }
+        let Some(carrier) = nodes.get(position) else {
+            continue;
+        };
+        let at = || node_pointer(position).key("body").key("target");
+        let Some(target_id) = structural::reference_target(&carrier.body) else {
+            return Err(refuse(CheckedPackageRefusalCode::MalformedWire, at()));
+        };
+        let Some(&target_position) = index.get(&target_id) else {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::MissingDeclaration,
+                at(),
+                Some(CheckedPackageRefusalCause::MissingName),
+                carrier_id.clone(),
+            ));
+        };
+        if kinds
+            .get(target_position)
+            .is_none_or(|kind| kind.tag() != CheckedNodeTag::Protocol)
+            || nodes
+                .get(target_position)
+                .is_none_or(|target| target.semantic_type != carrier.semantic_type)
+        {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::IllTyped,
+                at(),
+                Some(CheckedPackageRefusalCause::OperatorIneligible),
+                carrier_id.clone(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Graph-stage reference decision after the target and semantic type resolve.

@@ -81,6 +81,25 @@ fn check_one(
 /// Checks owner presence and variant before package identity validation.
 pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
     for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
+        if node.node_tag.as_ref() == "protocol"
+            && node.semantic_form.as_ref() == "protocol_reference"
+        {
+            let forbidden = [
+                ("declaration", node.declaration.is_some()),
+                ("owner", node.owner.is_some()),
+                (
+                    "nominal_identity_preimage",
+                    node.nominal_identity_preimage.is_some(),
+                ),
+                ("recursion_group", node.recursion_group.is_some()),
+            ];
+            if let Some((member, _)) = forbidden.into_iter().find(|(_, present)| *present) {
+                return Err(ValidationFailure::refused(
+                    CheckedPackageRefusalCode::MalformedWire,
+                    node_pointer(position).key(member),
+                ));
+            }
+        }
         check_one(
             requirement(
                 &node.node_tag,
