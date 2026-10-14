@@ -1945,6 +1945,93 @@ fn tc_048_a_fairness_member_resolves_on_its_declaring_model_node() {
     }
 }
 
+/// A selected systems interface is an authentic model declaration, but it
+/// cannot declare the operation named by a temporal fairness member. A value
+/// node cannot declare one either (QSpec FR-370-AC-11, TC-303 step 9).
+///
+/// Trace: TC-048, FR-038-AC-103
+#[trace("TC-048", "FR-038-AC-103")]
+#[test]
+fn tc_048_wrong_declaring_nodes_cannot_name_a_fairness_operation() {
+    const INTERFACE: &str = "ix://acme/orders/Channel";
+    let mut document = orders_document();
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind": {"module": ORDERS, "name": "interface"},
+            "construct": {"meaning": "quire.meaning.systems.interface/v1"},
+        }));
+    let mut declared = domain_type(INTERFACE, &[], json!([]));
+    declared["kind"]["name"] = json!("interface");
+    declared["interfaceFeatures"] = json!({});
+    document["types"]
+        .as_array_mut()
+        .expect("types")
+        .push(declared);
+
+    let interface_key = sha256_hex(&canonical(&json!({
+        "version": "quire.structural-node/v1", "node_tag": "model",
+        "semantic_form": "systems_interface", "semantic_type": null,
+        "declaration": null, "recursion": null,
+        "body": {"term": "aggregate", "members": []},
+        "owner": {"kind": "model", "identity": ORDERS, "node": INTERFACE},
+    })));
+    let (mut package, fair) =
+        with_fairness(INFINITE, fairness_member(&model_key(ORDER_NODE), "scaled"));
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+    let mut interface_node = node_with_key(
+        &interface_key,
+        "model",
+        "systems_interface",
+        json!({"term": "aggregate", "members": []}),
+    );
+    interface_node["semantic_type"] = node_id(&interface_key);
+    interface_node["occurrences"] = json!([{"role": "type", "ordinal": 0}]);
+    push(
+        &mut package,
+        owned_structural_node(interface_node, model_owner(ORDERS, INTERFACE)),
+    );
+    settle(&mut package);
+    assert!(matches!(
+        read_with_model(&package, &document, CheckedPackageReadLimits::bounded()),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["declaration"] =
+        node_id(&interface_key);
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with_model(&package, &document, CheckedPackageReadLimits::bounded())
+    else {
+        panic!("a selected systems interface cannot declare a fairness operation");
+    };
+    assert_eq!(refusal.code, Code::InvalidModelBinding);
+    assert_eq!(refusal.cause, Some(Cause::MalformedDeclaration));
+    assert_eq!(
+        refusal.path.expect("path").as_str(),
+        at_node(fair, "/body/operation/member/declaration")
+    );
+    assert_eq!(
+        refusal.locus.expect("locus").digest.to_string(),
+        interface_key
+    );
+
+    let base = v2_all_families();
+    let value_key = digest(&base, find(&base, |node| node["node_tag"] == "value"));
+    let (package, fair) = with_fairness(INFINITE, fairness_member(&value_key, "scaled"));
+    expect_located(
+        "a value node cannot declare an operation",
+        &package,
+        (
+            Code::InvalidModelBinding,
+            Cause::MalformedDeclaration,
+            &at_node(fair, "/body/operation/member/declaration"),
+        ),
+        &value_key,
+    );
+}
+
 /// Trace: TC-048, FR-038-AC-103
 #[trace("TC-048", "FR-038-AC-103")]
 #[test]
