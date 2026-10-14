@@ -59,7 +59,7 @@ inputs, dispatch routes and typed `KaniOutcome`s. Nothing is QSL-typed: the
 | Module | Public items | Owning requirement |
 | --- | --- | --- |
 | `kani` | constant `PROFILE`; types `KaniProfile`, `ProfileSelection`, `ProfileError`, `CapabilityDisposition`, `CapabilityEntry` | FR-029 |
-| `kani` | types `FiniteInput`, `FiniteObject`, `FiniteReference`, `PopulationCompleteness`, `ResourceBounds`, `ValidatedFiniteInput`, `KaniOutcome`, `KaniOutcomeKind`, `KaniOutcomeError` | FR-030, STD-001 |
+| `kani` | types `FiniteInput`, `FiniteObject`, `FiniteReference`, `PopulationCompleteness`, `ResourceBounds`, `ValidatedFiniteInput`, `KaniOutcome`, `KaniOutcomeKind`, `KaniCancellationSource`, `KaniOutcomeError` | FR-030, STD-001 |
 | `kani` | types `DispatchIndex`, `DispatchError`, `ModuleDescriptor`, `SemanticFamily` | FR-031 |
 
 An item's own public fields, variants and inherent methods are part of the
