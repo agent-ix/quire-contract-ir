@@ -106,3 +106,13 @@ structural path and reached child id when available, without a partial
 result, guessed source region, narrowed endpoint or panic. The external
 consumer uses typed public values, and repeated calls preserve package
 equality and reader admission.
+
+## Status
+
+The accessor and tagged local controls for FR-038-AC-202 through
+FR-038-AC-209 are implemented in `checked_package_v2_comparison_operands.rs`,
+`checked_package_v2_frame_entries.rs` and the model crate's
+`comparison_operands.rs`. The fresh QSL producer-origin case is conditional on
+`IR703_QSL_CONFORMANCE` and `QUIRE_SPEC_LANGUAGE_DIR`; its trace tag alone is
+not evidence that the producer gate ran. No result from that gate is claimed
+here.
