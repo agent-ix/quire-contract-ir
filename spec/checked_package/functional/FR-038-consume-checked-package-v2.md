@@ -15,6 +15,10 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-322
     type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-66
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-330-AC-4
+    type: references
   - target: ix://agent-ix/quire-specification/FR-152
     type: references
   - target: ix://agent-ix/quire-specification/FR-154
@@ -1431,6 +1435,35 @@ recomputes differently change from `byte-digest-mismatch` to
 `content-mismatch`, and unparseable bytes under their own plain SHA-256 change
 from `stale_dependency` to `invalid_model_binding`. The refusal is a Rust
 value this crate does not serialize, so no wire form changes.
+
+### Local protocol references
+
+The V2 reader SHALL admit `node_tag: "protocol"` with
+`semantic_form: "protocol_reference"` as `ProtocolForm::ProtocolReference`.
+This carrier has exactly one occurrence of role `expression`, no declaration,
+owner, nominal identity preimage or recursion group, and a closed body
+`{term: "reference", target: NodeRef}`. The body target is an exact typed
+`quire.checked-semantic-node/v1` key in this package's own
+`semantic_graph.nodes`. The carrier's `dependencies` SHALL contain exactly
+that target, and its `semantic_type` SHALL equal the target protocol node's
+`semantic_type`. The body and target participate in the existing structural
+node-key preimage and package identity projection. The carrier has no
+separate collection or package selector; a selected dependency cannot satisfy
+its local target. A `dependency_reference` body or an extra body member fails
+the closed V2 schema.
+
+The graph-shape stage SHALL compare the sole dependency with the body target
+without resolving it and refuse a mismatch or extra dependency as
+`invalid_semantic_graph` at the carrier's `/dependencies`. After graph-shape
+and stale-node-key checks, the declaration stage SHALL join carriers in
+ascending node-id digest order, before frame and operation checks. A target
+absent from the local graph refuses `missing_declaration`/`missing-name` at
+`/semantic_graph/nodes/{i}/body/target`, even if a selected dependency holds
+that key. A present target whose node tag is not `protocol`, or whose
+`semantic_type` differs, refuses `ill_typed`/`operator-ineligible` at that
+same pointer. The locus is the carrier's typed node key under this reader's
+ordinary node-refusal convention. Generic unresolved-reference validation
+SHALL NOT precede this carrier join.
 
 ### Dependency references
 
@@ -4259,6 +4292,9 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-236 | IMPLEMENTED (IR-777). A selected Semantic IR model declaration of a nonempty variant type, with a self-typed declaration node and exact model owner, is admitted through `CheckedPackageV2::read`. Its declared type is accepted as a field, parameter and result type, including under an optional or bounded sequence field. Changing the owner to an absent or different declaration refuses at the declaration's `node_id` with `missing_declaration`/`missing-selection`. | Test |
 | FR-038-AC-237 | IMPLEMENTED (IR-777). A value typed by the selected variant accepts an `enum_value` whose `case` is an exact selected UTF-8 case name, including a name with a space, digit prefix or non-ASCII character. Distinct case names or variant declarations yield distinct re-derived value keys, and `enum.eq` and `enum.ne` admit otherwise valid operands of the same variant type. `enum.lt` and `structural.eq` refuse that unordered variant at the first ineligible argument. | Test |
 | FR-038-AC-238 | IMPLEMENTED (IR-777). An empty selected case declaration refuses `invalid_model_binding`/`malformed-declaration` at the selected model row, while an `enum_value` naming an absent case refuses `invalid_semantic_graph` at its `case`. Supplying a document with a different case set under the selection digest refuses `stale_dependency` at that digest. Ordinary scalar enum values retain their identifier-only case rule. | Test |
+| FR-038-AC-239 | PLANNED/UNRUN (IR-782). A package with a `protocol`/`protocol_reference` carrier whose closed reference body targets an exact local `protocol`/`protocol_clause` key, with one `expression` occurrence, the same semantic type and exactly that target as its dependency, admits through the public V2 reader as `ProtocolForm::ProtocolReference`. The structural key, identity projection and package id are independently recomputed; changing the target and re-deriving these identities changes the carrier key. The admitted package retains one graph node collection and its source correspondence. | Test (TC-048) |
+| FR-038-AC-240 | PLANNED/UNRUN (IR-782). An extra dependency or a dependency unequal to the carrier's body target refuses `invalid_semantic_graph` at `/semantic_graph/nodes/{i}/dependencies` in graph-shape validation; a stale carrier key with matching dependency refuses `invalid_package`/`stale-node-key` before the local target join. With both body target and sole dependency changed together and identities independently recomputed, an absent local target refuses `missing_declaration`/`missing-name` at `/semantic_graph/nodes/{i}/body/target`, even if an admitted selected dependency contains that key. A present non-`protocol` target, or a protocol target with unequal semantic type, refuses `ill_typed`/`operator-ineligible` at that same pointer. A carrier target defect wins over a frame or operation defect, after the earlier graph-shape and stale-key checks. | Test (TC-048) |
+| FR-038-AC-241 | PLANNED/UNRUN (IR-782). A carrier with a non-reference or `dependency_reference` body or an extra body member fails the closed V2 schema. A carrier with an extra occurrence, declaration, owner, nominal preimage or recursion group refuses at its offending member before target resolution. An ordinary node holding a generic reference remains an ordinary node; no second protocol-reference form or separate collection is admitted. | Test (TC-048) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
