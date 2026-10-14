@@ -1513,7 +1513,9 @@ fn record_package_for(document: &Value) -> Value {
 
 fn read_record_package(package: &Value, document: &Value, work: u64) -> CheckedPackageV2ReadResult {
     let mut evidence = evidence_for(package);
-    evidence.insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document));
+    evidence
+        .insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document))
+        .expect("distinct record document key");
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = work;
     CheckedPackageV2::read(&canonical(package), limits, &evidence)
@@ -1911,7 +1913,8 @@ fn read_model(value: &Value) -> CheckedPackageV2ReadResult {
     let document = orders_document();
     let mut evidence = evidence_for(value);
     evidence
-        .insert_domain_package_document(sha256_hex(&canonical(&document)), canonical(&document));
+        .insert_domain_package_document(sha256_hex(&canonical(&document)), canonical(&document))
+        .expect("domain evidence declarations agree on exact bytes");
     CheckedPackageV2::read(
         &canonical(value),
         CheckedPackageReadLimits::bounded(),
@@ -2256,7 +2259,9 @@ fn tc_227_a_frame_field_entry_charges_its_effective_table_end_to_end() {
         value["lock"]["model_selections"][0]["digest"] = json!(digest);
         refresh_identity(&mut value);
         let mut evidence = evidence_for(&value);
-        evidence.insert_domain_package_document(digest.clone(), canonical(&document));
+        evidence
+            .insert_domain_package_document(digest.clone(), canonical(&document))
+            .expect("domain evidence declarations agree on exact bytes");
         let read = |work| {
             let mut limits = CheckedPackageReadLimits::bounded();
             limits.work = work;

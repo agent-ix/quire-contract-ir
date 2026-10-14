@@ -669,10 +669,12 @@ impl Scene {
         refresh_identity(&mut package);
         let mut evidence = evidence_for(&package);
         for document in &documents {
-            evidence.insert_domain_package_document(
-                sha256_hex(&canonical(document)),
-                canonical(document),
-            );
+            evidence
+                .insert_domain_package_document(
+                    sha256_hex(&canonical(document)),
+                    canonical(document),
+                )
+                .expect("distinct argument document key");
         }
         Case {
             package,

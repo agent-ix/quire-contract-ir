@@ -159,7 +159,9 @@ fn read_package_with_document(
             .map_err(|error| format!("{} cannot be read: {error}", domain_document.display()))?;
         serde_json::from_slice::<Value>(&document)
             .map_err(|error| format!("{} is not JSON: {error}", domain_document.display()))?;
-        evidence.insert_domain_package_document(digest, document);
+        evidence
+            .insert_domain_package_document(digest, document)
+            .map_err(|error| format!("{name}: evidence insertion failed: {error}"))?;
     }
     Ok(CheckedPackageV2::read(
         &bytes,

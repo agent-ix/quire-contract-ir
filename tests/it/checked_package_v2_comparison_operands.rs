@@ -133,10 +133,13 @@ fn bounded_input_variant(case: &Path, original_unit: &str, original_model: &Valu
 fn admit_selected_variant(case: &Path, bytes: &[u8]) -> CheckedPackageV2 {
     let wire: Value = serde_json::from_slice(bytes).expect("QSL variant V2 JSON");
     let mut evidence = CheckedPackageEvidence::new();
-    evidence.insert_domain_package_document(
-        selected_model(&wire),
-        std::fs::read(case.join("spine-model.semantic-ir.json")).expect("variant selected model"),
-    );
+    evidence
+        .insert_domain_package_document(
+            selected_model(&wire),
+            std::fs::read(case.join("spine-model.semantic-ir.json"))
+                .expect("variant selected model"),
+        )
+        .expect("domain evidence declarations agree on exact bytes");
     evidence.support_feature("quire.value.complete/v1");
     match CheckedPackageV2::read(bytes, CheckedPackageReadLimits::bounded(), &evidence) {
         CheckedPackageV2ReadResult::Admitted(package) => *package,
@@ -288,7 +291,9 @@ fn tc_445_fresh_qsl_config_version_has_shared_field_with_post_and_pre_observatio
     .expect("selected QSL model document");
     let original_model: Value = serde_json::from_slice(&model).expect("producer model JSON");
     let mut evidence = CheckedPackageEvidence::new();
-    evidence.insert_domain_package_document(selected_model(&wire), model);
+    evidence
+        .insert_domain_package_document(selected_model(&wire), model)
+        .expect("domain evidence declarations agree on exact bytes");
     evidence.support_feature("quire.value.complete/v1");
     let package =
         match CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence) {

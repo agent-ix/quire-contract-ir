@@ -121,7 +121,9 @@ fn model_package() -> (Value, Value) {
 
 fn read_with_model(package: &Value, document: &Value) -> CheckedPackageV2ReadResult {
     let mut evidence = evidence_for(package);
-    evidence.insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document));
+    evidence
+        .insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document))
+        .expect("domain evidence declarations agree on exact bytes");
     CheckedPackageV2::read(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
@@ -685,7 +687,8 @@ fn tc_228_one_model_owner_lookup_consumes_one_validation_visit() {
     let owner_path = format!("/semantic_graph/nodes/{position}/node_id");
     let mut evidence = evidence_for(&package);
     evidence
-        .insert_domain_package_document(sha256_hex(&canonical(&document)), canonical(&document));
+        .insert_domain_package_document(sha256_hex(&canonical(&document)), canonical(&document))
+        .expect("domain evidence declarations agree on exact bytes");
     let bytes = canonical(&package);
     for work in 0..4096 {
         let mut limits = CheckedPackageReadLimits::bounded();

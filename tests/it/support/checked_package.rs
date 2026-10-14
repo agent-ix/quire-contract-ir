@@ -291,7 +291,9 @@ pub fn evidence_for(package: &Value) -> CheckedPackageEvidence {
         };
         let digest = domain_package_digest(&document);
         if model["digest"].as_str() == Some(digest.as_str()) {
-            evidence.insert_domain_package_document(digest, canonical(&document));
+            evidence
+                .insert_domain_package_document(digest, canonical(&document))
+                .expect("domain evidence declarations agree on exact bytes");
         }
     }
     evidence.support_feature(COMPLETE_VALUE_FEATURE);
@@ -329,7 +331,9 @@ pub fn read_with_dependencies(
 ) -> CheckedPackageV2ReadResult {
     let mut evidence: CheckedPackageEvidence = evidence_for(package);
     for (identity, dependency) in dependencies {
-        evidence.insert_dependency_package(*identity, (*dependency).clone());
+        evidence
+            .insert_dependency_package(*identity, (*dependency).clone())
+            .expect("dependency evidence declarations agree on admitted content");
     }
     CheckedPackageV2::read(
         &canonical(package),
