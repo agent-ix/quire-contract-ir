@@ -72,11 +72,15 @@ IF-008.
 
 ## Status
 
-AC-1, AC-3 and AC-4 are implemented. AC-3 is the root manifest's absence of
-QSL-repository dependencies, backed by TC-041. AC-2 and AC-5 remain unbacked:
-the former bridge re-export test was removed when the root package stopped
-re-exporting model items, and it did not verify either criterion. Planned work
-outside this repository includes proving that QSL's production graph has no
+AC-1 through AC-5 are implemented and backed by TC-041. The resolved Cargo
+graph control covers production feature combinations and rejects a transitive
+owner dependency; the explicit build lane runs default, all-feature and
+minimum-version builds. Model and root conformance outputs are compared byte
+for byte, including canonical identities and typed diagnostics, with a changed
+schema refusal control. The source-boundary control checks for owner mirrors,
+parsers and admission escape surfaces.
+
+Planned work outside this repository includes proving that QSL's production graph has no
 `quire-contract-ir` and building the cross-repo composition that imports both
 the root package and the real QSL owner API in agent-ix/quire-integration
 (Linear IR-358).
