@@ -8,6 +8,13 @@ relationships:
 ---
 # TC-452: Verify the neutral source-obligation correspondence input
 
+## Execution Status
+
+Planned/UNRUN. The model API has synthetic inventory tests, but no owner
+adapter yet compares a declared complete envelope with the full selected IR
+V2, QSL, or `quire-code-rs` owner output. Those tests do not establish
+FR-052-AC-7 or complete TC-452.
+
 ## Description
 
 Verify that the neutral model port preserves complete owner inventories and

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! FR-052 / TC-452: the neutral source census keeps complete owner populations
-//! and accepts only explicit, source-authored correspondence assertions.
+//! FR-052 model API tests over synthetic owner-declared inventories.
+//! TC-452's full owner-output comparison remains planned.
 
 use ix_trace_rs::trace;
 use quire_contract_model::source_obligation::{
@@ -301,17 +301,10 @@ fn build(
     ))
 }
 
-/// Trace: FR-052-AC-1, FR-052-AC-2, FR-052-AC-4, FR-052-AC-5, FR-052-AC-7
-#[trace(
-    "TC-452",
-    "FR-052-AC-1",
-    "FR-052-AC-2",
-    "FR-052-AC-4",
-    "FR-052-AC-5",
-    "FR-052-AC-7"
-)]
+/// Trace: FR-052-AC-1, FR-052-AC-2, FR-052-AC-4, FR-052-AC-5
+#[trace("FR-052-AC-1", "FR-052-AC-2", "FR-052-AC-4", "FR-052-AC-5")]
 #[test]
-fn tc_452_external_consumer_borrows_complete_census_and_preserves_explicit_rows() {
+fn source_obligation_external_consumer_borrows_complete_census_and_preserves_explicit_rows() {
     let f = fixture();
     let census = build(f).expect("complete three-owner fixture");
     let census_borrow: &quire_contract_model::source_obligation::SourceObligationCensus = &census;
@@ -365,9 +358,9 @@ fn tc_452_external_consumer_borrows_complete_census_and_preserves_explicit_rows(
 }
 
 /// Trace: FR-052-AC-4
-#[trace("TC-452", "FR-052-AC-4")]
+#[trace("FR-052-AC-4")]
 #[test]
-fn tc_452_input_signature_contains_only_source_inventory_and_assertion_data() {
+fn source_obligation_input_signature_contains_only_source_inventory_and_assertion_data() {
     let f = fixture();
     let _input = SourceObligationInput::new(
         f.source,
@@ -402,9 +395,9 @@ fn tc_452_input_signature_contains_only_source_inventory_and_assertion_data() {
 }
 
 /// Trace: FR-052-AC-2, FR-052-AC-3
-#[trace("TC-452", "FR-052-AC-2", "FR-052-AC-3")]
+#[trace("FR-052-AC-2", "FR-052-AC-3")]
 #[test]
-fn tc_452_deduplicates_conflicts_and_rejects_foreign_or_dangling_assertions() {
+fn source_obligation_deduplicates_conflicts_and_rejects_foreign_or_dangling_assertions() {
     let mut f = fixture();
     // Exact inventory repetition collapses; a repeated native node identity with
     // a different semantic identity remains visible as a conflict.
@@ -589,10 +582,10 @@ fn tc_452_deduplicates_conflicts_and_rejects_foreign_or_dangling_assertions() {
         .all(|row| row.criterion() != &criterion("MISSING")));
 }
 
-/// Trace: FR-052-AC-2, FR-052-AC-6, FR-052-AC-7
-#[trace("TC-452", "FR-052-AC-2", "FR-052-AC-6", "FR-052-AC-7")]
+/// Trace: FR-052-AC-2, FR-052-AC-6
+#[trace("FR-052-AC-2", "FR-052-AC-6")]
 #[test]
-fn tc_452_missing_incomplete_scope_source_and_count_never_return_a_census() {
+fn source_obligation_missing_incomplete_scope_source_and_count_never_return_a_census() {
     let base = fixture();
     for missing in 0..3 {
         let f = fixture();
@@ -766,10 +759,10 @@ fn tc_452_missing_incomplete_scope_source_and_count_never_return_a_census() {
     ));
 }
 
-/// Trace: FR-052-AC-2, FR-052-AC-7
-#[trace("TC-452", "FR-052-AC-2", "FR-052-AC-7")]
+/// Trace: FR-052-AC-2
+#[trace("FR-052-AC-2")]
 #[test]
-fn tc_452_input_permutation_preserves_ordered_census_and_inventory_removal_changes_it() {
+fn source_obligation_input_permutation_preserves_ordered_census_and_inventory_removal_changes_it() {
     let first_fixture = fixture();
     let first = build(first_fixture).expect("complete fixture");
     let mut second_fixture = fixture();
@@ -806,10 +799,10 @@ fn tc_452_input_permutation_preserves_ordered_census_and_inventory_removal_chang
         .any(|entry| entry.reason() == SourceCorrespondenceRejectionReason::DanglingOccurrence));
 }
 
-/// Trace: FR-052-AC-6, FR-052-AC-7
-#[trace("TC-452", "FR-052-AC-6", "FR-052-AC-7")]
+/// Trace: FR-052-AC-6
+#[trace("FR-052-AC-6")]
 #[test]
-fn tc_452_qsl_native_keys_and_distinct_incomplete_causes() {
+fn source_obligation_qsl_native_keys_and_distinct_incomplete_causes() {
     let mut f = fixture();
     let base = qsl_pending(
         Some(4),

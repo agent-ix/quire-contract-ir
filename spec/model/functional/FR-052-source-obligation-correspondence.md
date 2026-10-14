@@ -176,6 +176,10 @@ candidate denominator.
 | FR-052-AC-6 | Omitting each of the three owner envelopes in turn returns `MissingOwnerInventory` naming that owner and no census. Marking each envelope incomplete returns `IncompleteOwnerInventory` with the supplied typed cause and no census. A fully parsed production module with no function facts is accepted as complete, retains the module row, and differs observably from both outcomes. | Test |
 | FR-052-AC-7 | Complete IR V2 scope covers every semantic node and source occurrence in the selected V2 graph; complete QSL scope covers every checked `RequirementRecord` and native pending obligation for the selected request, identified by its collision-free native occurrence key or site/kind tuple rather than an IR requirement reference or semantic digest; complete `quire-code-rs` scope covers every selected production module and every function fact, including empty modules. Normal exhaustion is required for `Complete`; QSL exhaustion and `Unfinished` remain distinct typed causes, and an early stop, failed parse/request, unavailable selected module, scope/source mismatch, or item-count mismatch produces a typed error and no census. | Test |
 
+FR-052-AC-7 is Planned/UNRUN until native owner adapters compare each declared
+complete envelope with the full selected owner output. The model API tests use
+synthetic inventories and do not establish owner-issued completeness.
+
 ## Dependencies
 
 [FR-045](../../core/functional/FR-045-derive-proof-coverage-baseline.md)
