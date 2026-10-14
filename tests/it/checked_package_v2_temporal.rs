@@ -1947,10 +1947,10 @@ fn tc_048_a_fairness_member_resolves_on_its_declaring_model_node() {
 
 /// A selected systems interface is an authentic model declaration, but it
 /// cannot declare the operation named by a temporal fairness member. A value
-/// node cannot declare one either.
+/// node cannot declare one either (QSpec FR-370-AC-11, TC-303 step 9).
 ///
-/// Trace: TC-303, FR-038-AC-103, FR-370-AC-11
-#[trace("TC-303", "FR-038-AC-103", "FR-370-AC-11")]
+/// Trace: TC-048, FR-038-AC-103
+#[trace("TC-048", "FR-038-AC-103")]
 #[test]
 fn tc_303_wrong_declaring_nodes_cannot_name_a_fairness_operation() {
     const INTERFACE: &str = "ix://acme/orders/Channel";
