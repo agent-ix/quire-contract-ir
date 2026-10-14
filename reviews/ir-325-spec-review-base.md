@@ -1,5 +1,5 @@
 ---
-id: SR-10874
+id: SR-10910
 title: "Base spec review of IR-325 checked-package evidence reconciliation"
 type: SpecReview
 analysis: base
@@ -7,7 +7,7 @@ scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consu
 review_set: subset
 ---
 
-# SR-10874: IR-325 checked-package status review
+# SR-10910: IR-325 checked-package status review
 
 ## Summary
 
@@ -20,7 +20,7 @@ Reviewed commit `88ac8c61727c6463a2ef9c1c891fdfeac989fac8` against base `5b44e31
 - TestMatrix FR-038 and TC-445: local implementation is distinguished from the conditional producer-origin assertion. `Makefile` target `conformance-qsl-ir703` requires the QSL checkout and checks exactly one test ran; the test exits unrun outside that gate.
 - TestMatrix FR-051 and TC-451: the status reflects the merged IR-238 implementation at base commit `5b44e31`; QSL-766 producer adoption remains separately owned.
 - FR-019 inventory context: the `checked_package` rows contain 150 unique named public items, and `crates/quire-contract-model/src/lib.rs` exports the same 150 names. This inventory is unchanged by the reviewed diff.
-- SR id availability: `SR-10874` was absent from local Markdown ids and exact Linear search results when this scratch artifact was created.
+- SR id availability: `SR-10910` was selected after a repository Markdown scan and a Linear comment scan found no prior use; it replaces the colliding `SR-10874` identifier.
 
 ## Findings
 
