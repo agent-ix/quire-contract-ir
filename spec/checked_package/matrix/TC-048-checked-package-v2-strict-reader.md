@@ -98,7 +98,14 @@ mirror it in the graph identity projection, refresh the package id, and read
 the package through `CheckedPackageV2::read`. Check the typed form, exact
 local target, single graph collection and total source correspondence. Change
 the target, re-derive every affected identity and verify that the carrier key
-changes while the refreshed package admits.
+changes while the refreshed package admits. Separately build a reader-admissible
+local `protocol` node of form `role` or `control` under its own valid body and
+key. Point a carrier at that exact node, set its sole dependency and semantic
+type to match, independently recompute its structural key, identity
+projection and package id, and assert public-reader admission. This second
+positive control must fail if the target join recognizes only
+`protocol_clause`; it must not be satisfied by merely recognizing the
+carrier's `protocol_reference` form at wire decode.
 
 From that admitting control, separately author an extra dependency and an
 unequal dependency, then a changed body target with the old carrier key.
@@ -187,8 +194,11 @@ node under another domain package's identity and re-read: it refuses
 
 ## Expected Results
 
-The valid carrier and rekeyed target admit with the exact local target and
-one graph collection. The unequal or extra dependency refuses
+The valid carrier and rekeyed `protocol_clause` target admit with the exact
+local target and one graph collection. The separately keyed carrier to a
+`role` or `control` protocol target also admits and resolves that exact local
+node; a clause-only target join fails this control. The unequal or extra
+dependency refuses
 `invalid_semantic_graph` at `/dependencies`; the retained stale key refuses
 `invalid_package`/`stale-node-key`. Both absent-local controls refuse
 `missing_declaration`/`missing-name` at `/body/target`, including the one
