@@ -41,9 +41,11 @@ The public `quire_contract_model::source_obligation` module shall export
 `SourceObligationInput`, `SourceObligationCensus`, `SourceObligationRow`,
 `SourceInventoryRow`, `SourceCorrespondenceAssertion`,
 `SourceCorrespondenceRejection`, `SourceMissingMappingReason`,
-`SourceInventoryDisposition`, `SourceCorrespondenceError`, and
+`SourceInventoryEnvelope`, `SourceInventoryDisposition`, `SourceInventoryCompleteness`,
+`SourceInventoryIncompleteReason`, `SourceInventoryOwner`,
+`SourceInventoryScope`, `SourceCorrespondenceError`, and
 `build_source_obligation_census`. These types shall be listed in FR-019's
-public-items inventory and shall not be re-exported by `quire_contract_ir`.
+public-items inventory.
 
 The immutable census shall expose borrowed accessors for the selected source,
 all inventory rows, accepted correspondence rows, and rejected assertions.
@@ -55,8 +57,14 @@ relation. Each accepted row shall retain the exact criterion,
 occurrence, and production-symbol keys plus assertion provenance. Missing
 mapping reasons shall be typed and distinguish at least no authored mapping
 from an explicitly authored absence of a production function. A typed
-top-level error shall distinguish invalid source selection, missing required
-inventory, and incomplete required inventory.
+top-level error shall distinguish invalid source selection, missing owner
+inventory, incomplete owner inventory, inventory source mismatch, inventory
+scope mismatch, and an inventory item-count mismatch. Its owner context shall
+identify IR V2, QSL, or `quire-code-rs`; incomplete errors shall retain the
+typed owner cause.
+`SourceCorrespondenceRejection` shall distinguish `ForeignSource`,
+`DanglingCriterion`, `DanglingOccurrence`, `DanglingProductionSymbol`,
+`ConflictingRelation`, and `ConflictingProvenance` reasons.
 
 ## Behavior
 
@@ -66,18 +74,57 @@ The public types and constructor shall be defined in the cycle-free
 `quire-contract-model` crate, under the `source_obligation` module. They shall
 use only neutral model-owned identity and provenance types. The model manifest
 and public API shall acquire no dependency on Contract Codegen, QSL,
-`quire-code-rs`, a parser crate, or a proof runner. `quire-contract-ir` shall
-not become the API owner or re-export these items. A downstream Codegen adapter
-may borrow the model census and owner-native values; the dependency direction
-shall remain downstream from the model.
+`quire-code-rs`, a parser crate, or a proof runner. A downstream Codegen
+adapter may borrow the model census and owner-native values; the dependency
+direction shall remain downstream from the model.
 
-The `SourceObligationInput` constructor shall take the selected source and
-owner inventories plus the author-authored assertions as typed arguments.
+The `SourceObligationInput` constructor shall take the selected source, three
+independently optional owner inventory envelopes, and the author-authored
+assertions as typed arguments. An envelope shall identify its owner, selected
+source, covered scope, item count, typed completeness state, and inventory
+items. The three required scopes shall be IR V2's complete semantic graph and
+source-occurrence set, QSL's complete checked `RequirementRecord` set and
+native pending-obligation set, and `quire-code-rs`'s complete selected
+production-module and function facts. Each envelope's owner, source, and scope
+shall match its required input position and the top-level selected source.
+
+`SourceInventoryCompleteness` shall be either `Complete` or `Incomplete` with
+a `SourceInventoryIncompleteReason`. The owner-native inventory enumerator or
+its typed adapter shall issue `Complete` only after normal exhaustion of the
+entire named scope; an early stop, failed parse, failed owner request, or
+unavailable selected module shall issue `Incomplete` with the original typed
+cause. This state is evidence from enumeration, not a caller-authored boolean
+or eligibility policy. The envelope item count shall equal the number of
+retained items; a mismatch shall refuse construction. `Complete` with zero
+items is a valid complete inventory when the owner enumerated the named scope
+and found no entries. A complete envelope may also contain an empty component
+inventory, such as a fully parsed production module with no functions. These
+cases are distinct from an absent envelope, an incomplete envelope, and an
+inventoried entity whose correspondence count is zero.
 Source-contract authoring is the assertion producer; the constructor validates
 and preserves assertions but does not infer or repair them. Each assertion and
 inventory item shall carry selected-source provenance sufficient to establish
 which source selection it belongs to. The census shall retain the supplied
 provenance, including provenance on rejected rows.
+
+If any owner envelope is absent, incomplete, has a mismatched scope or source,
+or has an item-count mismatch, `build_source_obligation_census` shall return a
+typed error naming that owner and shall return no census. It shall report the
+first failing owner in fixed order: IR V2, QSL, then `quire-code-rs`. The
+constructor shall not treat a missing envelope or partial owner enumeration as
+a zero-mapping entity or a complete empty inventory. A census is complete only
+when all three required owner envelopes pass these checks.
+
+`SourceInventoryOwner` shall distinguish `IrV2`, `Qsl`, and `QuireCodeRs`.
+`SourceInventoryScope` shall distinguish `IrV2SemanticGraphAndOccurrences`,
+`QslCheckedRequirementsAndPendingObligations`, and
+`QuireCodeRsProductionModulesAndFunctions`. Each owner shall supply exactly
+its corresponding scope. `SourceCorrespondenceError` shall expose distinct
+variants `InvalidSourceSelection`, `MissingOwnerInventory`,
+`IncompleteOwnerInventory`, `InventorySourceMismatch`,
+`InventoryScopeMismatch`, and `InventoryItemCountMismatch`, retaining the
+owner and the relevant expected and observed source, scope, or counts, and the
+typed incomplete cause where applicable.
 
 ### Census and correspondence
 
@@ -91,9 +138,10 @@ deterministically. Exact repeated inventory entries shall collapse to one
 row. When one typed identity is repeated with differing inventory facts, each
 conflicting entry shall remain inspectable with `ConflictingIdentity`; none
 shall be selected by first-wins order. Repeated assertion identity with
-conflicting relation facts or provenance shall remain inspectable as a typed
-rejection; no conflicting assertion shall be accepted. Input ordering shall
-not change the disposition or ordered census.
+conflicting relation facts or provenance shall remain inspectable with
+`ConflictingRelation` or `ConflictingProvenance`, respectively; no conflicting
+assertion shall be accepted. Input ordering shall not change the disposition
+or ordered census.
 
 An inventory item whose source identity or root is outside the selected source
 shall remain visible with a typed foreign-inventory disposition and shall not
@@ -105,21 +153,23 @@ shall not become an accepted relation. The census shall distinguish those
 rejected relations from valid entities that have no authored relation. No
 malformed or incomplete input shall produce a census that appears complete.
 
-The constructor shall receive no method, profile, result, artifact, attempt,
-or run input. Removing an obligation from its authoritative inventory may
-change the census; removing a proof result or changing a method or profile
-shall not change it. The model shall not qualify proof evidence, calculate
-coverage projections, or alter FR-045's candidate denominator.
+The source-obligation input schema shall contain no method, profile, result,
+artifact, attempt, or run field. Census membership is derived only from the
+selected source inventories and explicit assertions. The model shall not
+qualify proof evidence, calculate coverage projections, or alter FR-045's
+candidate denominator.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-052-AC-1 | A default-feature consumer imports the input, constructor, census and row types from `quire_contract_model::source_obligation`; the public-items inventory lists them, and neither the IR root nor a CG/QSL/parser dependency owns or re-exports them. | Test |
-| FR-052-AC-2 | A typed fixture containing two criteria, three semantic occurrences, one empty module, two production functions and explicit many-to-many assertions preserves every inventory row and exactly the asserted valid relations with their selected-source provenance. Unmapped criteria, occurrences, modules and functions remain visible with typed missing reasons. | Test |
-| FR-052-AC-3 | An assertion with a foreign source, each dangling endpoint kind, a foreign inventory entry, an exact duplicate, conflicting inventory facts, and conflicting assertion provenance each has its specified typed deterministic disposition; rejected entries remain inspectable and never enter accepted relations. | Test |
-| FR-052-AC-4 | Reordering equivalent inputs yields the same ordered census and dispositions. Removing a source occurrence changes the census; changing or omitting proof results, methods, or profiles cannot change it because those inputs are absent from the constructor. | Test |
-| FR-052-AC-5 | Inspection of the three owner APIs confirms the input inventory facts retain their native identities and are not copied into a second parser/schema; a downstream consumer can borrow the census without introducing a dependency from IR root or `quire-contract-model` to CG or QSL. | Inspection |
+| FR-052-AC-1 | A default-feature consumer imports and calls the input, constructor, census and row types from `quire_contract_model::source_obligation`; FR-019's public-items inventory lists every exported item. | Test |
+| FR-052-AC-2 | A typed fixture containing two criteria, three semantic occurrences, one empty module, two production functions and explicit many-to-many assertions preserves every inventory row and exactly the asserted valid relations with their selected-source provenance. Unmapped criteria, occurrences, modules and functions remain visible with typed missing reasons. Reordering equivalent inputs yields the same ordered census; removing one occurrence from a complete IR V2 inventory changes it. | Test |
+| FR-052-AC-3 | A foreign source, each dangling endpoint, a foreign inventory entry, an exact duplicate, conflicting inventory facts, conflicting assertion relation facts, and conflicting assertion provenance each receive their named deterministic disposition; rejected entries remain inspectable and never enter accepted relations. | Test |
+| FR-052-AC-4 | Inspection of the public constructor and `SourceObligationInput` signature confirms that the input schema has no result, method, profile, artifact, attempt or run field. | Inspection |
+| FR-052-AC-5 | An external default-feature consumer compiles a borrow of `SourceObligationCensus` and its rows from `quire_contract_model::source_obligation`; the model manifest and public items introduce no QSL, Codegen, `quire-code-rs`, parser or proof-runner dependency. | Test |
+| FR-052-AC-6 | Omitting each of the three owner envelopes in turn returns `MissingOwnerInventory` naming that owner and no census. Marking each envelope incomplete returns `IncompleteOwnerInventory` with the supplied typed cause and no census. A fully parsed production module with no function facts is accepted as complete, retains the module row, and differs observably from both outcomes. | Test |
+| FR-052-AC-7 | Complete IR V2 scope covers every semantic node and source occurrence in the selected V2 graph; complete QSL scope covers every checked `RequirementRecord` and native pending obligation for the selected request; complete `quire-code-rs` scope covers every selected production module and every function fact, including empty modules. Normal exhaustion is required for `Complete`; an early stop, failed parse/request, unavailable selected module, scope/source mismatch, or item-count mismatch produces a typed error and no census. | Test |
 
 ## Dependencies
 

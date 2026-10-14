@@ -10,32 +10,62 @@ relationships:
 
 ## Description
 
-Verify that the typed model port retains complete authoritative inventories,
-accepts only explicit source-author assertions, and deterministically records
-valid, missing, foreign, dangling, duplicate, and conflicting relations.
+Verify that the neutral model port preserves complete owner inventories and
+explicit source-author mappings, and returns typed errors rather than a
+complete-looking census when any owner input is absent or incomplete.
 
 ## Test Procedure
 
-Compile an external default-feature consumer importing the listed items from
-`quire_contract_model::source_obligation` and attempting the same imports from
-`quire_contract_ir`. Construct a fixture with two criteria, three semantic
-occurrences, an empty module, two production functions and explicit
-many-to-many assertions. Inspect every inventory row and accepted relation.
-Repeat with an unmapped criterion, occurrence and symbol; a foreign inventory
-item; a foreign assertion; each dangling endpoint; exact duplicate inputs;
-and conflicting identity facts and provenance. Permute each equivalent input
-set and compare the census. Remove one occurrence and then vary or omit proof
-result, method and profile values. Inspect Cargo manifests and public exports
-for ownership and dependency direction.
+Compile an external default-feature consumer that constructs
+`SourceObligationInput`, calls `build_source_obligation_census`, and borrows
+the resulting `SourceObligationCensus` and rows through
+`quire_contract_model::source_obligation`. Inspect the public constructor
+signature and public-item inventory for the absence of result, method, profile,
+artifact, attempt, and run inputs.
+
+Build three owner inputs with their native APIs or typed adapters. For IR V2,
+enumerate the complete selected semantic graph and all of its source
+occurrences. For QSL, enumerate the complete selected checked
+`RequirementRecord` set and native pending-obligation set. For
+`quire-code-rs`, account for every selected production module and fully parse
+its function facts, including a module with no functions. Have each input
+carry its matching owner, selected source, scope, item count, and the
+owner-emitted completeness state. Verify that `Complete` is emitted only after
+normal exhaustion of that owner's full scope, and compare every complete
+envelope's entries with the full owner output for that selection. An owner
+item omitted from an otherwise populated selected source must prevent a
+complete envelope.
+
+Using a valid selection, omit the IR V2, QSL, and `quire-code-rs` envelopes one
+at a time. For each owner, also supply a partial enumeration marked
+`Incomplete` with an owner-typed cause; exercise early termination for IR V2,
+a failed checked-record request for QSL, and a selected module parse failure
+for `quire-code-rs`. Compare each with an owner response marked `Complete`
+whose valid scope contains an empty subinventory, such as the function facts
+for a fully parsed module with no functions. Supply a source mismatch, a wrong
+owner/scope pairing, and an item count that differs from the retained items.
+Then build the full two-criterion, three-occurrence, one-empty-module,
+two-function fixture with explicit many-to-many assertions, and exercise
+unmapped entities, foreign and dangling endpoints, exact duplicate inputs,
+conflicting inventory facts, conflicting assertion relation facts, and
+conflicting assertion provenance. Permute equivalent inputs and remove one
+occurrence from a complete IR V2 inventory.
 
 ## Expected Results
 
-The model path compiles and the IR root path does not. Every source inventory
-entity remains inspectable, only explicit valid assertions are accepted, and
-missing mappings remain typed gaps. Foreign and dangling input is preserved
-with typed rejections; exact duplicates collapse; conflicts are retained with
-stable typed dispositions. Equivalent input order produces equal ordered
-censuses. Removing an authoritative occurrence changes the census, while
-proof-result and method/profile changes cannot affect it. The model has no CG,
-QSL, parser, or proof-runner dependency, and the IR root has no dependency on
-CG.
+The external consumer compiles and can borrow the census; the constructor has
+no evidence-attempt inputs. Every complete fixture preserves all owner rows
+and only its explicit valid relations, including visible zero-mapping entities.
+For each owner, an absent envelope returns `MissingOwnerInventory` with that
+owner and no census. An incomplete envelope returns
+`IncompleteOwnerInventory` with the original typed cause and no census. A
+fully parsed production module with no function facts is accepted as complete,
+its module row remains visible, and it differs from both errors. A source
+mismatch returns `InventorySourceMismatch`; a wrong owner/scope returns
+`InventoryScopeMismatch`; and a count mismatch returns
+`InventoryItemCountMismatch`, each with no census. Rejected assertions retain their distinct typed
+reasons; `ConflictingRelation` and `ConflictingProvenance` are each directly
+observed and neither conflicting relation is accepted. Exact duplicates
+collapse, conflicting inventory entries remain inspectable, equivalent input
+permutations produce equal ordered censuses, and removing one authoritative
+occurrence changes the census.
