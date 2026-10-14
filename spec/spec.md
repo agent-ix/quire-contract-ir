@@ -115,6 +115,10 @@ defines the planned typed V2 envelope encoder; its planned IR controls are
 [TC-451](checked_package/matrix/TC-451-typed-v2-envelope-encoding.md).
 QSL-766 owns the separate producer adoption, not implemented by
 this IR specification.
+[FR-052](model/functional/FR-052-source-obligation-correspondence.md)
+owns the typed source-obligation correspondence input in the cycle-free model;
+[TC-452](model/matrix/TC-452-source-obligation-correspondence.md) records its
+planned API, mapping and refusal controls.
 STD-001 is the stable diagnostic code registry, FR-044 exports the form of its
 codes as the typed `Std001Code` of the model crate, which `KaniOutcome.code`
 carries, and STD-003 is the closed
