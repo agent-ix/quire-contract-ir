@@ -1,18 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! FR-052 source-derived correspondence census for proof-coverage consumers.
+//! FR-052 provisional typed source-obligation input.
 //!
-//! This module records owner inventories and explicit source-contract assertions.
-//! It does not infer relationships from evidence, generated artifacts, or text.
+//! This module retains owner-reported rows, stop causes, and authored assertions.
+//! It makes no completeness or correspondence claim.
 
-use std::{collections::BTreeMap, fmt};
-
-use thiserror::Error;
+use std::fmt;
 
 use crate::{CheckedNodeId, CheckedOccurrence, CheckedSemanticId, ClauseRef, SourceIdentity};
 
-/// The owner whose complete inventory an envelope carries.
+/// The owner whose reported rows an envelope carries.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SourceInventoryOwner {
     /// Contract IR V2 semantic graph and source occurrences.
@@ -23,7 +21,7 @@ pub enum SourceInventoryOwner {
     QuireCodeRs,
 }
 
-/// The complete named scope an owner must enumerate.
+/// The named scope an owner reports rows for.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SourceInventoryScope {
     /// Every semantic node and source occurrence in the selected V2 graph.
@@ -32,16 +30,6 @@ pub enum SourceInventoryScope {
     QslCheckedRequirementsAndPendingObligations,
     /// Every selected production module and function fact.
     QuireCodeRsProductionModulesAndFunctions,
-}
-
-impl SourceInventoryOwner {
-    fn required_scope(self) -> SourceInventoryScope {
-        match self {
-            Self::IrV2 => SourceInventoryScope::IrV2SemanticGraphAndOccurrences,
-            Self::Qsl => SourceInventoryScope::QslCheckedRequirementsAndPendingObligations,
-            Self::QuireCodeRs => SourceInventoryScope::QuireCodeRsProductionModulesAndFunctions,
-        }
-    }
 }
 
 /// Typed cause explaining why owner enumeration did not exhaust its scope.
@@ -189,15 +177,6 @@ pub struct SourcePendingObligationId {
     pub kind: SourcePendingObligationKind,
 }
 
-/// Owner-emitted completeness state for one inventory envelope.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum SourceInventoryCompleteness {
-    /// The owner normally exhausted the entire named scope.
-    Complete,
-    /// Enumeration did not establish a complete scope.
-    Incomplete(SourceInventoryIncompleteReason),
-}
-
 /// A production module identity supplied by the native code owner adapter.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SourceProductionModuleId(Box<str>);
@@ -309,84 +288,30 @@ impl SourceInventoryIdentity {
     }
 }
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-enum InventoryKey {
-    Criterion(ClauseRef),
-    RequirementRecord(SourceRequirementOccurrenceId),
-    SemanticNode(CheckedNodeId),
-    SemanticOccurrence(SourceSemanticOccurrenceId),
-    PendingObligation(SourcePendingObligationId),
-    ProductionModule(SourceProductionModuleId),
-    ProductionFunction(SourceProductionFunctionId),
-}
-
-impl From<&SourceInventoryIdentity> for InventoryKey {
-    fn from(identity: &SourceInventoryIdentity) -> Self {
-        match identity {
-            SourceInventoryIdentity::Criterion(id) => Self::Criterion(id.clone()),
-            SourceInventoryIdentity::RequirementRecord(id) => Self::RequirementRecord(id.clone()),
-            SourceInventoryIdentity::SemanticNode { identity, .. } => {
-                Self::SemanticNode(identity.clone())
-            }
-            SourceInventoryIdentity::SemanticOccurrence(id) => Self::SemanticOccurrence(id.clone()),
-            SourceInventoryIdentity::PendingObligation(id) => Self::PendingObligation(*id),
-            SourceInventoryIdentity::ProductionModule(id) => Self::ProductionModule(id.clone()),
-            SourceInventoryIdentity::ProductionFunction(id) => Self::ProductionFunction(id.clone()),
-        }
-    }
-}
-
-/// Disposition of a preserved owner inventory row.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum SourceInventoryDisposition {
-    /// At least one accepted assertion uses this entity.
-    Mapped,
-    /// The selected entity has no authored mapping.
-    ZeroMappings(SourceMissingMappingReason),
-    /// The row belongs to a different selected source.
-    ForeignInventory,
-    /// The same typed identity was supplied with conflicting facts.
-    ConflictingIdentity,
-}
-
-/// Typed explanation for a source entity that has no production mapping.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SourceMissingMappingReason {
-    /// No authored assertion maps the entity.
-    NoAuthoredMapping,
-    /// The source contract explicitly records that no production function exists.
-    ExplicitNoProductionFunction,
-}
-
-/// One retained item and its selected-source provenance.
+/// One owner-reported item with its selected-source provenance.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceInventoryRow {
     owner: SourceInventoryOwner,
     source: SourceIdentity,
     identity: SourceInventoryIdentity,
-    disposition: SourceInventoryDisposition,
 }
 
 impl SourceInventoryRow {
-    /// Build an owner-adapter row; the census constructor assigns its disposition.
+    /// Retain a native owner identity and the selected source it reports.
     pub fn new(source: SourceIdentity, identity: SourceInventoryIdentity) -> Self {
-        let owner = identity.owner();
         Self {
-            owner,
+            owner: identity.owner(),
             source,
             identity,
-            disposition: SourceInventoryDisposition::ZeroMappings(
-                SourceMissingMappingReason::NoAuthoredMapping,
-            ),
         }
     }
 
-    /// Return the inventory owner.
+    /// Return the owner implied by the typed identity.
     pub const fn owner(&self) -> SourceInventoryOwner {
         self.owner
     }
 
-    /// Borrow the selected source represented by this row.
+    /// Borrow the source reported for this row.
     pub fn source(&self) -> &SourceIdentity {
         &self.source
     }
@@ -395,67 +320,62 @@ impl SourceInventoryRow {
     pub fn identity(&self) -> &SourceInventoryIdentity {
         &self.identity
     }
-
-    /// Borrow this row's computed mapping disposition.
-    pub fn disposition(&self) -> &SourceInventoryDisposition {
-        &self.disposition
-    }
 }
 
-/// One complete or incomplete inventory envelope from an owner adapter.
+/// Provisional rows and any reported stop cause for one owner scope.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceInventoryEnvelope {
     owner: SourceInventoryOwner,
     source: SourceIdentity,
     scope: SourceInventoryScope,
-    item_count: usize,
-    completeness: SourceInventoryCompleteness,
     items: Vec<SourceInventoryRow>,
+    stop_reason: Option<SourceInventoryIncompleteReason>,
 }
 
 impl SourceInventoryEnvelope {
-    /// Retain an owner-emitted inventory result and its declared count.
+    /// Retain owner-reported rows and an optional typed stop cause.
+    ///
+    /// `stop_reason: None` means no stop cause was reported. It does not prove
+    /// that enumeration exhausted the owner scope or that any row is present.
     pub fn new(
         owner: SourceInventoryOwner,
         source: SourceIdentity,
         scope: SourceInventoryScope,
-        item_count: usize,
-        completeness: SourceInventoryCompleteness,
         items: Vec<SourceInventoryRow>,
+        stop_reason: Option<SourceInventoryIncompleteReason>,
     ) -> Self {
         Self {
             owner,
             source,
             scope,
-            item_count,
-            completeness,
             items,
+            stop_reason,
         }
     }
 
-    /// Return the owner named by this envelope.
+    /// Return the owner reported by this envelope.
     pub const fn owner(&self) -> SourceInventoryOwner {
         self.owner
     }
-    /// Borrow the envelope's source selection.
+
+    /// Borrow the source reported for this envelope.
     pub fn source(&self) -> &SourceIdentity {
         &self.source
     }
-    /// Return the enumerated owner scope.
+
+    /// Return the scope reported by the owner.
     pub const fn scope(&self) -> SourceInventoryScope {
         self.scope
     }
-    /// Return the count reported by the owner adapter.
-    pub const fn item_count(&self) -> usize {
-        self.item_count
-    }
-    /// Borrow the owner-emitted completeness state.
-    pub fn completeness(&self) -> &SourceInventoryCompleteness {
-        &self.completeness
-    }
-    /// Borrow all retained inventory rows.
+
+    /// Borrow all reported rows, without asserting completeness.
     pub fn items(&self) -> &[SourceInventoryRow] {
         &self.items
+    }
+
+    /// Borrow the reported stop cause, if any; absence does not prove completion.
+    pub fn stop_reason(&self) -> Option<&SourceInventoryIncompleteReason> {
+        self.stop_reason.as_ref()
     }
 }
 
@@ -560,147 +480,7 @@ impl SourceCorrespondenceAssertion {
     }
 }
 
-/// Rejection reason for an assertion that cannot enter the accepted relation set.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub enum SourceCorrespondenceRejectionReason {
-    /// The assertion names another selected source.
-    ForeignSource,
-    /// The criterion endpoint is not in the selected inventory.
-    DanglingCriterion,
-    /// The occurrence endpoint is not in the selected inventory.
-    DanglingOccurrence,
-    /// The production function endpoint is not in the selected inventory.
-    DanglingProductionSymbol,
-    /// One assertion identity carries different relation facts.
-    ConflictingRelation,
-    /// One assertion identity carries different provenance facts.
-    ConflictingProvenance,
-}
-
-/// An inspectable assertion rejected from the accepted relation set.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SourceCorrespondenceRejection {
-    assertion: SourceCorrespondenceAssertion,
-    reason: SourceCorrespondenceRejectionReason,
-}
-
-impl SourceCorrespondenceRejection {
-    /// Borrow the rejected assertion, including its original provenance.
-    pub fn assertion(&self) -> &SourceCorrespondenceAssertion {
-        &self.assertion
-    }
-    /// Return the deterministic typed rejection reason.
-    pub const fn reason(&self) -> SourceCorrespondenceRejectionReason {
-        self.reason
-    }
-}
-
-/// Accepted explicit criterion-to-occurrence-to-function relationship.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct SourceObligationRow {
-    criterion: ClauseRef,
-    occurrence: SourceSemanticOccurrenceId,
-    production_function: Option<SourceProductionFunctionId>,
-    provenance: SourceAssertionProvenance,
-}
-
-impl SourceObligationRow {
-    /// Borrow the owning criterion identity.
-    pub fn criterion(&self) -> &ClauseRef {
-        &self.criterion
-    }
-    /// Borrow the semantic occurrence identity.
-    pub fn occurrence(&self) -> &SourceSemanticOccurrenceId {
-        &self.occurrence
-    }
-    /// Borrow the explicit production-function mapping, if one was authored.
-    pub fn production_function(&self) -> Option<&SourceProductionFunctionId> {
-        self.production_function.as_ref()
-    }
-    /// Borrow the author-supplied assertion provenance.
-    pub fn provenance(&self) -> &SourceAssertionProvenance {
-        &self.provenance
-    }
-}
-
-/// Complete, immutable census over one selected source and three owner scopes.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SourceObligationCensus {
-    source: SourceIdentity,
-    inventory_rows: Vec<SourceInventoryRow>,
-    correspondence_rows: Vec<SourceObligationRow>,
-    rejected_assertions: Vec<SourceCorrespondenceRejection>,
-}
-
-impl SourceObligationCensus {
-    /// Borrow the source selection represented by this census.
-    pub fn source(&self) -> &SourceIdentity {
-        &self.source
-    }
-    /// Borrow every deduplicated inventory row, including zero-mapping rows.
-    pub fn inventory_rows(&self) -> &[SourceInventoryRow] {
-        &self.inventory_rows
-    }
-    /// Borrow all accepted explicit correspondence rows.
-    pub fn correspondence_rows(&self) -> &[SourceObligationRow] {
-        &self.correspondence_rows
-    }
-    /// Borrow all rejected assertions and their typed dispositions.
-    pub fn rejected_assertions(&self) -> &[SourceCorrespondenceRejection] {
-        &self.rejected_assertions
-    }
-}
-
-/// Typed failure to establish all three complete owner inventories.
-#[derive(Clone, Debug, Eq, Error, PartialEq)]
-pub enum SourceCorrespondenceError {
-    /// The owner envelope was not supplied.
-    #[error("missing {owner:?} inventory")]
-    MissingOwnerInventory {
-        /// Owner whose required envelope was absent.
-        owner: SourceInventoryOwner,
-    },
-    /// The owner did not exhaust its selected scope.
-    #[error("incomplete {owner:?} inventory")]
-    IncompleteOwnerInventory {
-        /// Owner whose scope was incomplete.
-        owner: SourceInventoryOwner,
-        /// Original typed incomplete cause from the adapter.
-        cause: SourceInventoryIncompleteReason,
-    },
-    /// The envelope or one of its rows names another source.
-    #[error("{owner:?} inventory source mismatch")]
-    InventorySourceMismatch {
-        /// Owner whose source identity differed.
-        owner: SourceInventoryOwner,
-        /// Top-level selected source expected by this census.
-        expected: SourceIdentity,
-        /// Source identity supplied by the owner.
-        observed: SourceIdentity,
-    },
-    /// The owner envelope names a scope not required for its input position.
-    #[error("{owner:?} inventory scope mismatch")]
-    InventoryScopeMismatch {
-        /// Owner position being validated.
-        owner: SourceInventoryOwner,
-        /// Required owner scope.
-        expected: SourceInventoryScope,
-        /// Supplied scope or scope implied by the supplied owner.
-        observed: SourceInventoryScope,
-    },
-    /// Declared item count differs from retained rows.
-    #[error("{owner:?} inventory item count mismatch")]
-    InventoryItemCountMismatch {
-        /// Owner whose retained item count differed.
-        owner: SourceInventoryOwner,
-        /// Count declared by the owner envelope.
-        expected: usize,
-        /// Number of rows retained in the envelope.
-        observed: usize,
-    },
-}
-
-/// Typed input to the complete source-obligation census constructor.
+/// Provisional typed owner reports and authored assertions for one source.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceObligationInput {
     source: SourceIdentity,
@@ -711,8 +491,8 @@ pub struct SourceObligationInput {
 }
 
 impl SourceObligationInput {
-    /// Construct a census request from the selection, three optional envelopes,
-    /// and source-author assertions.
+    /// Retain the selected source, optional owner reports, and authored assertions.
+    /// No input here proves complete enumeration or an accepted correspondence.
     pub fn new(
         source: SourceIdentity,
         ir_v2: Option<SourceInventoryEnvelope>,
@@ -728,418 +508,29 @@ impl SourceObligationInput {
             assertions,
         }
     }
-}
 
-/// Validate owner completeness and construct the deterministic census.
-pub fn build_source_obligation_census(
-    input: SourceObligationInput,
-) -> Result<SourceObligationCensus, SourceCorrespondenceError> {
-    let mut inventory = Vec::new();
-    for (owner, envelope) in [
-        (SourceInventoryOwner::IrV2, input.ir_v2),
-        (SourceInventoryOwner::Qsl, input.qsl),
-        (SourceInventoryOwner::QuireCodeRs, input.quire_code_rs),
-    ] {
-        let envelope =
-            envelope.ok_or(SourceCorrespondenceError::MissingOwnerInventory { owner })?;
-        if envelope.owner != owner {
-            return Err(SourceCorrespondenceError::InventoryScopeMismatch {
-                owner,
-                expected: owner.required_scope(),
-                observed: envelope.owner.required_scope(),
-            });
-        }
-        if envelope.source != input.source {
-            return Err(SourceCorrespondenceError::InventorySourceMismatch {
-                owner,
-                expected: input.source.clone(),
-                observed: envelope.source,
-            });
-        }
-        if envelope.scope != owner.required_scope() {
-            return Err(SourceCorrespondenceError::InventoryScopeMismatch {
-                owner,
-                expected: owner.required_scope(),
-                observed: envelope.scope,
-            });
-        }
-        if let SourceInventoryCompleteness::Incomplete(cause) = envelope.completeness {
-            return Err(SourceCorrespondenceError::IncompleteOwnerInventory { owner, cause });
-        }
-        if envelope.item_count != envelope.items.len() {
-            return Err(SourceCorrespondenceError::InventoryItemCountMismatch {
-                owner,
-                expected: envelope.item_count,
-                observed: envelope.items.len(),
-            });
-        }
-        inventory.extend(envelope.items);
+    /// Borrow the selected source.
+    pub fn source(&self) -> &SourceIdentity {
+        &self.source
     }
 
-    // Every owner-position row is checked before joining; a wrong typed item
-    // cannot masquerade as a complete entry for another owner.
-    inventory.sort_by(|a, b| {
-        (&a.owner, &a.identity, &a.source).cmp(&(&b.owner, &b.identity, &b.source))
-    });
-    let mut normalized = Vec::with_capacity(inventory.len());
-    for row in inventory {
-        if row.owner != row.identity.owner() {
-            return Err(SourceCorrespondenceError::InventoryScopeMismatch {
-                owner: row.owner,
-                expected: row.owner.required_scope(),
-                observed: row.identity.owner().required_scope(),
-            });
-        }
-        normalized.push(row);
+    /// Borrow the reported IR V2 envelope, if supplied.
+    pub fn ir_v2(&self) -> Option<&SourceInventoryEnvelope> {
+        self.ir_v2.as_ref()
     }
-    let mut inventory = deduplicate_inventory(normalized, &input.source);
-    let selected = inventory
-        .iter()
-        .filter(|row| {
-            row.disposition != SourceInventoryDisposition::ForeignInventory
-                && row.disposition != SourceInventoryDisposition::ConflictingIdentity
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    let criteria = selected
-        .iter()
-        .filter_map(|row| match &row.identity {
-            SourceInventoryIdentity::Criterion(id) => Some(id.clone()),
-            _ => None,
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    let semantic_nodes = selected
-        .iter()
-        .filter_map(|row| match &row.identity {
-            SourceInventoryIdentity::SemanticNode { identity, .. } => Some(identity.clone()),
-            _ => None,
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    let occurrences = selected
-        .iter()
-        .filter_map(|row| match &row.identity {
-            SourceInventoryIdentity::SemanticOccurrence(id)
-                if semantic_nodes.contains(&id.node) =>
-            {
-                Some(id.clone())
-            }
-            _ => None,
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    let production_modules = selected
-        .iter()
-        .filter_map(|row| match &row.identity {
-            SourceInventoryIdentity::ProductionModule(id) => Some(id.clone()),
-            _ => None,
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    let functions = selected
-        .iter()
-        .filter_map(|row| match &row.identity {
-            SourceInventoryIdentity::ProductionFunction(id)
-                if production_modules.contains(&id.module) =>
-            {
-                Some(id.clone())
-            }
-            _ => None,
-        })
-        .collect::<std::collections::BTreeSet<_>>();
 
-    let mut assertion_groups: BTreeMap<SourceAssertionId, Vec<SourceCorrespondenceAssertion>> =
-        BTreeMap::new();
-    for assertion in input.assertions {
-        assertion_groups
-            .entry(assertion.id.clone())
-            .or_default()
-            .push(assertion);
+    /// Borrow the reported QSL envelope, if supplied.
+    pub fn qsl(&self) -> Option<&SourceInventoryEnvelope> {
+        self.qsl.as_ref()
     }
-    let mut accepted_assertions = Vec::new();
-    let mut rejected = Vec::new();
-    for (_, mut group) in assertion_groups {
-        group.sort_by(|a, b| assertion_sort_key(a).cmp(&assertion_sort_key(b)));
-        group.dedup();
-        if group
-            .iter()
-            .any(|a| a.source != input.source || a.provenance.source != input.source)
-        {
-            rejected.extend(
-                group
-                    .into_iter()
-                    .map(|assertion| SourceCorrespondenceRejection {
-                        assertion,
-                        reason: SourceCorrespondenceRejectionReason::ForeignSource,
-                    }),
-            );
-            continue;
-        }
-        let relation_facts = group
-            .iter()
-            .map(|a| (&a.criterion, &a.occurrence, &a.production_function))
-            .collect::<std::collections::BTreeSet<_>>();
-        if relation_facts.len() > 1 {
-            rejected.extend(
-                group
-                    .into_iter()
-                    .map(|assertion| SourceCorrespondenceRejection {
-                        assertion,
-                        reason: SourceCorrespondenceRejectionReason::ConflictingRelation,
-                    }),
-            );
-            continue;
-        }
-        let provenance_facts = group
-            .iter()
-            .map(|a| &a.provenance)
-            .collect::<std::collections::BTreeSet<_>>();
-        if provenance_facts.len() > 1 {
-            rejected.extend(
-                group
-                    .into_iter()
-                    .map(|assertion| SourceCorrespondenceRejection {
-                        assertion,
-                        reason: SourceCorrespondenceRejectionReason::ConflictingProvenance,
-                    }),
-            );
-            continue;
-        }
-        let Some(assertion) = group.into_iter().next() else {
-            continue;
-        };
-        let reason = if !criteria.contains(&assertion.criterion) {
-            Some(SourceCorrespondenceRejectionReason::DanglingCriterion)
-        } else if !occurrences.contains(&assertion.occurrence) {
-            Some(SourceCorrespondenceRejectionReason::DanglingOccurrence)
-        } else if assertion
-            .production_function
-            .as_ref()
-            .is_some_and(|function| !functions.contains(function))
-        {
-            Some(SourceCorrespondenceRejectionReason::DanglingProductionSymbol)
-        } else {
-            None
-        };
-        if let Some(reason) = reason {
-            rejected.push(SourceCorrespondenceRejection { assertion, reason });
-        } else {
-            accepted_assertions.push(assertion);
-        }
-    }
-    let mut relation_groups: BTreeMap<
-        (
-            ClauseRef,
-            SourceSemanticOccurrenceId,
-            Option<SourceProductionFunctionId>,
-        ),
-        Vec<SourceCorrespondenceAssertion>,
-    > = BTreeMap::new();
-    for assertion in accepted_assertions {
-        relation_groups
-            .entry((
-                assertion.criterion.clone(),
-                assertion.occurrence.clone(),
-                assertion.production_function.clone(),
-            ))
-            .or_default()
-            .push(assertion);
-    }
-    let mut accepted = Vec::new();
-    for (_, mut group) in relation_groups {
-        group.sort_by(|a, b| assertion_sort_key(a).cmp(&assertion_sort_key(b)));
-        group.dedup();
-        let provenance_facts = group
-            .iter()
-            .map(|assertion| &assertion.provenance)
-            .collect::<std::collections::BTreeSet<_>>();
-        if provenance_facts.len() > 1 {
-            rejected.extend(
-                group
-                    .into_iter()
-                    .map(|assertion| SourceCorrespondenceRejection {
-                        assertion,
-                        reason: SourceCorrespondenceRejectionReason::ConflictingProvenance,
-                    }),
-            );
-        } else if let Some(assertion) = group.into_iter().next() {
-            accepted.push(SourceObligationRow {
-                criterion: assertion.criterion,
-                occurrence: assertion.occurrence,
-                production_function: assertion.production_function,
-                provenance: assertion.provenance,
-            });
-        }
-    }
-    accepted.sort();
-    rejected.sort_by(|a, b| {
-        (assertion_sort_key(&a.assertion), a.reason)
-            .cmp(&(assertion_sort_key(&b.assertion), b.reason))
-    });
-    rejected.dedup();
 
-    let mapped_criteria = accepted
-        .iter()
-        .map(|r| r.criterion.clone())
-        .collect::<std::collections::BTreeSet<_>>();
-    let mapped_occurrences = accepted
-        .iter()
-        .filter(|r| r.production_function.is_some())
-        .map(|r| r.occurrence.clone())
-        .collect::<std::collections::BTreeSet<_>>();
-    let mapped_functions = accepted
-        .iter()
-        .filter_map(|r| r.production_function.clone())
-        .collect::<std::collections::BTreeSet<_>>();
-    let mapped_modules = mapped_functions
-        .iter()
-        .map(|f| f.module.clone())
-        .collect::<std::collections::BTreeSet<_>>();
-    let explicit_no_function = accepted
-        .iter()
-        .filter(|r| r.production_function.is_none())
-        .map(|r| r.occurrence.clone())
-        .collect::<std::collections::BTreeSet<_>>();
-    for row in &mut inventory {
-        if row.disposition == SourceInventoryDisposition::ForeignInventory
-            || row.disposition == SourceInventoryDisposition::ConflictingIdentity
-        {
-            continue;
-        }
-        // Assertions name criteria, IR occurrences, and production functions.
-        // A QSL record or pending obligation has no asserted endpoint here.
-        let mapped = match &row.identity {
-            SourceInventoryIdentity::Criterion(id) => mapped_criteria.contains(id),
-            SourceInventoryIdentity::RequirementRecord(_) => false,
-            SourceInventoryIdentity::SemanticOccurrence(id) => mapped_occurrences.contains(id),
-            SourceInventoryIdentity::ProductionFunction(id) => mapped_functions.contains(id),
-            SourceInventoryIdentity::ProductionModule(id) => mapped_modules.contains(id),
-            SourceInventoryIdentity::SemanticNode { identity, .. } => accepted
-                .iter()
-                .any(|r| r.production_function.is_some() && &r.occurrence.node == identity),
-            SourceInventoryIdentity::PendingObligation(_) => false,
-        };
-        row.disposition = if mapped {
-            SourceInventoryDisposition::Mapped
-        } else if let SourceInventoryIdentity::SemanticOccurrence(id) = &row.identity {
-            SourceInventoryDisposition::ZeroMappings(if explicit_no_function.contains(id) {
-                SourceMissingMappingReason::ExplicitNoProductionFunction
-            } else {
-                SourceMissingMappingReason::NoAuthoredMapping
-            })
-        } else {
-            SourceInventoryDisposition::ZeroMappings(SourceMissingMappingReason::NoAuthoredMapping)
-        };
+    /// Borrow the reported `quire-code-rs` envelope, if supplied.
+    pub fn quire_code_rs(&self) -> Option<&SourceInventoryEnvelope> {
+        self.quire_code_rs.as_ref()
     }
-    inventory.sort_by(|a, b| {
-        (&a.owner, &a.identity, &a.source).cmp(&(&b.owner, &b.identity, &b.source))
-    });
-    Ok(SourceObligationCensus {
-        source: input.source,
-        inventory_rows: inventory,
-        correspondence_rows: accepted,
-        rejected_assertions: rejected,
-    })
-}
 
-fn assertion_sort_key(
-    a: &SourceCorrespondenceAssertion,
-) -> (
-    &SourceAssertionId,
-    &SourceIdentity,
-    &ClauseRef,
-    &SourceSemanticOccurrenceId,
-    &Option<SourceProductionFunctionId>,
-    &SourceAssertionProvenance,
-) {
-    (
-        &a.id,
-        &a.source,
-        &a.criterion,
-        &a.occurrence,
-        &a.production_function,
-        &a.provenance,
-    )
-}
-
-fn deduplicate_inventory(
-    mut rows: Vec<SourceInventoryRow>,
-    selected_source: &SourceIdentity,
-) -> Vec<SourceInventoryRow> {
-    rows.sort_by(|a, b| {
-        (
-            &a.owner,
-            InventoryKey::from(&a.identity),
-            &a.source,
-            &a.identity,
-        )
-            .cmp(&(
-                &b.owner,
-                InventoryKey::from(&b.identity),
-                &b.source,
-                &b.identity,
-            ))
-    });
-    let mut result = Vec::new();
-    let mut index = 0;
-    while index < rows.len() {
-        let owner = rows[index].owner;
-        let identity = InventoryKey::from(&rows[index].identity);
-        let mut end = index + 1;
-        while end < rows.len()
-            && rows[end].owner == owner
-            && InventoryKey::from(&rows[end].identity) == identity
-        {
-            end += 1;
-        }
-        let group = &rows[index..end];
-        let mut selected = group
-            .iter()
-            .filter(|row| &row.source == selected_source)
-            .cloned()
-            .collect::<Vec<_>>();
-        selected.sort_by(|a, b| a.source.cmp(&b.source));
-        selected.dedup();
-        let distinct_facts = selected
-            .iter()
-            .map(|row| &row.identity)
-            .collect::<std::collections::BTreeSet<_>>();
-        if distinct_facts.len() > 1 {
-            result.extend(selected.into_iter().map(|mut row| {
-                row.disposition = SourceInventoryDisposition::ConflictingIdentity;
-                row
-            }));
-        } else if let Some(mut row) = selected.pop() {
-            row.disposition = SourceInventoryDisposition::ZeroMappings(
-                SourceMissingMappingReason::NoAuthoredMapping,
-            );
-            result.push(row);
-        }
-        let mut foreign = group
-            .iter()
-            .filter(|row| &row.source != selected_source)
-            .cloned()
-            .collect::<Vec<_>>();
-        foreign.sort_by(|a, b| {
-            (&a.source, &a.owner, &a.identity).cmp(&(&b.source, &b.owner, &b.identity))
-        });
-        foreign.dedup();
-        result.extend(foreign.into_iter().map(|mut row| {
-            row.disposition = SourceInventoryDisposition::ForeignInventory;
-            row
-        }));
-        index = end;
+    /// Borrow the authored assertions without accepting or rejecting them.
+    pub fn assertions(&self) -> &[SourceCorrespondenceAssertion] {
+        &self.assertions
     }
-    result.sort_by(|a, b| {
-        (
-            &a.owner,
-            InventoryKey::from(&a.identity),
-            &a.source,
-            &a.identity,
-        )
-            .cmp(&(
-                &b.owner,
-                InventoryKey::from(&b.identity),
-                &b.source,
-                &b.identity,
-            ))
-    });
-    result
 }

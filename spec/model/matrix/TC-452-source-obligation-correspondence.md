@@ -10,10 +10,11 @@ relationships:
 
 ## Execution Status
 
-Planned/UNRUN. The model API has synthetic inventory tests, but no owner
-adapter yet compares a declared complete envelope with the full selected IR
-V2, QSL, or `quire-code-rs` owner output. Those tests do not establish
-FR-052-AC-7 or complete TC-452.
+Planned/UNRUN. The provisional input port retains typed rows and stop causes,
+but exposes no complete census. No owner adapter yet compares a declared
+complete inventory with the full selected IR V2, QSL, or `quire-code-rs`
+output. FR-052-AC-8 tests cover only that provisional port; they do not run
+this full-owner procedure.
 
 ## Description
 
