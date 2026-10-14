@@ -22,6 +22,11 @@ author-authored requirement criteria and semantic obligation occurrences to
 selected production symbols, and retain its complete source census for
 downstream consumers before any generation or proof attempt.
 
+The complete census and its owner-output oracle remain Planned/UNRUN. IR-784
+provides only the provisional typed input port in this repository. That port
+retains reported rows and authored assertions; it does not accept a
+completeness attestation or publish a census.
+
 ## Inputs
 
 - One selected source identity and its provenance.
@@ -29,6 +34,13 @@ downstream consumers before any generation or proof attempt.
   and source occurrences; QSL checked `RequirementRecord` values and native
   pending obligations; and `quire-code-rs` selected production module and
   function facts.
+- QSL checked requirement identities are projections of the keys of
+  `CheckedGraph::requirements()`: the existing wire node ID bytes and the
+  occurrence origin's role and ordinal. They are not `RequirementRef` values.
+  Native pending-obligation identities project the exact `Obligation.site`
+  declaration, unit, expression and byte span together with `Obligation.kind`,
+  including the `PredicateTotal` target. Two identical native site/kind tuples
+  denote one inventory identity; a different field denotes another identity.
 - Explicit many-to-many correspondence assertions authored for the selected
   source by its source-contract author. These assertions are the authority for
   criterion-to-occurrence and occurrence-to-production-symbol links. The model
@@ -37,7 +49,7 @@ downstream consumers before any generation or proof attempt.
 
 ## Outputs
 
-The public `quire_contract_model::source_obligation` module shall export
+On completion, the public `quire_contract_model::source_obligation` module shall export
 `SourceObligationInput`, `SourceObligationCensus`, `SourceObligationRow`,
 `SourceInventoryRow`, `SourceCorrespondenceAssertion`,
 `SourceCorrespondenceRejection`, `SourceMissingMappingReason`,
@@ -45,7 +57,10 @@ The public `quire_contract_model::source_obligation` module shall export
 `SourceInventoryIncompleteReason`, `SourceInventoryOwner`,
 `SourceInventoryScope`, `SourceCorrespondenceError`, and
 `build_source_obligation_census`. These types shall be listed in FR-019's
-public-items inventory.
+public-items inventory when implemented. The provisional IR-784 port exports
+only `SourceObligationInput`, `SourceInventoryEnvelope`, `SourceInventoryRow`,
+typed owner identities and stop causes, and authored assertion/provenance
+types. FR-019 lists that current public surface exactly.
 
 The immutable census shall expose borrowed accessors for the selected source,
 all inventory rows, accepted correspondence rows, and rejected assertions.
@@ -88,14 +103,25 @@ a `SourceInventoryIncompleteReason`. The owner-native inventory enumerator or
 its typed adapter shall issue `Complete` only after normal exhaustion of the
 entire named scope; an early stop, failed parse, failed owner request, or
 unavailable selected module shall issue `Incomplete` with the original typed
-cause. This state is evidence from enumeration, not a caller-authored boolean
-or eligibility policy. The envelope item count shall equal the number of
+cause. QSL type-work exhaustion shall retain its native dimension, limit,
+prior, requested charge and site in a dedicated typed cause. QSL
+`TypeDisposition::Unfinished` shall be a different typed cause keyed by its
+native declaration handle. This state is evidence from enumeration, not a
+caller-authored boolean or eligibility policy. The envelope item count shall equal the number of
 retained items; a mismatch shall refuse construction. `Complete` with zero
 items is a valid complete inventory when the owner enumerated the named scope
 and found no entries. A complete envelope may also contain an empty component
 inventory, such as a fully parsed production module with no functions. These
 cases are distinct from an absent envelope, an incomplete envelope, and an
 inventoried entity whose correspondence count is zero.
+
+The provisional port has no `SourceInventoryCompleteness`, caller supplied
+item count, or complete-census constructor. Its envelope carries owner,
+source, named scope, reported rows, and an optional typed `stop_reason`.
+`stop_reason: None` means only that no stop cause was reported; it is never
+proof of normal exhaustion or complete owner output. The provisional input
+retains the selected source, optional owner envelopes, and authored assertions
+without accepting or rejecting any correspondence.
 Source-contract authoring is the assertion producer; the constructor validates
 and preserves assertions but does not infer or repair them. Each assertion and
 inventory item shall carry selected-source provenance sufficient to establish
@@ -164,7 +190,14 @@ candidate denominator.
 | FR-052-AC-4 | Inspection of the public constructor and `SourceObligationInput` signature confirms that the input schema has no result, method, profile, artifact, attempt or run field. | Inspection |
 | FR-052-AC-5 | An external default-feature consumer compiles a borrow of `SourceObligationCensus` and its rows from `quire_contract_model::source_obligation`. | Test |
 | FR-052-AC-6 | Omitting each of the three owner envelopes in turn returns `MissingOwnerInventory` naming that owner and no census. Marking each envelope incomplete returns `IncompleteOwnerInventory` with the supplied typed cause and no census. A fully parsed production module with no function facts is accepted as complete, retains the module row, and differs observably from both outcomes. | Test |
-| FR-052-AC-7 | Complete IR V2 scope covers every semantic node and source occurrence in the selected V2 graph; complete QSL scope covers every checked `RequirementRecord` and native pending obligation for the selected request; complete `quire-code-rs` scope covers every selected production module and every function fact, including empty modules. Normal exhaustion is required for `Complete`; an early stop, failed parse/request, unavailable selected module, scope/source mismatch, or item-count mismatch produces a typed error and no census. | Test |
+| FR-052-AC-7 | Complete IR V2 scope covers every semantic node and source occurrence in the selected V2 graph; complete QSL scope covers every checked `RequirementRecord` and native pending obligation for the selected request, identified by its collision-free native occurrence key or site/kind tuple rather than an IR requirement reference or semantic digest; complete `quire-code-rs` scope covers every selected production module and every function fact, including empty modules. Normal exhaustion is required for `Complete`; QSL exhaustion and `Unfinished` remain distinct typed causes, and an early stop, failed parse/request, unavailable selected module, scope/source mismatch, or item-count mismatch produces a typed error and no census. | Test |
+| FR-052-AC-8 | A default-feature consumer can construct and borrow provisional owner rows, QSL native occurrence and pending-obligation identity projections, distinct typed QSL exhaustion and unfinished stop causes, and authored assertions through `SourceObligationInput`. The envelope exposes no `Complete` claim or caller item count, and the public module exposes no census or complete-census builder. | Test |
+
+FR-052-AC-4 and FR-052-AC-8 have provisional-port evidence. FR-052-AC-1
+through AC-3 and AC-5 through AC-7 remain Planned/UNRUN until native owner
+adapters compare each declared complete envelope with full selected owner
+output and the completed census API exists. The model API tests use synthetic
+inventories and do not establish owner-issued completeness.
 
 ## Dependencies
 

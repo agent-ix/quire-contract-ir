@@ -8,6 +8,14 @@ relationships:
 ---
 # TC-452: Verify the neutral source-obligation correspondence input
 
+## Execution Status
+
+Planned/UNRUN. The provisional input port retains typed rows and stop causes,
+but exposes no complete census. No owner adapter yet compares a declared
+complete inventory with the full selected IR V2, QSL, or `quire-code-rs`
+output. FR-052-AC-8 tests cover only that provisional port; they do not run
+this full-owner procedure.
+
 ## Description
 
 Verify that the neutral model port preserves complete owner inventories and
@@ -29,7 +37,13 @@ occurrences. For QSL, enumerate the complete selected checked
 `RequirementRecord` set and native pending-obligation set. For
 `quire-code-rs`, account for every selected production module and fully parse
 its function facts, including a module with no functions. Have each input
-carry its matching owner, selected source, scope, item count, and the
+project QSL checked requirement map keys as wire node bytes plus occurrence
+role and ordinal, and pending obligations as their native site and kind,
+including a predicate target. Distinguish changes to each projected field;
+collapse only identical native tuples. Exercise distinct typed QSL exhaustion
+and unfinished-disposition causes, retaining the exhaustion dimension, limit,
+prior, requested charge, and site and the unfinished declaration handle. Have
+each input carry its matching owner, selected source, scope, item count, and the
 owner-emitted completeness state. Verify that `Complete` is emitted only after
 normal exhaustion of that owner's full scope, and compare every complete
 envelope's entries with the full owner output for that selection. An owner
@@ -39,7 +53,7 @@ complete envelope.
 Using a valid selection, omit the IR V2, QSL, and `quire-code-rs` envelopes one
 at a time. For each owner, also supply a partial enumeration marked
 `Incomplete` with an owner-typed cause; exercise early termination for IR V2,
-a failed checked-record request for QSL, and a selected module parse failure
+QSL type-work exhaustion and unfinished typing, and a selected module parse failure
 for `quire-code-rs`. Compare each with an owner response marked `Complete`
 whose valid scope contains an empty subinventory, such as the function facts
 for a fully parsed module with no functions. Supply a source mismatch, a wrong
