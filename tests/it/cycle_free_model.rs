@@ -463,7 +463,8 @@ fn owner_symbol(name: &str) -> bool {
         "PastProfileManifestError",
     ]
     .contains(&name)
-        || name.starts_with("Qsl")
+        || (name.starts_with("Qsl")
+            && !["Qsl", "QslCheckedRequirementsAndPendingObligations"].contains(&name))
         || name.starts_with("QSL")
         || name.starts_with("ObservationWire")
         || name.starts_with("ProtocolWire")
@@ -634,7 +635,12 @@ fn production_boundary_has_no_owner_mirrors_parsers_or_admission_escape_surface(
 #[trace("TC-041", "FR-028-AC-5")]
 #[test]
 fn boundary_control_rejects_copied_owner_types_parsers_callbacks_and_trust_flags() {
+    assert!(boundary(
+        "pub enum SourceInventoryOwner { Qsl } pub enum SourceInventoryScope { QslCheckedRequirementsAndPendingObligations }"
+    )
+    .is_empty());
     for (source, violation) in [
+        ("pub struct QslRequirementsWire;", "QslRequirementsWire"),
         ("pub struct ParsedUnit { pub text: String }", "ParsedUnit"),
         ("pub fn parse_qsl(_: &str) {}", "parse_qsl"),
         (
