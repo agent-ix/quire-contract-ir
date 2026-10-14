@@ -784,7 +784,7 @@ fn tc_048_a_selection_admits_only_the_document_it_names() {
         |selection: &CheckedDomainPackageRef, evidence: &CheckedPackageEvidence| match admit(
             selection, evidence,
         ) {
-            Err(SelectionFailure::Refused(refusal)) => refusal,
+            Err(SelectionFailure::Refused(refusal)) => *refusal,
             other => panic!("expected a refusal, got {other:?}"),
         };
     assert_eq!(
@@ -805,10 +805,24 @@ fn tc_048_a_selection_admits_only_the_document_it_names() {
         .expect("first domain evidence insertion succeeds");
     assert_eq!(
         refusal(&selection("acme/orders", &digest), &forged),
-        SelectionRefusal::at(
-            Code::StaleDependency,
-            Cause::ByteDigestMismatch,
-            Some("digest")
+        SelectionRefusal::mismatch(
+            Cause::ContentMismatch,
+            CheckedSemanticId {
+                domain: DOMAIN_PACKAGE_DIGEST.into(),
+                algorithm: "sha256".into(),
+                digest: digest.into(),
+            },
+            CheckedSemanticId {
+                domain: DOMAIN_PACKAGE_DIGEST.into(),
+                algorithm: "sha256".into(),
+                digest: quire_canonical::sha256(
+                    &serde_json::json!({}),
+                    quire_canonical::Limits::new(BYTES)
+                )
+                .expect("empty document digest")
+                .to_string()
+                .into(),
+            },
         )
     );
 }

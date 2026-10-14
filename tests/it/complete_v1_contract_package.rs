@@ -866,13 +866,14 @@ fn selected_dependencies_are_bound_by_library_identity_before_graph_checks() {
     );
     assert_eq!(
         wrong_package
-            .expected()
+            .expected
+            .as_ref()
             .expect("selected identity")
             .digest
             .as_ref(),
         "0".repeat(64)
     );
-    assert_eq!(wrong_package.actual(), Some(dependency.package_id()));
+    assert_eq!(wrong_package.actual.as_ref(), Some(dependency.package_id()));
 }
 
 /// Trace: FR-035-AC-4

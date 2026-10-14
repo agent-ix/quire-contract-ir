@@ -141,7 +141,7 @@ pub enum CheckedPackageRefusalCause {
     FeatureSetMismatch,
     /// A resource charge could not be made.
     InsufficientNextCharge,
-    /// `content-mismatch`: a supplied selected dependency has a different admitted package id.
+    /// Selected content has a different recomputed identity.
     ContentMismatch,
     /// `missing-name`: an entry naming no node of the graph, or a node that
     /// is not a declared dependency of the frame node that names it.
@@ -195,8 +195,7 @@ pub enum CheckedPackageRefusalCause {
     /// `digest-domain-mismatch`: a domain package selection's digest domain
     /// is not `sha256-jcs`.
     DigestDomainMismatch,
-    /// `byte-digest-mismatch`: the SHA-256 of a supplied domain package
-    /// document's RFC 8785 bytes is not the digest it was supplied under.
+    /// Unreadable selected model bytes have a different raw SHA-256 digest.
     ByteDigestMismatch,
     /// `wrong-model-selection`: a supplied domain package document's own
     /// identity differs from its selection's.
@@ -367,17 +366,13 @@ pub struct CheckedPackageRefusal {
     /// locates the row; this pointer resolves in the supplied document, not in
     /// the package.
     pub document_pointer: Option<JsonPointer>,
-    /// Identities retained only for a selected dependency content mismatch.
-    dependency_content_mismatch: Option<Box<DependencyContentMismatch>>,
+    /// Selected or pinned identity in a content or byte digest mismatch.
+    pub expected: Option<CheckedSemanticId>,
+    /// Recomputed identity in a content or byte digest mismatch.
+    pub actual: Option<CheckedSemanticId>,
     /// The key already derived at a stale-node-key refusal site, when one
     /// exists. It is meaningful only with the original reader-returned locus.
     expected_node_id: Option<Box<CheckedNodeId>>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct DependencyContentMismatch {
-    expected: CheckedSemanticId,
-    actual: CheckedSemanticId,
 }
 
 /// Named fields for constructing a refusal inside this crate. The expected
@@ -400,43 +395,35 @@ impl CheckedPackageRefusal {
             locus: fields.locus,
             contract_version: fields.contract_version,
             document_pointer: fields.document_pointer,
-            dependency_content_mismatch: None,
+            expected: None,
+            actual: None,
             expected_node_id: None,
         }
     }
 
-    /// A selected dependency package differs from the admitted package supplied
-    /// under the same library identity.
-    pub(crate) fn dependency_content_mismatch(
+    /// A selected or pinned identity differs from the supplied content.
+    pub(crate) fn mismatch(
         path: JsonPointer,
+        cause: CheckedPackageRefusalCause,
         expected: CheckedSemanticId,
         actual: CheckedSemanticId,
     ) -> Self {
+        debug_assert!(matches!(
+            cause,
+            CheckedPackageRefusalCause::ContentMismatch
+                | CheckedPackageRefusalCause::ByteDigestMismatch
+        ));
         let mut refusal = Self::new(RefusalFields {
             code: CheckedPackageRefusalCode::StaleDependency,
             path: Some(path),
-            cause: Some(CheckedPackageRefusalCause::ContentMismatch),
+            cause: Some(cause),
             locus: None,
             contract_version: None,
             document_pointer: None,
         });
-        refusal.dependency_content_mismatch =
-            Some(Box::new(DependencyContentMismatch { expected, actual }));
+        refusal.expected = Some(expected);
+        refusal.actual = Some(actual);
         refusal
-    }
-
-    /// The selected content identity, when a content mismatch supplied one.
-    pub fn expected(&self) -> Option<&CheckedSemanticId> {
-        self.dependency_content_mismatch
-            .as_ref()
-            .map(|mismatch| &mismatch.expected)
-    }
-
-    /// The supplied content identity, when a content mismatch supplied one.
-    pub fn actual(&self) -> Option<&CheckedSemanticId> {
-        self.dependency_content_mismatch
-            .as_ref()
-            .map(|mismatch| &mismatch.actual)
     }
 
     pub(crate) fn stale_node_key(

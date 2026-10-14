@@ -45,7 +45,7 @@ fn selected(document: Value, work: u64) -> (Result<DomainModel, SelectionFailure
 
 fn refusal(document: Value) -> SelectionRefusal {
     match selected(document, u64::MAX).0 {
-        Err(SelectionFailure::Refused(refusal)) => refusal,
+        Err(SelectionFailure::Refused(refusal)) => *refusal,
         other => panic!("expected actual intake refusal, got {other:?}"),
     }
 }
@@ -598,7 +598,7 @@ fn tc_048_intake_predeclaration_failures_have_no_invented_metadata() {
         (
             "acme/orders",
             Some(b"{}".as_slice()),
-            Cause::ByteDigestMismatch,
+            Cause::ContentMismatch,
             "digest",
         ),
         (

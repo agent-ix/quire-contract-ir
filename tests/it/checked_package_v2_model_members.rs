@@ -674,7 +674,7 @@ fn selected_variant_cases_are_bound_to_the_selected_document_digest() {
     assert_eq!(refusal.code, CheckedPackageRefusalCode::StaleDependency);
     assert_eq!(
         refusal.cause,
-        Some(CheckedPackageRefusalCause::ByteDigestMismatch)
+        Some(CheckedPackageRefusalCause::ContentMismatch)
     );
     assert_eq!(
         refusal.path,
@@ -1976,6 +1976,126 @@ fn raw_digest_refusal() -> ExpectedRefusal {
     )
 }
 
+/// Trace: TC-048, FR-038-AC-215, FR-038-AC-218
+#[trace("TC-048", "FR-038-AC-215", "FR-038-AC-218")]
+#[test]
+fn tc_048_readable_selected_content_reports_typed_jcs_identities() {
+    // The selected identity is independently known for `{}`; whitespace has
+    // no effect on it. The edited member changes the canonical digest.
+    const SELECTED: &str = "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a";
+    let edited = br#"{ "a" : 1 }"#;
+    let canonical_edited = br#"{"a":1}"#;
+    let CheckedPackageV2ReadResult::Refused(refused) = read_selecting(SELECTED, edited) else {
+        panic!("edited selected document refuses");
+    };
+    assert_eq!(refused.code, CheckedPackageRefusalCode::StaleDependency);
+    assert_eq!(
+        refused.cause,
+        Some(CheckedPackageRefusalCause::ContentMismatch)
+    );
+    assert_eq!(
+        refused.path,
+        Some(pointer("/lock/model_selections/0/digest"))
+    );
+    let expected = refused.expected.expect("selected identity");
+    let actual = refused.actual.expect("recomputed identity");
+    assert_eq!(
+        (
+            expected.domain.as_ref(),
+            expected.algorithm.as_ref(),
+            expected.digest.as_ref()
+        ),
+        ("sha256-jcs", "sha256", SELECTED)
+    );
+    assert_eq!(
+        (
+            actual.domain.as_ref(),
+            actual.algorithm.as_ref(),
+            actual.digest.as_ref()
+        ),
+        (
+            "sha256-jcs",
+            "sha256",
+            sha256_hex(canonical_edited).as_str()
+        )
+    );
+    assert_ne!(sha256_hex(edited), sha256_hex(canonical_edited));
+    let CheckedPackageV2ReadResult::Refused(raw_selected) =
+        read_selecting(&sha256_hex(edited), edited)
+    else {
+        panic!("parseable bytes selected under raw digest refuse");
+    };
+    assert_eq!(
+        raw_selected.cause,
+        Some(CheckedPackageRefusalCause::ContentMismatch)
+    );
+    assert_eq!(
+        raw_selected
+            .actual
+            .as_ref()
+            .expect("canonical identity")
+            .digest
+            .as_ref(),
+        sha256_hex(canonical_edited)
+    );
+}
+
+/// Trace: TC-048, FR-038-AC-216, FR-038-AC-218
+#[trace("TC-048", "FR-038-AC-216", "FR-038-AC-218")]
+#[test]
+fn tc_048_unreadable_model_bytes_report_raw_identity_or_wrong_selection() {
+    const SELECTED: &str = "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a";
+    for bytes in [
+        b"[".as_slice(),
+        b"\xff",
+        br#"{"a":1,"a":2}"#,
+        br#""\ud800""#,
+    ] {
+        let raw = sha256_hex(bytes);
+        let CheckedPackageV2ReadResult::Refused(mismatch) = read_selecting(SELECTED, bytes) else {
+            panic!("unreadable bytes refuse at foreign digest");
+        };
+        assert_eq!(mismatch.code, CheckedPackageRefusalCode::StaleDependency);
+        assert_eq!(
+            mismatch.cause,
+            Some(CheckedPackageRefusalCause::ByteDigestMismatch)
+        );
+        assert_eq!(
+            mismatch.path,
+            Some(pointer("/lock/model_selections/0/digest"))
+        );
+        let expected = mismatch.expected.expect("selected identity");
+        let actual = mismatch.actual.expect("raw identity");
+        assert_eq!(
+            (
+                expected.domain.as_ref(),
+                expected.algorithm.as_ref(),
+                expected.digest.as_ref()
+            ),
+            ("sha256-jcs", "sha256", SELECTED)
+        );
+        assert_eq!(
+            (
+                actual.domain.as_ref(),
+                actual.algorithm.as_ref(),
+                actual.digest.as_ref()
+            ),
+            ("raw-artifact-digest", "sha256", raw.as_str())
+        );
+        assert_ne!(expected, actual);
+        let CheckedPackageV2ReadResult::Refused(own) = read_selecting(&raw, bytes) else {
+            panic!("unreadable bytes refuse under own raw digest");
+        };
+        assert_eq!(own.code, CheckedPackageRefusalCode::InvalidModelBinding);
+        assert_eq!(
+            own.cause,
+            Some(CheckedPackageRefusalCause::WrongModelSelection)
+        );
+        assert_eq!(own.path, Some(pointer("/lock/model_selections/0/identity")));
+        assert_eq!((own.expected, own.actual), (None, None));
+    }
+}
+
 /// Tracing: TC-048, FR-038-AC-110
 #[trace("TC-048", "FR-038-AC-110")]
 #[test]
@@ -2046,9 +2166,7 @@ fn tc_048_the_first_reader_fault_decides_when_faults_coexist() {
             .chars()
             .take(60)
             .collect::<String>();
-        // The raw-path outcome is pinned under a foreign digest only: under the
-        // document's own raw digest QSL FR-056 says `wrong-model-selection`,
-        // which this reader does not yet do (IR-578).
+        // Reader faults keep their precedence over the digest comparison.
         let own = sha256_hex(&bytes);
         let digests = if expected == raw_digest_refusal() {
             vec![other.clone()]
@@ -2058,7 +2176,30 @@ fn tc_048_the_first_reader_fault_decides_when_faults_coexist() {
         for digest in digests {
             match read_selecting(&digest, &bytes) {
                 CheckedPackageV2ReadResult::Refused(refused) => {
-                    assert_eq!(refused, expected, "{shown}");
+                    if expected == raw_digest_refusal() {
+                        assert_eq!(
+                            refused.code,
+                            CheckedPackageRefusalCode::StaleDependency,
+                            "{shown}"
+                        );
+                        assert_eq!(
+                            refused.cause,
+                            Some(CheckedPackageRefusalCause::ByteDigestMismatch),
+                            "{shown}"
+                        );
+                        assert_eq!(
+                            refused.expected.as_ref().expect("selected").digest.as_ref(),
+                            digest,
+                            "{shown}"
+                        );
+                        assert_eq!(
+                            refused.actual.as_ref().expect("raw").digest.as_ref(),
+                            sha256_hex(&bytes),
+                            "{shown}"
+                        );
+                    } else {
+                        assert_eq!(refused, expected, "{shown}");
+                    }
                 }
                 other => panic!("{shown}: expected a refusal, read {other:?}"),
             }

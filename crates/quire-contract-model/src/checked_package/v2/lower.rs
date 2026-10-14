@@ -557,7 +557,7 @@ impl CheckedPackageV2 {
                     return CompleteLoweringRecordV2::InvalidBody {
                         node_id: request.clone(),
                         body_node_id: node.node_id.clone(),
-                        refusal,
+                        refusal: *refusal,
                     };
                 }
                 Err(ValidationFailure::Incomplete(incomplete)) => {

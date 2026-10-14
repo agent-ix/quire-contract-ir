@@ -64,9 +64,8 @@ fn expect_refusal(
     assert_eq!(refusal.cause, cause, "{refusal:?}");
 }
 
-/// Tracing: TC-048
-/// ACs: FR-038-AC-31
-#[trace("TC-048", "FR-038-AC-31")]
+/// Trace: TC-048, FR-038-AC-31, FR-038-AC-218
+#[trace("TC-048", "FR-038-AC-31", "FR-038-AC-218")]
 #[test]
 fn tc_048_ascending_dependency_selections_admit_and_enter_the_package_id() {
     let base = v2_all_families();
@@ -109,6 +108,36 @@ fn tc_048_ascending_dependency_selections_admit_and_enter_the_package_id() {
         CheckedPackageRefusalCode::StaleDependency
     );
     assert_eq!(stale_refusal.path, Some(pointer("/package_id/digest")));
+    assert_eq!(
+        stale_refusal.cause,
+        Some(CheckedPackageRefusalCause::ContentMismatch)
+    );
+    assert_eq!(
+        stale_refusal
+            .expected
+            .as_ref()
+            .expect("expected")
+            .digest
+            .as_ref(),
+        package["package_id"]["digest"].as_str().expect("digest")
+    );
+    assert_eq!(
+        stale_refusal
+            .actual
+            .as_ref()
+            .expect("actual")
+            .digest
+            .as_ref(),
+        other["package_id"]["digest"].as_str().expect("digest")
+    );
+    for identity in [
+        stale_refusal.expected.as_ref(),
+        stale_refusal.actual.as_ref(),
+    ] {
+        let identity = identity.expect("complete package identity");
+        assert_eq!(identity.domain.as_ref(), "quire.package.semantic/v2");
+        assert_eq!(identity.algorithm.as_ref(), "sha256");
+    }
     assert!(
         matches!(
             read_with(&other, &supplied_again),
@@ -409,8 +438,8 @@ fn tc_048_a_dependency_entry_carrying_version_is_an_unknown_member() {
 /// under its `identity` when that package's `package_id` is the entry's, with
 /// no version supplied or compared.
 ///
-/// Tracing: TC-048, FR-038-AC-64
-#[trace("TC-048", "FR-038-AC-64")]
+/// Trace: TC-048, FR-038-AC-64, FR-038-AC-217, FR-038-AC-218
+#[trace("TC-048", "FR-038-AC-64", "FR-038-AC-217", "FR-038-AC-218")]
 #[test]
 fn tc_048_a_dependency_entry_binds_by_identity_and_package_id() {
     let base = v2_all_families();
@@ -443,10 +472,14 @@ fn tc_048_a_dependency_entry_binds_by_identity_and_package_id() {
     assert_eq!(stale.code, CheckedPackageRefusalCode::StaleDependency);
     assert_eq!(
         stale.cause,
-        Some(CheckedPackageRefusalCause::ByteDigestMismatch)
+        Some(CheckedPackageRefusalCause::ContentMismatch)
     );
     assert_eq!(
         stale.path,
         Some(pointer("/lock/dependency_selections/0/package_id/digest"))
     );
+    assert_eq!(stale.expected.as_ref(), Some(geometry.package_id()));
+    assert_eq!(stale.actual.as_ref(), Some(units.package_id()));
+    assert_eq!(missing.expected, None);
+    assert_eq!(missing.actual, None);
 }
