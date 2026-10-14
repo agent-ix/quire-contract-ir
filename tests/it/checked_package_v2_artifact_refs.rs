@@ -537,10 +537,13 @@ fn tc_048_a_rederived_definition_row_edit_admits_and_the_old_package_id_is_stale
     // The same edit mirrored into the preimage but kept under the old id.
     let mut stale = edited.clone();
     stale["package_id"]["digest"] = json!(recorded.digest);
-    expect(
-        &stale,
-        CheckedPackageRefusalCode::StaleDependency,
-        "/package_id/digest",
+    assert_eq!(
+        refused(&stale),
+        refusal_cause(
+            CheckedPackageRefusalCode::StaleDependency,
+            "/package_id/digest",
+            CheckedPackageRefusalCause::ContentMismatch,
+        ),
         "the old package id",
     );
 }

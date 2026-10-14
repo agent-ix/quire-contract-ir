@@ -389,7 +389,7 @@ pub enum ContractRootViewV1<'a> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ContractRootViewError {
     /// The shared body validator refused a reached node.
-    Refused(CheckedPackageRefusal),
+    Refused(Box<CheckedPackageRefusal>),
     /// The shared body validator reached its declared limit.
     Incomplete(CheckedPackageIncomplete),
     /// An admitted graph or source-map edge no longer has correspondence.
@@ -757,7 +757,9 @@ impl ContractPackageWireV1 {
             Ok(value) => {
                 ContractPackageReadResult::Admitted(Box::new(ContractPackageV1 { wire: value }))
             }
-            Err(ValidationFailure::Refused(refusal)) => ContractPackageReadResult::Refused(refusal),
+            Err(ValidationFailure::Refused(refusal)) => {
+                ContractPackageReadResult::Refused(*refusal)
+            }
             Err(ValidationFailure::Incomplete(incomplete)) => {
                 ContractPackageReadResult::Incomplete(incomplete)
             }
@@ -1848,13 +1850,14 @@ impl ContractPackageWireV1 {
                 ));
             }
             if input.package.package_id() != &selection.package_id {
-                return Err(ValidationFailure::Refused(
-                    CheckedPackageRefusal::dependency_content_mismatch(
+                return Err(ValidationFailure::Refused(Box::new(
+                    CheckedPackageRefusal::mismatch(
                         at,
+                        CheckedPackageRefusalCause::ContentMismatch,
                         selection.package_id.clone(),
                         input.package.package_id().clone(),
                     ),
-                ));
+                )));
             }
         }
         Ok(())

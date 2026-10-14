@@ -8,8 +8,8 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, family_key, mint_ungrouped_structural_keys, node_id,
-    positive_operation_identities, refresh_identity, refusal, refusal_bytes, v2_all_families,
-    v2_nominal, ExpectedRefusal,
+    positive_operation_identities, refresh_identity, refusal, refusal_bytes, refusal_cause,
+    v2_all_families, v2_nominal, ExpectedRefusal,
 };
 use ix_trace_rs::trace;
 use quire_canonical::{Encode, Error, FixedShape, LimitKind, Limits};
@@ -17,9 +17,9 @@ use quire_contract_model::{
     CheckedCapability, CheckedCapabilityDisposition, CheckedDependencySelection,
     CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeId, CheckedNodeProjectionV2,
     CheckedPackageIdentityPreimageV2, CheckedPackageLockV2, CheckedPackageReadLimits,
-    CheckedPackageRefusal, CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CheckedSelectionRole, CheckedSemanticGraphV2, CheckedSemanticId, CheckedSemanticNodeV2,
-    CheckedSourceMapEntry,
+    CheckedPackageRefusal, CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedSelectionRole, CheckedSemanticGraphV2, CheckedSemanticId,
+    CheckedSemanticNodeV2, CheckedSourceMapEntry,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -209,9 +209,10 @@ fn tc_048_a_preimage_that_differs_from_the_one_the_package_id_covers_is_stale() 
         ) {
             CheckedPackageV2ReadResult::Refused(refused) => assert_eq!(
                 refused,
-                refusal(
+                refusal_cause(
                     CheckedPackageRefusalCode::StaleDependency,
-                    "/package_id/digest"
+                    "/package_id/digest",
+                    CheckedPackageRefusalCause::ContentMismatch,
                 ),
                 "{name}"
             ),
@@ -620,9 +621,10 @@ fn noncanonical() -> ExpectedRefusal {
 }
 
 fn stale() -> ExpectedRefusal {
-    refusal(
+    refusal_cause(
         CheckedPackageRefusalCode::StaleDependency,
         "/package_id/digest",
+        CheckedPackageRefusalCause::ContentMismatch,
     )
 }
 

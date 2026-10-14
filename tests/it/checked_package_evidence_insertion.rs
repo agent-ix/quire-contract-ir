@@ -92,16 +92,27 @@ fn domain_parent(document: &Value) -> Value {
     parent
 }
 
-fn expect_stale(result: CheckedPackageV2ReadResult, path: &str) {
+fn expect_stale(result: CheckedPackageV2ReadResult, path: &str, cause: CheckedPackageRefusalCause) {
     let CheckedPackageV2ReadResult::Refused(refusal) = result else {
         panic!("expected stale evidence refusal: {result:?}");
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::StaleDependency);
-    assert_eq!(
-        refusal.cause,
-        Some(CheckedPackageRefusalCause::ByteDigestMismatch)
-    );
+    assert_eq!(refusal.cause, Some(cause));
     assert_eq!(refusal.path, Some(pointer(path)));
+    let expected = refusal.expected.expect("selected identity");
+    let actual = refusal.actual.expect("supplied identity");
+    assert_eq!(expected.algorithm.as_ref(), "sha256");
+    assert_eq!(actual.algorithm.as_ref(), "sha256");
+    assert_eq!(
+        actual.domain.as_ref(),
+        if cause == CheckedPackageRefusalCause::ByteDigestMismatch {
+            "raw-artifact-digest"
+        } else if path == "/lock/model_selections/0/digest" {
+            "sha256-jcs"
+        } else {
+            "quire.package.semantic/v2"
+        }
+    );
 }
 
 /// Trace: FR-047-AC-1, FR-047-AC-2, FR-047-AC-6
@@ -112,7 +123,16 @@ fn domain_repeats_preserve_first_only_public_read_in_both_orders() {
     let bytes = canonical(&document);
     let key = domain_package_digest(&document);
     let parent = domain_parent(&document);
-    for adverse in [canonical(&different), b"not JSON".to_vec()] {
+    for (adverse, cause) in [
+        (
+            canonical(&different),
+            CheckedPackageRefusalCause::ContentMismatch,
+        ),
+        (
+            b"not JSON".to_vec(),
+            CheckedPackageRefusalCause::ByteDigestMismatch,
+        ),
+    ] {
         for valid_first in [true, false] {
             let (first, second) = if valid_first {
                 (&bytes, &adverse)
@@ -129,7 +149,7 @@ fn domain_repeats_preserve_first_only_public_read_in_both_orders() {
             if valid_first {
                 require_admission(before.clone());
             } else {
-                expect_stale(before.clone(), "/lock/model_selections/0/digest");
+                expect_stale(before.clone(), "/lock/model_selections/0/digest", cause);
             }
             assert_eq!(
                 evidence.insert_domain_package_document(key.clone(), first.clone()),
@@ -312,6 +332,7 @@ fn dependency_conflicts_preserve_first_only_public_read_in_both_orders() {
             expect_stale(
                 before.clone(),
                 "/lock/dependency_selections/0/package_id/digest",
+                CheckedPackageRefusalCause::ContentMismatch,
             );
         }
         expect_dependency_conflict(

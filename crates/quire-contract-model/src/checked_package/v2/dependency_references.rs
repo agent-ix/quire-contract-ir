@@ -7,7 +7,7 @@
 //! 1. [`admit_dependencies`], in the lock stage: every entry, in lock order,
 //!    must have a package supplied under its identity (`missing_import` /
 //!    `missing-selection` at the entry), whose own `package_id` equals the
-//!    entry's (`stale_dependency` / `byte-digest-mismatch` at the entry's
+//!    entry's (`stale_dependency` / `content-mismatch` at the entry's
 //!    `package_id.digest`). This runs before any node is read, so before any
 //!    `dependency_reference` check.
 //! 2. [`DependencyReferences::walk_arguments`] and
@@ -140,11 +140,14 @@ pub(super) fn admit_dependencies<'e>(
         // so its `package_id` is the digest the reader recomputed from its
         // identity preimage; the binding rests on that content digest.
         if package.package_id() != &entry.package_id {
-            return Err(ValidationFailure::refused_because(
-                CheckedPackageRefusalCode::StaleDependency,
-                at(index).key("package_id").key("digest"),
-                CheckedPackageRefusalCause::ByteDigestMismatch,
-            ));
+            return Err(ValidationFailure::Refused(Box::new(
+                crate::checked_package::shared::CheckedPackageRefusal::mismatch(
+                    at(index).key("package_id").key("digest"),
+                    CheckedPackageRefusalCause::ContentMismatch,
+                    entry.package_id.clone(),
+                    package.package_id().clone(),
+                ),
+            )));
         }
         let nodes = &package.graph().nodes;
         meter.charge(count(nodes.len()), || at(index))?;

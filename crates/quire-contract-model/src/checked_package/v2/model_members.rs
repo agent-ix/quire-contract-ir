@@ -47,11 +47,13 @@ use super::{
 use crate::checked_package::common::{pointer_from_steps, Step, NODE_DOMAIN};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
-    CheckedPackageLimit, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
+    CheckedPackageLimit, CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticId,
+    JsonPointer,
 };
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::Serialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod intake_origin;
@@ -1274,6 +1276,7 @@ pub(super) struct SelectionRefusal {
     pub(super) member: Option<&'static str>,
     pub(super) declaration_identity: Option<Box<str>>,
     pub(super) declaration_origin: Option<IntakeDeclarationOrigin>,
+    pub(super) mismatch: Option<(CheckedSemanticId, CheckedSemanticId)>,
 }
 
 impl SelectionRefusal {
@@ -1287,7 +1290,22 @@ impl SelectionRefusal {
             member,
             declaration_identity: None,
             declaration_origin: None,
+            mismatch: None,
         }
+    }
+
+    fn mismatch(
+        cause: CheckedPackageRefusalCause,
+        expected: CheckedSemanticId,
+        actual: CheckedSemanticId,
+    ) -> Self {
+        let mut refusal = Self::at(
+            CheckedPackageRefusalCode::StaleDependency,
+            cause,
+            Some("digest"),
+        );
+        refusal.mismatch = Some((expected, actual));
+        refusal
     }
 
     fn located(
@@ -1302,6 +1320,7 @@ impl SelectionRefusal {
             member: None,
             declaration_identity: identity.map(Box::from),
             declaration_origin: retained_origin(node.get("origin"), budget)?,
+            mismatch: None,
         })
     }
 
@@ -1331,7 +1350,7 @@ impl SelectionRefusal {
 /// reader limit exhausted while reading the row's document.
 #[derive(Debug)]
 pub(super) enum SelectionFailure {
-    Refused(SelectionRefusal),
+    Refused(Box<SelectionRefusal>),
     Limit(ValidationFailure),
     /// The document holds a number with no exact RFC 8785 spelling:
     /// `noncanonical_wire` at the row's `digest`, with the pointer of the
@@ -1345,7 +1364,7 @@ pub(super) enum SelectionFailure {
 
 impl From<SelectionRefusal> for SelectionFailure {
     fn from(refusal: SelectionRefusal) -> Self {
-        Self::Refused(refusal)
+        Self::Refused(Box::new(refusal))
     }
 }
 
@@ -1357,7 +1376,11 @@ impl From<ValidationFailure> for SelectionFailure {
 
 impl From<ModelRefusal> for SelectionFailure {
     fn from(refusal: ModelRefusal) -> Self {
-        Self::Refused(SelectionRefusal::at(refusal.code, refusal.cause, None))
+        Self::Refused(Box::new(SelectionRefusal::at(
+            refusal.code,
+            refusal.cause,
+            None,
+        )))
     }
 }
 
@@ -1390,14 +1413,14 @@ pub(super) fn admit_document(
         .into());
     };
     budget.charge(units(bytes.len().div_ceil(DOCUMENT_BYTES_PER_WORK)))?;
-    let mismatch = SelectionRefusal::at(
-        Code::StaleDependency,
-        Cause::ByteDigestMismatch,
-        Some("digest"),
-    );
+    let expected = CheckedSemanticId {
+        domain: super::DOMAIN_PACKAGE_DIGEST.into(),
+        algorithm: "sha256".into(),
+        digest: selection.digest.clone(),
+    };
     // The document is read once, by `quire-canonical`, which keeps each
     // number's text. Bytes that are not strict JSON have no RFC 8785 form, so
-    // no digest of theirs equals the selected one; bytes past the reader's
+    // their raw digest decides the next refusal; bytes past the reader's
     // limit are the read's `incomplete` for `bytes`; a number past the double
     // range has no exact RFC 8785 spelling, so the read names it by pointer
     // and text and it is refused as any other inexact number is.
@@ -1422,7 +1445,27 @@ pub(super) fn admit_document(
                 cause,
             });
         }
-        Err(_) => return Err(mismatch.into()),
+        Err(_) => {
+            let raw = format!("{:x}", Sha256::digest(bytes));
+            if raw == selection.digest.as_ref() {
+                return Err(SelectionRefusal::at(
+                    Code::InvalidModelBinding,
+                    Cause::WrongModelSelection,
+                    Some("identity"),
+                )
+                .into());
+            }
+            return Err(SelectionRefusal::mismatch(
+                Cause::ByteDigestMismatch,
+                expected,
+                CheckedSemanticId {
+                    domain: "raw-artifact-digest".into(),
+                    algorithm: "sha256".into(),
+                    digest: raw.into(),
+                },
+            )
+            .into());
+        }
     };
     // Decided on the text of each number, before any rounding to a double and
     // before any digest, so two documents that differ in such a number never
@@ -1437,10 +1480,26 @@ pub(super) fn admit_document(
     {
         Ok(digest) => digest,
         Err(quire_canonical::Error::Limit(limit)) => return Err(bytes_exceeded(limit).into()),
-        Err(_) => return Err(mismatch.into()),
+        Err(_) => {
+            return Err(SelectionRefusal::at(
+                Code::MalformedWire,
+                Cause::MalformedJson,
+                Some("digest"),
+            )
+            .into());
+        }
     };
     if digest.to_string() != selection.digest.as_ref() {
-        return Err(mismatch.into());
+        return Err(SelectionRefusal::mismatch(
+            Cause::ContentMismatch,
+            expected,
+            CheckedSemanticId {
+                domain: super::DOMAIN_PACKAGE_DIGEST.into(),
+                algorithm: "sha256".into(),
+                digest: digest.to_string().into(),
+            },
+        )
+        .into());
     }
     // The declarations are read from the one reading of the document, as a
     // `Value` view of it: the document is not parsed a second time, so the

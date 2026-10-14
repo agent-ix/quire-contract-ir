@@ -852,10 +852,18 @@ fn validate(
         )
     })?;
     if computed.to_string() != wire.package_id.digest.as_ref() {
-        return Err(refuse(
-            CheckedPackageRefusalCode::StaleDependency,
-            member_pointer(&["package_id", "digest"]),
-        ));
+        return Err(ValidationFailure::Refused(Box::new(
+            CheckedPackageRefusal::mismatch(
+                member_pointer(&["package_id", "digest"]),
+                CheckedPackageRefusalCause::ContentMismatch,
+                wire.package_id.clone(),
+                CheckedSemanticId {
+                    domain: PACKAGE_DOMAIN_V2.into(),
+                    algorithm: "sha256".into(),
+                    digest: computed.to_string().into(),
+                },
+            ),
+        )));
     }
     let mut meter = WorkMeter::new(limits.work);
     let LockAdmission {
@@ -1186,12 +1194,22 @@ fn validate_domain_packages(
                         member,
                         declaration_identity,
                         declaration_origin,
-                    } = refused;
+                        mismatch,
+                    } = *refused;
                     // Intake metadata is private. Its owning lifetime ends at
                     // this projection; none is attached to the public refusal.
                     drop((declaration_identity, declaration_origin));
                     let path = member.map_or_else(|| row(index), |member| at(index, member));
-                    ValidationFailure::refused_because(refusal.code, path, refusal.cause)
+                    if let Some((expected, actual)) = mismatch {
+                        ValidationFailure::Refused(Box::new(CheckedPackageRefusal::mismatch(
+                            path,
+                            refusal.cause,
+                            expected,
+                            actual,
+                        )))
+                    } else {
+                        ValidationFailure::refused_because(refusal.code, path, refusal.cause)
+                    }
                 }
             })
         })

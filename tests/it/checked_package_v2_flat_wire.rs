@@ -545,7 +545,11 @@ fn tc_048_the_body_grammar_is_checked_ahead_of_every_identity() {
     flattened["package_id"]["digest"] = json!("0".repeat(64));
     assert_eq!(
         outcome(&refused(&flattened)),
-        (Code::StaleDependency, None, "/package_id/digest".to_owned())
+        (
+            Code::StaleDependency,
+            Some(CheckedPackageRefusalCause::ContentMismatch),
+            "/package_id/digest".to_owned()
+        )
     );
     // With the package id derived again, the node key.
     let mut flattened = v2_all_families();

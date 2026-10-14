@@ -652,7 +652,7 @@ fn tc_048_the_selected_dependency_is_supplied_and_binds_to_its_entry() {
     expect_refusal(
         &refusal,
         CheckedPackageRefusalCode::StaleDependency,
-        Some(CheckedPackageRefusalCause::ByteDigestMismatch),
+        Some(CheckedPackageRefusalCause::ContentMismatch),
         "/lock/dependency_selections/0/package_id/digest",
     );
 }

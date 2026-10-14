@@ -750,6 +750,21 @@ impl PartialEq<ExpectedRefusal> for CheckedPackageRefusal {
             && self.locus == expected.locus
             && self.contract_version == expected.contract_version
             && self.document_pointer == expected.document_pointer
+            && matches!(
+                (
+                    expected.code == CheckedPackageRefusalCode::StaleDependency
+                        && matches!(
+                            expected.cause,
+                            Some(
+                                CheckedPackageRefusalCause::ContentMismatch
+                                    | CheckedPackageRefusalCause::ByteDigestMismatch
+                            )
+                        ),
+                    self.expected.as_ref(),
+                    self.actual.as_ref(),
+                ),
+                (true, Some(_), Some(_)) | (false, None, None)
+            )
             && match expected.expected_node_id {
                 ExpectedNodeId::Absent => self.expected_node_id().is_none(),
                 ExpectedNodeId::Present => self.expected_node_id().is_some(),
