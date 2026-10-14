@@ -429,17 +429,93 @@ pub struct CheckedDiagnosticsV2 {
     pub entries: Vec<CheckedDiagnosticV2>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CheckedPackageWireV2 {
-    contract_version: Box<str>,
-    identity_preimage: CheckedPackageIdentityPreimageV2,
-    package_id: CheckedSemanticId,
-    lock: CheckedPackageLockV2,
-    semantic_graph: CheckedSemanticGraphV2,
-    source_map: Vec<CheckedSourceMapEntry>,
-    capability_report: Vec<CheckedCapability>,
-    diagnostics: CheckedDiagnosticsV2,
+macro_rules! encode_envelope_field {
+    ($writer:expr, $name:expr, $value:expr, fixed) => {
+        encode::member($writer, $name, $value)?
+    };
+    ($writer:expr, $name:expr, $value:expr, nested) => {
+        encode::encoded($writer, $name, $value)?
+    };
+}
+
+// One field list generates the top-level shape and its borrowed canonical
+// event stream. The nested Value-bearing members use their iterative encoders.
+macro_rules! checked_package_envelope {
+    ($($name:ident: $parameter:ident => $encoding:ident),+ $(,)?) => {
+        #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct CheckedPackageEnvelope<C, P, I, L, G, S, A, D> {
+            $($name: $parameter,)+
+        }
+
+        impl quire_canonical::Encode for CheckedPackageEnvelope<
+            &str,
+            &CheckedPackageIdentityPreimageV2,
+            &CheckedSemanticId,
+            &CheckedPackageLockV2,
+            &CheckedSemanticGraphV2,
+            &[CheckedSourceMapEntry],
+            &[CheckedCapability],
+            &CheckedDiagnosticsV2,
+        > {
+            fn encode_into<T: quire_canonical::Sink + ?Sized>(
+                &self,
+                writer: &mut quire_canonical::Writer<'_, T>,
+            ) -> Result<(), quire_canonical::Error> {
+                writer.begin_object()?;
+                $(encode_envelope_field!(writer, stringify!($name), self.$name, $encoding);)+
+                writer.end_object()
+            }
+        }
+    };
+}
+
+checked_package_envelope! {
+    contract_version: C => fixed,
+    identity_preimage: P => nested,
+    package_id: I => fixed,
+    lock: L => fixed,
+    semantic_graph: G => nested,
+    source_map: S => fixed,
+    capability_report: A => fixed,
+    diagnostics: D => nested,
+}
+
+type CheckedPackageWireV2 = CheckedPackageEnvelope<
+    Box<str>,
+    CheckedPackageIdentityPreimageV2,
+    CheckedSemanticId,
+    CheckedPackageLockV2,
+    CheckedSemanticGraphV2,
+    Vec<CheckedSourceMapEntry>,
+    Vec<CheckedCapability>,
+    CheckedDiagnosticsV2,
+>;
+
+/// Canonically encodes a complete typed checked-package V2 envelope under the
+/// caller's byte limits. Identity construction and admission belong to the
+/// producer and reader respectively.
+pub fn encode_checked_package_v2(
+    identity_preimage: &CheckedPackageIdentityPreimageV2,
+    package_id: &CheckedSemanticId,
+    lock: &CheckedPackageLockV2,
+    semantic_graph: &CheckedSemanticGraphV2,
+    source_map: &[CheckedSourceMapEntry],
+    capability_report: &[CheckedCapability],
+    diagnostics: &CheckedDiagnosticsV2,
+    limits: quire_canonical::Limits,
+) -> Result<Vec<u8>, quire_canonical::Error> {
+    let envelope = CheckedPackageEnvelope {
+        contract_version: CHECKED_PACKAGE_V2,
+        identity_preimage,
+        package_id,
+        lock,
+        semantic_graph,
+        source_map,
+        capability_report,
+        diagnostics,
+    };
+    quire_canonical::to_vec(&envelope, limits)
 }
 
 /// The closed result of reading untrusted bytes as V2.
@@ -2299,6 +2375,45 @@ mod tests {
     };
     use ix_trace_rs::trace;
     use serde_json::json;
+
+    /// Trace: FR-051-AC-1
+    #[trace("TC-451", "FR-051-AC-1")]
+    #[test]
+    fn tc_451_borrowed_encoder_equals_private_owned_wire_bytes() {
+        let edition =
+            json!({"role": "edition", "definition": {"authority": "test", "identity": "edition"}});
+        let wire: super::CheckedPackageWireV2 = serde_json::from_value(json!({
+            "contract_version": super::CHECKED_PACKAGE_V2,
+            "identity_preimage": {
+                "version": "quire.checked-package-id/v2", "edition": edition,
+                "profile_selections": [], "definition_selections": [], "model_selections": [],
+                "required_features": [], "dependency_selections": [], "identity_projection": []
+            },
+            "package_id": {"domain": super::PACKAGE_DOMAIN_V2, "algorithm": "sha256", "digest": "a".repeat(64)},
+            "lock": {
+                "sources": [], "edition": edition, "profile_selections": [],
+                "definition_selections": [], "model_selections": [],
+                "required_features": [], "dependency_selections": []
+            },
+            "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": []},
+            "source_map": [], "capability_report": [],
+            "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"}, "entries": []}
+        })).expect("private owned wire");
+        let bytes = super::encode_checked_package_v2(
+            &wire.identity_preimage,
+            &wire.package_id,
+            &wire.lock,
+            &wire.semantic_graph,
+            &wire.source_map,
+            &wire.capability_report,
+            &wire.diagnostics,
+            quire_canonical::Limits::new(u64::MAX),
+        )
+        .expect("canonical envelope");
+        let owned_bytes = serde_json::to_vec(&serde_json::to_value(&wire).expect("wire value"))
+            .expect("private wire bytes");
+        assert_eq!(bytes, owned_bytes);
+    }
 
     /// The body-root literal exemption is a graph-stage rule after key
     /// authentication; nested literal, reference and result-type sites keep

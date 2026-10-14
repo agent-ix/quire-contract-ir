@@ -14,9 +14,9 @@
 use super::{
     CheckedDeclaration, CheckedDependencySelection, CheckedDiagnosticCause, CheckedDiagnosticCode,
     CheckedDiagnosticStage, CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedDomainPackageRef,
-    CheckedNodeOwner, CheckedNodeProjectionV2, CheckedPackageIdentityPreimageV2,
-    CheckedPackageLockV2, CheckedPackageWireV2, CheckedSemanticGraphV2, CheckedSemanticNodeV2,
-    NominalIdentityPreimage, ValidationFailure,
+    CheckedNodeOwner, CheckedNodeProjectionV2, CheckedPackageEnvelope,
+    CheckedPackageIdentityPreimageV2, CheckedPackageLockV2, CheckedPackageWireV2,
+    CheckedSemanticGraphV2, CheckedSemanticNodeV2, NominalIdentityPreimage, ValidationFailure,
 };
 use crate::checked_package::common::{decode_closed_bytes, strict_parse};
 use crate::checked_package::shared::{
@@ -33,21 +33,16 @@ use std::collections::BTreeMap;
 // arbitrary JSON term. Those terms are decoded after the outer typed wire
 // frame has returned, keeping their recursion off its call stack. Every other
 // member is decoded by the same public type as the admitted wire.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct BorrowedWire<'a> {
-    contract_version: Box<str>,
-    #[serde(borrow)]
-    identity_preimage: BorrowedPreimage<'a>,
-    package_id: CheckedSemanticId,
-    lock: CheckedPackageLockV2,
-    #[serde(borrow)]
-    semantic_graph: BorrowedGraph<'a>,
-    source_map: Vec<CheckedSourceMapEntry>,
-    capability_report: Vec<CheckedCapability>,
-    #[serde(borrow)]
-    diagnostics: BorrowedDiagnostics<'a>,
-}
+type BorrowedWire<'a> = CheckedPackageEnvelope<
+    Box<str>,
+    BorrowedPreimage<'a>,
+    CheckedSemanticId,
+    CheckedPackageLockV2,
+    BorrowedGraph<'a>,
+    Vec<CheckedSourceMapEntry>,
+    Vec<CheckedCapability>,
+    BorrowedDiagnostics<'a>,
+>;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -140,7 +135,7 @@ pub(super) fn decode_borrowed_wire(
     let preimage = wire.identity_preimage;
     let graph = wire.semantic_graph;
     let diagnostics = wire.diagnostics;
-    Ok(CheckedPackageWireV2 {
+    Ok(CheckedPackageEnvelope {
         contract_version: wire.contract_version,
         identity_preimage: CheckedPackageIdentityPreimageV2 {
             version: preimage.version,

@@ -50,11 +50,14 @@ envelope value or builder result.
   `v2/mod.rs` (`CheckedPackageWireV2`) and `v2/intake.rs` (`BorrowedWire`)
   with this one private declaration. The intake's nested `BorrowedPreimage`,
   `BorrowedGraph`, and `BorrowedDiagnostics` remain its delayed raw-term decode
-  types; they are not an output envelope. The one top-level field list and
-  derived serialization SHALL define the encoding path. That path SHALL
-  neither clone the graph, preimage or other supplied members nor add a third
-  handwritten envelope serializer or field list. Each supplied member shall
-  appear exactly once under its FR-322 name; no extra member shall appear.
+  types; they are not an output envelope. That path SHALL neither clone the
+  graph, preimage or other supplied members nor add a third independently
+  maintained envelope serializer or field list. The one field declaration
+  SHALL generate its serde reader/intake struct and its canonical
+  `Encode` field dispatch. Fixed-depth members SHALL use
+  `Writer::serialize`; members containing arbitrary-depth JSON terms SHALL
+  use their existing iterative `Encode` implementations. Each supplied member
+  shall appear exactly once under its FR-322 name; no extra member shall appear.
 - The function SHALL retain the caller's preimage and package identity as
   supplied. It shall not derive or rewrite `identity_preimage`, hash or replace
   `package_id`, reorder graph nodes or selections, synthesize diagnostics, or
