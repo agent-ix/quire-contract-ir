@@ -197,7 +197,7 @@ fn tc_042_only_proof_and_counterexample_have_boolean_claims() {
     }
 }
 
-#[trace("TC-449", "FR-030-AC-7")]
+#[trace("TC-449")]
 #[test]
 fn kani_cancellation_sources_round_trip_in_the_kind() {
     for (source, spelling) in [
@@ -229,7 +229,7 @@ fn kani_cancellation_sources_round_trip_in_the_kind() {
     }
 }
 
-#[trace("TC-449", "FR-030-AC-7")]
+#[trace("TC-449")]
 #[test]
 fn malformed_or_mismatched_cancellation_wire_is_refused() {
     for kind in [
@@ -238,6 +238,7 @@ fn malformed_or_mismatched_cancellation_wire_is_refused() {
         serde_json::json!({"cancelled": {"source": "unknown"}}),
         serde_json::json!({"cancelled": {"source": 1}}),
         serde_json::json!({"cancelled": {"source": "requested", "extra": true}}),
+        serde_json::json!({"timed_out": {"source": "deadline"}}),
     ] {
         let wire = serde_json::json!({
             "kind": kind,
@@ -270,7 +271,7 @@ fn malformed_or_mismatched_cancellation_wire_is_refused() {
     }
 }
 
-#[trace("TC-449", "FR-030-AC-7")]
+#[trace("TC-449")]
 #[test]
 fn non_cancelled_kinds_retain_their_wire_and_claims() {
     let cases = [

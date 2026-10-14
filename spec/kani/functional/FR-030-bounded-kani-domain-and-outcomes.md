@@ -135,7 +135,7 @@ AC-4 and AC-5 are planned (TC-223, no test): `KaniOutcome`'s fields are public, 
 `non_success` accepts any cause code for `unavailable` and `inconclusive`, so the
 `CapabilityDisposition::Inconclusive` arm of the lowerings, which carries the
 profile's own code, still builds an `inconclusive` outcome that AC-5 will forbid.
-AC-7 is planned (TC-449, no test): `Cancelled` is currently a unit kind and
-the Kani outcome has no cancellation source. The CG Kani launcher has no
-source-bearing cancellation event reader or IR cancelled-outcome producer;
-IR-701 owns that downstream integration after the IR model carrier lands.
+AC-7 remains incomplete: the IR carrier has a required typed cancellation
+source, exact wire form and refusal controls tagged to TC-449. The CG Kani
+launcher has no source-bearing cancellation event reader or IR
+cancelled-outcome producer; IR-701 owns the live-event and reversal control.
