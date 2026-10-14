@@ -1363,11 +1363,10 @@ what was compared, as merged QSpec FR-272 (its `stale_dependency` row; QSpec
   entry whose supplied package recomputes to another `package_id` than the
   entry's, at the entry's `package_id.digest`; and this package's declared
   `package_id.digest` against the identity recomputed from its own
-  `identity_preimage`, at `/package_id/digest` (QSpec FR-272). The own-package
-  comparison currently returns plain `stale_dependency` at that pointer.
-  The typed `content-mismatch` cause and expected/actual payload for these
-  sites remain planned under IR-238; this inventory does not claim their
-  implementation or evidence.
+  `identity_preimage`, at `/package_id/digest` (QSpec FR-272). All three
+  comparisons return `stale_dependency`/`content-mismatch` with the complete
+  selected or declared identity as `expected` and the recomputed identity as
+  `actual` (IR-238; FR-038-AC-215, AC-217, AC-218).
 - `byte-digest-mismatch` is a raw-bytes digest against its declared digest.
   It has one site in this reader: the supplied bytes of a selected model
   document that `quire_canonical::read` refuses (not strict JSON, a repeated

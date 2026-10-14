@@ -21,7 +21,7 @@ use quire_contract_model::{
     derive_structural_candidates, CheckedCollectionKind, CheckedMemberType,
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CheckedSemanticNodeV2,
+    CheckedPackageV2ReadResult, CheckedSemanticId, CheckedSemanticNodeV2,
 };
 use serde_json::{json, Value};
 use std::sync::LazyLock;
@@ -1980,6 +1980,36 @@ fn raw_digest_refusal() -> ExpectedRefusal {
 #[trace("TC-048", "FR-038-AC-215", "FR-038-AC-218")]
 #[test]
 fn tc_048_readable_selected_content_reports_typed_jcs_identities() {
+    let document = domain_document(json!({}));
+    let (package, evidence) = package_over(&document, "total");
+    let CheckedPackageV2ReadResult::Admitted(original) = read(&package, &evidence) else {
+        panic!("unedited selected document admits");
+    };
+    let selected_digest = package["lock"]["model_selections"][0]["digest"]
+        .as_str()
+        .expect("selection digest");
+    let mut respelled = b" \n".to_vec();
+    respelled.extend_from_slice(&canonical(&document));
+    respelled.extend_from_slice(b"\n ");
+    assert_ne!(sha256_hex(&respelled), selected_digest);
+    let mut respelled_evidence = evidence_for(&package);
+    respelled_evidence
+        .insert_domain_package_document(selected_digest, respelled)
+        .expect("same selected document in another spelling");
+    let CheckedPackageV2ReadResult::Admitted(whitespace_only) = read(&package, &respelled_evidence)
+    else {
+        panic!("whitespace-respelled selected document admits");
+    };
+    assert_eq!(whitespace_only.package_id(), original.package_id());
+    let mut source_map_only = package.clone();
+    source_map_only["source_map"][0]["regions"][0]["end"] = json!(9);
+    let CheckedPackageV2ReadResult::Admitted(nonidentity_edit) =
+        read(&source_map_only, &respelled_evidence)
+    else {
+        panic!("source-map-only edit admits with the same selected content");
+    };
+    assert_eq!(nonidentity_edit.package_id(), original.package_id());
+
     // The selected identity is independently known for `{}`; whitespace has
     // no effect on it. The edited member changes the canonical digest.
     const SELECTED: &str = "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a";
@@ -2093,6 +2123,117 @@ fn tc_048_unreadable_model_bytes_report_raw_identity_or_wrong_selection() {
         );
         assert_eq!(own.path, Some(pointer("/lock/model_selections/0/identity")));
         assert_eq!((own.expected, own.actual), (None, None));
+    }
+}
+
+/// Trace: TC-048, FR-038-AC-218
+#[trace("TC-048", "FR-038-AC-218")]
+#[test]
+fn tc_048_mismatch_cause_keys_include_complete_typed_pair_but_not_path() {
+    const SELECTED: &str = "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a";
+    let take_refusal = |result| match result {
+        CheckedPackageV2ReadResult::Refused(refusal) => refusal,
+        other => panic!("expected refusal, got {other:?}"),
+    };
+    let first = take_refusal(read_selecting(SELECTED, br#"{"a":1}"#));
+    let second = take_refusal(read_selecting(SELECTED, br#"{"a":2}"#));
+    let cause_key = |refusal: &CheckedPackageRefusal| {
+        (
+            refusal.code,
+            refusal.cause,
+            refusal
+                .expected
+                .clone()
+                .expect("mismatch expected identity"),
+            refusal.actual.clone().expect("mismatch actual identity"),
+        )
+    };
+    assert_eq!(first.code, CheckedPackageRefusalCode::StaleDependency);
+    assert_eq!(
+        first.cause,
+        Some(CheckedPackageRefusalCause::ContentMismatch)
+    );
+    assert_eq!(second.code, first.code);
+    assert_eq!(second.cause, first.cause);
+    assert_ne!(cause_key(&first), cause_key(&second));
+    let mut another_path = first.clone();
+    another_path.path = Some(pointer("/another/location"));
+    assert_eq!(cause_key(&first), cause_key(&another_path));
+    assert_ne!(first, another_path);
+
+    let key = cause_key(&first);
+    for identity in [&key.2, &key.3] {
+        assert_eq!(identity.domain.as_ref(), "sha256-jcs");
+        assert_eq!(identity.algorithm.as_ref(), "sha256");
+        assert_eq!(identity.digest.len(), 64);
+        assert!(identity
+            .digest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)));
+    }
+    let raw_domain = CheckedSemanticId {
+        domain: "raw-artifact-digest".into(),
+        algorithm: key.2.algorithm.clone(),
+        digest: key.2.digest.clone(),
+    };
+    assert_ne!(key.2, raw_domain);
+
+    let unreadable_under_own_digest = take_refusal(read_selecting(&sha256_hex(b"["), b"["));
+    let selected_without_evidence = package_selecting("total", SELECTED);
+    let missing = take_refusal(read(
+        &selected_without_evidence,
+        &evidence_for(&selected_without_evidence),
+    ));
+    let mut wrong_domain = selected_without_evidence.clone();
+    wrong_domain["lock"]["model_selections"][0]["digest_domain"] = json!("raw-artifact-digest");
+    refresh_identity(&mut wrong_domain);
+    let domain = take_refusal(read(&wrong_domain, &evidence_for(&wrong_domain)));
+    let (invalid_graph_package, invalid_graph_evidence, _) =
+        variant_package(&["Gold"], &["Silver"], false);
+    let invalid_graph = refused(&invalid_graph_package, &invalid_graph_evidence);
+    let malformed = take_refusal(CheckedPackageV2::read(
+        b"{",
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&selected_without_evidence),
+    ));
+    let mut noncanonical_bytes = b" ".to_vec();
+    noncanonical_bytes.extend_from_slice(&canonical(&selected_without_evidence));
+    let noncanonical = take_refusal(CheckedPackageV2::read(
+        &noncanonical_bytes,
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&selected_without_evidence),
+    ));
+    for (refusal, code, cause) in [
+        (
+            unreadable_under_own_digest,
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            Some(CheckedPackageRefusalCause::WrongModelSelection),
+        ),
+        (
+            missing,
+            CheckedPackageRefusalCode::MissingImport,
+            Some(CheckedPackageRefusalCause::MissingSelection),
+        ),
+        (
+            domain,
+            CheckedPackageRefusalCode::DigestDomainMismatch,
+            None,
+        ),
+        (
+            invalid_graph,
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            None,
+        ),
+        (malformed, CheckedPackageRefusalCode::MalformedWire, None),
+        (
+            noncanonical,
+            CheckedPackageRefusalCode::NoncanonicalWire,
+            None,
+        ),
+    ] {
+        assert_eq!(refusal.code, code);
+        assert_eq!(refusal.cause, cause);
+        assert_eq!((refusal.expected, refusal.actual), (None, None));
     }
 }
 
