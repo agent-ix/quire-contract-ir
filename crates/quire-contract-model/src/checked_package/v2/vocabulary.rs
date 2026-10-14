@@ -264,6 +264,7 @@ closed_vocabulary! {
     /// The closed `protocol` semantic forms.
     pub ProtocolForm {
         ProtocolClause => "protocol_clause",
+        ProtocolReference => "protocol_reference",
         Role => "role",
         Channel => "channel",
         Queue => "queue",

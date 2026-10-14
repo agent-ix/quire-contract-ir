@@ -941,6 +941,7 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
         ) => false,
         K::Protocol(
             ProtocolForm::ProtocolClause
+            | ProtocolForm::ProtocolReference
             | ProtocolForm::Role
             | ProtocolForm::Channel
             | ProtocolForm::Queue

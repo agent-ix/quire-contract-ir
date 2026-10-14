@@ -950,6 +950,7 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
         ) => None,
         K::Protocol(
             ProtocolForm::ProtocolClause
+            | ProtocolForm::ProtocolReference
             | ProtocolForm::Role
             | ProtocolForm::Channel
             | ProtocolForm::Queue
@@ -1087,6 +1088,7 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
         ) => false,
         K::Protocol(
             ProtocolForm::ProtocolClause
+            | ProtocolForm::ProtocolReference
             | ProtocolForm::Role
             | ProtocolForm::Channel
             | ProtocolForm::Queue

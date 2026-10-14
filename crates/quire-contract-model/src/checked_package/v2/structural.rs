@@ -89,6 +89,8 @@ use std::ops::ControlFlow;
 enum Defect {
     SemanticType,
     Dependencies,
+    Occurrences,
+    Occurrence(usize),
     /// The node body itself.
     Body,
     /// One member of the node body's `aggregate`.
@@ -103,6 +105,8 @@ impl Defect {
         match self {
             Self::SemanticType => node.key("semantic_type"),
             Self::Dependencies => node.key("dependencies"),
+            Self::Occurrences => node.key("occurrences"),
+            Self::Occurrence(index) => node.key("occurrences").index(index),
             Self::Body => node.key("body"),
             Self::BodyMember(member) => node.key("body").key("members").index(member),
             Self::Role(occurrence) => node.key("occurrences").index(occurrence).key("role"),
@@ -138,6 +142,7 @@ enum StructuralForm {
     StateClause,
     UnionType,
     UnionValue,
+    ProtocolReference,
     AbstractionRelation,
 }
 
@@ -151,6 +156,7 @@ impl StructuralForm {
             Self::OperationAnchor => Some(CheckedOccurrenceRole::Anchor),
             Self::StateClause => Some(CheckedOccurrenceRole::Claim),
             Self::AbstractionRelation => Some(CheckedOccurrenceRole::Declaration),
+            Self::ProtocolReference => Some(CheckedOccurrenceRole::Expression),
             Self::CompoundUnit | Self::UnionType | Self::UnionValue => None,
         }
     }
@@ -272,6 +278,7 @@ impl StructuralForm {
                 | ProtocolForm::Obligation
                 | ProtocolForm::Compensation,
             ) => None,
+            K::Protocol(ProtocolForm::ProtocolReference) => Some(Self::ProtocolReference),
             K::Claim(
                 ClaimForm::VerificationClaim
                 | ClaimForm::AnalysisClaim
@@ -332,6 +339,7 @@ pub(super) fn validate_structural_nodes(
             Some(StructuralForm::UnionValue) => union_value_body(&node.body)
                 .is_none()
                 .then_some(Defect::Body),
+            Some(StructuralForm::ProtocolReference) => protocol_reference_defect(node),
             // The per-node body loop already read the frame body; the
             // abstraction step (FR-346) reads its own, so only the role is
             // this stage's.
@@ -353,6 +361,23 @@ pub(super) fn validate_structural_nodes(
         }
     }
     Ok(())
+}
+
+/// Carrier-only members and the local edge shape, checked before keys or target resolution.
+fn protocol_reference_defect(node: &CheckedSemanticNodeV2) -> Option<Defect> {
+    if node.occurrences.is_empty() {
+        return Some(Defect::Occurrences);
+    }
+    if node.occurrences.len() > 1 {
+        return Some(Defect::Occurrence(1));
+    }
+    let Some(target) = reference_target(&node.body) else {
+        return Some(Defect::Body);
+    };
+    if node.dependencies.as_slice() != std::slice::from_ref(&target) {
+        return Some(Defect::Dependencies);
+    }
+    None
 }
 
 /// The first rule a `value`/`parameter` node breaks, as the member it breaks
