@@ -1952,7 +1952,7 @@ fn tc_048_a_fairness_member_resolves_on_its_declaring_model_node() {
 /// Trace: TC-048, FR-038-AC-103
 #[trace("TC-048", "FR-038-AC-103")]
 #[test]
-fn tc_303_wrong_declaring_nodes_cannot_name_a_fairness_operation() {
+fn tc_048_wrong_declaring_nodes_cannot_name_a_fairness_operation() {
     const INTERFACE: &str = "ix://acme/orders/Channel";
     let mut document = orders_document();
     document["constructs"]
