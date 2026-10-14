@@ -48,3 +48,11 @@ Reviewed uncommitted working-tree correction on base 2cdac572; no new commit hea
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | still-open | SourceInventoryEnvelope::new still accepts Complete and a count computed from a shortened vector. No owner adapter or full-output oracle exists; FR-052-AC-7 is now explicitly Planned/UNRUN, so this implementation work remains in IR-759 Coding. |
+
+## Dispositions — round 2
+
+Reviewed frozen IR-784 input-only head fc28070b40353ba249a4556d57804f32871e837f against the original finding.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The public Complete flag, caller count, SourceObligationCensus and build_source_obligation_census are absent at fc28070b. SourceInventoryEnvelope::new retains provisional rows and an optional stop_reason; None expressly does not prove exhaustion. A shortened vector can no longer produce a complete-looking census. |

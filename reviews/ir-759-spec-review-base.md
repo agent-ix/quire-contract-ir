@@ -48,3 +48,11 @@ Reviewed uncommitted working-tree correction on base 2cdac572; no new commit hea
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | The TC-452 matrix row now says Planned/UNRUN and explicitly states that no owner adapter compares complete envelopes with full owner output. |
+
+## Dispositions — round 2
+
+Reviewed frozen IR-784 input-only head fc28070b40353ba249a4556d57804f32871e837f against the original finding.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The matrix at fc28070b marks TC-452 Planned/UNRUN and explicitly says no complete census is published; FR-052 separates current provisional AC-8 from the remaining full criteria. |

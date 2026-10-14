@@ -43,3 +43,11 @@ Reviewed uncommitted working-tree correction on base 2cdac572; no new commit hea
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | The synthetic tests no longer claim FR-052-AC-7 or TC-452 trace; both artifacts explicitly state that the full owner-output comparison is unrun. The underlying AC remains planned. |
+
+## Dispositions — round 2
+
+Reviewed frozen IR-784 input-only head fc28070b40353ba249a4556d57804f32871e837f against the original finding.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The only new trace bindings are AC-4 and AC-8. The public API test checks absence of Complete, caller count, census and builder; FR-052 and TC-452 retain the future full owner-output oracle as Planned/UNRUN. |

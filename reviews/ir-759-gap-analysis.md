@@ -48,3 +48,11 @@ Reviewed uncommitted working-tree correction on base 2cdac572; no new commit hea
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | deferred | The false AC-7 test binding was removed and FR-052-AC-7/TC-452 now say Planned/UNRUN. Full-owner comparison and omission refusal remain to be implemented under IR-759 before that criterion can pass. |
+
+## Dispositions — round 2
+
+Reviewed frozen IR-784 input-only head fc28070b40353ba249a4556d57804f32871e837f against the original finding.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The self-certified Complete test and its AC-7 binding are gone. Only AC-4 and AC-8 have provisional tests; FR-052-AC-1 through AC-3 and AC-5 through AC-7, and TC-452, explicitly remain Planned/UNRUN. The full owner comparison is still required for IR-759. |
