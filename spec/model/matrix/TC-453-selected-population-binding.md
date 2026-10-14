@@ -10,9 +10,10 @@ relationships:
 
 ## Description
 
-Verify that the public model API projects an exact source-backed QSL
-population binding from an admitted V2 package, retains its occurrence
-provenance, and reports typed non-finite or invalid selection outcomes.
+Verify that the public model API projects a QSL-produced population node only
+when the selector names that exact node and source occurrence, preserves the
+typed pre-admission unknown-closure outcome, and reports typed non-finite or
+invalid selection outcomes.
 
 ## Test Procedure
 
@@ -22,44 +23,57 @@ provenance, and reports typed non-finite or invalid selection outcomes.
    package; consume that fixture here rather than copying its schema or
    synthesizing V2 bytes in the IR test.
 2. Read the package through `CheckedPackageV2::read`, then select the exact
-   binding identity and `Expression` occurrence for each population binding
-   through a compiled default-feature consumer of
+   `bounded_domain` / `model_population` node identity and its `Expression`
+   occurrence through a compiled default-feature consumer of
    `quire_contract_model::checked_package`.
-3. Assert each selected result retains its package, binding, occurrence,
-   population type node, selected object-type identity, source regions, and
-   exact inclusive `[0,N]`. Include one binding with maximum zero. Change only
-   a source maximum and regenerate its admitted fixture; confirm the selected
-   extent changes. Confirm the `N=0` result is `[0,0]`.
+3. Assert each selected result retains its package, population-node identity,
+   occurrence, selected object-type identity, source regions, and exact
+   inclusive `[0,N]`. Include one node with maximum zero. Change only a source
+   maximum and regenerate its admitted fixture; confirm the selected node and
+   extent change. Confirm the `N=0` result is `[0,0]`.
 4. Select the other `Population<M::Order>[N]` occurrence and verify that it
    returns its own bound and provenance. Change only reader/Codegen resource
    ceilings and fixture object membership; verify neither changes either
    selected result.
-5. Verify a field's edge multiplicity only through
+5. Rebuild an otherwise valid fixture after changing one parameter node's
+   `semantic_type` reference from the first population node to the second,
+   re-deriving affected identities and `package_id`, while retaining the
+   original source-map rows and original selector. The reader admits this
+   retargeted package under FR-038. Query the original selector, then pair the
+   second node with the first occurrence.
+6. Verify a field's edge multiplicity only through
    `CheckedPackageV2::model_object_fields`; no population result or selected
    extent supplies or replaces that field multiplicity.
-6. Query without a selector and assert `Unavailable` with no extent. Query
+7. Query without a selector and assert `Unavailable` with no extent. Query
    selectors for an absent binding, stale binding, foreign package, a missing
    occurrence, and a valid non-population binding; assert the distinct typed
    outcomes and absence of extent for each.
-7. Select a domain-package PopulationRecord whose closure is `Closed`, then
-   one whose closure is `Open`; both have no maximum. Assert the typed
-   `Unbounded` result has no finite extent. Where QSL refuses an unbounded or
-   unknown-closure source before V2 emission, assert that no admitted-package
-   projection is produced and retain QSL's refusal as the upstream result.
-8. Inspect the query path and compile the public consumer. Verify the query
-   obtains a finite extent only from the selected admitted population binding
-   and occurrence; it does not use domain closure, member or fixture counts,
-   Codegen/IR limits, or a caller-supplied maximum. Verify the consumer needs
-   no source-text parsing or QSL/Codegen dependency and the IR root crate
-   exposes none of the model items.
+8. Select a domain-package PopulationRecord with `Closed` extent and no
+   maximum; assert `Unbounded` and no extent. Separately feed QSL's typed
+   `AdmissionOutcome::UnknownClosure` through the neutral source adapter and
+   assert the distinct `UnknownClosure` result retains selected model/source
+   provenance, carries no V2 package or binding, and has no extent. Assert it
+   differs from `Unavailable`. QSL's TC-226 verifies the owner-side typed
+   admission result for open extent and unresolved object/subtype closure.
+9. Inspect the query path and compile the public consumer. Verify the query
+   reads finite `N` only from the named admitted population node body after
+   requiring the matching node/occurrence source-map row; it never follows a
+   parameter's `semantic_type`, and does not use domain closure, member or
+   fixture counts, Codegen/IR limits, or a caller-supplied maximum. Verify the
+   consumer needs no source-text parsing or QSL/Codegen dependency and the IR
+   root crate exposes none of the model items.
 
 ## Expected Results
 
-Every finite result matches the exact selected checked binding and source
-occurrence, including `N=0`, and preserves that occurrence's authentic
-provenance. Same-type bindings remain distinct. Missing, stale, foreign,
-non-population, unavailable, and unbounded selections are typed and carry no
-finite extent. Closure, resource ceilings and fixture membership never
-produce or alter a finite maximum. The model consumer uses the selected
-population projection only for the population extent; `model_object_fields`
-remains authoritative for edge multiplicity.
+Every finite result matches the exact selected checked population node and
+source occurrence, including `N=0`, and preserves that occurrence's
+provenance. Re-pointing a parameter's `semantic_type` does not change the
+selected node's result; pairing another node with a source occurrence not
+mapped to that node returns `MissingOccurrence`. Same-type bindings remain
+distinct. Missing, stale, foreign, non-population, unavailable, unbounded,
+and unknown-closure outcomes are typed and carry no finite extent. Unknown
+closure remains QSL's pre-admission outcome and is preserved through the
+adapter without fabricating an admitted package. Closure, resource ceilings
+and fixture membership never produce or alter a finite maximum. The model
+consumer uses the selected population projection only for the population
+extent; `model_object_fields` remains authoritative for edge multiplicity.

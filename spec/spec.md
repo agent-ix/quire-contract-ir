@@ -123,8 +123,9 @@ planned API, mapping and refusal controls.
 occurrence-scoped, source-backed finite population projection from an admitted
 QSL-produced V2 package; [TC-453](model/matrix/TC-453-selected-population-binding.md)
 records its selected-binding, provenance and typed refusal controls. QSL owns
-checked population typing and lowering; the IR query does not infer a bound
-from domain closure or resource limits, and does not replace
+checked population typing and lowering under FR-094, and typed unknown-closure
+admission under FR-084; the IR query preserves that pre-admission outcome and
+does not infer a bound from domain closure or resource limits, or replace
 `model_object_fields` as the edge multiplicity authority.
 STD-001 is the stable diagnostic code registry, FR-044 exports the form of its
 codes as the typed `Std001Code` of the model crate, which `KaniOutcome.code`
