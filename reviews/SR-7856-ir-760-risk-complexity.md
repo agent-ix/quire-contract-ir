@@ -20,3 +20,13 @@ The projection depends on a cross-repository source encoding and authenticated o
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | The highest-risk association is stated but lacks an adverse-source control | spec/model/functional/FR-053-selected-population-binding.md:102 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | AC-2 and TC-453 now require a valid re-keyed package whose parameter semantic_type points to a second population node while the selected node-occurrence extent remains unchanged. |
+### Disposition evidence
+
+FND-001 after excerpt: `Two population nodes with the same selected object type but distinct source occurrences retain their own maxima and provenance. A valid package that re-points a parameter's semantic_type at the other population node and re-derives affected keys still returns the extent of the node-occurrence pair named by the selector; the query never follows that parameter pointer. Selecting the other node with the first occurrence returns MissingOccurrence unless that exact pair is source-mapped.`
+
