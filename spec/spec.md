@@ -110,6 +110,11 @@ and recursion-group labels. Final checked-package admission remains with
 defines the planned admitted-package reverse consumer context for an exact
 requested scalar expression; [TC-447](checked_package/matrix/TC-447-admitted-scalar-result-context.md)
 defines its reader-admitted QSL and adverse controls.
+[FR-051](checked_package/functional/FR-051-encode-checked-package-v2-envelope.md)
+defines the planned typed V2 envelope encoder; its planned IR controls are
+[TC-451](checked_package/matrix/TC-451-typed-v2-envelope-encoding.md).
+QSL-766 owns the separate producer adoption, not implemented by
+this IR specification.
 STD-001 is the stable diagnostic code registry, FR-044 exports the form of its
 codes as the typed `Std001Code` of the model crate, which `KaniOutcome.code`
 carries, and STD-003 is the closed

@@ -1,5 +1,5 @@
 ---
-id: TC-060
+id: TC-451
 title: "Typed checked-package V2 envelope encoding"
 type: TC
 relationships:
@@ -8,7 +8,7 @@ relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-019
     type: verifies
 ---
-# TC-060: Typed checked-package V2 envelope encoding
+# TC-451: Typed checked-package V2 envelope encoding
 
 ## Description
 
@@ -32,8 +32,14 @@ Mint the package identity independently from the preimage in the external
 consumer and read the resulting valid bytes through `CheckedPackageV2::read`
 with its required evidence. Then alter only the supplied digest, and separately
 alter only the preimage, encode each, and assert the reader's typed refusal.
-Inspect the new encoder source for identity derivation, admission, another wire
-shape, or a byte-limit constant. Compare the default-feature public export set
+Mutate the valid encoded bytes once each by removing a required top-level
+member, adding an unknown top-level member, and duplicating a top-level member;
+assert the reader's typed missing-, unknown-, and duplicate-member refusal,
+with no admitted package. Inspect the private generic envelope declaration:
+its one top-level field list must serve the owned reader, raw-term borrowed
+intake and typed borrowed encoder. The intake's nested raw-term types remain
+intake-only. Find no clone of supplied members, identity derivation, admission,
+third envelope schema or producer byte-limit constant. Compare the default-feature public export set
 with [FR-019](../../model/functional/FR-019-rust-library-interface.md)'s
 Public items table.
 
@@ -41,5 +47,7 @@ Public items table.
 
 The output is the exact closed FR-322 V2 envelope, the public and negative
 compile probes enforce the intended boundary, canonical refusals return no
-bytes, and only the matching preimage and digest admit. The public inventory
-contains exactly one new function and no wire or builder type.
+bytes, and only the matching preimage and digest admit. The three malformed
+envelope mutations refuse with their distinct typed causes. The public inventory
+contains exactly one new function and no wire or builder type. QSL-766 adoption
+is separate and is not counted as passing from these IR controls.

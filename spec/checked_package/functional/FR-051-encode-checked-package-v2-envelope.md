@@ -41,11 +41,20 @@ envelope value or builder result.
 
 ## Behavior
 
-- The function SHALL construct the crate-private `CheckedPackageWireV2` with
-  `contract_version` set by IR to `CHECKED_PACKAGE_V2` and the seven supplied
-  typed members, and SHALL encode that value through `quire_canonical` under
-  the caller's `Limits`. Each supplied member shall appear exactly once under
-  its FR-322 name; no extra member shall appear.
+- The function SHALL instantiate one crate-private generic envelope
+  declaration with borrowed typed member types,
+  `contract_version` set by IR to `CHECKED_PACKAGE_V2`, and the seven supplied
+  typed members, then SHALL encode it through `quire_canonical` under the
+  caller's `Limits`. The reader SHALL use the same declaration instantiated with owned member types. The intake SHALL use it with its existing raw-term borrowed member types.
+  The refactor shall replace the current separate top-level field lists in
+  `v2/mod.rs` (`CheckedPackageWireV2`) and `v2/intake.rs` (`BorrowedWire`)
+  with this one private declaration. The intake's nested `BorrowedPreimage`,
+  `BorrowedGraph`, and `BorrowedDiagnostics` remain its delayed raw-term decode
+  types; they are not an output envelope. The one top-level field list and
+  derived serialization SHALL define the encoding path. That path SHALL
+  neither clone the graph, preimage or other supplied members nor add a third
+  handwritten envelope serializer or field list. Each supplied member shall
+  appear exactly once under its FR-322 name; no extra member shall appear.
 - The function SHALL retain the caller's preimage and package identity as
   supplied. It shall not derive or rewrite `identity_preimage`, hash or replace
   `package_id`, reorder graph nodes or selections, synthesize diagnostics, or
@@ -62,13 +71,19 @@ states without removing any input or obligation from this single encoding call.
 this function. The reader in [FR-038](./FR-038-consume-checked-package-v2.md)
 still decides whether the produced bytes are valid.
 
+**Separate QSL producer adoption dependency (QSL-766).** That QSL-owned change to
+`qsl-package/src/emit.rs` must replace its local `WireV2` with this function
+and verify an actual QSL-emitted package through IR's reader. Passing this IR
+requirement's synthetic external-consumer controls does not claim that QSL has
+adopted the API or removed its local wire type.
+
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-051-AC-1 | A default-feature external consumer supplies the seven typed members and explicit `Limits` through `quire_contract_model::encode_checked_package_v2`; its bytes have exactly the eight FR-322 envelope members, including IR's fixed `contract_version`, and equal the canonical bytes of the same private wire assembled in an IR unit test. The consumer cannot import `CheckedPackageWireV2` or the function from `quire_contract_ir`. | Test (TC-060) |
-| FR-051-AC-2 | For an otherwise valid package, encoding with a ceiling equal to its canonical length returns the complete bytes; one byte lower returns `quire_canonical::Error` and no bytes. A canonical-invalid typed value likewise returns the encoder error and no bytes. | Test (TC-060) |
-| FR-051-AC-3 | An external producer mints `package_id` from the supplied preimage, calls the encoder, and passes the result to `CheckedPackageV2::read`; the reader admits the valid fixture. Changing only the supplied package digest or identity preimage leaves the corresponding bytes as supplied and lets the reader refuse according to FR-038. Source inspection finds no package-id derivation, validation, secondary wire schema, or producer byte-limit constant in the new encoder. | Test, Inspection (TC-060) |
+| FR-051-AC-1 | A default-feature external consumer supplies the seven typed members and explicit `Limits` through `quire_contract_model::encode_checked_package_v2`; its bytes have exactly the eight FR-322 envelope members, including IR's fixed `contract_version`, and equal the canonical bytes of the same private wire assembled in an IR unit test. The consumer cannot import `CheckedPackageWireV2` or the function from `quire_contract_ir`. | Test (TC-451) |
+| FR-051-AC-2 | For an otherwise valid package, encoding with a ceiling equal to its canonical length returns the complete bytes; one byte lower returns `quire_canonical::Error` and no bytes. A canonical-invalid typed value likewise returns the encoder error and no bytes. | Test (TC-451) |
+| FR-051-AC-3 | An external producer mints `package_id` from the supplied preimage, calls the encoder, and passes the result to `CheckedPackageV2::read`; the reader admits the valid fixture. Changing only the supplied package digest or identity preimage leaves the corresponding bytes as supplied and lets the reader refuse according to FR-038. Removing a required envelope member, adding an unknown member, or duplicating a member yields FR-038's matching typed malformed-wire refusal. Source inspection finds one private generic top-level wire declaration instantiated for owned read, raw-term borrowed intake and typed borrowed encode; no clone of borrowed members, package-id derivation, admission, third envelope schema, or producer byte-limit constant is added. | Test (TC-451) |
 
 ## Dependencies
 
@@ -78,3 +93,6 @@ reader. [FR-019](../../model/functional/FR-019-rust-library-interface.md)
 owns the model-crate public inventory. QSpec
 `ix://agent-ix/quire-specification/FR-272` owns typed diagnostic causes;
 this encoder only carries the already typed `CheckedDiagnosticsV2` member.
+QSL producer adoption is the separate dependent QSL-766 change owned by the QSL
+repository; its actual emitter and reader round-trip are outside this IR API
+contract and its local acceptance evidence.
