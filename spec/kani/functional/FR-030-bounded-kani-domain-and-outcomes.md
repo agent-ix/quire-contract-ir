@@ -46,6 +46,38 @@ rules:
   `kani_vacuous_proof`.
 - A `proved` outcome carries a SUCCESS check count of at least one.
 
+The `cancelled` kind carries one required `KaniCancellationSource` value:
+`Requested` when the caller-owned cancellation handle records a caller request,
+or `Deadline` when the frontend that owns the timer cancels that handle at its
+deadline. Contract IR owns this typed outcome carrier and its validation.
+Codegen's bounded Kani launcher/execution boundary (`src/kani/run/launch.rs`
+and `src/kani/run/execute.rs`) owns observing any cancellation of a Kani run:
+it must receive source-bearing control from the caller or timer owner, retain
+the first event that actually stopped the run, and pass that observed source
+when constructing an IR cancelled outcome. Codegen currently has no such
+event reader or `Cancelled` outcome producer; its launcher reports an elapsed
+execution ceiling as `TimedOut`. Adding the source-bearing producer and its
+QSL terminal map is a prerequisite of IR-701, not an existing behavior or an
+IR model dependency. Until that producer exists, IR-701 cannot claim a
+requested/deadline cancellation mapping from a live Kani run. Neither
+Contract IR nor a consumer derives the origin from `code`, `source_id`,
+`context`, elapsed time, a generic timeout, or a failed charge. The source is
+part of the `Cancelled` variant of `KaniOutcomeKind`, so every cancelled
+outcome has exactly one source and no other kind has one. `TimedOut` remains a
+distinct outcome for a run that exceeded its execution timeout without a
+recorded cancellation event. The type and outcome live in the root crate's
+`kani` module without a dependency on QSL or quire-exact; codegen translates
+the two source variants into QSL's `CancelCause` at its FR-030 consumer seam.
+
+On serialization, a cancelled outcome's `kind` is
+`{"cancelled":{"source":"requested"}}` or
+`{"cancelled":{"source":"deadline"}}`; all other kind spellings and outcome
+members retain their existing form. Deserialization refuses the old unit
+`"cancelled"`, a missing or unfamiliar cancellation source, and a source
+member on a non-cancelled outcome (for example,
+`{"kind":"timed_out","source":"deadline"}`). The outcome reader rejects
+unknown members. There is no default origin or alternate legacy wire form.
+
 A `KaniOutcome`'s code, and a `KaniOutcomeError`'s, is a `Std001Code`
 (FR-044), exported by `quire-contract-model`, and not a `String`. The
 non-success constructor takes a `Std001Code`, and a `proved` or `counterexample`
@@ -80,6 +112,7 @@ The harness constrains only values after the ABI has established that the finite
 | FR-030-AC-4 | A `proved` outcome built from a run with three SUCCESS checks carries the count three; a run with zero SUCCESS checks yields `inconclusive` with cause `kani_vacuous_proof`, carries no count and no Boolean claim; and a request for a `proved` outcome with a count of zero returns `KaniOutcomeError` with code `kani_outcome_invalid` and no outcome. | Test (TC-223) |
 | FR-030-AC-5 | An `unavailable` outcome built for an absent solver carries cause `kani_solver_absent` and one built for an absent backend carries `kani_backend_absent`, each with no Boolean claim; a request for an `unavailable` outcome with any other cause code, an `inconclusive` outcome with a cause other than `kani_vacuous_proof`, or a `proved` or `counterexample` outcome through the non-success constructor returns `KaniOutcomeError` with code `kani_outcome_invalid` and no outcome; and a struct-literal `KaniOutcome` outside the `kani` module fails to compile. | Test (TC-223) |
 | FR-030-AC-6 | The `code` of the outcome built for a zero-check proof equals `Std001Code::KANI_VACUOUS_PROOF` and its serialization holds the member `"code":"kani_vacuous_proof"`; the `code` of the `KaniOutcomeError` for a `proved` outcome with a count of zero equals `Std001Code::KANI_OUTCOME_INVALID`; a call that passes a `&str` or a `String` as the code of the non-success constructor fails to compile; and a serialized `KaniOutcome` whose `code` is `"Bad-Code"` fails to deserialize. | Test (TC-443) |
+| FR-030-AC-7 | The IR outcome constructor accepts the observed caller-request or timer-owner deadline source as `Cancelled { source: Requested }` or `Cancelled { source: Deadline }`; each serializes and deserializes with that exact `kind` source and no Boolean claim. Construction without a source fails to compile. Deserialization refuses a unit `"cancelled"` kind, a missing or unknown source, and an origin on a non-cancelled kind. Every existing non-cancelled kind retains its former wire spelling. The future CG Kani producer reads the event that actually stopped the run; an execution timeout without that event remains `TimedOut`, and reversing the recorded event reverses the constructed cancellation source. | Test (TC-449) |
 
 ## Dependencies
 
@@ -102,3 +135,7 @@ AC-4 and AC-5 are planned (TC-223, no test): `KaniOutcome`'s fields are public, 
 `non_success` accepts any cause code for `unavailable` and `inconclusive`, so the
 `CapabilityDisposition::Inconclusive` arm of the lowerings, which carries the
 profile's own code, still builds an `inconclusive` outcome that AC-5 will forbid.
+AC-7 is planned (TC-449, no test): `Cancelled` is currently a unit kind and
+the Kani outcome has no cancellation source. The CG Kani launcher has no
+source-bearing cancellation event reader or IR cancelled-outcome producer;
+IR-701 owns that downstream integration after the IR model carrier lands.
