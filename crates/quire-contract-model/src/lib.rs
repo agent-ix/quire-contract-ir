@@ -89,6 +89,7 @@ mod expression;
 mod identity;
 mod limits;
 mod output_mapping;
+pub mod source_obligation;
 mod wire;
 
 pub use binding::{

@@ -34,10 +34,14 @@ fn expected_items() -> BTreeMap<String, BTreeSet<String>> {
             .split_whitespace()
             .next()
             .expect("module name must be present");
-        items
-            .entry(module.into())
-            .or_default()
-            .extend(quoted_names(cells[2]).map(str::to_owned));
+        let names = quoted_names(cells[2]).map(|name| {
+            if module == "crate_root" {
+                name.strip_prefix("module ").unwrap_or(name).to_owned()
+            } else {
+                name.to_owned()
+            }
+        });
+        items.entry(module.into()).or_default().extend(names);
     }
     items
 }
@@ -112,6 +116,38 @@ fn exported_items() -> BTreeMap<String, BTreeSet<String>> {
         .entry("code".into())
         .or_default()
         .extend(exported_macros);
+    if MODEL_ROOT
+        .lines()
+        .any(|line| line.trim() == "pub mod source_obligation;")
+    {
+        items
+            .entry("crate_root".into())
+            .or_default()
+            .insert("source_obligation".into());
+        let source = fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("crates/quire-contract-model/src/source_obligation.rs"),
+        )
+        .expect("source-obligation module must be readable");
+        let module_items = source.lines().filter_map(|line| {
+            let declaration = line.strip_prefix("pub ")?;
+            let name = declaration
+                .strip_prefix("struct ")
+                .or_else(|| declaration.strip_prefix("enum "))
+                .or_else(|| declaration.strip_prefix("fn "))?;
+            Some(
+                name.split(|character: char| {
+                    !character.is_ascii_alphanumeric() && character != '_'
+                })
+                .next()?
+                .to_owned(),
+            )
+        });
+        items
+            .entry("source_obligation".into())
+            .or_default()
+            .extend(module_items);
+    }
     items
 }
 
@@ -123,11 +159,16 @@ fn tc_058_model_root_exports_exactly_the_documented_public_items() {
     assert_eq!(
         MODEL_ROOT
             .lines()
-            .filter(|line| line.starts_with("pub ") && !line.starts_with("pub use "))
+            .filter(|line| line.starts_with("pub ")
+                && !line.starts_with("pub use ")
+                && !line.starts_with("pub mod source_obligation;"))
             .count(),
         0,
         "model root must expose items only through named exports"
     );
+    assert!(MODEL_ROOT
+        .lines()
+        .any(|line| line == "pub mod source_obligation;"));
 }
 
 #[trace("TC-058", "FR-019-AC-5")]
