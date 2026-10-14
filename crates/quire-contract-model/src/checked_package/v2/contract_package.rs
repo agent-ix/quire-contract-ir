@@ -1,7 +1,13 @@
 //! FR-035 and QSpec FR-330: the single target-neutral ContractPackage wire.
 
+mod guard_context;
 mod result_context;
 
+pub use guard_context::{
+    ContractGuardContextErrorV1, ContractGuardContextFailureCauseV1, ContractGuardContextFailureV1,
+    ContractGuardContextViewV1, ContractGuardReferenceV1, ContractLoweredGuardContextV1,
+    ContractPathGuardV1,
+};
 pub use result_context::{
     ContractLoweredResultV1, ContractOccurrenceKeyV1, ContractResultBoundV1,
     ContractResultContextV1, ContractResultViewV1,
@@ -422,6 +428,23 @@ impl ContractPackageV1 {
             .nodes
             .retain(|entry| &entry.node_id != key);
         self.wire.source_map.nodes.len() != before
+    }
+
+    /// Replace one admitted node body with an invalid value to exercise
+    /// defensive reached-view validation after admission.
+    #[cfg(feature = "fault-injection")]
+    pub fn fault_inject_invalid_body_for_test(&mut self, key: &CheckedNodeId) -> bool {
+        let Some(node) = self
+            .wire
+            .semantic_graph
+            .nodes
+            .iter_mut()
+            .find(|node| &node.node_id == key)
+        else {
+            return false;
+        };
+        node.body = Value::Null;
+        true
     }
 
     /// The canonical semantic identity retained in the admitted value.

@@ -237,7 +237,7 @@ impl ContractPackageV1 {
             .find(|node| &node.node_id == key)
     }
 
-    fn sources(&self, key: &CheckedNodeId) -> Option<&[CheckedSourceMapEntry]> {
+    pub(super) fn sources(&self, key: &CheckedNodeId) -> Option<&[CheckedSourceMapEntry]> {
         self.wire
             .source_map
             .nodes
