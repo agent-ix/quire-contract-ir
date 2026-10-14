@@ -32,7 +32,7 @@ pub use collections::{lower_query, CollectionLowering, CollectionQuery, QueryKin
 pub use dispatch::{DispatchError, DispatchIndex, ModuleDescriptor, SemanticFamily};
 pub use objects::{lower_reaches, GraphLowering, GraphRequest};
 use outcome::NonSuccessKind;
-pub use outcome::{KaniOutcome, KaniOutcomeError, KaniOutcomeKind};
+pub use outcome::{KaniCancellationSource, KaniOutcome, KaniOutcomeError, KaniOutcomeKind};
 pub use profile::{
     CapabilityDisposition, CapabilityEntry, KaniProfile, ProfileError, ProfileSelection,
 };

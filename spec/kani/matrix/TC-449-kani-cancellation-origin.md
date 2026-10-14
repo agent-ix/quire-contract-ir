@@ -50,7 +50,7 @@ that run, and the reversed event reverses the outcome source.
 
 ## Status
 
-Planned. IR-778 implements the IR carrier, validation and local serialization
-controls. CG currently has no Kani cancellation event reader or IR
-`Cancelled` producer; IR-701 implements and tests that downstream source
-observation and QSL mapping after the IR carrier is available.
+IR carrier, validation and local serialization controls are tagged in
+`tests/it/kani_shared.rs`. CG currently has no Kani cancellation event reader
+or IR `Cancelled` producer; IR-701 implements and tests that downstream source
+observation, event reversal and QSL mapping.
