@@ -492,9 +492,10 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         (
             "stale package id",
             Box::new(|v| v["package_id"]["digest"] = json!("0".repeat(64))),
-            refusal(
+            refusal_cause(
                 CheckedPackageRefusalCode::StaleDependency,
                 "/package_id/digest",
+                CheckedPackageRefusalCause::ContentMismatch,
             ),
         ),
         (

@@ -728,7 +728,7 @@ fn tc_048_a_grouped_union_key_has_public_reader_stage_precedence() {
             ),
             "package" => (
                 Code::StaleDependency,
-                None,
+                Some(Cause::ContentMismatch),
                 "/package_id/digest".to_owned(),
                 true,
             ),

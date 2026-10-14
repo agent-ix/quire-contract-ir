@@ -11,15 +11,15 @@
 
 use crate::support::checked_package::{
     all_families_read_work, canonical, evidence_for, incomplete, mint_ungrouped_structural_keys,
-    refresh_identity, refusal, refusal_bytes, typed_node_id, unknown_version, v2_all_families,
-    NODE_DOMAIN,
+    refresh_identity, refusal, refusal_bytes, refusal_cause, typed_node_id, unknown_version,
+    v2_all_families, NODE_DOMAIN,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageEvidence, CheckedPackageLimit,
-    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CompleteContractNodeV2, CompleteLoweringProfileV2,
-    CompleteLoweringRecordV2,
+    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CompleteContractNodeV2, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -241,9 +241,10 @@ fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
     stale_identity["package_id"]["digest"] = json!("0".repeat(64));
     assert_eq!(
         refused(&stale_identity, &evidence),
-        refusal(
+        refusal_cause(
             CheckedPackageRefusalCode::StaleDependency,
-            "/package_id/digest"
+            "/package_id/digest",
+            CheckedPackageRefusalCause::ContentMismatch,
         )
     );
 

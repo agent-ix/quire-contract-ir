@@ -3163,7 +3163,11 @@ fn tc_048_a_bound_outside_the_pattern_is_refused_ahead_of_every_identity_check()
     );
     assert_eq!(
         (code, cause, path.as_deref()),
-        (Code::StaleDependency, None, Some("/package_id/digest"))
+        (
+            Code::StaleDependency,
+            Some(Cause::ContentMismatch),
+            Some("/package_id/digest")
+        )
     );
     for (case, member, bound) in [
         (
