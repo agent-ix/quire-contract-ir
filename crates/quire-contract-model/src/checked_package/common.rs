@@ -5,6 +5,8 @@
 //! canonical form identically regardless of which closed schema is decoded
 //! from the resulting value.
 
+mod closed_members;
+
 use super::shared::{push_index, push_key};
 use super::shared::{
     CheckedArtifactLocator, CheckedArtifactRef, CheckedNodeId, CheckedOccurrence,
@@ -14,6 +16,7 @@ use super::shared::{
 };
 use super::terms::{subterms, At, Cursor};
 use super::v2::{ApplicationOperator, BodyTerm, LiteralKind, PACKAGE_DOMAIN_V2};
+use closed_members::ClosedMemberProvenance;
 use quire_walk::{walk, Children, Walk};
 use serde::de::{DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
@@ -530,8 +533,8 @@ pub(super) fn canonical_value(
 }
 
 /// Decode a closed package straight from its validated bytes. This uses the
-/// established error classification and pointer mapping, without first
-/// materializing the complete package as a `Value`.
+/// established pointer mapping without first materializing the complete
+/// package as a `Value`.
 pub(super) fn decode_closed_bytes<'de, T: Deserialize<'de>>(
     bytes: &'de [u8],
 ) -> Result<T, ValidationFailure> {
@@ -543,21 +546,35 @@ pub(super) fn decode_closed_bytes<'de, T: Deserialize<'de>>(
             // only after a failed closed decode, to locate the offending
             // shallow wire member without charging a valid deep term's stack.
             let mut deserializer = serde_json::Deserializer::from_slice(bytes);
-            serde_path_to_error::deserialize::<_, T>(&mut deserializer)
-                .map_err(classify_closed_error)
+            let provenance = ClosedMemberProvenance::new();
+            serde_path_to_error::deserialize::<_, T>(provenance.trace(&mut deserializer))
+                .map_err(|error| classify_closed_error(error, provenance.unknown_member()))
         }
     }
 }
 
-fn classify_closed_error<E: fmt::Display>(
+fn classify_closed_error<E>(
     error: serde_path_to_error::Error<E>,
+    unknown_member: bool,
 ) -> ValidationFailure {
-    let code = if error.inner().to_string().contains("unknown field") {
+    let code = if unknown_member {
         CheckedPackageRefusalCode::UnknownMember
     } else {
         CheckedPackageRefusalCode::MalformedWire
     };
     ValidationFailure::refused(code, decoder_pointer(JsonPointer::root(), error.path()))
+}
+
+/// Re-run a closed value's failed decode to locate the error and distinguish a
+/// rejected member from another field error. This is also used after the
+/// internally tagged nominal preimage has been unwrapped into its variant.
+pub(super) fn locate_closed_value_failure<T: serde::de::DeserializeOwned>(
+    value: &Value,
+) -> Option<(serde_path_to_error::Path, bool)> {
+    let provenance = ClosedMemberProvenance::new();
+    serde_path_to_error::deserialize::<_, T>(provenance.trace(value))
+        .err()
+        .map(|error| (error.path().clone(), provenance.unknown_member()))
 }
 
 /// The decoder's position below `base` (the value it decoded) as a pointer.
