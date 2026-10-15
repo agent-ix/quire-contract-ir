@@ -25,7 +25,7 @@ invalid selection outcomes.
 2. Read the package through `CheckedPackageV2::read`, then select the exact
    `bounded_domain` / `model_population` node identity and its `Type`
    occurrence through a compiled default-feature consumer of
-   `quire_contract_model::checked_package`.
+   `quire_contract_model::selected_population`.
 3. Assert each selected result retains its package, population-node identity,
    occurrence, selected object-type identity, source regions, and exact
    inclusive `[0,N]`. Include one node with maximum zero. Change only a source

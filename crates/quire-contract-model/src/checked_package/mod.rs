@@ -16,11 +16,13 @@
 mod common;
 mod dispatch;
 mod evidence;
+mod selected_population;
 mod shared;
 mod terms;
 mod v2;
 
 pub use dispatch::*;
 pub use evidence::*;
+pub use selected_population::*;
 pub use shared::*;
 pub use v2::*;

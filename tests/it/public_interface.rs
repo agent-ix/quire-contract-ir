@@ -149,6 +149,37 @@ fn exported_items() -> BTreeMap<String, BTreeSet<String>> {
             .or_default()
             .extend(module_items);
     }
+    if MODEL_ROOT
+        .lines()
+        .any(|line| line.trim() == "pub mod selected_population;")
+    {
+        items
+            .entry("crate_root".into())
+            .or_default()
+            .insert("selected_population".into());
+        let source = fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("crates/quire-contract-model/src/selected_population.rs"),
+        )
+        .expect("selected-population facade must be readable");
+        let declaration = source
+            .split_once("pub use crate::checked_package::{")
+            .expect("selected-population facade must name its exports")
+            .1
+            .split_once("};")
+            .expect("selected-population export list must close")
+            .0;
+        items
+            .entry("selected_population".into())
+            .or_default()
+            .extend(
+                declaration
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_owned),
+            );
+    }
     items
 }
 
@@ -162,7 +193,8 @@ fn tc_058_model_root_exports_exactly_the_documented_public_items() {
             .lines()
             .filter(|line| line.starts_with("pub ")
                 && !line.starts_with("pub use ")
-                && !line.starts_with("pub mod source_obligation;"))
+                && !line.starts_with("pub mod source_obligation;")
+                && !line.starts_with("pub mod selected_population;"))
             .count(),
         0,
         "model root must expose items only through named exports"
@@ -170,6 +202,9 @@ fn tc_058_model_root_exports_exactly_the_documented_public_items() {
     assert!(MODEL_ROOT
         .lines()
         .any(|line| line == "pub mod source_obligation;"));
+    assert!(MODEL_ROOT
+        .lines()
+        .any(|line| line == "pub mod selected_population;"));
 }
 
 #[trace("TC-058", "FR-019-AC-5")]
