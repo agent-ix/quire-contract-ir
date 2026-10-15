@@ -61,5 +61,6 @@ mod kani_objects;
 mod kani_shared;
 mod output_mapping;
 mod public_interface;
+mod selected_population;
 mod source_obligation;
 mod std001_code;

@@ -257,11 +257,15 @@ fn select_admitted(
 }
 
 fn population_maximum(body: &Value) -> Option<u64> {
-    let maximum_member = body
+    let mut maximum_members = body
         .get("members")?
         .as_array()?
         .iter()
-        .find(|member| member.get("name").and_then(Value::as_str) == Some("max"))?;
+        .filter(|member| member.get("name").and_then(Value::as_str) == Some("max"));
+    let maximum_member = maximum_members.next()?;
+    if maximum_members.next().is_some() {
+        return None;
+    }
     if maximum_member.get("term")?.as_str()? != "binding" {
         return None;
     }
@@ -323,6 +327,14 @@ mod tests {
         );
         for body in [
             json!({"members": []}),
+            json!({"members": [
+                {"name": "max", "term": "binding", "value": {
+                    "term": "literal", "value_kind": "integer", "value": "3"
+                }},
+                {"name": "max", "term": "binding", "value": {
+                    "term": "literal", "value_kind": "integer", "value": "5"
+                }}
+            ]}),
             json!({"members": [{"name": "min", "term": "binding", "value": {
                 "term": "literal", "value_kind": "integer", "value": "99"
             }}]}),
