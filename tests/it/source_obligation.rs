@@ -320,8 +320,8 @@ fn module_row(name: &str) -> SourceInventoryRow {
     )
 }
 
-/// Trace: FR-052-AC-11
-#[trace("FR-052-AC-11")]
+/// Trace: FR-052-AC-12, FR-052-AC-13
+#[trace("FR-052-AC-12", "FR-052-AC-13")]
 #[test]
 fn terminal_boundary_distinguishes_empty_complete_partial_and_invalid_count() {
     let empty = SourceInventoryOutcome::from_enumerator(TestEnumerator::new(
@@ -339,6 +339,19 @@ fn terminal_boundary_distinguishes_empty_complete_partial_and_invalid_count() {
     .expect("module without functions");
     assert_eq!(complete.items(), std::slice::from_ref(&row));
     assert_eq!(complete.observed_count(), 1);
+
+    let rows = vec![row.clone(), module_row("src/another.rs")];
+    let multiple = SourceInventoryOutcome::from_enumerator(TestEnumerator::new(
+        SourceInventoryOwner::QuireCodeRs,
+        rows.clone(),
+    ))
+    .expect("normal end after two emitted rows");
+    assert_eq!(
+        multiple.completeness(),
+        &SourceInventoryCompleteness::Complete
+    );
+    assert_eq!(multiple.items(), rows.as_slice());
+    assert_eq!(multiple.observed_count(), 2);
 
     let mut deleted = TestEnumerator::new(SourceInventoryOwner::QuireCodeRs, vec![row]);
     deleted.reported_count = Some(2);
@@ -360,8 +373,8 @@ fn terminal_boundary_distinguishes_empty_complete_partial_and_invalid_count() {
     assert!(provisional.items().is_empty());
 }
 
-/// Trace: FR-052-AC-10, FR-052-AC-11
-#[trace("FR-052-AC-10", "FR-052-AC-11")]
+/// Trace: FR-052-AC-12, FR-052-AC-13
+#[trace("FR-052-AC-12", "FR-052-AC-13")]
 #[test]
 fn terminal_boundary_preserves_typed_stops_and_rejects_mismatched_rows() {
     let exhaustion = SourceInventoryIncompleteReason::TypeWorkExhausted(SourceTypeExhaustion {

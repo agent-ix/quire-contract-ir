@@ -481,6 +481,71 @@ pub enum SourceInventoryOutcomeError {
 
 /// One owner-issued terminal outcome. Its fields are private so a caller
 /// cannot turn a provisional row vector or absent stop cause into `Complete`.
+/// A default-feature consumer can build an outcome through the enumerator and
+/// inspect it through its public accessors:
+///
+/// ```
+/// use quire_contract_model::source_obligation::{
+///     SourceInventoryCompleteness, SourceInventoryEnumerator, SourceInventoryIncompleteReason,
+///     SourceInventoryOutcome, SourceInventoryOwner, SourceInventoryRow, SourceInventoryScope,
+/// };
+/// use quire_contract_model::{SourceDocumentId, SourceIdentity, SourceRevision};
+///
+/// struct Empty(SourceIdentity);
+/// impl SourceInventoryEnumerator for Empty {
+///     fn source(&self) -> &SourceIdentity { &self.0 }
+///     fn owner(&self) -> SourceInventoryOwner { SourceInventoryOwner::Qsl }
+///     fn scope(&self) -> SourceInventoryScope {
+///         SourceInventoryScope::QslCheckedRequirementsAndPendingObligations
+///     }
+///     fn next_row(&mut self) -> Result<Option<SourceInventoryRow>, SourceInventoryIncompleteReason> {
+///         Ok(None)
+///     }
+///     fn observed_count(&self) -> usize { 0 }
+/// }
+/// let source = SourceIdentity::new(
+///     SourceDocumentId::new("selected").expect("document"),
+///     SourceRevision::new(1).expect("revision"),
+/// );
+/// let outcome = SourceInventoryOutcome::from_enumerator(Empty(source.clone())).expect("end");
+/// assert_eq!(outcome.source(), &source);
+/// assert!(outcome.items().is_empty());
+/// assert_eq!(outcome.observed_count(), 0);
+/// assert_eq!(outcome.completeness(), &SourceInventoryCompleteness::Complete);
+/// ```
+///
+/// Direct reads of rows and count, and a caller-authored struct literal,
+/// respectively fail at Rust's privacy boundary:
+///
+/// ```compile_fail,E0616
+/// use quire_contract_model::source_obligation::SourceInventoryOutcome;
+/// fn forbidden(outcome: &SourceInventoryOutcome) { let _ = &outcome.items; }
+/// ```
+///
+/// ```compile_fail,E0616
+/// use quire_contract_model::source_obligation::SourceInventoryOutcome;
+/// fn forbidden(outcome: &SourceInventoryOutcome) { let _ = outcome.observed_count; }
+/// ```
+///
+/// ```compile_fail,E0451
+/// use quire_contract_model::source_obligation::{
+///     SourceInventoryCompleteness, SourceInventoryOutcome, SourceInventoryOwner,
+///     SourceInventoryScope,
+/// };
+/// use quire_contract_model::{SourceDocumentId, SourceIdentity, SourceRevision};
+/// let source = SourceIdentity::new(
+///     SourceDocumentId::new("selected").expect("document"),
+///     SourceRevision::new(1).expect("revision"),
+/// );
+/// let _ = SourceInventoryOutcome {
+///     owner: SourceInventoryOwner::Qsl,
+///     source,
+///     scope: SourceInventoryScope::QslCheckedRequirementsAndPendingObligations,
+///     items: vec![],
+///     observed_count: 0,
+///     completeness: SourceInventoryCompleteness::Complete,
+/// };
+/// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceInventoryOutcome {
     owner: SourceInventoryOwner,
