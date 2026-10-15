@@ -4006,6 +4006,46 @@ appears in
 three lists as written, so an independent re-derivation of `ir_id` that treats
 the three as disjoint disagrees byte for byte.
 
+### Native String, UUID and Timestamp in the V2 reader
+
+The reader SHALL retain `scalar_type` forms `string`, `uuid` and `timestamp`
+as three distinct types, separate from `text`, when a selected Semantic IR
+document declares a field, parameter or result with the corresponding native
+`typeRef`. It SHALL retain the same distinction for literals of `value_kind`
+`string`, `uuid` and `timestamp` and for the families checked at an application.
+The selected document's existing `typeRef` member supplies the declaration;
+this rule adds no new source-document member or second selection path.
+
+For each family the reader SHALL recognize only the catalogued `eq` and `ne`
+identities as native comparisons. They take two operands of that one family,
+yield `boolean`, and carry no law, mode, member or leaves. `string` compares
+exact Unicode scalar sequences without normalization or case folding;
+`uuid` and `timestamp` compare their canonical payloads. The reader SHALL
+refuse a foreign family in either operand position of each native comparison,
+or an ordering or arithmetic identity over any of the three families, as
+`ill_typed`/`operator-ineligible` at the first offending argument.
+A `text_profile` law on a native comparison SHALL refuse as
+`invalid_package`/`operation-law-mismatch` at that law, and a `text_profile`
+mode SHALL refuse as `invalid_package`/`operation-mode-mismatch` at the mode.
+A `string` operand of `quire.op.text.eq` SHALL refuse as
+`invalid_package`/`operation-mode-type-mismatch` at the mode value; it does
+not acquire a text profile from its spelling.
+
+A native literal's `type` SHALL resolve to its own family. A mismatch SHALL
+refuse as `ill_typed`/`operator-ineligible` at that literal's `type` before
+its `value` is examined. For a correctly typed literal, `string.value` SHALL
+be a JSON string retaining its exact Unicode scalar sequence; `uuid.value`
+SHALL be lowercase ASCII hexadecimal in `8-4-4-4-12` groups; and
+`timestamp.value` SHALL be the canonical decimal spelling of a signed
+128-bit nanosecond count, from
+`-170141183460469231731687303715884105728` through
+`170141183460469231731687303715884105727`. An incorrect value shape or
+noncanonical spelling SHALL refuse as `invalid_package`/`invalid-value` at
+that literal's `value`, without repair or coercion. Earlier wire, graph,
+identity, declaration, frame and resource refusals retain their existing
+precedence; the native literal and operation checks run in the existing
+operation step under the same bounded work accounting.
+
 ### Retain a production-derived expected node key
 
 When the reader refuses a graph node as `invalid_package` with cause
@@ -4295,6 +4335,10 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-239 | PLANNED/UNRUN (IR-782). A package with a `protocol`/`protocol_reference` carrier whose closed reference body targets an exact local `protocol` node, with one `expression` occurrence, the same semantic type and exactly that target as its dependency, admits through the public V2 reader as `ProtocolForm::ProtocolReference`. Both a `protocol_clause` target and a different protocol form (`role` or `control`) admit; a reader that accepts only `protocol_clause` fails the second control. For each admitted target, the structural key, identity projection and package id are independently recomputed; changing the target and re-deriving these identities changes the carrier key. The admitted package retains one graph node collection and its source correspondence. | Test (TC-048) |
 | FR-038-AC-240 | PLANNED/UNRUN (IR-782). An extra dependency or a dependency unequal to the carrier's body target refuses `invalid_semantic_graph` at `/semantic_graph/nodes/{i}/dependencies` in graph-shape validation; a stale carrier key with matching dependency refuses `invalid_package`/`stale-node-key` before the local target join. With both body target and sole dependency changed together and identities independently recomputed, an absent local target refuses `missing_declaration`/`missing-name` at `/semantic_graph/nodes/{i}/body/target`, even if an admitted selected dependency contains that key. A present non-`protocol` target, or a protocol target with unequal semantic type, refuses `ill_typed`/`operator-ineligible` at that same pointer. A carrier target defect wins over a frame or operation defect, after the earlier graph-shape and stale-key checks. | Test (TC-048) |
 | FR-038-AC-241 | PLANNED/UNRUN (IR-782). A carrier with a non-reference or `dependency_reference` body or an extra body member fails the closed V2 schema. A carrier with an extra occurrence, declaration, owner, nominal preimage or recursion group refuses at its offending member before target resolution. An ordinary node holding a generic reference remains an ordinary node; no second protocol-reference form or separate collection is admitted. | Test (TC-048) |
+| FR-038-AC-242 | PLANNED/UNRUN (IR-800). A selected Semantic IR document with fields, parameters and results declared at `ix://quire/native/String`, `ix://quire/native/UUID` and `ix://quire/native/Timestamp` admits through `CheckedPackageV2::read` with distinct self-typed `scalar_type`/`string`, `/uuid` and `/timestamp` nodes and matching member types; the same String declaration never resolves as `text` or requires a text profile. Each kind's correctly typed literal admits with the exact canonical payload retained in its keyed body. | Test (TC-048) |
+| FR-038-AC-243 | PLANNED/UNRUN (IR-800). The production catalog and closed V2 vocabularies admit exactly `quire.op.string.eq`, `.ne`, `quire.op.uuid.eq`, `.ne`, and `quire.op.timestamp.eq`, `.ne` as native comparisons; each public-reader package with same-family operands, Boolean result and no law, mode, member or leaves admits, and equal/unequal canonical payload controls retain their separate operand identities. For each of the six identities, replacing argument 0 and then argument 1, separately, with a foreign-family operand (`text` for `string`, `string` for `uuid`, `uuid` for `timestamp`) refuses `ill_typed`/`operator-ineligible` at the changed argument. `quire.op.integer.lt` and `quire.op.integer.add` over each of `string`, `uuid` and `timestamp` operands likewise refuse at `arguments/0`; neither a one-sided family check nor an ordering/arithmetic special case for one native family passes. | Test (TC-048) |
+| FR-038-AC-244 | PLANNED/UNRUN (IR-800). Adding a selected `text_profile` law to each native comparison refuses `invalid_package`/`operation-law-mismatch` at that law; adding a `text_profile` mode refuses `invalid_package`/`operation-mode-mismatch` at the mode; placing a `string` operand in `quire.op.text.eq` refuses `invalid_package`/`operation-mode-type-mismatch` at the mode value. None admits by treating `string` as `text` or by ignoring a forbidden law or mode. | Test (TC-048) |
+| FR-038-AC-245 | PLANNED/UNRUN (IR-800). For each native `value_kind`, a literal typed at another family refuses `ill_typed`/`operator-ineligible` at its `type` even if its `value` is also malformed. With the right family, a non-string String value, an uppercase, hyphenless or malformed UUID, and a Timestamp value of `-0`, `+1`, `01`, empty text, outside signed-128 range or another noncanonical spelling refuse `invalid_package`/`invalid-value` at that literal's `value`; exact String Unicode sequences, UUID nil/max and both Timestamp endpoints admit. Recompute every affected node key and package identity so no stale-key refusal can stand in for these decisions. | Test (TC-048) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be

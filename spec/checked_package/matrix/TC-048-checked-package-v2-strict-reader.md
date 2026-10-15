@@ -70,6 +70,11 @@ quantity, aggregate, same-family, literal-kind and rounding-mode rules.
 FR-038-AC-222 and FR-038-AC-223 are planned public-reader controls for the
 IEEE literal-family and catalog-result rules of QSpec FR-322-AC-23; no tagged
 test or admission correction is claimed yet.
+FR-038-AC-242 through FR-038-AC-245 are planned public-reader controls for
+QSpec FR-322-AC-31/67's distinct native String, UUID and Timestamp types,
+six comparisons, canonical literal payloads and typed refusals. They require
+fresh tagged implementation evidence after IR-474 releases the overlapping
+V2 reader files; this spec amendment alone claims none.
 FR-038-AC-224 is the planned structural-type forwarding work control for
 operation validation; its private meter probes and public-reader work refusal
 are not counted as executed evidence until IR-490 adds tagged tests.
@@ -248,6 +253,61 @@ identity is selected; an owner carrying `version` refuses `unknown_member`, an o
 empty `identity` or `node` refuses `invalid_semantic_graph`, and a declaration
 node keyed under an unselected domain package refuses
 `missing_declaration`/`missing-selection` (FR-038-AC-45).
+
+## Native String, UUID and Timestamp admission (FR-038-AC-242 through FR-038-AC-245)
+
+PLANNED/UNRUN (IR-800). From a selected Semantic IR document using its
+existing `typeRef` member, author a field, parameter and operation result for
+each of `ix://quire/native/String`, `ix://quire/native/UUID` and
+`ix://quire/native/Timestamp`. Through `CheckedPackageV2::read`, assert the
+three distinct, self-typed scalar nodes and their member types, with String
+neither a `text` node nor a type requiring a text profile. The selected
+document and package remain in their authoritative checkout or are built by
+this repository's test builder; do not paste another repository's fixture.
+
+Build a valid package for each of the six catalogued `eq`/`ne` identities.
+Give it two operands of its own family, a Boolean result and no law, mode,
+member or leaves. Use canonical equal and unequal payloads, including exact
+String sequences `\u00e9` and `e\u0301`, UUIDs differing by one hexadecimal
+digit, and Timestamp `0`, `1` and `-1`. Assert public-reader admission and
+the retained distinct operand and application identities, not an evaluation
+result invented by the reader. For **each** of the six admitted identities,
+replace argument 0 with an operand of a foreign family, restore it, and then
+replace argument 1, keeping the other argument native and every other
+catalogued member valid. Use `text` against `string`, `string` against `uuid`
+and `uuid` against `timestamp`, yielding twelve separate mutations. Assert
+`ill_typed`/`operator-ineligible` at the changed `/arguments/0` or
+`/arguments/1` pointer, respectively. Separately apply both
+`quire.op.integer.lt` and `quire.op.integer.add` to a pair of `string`
+operands, then to `uuid` operands, then to `timestamp` operands: six more
+mutations, each refusing `ill_typed`/`operator-ineligible` at
+`/arguments/0`. A reader that checks one operand only, coerces a native into
+Text or admits a foreign operation fails these controls. Compare the
+production catalog with the six closed identities and verify no native
+ordering or arithmetic identity was added.
+
+For each native comparison add a selected `text_profile` law and then a
+`text_profile` mode, separately, to the otherwise valid package. Assert
+`invalid_package`/`operation-law-mismatch` at the law and
+`invalid_package`/`operation-mode-mismatch` at the mode. Give
+`quire.op.text.eq` a String operand and assert
+`invalid_package`/`operation-mode-type-mismatch` at its mode value. Keep the
+text-profile selection valid so an earlier unselected-law refusal cannot
+satisfy these controls.
+
+For each literal kind `string`, `uuid` and `timestamp`, first assign a type
+node of another family and a malformed value together; assert
+`ill_typed`/`operator-ineligible` at the literal's `type`. With the type
+restored, assert `invalid_package`/`invalid-value` at `value` for a non-string
+String payload; an uppercase, hyphenless, moved-hyphen and non-hex UUID; and
+Timestamp `-0`, `+1`, `01`, empty text, whitespace, a decimal or calendar
+form, and each signed-128 endpoint's adjacent exterior value. Admit exact
+String Unicode sequences, UUID nil/max and both signed-128 Timestamp
+endpoints. Recompute the changed node key, every dependent reference and
+package identity independently for each case, and compare typed code, cause,
+pointer and node locus; no stale-key, schema or resource refusal substitutes
+for the specified operation-step outcome. An exact work-limit control also
+retains the reader's existing incomplete-before-later-defect precedence.
 
 ## IEEE literal and catalog result admission (FR-038-AC-222 and FR-038-AC-223)
 
