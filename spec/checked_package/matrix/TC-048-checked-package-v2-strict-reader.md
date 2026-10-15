@@ -271,13 +271,20 @@ member or leaves. Use canonical equal and unequal payloads, including exact
 String sequences `\u00e9` and `e\u0301`, UUIDs differing by one hexadecimal
 digit, and Timestamp `0`, `1` and `-1`. Assert public-reader admission and
 the retained distinct operand and application identities, not an evaluation
-result invented by the reader. Mutate one operand to `text`, `string` or
-`uuid`, respectively, for the three mixed-family controls; separately apply
-`quire.op.integer.lt` and `quire.op.integer.add` to UUID operands. Assert
-`ill_typed`/`operator-ineligible` at the first offending argument. A reader
-that coerces a native into Text or admits a foreign operation fails these
-controls. Compare the production catalog with the six closed identities and
-verify no native ordering or arithmetic identity was added.
+result invented by the reader. For **each** of the six admitted identities,
+replace argument 0 with an operand of a foreign family, restore it, and then
+replace argument 1, keeping the other argument native and every other
+catalogued member valid. Use `text` against `string`, `string` against `uuid`
+and `uuid` against `timestamp`, yielding twelve separate mutations. Assert
+`ill_typed`/`operator-ineligible` at the changed `/arguments/0` or
+`/arguments/1` pointer, respectively. Separately apply both
+`quire.op.integer.lt` and `quire.op.integer.add` to a pair of `string`
+operands, then to `uuid` operands, then to `timestamp` operands: six more
+mutations, each refusing `ill_typed`/`operator-ineligible` at
+`/arguments/0`. A reader that checks one operand only, coerces a native into
+Text or admits a foreign operation fails these controls. Compare the
+production catalog with the six closed identities and verify no native
+ordering or arithmetic identity was added.
 
 For each native comparison add a selected `text_profile` law and then a
 `text_profile` mode, separately, to the otherwise valid package. Assert
