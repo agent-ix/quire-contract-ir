@@ -46,8 +46,9 @@ invalid selection outcomes.
    extent supplies or replaces that field multiplicity.
 7. Query without a selector and assert `Unavailable` with no extent. Query
    selectors for an absent binding, stale binding, foreign package, a missing
-   occurrence, and a valid non-population binding; assert the distinct typed
-   outcomes and absence of extent for each.
+   occurrence, a valid non-population binding, and a reader-admitted package
+   with a duplicated `max` binding (re-keyed after the mutation); assert the
+   distinct typed outcomes and absence of extent for each.
 8. Select a domain-package PopulationRecord with `Closed` extent and no
    maximum; assert `Unbounded` and no extent. Separately feed QSL's typed
    `AdmissionOutcome::UnknownClosure` through the neutral source adapter and
@@ -84,7 +85,8 @@ The default-feature public consumer currently exercises QSL-emitted maxima
 `0`, `1`, `3`, and `[2,5]` for two distinct same-type bindings. It verifies
 exact node/occurrence identity, provenance, selected object type, reader-limit
 invariance, typed non-finite outcomes, and rejection of malformed maximum
-body shapes. These checks credit the available source and projection paths.
+body shapes, including a reader-admitted duplicate-`max` package. These checks
+credit the available source and projection paths.
 
 The QSL-799 producer extension is required to credit only the remaining
 source-dependent controls: a regenerated package whose checked maximum alone
