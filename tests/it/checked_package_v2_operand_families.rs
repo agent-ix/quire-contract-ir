@@ -214,7 +214,7 @@ fn native_refuses(
     let CheckedPackageV2ReadResult::Refused(actual) = read(package) else {
         panic!("expected refusal, got {:?}", read(package));
     };
-    assert_eq!(actual.code, code);
+    assert_eq!(actual.code, code, "{actual:?}");
     assert_eq!(actual.cause, Some(cause));
     assert_eq!(
         actual.path.as_ref().map(ToString::to_string),
@@ -514,10 +514,15 @@ fn native_comparisons_reject_text_laws_and_modes() {
     )
     .expect("catalog");
     let law = catalog["law_roles"]["text_profile"][0].clone();
-    for (index, kind, value) in [
-        (0, "string", "a"),
-        (1, "uuid", "00000000-0000-0000-0000-000000000000"),
-        (2, "timestamp", "0"),
+    for (index, kind, left_value, right_value) in [
+        (0, "string", "a", "b"),
+        (
+            1,
+            "uuid",
+            "00000000-0000-0000-0000-000000000000",
+            "00000000-0000-0000-0000-000000000001",
+        ),
+        (2, "timestamp", "0", "1"),
     ] {
         for verb in ["eq", "ne"] {
             let mut package = base.clone();
@@ -525,8 +530,8 @@ fn native_comparisons_reject_text_laws_and_modes() {
                 .as_array_mut()
                 .expect("selections")
                 .push(law.clone());
-            let left = native_literal(&mut package, &native[index], kind, json!(value));
-            let right = native_literal(&mut package, &native[index], kind, json!(value));
+            let left = native_literal(&mut package, &native[index], kind, json!(left_value));
+            let right = native_literal(&mut package, &native[index], kind, json!(right_value));
             let at = native_comparison(&mut package, &boolean, kind, &left, &right, verb);
             package["semantic_graph"]["nodes"][at]["body"]["operation"]["laws"] =
                 json!([{"role": "text_profile", "definition": law}]);
