@@ -293,6 +293,9 @@ For each native comparison add a selected `text_profile` law and then a
 `invalid_package`/`operation-mode-type-mismatch` at its mode value. Keep the
 text-profile selection valid so an earlier unselected-law refusal cannot
 satisfy these controls.
+With a String operand present, an arity defect or another wrong-family operand
+refuses `ill_typed`/`operator-ineligible` at the arguments or first offending
+argument before the String-in-text-operation mode refusal.
 
 For each literal kind `string`, `uuid` and `timestamp`, first assign a type
 node of another family and a malformed value together; assert

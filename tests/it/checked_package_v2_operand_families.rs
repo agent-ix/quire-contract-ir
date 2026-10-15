@@ -267,6 +267,7 @@ fn native_scalar_comparisons_keep_distinct_types_and_operands() {
             "00000000-0000-0000-0000-000000000001",
         ),
         (2, "timestamp", "-1", "1"),
+        (2, "timestamp", "0", "1"),
     ] {
         for verb in ["eq", "ne"] {
             let mut package = base.clone();
