@@ -27,6 +27,10 @@ provides only the provisional typed input port in this repository. That port
 retains reported rows and authored assertions; it does not accept a
 completeness attestation or publish a census.
 
+IR-794 defines the narrower owner-issued enumeration outcome that the neutral
+model may retain before the census exists. It does not make a caller-supplied
+row vector, count, or absent stop reason into evidence of exhaustion.
+
 ## Inputs
 
 - One selected source identity and its provenance.
@@ -115,6 +119,32 @@ inventory, such as a fully parsed production module with no functions. These
 cases are distinct from an absent envelope, an incomplete envelope, and an
 inventoried entity whose correspondence count is zero.
 
+For the IR-794 boundary, an owner-issued enumeration outcome shall carry the
+selected `SourceIdentity`, its typed `SourceInventoryOwner` and matching
+`SourceInventoryScope`, all rows emitted for that selection, an observed row
+count, and exactly one terminal state: `Complete` or `Incomplete` with the
+original typed stop cause. The outcome shall be issued at the terminal branch
+of the owner-native enumerator or its typed adapter, not by a constructor that
+accepts an arbitrary row slice and a caller-chosen completion flag. The adapter
+shall enumerate the complete named scope from its selected owner object; it
+shall retain every emitted row and advance to the owner's normal end before
+issuing `Complete`. Any early return, cancellation, capacity refusal, parser
+failure, missing selected module, or unfinished type admission shall issue
+`Incomplete` and retain the original typed cause, including rows emitted before
+the stop. In particular, QSL type-work exhaustion and
+`TypeDisposition::Unfinished` remain separate causes. An adapter must not
+translate `stop_reason: None` on the provisional envelope into `Complete`.
+
+The model shall preserve the owner-issued terminal state, validate the owner,
+scope, source and observed row count against its retained rows, and reject a
+mismatch. The model cannot independently attest that an external owner
+enumerated every row: owner issuance is an obligation of the native enumerator
+or typed adapter, verified against that owner's full selected output. A public
+model type or count is not an authenticity credential. IR-794 does not grant
+`build_source_obligation_census` permission to claim all three owners complete;
+the matched-source, three-owner census and correspondence checks remain under
+the later FR-052 acceptance criteria.
+
 The provisional port has no `SourceInventoryCompleteness`, caller supplied
 item count, or complete-census constructor. Its envelope carries owner,
 source, named scope, reported rows, and an optional typed `stop_reason`.
@@ -192,12 +222,17 @@ candidate denominator.
 | FR-052-AC-6 | Omitting each of the three owner envelopes in turn returns `MissingOwnerInventory` naming that owner and no census. Marking each envelope incomplete returns `IncompleteOwnerInventory` with the supplied typed cause and no census. A fully parsed production module with no function facts is accepted as complete, retains the module row, and differs observably from both outcomes. | Test |
 | FR-052-AC-7 | Complete IR V2 scope covers every semantic node and source occurrence in the selected V2 graph; complete QSL scope covers every checked `RequirementRecord` and native pending obligation for the selected request, identified by its collision-free native occurrence key or site/kind tuple rather than an IR requirement reference or semantic digest; complete `quire-code-rs` scope covers every selected production module and every function fact, including empty modules. Normal exhaustion is required for `Complete`; QSL exhaustion and `Unfinished` remain distinct typed causes, and an early stop, failed parse/request, unavailable selected module, scope/source mismatch, or item-count mismatch produces a typed error and no census. | Test |
 | FR-052-AC-8 | A default-feature consumer can construct and borrow provisional owner rows, QSL native occurrence and pending-obligation identity projections, distinct typed QSL exhaustion and unfinished stop causes, and authored assertions through `SourceObligationInput`. The envelope exposes no `Complete` claim or caller item count, and the public module exposes no census or complete-census builder. | Test |
+| FR-052-AC-9 | For each owner, the native enumerator or typed adapter issues a `Complete` outcome only after the selected named scope reaches its normal end; the outcome retains the selected source, typed owner and scope, every owner-emitted row and the observed count. A complete zero-row scope and a fully parsed module with zero functions remain complete, while an absent owner report remains absent. Deleting one row after the owner's full output is observed makes the owner-output comparison fail even when the remaining row count is changed to match. | Test |
+| FR-052-AC-10 | For each owner, stopping before normal exhaustion issues `Incomplete` with the original typed cause and retained partial rows. QSL type-work exhaustion retains dimension, limit, prior, requested charge and site; QSL `TypeDisposition::Unfinished` retains its declaration handle and is distinct. `stop_reason: None` on a provisional envelope cannot be promoted to `Complete`. | Test |
+| FR-052-AC-11 | The neutral model retains an owner-issued outcome only when its source, owner, scope and observed count match the retained rows; a mismatch is typed and refuses the outcome. Owner adapter tests show that no adapter completion branch accepts an arbitrary caller-supplied row vector/count/completion flag in place of enumerating the selected native owner output. The model does not claim independent authentication of external owner exhaustion or a completed three-owner census. | Test |
 
 FR-052-AC-4 and FR-052-AC-8 have provisional-port evidence. FR-052-AC-1
 through AC-3 and AC-5 through AC-7 remain Planned/UNRUN until native owner
 adapters compare each declared complete envelope with full selected owner
-output and the completed census API exists. The model API tests use synthetic
-inventories and do not establish owner-issued completeness.
+output and the completed census API exists. FR-052-AC-9 through AC-11 are
+Planned/UNRUN until the owner-issued boundary and its full-output oracle land.
+The model API tests use synthetic inventories and do not establish owner-issued
+completeness.
 
 ## Dependencies
 
