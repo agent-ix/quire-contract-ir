@@ -61,11 +61,20 @@ Delete one emitted row after the owner produces its full output; even if the
 candidate count is altered to equal the shortened row list, the full-output
 comparison must fail. Check the adapter's completion branch cannot be reached
 by passing an arbitrary caller-authored row vector, count or flag in place of
-the selected owner object. Exercise early stop, cancellation, parse/request
-failure and missing selected module; verify each returns `Incomplete` with
-partial rows and the original typed cause. For QSL, separately exercise
-type-work exhaustion with all five native fields and unfinished admission with
-its declaration handle. Pass a provisional envelope with `stop_reason: None`
+the selected owner object. Exercise early stop, parse/request failure and
+missing selected module; verify each returns `Incomplete` with partial rows
+and the cause actually reported by that owner path. For QSL, separately
+exercise type-work exhaustion with dimension, limit, prior, requested charge
+and site, and unfinished admission with its declaration handle. Exercise an
+IR V2 reader limit and compare its `CheckedPackageIncomplete` limit kind,
+limit, consumed count and optional path field by field through the distinct
+neutral cause. On an owner path that accepts `quire_exact::Cancel`, trigger
+`Requested` and `Deadline` separately and compare the corresponding neutral
+`SourceInventoryCancelCause` variants; do not attribute this behavior to the
+current QSL inventory or `quire-code-rs` adapter. Confirm that an owner stop
+type with no typed neutral projection cannot be silently converted to an
+`EarlyStop`, `RequestFailed` string or `Complete`. Pass a provisional envelope
+with `stop_reason: None`
 and verify no API promotes it to `Complete`. Pass mismatched source, owner,
 scope and row count to the neutral retention boundary and verify typed refusal.
 These checks do not substitute for matched-source three-owner census tests.
@@ -109,6 +118,8 @@ enumeration ends, including valid empty output. The row-deletion mutation
 fails the independent owner full-output comparison even with a self-consistent
 shortened count. Every stopped path remains `Incomplete` with its original
 typed cause and retained partial rows; QSL exhaustion and unfinished are
-distinct. A missing stop cause on the provisional input remains provisional.
+distinct, IR V2 reader limits retain their fields, and an actually reported
+requested/deadline cancellation remains two typed causes. A missing stop cause
+on the provisional input remains provisional.
 The neutral model rejects mismatched source, owner, scope or count. No result
 from these checks alone is reported as a complete source-obligation census.

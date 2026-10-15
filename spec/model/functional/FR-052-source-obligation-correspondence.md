@@ -135,6 +135,28 @@ the stop. In particular, QSL type-work exhaustion and
 `TypeDisposition::Unfinished` remain separate causes. An adapter must not
 translate `stop_reason: None` on the provisional envelope into `Complete`.
 
+The neutral stop projection is closed over owner paths that actually exist.
+QSL's current `qsl_inventory` projects `TypeReport::exhaustion()` to
+`SourceInventoryIncompleteReason::TypeWorkExhausted` with dimension, limit,
+prior, requested charge and site; it projects `TypeDisposition::Unfinished`
+to `TypeAdmissionUnfinished` with the declaration handle. An IR V2 reader
+limit shall retain the existing model-owned `CheckedPackageIncomplete`
+payload (`CheckedPackageLimit`, limit, consumed and optional `JsonPointer`)
+in a distinct `IrV2ReadLimit` cause, never a message string. Where an owner
+actually accepts a `quire_exact::Cancel` and reports its `CancelCause`, its
+adapter shall project `Requested` and `Deadline` exhaustively to a neutral
+`SourceInventoryCancelCause` carried by a distinct
+`Cancelled { owner, cause }` incomplete variant. This projection adds no
+`quire-exact`, QSL or `quire-code-rs` dependency to the model. The current
+QSL inventory and `quire-code-rs` selection API do not emit such a
+cancellation outcome, so neither adapter may synthesize one. A future
+owner-specific capacity or stop type shall get a distinct typed neutral
+projection and a field-preserving adapter test before it can be reported as
+owner-issued `Incomplete`; it shall not be collapsed into `EarlyStop`,
+`RequestFailed { cause: Box<str> }` or a display string. Existing textual
+parse/request/module causes remain provisional owner reports, not proof of
+lossless projection for a new owner error type.
+
 The model shall preserve the owner-issued terminal state, validate the owner,
 scope, source and observed row count against its retained rows, and reject a
 mismatch. The model cannot independently attest that an external owner
@@ -223,7 +245,7 @@ candidate denominator.
 | FR-052-AC-7 | Complete IR V2 scope covers every semantic node and source occurrence in the selected V2 graph; complete QSL scope covers every checked `RequirementRecord` and native pending obligation for the selected request, identified by its collision-free native occurrence key or site/kind tuple rather than an IR requirement reference or semantic digest; complete `quire-code-rs` scope covers every selected production module and every function fact, including empty modules. Normal exhaustion is required for `Complete`; QSL exhaustion and `Unfinished` remain distinct typed causes, and an early stop, failed parse/request, unavailable selected module, scope/source mismatch, or item-count mismatch produces a typed error and no census. | Test |
 | FR-052-AC-8 | A default-feature consumer can construct and borrow provisional owner rows, QSL native occurrence and pending-obligation identity projections, distinct typed QSL exhaustion and unfinished stop causes, and authored assertions through `SourceObligationInput`. The envelope exposes no `Complete` claim or caller item count, and the public module exposes no census or complete-census builder. | Test |
 | FR-052-AC-9 | For each owner, the native enumerator or typed adapter issues a `Complete` outcome only after the selected named scope reaches its normal end; the outcome retains the selected source, typed owner and scope, every owner-emitted row and the observed count. A complete zero-row scope and a fully parsed module with zero functions remain complete, while an absent owner report remains absent. Deleting one row after the owner's full output is observed makes the owner-output comparison fail even when the remaining row count is changed to match. | Test |
-| FR-052-AC-10 | For each owner, stopping before normal exhaustion issues `Incomplete` with the original typed cause and retained partial rows. QSL type-work exhaustion retains dimension, limit, prior, requested charge and site; QSL `TypeDisposition::Unfinished` retains its declaration handle and is distinct. `stop_reason: None` on a provisional envelope cannot be promoted to `Complete`. | Test |
+| FR-052-AC-10 | For each owner, stopping before normal exhaustion issues `Incomplete` with retained partial rows and the typed cause the owner actually reports. QSL type-work exhaustion retains dimension, limit, prior, requested charge and site; QSL `TypeDisposition::Unfinished` retains its declaration handle and is distinct. An IR V2 reader limit retains the `CheckedPackageIncomplete` fields. For an owner path that reports `quire_exact::CancelCause`, requested and deadline cancellation remain distinct through `SourceInventoryCancelCause`; the current QSL inventory and `quire-code-rs` adapter do not claim cancellation support. `stop_reason: None` on a provisional envelope cannot be promoted to `Complete`, and a new owner stop type cannot be projected into a string or generic early stop. | Test |
 | FR-052-AC-11 | The neutral model retains an owner-issued outcome only when its source, owner, scope and observed count match the retained rows; a mismatch is typed and refuses the outcome. Owner adapter tests show that no adapter completion branch accepts an arbitrary caller-supplied row vector/count/completion flag in place of enumerating the selected native owner output. The model does not claim independent authentication of external owner exhaustion or a completed three-owner census. | Test |
 
 FR-052-AC-4 and FR-052-AC-8 have provisional-port evidence. FR-052-AC-1
