@@ -39,10 +39,10 @@ names an object type alone, supplies a bound, or provides source text.
 
 ## Outputs
 
-The model crate exposes `select_population`,
+The model crate exposes `selected_population::select_population`,
 `CheckedSelectedPopulationSource`, `CheckedSelectedPopulationSelector`,
 `CheckedSelectedPopulation`, and `CheckedSelectedPopulationOutcome` in
-`checked_package`. A finite result retains the selected package identity,
+`selected_population`. A finite result retains the selected package identity,
 population binding node identity, occurrence, selected model object type
 identity, inclusive extent `[0, N]`, and the authentic source regions
 associated with that exact node-occurrence pair. The outcome is typed and
@@ -111,7 +111,7 @@ introduce a competing graph-edge table.
 ### Public boundary
 
 The public query and result types SHALL be owned by the cycle-free
-`quire-contract-model::checked_package` API, listed in [FR-019](./FR-019-rust-library-interface.md),
+`quire-contract-model::selected_population` API, listed in [FR-019](./FR-019-rust-library-interface.md),
 and accessible to a default-feature model consumer without source-text
 parsing, a QSL dependency, or a Codegen dependency. No item is re-exported from
 the `quire-contract-ir` root. The selected population result is a typed
