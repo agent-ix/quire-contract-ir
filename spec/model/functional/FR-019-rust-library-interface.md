@@ -192,6 +192,13 @@ of the item and are not listed separately.
 With the `fault-injection` feature the crate root also exports
 `MappingAllocationPoint`; that item is outside the stable surface.
 
+The table records the compiled public surface. FR-052-AC-14 and AC-15 plan
+`SourceAuthoredCriterionId` and `SourceCriterionSourceBinding` for the
+Quire-authored acceptance-criterion identity and its explicit selected-source
+binding. They enter the table only when implemented. The current
+`SourceInventoryIdentity::Criterion(ClauseRef)` is a provisional identity to
+correct under IR-795; it does not attest an authored acceptance criterion.
+
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |

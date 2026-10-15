@@ -12,13 +12,15 @@ relationships:
 
 Planned/UNRUN. The provisional input port retains typed rows and stop causes,
 but exposes no complete census. No owner adapter yet compares a declared
-complete inventory with the full selected IR V2, QSL, or `quire-code-rs`
+complete inventory with the full selected Quire, IR V2, QSL, or `quire-code-rs`
 output. FR-052-AC-8 tests cover only that provisional port; they do not run
 this full-owner procedure. The narrower IR-794 owner-issued completion boundary
 and its owner-output comparison (FR-052-AC-9 through AC-11) are also UNRUN;
-they do not by themselves complete this three-owner census case.
+they do not by themselves complete this four-owner census case.
 The separate synthetic neutral-boundary checks for FR-052-AC-12 and AC-13
 are Planned/UNRUN and cannot discharge AC-9 through AC-11.
+Quire's selected-scope owner-issued criterion output is pending PLAT-1165;
+therefore this procedure cannot yet claim a full FR-052 or IR-759 census.
 
 ## Description
 
@@ -35,7 +37,18 @@ the resulting `SourceObligationCensus` and rows through
 signature and public-item inventory for the absence of result, method, profile,
 artifact, attempt, and run inputs.
 
-Build three owner inputs with their native APIs or typed adapters. For IR V2,
+Build four owner inputs with their native APIs or typed adapters. For Quire,
+select a validated spec corpus and its declared obligation sources. Enumerate
+every authored acceptance criterion as the tuple of obligation declaration,
+scope-relative document and authored criterion ID, including a criterion with
+no correspondence assertion or test binder. Compare with the complete
+selected Quire output, not a caller-authored row list. `ClauseRef` names a
+separate formal clause; if a clause relation is needed, supply it explicitly
+and verify that it cannot change criterion membership. Bind the selected Quire
+scope to the chosen IR `SourceIdentity` through an explicit source-author
+binding and test missing, foreign and conflicting bindings separately. A
+matching source label alone shall not count as identical source bytes.
+For IR V2,
 enumerate the complete selected semantic graph and all of its source
 occurrences. For QSL, enumerate the complete selected checked
 `RequirementRecord` set and native pending-obligation set. For
@@ -53,6 +66,17 @@ normal exhaustion of that owner's full scope, and compare every complete
 envelope's entries with the full owner output for that selection. An owner
 item omitted from an otherwise populated selected source must prevent a
 complete envelope.
+
+Until PLAT-1165 provides a Quire API that issues terminal outcomes, record the
+Quire owner portion of this procedure as UNRUN. `obligation::derive` returns
+rows plus `SkippedRow` but no terminal state or scan diagnostics; it cannot
+serve as an owner-issued `Complete`. Once that API exists, exercise valid
+zero-row selection, unreadable or skipped selected documents, missing row ID
+or statement, failed discovery, missing declared table or ID column, and an
+early stop. Compare each typed cause and retained partial rows with Quire's
+own selected output. Deleting or changing one authored criterion must change
+the inventory before generation or proof results; deleting one emitted row
+after full output, even with an adjusted count, must fail owner comparison.
 
 For the IR-794 boundary, drive each owner-native enumerator or typed adapter
 from its selected owner object to normal exhaustion and capture its full
@@ -79,7 +103,7 @@ type with no typed neutral projection cannot be silently converted to an
 with `stop_reason: None`
 and verify no API promotes it to `Complete`. Pass mismatched source, owner,
 scope and row count to the neutral retention boundary and verify typed refusal.
-These checks do not substitute for matched-source three-owner census tests.
+These checks do not substitute for matched-source four-owner census tests.
 
 Separately, drive a synthetic `SourceInventoryEnumerator` with zero and
 multiple rows. Observe that only `Ok(None)` produces a neutral `Complete`
@@ -100,7 +124,7 @@ private, not because of an unrelated import, type or syntax error. A change
 that makes either field public or permits literal construction must turn its
 corresponding negative fixture into an unexpected compile success.
 
-Using a valid selection, omit the IR V2, QSL, and `quire-code-rs` envelopes one
+Using a valid selection, omit the Quire, IR V2, QSL, and `quire-code-rs` envelopes one
 at a time. For each owner, also supply a partial enumeration marked
 `Incomplete` with an owner-typed cause; exercise early termination for IR V2,
 QSL type-work exhaustion and unfinished typing, and a selected module parse failure
@@ -108,7 +132,7 @@ for `quire-code-rs`. Compare each with an owner response marked `Complete`
 whose valid scope contains an empty subinventory, such as the function facts
 for a fully parsed module with no functions. Supply a source mismatch, a wrong
 owner/scope pairing, and an item count that differs from the retained items.
-Then build the full two-criterion, three-occurrence, one-empty-module,
+Then build the full two-authored-criterion, three-occurrence, one-empty-module,
 two-function fixture with explicit many-to-many assertions, and exercise
 unmapped entities, foreign and dangling endpoints, exact duplicate inputs,
 conflicting inventory facts, conflicting assertion relation facts, and
@@ -120,6 +144,12 @@ occurrence from a complete IR V2 inventory.
 The external consumer compiles and can borrow the census; the constructor has
 no evidence-attempt inputs. Every complete fixture preserves all owner rows
 and only its explicit valid relations, including visible zero-mapping entities.
+The Quire owner row uses the authored acceptance-criterion identity, not a
+formal `ClauseRef` or QSL requirement key. The selected-scope binding is
+explicit and missing, foreign and conflicting bindings refuse completion.
+Quire's `Complete` result and the full matched-source result remain UNRUN until
+PLAT-1165 provides an owner-issued outcome and the four real owner selections
+are shown to agree; synthetic criterion fixtures cannot discharge them.
 For each owner, an absent envelope returns `MissingOwnerInventory` with that
 owner and no census. An incomplete envelope returns
 `IncompleteOwnerInventory` with the original typed cause and no census. A
