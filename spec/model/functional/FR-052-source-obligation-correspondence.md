@@ -167,6 +167,17 @@ model type or count is not an authenticity credential. IR-794 does not grant
 the matched-source, three-owner census and correspondence checks remain under
 the later FR-052 acceptance criteria.
 
+A synthetic `SourceInventoryEnumerator` can verify the neutral model boundary
+without claiming to be an owner-native enumerator. In this boundary test,
+`Ok(Some(row))` emits one row, `Ok(None)` is the only normal terminal event,
+and `Err(cause)` is a typed incomplete terminal event. The model derives its
+retained row count from emitted rows and checks the enumerator's observed
+count against that value; neither count establishes owner-native exhaustion.
+This test may prove terminal-state handling and structural rejection for zero
+and nonzero synthetic streams. It does not discharge the owner-native
+enumeration, full-output comparison, or matched-source census obligations in
+FR-052-AC-9 through AC-11.
+
 The provisional port has no `SourceInventoryCompleteness`, caller supplied
 item count, or complete-census constructor. Its envelope carries owner,
 source, named scope, reported rows, and an optional typed `stop_reason`.
@@ -247,12 +258,16 @@ candidate denominator.
 | FR-052-AC-9 | For each owner, the native enumerator or typed adapter issues a `Complete` outcome only after the selected named scope reaches its normal end; the outcome retains the selected source, typed owner and scope, every owner-emitted row and the observed count. A complete zero-row scope and a fully parsed module with zero functions remain complete, while an absent owner report remains absent. Deleting one row after the owner's full output is observed makes the owner-output comparison fail even when the remaining row count is changed to match. | Test |
 | FR-052-AC-10 | For each owner, stopping before normal exhaustion issues `Incomplete` with retained partial rows and the typed cause the owner actually reports. QSL type-work exhaustion retains dimension, limit, prior, requested charge and site; QSL `TypeDisposition::Unfinished` retains its declaration handle and is distinct. An IR V2 reader limit retains the `CheckedPackageIncomplete` fields. For an owner path that reports `quire_exact::CancelCause`, requested and deadline cancellation remain distinct through `SourceInventoryCancelCause`; the current QSL inventory and `quire-code-rs` adapter do not claim cancellation support. `stop_reason: None` on a provisional envelope cannot be promoted to `Complete`, and a new owner stop type cannot be projected into a string or generic early stop. | Test |
 | FR-052-AC-11 | The neutral model retains an owner-issued outcome only when its source, owner, scope and observed count match the retained rows; a mismatch is typed and refuses the outcome. Owner adapter tests show that no adapter completion branch accepts an arbitrary caller-supplied row vector/count/completion flag in place of enumerating the selected native owner output. The model does not claim independent authentication of external owner exhaustion or a completed three-owner census. | Test |
+| FR-052-AC-12 | A synthetic `SourceInventoryEnumerator` producing zero or multiple `Ok(Some(row))` events yields a neutral `Complete` outcome only after its `Ok(None)` terminal event. Replacing that terminal event with `Err(typed_cause)` yields `Incomplete(typed_cause)` and retains exactly the preceding rows; the typed cause is equal to the emitted error. The test claims no owner-native exhaustion or full-output comparison. | Test |
+| FR-052-AC-13 | For a synthetic enumerator, the neutral outcome keeps its retained rows and count private; a zero- or nonzero-row stream reports the count derived from its retained rows. Mismatched observed count, owner/scope pair, row owner, row source, or stop-cause owner returns the corresponding typed structural error and no outcome. This structural test grants no FR-052-AC-9 through AC-11 owner-native credit. | Test |
 
 FR-052-AC-4 and FR-052-AC-8 have provisional-port evidence. FR-052-AC-1
 through AC-3 and AC-5 through AC-7 remain Planned/UNRUN until native owner
 adapters compare each declared complete envelope with full selected owner
 output and the completed census API exists. FR-052-AC-9 through AC-11 are
 Planned/UNRUN until the owner-issued boundary and its full-output oracle land.
+FR-052-AC-12 and AC-13 are Planned/UNRUN until the neutral synthetic-boundary
+tests land; passing them shall not change AC-9 through AC-11 status.
 The model API tests use synthetic inventories and do not establish owner-issued
 completeness.
 

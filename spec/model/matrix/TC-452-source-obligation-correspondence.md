@@ -17,6 +17,8 @@ output. FR-052-AC-8 tests cover only that provisional port; they do not run
 this full-owner procedure. The narrower IR-794 owner-issued completion boundary
 and its owner-output comparison (FR-052-AC-9 through AC-11) are also UNRUN;
 they do not by themselves complete this three-owner census case.
+The separate synthetic neutral-boundary checks for FR-052-AC-12 and AC-13
+are Planned/UNRUN and cannot discharge AC-9 through AC-11.
 
 ## Description
 
@@ -79,6 +81,16 @@ and verify no API promotes it to `Complete`. Pass mismatched source, owner,
 scope and row count to the neutral retention boundary and verify typed refusal.
 These checks do not substitute for matched-source three-owner census tests.
 
+Separately, drive a synthetic `SourceInventoryEnumerator` with zero and
+multiple rows. Observe that only `Ok(None)` produces a neutral `Complete`
+outcome, while replacing it with `Err(typed_cause)` produces
+`Incomplete(typed_cause)` retaining exactly the preceding rows. Compare the
+returned count with the retained row count for zero and nonzero streams.
+Mutate the synthetic enumerator's reported count, owner/scope pair, row owner,
+row source and stop-cause owner one at a time; each shall return its named
+typed structural error and no outcome. This procedure tests only the neutral
+terminal and structural boundary, not owner-native full-output issuance.
+
 Using a valid selection, omit the IR V2, QSL, and `quire-code-rs` envelopes one
 at a time. For each owner, also supply a partial enumeration marked
 `Incomplete` with an owner-typed cause; exercise early termination for IR V2,
@@ -123,3 +135,9 @@ requested/deadline cancellation remains two typed causes. A missing stop cause
 on the provisional input remains provisional.
 The neutral model rejects mismatched source, owner, scope or count. No result
 from these checks alone is reported as a complete source-obligation census.
+
+The synthetic boundary yields `Complete` only for `Ok(None)`, preserves the
+exact typed `Err` as `Incomplete`, and rejects each structural mismatch with
+no outcome. Zero and nonzero retained row counts agree with the private
+outcome count. None of these observations grants owner-native AC-9 through
+AC-11 credit.
