@@ -218,8 +218,16 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
         }
     }
 
-    let paired = paired.expect("two-binding QSL fixture");
+    let mut paired = paired.expect("two-binding QSL fixture");
+    paired.sort_by_key(|population| population.maximum);
     assert_eq!(paired.len(), 2);
+    assert_eq!(
+        paired
+            .iter()
+            .map(|population| population.maximum)
+            .collect::<Vec<_>>(),
+        vec![2, 5]
+    );
     assert_ne!(paired[0].binding, paired[1].binding);
     assert_eq!(paired[0].object_type, paired[1].object_type);
     assert_ne!(
