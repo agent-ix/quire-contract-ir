@@ -7,16 +7,18 @@ use ix_trace_rs::trace;
 use quire_contract_model::source_obligation::{
     SourceAssertionId, SourceAssertionProvenance, SourceContractAuthorId,
     SourceCorrespondenceAssertion, SourceDeclarationHandle, SourceExpressionHandle,
-    SourceInventoryEnvelope, SourceInventoryIdentity, SourceInventoryIncompleteReason,
-    SourceInventoryOwner, SourceInventoryRow, SourceInventoryScope, SourceObligationInput,
-    SourceObligationSite, SourcePendingObligationId, SourcePendingObligationKind,
-    SourceProductionFunctionId, SourceProductionModuleId, SourceRequirementOccurrenceId,
-    SourceSemanticOccurrenceId, SourceTypeExhaustion, SourceTypeWorkDimension, SourceUnitHandle,
+    SourceInventoryCompleteness, SourceInventoryEnumerator, SourceInventoryEnvelope,
+    SourceInventoryIdentity, SourceInventoryIncompleteReason, SourceInventoryOutcome,
+    SourceInventoryOutcomeError, SourceInventoryOwner, SourceInventoryRow, SourceInventoryScope,
+    SourceObligationInput, SourceObligationSite, SourcePendingObligationId,
+    SourcePendingObligationKind, SourceProductionFunctionId, SourceProductionModuleId,
+    SourceRequirementOccurrenceId, SourceSemanticOccurrenceId, SourceTypeExhaustion,
+    SourceTypeWorkDimension, SourceUnitHandle,
 };
 use quire_contract_model::{
-    CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, ClauseId, ClauseRef, PackageId,
-    RequirementId, RequirementRef, RequirementRevision, SourceDocumentId, SourceIdentity,
-    SourceRevision,
+    CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageIncomplete,
+    CheckedPackageLimit, ClauseId, ClauseRef, PackageId, RequirementId, RequirementRef,
+    RequirementRevision, SourceDocumentId, SourceIdentity, SourceRevision,
 };
 
 fn source() -> SourceIdentity {
@@ -249,4 +251,201 @@ fn provisional_input_has_no_result_or_completeness_fields() {
     assert!(!envelope.contains("item_count:"));
     assert!(!source.contains("pub struct SourceObligationCensus"));
     assert!(!source.contains("pub fn build_source_obligation_census"));
+}
+
+// These synthetic enumerators exercise the neutral retention boundary. They
+// do not stand in for QSL or quire-code-rs owner-output conformance.
+struct TestEnumerator {
+    source: SourceIdentity,
+    owner: SourceInventoryOwner,
+    scope: SourceInventoryScope,
+    rows: std::vec::IntoIter<SourceInventoryRow>,
+    observed: usize,
+    reported_count: Option<usize>,
+    stop: Option<SourceInventoryIncompleteReason>,
+}
+
+impl TestEnumerator {
+    fn new(owner: SourceInventoryOwner, rows: Vec<SourceInventoryRow>) -> Self {
+        let scope = match owner {
+            SourceInventoryOwner::IrV2 => SourceInventoryScope::IrV2SemanticGraphAndOccurrences,
+            SourceInventoryOwner::Qsl => {
+                SourceInventoryScope::QslCheckedRequirementsAndPendingObligations
+            }
+            SourceInventoryOwner::QuireCodeRs => {
+                SourceInventoryScope::QuireCodeRsProductionModulesAndFunctions
+            }
+        };
+        Self {
+            source: source(),
+            owner,
+            scope,
+            rows: rows.into_iter(),
+            observed: 0,
+            reported_count: None,
+            stop: None,
+        }
+    }
+}
+
+impl SourceInventoryEnumerator for TestEnumerator {
+    fn source(&self) -> &SourceIdentity {
+        &self.source
+    }
+    fn owner(&self) -> SourceInventoryOwner {
+        self.owner
+    }
+    fn scope(&self) -> SourceInventoryScope {
+        self.scope
+    }
+    fn next_row(&mut self) -> Result<Option<SourceInventoryRow>, SourceInventoryIncompleteReason> {
+        if let Some(row) = self.rows.next() {
+            self.observed += 1;
+            Ok(Some(row))
+        } else if let Some(cause) = self.stop.take() {
+            Err(cause)
+        } else {
+            Ok(None)
+        }
+    }
+    fn observed_count(&self) -> usize {
+        self.reported_count.unwrap_or(self.observed)
+    }
+}
+
+fn module_row(name: &str) -> SourceInventoryRow {
+    SourceInventoryRow::new(
+        source(),
+        SourceInventoryIdentity::ProductionModule(SourceProductionModuleId::new(name)),
+    )
+}
+
+/// Trace: FR-052-AC-11
+#[trace("FR-052-AC-11")]
+#[test]
+fn terminal_boundary_distinguishes_empty_complete_partial_and_invalid_count() {
+    let empty = SourceInventoryOutcome::from_enumerator(TestEnumerator::new(
+        SourceInventoryOwner::QuireCodeRs,
+        vec![],
+    ))
+    .expect("normal empty end");
+    assert_eq!(empty.completeness(), &SourceInventoryCompleteness::Complete);
+    assert_eq!(empty.observed_count(), 0);
+    let row = module_row("src/empty.rs");
+    let complete = SourceInventoryOutcome::from_enumerator(TestEnumerator::new(
+        SourceInventoryOwner::QuireCodeRs,
+        vec![row.clone()],
+    ))
+    .expect("module without functions");
+    assert_eq!(complete.items(), std::slice::from_ref(&row));
+    assert_eq!(complete.observed_count(), 1);
+
+    let mut deleted = TestEnumerator::new(SourceInventoryOwner::QuireCodeRs, vec![row]);
+    deleted.reported_count = Some(2);
+    assert_eq!(
+        SourceInventoryOutcome::from_enumerator(deleted),
+        Err(SourceInventoryOutcomeError::ObservedCountMismatch {
+            observed: 2,
+            retained: 1,
+        })
+    );
+    let provisional = SourceInventoryEnvelope::new(
+        SourceInventoryOwner::QuireCodeRs,
+        source(),
+        SourceInventoryScope::QuireCodeRsProductionModulesAndFunctions,
+        vec![],
+        None,
+    );
+    assert!(provisional.stop_reason().is_none());
+    assert!(provisional.items().is_empty());
+}
+
+/// Trace: FR-052-AC-10, FR-052-AC-11
+#[trace("FR-052-AC-10", "FR-052-AC-11")]
+#[test]
+fn terminal_boundary_preserves_typed_stops_and_rejects_mismatched_rows() {
+    let exhaustion = SourceInventoryIncompleteReason::TypeWorkExhausted(SourceTypeExhaustion {
+        dimension: SourceTypeWorkDimension::Records,
+        limit: 1,
+        prior: 1,
+        requested: 1,
+        site: site(),
+    });
+    let qsl_row = SourceInventoryRow::new(
+        source(),
+        SourceInventoryIdentity::PendingObligation(pending(
+            site(),
+            SourcePendingObligationKind::Presence,
+        )),
+    );
+    for cause in [
+        exhaustion,
+        SourceInventoryIncompleteReason::TypeAdmissionUnfinished {
+            declaration: SourceDeclarationHandle(7),
+        },
+    ] {
+        let mut enumerator = TestEnumerator::new(SourceInventoryOwner::Qsl, vec![qsl_row.clone()]);
+        enumerator.stop = Some(cause.clone());
+        let outcome = SourceInventoryOutcome::from_enumerator(enumerator).expect("typed stop");
+        assert_eq!(outcome.items(), std::slice::from_ref(&qsl_row));
+        assert_eq!(
+            outcome.completeness(),
+            &SourceInventoryCompleteness::Incomplete(cause)
+        );
+    }
+    let limit = CheckedPackageIncomplete {
+        limit_kind: CheckedPackageLimit::Nodes,
+        limit: 3,
+        consumed: 4,
+        path: Some(
+            quire_contract_model::JsonPointer::parse("/semantic_graph/nodes/3").expect("pointer"),
+        ),
+    };
+    let mut ir = TestEnumerator::new(SourceInventoryOwner::IrV2, vec![]);
+    ir.stop = Some(SourceInventoryIncompleteReason::IrV2ReadLimit(
+        limit.clone(),
+    ));
+    assert_eq!(
+        SourceInventoryOutcome::from_enumerator(ir)
+            .expect("IR limit")
+            .completeness(),
+        &SourceInventoryCompleteness::Incomplete(SourceInventoryIncompleteReason::IrV2ReadLimit(
+            limit
+        ))
+    );
+    assert_eq!(
+        SourceInventoryOutcome::from_enumerator(TestEnumerator::new(
+            SourceInventoryOwner::IrV2,
+            vec![qsl_row],
+        )),
+        Err(SourceInventoryOutcomeError::RowOwnerMismatch)
+    );
+    let mut wrong_scope = TestEnumerator::new(SourceInventoryOwner::Qsl, vec![]);
+    wrong_scope.scope = SourceInventoryScope::IrV2SemanticGraphAndOccurrences;
+    assert_eq!(
+        SourceInventoryOutcome::from_enumerator(wrong_scope),
+        Err(SourceInventoryOutcomeError::OwnerScopeMismatch)
+    );
+    let wrong_source = TestEnumerator::new(
+        SourceInventoryOwner::QuireCodeRs,
+        vec![SourceInventoryRow::new(
+            SourceIdentity::new(
+                SourceDocumentId::new("another-source").expect("document"),
+                SourceRevision::new(1).expect("revision"),
+            ),
+            SourceInventoryIdentity::ProductionModule(SourceProductionModuleId::new("src/lib.rs")),
+        )],
+    );
+    assert_eq!(
+        SourceInventoryOutcome::from_enumerator(wrong_source),
+        Err(SourceInventoryOutcomeError::RowSourceMismatch)
+    );
+    let mut wrong_stop = TestEnumerator::new(SourceInventoryOwner::IrV2, vec![]);
+    wrong_stop.stop = Some(SourceInventoryIncompleteReason::TypeAdmissionUnfinished {
+        declaration: SourceDeclarationHandle(7),
+    });
+    assert_eq!(
+        SourceInventoryOutcome::from_enumerator(wrong_stop),
+        Err(SourceInventoryOutcomeError::StopOwnerMismatch)
+    );
 }

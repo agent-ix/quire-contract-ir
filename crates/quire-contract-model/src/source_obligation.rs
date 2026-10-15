@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! FR-052 provisional typed source-obligation input.
+//! FR-052 typed source-obligation input and owner enumeration boundary.
 //!
-//! This module retains owner-reported rows, stop causes, and authored assertions.
-//! It makes no completeness or correspondence claim.
+//! Provisional envelopes retain reported rows without claiming completion.
+//! Terminal outcomes retain an enumerator's state, but do not authenticate an
+//! external owner's traversal or claim a completed three-owner census.
 
 use std::fmt;
 
-use crate::{CheckedNodeId, CheckedOccurrence, CheckedSemanticId, ClauseRef, SourceIdentity};
+use crate::{
+    CheckedNodeId, CheckedOccurrence, CheckedPackageIncomplete, CheckedSemanticId, ClauseRef,
+    SourceIdentity,
+};
 
 /// The owner whose reported rows an envelope carries.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -32,8 +36,28 @@ pub enum SourceInventoryScope {
     QuireCodeRsProductionModulesAndFunctions,
 }
 
+impl SourceInventoryScope {
+    /// The only owner that can enumerate this named scope.
+    pub const fn owner(self) -> SourceInventoryOwner {
+        match self {
+            Self::IrV2SemanticGraphAndOccurrences => SourceInventoryOwner::IrV2,
+            Self::QslCheckedRequirementsAndPendingObligations => SourceInventoryOwner::Qsl,
+            Self::QuireCodeRsProductionModulesAndFunctions => SourceInventoryOwner::QuireCodeRs,
+        }
+    }
+}
+
+/// A cancellation reason reported by an owner that actually accepts cancellation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SourceInventoryCancelCause {
+    /// Explicit cancellation was requested.
+    Requested,
+    /// The owner's deadline expired.
+    Deadline,
+}
+
 /// Typed cause explaining why owner enumeration did not exhaust its scope.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SourceInventoryIncompleteReason {
     /// Enumeration stopped before normal exhaustion.
     EarlyStop {
@@ -68,6 +92,32 @@ pub enum SourceInventoryIncompleteReason {
         /// Owner-native module cause retained by the adapter.
         cause: Box<str>,
     },
+    /// The admitted IR V2 reader stopped at its first exhausted limit.
+    IrV2ReadLimit(CheckedPackageIncomplete),
+    /// An owner with a native cancellation path stopped.
+    Cancelled {
+        /// Owner whose enumeration was cancelled.
+        owner: SourceInventoryOwner,
+        /// Native cancellation distinction retained without a dependency on the owner.
+        cause: SourceInventoryCancelCause,
+    },
+}
+
+impl SourceInventoryIncompleteReason {
+    /// The owner to which this stop cause belongs.
+    pub const fn owner(&self) -> SourceInventoryOwner {
+        match self {
+            Self::EarlyStop { owner }
+            | Self::ParseFailed { owner, .. }
+            | Self::RequestFailed { owner, .. }
+            | Self::Cancelled { owner, .. } => *owner,
+            Self::TypeWorkExhausted(_) | Self::TypeAdmissionUnfinished { .. } => {
+                SourceInventoryOwner::Qsl
+            }
+            Self::ModuleUnavailable { .. } => SourceInventoryOwner::QuireCodeRs,
+            Self::IrV2ReadLimit(_) => SourceInventoryOwner::IrV2,
+        }
+    }
 }
 
 /// QSL's native type-work capacity, without a dependency on QSL.
@@ -376,6 +426,152 @@ impl SourceInventoryEnvelope {
     /// Borrow the reported stop cause, if any; absence does not prove completion.
     pub fn stop_reason(&self) -> Option<&SourceInventoryIncompleteReason> {
         self.stop_reason.as_ref()
+    }
+}
+
+/// The terminal state issued by an owner enumerator, never inferred from a
+/// provisional envelope's absent stop reason.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SourceInventoryCompleteness {
+    /// The owner enumerator reached the normal end of its selected scope.
+    Complete,
+    /// The owner enumerator stopped with its original typed cause.
+    Incomplete(SourceInventoryIncompleteReason),
+}
+
+/// A selected owner enumerator or typed adapter. Implementations must draw
+/// rows from the selected native owner object and report its own observed count.
+/// A model type cannot authenticate an external owner's traversal; that
+/// obligation is checked against the owner's full output in the owner crate.
+pub trait SourceInventoryEnumerator {
+    /// Selected source whose native output is being traversed.
+    fn source(&self) -> &SourceIdentity;
+    /// Native owner of the selected output.
+    fn owner(&self) -> SourceInventoryOwner;
+    /// Whole named scope being traversed.
+    fn scope(&self) -> SourceInventoryScope;
+    /// The next native row, normal end, or original typed stop cause.
+    fn next_row(&mut self) -> Result<Option<SourceInventoryRow>, SourceInventoryIncompleteReason>;
+    /// Number of rows the owner observed, including rows emitted before a stop.
+    fn observed_count(&self) -> usize;
+}
+
+/// A structurally inconsistent owner enumeration cannot become an outcome.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum SourceInventoryOutcomeError {
+    /// The owner and named scope cannot describe the same inventory.
+    #[error("inventory owner does not own its scope")]
+    OwnerScopeMismatch,
+    /// A retained row belongs to another owner.
+    #[error("inventory row belongs to another owner")]
+    RowOwnerMismatch,
+    /// A retained row names a different selected source.
+    #[error("inventory row names another source")]
+    RowSourceMismatch,
+    /// The stopped owner differs from the selected owner.
+    #[error("inventory stop cause belongs to another owner")]
+    StopOwnerMismatch,
+    /// The owner's observed count differs from the rows retained by the model.
+    #[error("inventory observed count differs from retained row count")]
+    ObservedCountMismatch { observed: usize, retained: usize },
+    /// The model could not retain the next owner-emitted row.
+    #[error("inventory row allocation failed")]
+    AllocationFailed,
+}
+
+/// One owner-issued terminal outcome. Its fields are private so a caller
+/// cannot turn a provisional row vector or absent stop cause into `Complete`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SourceInventoryOutcome {
+    owner: SourceInventoryOwner,
+    source: SourceIdentity,
+    scope: SourceInventoryScope,
+    items: Vec<SourceInventoryRow>,
+    observed_count: usize,
+    completeness: SourceInventoryCompleteness,
+}
+
+impl SourceInventoryOutcome {
+    /// Drive the selected native enumerator to its terminal branch and retain
+    /// exactly the rows it emitted. `Complete` follows only from `Ok(None)`.
+    pub fn from_enumerator(
+        mut enumerator: impl SourceInventoryEnumerator,
+    ) -> Result<Self, SourceInventoryOutcomeError> {
+        let owner = enumerator.owner();
+        let scope = enumerator.scope();
+        if scope.owner() != owner {
+            return Err(SourceInventoryOutcomeError::OwnerScopeMismatch);
+        }
+        let source = enumerator.source().clone();
+        let mut items = Vec::new();
+        let completeness = loop {
+            match enumerator.next_row() {
+                Ok(Some(row)) => {
+                    if row.owner() != owner {
+                        return Err(SourceInventoryOutcomeError::RowOwnerMismatch);
+                    }
+                    if row.source() != &source {
+                        return Err(SourceInventoryOutcomeError::RowSourceMismatch);
+                    }
+                    items
+                        .try_reserve(1)
+                        .map_err(|_| SourceInventoryOutcomeError::AllocationFailed)?;
+                    items.push(row);
+                }
+                Ok(None) => break SourceInventoryCompleteness::Complete,
+                Err(cause) => {
+                    if cause.owner() != owner {
+                        return Err(SourceInventoryOutcomeError::StopOwnerMismatch);
+                    }
+                    break SourceInventoryCompleteness::Incomplete(cause);
+                }
+            }
+        };
+        let observed_count = enumerator.observed_count();
+        if observed_count != items.len() {
+            return Err(SourceInventoryOutcomeError::ObservedCountMismatch {
+                observed: observed_count,
+                retained: items.len(),
+            });
+        }
+        Ok(Self {
+            owner,
+            source,
+            scope,
+            items,
+            observed_count,
+            completeness,
+        })
+    }
+
+    /// Return the owner of this terminal outcome.
+    pub const fn owner(&self) -> SourceInventoryOwner {
+        self.owner
+    }
+
+    /// Borrow the selected source.
+    pub fn source(&self) -> &SourceIdentity {
+        &self.source
+    }
+
+    /// Return the complete named scope.
+    pub const fn scope(&self) -> SourceInventoryScope {
+        self.scope
+    }
+
+    /// Borrow every retained owner-emitted row, including rows before a stop.
+    pub fn items(&self) -> &[SourceInventoryRow] {
+        &self.items
+    }
+
+    /// Return the owner's observed row count, validated against retained rows.
+    pub const fn observed_count(&self) -> usize {
+        self.observed_count
+    }
+
+    /// Borrow the owner-issued terminal state.
+    pub fn completeness(&self) -> &SourceInventoryCompleteness {
+        &self.completeness
     }
 }
 
