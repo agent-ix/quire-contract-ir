@@ -374,11 +374,33 @@ fn literal_defect(
                     node.node_id.clone(),
                 ));
             }
-            if matches!(
-                kind,
-                LiteralKind::String | LiteralKind::Uuid | LiteralKind::Timestamp
-            ) {
-                native.push((kind, term.get("value"), path.clone()));
+            let valid_native = match kind {
+                LiteralKind::String => Some(term.get("value").is_some_and(Value::is_string)),
+                LiteralKind::Uuid => Some(
+                    term.get("value")
+                        .and_then(Value::as_str)
+                        .is_some_and(canonical_uuid),
+                ),
+                LiteralKind::Timestamp => Some(
+                    term.get("value")
+                        .and_then(Value::as_str)
+                        .is_some_and(|text| {
+                            text.parse::<i128>()
+                                .is_ok_and(|parsed| parsed.to_string() == text)
+                        }),
+                ),
+                LiteralKind::Boolean
+                | LiteralKind::Integer
+                | LiteralKind::Rational
+                | LiteralKind::Decimal
+                | LiteralKind::Float32Bits
+                | LiteralKind::Float64Bits
+                | LiteralKind::Text
+                | LiteralKind::Enum
+                | LiteralKind::None => None,
+            };
+            if let Some(valid) = valid_native {
+                native.push((valid, path.clone()));
             }
         }
         for child in subterms(term).collect::<Vec<_>>().into_iter().rev() {
@@ -389,24 +411,7 @@ fn literal_defect(
             pending.push((child.value, child_path));
         }
     }
-    for (kind, value, path) in native {
-        let valid = match kind {
-            LiteralKind::String => value.is_some_and(Value::is_string),
-            LiteralKind::Uuid => value.and_then(Value::as_str).is_some_and(canonical_uuid),
-            LiteralKind::Timestamp => value.and_then(Value::as_str).is_some_and(|text| {
-                text.parse::<i128>()
-                    .is_ok_and(|parsed| parsed.to_string() == text)
-            }),
-            LiteralKind::Boolean
-            | LiteralKind::Integer
-            | LiteralKind::Rational
-            | LiteralKind::Decimal
-            | LiteralKind::Float32Bits
-            | LiteralKind::Float64Bits
-            | LiteralKind::Text
-            | LiteralKind::Enum
-            | LiteralKind::None => unreachable!("only native literals were recorded"),
-        };
+    for (valid, path) in native {
         if !valid {
             return Some(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
@@ -709,22 +714,6 @@ fn operation_defect(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    // A native String cannot inherit a Text profile. The mode is the
-    // conflicting claim, even when the text catalog entry is otherwise valid.
-    if entry.mode == Some(OperationModeKind::TextProfile)
-        && arguments.iter().any(|argument| {
-            operand_type_node(argument, nodes, kinds, index)
-                .as_ref()
-                .and_then(|ty| resolve_family(ty, nodes, kinds, index))
-                == Some("string")
-        })
-    {
-        return Ok(Some(application.refuse(
-            CheckedPackageRefusalCode::InvalidPackage,
-            application.body(&["operation", "mode", "value"]),
-            CheckedPackageRefusalCause::OperationModeTypeMismatch,
-        )));
-    }
     if let Some(failure) = check_operands(
         application,
         &operation,
@@ -1302,6 +1291,7 @@ fn check_operands(
     } else if arguments.len() < required {
         return ineligible(None);
     }
+    let mut string_in_text_mode = false;
     for (position, expected) in entry.operands.iter().enumerate() {
         // Leaf-source operators require a value or type-bearing first
         // operand. These member terms have no operand family or type; do not
@@ -1336,7 +1326,11 @@ fn check_operands(
         }
         if let Some(actual) = argument_family(&arguments[position], nodes, kinds, index, catalog) {
             if !catalog.family_fits(actual, expected) {
-                return ineligible(Some(position));
+                if entry.mode == Some(OperationModeKind::TextProfile) && actual == "string" {
+                    string_in_text_mode = true;
+                } else {
+                    return ineligible(Some(position));
+                }
             }
         }
     }
@@ -1344,10 +1338,23 @@ fn check_operands(
         for (offset, argument) in arguments[required..].iter().enumerate() {
             if let Some(actual) = argument_family(argument, nodes, kinds, index, catalog) {
                 if !catalog.family_fits(actual, rest_family) {
-                    return ineligible(Some(required.saturating_add(offset)));
+                    if entry.mode == Some(OperationModeKind::TextProfile) && actual == "string" {
+                        string_in_text_mode = true;
+                    } else {
+                        return ineligible(Some(required.saturating_add(offset)));
+                    }
                 }
             }
         }
+    }
+    // A native String cannot inherit a Text profile. Arity and other operand
+    // family defects take precedence; these checks reuse the family lookups.
+    if string_in_text_mode {
+        return Ok(Some(application.refuse(
+            CheckedPackageRefusalCode::InvalidPackage,
+            application.body(&["operation", "mode", "value"]),
+            CheckedPackageRefusalCause::OperationModeTypeMismatch,
+        )));
     }
     for constraint in &entry.constraints {
         let indices: Option<Vec<usize>> = constraint

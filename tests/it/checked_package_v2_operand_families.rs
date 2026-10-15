@@ -10,8 +10,8 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 
@@ -266,7 +266,7 @@ fn native_scalar_comparisons_keep_distinct_types_and_operands() {
             "00000000-0000-0000-0000-000000000000",
             "00000000-0000-0000-0000-000000000001",
         ),
-        (2, "timestamp", "0", "1"),
+        (2, "timestamp", "-1", "1"),
     ] {
         for verb in ["eq", "ne"] {
             let mut package = base.clone();
@@ -489,12 +489,33 @@ fn native_literal_work_limit_precedes_later_payload_defect() {
         }
     }
     assert!(high > 0);
+    assert!(
+        high < upper,
+        "the malformed payload must refuse before a valid package finishes"
+    );
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = high - 1;
-    assert!(matches!(
-        CheckedPackageV2::read(&canonical(&malformed), limits, &evidence_for(&malformed)),
-        CheckedPackageV2ReadResult::Incomplete(_)
-    ));
+    let CheckedPackageV2ReadResult::Incomplete(incomplete) =
+        CheckedPackageV2::read(&canonical(&malformed), limits, &evidence_for(&malformed))
+    else {
+        panic!("malformed native package must exhaust work before its payload refusal");
+    };
+    assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+    assert_eq!(incomplete.limit, high - 1);
+    assert!(incomplete.consumed > incomplete.limit);
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = high;
+    let CheckedPackageV2ReadResult::Refused(actual) =
+        CheckedPackageV2::read(&canonical(&malformed), limits, &evidence_for(&malformed))
+    else {
+        panic!("malformed native package did not refuse at its payload threshold");
+    };
+    assert_eq!(actual.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(actual.cause, Some(CheckedPackageRefusalCause::InvalidValue));
+    assert_eq!(
+        actual.path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{at}/body/value"))
+    );
     native_refuses(
         &malformed,
         CheckedPackageRefusalCode::InvalidPackage,
@@ -562,7 +583,50 @@ fn native_comparisons_reject_text_laws_and_modes() {
 #[trace("TC-048", "FR-038-AC-244")]
 #[test]
 fn text_comparison_rejects_string_at_its_mode_value() {
+    let (base, boolean, native, text) = native_fixture();
+    let catalog: Value = serde_json::from_str(
+        quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1,
+    )
+    .expect("catalog");
+    let law = catalog["law_roles"]["text_profile"][0].clone();
+    for string_position in 0..2 {
+        let mut package = base.clone();
+        package["lock"]["definition_selections"]
+            .as_array_mut()
+            .expect("selections")
+            .push(law.clone());
+        let string = native_literal(&mut package, &native[0], "string", json!("a"));
+        let profiled_text = native_literal(&mut package, &text, "text", json!("a"));
+        let mut arguments = vec![reference(&profiled_text), reference(&profiled_text)];
+        arguments[string_position] = reference(&string);
+        let at = append_application(
+            &mut package,
+            "binary",
+            "binary",
+            json!({"identity": "quire.op.text.eq",
+                "laws": [{"role": "text_profile", "definition": law}],
+                "mode": {"kind": "text_profile", "value": "nfc"},
+                "member": null, "leaves": []}),
+            &boolean,
+            arguments,
+        );
+        native_refuses(
+            &package,
+            CheckedPackageRefusalCode::InvalidPackage,
+            CheckedPackageRefusalCause::OperationModeTypeMismatch,
+            &format!("/semantic_graph/nodes/{at}/body/operation/mode/value"),
+            at,
+        );
+    }
+}
+
+/// Trace: TC-048, FR-038-AC-244
+#[trace("TC-048", "FR-038-AC-244")]
+#[test]
+fn text_comparison_checks_arity_and_other_families_before_string_mode() {
     let (mut package, boolean, native, text) = native_fixture();
+    let empty = json!({"term": "aggregate", "members": []});
+    let integer = structural_key("scalar_type", "integer", None, &empty);
     let catalog: Value = serde_json::from_str(
         quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1,
     )
@@ -572,6 +636,7 @@ fn text_comparison_rejects_string_at_its_mode_value() {
         .as_array_mut()
         .expect("selections")
         .push(law.clone());
+    let integer = native_literal(&mut package, &integer, "integer", json!("1"));
     let string = native_literal(&mut package, &native[0], "string", json!("a"));
     let profiled_text = native_literal(&mut package, &text, "text", json!("a"));
     let at = append_application(
@@ -583,13 +648,26 @@ fn text_comparison_rejects_string_at_its_mode_value() {
             "mode": {"kind": "text_profile", "value": "nfc"},
             "member": null, "leaves": []}),
         &boolean,
-        vec![reference(&string), reference(&profiled_text)],
+        vec![reference(&integer), reference(&string)],
     );
     native_refuses(
         &package,
-        CheckedPackageRefusalCode::InvalidPackage,
-        CheckedPackageRefusalCause::OperationModeTypeMismatch,
-        &format!("/semantic_graph/nodes/{at}/body/operation/mode/value"),
+        CheckedPackageRefusalCode::IllTyped,
+        CheckedPackageRefusalCause::OperatorIneligible,
+        &format!("/semantic_graph/nodes/{at}/body/arguments/0"),
+        at,
+    );
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"] = json!([
+        reference(&string),
+        reference(&profiled_text),
+        reference(&profiled_text)
+    ]);
+    settle(&mut package);
+    native_refuses(
+        &package,
+        CheckedPackageRefusalCode::IllTyped,
+        CheckedPackageRefusalCause::OperatorIneligible,
+        &format!("/semantic_graph/nodes/{at}/body/arguments"),
         at,
     );
 }
