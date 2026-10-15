@@ -110,6 +110,9 @@ fn declaration_key(short: &str, form: &str) -> String {
 enum Ty {
     Boolean,
     Integer,
+    String,
+    Uuid,
+    Timestamp,
     Range(i128, i128),
     /// `Reference<O>`, by the key of `O`'s model declaration node.
     Reference(String),
@@ -142,6 +145,9 @@ fn ty_of(member: &CheckedMemberType) -> Ty {
     match member {
         CheckedMemberType::Boolean => Ty::Boolean,
         CheckedMemberType::Integer => Ty::Integer,
+        CheckedMemberType::String => Ty::String,
+        CheckedMemberType::Uuid => Ty::Uuid,
+        CheckedMemberType::Timestamp => Ty::Timestamp,
         CheckedMemberType::IntRange { lower, upper } => Ty::Range(*lower, *upper),
         CheckedMemberType::Reference(target) => Ty::Reference(target.digest.to_string()),
         CheckedMemberType::Record(target) => Ty::Record(target.digest.to_string()),
@@ -181,11 +187,14 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
         key
     };
     match ty {
-        Ty::Boolean | Ty::Integer => {
-            let form = if *ty == Ty::Boolean {
-                "boolean"
-            } else {
-                "integer"
+        Ty::Boolean | Ty::Integer | Ty::String | Ty::Uuid | Ty::Timestamp => {
+            let form = match ty {
+                Ty::Boolean => "boolean",
+                Ty::Integer => "integer",
+                Ty::String => "string",
+                Ty::Uuid => "uuid",
+                Ty::Timestamp => "timestamp",
+                _ => unreachable!("matched scalar types"),
             };
             let key = structural("scalar_type", form, None, None, &empty());
             let node = wire_node(&key, "scalar_type", form, &key, &[], empty());
@@ -1082,6 +1091,59 @@ fn names(fields: &CheckedModelObjectFields) -> Vec<&str> {
     fields.fields().iter().map(|field| field.name()).collect()
 }
 
+/// Trace: TC-048, FR-038-AC-242
+#[trace("TC-048", "FR-038-AC-242")]
+#[test]
+fn selected_native_fields_keep_distinct_member_types() {
+    let document = document(vec![object(
+        ORDER,
+        &[],
+        &[
+            field("string", "ix://quire/native/String"),
+            field("uuid", "ix://quire/native/UUID"),
+            field("timestamp", "ix://quire/native/Timestamp"),
+        ],
+    )]);
+    let reads = [
+        Read {
+            owner: ORDER,
+            field: "string",
+            ty: Ty::String,
+        },
+        Read {
+            owner: ORDER,
+            field: "uuid",
+            ty: Ty::Uuid,
+        },
+        Read {
+            owner: ORDER,
+            field: "timestamp",
+            ty: Ty::Timestamp,
+        },
+    ];
+    let admitted = admit(&document, &[(ORDER, OBJECT)], &reads);
+    let fields = fields_of(&admitted, ORDER);
+    for (name, expected, form) in [
+        ("string", CheckedMemberType::String, "string"),
+        ("uuid", CheckedMemberType::Uuid, "uuid"),
+        ("timestamp", CheckedMemberType::Timestamp, "timestamp"),
+    ] {
+        assert_eq!(
+            fields.field(name).and_then(|field| field.member_type()),
+            Some(&expected)
+        );
+        let scalar = admitted
+            .graph()
+            .nodes
+            .iter()
+            .find(|node| {
+                node.node_tag.as_ref() == "scalar_type" && node.semantic_form.as_ref() == form
+            })
+            .expect("native scalar node");
+        assert_eq!(scalar.node_id, scalar.semantic_type);
+    }
+}
+
 // --- AC-136 -----------------------------------------------------------------------
 
 /// A domain document declaring `balance` and `audit`, each `Int[0, 1000]`,
@@ -1457,6 +1519,7 @@ fn perturbed(ty: &Ty, other: &str) -> Ty {
     match ty {
         Ty::Boolean => Ty::Integer,
         Ty::Integer => Ty::Boolean,
+        Ty::String | Ty::Uuid | Ty::Timestamp => Ty::Boolean,
         Ty::Range(lower, upper) if upper > lower => Ty::Range(*lower, upper - 1),
         Ty::Range(lower, upper) if *lower < i128::MAX => Ty::Range(*lower, upper + 1),
         Ty::Range(lower, upper) => Ty::Range(lower - 1, *upper),
@@ -1737,6 +1800,9 @@ fn tc_227_the_public_shape_is_closed_and_takes_one_node_id() {
         match ty {
             CheckedMemberType::Boolean => 0,
             CheckedMemberType::Integer => 1,
+            CheckedMemberType::String => 8,
+            CheckedMemberType::Uuid => 9,
+            CheckedMemberType::Timestamp => 10,
             CheckedMemberType::IntRange { .. } => 2,
             CheckedMemberType::Reference(_) => 3,
             CheckedMemberType::Record(_) => 6,

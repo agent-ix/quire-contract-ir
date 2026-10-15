@@ -165,6 +165,430 @@ fn refuses(
     );
 }
 
+fn native_fixture() -> (Value, String, [String; 3], String) {
+    let (mut package, _, boolean, _, _, _) = fixture();
+    let empty = json!({"term": "aggregate", "members": []});
+    let native = ["string", "uuid", "timestamp"].map(|form| {
+        let key = structural_key("scalar_type", form, None, &empty);
+        add_node(&mut package, &key, "scalar_type", form, &key, empty.clone());
+        key
+    });
+    let text = structural_key("scalar_type", "text", None, &empty);
+    settle(&mut package);
+    (package, boolean, native, text)
+}
+
+fn native_literal(package: &mut Value, ty: &str, kind: &str, value: Value) -> String {
+    let at = append_literal(package, ty, kind, value);
+    package["semantic_graph"]["nodes"][at]["node_id"]["digest"]
+        .as_str()
+        .expect("literal key")
+        .to_owned()
+}
+
+fn native_comparison(
+    package: &mut Value,
+    boolean: &str,
+    kind: &str,
+    left: &str,
+    right: &str,
+    verb: &str,
+) -> usize {
+    append_application(
+        package,
+        "binary",
+        "binary",
+        operation(&format!("quire.op.{kind}.{verb}"), Value::Null, Value::Null),
+        boolean,
+        vec![reference(left), reference(right)],
+    )
+}
+
+fn native_refuses(
+    package: &Value,
+    code: CheckedPackageRefusalCode,
+    cause: CheckedPackageRefusalCause,
+    path: &str,
+    position: usize,
+) {
+    let CheckedPackageV2ReadResult::Refused(actual) = read(package) else {
+        panic!("expected refusal, got {:?}", read(package));
+    };
+    assert_eq!(actual.code, code);
+    assert_eq!(actual.cause, Some(cause));
+    assert_eq!(
+        actual.path.as_ref().map(ToString::to_string),
+        Some(path.to_owned())
+    );
+    assert_eq!(
+        serde_json::to_value(actual.locus.expect("node locus")).expect("locus"),
+        package["semantic_graph"]["nodes"][position]["node_id"]
+    );
+}
+
+/// Trace: TC-048, FR-038-AC-242, FR-038-AC-243
+#[trace("TC-048", "FR-038-AC-242", "FR-038-AC-243")]
+#[test]
+fn native_scalar_comparisons_keep_distinct_types_and_operands() {
+    let (base, boolean, native, text) = native_fixture();
+    let catalog: Value = serde_json::from_str(
+        quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1,
+    )
+    .expect("catalog");
+    let mut native_identities = catalog["operations"]
+        .as_array()
+        .expect("operations")
+        .iter()
+        .filter_map(|entry| entry["identity"].as_str())
+        .filter(|identity| {
+            ["string", "uuid", "timestamp"]
+                .iter()
+                .any(|kind| identity.starts_with(&format!("quire.op.{kind}.")))
+        })
+        .collect::<Vec<_>>();
+    native_identities.sort_unstable();
+    assert_eq!(
+        native_identities,
+        [
+            "quire.op.string.eq",
+            "quire.op.string.ne",
+            "quire.op.timestamp.eq",
+            "quire.op.timestamp.ne",
+            "quire.op.uuid.eq",
+            "quire.op.uuid.ne",
+        ]
+    );
+    for (index, kind, equal, unequal) in [
+        (0, "string", "é", "e\u{301}"),
+        (
+            1,
+            "uuid",
+            "00000000-0000-0000-0000-000000000000",
+            "00000000-0000-0000-0000-000000000001",
+        ),
+        (2, "timestamp", "0", "1"),
+    ] {
+        for verb in ["eq", "ne"] {
+            let mut package = base.clone();
+            let left = native_literal(&mut package, &native[index], kind, json!(equal));
+            let right = native_literal(&mut package, &native[index], kind, json!(unequal));
+            let at = native_comparison(&mut package, &boolean, kind, &left, &right, verb);
+            let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
+                panic!("native {kind}.{verb} refused: {:?}", read(&package));
+            };
+            let nodes = &admitted.graph().nodes;
+            assert_ne!(nodes[at - 2].node_id, nodes[at - 1].node_id);
+            assert_eq!(nodes[at].body["arguments"][0]["target"], node_id(&left));
+            assert_eq!(nodes[at].body["arguments"][1]["target"], node_id(&right));
+            for key in [
+                left.as_str(),
+                right.as_str(),
+                nodes[at].node_id.digest.as_ref(),
+            ] {
+                assert!(admitted.source_map().iter().any(|entry| {
+                    entry.node_id.digest.as_ref() == key && !entry.regions.is_empty()
+                }));
+            }
+            assert_eq!(nodes[at - 2].body["value"], equal);
+            assert_eq!(nodes[at - 1].body["value"], unequal);
+            let mut equal_package = package.clone();
+            equal_package["semantic_graph"]["nodes"][at]["body"]["arguments"][1] = reference(&left);
+            settle(&mut equal_package);
+            let CheckedPackageV2ReadResult::Admitted(equal_read) = read(&equal_package) else {
+                panic!(
+                    "equal native {kind}.{verb} refused: {:?}",
+                    read(&equal_package)
+                );
+            };
+            assert_eq!(
+                equal_read.graph().nodes[at].body["arguments"][0]["target"],
+                equal_read.graph().nodes[at].body["arguments"][1]["target"]
+            );
+            assert_eq!(
+                admitted.node_kinds()[at - 2],
+                quire_contract_model::CheckedNodeKind::Value(
+                    quire_contract_model::ValueForm::Literal
+                )
+            );
+            let foreign = if index == 0 {
+                &text
+            } else {
+                &native[index - 1]
+            };
+            for argument in 0..2 {
+                let mut changed = package.clone();
+                changed["semantic_graph"]["nodes"][at]["body"]["arguments"][argument] =
+                    reference(foreign);
+                settle(&mut changed);
+                native_refuses(
+                    &changed,
+                    CheckedPackageRefusalCode::IllTyped,
+                    CheckedPackageRefusalCause::OperatorIneligible,
+                    &format!("/semantic_graph/nodes/{at}/body/arguments/{argument}"),
+                    at,
+                );
+            }
+            if verb == "eq" {
+                for foreign_operation in ["quire.op.integer.lt", "quire.op.integer.add"] {
+                    let mut changed = package.clone();
+                    changed["semantic_graph"]["nodes"][at]["body"]["operation"]["identity"] =
+                        json!(foreign_operation);
+                    settle(&mut changed);
+                    native_refuses(
+                        &changed,
+                        CheckedPackageRefusalCode::IllTyped,
+                        CheckedPackageRefusalCause::OperatorIneligible,
+                        &format!("/semantic_graph/nodes/{at}/body/arguments/0"),
+                        at,
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn change_native_literal_value(package: &mut Value, position: usize, value: Value) {
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["body"]["value"] = value;
+    let own_type = node["semantic_type"]["digest"]
+        .as_str()
+        .expect("type")
+        .to_owned();
+    let key = structural_key("value", "literal", Some(&own_type), &node["body"]);
+    node["node_id"] = node_id(&key);
+    settle(package);
+}
+
+/// Trace: TC-048, FR-038-AC-245
+#[trace("TC-048", "FR-038-AC-245")]
+#[test]
+fn native_literal_payloads_are_canonical_after_type_validation() {
+    let (base, _, native, text) = native_fixture();
+    let cases: [(usize, &str, Vec<Value>, Vec<Value>); 3] = [
+        (
+            0,
+            "string",
+            vec![json!("é"), json!("e\u{301}")],
+            vec![json!(5)],
+        ),
+        (
+            1,
+            "uuid",
+            vec![
+                json!("00000000-0000-0000-0000-000000000000"),
+                json!("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+            ],
+            vec![
+                json!("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF"),
+                json!("00000000000000000000000000000000"),
+                json!("0000000-00000-0000-0000-000000000000"),
+                json!("00000000-0000-0000-0000-00000000000g"),
+            ],
+        ),
+        (
+            2,
+            "timestamp",
+            vec![
+                json!(i128::MIN.to_string()),
+                json!("-1"),
+                json!("0"),
+                json!("1"),
+                json!(i128::MAX.to_string()),
+            ],
+            vec![
+                json!("-0"),
+                json!("+1"),
+                json!("01"),
+                json!(""),
+                json!(" 1"),
+                json!("1.0"),
+                json!("2026-01-01"),
+                json!("170141183460469231731687303715884105728"),
+                json!("-170141183460469231731687303715884105729"),
+            ],
+        ),
+    ];
+    for (index, kind, good, bad) in cases {
+        let mut package = base.clone();
+        let key = native_literal(&mut package, &native[index], kind, good[0].clone());
+        let at = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .len()
+            - 1;
+        let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
+            panic!("native literal refused: {:?}", read(&package));
+        };
+        assert_eq!(admitted.graph().nodes[at].node_id.digest.as_ref(), key);
+        assert_eq!(admitted.graph().nodes[at].body["value"], good[0]);
+        for value in good.iter().skip(1) {
+            let mut changed = package.clone();
+            change_native_literal_value(&mut changed, at, value.clone());
+            admits(&changed);
+        }
+        let mut wrong_type = package.clone();
+        change_native_literal_value(&mut wrong_type, at, bad[0].clone());
+        change_literal_type(&mut wrong_type, at, &text);
+        native_refuses(
+            &wrong_type,
+            CheckedPackageRefusalCode::IllTyped,
+            CheckedPackageRefusalCause::OperatorIneligible,
+            &format!("/semantic_graph/nodes/{at}/body/type"),
+            at,
+        );
+        for value in bad {
+            let mut changed = package.clone();
+            change_native_literal_value(&mut changed, at, value);
+            native_refuses(
+                &changed,
+                CheckedPackageRefusalCode::InvalidPackage,
+                CheckedPackageRefusalCause::InvalidValue,
+                &format!("/semantic_graph/nodes/{at}/body/value"),
+                at,
+            );
+        }
+    }
+}
+
+/// Trace: TC-048, FR-038-AC-245
+#[trace("TC-048", "FR-038-AC-245")]
+#[test]
+fn native_literal_work_limit_precedes_later_payload_defect() {
+    let (mut package, _, native, _) = native_fixture();
+    native_literal(&mut package, &native[2], "timestamp", json!("0"));
+    let mut lower = 0;
+    let mut upper = CheckedPackageReadLimits::bounded().work;
+    while lower + 1 < upper {
+        let middle = lower + (upper - lower) / 2;
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = middle;
+        match CheckedPackageV2::read(&canonical(&package), limits, &evidence_for(&package)) {
+            CheckedPackageV2ReadResult::Admitted(_) => upper = middle,
+            CheckedPackageV2ReadResult::Incomplete(_) => lower = middle,
+            other => panic!("valid native package refused: {other:?}"),
+        }
+    }
+    assert!(upper > 0);
+    let mut malformed = package;
+    let at = malformed["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    change_native_literal_value(&mut malformed, at, json!("-0"));
+    let mut low = 0;
+    let mut high = upper;
+    while low + 1 < high {
+        let middle = low + (high - low) / 2;
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = middle;
+        match CheckedPackageV2::read(&canonical(&malformed), limits, &evidence_for(&malformed)) {
+            CheckedPackageV2ReadResult::Incomplete(_) => low = middle,
+            CheckedPackageV2ReadResult::Refused(_) => high = middle,
+            other => panic!("malformed native package admitted: {other:?}"),
+        }
+    }
+    assert!(high > 0);
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = high - 1;
+    assert!(matches!(
+        CheckedPackageV2::read(&canonical(&malformed), limits, &evidence_for(&malformed)),
+        CheckedPackageV2ReadResult::Incomplete(_)
+    ));
+    native_refuses(
+        &malformed,
+        CheckedPackageRefusalCode::InvalidPackage,
+        CheckedPackageRefusalCause::InvalidValue,
+        &format!("/semantic_graph/nodes/{at}/body/value"),
+        at,
+    );
+}
+
+/// Trace: TC-048, FR-038-AC-244
+#[trace("TC-048", "FR-038-AC-244")]
+#[test]
+fn native_comparisons_reject_text_laws_and_modes() {
+    let (base, boolean, native, _) = native_fixture();
+    let catalog: Value = serde_json::from_str(
+        quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1,
+    )
+    .expect("catalog");
+    let law = catalog["law_roles"]["text_profile"][0].clone();
+    for (index, kind, value) in [
+        (0, "string", "a"),
+        (1, "uuid", "00000000-0000-0000-0000-000000000000"),
+        (2, "timestamp", "0"),
+    ] {
+        for verb in ["eq", "ne"] {
+            let mut package = base.clone();
+            package["lock"]["definition_selections"]
+                .as_array_mut()
+                .expect("selections")
+                .push(law.clone());
+            let left = native_literal(&mut package, &native[index], kind, json!(value));
+            let right = native_literal(&mut package, &native[index], kind, json!(value));
+            let at = native_comparison(&mut package, &boolean, kind, &left, &right, verb);
+            package["semantic_graph"]["nodes"][at]["body"]["operation"]["laws"] =
+                json!([{"role": "text_profile", "definition": law}]);
+            settle(&mut package);
+            native_refuses(
+                &package,
+                CheckedPackageRefusalCode::InvalidPackage,
+                CheckedPackageRefusalCause::OperationLawMismatch,
+                &format!("/semantic_graph/nodes/{at}/body/operation/laws/0"),
+                at,
+            );
+            package["semantic_graph"]["nodes"][at]["body"]["operation"]["laws"] = json!([]);
+            package["semantic_graph"]["nodes"][at]["body"]["operation"]["mode"] =
+                json!({"kind": "text_profile", "value": "nfc"});
+            settle(&mut package);
+            native_refuses(
+                &package,
+                CheckedPackageRefusalCode::InvalidPackage,
+                CheckedPackageRefusalCause::OperationModeMismatch,
+                &format!("/semantic_graph/nodes/{at}/body/operation/mode"),
+                at,
+            );
+        }
+    }
+}
+
+/// Trace: TC-048, FR-038-AC-244
+#[trace("TC-048", "FR-038-AC-244")]
+#[test]
+fn text_comparison_rejects_string_at_its_mode_value() {
+    let (mut package, boolean, native, text) = native_fixture();
+    let catalog: Value = serde_json::from_str(
+        quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1,
+    )
+    .expect("catalog");
+    let law = catalog["law_roles"]["text_profile"][0].clone();
+    package["lock"]["definition_selections"]
+        .as_array_mut()
+        .expect("selections")
+        .push(law.clone());
+    let string = native_literal(&mut package, &native[0], "string", json!("a"));
+    let profiled_text = native_literal(&mut package, &text, "text", json!("a"));
+    let at = append_application(
+        &mut package,
+        "binary",
+        "binary",
+        json!({"identity": "quire.op.text.eq",
+            "laws": [{"role": "text_profile", "definition": law}],
+            "mode": {"kind": "text_profile", "value": "nfc"},
+            "member": null, "leaves": []}),
+        &boolean,
+        vec![reference(&string), reference(&profiled_text)],
+    );
+    native_refuses(
+        &package,
+        CheckedPackageRefusalCode::InvalidPackage,
+        CheckedPackageRefusalCause::OperationModeTypeMismatch,
+        &format!("/semantic_graph/nodes/{at}/body/operation/mode/value"),
+        at,
+    );
+}
+
 /// Trace: TC-048, FR-038-AC-210
 #[trace("TC-048", "FR-038-AC-210")]
 #[test]
