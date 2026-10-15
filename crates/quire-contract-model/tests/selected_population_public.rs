@@ -155,6 +155,14 @@ fn population_nodes(
         .collect()
 }
 
+fn assert_no_extent(outcome: Outcome, expected: impl FnOnce(&Outcome) -> bool) {
+    assert!(expected(&outcome), "unexpected typed outcome: {outcome:?}");
+    assert!(
+        !matches!(outcome, Outcome::Finite(_)),
+        "non-finite selection unexpectedly carried an extent: {outcome:?}"
+    );
+}
+
 #[trace(
     "FR-053-AC-1",
     "FR-053-AC-2",
@@ -247,42 +255,44 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
     assert_eq!(original_finite.maximum, raised_finite.maximum);
     assert_eq!(original_finite.object_type, raised_finite.object_type);
     assert_eq!(original_finite.provenance, raised_finite.provenance);
-    assert_eq!(select_population(Source::Unavailable), Outcome::Unavailable);
+    assert_no_extent(select_population(Source::Unavailable), |outcome| {
+        matches!(outcome, Outcome::Unavailable)
+    });
     let population = population_nodes(&package)[0];
     let original = selector(&package, population);
     let mut foreign = original.clone();
     foreign.package_id.domain = "foreign".into();
-    assert!(matches!(
+    assert_no_extent(
         select_population(Source::Admitted {
             package: &package,
-            selector: foreign
+            selector: foreign,
         }),
-        Outcome::ForeignPackage(_)
-    ));
+        |outcome| matches!(outcome, Outcome::ForeignPackage(_)),
+    );
     let mut stale = original.clone();
     stale.binding = CheckedNodeId {
         domain: NODE_DOMAIN.into(),
         digest: "f".repeat(64).into(),
     };
-    assert!(matches!(
+    assert_no_extent(
         select_population(Source::Admitted {
             package: &package,
-            selector: stale
+            selector: stale,
         }),
-        Outcome::StaleBinding(_)
-    ));
+        |outcome| matches!(outcome, Outcome::StaleBinding(_)),
+    );
     let mut missing = original.clone();
     missing.occurrence = CheckedOccurrence {
         role: CheckedOccurrenceRole::Type,
         ordinal: missing.occurrence.ordinal + 999,
     };
-    assert!(matches!(
+    assert_no_extent(
         select_population(Source::Admitted {
             package: &package,
-            selector: missing
+            selector: missing,
         }),
-        Outcome::MissingOccurrence(_)
-    ));
+        |outcome| matches!(outcome, Outcome::MissingOccurrence(_)),
+    );
     let non_population = package
         .graph()
         .nodes
@@ -299,26 +309,26 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
                 })
         })
         .expect("QSL package contains a source-mapped non-population Type node");
-    assert!(matches!(
+    assert_no_extent(
         select_population(Source::Admitted {
             package: &package,
             selector: selector(&package, non_population),
         }),
-        Outcome::NotPopulation(_)
-    ));
+        |outcome| matches!(outcome, Outcome::NotPopulation(_)),
+    );
     let selected_model = CheckedSemanticId {
         domain: PACKAGE_DOMAIN.into(),
         algorithm: "sha256".into(),
         digest: "e".repeat(64).into(),
     };
     let population_id = population.node_id.clone();
-    assert!(matches!(
+    assert_no_extent(
         select_population(Source::Declaration {
             selected_model: selected_model.clone(),
             population: population_id.clone(),
         }),
-        Outcome::Unbounded { .. }
-    ));
+        |outcome| matches!(outcome, Outcome::Unbounded { .. }),
+    );
     let upstream_source = CheckedSourceRef {
         authority: "qsl".into(),
         identity: "test:unknown-closure".into(),
@@ -330,13 +340,17 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
         start: 0,
         end: 1,
     }];
+    let open = select_population(Source::UnknownClosureOpenExtent {
+        selected_model,
+        population: population_id,
+        source: upstream_source.clone(),
+        provenance: provenance.clone(),
+    });
+    assert_no_extent(open.clone(), |outcome| {
+        matches!(outcome, Outcome::UnknownClosureOpenExtent { .. })
+    });
     assert_eq!(
-        select_population(Source::UnknownClosureOpenExtent {
-            selected_model,
-            population: population_id,
-            source: upstream_source.clone(),
-            provenance: provenance.clone(),
-        }),
+        open,
         Outcome::UnknownClosureOpenExtent {
             selected_model: CheckedSemanticId {
                 domain: PACKAGE_DOMAIN.into(),
@@ -348,7 +362,7 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
             provenance,
         }
     );
-    assert!(matches!(
+    assert_no_extent(
         select_population(Source::UnknownClosureUnresolvedObjectType {
             selected_model: CheckedSemanticId {
                 domain: PACKAGE_DOMAIN.into(),
@@ -364,9 +378,9 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
             },
             provenance: vec![],
         }),
-        Outcome::UnknownClosureUnresolvedObjectType { .. }
-    ));
-    assert!(matches!(
+        |outcome| matches!(outcome, Outcome::UnknownClosureUnresolvedObjectType { .. }),
+    );
+    assert_no_extent(
         select_population(Source::UnknownClosureUnresolvedSubtypeClosure {
             selected_model: CheckedSemanticId {
                 domain: PACKAGE_DOMAIN.into(),
@@ -382,6 +396,11 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
             },
             provenance: vec![],
         }),
-        Outcome::UnknownClosureUnresolvedSubtypeClosure { .. }
-    ));
+        |outcome| {
+            matches!(
+                outcome,
+                Outcome::UnknownClosureUnresolvedSubtypeClosure { .. }
+            )
+        },
+    );
 }

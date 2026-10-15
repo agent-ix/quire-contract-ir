@@ -303,3 +303,45 @@ fn population_object_type(
         .get("target")?;
     serde_json::from_value(object_id.clone()).ok()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::population_maximum;
+    use serde_json::json;
+
+    #[test]
+    fn maximum_requires_the_selected_integer_literal_binding() {
+        assert_eq!(
+            population_maximum(&json!({
+                "members": [{
+                    "name": "max",
+                    "term": "binding",
+                    "value": {"term": "literal", "value_kind": "integer", "value": "0"}
+                }]
+            })),
+            Some(0)
+        );
+        for body in [
+            json!({"members": []}),
+            json!({"members": [{"name": "min", "term": "binding", "value": {
+                "term": "literal", "value_kind": "integer", "value": "99"
+            }}]}),
+            json!({"members": [{"name": "max", "term": "literal", "value": "99"}]}),
+            json!({"members": [{"name": "max", "term": "binding", "value": {
+                "term": "literal", "value_kind": "string", "value": "99"
+            }}]}),
+            json!({"members": [{"name": "max", "term": "binding", "value": {
+                "term": "closure", "value": "99"
+            }}]}),
+            json!({"members": [{"name": "max", "term": "binding", "value": {
+                "term": "literal", "value_kind": "integer", "value": "-1"
+            }}]}),
+        ] {
+            assert_eq!(
+                population_maximum(&body),
+                None,
+                "unexpected max from {body}"
+            );
+        }
+    }
+}

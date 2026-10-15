@@ -77,3 +77,17 @@ adapter without fabricating an admitted package. Closure, resource ceilings
 and fixture membership never produce or alter a finite maximum. The model
 consumer uses the selected population projection only for the population
 extent; `model_object_fields` remains authoritative for edge multiplicity.
+
+## Current Verification Status
+
+The default-feature public consumer currently exercises QSL-emitted maxima
+`0`, `1`, `3`, and `[2,5]` for two distinct same-type bindings. It verifies
+exact node/occurrence identity, provenance, selected object type, reader-limit
+invariance, typed non-finite outcomes, and rejection of malformed maximum
+body shapes. These checks credit the available source and projection paths.
+
+The QSL-799 producer extension is required to credit only the remaining
+source-dependent controls: a regenerated package whose checked maximum alone
+changes, a second object type, and a valid `semantic_type` retargeted and
+re-keyed package. No copied V2 bytes or IR-authored substitute fixture will be
+used for those controls.
