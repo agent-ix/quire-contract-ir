@@ -14,7 +14,9 @@ Planned/UNRUN. The provisional input port retains typed rows and stop causes,
 but exposes no complete census. No owner adapter yet compares a declared
 complete inventory with the full selected IR V2, QSL, or `quire-code-rs`
 output. FR-052-AC-8 tests cover only that provisional port; they do not run
-this full-owner procedure.
+this full-owner procedure. The narrower IR-794 owner-issued completion boundary
+and its owner-output comparison (FR-052-AC-9 through AC-11) are also UNRUN;
+they do not by themselves complete this three-owner census case.
 
 ## Description
 
@@ -50,6 +52,33 @@ envelope's entries with the full owner output for that selection. An owner
 item omitted from an otherwise populated selected source must prevent a
 complete envelope.
 
+For the IR-794 boundary, drive each owner-native enumerator or typed adapter
+from its selected owner object to normal exhaustion and capture its full
+output independently of the model envelope. Compare source, typed owner,
+scope, every row and observed count field by field. Repeat with a complete
+zero-row scope and a fully parsed production module with zero functions.
+Delete one emitted row after the owner produces its full output; even if the
+candidate count is altered to equal the shortened row list, the full-output
+comparison must fail. Check the adapter's completion branch cannot be reached
+by passing an arbitrary caller-authored row vector, count or flag in place of
+the selected owner object. Exercise early stop, parse/request failure and
+missing selected module; verify each returns `Incomplete` with partial rows
+and the cause actually reported by that owner path. For QSL, separately
+exercise type-work exhaustion with dimension, limit, prior, requested charge
+and site, and unfinished admission with its declaration handle. Exercise an
+IR V2 reader limit and compare its `CheckedPackageIncomplete` limit kind,
+limit, consumed count and optional path field by field through the distinct
+neutral cause. On an owner path that accepts `quire_exact::Cancel`, trigger
+`Requested` and `Deadline` separately and compare the corresponding neutral
+`SourceInventoryCancelCause` variants; do not attribute this behavior to the
+current QSL inventory or `quire-code-rs` adapter. Confirm that an owner stop
+type with no typed neutral projection cannot be silently converted to an
+`EarlyStop`, `RequestFailed` string or `Complete`. Pass a provisional envelope
+with `stop_reason: None`
+and verify no API promotes it to `Complete`. Pass mismatched source, owner,
+scope and row count to the neutral retention boundary and verify typed refusal.
+These checks do not substitute for matched-source three-owner census tests.
+
 Using a valid selection, omit the IR V2, QSL, and `quire-code-rs` envelopes one
 at a time. For each owner, also supply a partial enumeration marked
 `Incomplete` with an owner-typed cause; exercise early termination for IR V2,
@@ -83,3 +112,14 @@ observed and neither conflicting relation is accepted. Exact duplicates
 collapse, conflicting inventory entries remain inspectable, equivalent input
 permutations produce equal ordered censuses, and removing one authoritative
 occurrence changes the census.
+
+For the IR-794 boundary, `Complete` is observed only after normal owner
+enumeration ends, including valid empty output. The row-deletion mutation
+fails the independent owner full-output comparison even with a self-consistent
+shortened count. Every stopped path remains `Incomplete` with its original
+typed cause and retained partial rows; QSL exhaustion and unfinished are
+distinct, IR V2 reader limits retain their fields, and an actually reported
+requested/deadline cancellation remains two typed causes. A missing stop cause
+on the provisional input remains provisional.
+The neutral model rejects mismatched source, owner, scope or count. No result
+from these checks alone is reported as a complete source-obligation census.
