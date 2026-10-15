@@ -13,7 +13,7 @@
 
 use crate::support::checked_package::{
     application_node_key, bounds_body, canonical, evidence_for, node_id, nominal_package,
-    over_body, pointer, rebuild_source_map, refresh_identity, refusal_bytes, refusal_cause,
+    over_body, pointer, rebuild_source_map, refresh_identity, refusal_bytes, refusal_cause, settle,
     sha256_hex, ExpectedRefusal,
 };
 use ix_trace_rs::trace;
@@ -251,6 +251,69 @@ fn read(
         CheckedPackageReadLimits::bounded(),
         evidence,
     )
+}
+
+/// Trace: TC-048, FR-038-AC-242
+#[trace("TC-048", "FR-038-AC-242")]
+#[test]
+fn selected_native_parameters_and_results_keep_their_type_nodes() {
+    for (native, form) in [
+        ("String", "string"),
+        ("UUID", "uuid"),
+        ("Timestamp", "timestamp"),
+    ] {
+        let mut document = domain_document(json!({}));
+        let type_ref = format!("ix://quire/native/{native}");
+        document["types"][0]["fields"] = json!([{
+            "identity": format!("{ORDER}/native"), "name": "native", "typeRef": type_ref,
+            "presence": "required", "nullable": false, "defaultKind": "none",
+            "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true},
+        }]);
+        document["types"][0]["operations"][0]["params"] = json!([slot(None, &type_ref)]);
+        document["types"][0]["operations"][0]["returns"] = slot(None, &type_ref);
+        let (mut package, evidence) = package_over(&document, "total");
+        let key = structural_key("scalar_type", form, None, None, &empty());
+        let (_, argument) = parameter("argument", "1", &key);
+        let nodes = package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes");
+        nodes[5] = argument;
+        nodes[CALL]["body"]["arguments"][1] = reference(
+            nodes[5]["node_id"]["digest"]
+                .as_str()
+                .expect("argument key"),
+        );
+        nodes[CALL]["body"]["result_type"] = node_id(&key);
+        nodes[CALL]["semantic_type"] = node_id(&key);
+        nodes.push(wire_node(&key, "scalar_type", form, &key, &[], empty()));
+        settle(&mut package);
+        let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
+            panic!(
+                "selected {native} operation refused: {:?}",
+                read(&package, &evidence)
+            );
+        };
+        assert_eq!(admitted.graph().nodes[5].semantic_type.digest.as_ref(), key);
+        assert_eq!(
+            admitted.graph().nodes[CALL].semantic_type.digest.as_ref(),
+            key
+        );
+        assert_eq!(
+            admitted.graph().nodes[CALL].body["result_type"],
+            node_id(&key)
+        );
+        assert_eq!(
+            admitted.graph().nodes.last().expect("scalar").semantic_type,
+            admitted.graph().nodes.last().expect("scalar").node_id
+        );
+        for position in [5, CALL, admitted.graph().nodes.len() - 1] {
+            let node = &admitted.graph().nodes[position];
+            assert!(admitted
+                .source_map()
+                .iter()
+                .any(|entry| { entry.node_id == node.node_id && !entry.regions.is_empty() }));
+        }
+    }
 }
 
 fn refused(

@@ -70,11 +70,10 @@ quantity, aggregate, same-family, literal-kind and rounding-mode rules.
 FR-038-AC-222 and FR-038-AC-223 are planned public-reader controls for the
 IEEE literal-family and catalog-result rules of QSpec FR-322-AC-23; no tagged
 test or admission correction is claimed yet.
-FR-038-AC-242 through FR-038-AC-245 are planned public-reader controls for
+FR-038-AC-242 through FR-038-AC-245 have tagged public-reader controls for
 QSpec FR-322-AC-31/67's distinct native String, UUID and Timestamp types,
-six comparisons, canonical literal payloads and typed refusals. They require
-fresh tagged implementation evidence after IR-474 releases the overlapping
-V2 reader files; this spec amendment alone claims none.
+six comparisons, canonical literal payloads and typed refusals; IR-800's
+tagged reader tests passed.
 FR-038-AC-224 is the planned structural-type forwarding work control for
 operation validation; its private meter probes and public-reader work refusal
 are not counted as executed evidence until IR-490 adds tagged tests.
@@ -256,7 +255,7 @@ node keyed under an unselected domain package refuses
 
 ## Native String, UUID and Timestamp admission (FR-038-AC-242 through FR-038-AC-245)
 
-PLANNED/UNRUN (IR-800). From a selected Semantic IR document using its
+IMPLEMENTED (IR-800; tagged reader tests passed). From a selected Semantic IR document using its
 existing `typeRef` member, author a field, parameter and operation result for
 each of `ix://quire/native/String`, `ix://quire/native/UUID` and
 `ix://quire/native/Timestamp`. Through `CheckedPackageV2::read`, assert the
@@ -294,6 +293,9 @@ For each native comparison add a selected `text_profile` law and then a
 `invalid_package`/`operation-mode-type-mismatch` at its mode value. Keep the
 text-profile selection valid so an earlier unselected-law refusal cannot
 satisfy these controls.
+With a String operand present, an arity defect or another wrong-family operand
+refuses `ill_typed`/`operator-ineligible` at the arguments or first offending
+argument before the String-in-text-operation mode refusal.
 
 For each literal kind `string`, `uuid` and `timestamp`, first assign a type
 node of another family and a malformed value together; assert

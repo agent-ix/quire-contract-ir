@@ -300,7 +300,7 @@ pub(super) fn validate_operations(
                 return Err(failure);
             }
             references.walk_body(Referrer { node, position }, meter)?;
-            if let Some(failure) = literal_type_defect(node, position, &graph) {
+            if let Some(failure) = literal_defect(node, position, &graph) {
                 return Err(failure);
             }
             if let Some(failure) = body_root_defect(position, &graph, owners, meter)? {
@@ -327,15 +327,16 @@ pub(super) fn validate_operations(
     Ok(())
 }
 
-/// Check every literal against its own declared type, including body roots and
-/// arguments in `any_value` positions. The heap stack retains the authored
-/// path so a mismatch points at this literal's `type`.
-fn literal_type_defect(
+/// Check each literal type before native payload syntax, including body roots
+/// and arguments in `any_value` positions. The heap stack retains authored
+/// paths and the second pass over native literals preserves type precedence.
+fn literal_defect(
     node: &CheckedSemanticNodeV2,
     position: usize,
     graph: &Graph<'_>,
 ) -> Option<ValidationFailure> {
     let mut pending = vec![(&node.body, node_pointer(position).key("body"))];
+    let mut native = Vec::new();
     while let Some((term, path)) = pending.pop() {
         if body_term(term) == Some(BodyTerm::Literal) {
             let Some(kind) = literal_kind(term) else {
@@ -359,6 +360,9 @@ fn literal_type_defect(
                 LiteralKind::Float32Bits => family == "float32",
                 LiteralKind::Float64Bits => family == "float64",
                 LiteralKind::Text => family == "text",
+                LiteralKind::String => family == "string",
+                LiteralKind::Uuid => family == "uuid",
+                LiteralKind::Timestamp => family == "timestamp",
                 LiteralKind::Enum => matches!(family, "enum" | "ordered_enum"),
                 LiteralKind::None => family == "option",
             };
@@ -370,6 +374,34 @@ fn literal_type_defect(
                     node.node_id.clone(),
                 ));
             }
+            let valid_native = match kind {
+                LiteralKind::String => Some(term.get("value").is_some_and(Value::is_string)),
+                LiteralKind::Uuid => Some(
+                    term.get("value")
+                        .and_then(Value::as_str)
+                        .is_some_and(canonical_uuid),
+                ),
+                LiteralKind::Timestamp => Some(
+                    term.get("value")
+                        .and_then(Value::as_str)
+                        .is_some_and(|text| {
+                            text.parse::<i128>()
+                                .is_ok_and(|parsed| parsed.to_string() == text)
+                        }),
+                ),
+                LiteralKind::Boolean
+                | LiteralKind::Integer
+                | LiteralKind::Rational
+                | LiteralKind::Decimal
+                | LiteralKind::Float32Bits
+                | LiteralKind::Float64Bits
+                | LiteralKind::Text
+                | LiteralKind::Enum
+                | LiteralKind::None => None,
+            };
+            if let Some(valid) = valid_native {
+                native.push((valid, path.clone()));
+            }
         }
         for child in subterms(term).collect::<Vec<_>>().into_iter().rev() {
             let child_path = path.clone().key(child.key);
@@ -379,7 +411,29 @@ fn literal_type_defect(
             pending.push((child.value, child_path));
         }
     }
+    for (valid, path) in native {
+        if !valid {
+            return Some(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                path.key("value"),
+                Some(CheckedPackageRefusalCause::InvalidValue),
+                node.node_id.clone(),
+            ));
+        }
+    }
     None
+}
+
+fn canonical_uuid(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 36
+        && bytes.iter().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                *byte == b'-'
+            } else {
+                byte.is_ascii_digit() || (b'a'..=b'f').contains(byte)
+            }
+        })
 }
 
 /// The admitted graph an application's checks read.
@@ -651,7 +705,7 @@ fn operation_defect(
         meter,
     )?;
 
-    if let Some(failure) = literal_type_defect(node, application.position, graph) {
+    if let Some(failure) = literal_defect(node, application.position, graph) {
         return Ok(Some(failure));
     }
 
@@ -849,6 +903,9 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ScalarTypeForm::Float32
             | ScalarTypeForm::Float64
             | ScalarTypeForm::Text
+            | ScalarTypeForm::String
+            | ScalarTypeForm::Uuid
+            | ScalarTypeForm::Timestamp
             | ScalarTypeForm::Enum),
         ) => Some(form.as_wire()),
         K::ScalarType(ScalarTypeForm::Unit) => Some("quantity"),
@@ -988,6 +1045,9 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | ScalarTypeForm::Float32
             | ScalarTypeForm::Float64
             | ScalarTypeForm::Text
+            | ScalarTypeForm::String
+            | ScalarTypeForm::Uuid
+            | ScalarTypeForm::Timestamp
             | ScalarTypeForm::Dimension
             | ScalarTypeForm::Unit
             | ScalarTypeForm::Enum
@@ -1231,6 +1291,7 @@ fn check_operands(
     } else if arguments.len() < required {
         return ineligible(None);
     }
+    let mut string_in_text_mode = false;
     for (position, expected) in entry.operands.iter().enumerate() {
         // Leaf-source operators require a value or type-bearing first
         // operand. These member terms have no operand family or type; do not
@@ -1265,7 +1326,11 @@ fn check_operands(
         }
         if let Some(actual) = argument_family(&arguments[position], nodes, kinds, index, catalog) {
             if !catalog.family_fits(actual, expected) {
-                return ineligible(Some(position));
+                if entry.mode == Some(OperationModeKind::TextProfile) && actual == "string" {
+                    string_in_text_mode = true;
+                } else {
+                    return ineligible(Some(position));
+                }
             }
         }
     }
@@ -1273,10 +1338,23 @@ fn check_operands(
         for (offset, argument) in arguments[required..].iter().enumerate() {
             if let Some(actual) = argument_family(argument, nodes, kinds, index, catalog) {
                 if !catalog.family_fits(actual, rest_family) {
-                    return ineligible(Some(required.saturating_add(offset)));
+                    if entry.mode == Some(OperationModeKind::TextProfile) && actual == "string" {
+                        string_in_text_mode = true;
+                    } else {
+                        return ineligible(Some(required.saturating_add(offset)));
+                    }
                 }
             }
         }
+    }
+    // A native String cannot inherit a Text profile. Arity and other operand
+    // family defects take precedence; these checks reuse the family lookups.
+    if string_in_text_mode {
+        return Ok(Some(application.refuse(
+            CheckedPackageRefusalCode::InvalidPackage,
+            application.body(&["operation", "mode", "value"]),
+            CheckedPackageRefusalCause::OperationModeTypeMismatch,
+        )));
     }
     for constraint in &entry.constraints {
         let indices: Option<Vec<usize>> = constraint
@@ -4699,6 +4777,9 @@ mod tests {
                 ("scalar_type", "float32", "float32"),
                 ("scalar_type", "float64", "float64"),
                 ("scalar_type", "text", "text"),
+                ("scalar_type", "string", "string"),
+                ("scalar_type", "uuid", "uuid"),
+                ("scalar_type", "timestamp", "timestamp"),
                 ("scalar_type", "unit", "quantity"),
                 ("scalar_type", "enum", "enum"),
                 ("composite_type", "option", "option"),

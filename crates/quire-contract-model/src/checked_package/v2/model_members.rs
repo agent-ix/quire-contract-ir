@@ -63,9 +63,21 @@ const STRUCTURAL_NODE: &str = "quire.structural-node/v1";
 const NATIVE_PREFIX: &str = "ix://quire/native/";
 const NATIVE_BOOLEAN: &str = "ix://quire/native/Boolean";
 const NATIVE_INTEGER: &str = "ix://quire/native/Integer";
+const NATIVE_STRING: &str = "ix://quire/native/String";
+const NATIVE_UUID: &str = "ix://quire/native/UUID";
+const NATIVE_TIMESTAMP: &str = "ix://quire/native/Timestamp";
 /// The unparameterized native value types a `typeRef` may name.
 const NATIVE_NAMES: &[&str] = &[
-    "Boolean", "Integer", "Rational", "Decimal", "Float32", "Float64", "Text",
+    "Boolean",
+    "Integer",
+    "Rational",
+    "Decimal",
+    "Float32",
+    "Float64",
+    "Text",
+    "String",
+    "UUID",
+    "Timestamp",
 ];
 
 /// FR-208 meaning ids, as the constructs table of a Semantic IR document
@@ -541,6 +553,9 @@ impl CollectionKind {
 pub(super) enum MemberType {
     Boolean,
     Integer,
+    String,
+    Uuid,
+    Timestamp,
     /// `Int[lo, hi]`.
     IntRange(IntegerBounds),
     /// `Reference<O>`, by the digest of `O`'s model declaration node.
@@ -579,6 +594,15 @@ impl MemberType {
             Self::Integer => {
                 anonymous("scalar_type", "integer", None, StructuralBody::Empty, bytes)
             }
+            Self::String => anonymous("scalar_type", "string", None, StructuralBody::Empty, bytes),
+            Self::Uuid => anonymous("scalar_type", "uuid", None, StructuralBody::Empty, bytes),
+            Self::Timestamp => anonymous(
+                "scalar_type",
+                "timestamp",
+                None,
+                StructuralBody::Empty,
+                bytes,
+            ),
             Self::IntRange(range) => {
                 let integer = Self::Integer.node_key(bytes)?;
                 anonymous(
@@ -997,6 +1021,9 @@ impl DomainModel {
         match type_ref {
             NATIVE_BOOLEAN => return Some(MemberType::Boolean),
             NATIVE_INTEGER => return Some(MemberType::Integer),
+            NATIVE_STRING => return Some(MemberType::String),
+            NATIVE_UUID => return Some(MemberType::Uuid),
+            NATIVE_TIMESTAMP => return Some(MemberType::Timestamp),
             _ => {}
         }
         if let Some(bounds) = self.value_types.get(type_ref) {
