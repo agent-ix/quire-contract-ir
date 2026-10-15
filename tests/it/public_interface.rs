@@ -134,6 +134,7 @@ fn exported_items() -> BTreeMap<String, BTreeSet<String>> {
             let name = declaration
                 .strip_prefix("struct ")
                 .or_else(|| declaration.strip_prefix("enum "))
+                .or_else(|| declaration.strip_prefix("trait "))
                 .or_else(|| declaration.strip_prefix("fn "))?;
             Some(
                 name.split(|character: char| {
