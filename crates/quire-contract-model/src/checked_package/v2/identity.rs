@@ -247,6 +247,9 @@ impl NominalKind {
                 | ScalarTypeForm::Float32
                 | ScalarTypeForm::Float64
                 | ScalarTypeForm::Text
+                | ScalarTypeForm::String
+                | ScalarTypeForm::Uuid
+                | ScalarTypeForm::Timestamp
                 | ScalarTypeForm::CompoundUnit,
             ) => None,
             K::CompositeType(

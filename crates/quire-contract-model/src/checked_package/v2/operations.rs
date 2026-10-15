@@ -300,7 +300,7 @@ pub(super) fn validate_operations(
                 return Err(failure);
             }
             references.walk_body(Referrer { node, position }, meter)?;
-            if let Some(failure) = literal_type_defect(node, position, &graph) {
+            if let Some(failure) = literal_defect(node, position, &graph) {
                 return Err(failure);
             }
             if let Some(failure) = body_root_defect(position, &graph, owners, meter)? {
@@ -327,15 +327,16 @@ pub(super) fn validate_operations(
     Ok(())
 }
 
-/// Check every literal against its own declared type, including body roots and
-/// arguments in `any_value` positions. The heap stack retains the authored
-/// path so a mismatch points at this literal's `type`.
-fn literal_type_defect(
+/// Check each literal type before native payload syntax, including body roots
+/// and arguments in `any_value` positions. The heap stack retains authored
+/// paths and the second pass over native literals preserves type precedence.
+fn literal_defect(
     node: &CheckedSemanticNodeV2,
     position: usize,
     graph: &Graph<'_>,
 ) -> Option<ValidationFailure> {
     let mut pending = vec![(&node.body, node_pointer(position).key("body"))];
+    let mut native = Vec::new();
     while let Some((term, path)) = pending.pop() {
         if body_term(term) == Some(BodyTerm::Literal) {
             let Some(kind) = literal_kind(term) else {
@@ -359,6 +360,9 @@ fn literal_type_defect(
                 LiteralKind::Float32Bits => family == "float32",
                 LiteralKind::Float64Bits => family == "float64",
                 LiteralKind::Text => family == "text",
+                LiteralKind::String => family == "string",
+                LiteralKind::Uuid => family == "uuid",
+                LiteralKind::Timestamp => family == "timestamp",
                 LiteralKind::Enum => matches!(family, "enum" | "ordered_enum"),
                 LiteralKind::None => family == "option",
             };
@@ -370,6 +374,12 @@ fn literal_type_defect(
                     node.node_id.clone(),
                 ));
             }
+            if matches!(
+                kind,
+                LiteralKind::String | LiteralKind::Uuid | LiteralKind::Timestamp
+            ) {
+                native.push((kind, term.get("value"), path.clone()));
+            }
         }
         for child in subterms(term).collect::<Vec<_>>().into_iter().rev() {
             let child_path = path.clone().key(child.key);
@@ -379,7 +389,46 @@ fn literal_type_defect(
             pending.push((child.value, child_path));
         }
     }
+    for (kind, value, path) in native {
+        let valid = match kind {
+            LiteralKind::String => value.is_some_and(Value::is_string),
+            LiteralKind::Uuid => value.and_then(Value::as_str).is_some_and(canonical_uuid),
+            LiteralKind::Timestamp => value.and_then(Value::as_str).is_some_and(|text| {
+                text.parse::<i128>()
+                    .is_ok_and(|parsed| parsed.to_string() == text)
+            }),
+            LiteralKind::Boolean
+            | LiteralKind::Integer
+            | LiteralKind::Rational
+            | LiteralKind::Decimal
+            | LiteralKind::Float32Bits
+            | LiteralKind::Float64Bits
+            | LiteralKind::Text
+            | LiteralKind::Enum
+            | LiteralKind::None => unreachable!("only native literals were recorded"),
+        };
+        if !valid {
+            return Some(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                path.key("value"),
+                Some(CheckedPackageRefusalCause::InvalidValue),
+                node.node_id.clone(),
+            ));
+        }
+    }
     None
+}
+
+fn canonical_uuid(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 36
+        && bytes.iter().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                *byte == b'-'
+            } else {
+                byte.is_ascii_digit() || (b'a'..=b'f').contains(byte)
+            }
+        })
 }
 
 /// The admitted graph an application's checks read.
@@ -651,7 +700,7 @@ fn operation_defect(
         meter,
     )?;
 
-    if let Some(failure) = literal_type_defect(node, application.position, graph) {
+    if let Some(failure) = literal_defect(node, application.position, graph) {
         return Ok(Some(failure));
     }
 
@@ -660,6 +709,22 @@ fn operation_defect(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    // A native String cannot inherit a Text profile. The mode is the
+    // conflicting claim, even when the text catalog entry is otherwise valid.
+    if entry.mode == Some(OperationModeKind::TextProfile)
+        && arguments.iter().any(|argument| {
+            operand_type_node(argument, nodes, kinds, index)
+                .as_ref()
+                .and_then(|ty| resolve_family(ty, nodes, kinds, index))
+                == Some("string")
+        })
+    {
+        return Ok(Some(application.refuse(
+            CheckedPackageRefusalCode::InvalidPackage,
+            application.body(&["operation", "mode", "value"]),
+            CheckedPackageRefusalCause::OperationModeTypeMismatch,
+        )));
+    }
     if let Some(failure) = check_operands(
         application,
         &operation,
@@ -849,6 +914,9 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ScalarTypeForm::Float32
             | ScalarTypeForm::Float64
             | ScalarTypeForm::Text
+            | ScalarTypeForm::String
+            | ScalarTypeForm::Uuid
+            | ScalarTypeForm::Timestamp
             | ScalarTypeForm::Enum),
         ) => Some(form.as_wire()),
         K::ScalarType(ScalarTypeForm::Unit) => Some("quantity"),
@@ -988,6 +1056,9 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | ScalarTypeForm::Float32
             | ScalarTypeForm::Float64
             | ScalarTypeForm::Text
+            | ScalarTypeForm::String
+            | ScalarTypeForm::Uuid
+            | ScalarTypeForm::Timestamp
             | ScalarTypeForm::Dimension
             | ScalarTypeForm::Unit
             | ScalarTypeForm::Enum

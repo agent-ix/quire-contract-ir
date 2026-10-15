@@ -52,6 +52,9 @@ impl Shape {
                 | ScalarTypeForm::Float32
                 | ScalarTypeForm::Float64
                 | ScalarTypeForm::Text
+                | ScalarTypeForm::String
+                | ScalarTypeForm::Uuid
+                | ScalarTypeForm::Timestamp
                 | ScalarTypeForm::Dimension
                 | ScalarTypeForm::Unit
                 | ScalarTypeForm::Enum
@@ -546,6 +549,9 @@ mod tests {
         match member {
             MemberType::Boolean => wire(&key, "scalar_type", "boolean", &key, empty()),
             MemberType::Integer => wire(&key, "scalar_type", "integer", &key, empty()),
+            MemberType::String => wire(&key, "scalar_type", "string", &key, empty()),
+            MemberType::Uuid => wire(&key, "scalar_type", "uuid", &key, empty()),
+            MemberType::Timestamp => wire(&key, "scalar_type", "timestamp", &key, empty()),
             MemberType::IntRange(range) => wire(
                 &key,
                 "bounded_domain",

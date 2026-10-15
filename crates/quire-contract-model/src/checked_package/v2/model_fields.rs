@@ -509,6 +509,12 @@ pub enum CheckedMemberType {
     Boolean,
     /// `Integer`.
     Integer,
+    /// Native String, distinct from profiled Text.
+    String,
+    /// Native UUID.
+    Uuid,
+    /// Native Timestamp.
+    Timestamp,
     /// `Int[lower, upper]`.
     IntRange {
         /// The inclusive lower bound.
@@ -564,6 +570,9 @@ impl From<&MemberType> for CheckedMemberType {
         match member_type {
             MemberType::Boolean => Self::Boolean,
             MemberType::Integer => Self::Integer,
+            MemberType::String => Self::String,
+            MemberType::Uuid => Self::Uuid,
+            MemberType::Timestamp => Self::Timestamp,
             MemberType::IntRange(range) => Self::IntRange {
                 lower: range.lower,
                 upper: range.upper,
