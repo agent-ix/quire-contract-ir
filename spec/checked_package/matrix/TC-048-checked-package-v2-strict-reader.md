@@ -1640,7 +1640,7 @@ inputs, the missing-end and fifth-member inputs with integer-string bounds refus
 clause's profile-fit defect; and the two inputs with rational-object bounds refuse
 `invalid-value` at `.../interval/lower`.
 
-## FCD relationships and named ends (FR-038-AC-165 through FR-038-AC-173)
+## FCD relationships and named ends (FR-038-AC-165 through FR-038-AC-173 and FR-038-AC-252)
 
 Status: **PLANNED / UNRUN**. These procedures are new acceptance work for
 IR-661. Existing TC-048 implementation and trace tags do not establish them.
@@ -1812,9 +1812,9 @@ results.
     admit by static-edge conformance. Independently substitute an unrelated
     operand 0, then operand 1, and a heterogeneous destination type: each
     refuses `ill_typed`/`operator-ineligible`, at arguments0, arguments1 and
-    member.name respectively. Give the homogeneous edge a finite Set or Bag
-    destination rather than the admissible Reference/Option edge: each
-    refuses the reference-edge check at member.name. Remove the requested
+    member.name respectively. A finite Set or Bag destination on the
+    homogeneous edge is no longer refused here: item 11 (FR-038-AC-252)
+    supersedes that clause of FR-038-AC-172. Remove the requested
     inverse role and name it: missing name wins before operand checks. Name
     a valid object node as member.declaration: the new declaration-kind check
     refuses `ill_typed`/`operator-ineligible` there. Give an otherwise valid
@@ -1823,9 +1823,32 @@ results.
     distinct from the relationship graph node; no Reference<relationship>
     substitutes for an object reference. These are static reader procedures,
     not runtime graph execution evidence.
+11. (FR-038-AC-252, IR-824; QSpec FR-322-AC-57 RN-18 and RN-20 through
+    RN-27, referenced by id only.) Start from item 10's homogeneous `Order`
+    self-relationship and author each variant independently from this
+    repository's public vocabulary, recomputing identities after each edit.
+    Patch the destination end multiplicity to finite `{0,3}` unique, then
+    `{0,3}` not unique, then `{2,3}`, and read `quire.op.model.reaches` over
+    two `Reference<Order>` operands with the source role and then the inverse
+    role: every case admits with the same node shape as the single-valued case
+    (Reference operands, Boolean `result_type`, no multiplicity or charge
+    member). Repeat with a `PriorityOrder` subtype as operand 1: it admits;
+    with an unrelated operand 1: `ill_typed`/`operator-ineligible` at
+    arguments1. Patch the end to `{0,unbounded}`, then to `{0,3}` ordered:
+    each refuses `unsupported_construct`/`expression-form` at member.name. Give
+    the end a destination type other than the receiver endpoint's, once
+    single-valued and once with upper bound 3: each refuses
+    `ill_typed`/`operator-ineligible` at member.name; the same different-type
+    end made `{0,unbounded}` refuses `unsupported_construct`/`expression-form`
+    (multiplicity before type); a named end against the declared direction
+    refuses `ill_typed`/`operator-ineligible` at member.name even when also
+    `{0,unbounded}` (direction before multiplicity). Give an admitted
+    multi-valued case a navigation result type instead of Boolean: it refuses
+    at body.result_type. These are static reader procedures; reachability
+    charges are not asserted here.
 
 Expected: each success and refusal above satisfies FR-038-AC-165 through
-FR-038-AC-173. Compare typed code, cause and pointer, and the calling graph-node
+FR-038-AC-173 and FR-038-AC-252. Compare typed code, cause and pointer, and the calling graph-node
 key only
 where the existing refusal retains its locus. At the private `admit_selection` return, selected-document declaration refusals
 additionally retain authentic declaration identity and valid origin under

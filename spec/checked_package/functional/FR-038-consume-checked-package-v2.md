@@ -1144,11 +1144,26 @@ as the object owner. Thus the endpoint mapping adapts the relationship-end
 case of the predicate; it does not apply the field-only equality between
 `member.declaration` and the receiver object node. Role, endpoint and
 direction resolution follow the binding above; FR-152 remains the authority
-for the destination end's typed multiplicity. An otherwise well-formed edge
-or pair of operands that fails reference-edge admissibility refuses
-`ill_typed`/`operator-ineligible`. The result remains the catalog's Boolean
-node, not navigation's destination type. Runtime traversal remains FR-043's
-owner responsibility; this reader checks the static package binding only.
+for the destination end's typed multiplicity. Merged QSpec
+FR-322-AC-57 (RN-18 and RN-20 through RN-27) and FR-152 "Reachability over a
+relationship end" admit a destination end of the receiver endpoint's own type
+whether it is single-valued (`[0,1]`, `[1,1]`) or finite multi-valued
+(`Set`- or `Bag`-shaped, unique or not). The reader SHALL therefore admit
+`quire.op.model.reaches` over any such end with the same node shape: operands
+0 and 1 stay `Reference` operands checked as above, and the result stays the
+catalog's Boolean node. The reader derives no extra node member from the end's
+multiplicity and carries no charge information, because the traversal charges
+belong to the consumer of the node. The checks run in the order direction,
+multiplicity, then type: an `unbounded` upper bound or an `ordered`
+destination end refuses `unsupported_construct`/`expression-form` at
+`member.name`, and a destination end of another type than the receiver
+endpoint refuses `ill_typed`/`operator-ineligible` at `member.name`, with
+multiplicity decided before type and direction before multiplicity. An
+otherwise well-formed edge or pair of operands that fails reference-edge
+admissibility refuses `ill_typed`/`operator-ineligible`. The result remains
+the catalog's Boolean node, not navigation's destination type. Runtime
+traversal remains FR-043's owner responsibility; this reader checks the static
+package binding only.
 
 These declaration checks run in step 1 above, including for an otherwise
 unused relationship. Their outer pointer is `/lock/model_selections/<i>`.
@@ -4406,6 +4421,7 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-243 | IMPLEMENTED (IR-800; tagged reader tests passed). The production catalog and closed V2 vocabularies admit exactly `quire.op.string.eq`, `.ne`, `quire.op.uuid.eq`, `.ne`, and `quire.op.timestamp.eq`, `.ne` as native comparisons; each public-reader package with same-family operands, Boolean result and no law, mode, member or leaves admits, and equal/unequal canonical payload controls retain their separate operand identities. For each of the six identities, replacing argument 0 and then argument 1, separately, with a foreign-family operand (`text` for `string`, `string` for `uuid`, `uuid` for `timestamp`) refuses `ill_typed`/`operator-ineligible` at the changed argument. `quire.op.integer.lt` and `quire.op.integer.add` over each of `string`, `uuid` and `timestamp` operands likewise refuse at `arguments/0`; neither a one-sided family check nor an ordering/arithmetic special case for one native family passes. | Test (TC-048) |
 | FR-038-AC-244 | IMPLEMENTED (IR-800; tagged reader tests passed). Adding a selected `text_profile` law to each native comparison refuses `invalid_package`/`operation-law-mismatch` at that law; adding a `text_profile` mode refuses `invalid_package`/`operation-mode-mismatch` at the mode; placing a `string` operand in `quire.op.text.eq` refuses `invalid_package`/`operation-mode-type-mismatch` at the mode value. An arity defect or another wrong-family operand in that text comparison refuses `ill_typed`/`operator-ineligible` at the arguments or first offending argument before the String-in-text-operation mode refusal. None admits by treating `string` as `text` or by ignoring a forbidden law or mode. | Test (TC-048) |
 | FR-038-AC-245 | IMPLEMENTED (IR-800; tagged reader tests passed). For each native `value_kind`, a literal typed at another family refuses `ill_typed`/`operator-ineligible` at its `type` even if its `value` is also malformed. With the right family, a non-string String value, an uppercase, hyphenless or malformed UUID, and a Timestamp value of `-0`, `+1`, `01`, empty text, outside signed-128 range or another noncanonical spelling refuse `invalid_package`/`invalid-value` at that literal's `value`; exact String Unicode sequences, UUID nil/max and both Timestamp endpoints admit. Recompute every affected node key and package identity so no stale-key refusal can stand in for these decisions. | Test (TC-048) |
+| FR-038-AC-252 | PLANNED / UNRUN (IR-824). This criterion supersedes the Set/Bag clause of FR-038-AC-172 (an "otherwise ineligible Set/Bag edge" refused `ill_typed`/`operator-ineligible`); no other outcome of AC-172 changes. Merged QSpec FR-322-AC-57 and FR-152 "Reachability over a relationship end" (RN-18, RN-20 to RN-27) admit `quire.op.model.reaches` over a finite multi-valued destination end. For a homogeneous self-relationship with a resolved forward or inverse end whose destination multiplicity is finite and not `[0,1]` or `[1,1]` (`{0,3}` unique, `{0,3}` not unique, `{2,3}`), the application admits with two `Reference` operands conforming to the receiver endpoint's own type (including a subtype operand 1) and the catalog's Boolean `result_type`; operand types, node members and result are those of the single-valued case, and the node carries no charge or multiplicity member. An `unbounded` upper bound or an `ordered` destination end refuses `unsupported_construct`/`expression-form` at `member.name`; a destination end whose type differs from the receiver endpoint's, single-valued or multi-valued, refuses `ill_typed`/`operator-ineligible` at `member.name`; an unrelated operand 1 over a multi-valued end refuses `ill_typed`/`operator-ineligible` at `arguments/1`. Decision order is direction, then multiplicity, then type: a wrong-direction traversal, an unbounded different-type end and a wrong-direction unbounded end refuse as `ill_typed`/`operator-ineligible` at `member.name`, as `unsupported_construct`/`expression-form` at `member.name`, and as `ill_typed`/`operator-ineligible` at `member.name` respectively. A wrong result node still refuses at `body.result_type`. | Test (TC-048) |
 | FR-038-AC-246 | Implemented (IR-803). For a reader-admitted `quire.op.structural.eq` application, `composite_application_operands` returns `CheckedCompositeOperator::Eq` together with its operands; for an otherwise equivalent reader-admitted `quire.op.structural.ne` application it returns `CheckedCompositeOperator::Ne` together with its operands. Between those cases, only the returned operator and the selected application's identity and occurrence may differ; operands (including order, child identities, semantic types and domains), ordinals and `consumed_work` are equal. The AC-182 public-fields inspection in `tests/it/checked_package_v2_composite_operands.rs` (`inspect_public_fields`) must exhaustively match both `CheckedCompositeOperator` variants, without a wildcard arm or `#[non_exhaustive]`. The consumer needs no separate operation lookup. TC-048 composite operand tests verify both cases. | Test |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
