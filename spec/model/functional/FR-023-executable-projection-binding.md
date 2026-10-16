@@ -75,7 +75,7 @@ relaxing them would let a document pass a published validator that IR then
 refuses; the decoder-first order would run the typed decoders over shapes no
 schema has bounded and leave FR-023-AC-5's agreement of schema and decoder
 unmeasurable. The same stage refuses the same value in the probe and coverage
-inputs of the conformance corpus (FR-020-AC-3), where it is an `invalid_corpus`
+inputs of the conformance corpus (FR-020-AC-5), where it is an `invalid_corpus`
 failure of the run and never reaches a decoder.
 
 The package is validated before binding. Every executable clause requires
