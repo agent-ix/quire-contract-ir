@@ -78,7 +78,8 @@ The operational classification is exact: malformed, missing, repeated, or
 non-UTF-8 arguments map to `invalid_invocation`; a corpus with no fixtures, an
 `inputs/` or `expectations/` entry that is not a UTF-8 `.json` file, an
 expectation with no input, a fixture name without a known operation, a malformed schema, fixture input or
-expectation, a successful package the published schema rejects, and an
+expectation, a successful package or `document_json` expression document the
+published schema rejects, and an
 observed coverage union that differs from the inventory map to
 `invalid_corpus`; unknown package or conformance schema identities map to
 `unsupported_profile`; absolute,
@@ -145,6 +146,7 @@ and exits 0 without reading a corpus.
 | FR-020-AC-12 | A published corpus run exits 0 and emits one row per fixture input, with every row reporting `match`. | Test (TC-018) |
 | FR-020-AC-13 | The published fixture schema rejects `0`, `1.0`, `"+1"`, `"01"`, `"-0"` and `""` in each of the eight integer members. | Test (TC-018) |
 | FR-020-AC-14 | The published package schema rejects a revision and a byte offset of `9007199254740993`. | Test (TC-018) |
+| FR-020-AC-15 | A `document_json` expression document that decodes successfully and that the published schema rejects makes the runner exit 2 with the code `invalid_corpus`. | Test (TC-018) |
 
 ## Dependencies
 
