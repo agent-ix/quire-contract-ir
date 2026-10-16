@@ -2250,3 +2250,25 @@ the fixture builder shall not implement or copy its private preimage.
    completes AC-5; the compiled public inventory and error matching for AC-1
    are also covered by
    [TC-058](../../model/matrix/TC-058-model-crate-public-interface.md).
+
+## Typed parameter declaration (FR-038-AC-258 through FR-038-AC-261)
+
+PLANNED/UNRUN (IR-832); no test is tagged yet. Build a self-built admitted
+package with two functions that take parameters of one name, level and type
+(they share one `value`/`parameter` node), a second pair of parameters named `x`
+at levels `0` and `1`, a parameter at level `10`, and add applications over
+parameters `a` and `b` in both argument orders (separately admitted packages).
+
+Expected: `parameter_declaration` over each parameter node returns its supplied
+id, the name literal's text and the level literal's canonical decimal text, with
+level `10` returned as `"10"`; the shared node returns the same result by either
+function, and the two `x` nodes have distinct ids and levels. Supply an unknown
+id (`UnknownNode`), a literal, an application and a function node
+(`NotParameter`), and a parameter whose body a crate-internal post-admission
+mutation lacks the `"name"` binding or gives a non-text name (`MalformedBody`);
+assert the typed error and no partial value. Feed each `GraphChild` id from
+`scalar_application_operands` for the add applications to the accessor and
+compare the names in ordinal order, then in the swapped package. Do not
+construct the expected name or level from the accessor under test. The
+compiled public inventory of the two new types is covered by
+[TC-058](../../model/matrix/TC-058-model-crate-public-interface.md).
