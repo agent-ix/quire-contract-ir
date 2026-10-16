@@ -135,34 +135,76 @@ fn tc_035_refuses_invalid_binding_population_and_context() {
     }
 }
 
-/// A binding expression carrying a source revision or byte offset of exactly
-/// 2^53 is admitted through the public binder. Above 2^53 the projection's
-/// normative schema (FR-023) refuses the whole projection as
-/// `invalid_wire_format` at `projection` before any expression is decoded.
-/// That pins today's schema-first behaviour; it is not evidence for
-/// FR-011-AC-3 or FR-012-AC-6, whose registered code is unmet on this path
-/// (IR-574). The binding expression decoder's mapping is asserted at the
-/// decoder (`wire::tests`).
-///
-/// Tracing: TC-015
-#[trace("TC-015")]
+/// Tracing: TC-015, TC-035, FR-023-AC-6
+#[trace("TC-015", "TC-035", "FR-023-AC-6")]
 #[test]
-fn tc_015_a_binding_expression_admits_a_revision_and_offset_of_exactly_two_to_the_53() {
+fn tc_035_projection_revisions_and_offsets_obey_the_schema_boundary() {
     const BOUND: u64 = 9_007_199_254_740_992;
-    let original = projection();
-    let offset = "/bindings/0/expression/expression/source/end/byte_offset";
-    let mut at_bound = original.clone();
-    *at_bound.pointer_mut(offset).unwrap() = json!(BOUND);
+    let mut at_bound = minimal_projection(1);
+    for pointer in [
+        "/package/source/revision",
+        "/package/requirements/0/revision",
+        "/bindings/0/clause/requirement/revision",
+        "/bindings/0/expression/owner/revision",
+        "/bindings/0/expression/expression/source/end/byte_offset",
+    ] {
+        *at_bound.pointer_mut(pointer).unwrap() = json!(BOUND);
+    }
     for end in ["start", "end"] {
         let revision = format!("/bindings/0/expression/expression/source/{end}/source/revision");
         *at_bound.pointer_mut(&revision).unwrap() = json!(BOUND);
+        for span in [
+            "/package/requirements/0/source",
+            "/package/requirements/0/clauses/0/source",
+        ] {
+            let revision = format!("{span}/{end}/source/revision");
+            *at_bound.pointer_mut(&revision).unwrap() = json!(BOUND);
+        }
     }
-    decode(&at_bound).expect("2^53 is admitted");
-    let mut over = original;
-    *over.pointer_mut(offset).unwrap() = json!(BOUND + 1);
-    let diagnostics = decode(&over).expect_err("the schema refuses the offset above 2^53");
-    assert_eq!(diagnostics[0].code, DiagnosticCode::InvalidWireFormat);
-    assert_eq!(diagnostics[0].path, "projection");
+    decode(&at_bound).expect("the projection admits every member at 2^53");
+
+    for (member, pointer) in [
+        ("package source revision", "/package/source/revision"),
+        (
+            "package requirement revision",
+            "/package/requirements/0/revision",
+        ),
+        (
+            "binding clause reference revision",
+            "/bindings/0/clause/requirement/revision",
+        ),
+        (
+            "expression source identity revision",
+            "/bindings/0/expression/expression/source/end/source/revision",
+        ),
+        (
+            "expression byte offset",
+            "/bindings/0/expression/expression/source/end/byte_offset",
+        ),
+    ] {
+        for value in [BOUND + 1, u64::MAX] {
+            let mut invalid = at_bound.clone();
+            *invalid.pointer_mut(pointer).unwrap() = json!(value);
+            let diagnostics = decode(&invalid)
+                .expect_err("an out-of-range member cannot produce a partial bound package");
+            assert_eq!(diagnostics.len(), 1, "{member} at {value}: {diagnostics:?}");
+            assert_eq!(
+                diagnostics[0].code,
+                DiagnosticCode::InvalidWireFormat,
+                "{member} at {value}"
+            );
+            assert_eq!(diagnostics[0].path, "projection", "{member} at {value}");
+            assert!(
+                diagnostics.iter().all(|diagnostic| !matches!(
+                    diagnostic.code,
+                    DiagnosticCode::InvalidSourceRevision
+                        | DiagnosticCode::InvalidRequirementRevision
+                        | DiagnosticCode::InvalidSourceSpan
+                )),
+                "{member} at {value}: {diagnostics:?}"
+            );
+        }
+    }
 }
 
 /// Tracing: TC-035, FR-023-AC-3
