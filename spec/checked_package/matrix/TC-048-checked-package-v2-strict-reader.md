@@ -1640,7 +1640,7 @@ inputs, the missing-end and fifth-member inputs with integer-string bounds refus
 clause's profile-fit defect; and the two inputs with rational-object bounds refuse
 `invalid-value` at `.../interval/lower`.
 
-## FCD relationships and named ends (FR-038-AC-165 through FR-038-AC-173 and FR-038-AC-252)
+## FCD relationships and named ends (FR-038-AC-165 through FR-038-AC-173 and FR-038-AC-252 through FR-038-AC-257)
 
 Status: **PLANNED / UNRUN**. These procedures are new acceptance work for
 IR-661. Existing TC-048 implementation and trace tags do not establish them.
@@ -1813,7 +1813,7 @@ results.
     operand 0, then operand 1, and a heterogeneous destination type: each
     refuses `ill_typed`/`operator-ineligible`, at arguments0, arguments1 and
     member.name respectively. A finite Set or Bag destination on the
-    homogeneous edge is no longer refused here: item 11 (FR-038-AC-252)
+    homogeneous edge is no longer refused here: item 11 (FR-038-AC-252 through FR-038-AC-257)
     supersedes that clause of FR-038-AC-172. Remove the requested
     inverse role and name it: missing name wins before operand checks. Name
     a valid object node as member.declaration: the new declaration-kind check
@@ -1823,7 +1823,7 @@ results.
     distinct from the relationship graph node; no Reference<relationship>
     substitutes for an object reference. These are static reader procedures,
     not runtime graph execution evidence.
-11. (FR-038-AC-252, IR-824; QSpec FR-322-AC-57 RN-18 and RN-20 through
+11. (FR-038-AC-252 through FR-038-AC-257, IR-824; QSpec FR-322-AC-57 RN-18 and RN-20 through
     RN-27, referenced by id only.) Start from item 10's homogeneous `Order`
     self-relationship and author each variant independently from this
     repository's public vocabulary, recomputing identities after each edit.
@@ -1844,11 +1844,18 @@ results.
     refuses `ill_typed`/`operator-ineligible` at member.name even when also
     `{0,unbounded}` (direction before multiplicity). Give an admitted
     multi-valued case a navigation result type instead of Boolean: it refuses
-    at body.result_type. These are static reader procedures; reachability
-    charges are not asserted here.
+    at body.result_type. Last, combine defects in one package, citing QSpec
+    FR-322-AC-57's check order (receiver-endpoint operands, then direction,
+    then multiplicity, then type): an unrelated operand 1 together with, in
+    turn, an end against the declared direction, a `{0,unbounded}` end, a
+    `{0,3}` ordered end and an end of another type, each refuses
+    `ill_typed`/`operator-ineligible` at arguments1, not at member.name. The
+    implementation slice reorders the reader's operand-1 check to match; a
+    single-defect package is unchanged. These are static reader procedures;
+    reachability charges are not asserted here.
 
 Expected: each success and refusal above satisfies FR-038-AC-165 through
-FR-038-AC-173 and FR-038-AC-252. Compare typed code, cause and pointer, and the calling graph-node
+FR-038-AC-173 and FR-038-AC-252 through FR-038-AC-257. Compare typed code, cause and pointer, and the calling graph-node
 key only
 where the existing refusal retains its locus. At the private `admit_selection` return, selected-document declaration refusals
 additionally retain authentic declaration identity and valid origin under
