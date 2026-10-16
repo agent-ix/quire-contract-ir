@@ -131,18 +131,20 @@ and exits 0 without reading a corpus.
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-020-AC-1 | A process test runs the published corpus twice without linking a test harness to the library and obtains byte-identical JSON Lines, one `match` with non-empty observed trace ids per fixture input, exit 0, empty stderr, and complete tool/schema/profile identity. | Test (TC-018) |
+| FR-020-AC-1 | A process test runs the published corpus twice without linking a test harness to the library and obtains byte-identical JSON Lines, non-empty observed trace ids per fixture input, empty stderr, and complete tool/schema/profile identity. | Test (TC-018) |
 | FR-020-AC-2 | Process fixtures pin exit 1 with all six mismatch kinds in fixed order and exit 2 for each of the six closed operational codes (`invalid_invocation`, `invalid_corpus`, `unsupported_profile`, `unsafe_path`, `fixture_io`, `resource_exhausted`), with no absolute path in the error record; stdout/stderr separation, no partial output, `--version`, unknown/repeated arguments, non-UTF-8 argument handling, and pre-decode rejection of a 60000-level referenced JSON input are exact. | Test (TC-018) |
-| FR-020-AC-3 | The published fixture schema accepts `"-9223372036854775808"`, `"0"` and `"9223372036854775807"` in each of the eight integer members and rejects `0`, `1.0`, `"+1"`, `"01"`, `"-0"` and `""` in each. | Test (TC-018) |
-| FR-020-AC-4 | The published package schema accepts a revision and a byte offset of `9007199254740992` and rejects a revision and a byte offset of `9007199254740993`. | Test (TC-018) |
-| FR-020-AC-5 | The fixture input schema refuses as `invalid_corpus` a probe clause-reference revision, a coverage trace source or target-span revision or byte offset, and a coverage trace target revision above `9007199254740992`. | Test (TC-018) |
-| FR-020-AC-6 | The fixture input schema passes a probe clause-reference revision, a coverage trace source or target-span revision or byte offset, and a coverage trace target revision of exactly `9007199254740992`. | Test (TC-018) |
-| FR-020-AC-7 | A decoder fixture that supplies a JSON number in one of the eight integer members straight to the decoder returns `invalid_wire_format`. | Test (TC-018) |
+| FR-020-AC-3 | The published fixture schema accepts `"-9223372036854775808"`, `"0"` and `"9223372036854775807"` in each of the eight integer members. | Test (TC-018) |
+| FR-020-AC-4 | The published package schema accepts a revision and a byte offset of `9007199254740992`. | Test (TC-018) |
+| FR-020-AC-5 | The fixture input schema refuses as `invalid_corpus` values above `9007199254740992` for each of these members: a probe clause-reference revision; a coverage trace source or target-span revision or byte offset; and a coverage trace target revision. | Test (TC-018) |
+| FR-020-AC-6 | The fixture input schema passes the value `9007199254740992` for each of these members: a probe clause-reference revision; a coverage trace source or target-span revision or byte offset; and a coverage trace target revision. | Test (TC-018) |
+| FR-020-AC-7 | The runner returns `invalid_wire_format` when a decoder fixture supplies a JSON number in one of the eight integer members straight to the decoder. | Test (TC-018) |
 | FR-020-AC-8 | The expectation of a decoder fixture that supplies a JSON number in one of the eight integer members carries the code `invalid_wire_format`. | Test (TC-018) |
-| FR-020-AC-9 | A JSON number in one of the eight integer members of a valid-operation input is refused as `invalid_corpus` at the fixture schema check. | Test (TC-018) |
+| FR-020-AC-9 | The same number as the decoder fixture supplied to the decoder, placed in one of the eight integer members of a valid-operation input, is refused as `invalid_corpus` at the fixture schema check. | Test (TC-018) |
 | FR-020-AC-10 | Every canonical file of the published corpus whose object holds one of the eight integer members equals the expected bytes written in the test. | Test (TC-018) |
 | FR-020-AC-11 | Every canonical file of the published corpus whose object holds one of the eight integer members spells those members only as strings. | Test (TC-018) |
-| FR-020-AC-12 | The published corpus runs with exit 0 and every fixture reports a `match`. | Test (TC-018) |
+| FR-020-AC-12 | A published corpus run exits 0 and emits one row per fixture input, with every row reporting `match`. | Test (TC-018) |
+| FR-020-AC-13 | The published fixture schema rejects `0`, `1.0`, `"+1"`, `"01"`, `"-0"` and `""` in each of the eight integer members. | Test (TC-018) |
+| FR-020-AC-14 | The published package schema rejects a revision and a byte offset of `9007199254740993`. | Test (TC-018) |
 
 ## Dependencies
 

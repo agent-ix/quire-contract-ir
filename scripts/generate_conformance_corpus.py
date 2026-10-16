@@ -232,7 +232,7 @@ def build_cases() -> list:
     add_case(cases, "package-wire-depth-over", "package", {"document_json": wire_over},
              "diagnostic:invalid_wire_format", "boundary:wire.depth.over_maximum")
 
-    # Decoder fixtures (FR-011-AC-3, FR-012-AC-6, FR-013-AC-5, FR-020-AC-3): a
+    # Decoder fixtures (FR-011-AC-3, FR-012-AC-6, FR-013-AC-5, FR-020-AC-7..AC-9): a
     # `document_json` input hands the decoder the exact text, so a value the
     # schema bounds (a revision or byte offset above 2^53, a JSON number in one
     # of the eight integer members) reaches the decoder, which refuses it. The
