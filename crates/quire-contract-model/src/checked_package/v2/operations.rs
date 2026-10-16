@@ -350,23 +350,28 @@ fn literal_defect(
             else {
                 continue;
             };
-            let Some(family) = resolve_family(&type_id, graph.nodes, graph.kinds, graph.index)
-            else {
+            let family = resolve_family(&type_id, graph.nodes, graph.kinds, graph.index);
+            // IEEE bits require their own width even when the declared node
+            // has no operand family. Other literal kinds keep their existing
+            // familyless-type behavior.
+            if family.is_none()
+                && !matches!(kind, LiteralKind::Float32Bits | LiteralKind::Float64Bits)
+            {
                 continue;
-            };
+            }
             let fits = match kind {
-                LiteralKind::Boolean => family == "boolean",
-                LiteralKind::Integer => family == "integer",
-                LiteralKind::Rational => family == "rational",
-                LiteralKind::Decimal => family == "decimal",
-                LiteralKind::Float32Bits => family == "float32",
-                LiteralKind::Float64Bits => family == "float64",
-                LiteralKind::Text => family == "text",
-                LiteralKind::String => family == "string",
-                LiteralKind::Uuid => family == "uuid",
-                LiteralKind::Timestamp => family == "timestamp",
-                LiteralKind::Enum => matches!(family, "enum" | "ordered_enum"),
-                LiteralKind::None => family == "option",
+                LiteralKind::Boolean => family == Some("boolean"),
+                LiteralKind::Integer => family == Some("integer"),
+                LiteralKind::Rational => family == Some("rational"),
+                LiteralKind::Decimal => family == Some("decimal"),
+                LiteralKind::Float32Bits => family == Some("float32"),
+                LiteralKind::Float64Bits => family == Some("float64"),
+                LiteralKind::Text => family == Some("text"),
+                LiteralKind::String => family == Some("string"),
+                LiteralKind::Uuid => family == Some("uuid"),
+                LiteralKind::Timestamp => family == Some("timestamp"),
+                LiteralKind::Enum => matches!(family, Some("enum" | "ordered_enum")),
+                LiteralKind::None => family == Some("option"),
             };
             if !fits {
                 return Some(ValidationFailure::refused_at(
@@ -524,9 +529,7 @@ fn check_ieee_member_result(
     if !matches!(
         entry.identity.as_ref(),
         "quire.op.ieee.to_float32" | "quire.op.ieee.to_float64"
-    ) || entry.result.as_ref() != "member"
-        || entry.member != Some(OperationMemberKind::TypeArgument)
-    {
+    ) {
         return None;
     }
     let refuse = || {
@@ -536,6 +539,12 @@ fn check_ieee_member_result(
             CheckedPackageRefusalCause::OperatorIneligible,
         )
     };
+    // The identity fixes the conversion contract. If its catalogued result
+    // shape drifts, refuse the typed package instead of silently skipping it.
+    if entry.result.as_ref() != "member" || entry.member != Some(OperationMemberKind::TypeArgument)
+    {
+        return Some(refuse());
+    }
     let expected_family = entry
         .constraints
         .iter()

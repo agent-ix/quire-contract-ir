@@ -313,7 +313,7 @@ retains the reader's existing incomplete-before-later-defect precedence.
 
 ## IEEE literal and catalog result admission (FR-038-AC-222 and FR-038-AC-223)
 
-IMPLEMENTED (IR-742; tagged reader tests passed). Build otherwise valid V2
+Implemented (IR-742). Build otherwise valid V2
 packages using the published `quire.op.ieee.to_float32` and
 `quire.op.ieee.to_float64` entries, their selected
 IEEE law, correctly typed `type_argument`, and genuine Float32 and Float64

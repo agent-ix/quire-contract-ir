@@ -7,7 +7,8 @@
 
 use crate::support::checked_package::{
     application_node_key, boolean_key, canonical, evidence_for, node_id, pointer,
-    rebuild_source_map, refresh_identity, rekey_application_node, structural_key, v2_all_families,
+    rebuild_source_map, refresh_identity, rekey_application_node, rename_node, structural_key,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -118,7 +119,11 @@ fn tc_048_ieee_bits_literal_requires_its_own_declared_family() {
     }
 }
 
-fn with_ieee_float_operand(kind: &str, declared_family: &str) -> (Value, usize) {
+fn with_ieee_float_operands(
+    first_kind: &str,
+    second_kind: &str,
+    declared_family: &str,
+) -> (Value, usize) {
     let (mut package, _) = with_ieee_literal("float32_bits", "float32");
     let declared = node_id(&structural_key(
         "scalar_type",
@@ -145,11 +150,7 @@ fn with_ieee_float_operand(kind: &str, declared_family: &str) -> (Value, usize) 
             "mode": null, "member": null, "leaves": [],
         },
         "result_type": node_id(&boolean_key()),
-        "arguments": [literal(kind), literal(if declared_family == "float32" {
-            "float32_bits"
-        } else {
-            "float64_bits"
-        })],
+        "arguments": [literal(first_kind), literal(second_kind)],
     });
     let digest = application_node_key("expression", "call", &boolean_key(), &body);
     let application = json!({
@@ -168,6 +169,112 @@ fn with_ieee_float_operand(kind: &str, declared_family: &str) -> (Value, usize) 
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
     (package, position)
+}
+
+fn with_ieee_float_operand(kind: &str, declared_family: &str) -> (Value, usize) {
+    let matching = if declared_family == "float32" {
+        "float32_bits"
+    } else {
+        "float64_bits"
+    };
+    with_ieee_float_operands(kind, matching, declared_family)
+}
+
+fn familyless_type(package: &Value, tag: &str, form: &str) -> Value {
+    package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == tag && node["semantic_form"] == form)
+        .unwrap_or_else(|| panic!("fixture lacks {tag}/{form}"))["node_id"]
+        .clone()
+}
+
+fn assert_literal_type_refusal(package: &Value, position: usize, suffix: &str) {
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(package) else {
+        panic!("literal at {position}{suffix} must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::OperatorIneligible)
+    );
+    assert_eq!(
+        refusal.path,
+        Some(pointer(&format!(
+            "/semantic_graph/nodes/{position}/body{suffix}/type"
+        )))
+    );
+    assert_eq!(
+        serde_json::to_value(refusal.locus).expect("locus"),
+        package["semantic_graph"]["nodes"][position]["node_id"]
+    );
+}
+
+/// Trace: TC-048, FR-038-AC-222. Every familyless node shape in the public
+/// all-families fixture is tried as a declared IEEE literal type.
+#[trace("TC-048", "FR-038-AC-222")]
+#[test]
+fn tc_048_ieee_bits_reject_every_familyless_declared_type() {
+    let shapes = [
+        ("value", "literal"),
+        ("value", "parameter"),
+        ("model", "namespace"),
+        ("model", "process"),
+        ("relation", "relationship"),
+        ("state", "snapshot"),
+        ("state", "frame"),
+        ("temporal", "temporal_clause"),
+        ("protocol", "protocol_clause"),
+        ("claim", "verification_claim"),
+        ("correspondence", "source_locus"),
+    ];
+    for kind in ["float32_bits", "float64_bits"] {
+        let own_family = if kind == "float32_bits" {
+            "float32"
+        } else {
+            "float64"
+        };
+        for (tag, form) in shapes {
+            let (mut standalone, position) = with_ieee_literal(kind, own_family);
+            let declared = familyless_type(&standalone, tag, form);
+            let stale = standalone["semantic_graph"]["nodes"][position]["node_id"]["digest"]
+                .as_str()
+                .expect("literal digest")
+                .to_owned();
+            standalone["semantic_graph"]["nodes"][position]["body"]["type"] = declared.clone();
+            standalone["semantic_graph"]["nodes"][position]["dependencies"] =
+                json!([declared.clone()]);
+            let body = &standalone["semantic_graph"]["nodes"][position]["body"];
+            let fresh = structural_key("value", "literal", Some(&ieee_type_digest(kind)), body);
+            rename_node(&mut standalone, &stale, &fresh);
+            rebuild_source_map(&mut standalone);
+            refresh_identity(&mut standalone);
+            assert_literal_type_refusal(&standalone, position, "");
+
+            for operand in [0, 1] {
+                let (mut nested, position) = with_ieee_float_operand(kind, own_family);
+                nested["semantic_graph"]["nodes"][position]["body"]["arguments"][operand]["type"] =
+                    declared.clone();
+                rekey_application_node(&mut nested, position);
+                refresh_identity(&mut nested);
+                assert_literal_type_refusal(&nested, position, &format!("/arguments/{operand}"));
+            }
+        }
+    }
+}
+
+fn ieee_type_digest(kind: &str) -> String {
+    structural_key(
+        "scalar_type",
+        if kind == "float32_bits" {
+            "float32"
+        } else {
+            "float64"
+        },
+        None,
+        &json!({"term": "aggregate", "members": []}),
+    )
 }
 
 /// Trace: TC-048, FR-038-AC-222. `ieee_float` accepts either declared
@@ -203,6 +310,22 @@ fn tc_048_ieee_literal_width_refuses_before_an_accepting_operand_family() {
             serde_json::to_value(refusal.locus).expect("locus"),
             adverse["semantic_graph"]["nodes"][position]["node_id"]
         );
+    }
+}
+
+/// Trace: TC-048, FR-038-AC-222. The second argument must be checked even
+/// when the first is valid; both wrong must still locate the first defect.
+#[trace("TC-048", "FR-038-AC-222")]
+#[test]
+fn tc_048_ieee_literal_width_checks_both_arguments() {
+    for (declared, matching, wrong) in [
+        ("float32", "float32_bits", "float64_bits"),
+        ("float64", "float64_bits", "float32_bits"),
+    ] {
+        for (first, second, offending) in [(matching, wrong, 1), (wrong, wrong, 0)] {
+            let (package, position) = with_ieee_float_operands(first, second, declared);
+            assert_literal_type_refusal(&package, position, &format!("/arguments/{offending}"));
+        }
     }
 }
 
