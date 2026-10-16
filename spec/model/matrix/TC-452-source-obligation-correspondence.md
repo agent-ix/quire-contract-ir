@@ -127,19 +127,20 @@ that makes either field public or permits literal construction must turn its
 corresponding negative fixture into an unexpected compile success.
 
 Using a valid selection, omit the Quire, IR V2, QSL, and `quire-code-rs` outcomes one
-at a time. For each owner, also supply a partial outcome marked
-`Incomplete` with an owner-typed cause; exercise early termination for IR V2,
+at a time. For each owner, also supply an outcome from an
+enumerator whose terminal event is `Err(owner-typed cause)`, issued `Incomplete`; exercise early termination for IR V2,
 QSL type-work exhaustion and unfinished typing, and a selected module parse failure
-for `quire-code-rs`. Compare each with an outcome marked `Complete`
+for `quire-code-rs`. Compare each with an outcome issued `Complete` after the enumerator's `Ok(None)`
 whose valid scope contains an empty subinventory, such as the function facts
-for a fully parsed module with no functions. Supply an outcome source mismatch and a wrong
-owner/scope position to the census. Separately supply an observed count that
+for a fully parsed module with no functions. Supply to the census an outcome whose source differs from the selected
+source, and a well-formed outcome in the wrong owner position. Separately
+supply an owner/scope pair mismatch to the outcome boundary. Separately supply an observed count that
 differs from the retained rows, and a foreign-source row, to the outcome
 boundary.
 Then build the full two-authored-criterion, three-occurrence, one-empty-module,
 two-function fixture with explicit many-to-many assertions, and exercise
 unmapped entities, foreign-source and dangling assertion endpoints, exact duplicate inputs,
-conflicting inventory facts, conflicting assertion relation facts, and
+conflicting inventory facts (a `SemanticNode` repeated with one `CheckedNodeId` and differing `CheckedSemanticId`), conflicting assertion relation facts, and
 conflicting assertion provenance. Permute equivalent inputs and remove one
 occurrence from a complete IR V2 inventory.
 
@@ -159,8 +160,9 @@ owner and no census. An incomplete outcome returns
 `IncompleteOwnerInventory` with the original typed cause and no census. A
 fully parsed production module with no function facts is accepted as complete,
 its module row remains visible, and it differs from both errors. A source
-mismatch returns `InventorySourceMismatch`; a wrong owner/scope returns
-`InventoryScopeMismatch`, each with no census. A count mismatch is
+mismatch returns `InventorySourceMismatch`; a well-formed outcome in the wrong owner position returns
+`InventoryScopeMismatch`, each with no census; an owner/scope pair mismatch is
+refused earlier as `OwnerScopeMismatch` with no outcome. A count mismatch is
 refused by `SourceInventoryOutcomeError::ObservedCountMismatch` and a foreign
 row by `RowSourceMismatch`, each with no outcome. Rejected assertions retain their distinct typed
 reasons; `ConflictingRelation` and `ConflictingProvenance` are each directly
