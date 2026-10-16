@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! FR-052 provisional input tests. TC-452's complete owner oracle is unrun.
+//! FR-052 neutral outcome and synthetic census tests.
 
 use ix_trace_rs::trace;
 use quire_contract_model::source_obligation::{
-    SourceAssertionId, SourceAssertionProvenance, SourceAuthoredCriterionId,
-    SourceContractAuthorId, SourceCorrespondenceAssertion, SourceCriterionSourceBinding,
+    build_source_obligation_census, SourceAssertionId, SourceAssertionProvenance,
+    SourceAuthoredCriterionId, SourceContractAuthorId, SourceCorrespondenceAssertion,
+    SourceCorrespondenceError, SourceCorrespondenceRejectionReason, SourceCriterionSourceBinding,
     SourceDeclarationHandle, SourceExpressionHandle, SourceInventoryCompleteness,
-    SourceInventoryEnumerator, SourceInventoryEnvelope, SourceInventoryIdentity,
+    SourceInventoryDisposition, SourceInventoryEnumerator, SourceInventoryIdentity,
     SourceInventoryIncompleteReason, SourceInventoryOutcome, SourceInventoryOutcomeError,
-    SourceInventoryOwner, SourceInventoryRow, SourceInventoryScope, SourceObligationInput,
-    SourceObligationSite, SourcePendingObligationId, SourcePendingObligationKind,
-    SourceProductionFunctionId, SourceProductionModuleId, SourceRequirementOccurrenceId,
-    SourceSemanticOccurrenceId, SourceTypeExhaustion, SourceTypeWorkDimension, SourceUnitHandle,
+    SourceInventoryOwner, SourceInventoryRow, SourceInventoryScope, SourceMissingMappingReason,
+    SourceObligationInput, SourceObligationSite, SourcePendingObligationId,
+    SourcePendingObligationKind, SourceProductionFunctionId, SourceProductionModuleId,
+    SourceRequirementOccurrenceId, SourceSemanticOccurrenceId, SourceTypeExhaustion,
+    SourceTypeWorkDimension, SourceUnitHandle,
 };
 use quire_contract_model::{
     CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageIncomplete,
@@ -71,65 +73,6 @@ fn occurrence() -> SourceSemanticOccurrenceId {
     )
 }
 
-/// Trace: FR-052-AC-8
-#[trace("FR-052-AC-8")]
-#[test]
-fn provisional_input_retains_owner_rows_and_authored_assertions_without_a_census() {
-    let selected = source();
-    let qsl_identity = SourceInventoryIdentity::RequirementRecord(SourceRequirementOccurrenceId {
-        node: [1; 32],
-        role: "expression".into(),
-        ordinal: 0,
-    });
-    let qsl_row = SourceInventoryRow::new(selected.clone(), qsl_identity.clone());
-    let qsl = SourceInventoryEnvelope::new(
-        SourceInventoryOwner::Qsl,
-        selected.clone(),
-        SourceInventoryScope::QslCheckedRequirementsAndPendingObligations,
-        vec![qsl_row],
-        None,
-    );
-    let function =
-        SourceProductionFunctionId::new(SourceProductionModuleId::new("src/lib.rs"), "check");
-    let assertion = SourceCorrespondenceAssertion::new(
-        SourceAssertionId::new("link-1"),
-        selected.clone(),
-        criterion("AC-1"),
-        occurrence(),
-        Some(function.clone()),
-        SourceAssertionProvenance {
-            source: selected.clone(),
-            author: SourceContractAuthorId::new("author"),
-        },
-    );
-    let input = SourceObligationInput::new(
-        selected.clone(),
-        Some(binding(selected.clone())),
-        None,
-        None,
-        Some(qsl),
-        None,
-        vec![assertion],
-    );
-    assert_eq!(input.source(), &selected);
-    assert!(input.ir_v2().is_none());
-    assert!(input.quire_code_rs().is_none());
-    let report = input.qsl().expect("QSL report was supplied");
-    assert_eq!(report.owner(), SourceInventoryOwner::Qsl);
-    assert_eq!(report.source(), &selected);
-    assert_eq!(
-        report.scope(),
-        SourceInventoryScope::QslCheckedRequirementsAndPendingObligations
-    );
-    assert!(report.stop_reason().is_none());
-    assert_eq!(report.items().len(), 1);
-    assert_eq!(report.items()[0].owner(), SourceInventoryOwner::Qsl);
-    assert_eq!(report.items()[0].source(), &selected);
-    assert_eq!(report.items()[0].identity(), &qsl_identity);
-    assert_eq!(input.assertions().len(), 1);
-    assert_eq!(input.assertions()[0].production_function(), Some(&function));
-}
-
 /// Trace: FR-052-AC-14, TC-452
 #[trace("TC-452", "FR-052-AC-14")]
 #[test]
@@ -155,13 +98,11 @@ fn quire_criteria_and_selection_binding_remain_typed_and_distinct() {
     assert_eq!(rows[1].owner(), SourceInventoryOwner::Quire);
     assert_ne!(rows[0].identity(), rows[1].identity());
 
-    let quire = SourceInventoryEnvelope::new(
+    let quire = SourceInventoryOutcome::from_enumerator(TestEnumerator::new(
         SourceInventoryOwner::Quire,
-        selected.clone(),
-        SourceInventoryScope::QuireSelectedAuthoredCriteria,
         rows.clone(),
-        None,
-    );
+    ))
+    .expect("Quire outcome");
     let link = SourceCorrespondenceAssertion::new(
         SourceAssertionId::new("link-1"),
         selected.clone(),
@@ -237,8 +178,8 @@ fn quire_outcome_rejects_other_owner_scope_and_rows() {
     );
 }
 
-/// Trace: FR-052-AC-8
-#[trace("FR-052-AC-8")]
+/// Trace: FR-052-AC-12, FR-052-AC-13
+#[trace("FR-052-AC-12", "FR-052-AC-13")]
 #[test]
 fn native_qsl_identity_fields_and_stop_causes_remain_distinct() {
     let selected = source();
@@ -309,30 +250,33 @@ fn native_qsl_identity_fields_and_stop_causes_remain_distinct() {
     let unfinished = SourceInventoryIncompleteReason::TypeAdmissionUnfinished {
         declaration: SourceDeclarationHandle(1),
     };
-    let report = SourceInventoryEnvelope::new(
-        SourceInventoryOwner::Qsl,
-        selected.clone(),
-        SourceInventoryScope::QslCheckedRequirementsAndPendingObligations,
-        pending_keys
-            .into_iter()
-            .map(|identity| {
-                SourceInventoryRow::new(
-                    selected.clone(),
-                    SourceInventoryIdentity::PendingObligation(identity),
-                )
-            })
-            .collect(),
-        Some(exhaustion.clone()),
-    );
+    let qsl_rows = pending_keys
+        .into_iter()
+        .map(|identity| {
+            SourceInventoryRow::new(
+                selected.clone(),
+                SourceInventoryIdentity::PendingObligation(identity),
+            )
+        })
+        .collect();
+    let mut enumerator = TestEnumerator::new(SourceInventoryOwner::Qsl, qsl_rows);
+    enumerator.stop = Some(exhaustion.clone());
+    let report = SourceInventoryOutcome::from_enumerator(enumerator).expect("QSL outcome");
     assert_eq!(report.items().len(), 8);
-    assert_eq!(report.stop_reason(), Some(&exhaustion));
-    assert_ne!(report.stop_reason(), Some(&unfinished));
+    assert_eq!(
+        report.completeness(),
+        &SourceInventoryCompleteness::Incomplete(exhaustion)
+    );
+    assert_ne!(
+        report.completeness(),
+        &SourceInventoryCompleteness::Incomplete(unfinished)
+    );
 }
 
-/// Trace: FR-052-AC-4, FR-052-AC-8
-#[trace("FR-052-AC-4", "FR-052-AC-8")]
+/// Trace: FR-052-AC-4
+#[trace("FR-052-AC-4")]
 #[test]
-fn provisional_input_has_no_result_or_completeness_fields() {
+fn census_input_has_no_result_or_completeness_fields() {
     let source = include_str!("../../crates/quire-contract-model/src/source_obligation.rs");
     let input = source
         .split("pub struct SourceObligationInput {")
@@ -356,17 +300,6 @@ fn provisional_input_has_no_result_or_completeness_fields() {
             "forbidden input field {forbidden}"
         );
     }
-    let envelope = source
-        .split("pub struct SourceInventoryEnvelope {")
-        .nth(1)
-        .expect("envelope declaration")
-        .split('}')
-        .next()
-        .expect("envelope fields");
-    assert!(!envelope.contains("completeness:"));
-    assert!(!envelope.contains("item_count:"));
-    assert!(!source.contains("pub struct SourceObligationCensus"));
-    assert!(!source.contains("pub fn build_source_obligation_census"));
 }
 
 // These synthetic enumerators exercise the neutral retention boundary. They
@@ -479,15 +412,6 @@ fn terminal_boundary_distinguishes_empty_complete_partial_and_invalid_count() {
             retained: 1,
         })
     );
-    let provisional = SourceInventoryEnvelope::new(
-        SourceInventoryOwner::QuireCodeRs,
-        source(),
-        SourceInventoryScope::QuireCodeRsProductionModulesAndFunctions,
-        vec![],
-        None,
-    );
-    assert!(provisional.stop_reason().is_none());
-    assert!(provisional.items().is_empty());
 }
 
 /// Trace: FR-052-AC-12, FR-052-AC-13
@@ -577,5 +501,949 @@ fn terminal_boundary_preserves_typed_stops_and_rejects_mismatched_rows() {
     assert_eq!(
         SourceInventoryOutcome::from_enumerator(wrong_stop),
         Err(SourceInventoryOutcomeError::StopOwnerMismatch)
+    );
+}
+
+fn census_outcome(
+    owner: SourceInventoryOwner,
+    rows: Vec<SourceInventoryRow>,
+) -> SourceInventoryOutcome {
+    SourceInventoryOutcome::from_enumerator(TestEnumerator::new(owner, rows))
+        .expect("synthetic outcome")
+}
+
+fn semantic(id: char) -> quire_contract_model::CheckedSemanticId {
+    quire_contract_model::CheckedSemanticId {
+        domain: "semantic/v1".into(),
+        algorithm: "sha256".into(),
+        digest: id.to_string().repeat(64).into(),
+    }
+}
+
+fn census_input(assertions: Vec<SourceCorrespondenceAssertion>) -> SourceObligationInput {
+    let selected = source();
+    let occ = occurrence();
+    let module = SourceProductionModuleId::new("src/lib.rs");
+    let function = SourceProductionFunctionId::new(module.clone(), "check");
+    let second_function = SourceProductionFunctionId::new(module.clone(), "verify");
+    SourceObligationInput::new(
+        selected.clone(),
+        Some(binding(selected.clone())),
+        Some(census_outcome(
+            SourceInventoryOwner::Quire,
+            vec![
+                SourceInventoryRow::new(
+                    selected.clone(),
+                    SourceInventoryIdentity::Criterion(criterion("AC-1")),
+                ),
+                SourceInventoryRow::new(
+                    selected.clone(),
+                    SourceInventoryIdentity::Criterion(criterion("AC-1")),
+                ),
+                SourceInventoryRow::new(
+                    selected.clone(),
+                    SourceInventoryIdentity::Criterion(criterion("AC-2")),
+                ),
+            ],
+        )),
+        Some(census_outcome(
+            SourceInventoryOwner::IrV2,
+            vec![
+                SourceInventoryRow::new(
+                    selected.clone(),
+                    SourceInventoryIdentity::SemanticNode {
+                        identity: occ.node().clone(),
+                        semantic: semantic('a'),
+                    },
+                ),
+                SourceInventoryRow::new(
+                    selected.clone(),
+                    SourceInventoryIdentity::SemanticOccurrence(occ),
+                ),
+                SourceInventoryRow::new(
+                    selected.clone(),
+                    SourceInventoryIdentity::SemanticOccurrence(occurrence_at(1)),
+                ),
+                SourceInventoryRow::new(
+                    selected.clone(),
+                    SourceInventoryIdentity::SemanticOccurrence(occurrence_at(2)),
+                ),
+            ],
+        )),
+        Some(census_outcome(
+            SourceInventoryOwner::Qsl,
+            vec![
+                SourceInventoryRow::new(
+                    selected.clone(),
+                    SourceInventoryIdentity::RequirementRecord(SourceRequirementOccurrenceId {
+                        node: [1; 32],
+                        role: "expression".into(),
+                        ordinal: 0,
+                    }),
+                ),
+                SourceInventoryRow::new(
+                    selected.clone(),
+                    SourceInventoryIdentity::PendingObligation(pending(
+                        site(),
+                        SourcePendingObligationKind::Presence,
+                    )),
+                ),
+            ],
+        )),
+        Some(census_outcome(
+            SourceInventoryOwner::QuireCodeRs,
+            vec![
+                SourceInventoryRow::new(
+                    selected.clone(),
+                    SourceInventoryIdentity::ProductionModule(module),
+                ),
+                SourceInventoryRow::new(
+                    selected.clone(),
+                    SourceInventoryIdentity::ProductionModule(SourceProductionModuleId::new(
+                        "src/empty.rs",
+                    )),
+                ),
+                SourceInventoryRow::new(
+                    selected,
+                    SourceInventoryIdentity::ProductionFunction(function),
+                ),
+                SourceInventoryRow::new(
+                    source(),
+                    SourceInventoryIdentity::ProductionFunction(second_function),
+                ),
+            ],
+        )),
+        assertions,
+    )
+}
+
+fn occurrence_at(ordinal: u64) -> SourceSemanticOccurrenceId {
+    SourceSemanticOccurrenceId::new(
+        occurrence().node().clone(),
+        CheckedOccurrence {
+            role: CheckedOccurrenceRole::Expression,
+            ordinal,
+        },
+    )
+}
+
+fn census_assertion(
+    id: &str,
+    criterion_id: &str,
+    function: Option<SourceProductionFunctionId>,
+) -> SourceCorrespondenceAssertion {
+    SourceCorrespondenceAssertion::new(
+        SourceAssertionId::new(id),
+        source(),
+        criterion(criterion_id),
+        occurrence(),
+        function,
+        SourceAssertionProvenance {
+            source: source(),
+            author: SourceContractAuthorId::new("author"),
+        },
+    )
+}
+
+/// Trace: FR-052-AC-17, TC-452
+#[trace("TC-452", "FR-052-AC-17")]
+#[test]
+fn synthetic_census_has_hand_written_rows_and_dispositions() {
+    let function =
+        SourceProductionFunctionId::new(SourceProductionModuleId::new("src/lib.rs"), "check");
+    let second =
+        SourceProductionFunctionId::new(SourceProductionModuleId::new("src/lib.rs"), "verify");
+    let mk = |id, ordinal, function| {
+        SourceCorrespondenceAssertion::new(
+            SourceAssertionId::new(id),
+            source(),
+            criterion("AC-1"),
+            occurrence_at(ordinal),
+            function,
+            SourceAssertionProvenance {
+                source: source(),
+                author: SourceContractAuthorId::new("author"),
+            },
+        )
+    };
+    let census = build_source_obligation_census(census_input(vec![
+        mk("a", 0, Some(function.clone())),
+        mk("b", 1, Some(second.clone())),
+        mk("c", 2, None),
+        mk("d", 0, Some(second.clone())),
+    ]))
+    .expect("census");
+    use SourceInventoryDisposition::{Mapped, ZeroMappings};
+    assert_eq!(census.source(), &source());
+    assert_eq!(
+        census.criterion_source_binding().obligation_scope(),
+        "obligations"
+    );
+    assert_eq!(
+        census
+            .inventory_rows()
+            .iter()
+            .map(|r| (r.row().identity().clone(), r.disposition()))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                SourceInventoryIdentity::Criterion(criterion("AC-1")),
+                Mapped
+            ),
+            (
+                SourceInventoryIdentity::Criterion(criterion("AC-2")),
+                ZeroMappings(SourceMissingMappingReason::NoAuthoredMapping)
+            ),
+            (
+                SourceInventoryIdentity::SemanticNode {
+                    identity: occurrence().node().clone(),
+                    semantic: semantic('a')
+                },
+                Mapped
+            ),
+            (
+                SourceInventoryIdentity::SemanticOccurrence(occurrence()),
+                Mapped
+            ),
+            (
+                SourceInventoryIdentity::SemanticOccurrence(occurrence_at(1)),
+                Mapped
+            ),
+            (
+                SourceInventoryIdentity::SemanticOccurrence(occurrence_at(2)),
+                ZeroMappings(SourceMissingMappingReason::ExplicitNoProductionFunction)
+            ),
+            (
+                SourceInventoryIdentity::RequirementRecord(SourceRequirementOccurrenceId {
+                    node: [1; 32],
+                    role: "expression".into(),
+                    ordinal: 0
+                }),
+                ZeroMappings(SourceMissingMappingReason::NoAuthoredMapping)
+            ),
+            (
+                SourceInventoryIdentity::PendingObligation(pending(
+                    site(),
+                    SourcePendingObligationKind::Presence
+                )),
+                ZeroMappings(SourceMissingMappingReason::NoAuthoredMapping)
+            ),
+            (
+                SourceInventoryIdentity::ProductionModule(SourceProductionModuleId::new(
+                    "src/empty.rs"
+                )),
+                ZeroMappings(SourceMissingMappingReason::NoAuthoredMapping)
+            ),
+            (
+                SourceInventoryIdentity::ProductionModule(SourceProductionModuleId::new(
+                    "src/lib.rs"
+                )),
+                Mapped
+            ),
+            (
+                SourceInventoryIdentity::ProductionFunction(function.clone()),
+                Mapped
+            ),
+            (
+                SourceInventoryIdentity::ProductionFunction(second.clone()),
+                Mapped
+            ),
+        ]
+    );
+    assert!(census
+        .inventory_rows()
+        .iter()
+        .all(|r| r.row().source() == &source()));
+    assert_eq!(
+        census
+            .correspondence_rows()
+            .iter()
+            .map(|r| (
+                r.criterion().clone(),
+                r.occurrence().clone(),
+                r.production_function().cloned(),
+                r.provenance().clone()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                criterion("AC-1"),
+                occurrence_at(0),
+                Some(function),
+                SourceAssertionProvenance {
+                    source: source(),
+                    author: SourceContractAuthorId::new("author")
+                }
+            ),
+            (
+                criterion("AC-1"),
+                occurrence_at(0),
+                Some(second.clone()),
+                SourceAssertionProvenance {
+                    source: source(),
+                    author: SourceContractAuthorId::new("author")
+                }
+            ),
+            (
+                criterion("AC-1"),
+                occurrence_at(1),
+                Some(second),
+                SourceAssertionProvenance {
+                    source: source(),
+                    author: SourceContractAuthorId::new("author")
+                }
+            ),
+            (
+                criterion("AC-1"),
+                occurrence_at(2),
+                None,
+                SourceAssertionProvenance {
+                    source: source(),
+                    author: SourceContractAuthorId::new("author")
+                }
+            ),
+        ]
+    );
+    assert!(census.rejected_assertions().is_empty());
+}
+
+/// Trace: FR-052-AC-15, TC-452
+#[trace("TC-452", "FR-052-AC-15")]
+#[test]
+fn binding_refusals_are_typed() {
+    let base = census_input(vec![]);
+    let input = SourceObligationInput::new(
+        source(),
+        None,
+        base.quire().cloned(),
+        base.ir_v2().cloned(),
+        base.qsl().cloned(),
+        base.quire_code_rs().cloned(),
+        vec![],
+    );
+    assert_eq!(
+        build_source_obligation_census(input),
+        Err(SourceCorrespondenceError::MissingCriterionSourceBinding)
+    );
+    let foreign = SourceIdentity::new(
+        SourceDocumentId::new("other").unwrap(),
+        SourceRevision::new(1).unwrap(),
+    );
+    let input = census_input(vec![]);
+    let input = SourceObligationInput::new(
+        source(),
+        Some(binding(foreign.clone())),
+        input.quire().cloned(),
+        input.ir_v2().cloned(),
+        input.qsl().cloned(),
+        input.quire_code_rs().cloned(),
+        vec![],
+    );
+    assert_eq!(
+        build_source_obligation_census(input),
+        Err(SourceCorrespondenceError::ForeignCriterionSourceBinding {
+            expected: source(),
+            observed: foreign
+        })
+    );
+}
+
+/// Trace: FR-052-AC-22, TC-452
+#[trace("TC-452", "FR-052-AC-22")]
+#[test]
+fn assertion_conflicts_and_relation_dedup_are_deterministic() {
+    let a = census_assertion("a", "AC-1", None);
+    let b = census_assertion("b", "AC-1", None);
+    let census =
+        build_source_obligation_census(census_input(vec![a.clone(), b.clone(), a])).unwrap();
+    assert_eq!(census.correspondence_rows().len(), 1);
+    assert_eq!(
+        census.inventory_rows()[2].disposition(),
+        SourceInventoryDisposition::ZeroMappings(
+            SourceMissingMappingReason::ExplicitNoProductionFunction
+        )
+    );
+    assert_eq!(
+        census.inventory_rows()[3].disposition(),
+        SourceInventoryDisposition::ZeroMappings(
+            SourceMissingMappingReason::ExplicitNoProductionFunction
+        )
+    );
+    let b = SourceCorrespondenceAssertion::new(
+        SourceAssertionId::new("b"),
+        source(),
+        criterion("AC-1"),
+        occurrence(),
+        None,
+        SourceAssertionProvenance {
+            source: source(),
+            author: SourceContractAuthorId::new("other"),
+        },
+    );
+    let census =
+        build_source_obligation_census(census_input(vec![census_assertion("a", "AC-1", None), b]))
+            .unwrap();
+    assert!(census.correspondence_rows().is_empty());
+    assert_eq!(
+        census
+            .rejected_assertions()
+            .iter()
+            .map(|r| r.reason())
+            .collect::<Vec<_>>(),
+        vec![SourceCorrespondenceRejectionReason::ConflictingProvenance; 2]
+    );
+}
+
+fn with_positions(
+    binding_value: Option<SourceCriterionSourceBinding>,
+    quire: Option<SourceInventoryOutcome>,
+    ir: Option<SourceInventoryOutcome>,
+    qsl: Option<SourceInventoryOutcome>,
+    code: Option<SourceInventoryOutcome>,
+    assertions: Vec<SourceCorrespondenceAssertion>,
+) -> SourceObligationInput {
+    SourceObligationInput::new(source(), binding_value, quire, ir, qsl, code, assertions)
+}
+
+fn incomplete(owner: SourceInventoryOwner) -> SourceInventoryOutcome {
+    let mut e = TestEnumerator::new(owner, vec![]);
+    e.stop = Some(SourceInventoryIncompleteReason::EarlyStop { owner });
+    SourceInventoryOutcome::from_enumerator(e).unwrap()
+}
+
+fn incomplete_conflicting_quire() -> SourceInventoryOutcome {
+    let row = SourceInventoryRow::new(
+        source(),
+        SourceInventoryIdentity::Criterion(SourceAuthoredCriterionId::new(
+            "other-scope",
+            "doc",
+            "AC-0",
+        )),
+    );
+    let mut e = TestEnumerator::new(SourceInventoryOwner::Quire, vec![row]);
+    e.stop = Some(SourceInventoryIncompleteReason::EarlyStop {
+        owner: SourceInventoryOwner::Quire,
+    });
+    SourceInventoryOutcome::from_enumerator(e).unwrap()
+}
+
+/// Trace: FR-052-AC-15, FR-052-AC-18, TC-452
+#[trace("TC-452", "FR-052-AC-15", "FR-052-AC-18")]
+#[test]
+fn adjacent_census_refusals_follow_fixed_position_order() {
+    let base = census_input(vec![]);
+    let foreign = SourceIdentity::new(
+        SourceDocumentId::new("other").unwrap(),
+        SourceRevision::new(1).unwrap(),
+    );
+    let cases = vec![
+        (
+            Some(binding(foreign.clone())),
+            Some(incomplete(SourceInventoryOwner::Quire)),
+            base.ir_v2().cloned(),
+            base.qsl().cloned(),
+            base.quire_code_rs().cloned(),
+            SourceCorrespondenceError::ForeignCriterionSourceBinding {
+                expected: source(),
+                observed: foreign,
+            },
+        ),
+        (
+            Some(binding(source())),
+            Some(incomplete_conflicting_quire()),
+            None,
+            base.qsl().cloned(),
+            base.quire_code_rs().cloned(),
+            SourceCorrespondenceError::IncompleteOwnerInventory {
+                owner: SourceInventoryOwner::Quire,
+                cause: SourceInventoryIncompleteReason::EarlyStop {
+                    owner: SourceInventoryOwner::Quire,
+                },
+            },
+        ),
+        (
+            Some(binding(source())),
+            base.quire().cloned(),
+            None,
+            None,
+            base.quire_code_rs().cloned(),
+            SourceCorrespondenceError::MissingOwnerInventory {
+                owner: SourceInventoryOwner::IrV2,
+            },
+        ),
+        (
+            Some(binding(source())),
+            base.quire().cloned(),
+            base.ir_v2().cloned(),
+            Some(incomplete(SourceInventoryOwner::Qsl)),
+            None,
+            SourceCorrespondenceError::IncompleteOwnerInventory {
+                owner: SourceInventoryOwner::Qsl,
+                cause: SourceInventoryIncompleteReason::EarlyStop {
+                    owner: SourceInventoryOwner::Qsl,
+                },
+            },
+        ),
+    ];
+    for (binding_value, quire, ir, qsl, code, expected) in cases {
+        assert_eq!(
+            build_source_obligation_census(with_positions(
+                binding_value,
+                quire,
+                ir,
+                qsl,
+                code,
+                vec![]
+            )),
+            Err(expected)
+        );
+    }
+    let conflict = SourceInventoryRow::new(
+        source(),
+        SourceInventoryIdentity::Criterion(SourceAuthoredCriterionId::new(
+            "other-scope",
+            "doc",
+            "AC-0",
+        )),
+    );
+    let conflicting_quire = census_outcome(SourceInventoryOwner::Quire, vec![conflict]);
+    assert_eq!(
+        build_source_obligation_census(with_positions(
+            Some(binding(source())),
+            Some(conflicting_quire),
+            None,
+            base.qsl().cloned(),
+            base.quire_code_rs().cloned(),
+            vec![]
+        )),
+        Err(
+            SourceCorrespondenceError::ConflictingCriterionSourceBinding {
+                binding_scope: "obligations".into(),
+                criterion: SourceAuthoredCriterionId::new("other-scope", "doc", "AC-0")
+            }
+        )
+    );
+}
+
+/// Trace: FR-052-AC-20, TC-452
+#[trace("TC-452", "FR-052-AC-20")]
+#[test]
+fn input_permutations_produce_equal_ordered_census() {
+    let mk = |id, ordinal, function| {
+        SourceCorrespondenceAssertion::new(
+            SourceAssertionId::new(id),
+            source(),
+            criterion("AC-1"),
+            occurrence_at(ordinal),
+            function,
+            SourceAssertionProvenance {
+                source: source(),
+                author: SourceContractAuthorId::new("author"),
+            },
+        )
+    };
+    let a = mk(
+        "a",
+        0,
+        Some(SourceProductionFunctionId::new(
+            SourceProductionModuleId::new("src/lib.rs"),
+            "check",
+        )),
+    );
+    let b = mk(
+        "b",
+        1,
+        Some(SourceProductionFunctionId::new(
+            SourceProductionModuleId::new("src/lib.rs"),
+            "verify",
+        )),
+    );
+    let c = mk("c", 2, None);
+    let original =
+        build_source_obligation_census(census_input(vec![a.clone(), b.clone(), c.clone()]))
+            .unwrap();
+    let base = census_input(vec![]);
+    let reverse = |owner, outcome: &SourceInventoryOutcome| {
+        census_outcome(owner, outcome.items().iter().cloned().rev().collect())
+    };
+    let permuted = build_source_obligation_census(with_positions(
+        Some(binding(source())),
+        Some(reverse(SourceInventoryOwner::Quire, base.quire().unwrap())),
+        Some(reverse(SourceInventoryOwner::IrV2, base.ir_v2().unwrap())),
+        Some(reverse(SourceInventoryOwner::Qsl, base.qsl().unwrap())),
+        Some(reverse(
+            SourceInventoryOwner::QuireCodeRs,
+            base.quire_code_rs().unwrap(),
+        )),
+        vec![c, b, a],
+    ))
+    .unwrap();
+    assert_eq!(original, permuted);
+}
+
+/// Trace: FR-052-AC-21, TC-452
+#[trace("TC-452", "FR-052-AC-21")]
+#[test]
+fn owner_scope_and_source_errors_precede_incompleteness() {
+    let base = census_input(vec![]);
+    for (owner, expected) in [
+        (
+            SourceInventoryOwner::IrV2,
+            SourceInventoryScope::IrV2SemanticGraphAndOccurrences,
+        ),
+        (
+            SourceInventoryOwner::Qsl,
+            SourceInventoryScope::QslCheckedRequirementsAndPendingObligations,
+        ),
+        (
+            SourceInventoryOwner::QuireCodeRs,
+            SourceInventoryScope::QuireCodeRsProductionModulesAndFunctions,
+        ),
+    ] {
+        let wrong = Some(incomplete(SourceInventoryOwner::Quire));
+        let (ir, qsl, code) = match owner {
+            SourceInventoryOwner::IrV2 => {
+                (wrong, base.qsl().cloned(), base.quire_code_rs().cloned())
+            }
+            SourceInventoryOwner::Qsl => {
+                (base.ir_v2().cloned(), wrong, base.quire_code_rs().cloned())
+            }
+            SourceInventoryOwner::QuireCodeRs => {
+                (base.ir_v2().cloned(), base.qsl().cloned(), wrong)
+            }
+            SourceInventoryOwner::Quire => unreachable!(),
+        };
+        assert_eq!(
+            build_source_obligation_census(with_positions(
+                Some(binding(source())),
+                base.quire().cloned(),
+                ir,
+                qsl,
+                code,
+                vec![],
+            )),
+            Err(SourceCorrespondenceError::InventoryScopeMismatch {
+                owner,
+                expected,
+                observed: SourceInventoryScope::QuireSelectedAuthoredCriteria,
+            })
+        );
+    }
+    assert_eq!(
+        build_source_obligation_census(with_positions(
+            Some(binding(source())),
+            Some(incomplete(SourceInventoryOwner::Qsl)),
+            base.ir_v2().cloned(),
+            base.qsl().cloned(),
+            base.quire_code_rs().cloned(),
+            vec![]
+        )),
+        Err(SourceCorrespondenceError::InventoryScopeMismatch {
+            owner: SourceInventoryOwner::Quire,
+            expected: SourceInventoryScope::QuireSelectedAuthoredCriteria,
+            observed: SourceInventoryScope::QslCheckedRequirementsAndPendingObligations
+        })
+    );
+    let other = SourceIdentity::new(
+        SourceDocumentId::new("other").unwrap(),
+        SourceRevision::new(1).unwrap(),
+    );
+    let mut wrong_both = TestEnumerator::new(SourceInventoryOwner::Qsl, vec![]);
+    wrong_both.source = other.clone();
+    wrong_both.stop = Some(SourceInventoryIncompleteReason::EarlyStop {
+        owner: SourceInventoryOwner::Qsl,
+    });
+    assert_eq!(
+        build_source_obligation_census(with_positions(
+            Some(binding(source())),
+            Some(SourceInventoryOutcome::from_enumerator(wrong_both).unwrap()),
+            base.ir_v2().cloned(),
+            base.qsl().cloned(),
+            base.quire_code_rs().cloned(),
+            vec![]
+        )),
+        Err(SourceCorrespondenceError::InventoryScopeMismatch {
+            owner: SourceInventoryOwner::Quire,
+            expected: SourceInventoryScope::QuireSelectedAuthoredCriteria,
+            observed: SourceInventoryScope::QslCheckedRequirementsAndPendingObligations,
+        })
+    );
+    let mut e = TestEnumerator::new(SourceInventoryOwner::Quire, vec![]);
+    e.source = other.clone();
+    e.stop = Some(SourceInventoryIncompleteReason::EarlyStop {
+        owner: SourceInventoryOwner::Quire,
+    });
+    let foreign = SourceInventoryOutcome::from_enumerator(e).unwrap();
+    assert_eq!(
+        build_source_obligation_census(with_positions(
+            Some(binding(source())),
+            Some(foreign),
+            base.ir_v2().cloned(),
+            base.qsl().cloned(),
+            base.quire_code_rs().cloned(),
+            vec![]
+        )),
+        Err(SourceCorrespondenceError::InventorySourceMismatch {
+            owner: SourceInventoryOwner::Quire,
+            expected: source(),
+            observed: other
+        })
+    );
+}
+
+/// Trace: FR-052-AC-19, FR-052-AC-22, TC-452
+#[trace("TC-452", "FR-052-AC-19", "FR-052-AC-22")]
+#[test]
+fn rejected_assertions_collapse_duplicates_and_sort_with_reason_precedence() {
+    let foreign_source = SourceIdentity::new(
+        SourceDocumentId::new("other").unwrap(),
+        SourceRevision::new(1).unwrap(),
+    );
+    let provenance_foreign = SourceCorrespondenceAssertion::new(
+        SourceAssertionId::new("z"),
+        source(),
+        criterion("AC-1"),
+        occurrence(),
+        None,
+        SourceAssertionProvenance {
+            source: foreign_source,
+            author: SourceContractAuthorId::new("author"),
+        },
+    );
+    let both_dangling = SourceCorrespondenceAssertion::new(
+        SourceAssertionId::new("b"),
+        source(),
+        criterion("missing"),
+        occurrence_at(99),
+        None,
+        SourceAssertionProvenance {
+            source: source(),
+            author: SourceContractAuthorId::new("author"),
+        },
+    );
+    let repeated = census_assertion("a", "missing", None);
+    let conflict = SourceCorrespondenceAssertion::new(
+        SourceAssertionId::new("d"),
+        source(),
+        criterion("AC-1"),
+        occurrence(),
+        None,
+        SourceAssertionProvenance {
+            source: source(),
+            author: SourceContractAuthorId::new("other"),
+        },
+    );
+    let census = build_source_obligation_census(census_input(vec![
+        provenance_foreign,
+        both_dangling,
+        census_assertion("c", "AC-1", None),
+        conflict,
+        repeated.clone(),
+        repeated,
+    ]))
+    .unwrap();
+    assert_eq!(
+        census
+            .rejected_assertions()
+            .iter()
+            .map(|r| (r.assertion().id().as_str(), r.reason()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("a", SourceCorrespondenceRejectionReason::DanglingCriterion),
+            ("b", SourceCorrespondenceRejectionReason::DanglingCriterion),
+            (
+                "c",
+                SourceCorrespondenceRejectionReason::ConflictingProvenance
+            ),
+            (
+                "d",
+                SourceCorrespondenceRejectionReason::ConflictingProvenance
+            ),
+            ("z", SourceCorrespondenceRejectionReason::ForeignSource),
+        ]
+    );
+}
+
+/// Trace: FR-052-AC-19, TC-452
+#[trace("TC-452", "FR-052-AC-19")]
+#[test]
+fn assertion_reason_precedence_rejects_foreign_before_dangling_and_relation_before_provenance() {
+    let other = SourceIdentity::new(
+        SourceDocumentId::new("other").unwrap(),
+        SourceRevision::new(1).unwrap(),
+    );
+    let foreign = SourceCorrespondenceAssertion::new(
+        SourceAssertionId::new("foreign"),
+        other.clone(),
+        criterion("missing"),
+        occurrence(),
+        None,
+        SourceAssertionProvenance {
+            source: other,
+            author: SourceContractAuthorId::new("author"),
+        },
+    );
+    let first = census_assertion("same", "AC-1", None);
+    let second = SourceCorrespondenceAssertion::new(
+        SourceAssertionId::new("same"),
+        source(),
+        criterion("AC-2"),
+        occurrence(),
+        None,
+        SourceAssertionProvenance {
+            source: source(),
+            author: SourceContractAuthorId::new("other"),
+        },
+    );
+    let census =
+        build_source_obligation_census(census_input(vec![foreign, first, second])).unwrap();
+    assert_eq!(
+        census
+            .rejected_assertions()
+            .iter()
+            .map(|r| r.reason())
+            .collect::<Vec<_>>(),
+        vec![
+            SourceCorrespondenceRejectionReason::ForeignSource,
+            SourceCorrespondenceRejectionReason::ConflictingRelation,
+            SourceCorrespondenceRejectionReason::ConflictingRelation
+        ]
+    );
+}
+
+/// Trace: FR-052-AC-23, TC-452
+#[trace("TC-452", "FR-052-AC-23")]
+#[test]
+fn orphan_or_conflicting_endpoints_do_not_resolve() {
+    let base = census_input(vec![]);
+    let conflict_rows = vec![
+        SourceInventoryRow::new(
+            source(),
+            SourceInventoryIdentity::SemanticNode {
+                identity: occurrence().node().clone(),
+                semantic: semantic('a'),
+            },
+        ),
+        SourceInventoryRow::new(
+            source(),
+            SourceInventoryIdentity::SemanticNode {
+                identity: occurrence().node().clone(),
+                semantic: semantic('b'),
+            },
+        ),
+        SourceInventoryRow::new(
+            source(),
+            SourceInventoryIdentity::SemanticOccurrence(occurrence()),
+        ),
+    ];
+    let assertion = census_assertion("a", "AC-1", None);
+    for (case, rows) in [
+        conflict_rows,
+        vec![SourceInventoryRow::new(
+            source(),
+            SourceInventoryIdentity::SemanticOccurrence(occurrence()),
+        )],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let census = build_source_obligation_census(with_positions(
+            Some(binding(source())),
+            base.quire().cloned(),
+            Some(census_outcome(SourceInventoryOwner::IrV2, rows)),
+            base.qsl().cloned(),
+            base.quire_code_rs().cloned(),
+            vec![assertion.clone()],
+        ))
+        .unwrap();
+        assert_eq!(
+            census.rejected_assertions()[0].reason(),
+            SourceCorrespondenceRejectionReason::DanglingOccurrence
+        );
+        assert!(census.correspondence_rows().is_empty());
+        assert!(census.inventory_rows().iter().any(|r| matches!(
+            r.row().identity(),
+            SourceInventoryIdentity::SemanticOccurrence(_)
+        )));
+        if case == 0 {
+            assert_eq!(
+                census
+                    .inventory_rows()
+                    .iter()
+                    .filter(|r| r.disposition() == SourceInventoryDisposition::ConflictingIdentity)
+                    .count(),
+                2
+            );
+        }
+    }
+    let function =
+        SourceProductionFunctionId::new(SourceProductionModuleId::new("missing.rs"), "check");
+    let census = build_source_obligation_census(with_positions(
+        Some(binding(source())),
+        base.quire().cloned(),
+        base.ir_v2().cloned(),
+        base.qsl().cloned(),
+        Some(census_outcome(
+            SourceInventoryOwner::QuireCodeRs,
+            vec![SourceInventoryRow::new(
+                source(),
+                SourceInventoryIdentity::ProductionFunction(function.clone()),
+            )],
+        )),
+        vec![census_assertion("a", "AC-1", Some(function))],
+    ))
+    .unwrap();
+    assert_eq!(
+        census.rejected_assertions()[0].reason(),
+        SourceCorrespondenceRejectionReason::DanglingProductionSymbol
+    );
+    assert!(census.inventory_rows().iter().any(|r| matches!(
+        r.row().identity(),
+        SourceInventoryIdentity::ProductionFunction(_)
+    )));
+}
+
+/// Trace: FR-052-AC-15, TC-452
+#[trace("TC-452", "FR-052-AC-15")]
+#[test]
+fn foreign_and_dangling_assertions_remain_separate_from_unmapped_inventory() {
+    let other = SourceIdentity::new(
+        SourceDocumentId::new("other").unwrap(),
+        SourceRevision::new(1).unwrap(),
+    );
+    let foreign = SourceCorrespondenceAssertion::new(
+        SourceAssertionId::new("foreign"),
+        other.clone(),
+        criterion("AC-1"),
+        occurrence(),
+        None,
+        SourceAssertionProvenance {
+            source: other,
+            author: SourceContractAuthorId::new("author"),
+        },
+    );
+    let dangling = census_assertion("missing-criterion", "AC-99", None);
+    let missing_function =
+        SourceProductionFunctionId::new(SourceProductionModuleId::new("src/lib.rs"), "absent");
+    let missing_symbol = census_assertion("missing-symbol", "AC-1", Some(missing_function));
+    let census =
+        build_source_obligation_census(census_input(vec![foreign, dangling, missing_symbol]))
+            .unwrap();
+    assert!(census.correspondence_rows().is_empty());
+    assert_eq!(
+        census
+            .rejected_assertions()
+            .iter()
+            .map(|r| r.reason())
+            .collect::<Vec<_>>(),
+        vec![
+            SourceCorrespondenceRejectionReason::ForeignSource,
+            SourceCorrespondenceRejectionReason::DanglingCriterion,
+            SourceCorrespondenceRejectionReason::DanglingProductionSymbol,
+        ]
+    );
+    assert_eq!(
+        census.inventory_rows()[0].disposition(),
+        SourceInventoryDisposition::ZeroMappings(SourceMissingMappingReason::NoAuthoredMapping)
     );
 }
