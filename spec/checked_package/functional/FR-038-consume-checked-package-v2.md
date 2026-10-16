@@ -128,9 +128,11 @@ it admits in its own reader — `crates/quire-contract-model/src/checked_package
   (FR-038-AC-159 through FR-038-AC-164).
 
 - A typed composite operand accessor, `composite_application_operands`,
-  returning the admitted comparison operator, authentic positional children, authored shapes and introduced positions
-  with exact decimal bounds, explicit unbounded/Whole descriptors and typed refusals;
-  see "Typed authored domains of composite equality operands" (AC-177 through AC-182, AC-246).
+  returning authentic positional children, authored shapes and introduced positions
+  with exact decimal bounds, explicit unbounded/Whole descriptors and typed refusals
+  (implemented, AC-177 through AC-182). Returning the admitted comparison operator
+  is PLANNED/UNRUN under FR-038-AC-246; see "Typed authored domains of composite
+  equality and inequality operands".
 
 ## Behavior
 
@@ -3123,8 +3125,11 @@ None of these types shall expose `serde_json::Value` or a serialized term body.
 The result's `operator` shall be `CheckedCompositeOperator::Eq` exactly when the
 selected application's admitted operation identity is `quire.op.structural.eq`,
 and `CheckedCompositeOperator::Ne` exactly when it is `quire.op.structural.ne`.
-Every other operation identity shall refuse `IneligibleOperator`, so no other
-successful operator value is possible. The operator shall be returned together
+For a catalogued operation identity other than `quire.op.structural.eq` or
+`quire.op.structural.ne`, on an application that passes the node, application
+and occurrence checks, the accessor shall refuse `IneligibleOperator`. The
+existing refusal order and variants are unchanged; no other successful operator
+value is possible. The operator shall be returned together
 with the operands; the consumer shall not need a separate operation lookup.
 The accessor already resolves the application node under the graph lookup's
 one-unit work charge before reading its operation identity. Selecting the typed
@@ -4350,7 +4355,7 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-243 | IMPLEMENTED (IR-800; tagged reader tests passed). The production catalog and closed V2 vocabularies admit exactly `quire.op.string.eq`, `.ne`, `quire.op.uuid.eq`, `.ne`, and `quire.op.timestamp.eq`, `.ne` as native comparisons; each public-reader package with same-family operands, Boolean result and no law, mode, member or leaves admits, and equal/unequal canonical payload controls retain their separate operand identities. For each of the six identities, replacing argument 0 and then argument 1, separately, with a foreign-family operand (`text` for `string`, `string` for `uuid`, `uuid` for `timestamp`) refuses `ill_typed`/`operator-ineligible` at the changed argument. `quire.op.integer.lt` and `quire.op.integer.add` over each of `string`, `uuid` and `timestamp` operands likewise refuse at `arguments/0`; neither a one-sided family check nor an ordering/arithmetic special case for one native family passes. | Test (TC-048) |
 | FR-038-AC-244 | IMPLEMENTED (IR-800; tagged reader tests passed). Adding a selected `text_profile` law to each native comparison refuses `invalid_package`/`operation-law-mismatch` at that law; adding a `text_profile` mode refuses `invalid_package`/`operation-mode-mismatch` at the mode; placing a `string` operand in `quire.op.text.eq` refuses `invalid_package`/`operation-mode-type-mismatch` at the mode value. An arity defect or another wrong-family operand in that text comparison refuses `ill_typed`/`operator-ineligible` at the arguments or first offending argument before the String-in-text-operation mode refusal. None admits by treating `string` as `text` or by ignoring a forbidden law or mode. | Test (TC-048) |
 | FR-038-AC-245 | IMPLEMENTED (IR-800; tagged reader tests passed). For each native `value_kind`, a literal typed at another family refuses `ill_typed`/`operator-ineligible` at its `type` even if its `value` is also malformed. With the right family, a non-string String value, an uppercase, hyphenless or malformed UUID, and a Timestamp value of `-0`, `+1`, `01`, empty text, outside signed-128 range or another noncanonical spelling refuse `invalid_package`/`invalid-value` at that literal's `value`; exact String Unicode sequences, UUID nil/max and both Timestamp endpoints admit. Recompute every affected node key and package identity so no stale-key refusal can stand in for these decisions. | Test (TC-048) |
-| FR-038-AC-246 | PLANNED/UNRUN (IR-803). For a reader-admitted `quire.op.structural.eq` application, `composite_application_operands` returns `CheckedCompositeOperator::Eq` together with its operands; for an otherwise equivalent reader-admitted `quire.op.structural.ne` application it returns `CheckedCompositeOperator::Ne` together with its operands. Changing the operation identity between those two admitted cases changes the returned operator and no other operator-dependent projection field: each result retains its own authentic application identity and occurrence, while operand order, ordinals, child identities, domains and `consumed_work` remain equal. The consumer needs no separate operation lookup. TC-048 composite operand tests verify both cases. | Test |
+| FR-038-AC-246 | PLANNED/UNRUN (IR-803). For a reader-admitted `quire.op.structural.eq` application, `composite_application_operands` returns `CheckedCompositeOperator::Eq` together with its operands; for an otherwise equivalent reader-admitted `quire.op.structural.ne` application it returns `CheckedCompositeOperator::Ne` together with its operands. Between those cases, only the returned operator and the selected application's identity and occurrence may differ; operands (including order, child identities, semantic types and domains), ordinals and `consumed_work` are equal. The AC-182 public-fields inspection in `tests/it/checked_package_v2_composite_operands.rs` (`inspect_public_fields`) must exhaustively match both `CheckedCompositeOperator` variants, without a wildcard arm or `#[non_exhaustive]`. The consumer needs no separate operation lookup. TC-048 composite operand tests verify both cases. | Test |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be

@@ -779,8 +779,12 @@ per application. Assert `operator` is `CheckedCompositeOperator::Eq` for eq and
 `CheckedCompositeOperator::Ne` for ne in the returned operand-bearing result.
 Compare the results' operands, ordinals, children, domains and `consumed_work`
 for equality, while asserting each result retains its own authentic application
-identity and occurrence. Assert the consumer reads no operation identity from
-the body and performs no second accessor lookup. Mark this step PLANNED/UNRUN
+identity and occurrence. In the TC-048 composite-operand fixture, read `operator`
+from the returned result and read no body JSON for the operation identity. Extend
+the AC-182 public-fields inspection in
+`tests/it/checked_package_v2_composite_operands.rs` (`inspect_public_fields`) to
+exhaustively match both `CheckedCompositeOperator` variants, with no wildcard arm
+and no `#[non_exhaustive]`. Mark this step PLANNED/UNRUN
 until the typed result and tagged assertions land.
 
 For AC178, compare a supported closed record/tuple/collection/Option graph value
