@@ -6,9 +6,9 @@
 //!    root of a `state`/`state_clause` node and nowhere else, else
 //!    `ill_typed`/`operator-ineligible` at the node that holds it;
 //! 2. every `state`/`operation_anchor` node: its `context` and `frame`
-//!    targets, the three `semantic_type`s, and its operation name; then, once
-//!    every anchor's own joins hold, that no two anchors share a
-//!    (`context`, `operation`) pair or a `frame` target;
+//!    targets, the three `semantic_type`s, its operation name, and any scoped
+//!    deletion parameters; then, once every anchor's own joins hold, that no
+//!    two anchors share a (`context`, `operation`) pair;
 //! 3. every `state`/`state_clause` node: its anchor, its parameters, then its
 //!    signature,
 //!
@@ -26,8 +26,10 @@
 //! (`structural`); a body that no longer parses here refuses as that stage
 //! would.
 
-use super::frame::{join, StepGraph};
-use super::model_members::{MemberKind, ModelOwners, ModelRefusal, OperationDecl, Owner, Resolved};
+use super::frame::{join, read_frame_body, DeletesScopedEntry, StepGraph};
+use super::model_members::{
+    MemberKind, MemberType, ModelOwners, ModelRefusal, OperationDecl, Owner, Resolved,
+};
 use super::structural::{
     anchor_body, clause_body, is_state_clause_application, reference_type_target, AnchorBody,
 };
@@ -66,9 +68,8 @@ pub(super) fn validate_state(
         anchors.push((position, node, body));
     }
     let mut pairs = BTreeSet::new();
-    let mut frames = BTreeSet::new();
     for (position, node, body) in &anchors {
-        if !pairs.insert((&body.context, body.operation)) || !frames.insert(&body.frame) {
+        if !pairs.insert((&body.context, body.operation)) {
             return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::AmbiguousDeclaration,
                 node_pointer(*position),
@@ -226,7 +227,7 @@ pub(super) fn resolve_operation<'m>(
     )
 }
 
-/// FR-342's checks over one anchor: context, frame, types, operation.
+/// FR-342's checks over one anchor: context, frame, types, operation, scoped deletes.
 fn check_anchor(
     anchor: &CheckedSemanticNodeV2,
     position: usize,
@@ -269,7 +270,40 @@ fn check_anchor(
         ));
     }
     match resolve_operation(context, context_kind, body.operation, graph, meter)? {
-        Ok(_) => Ok(()),
+        Ok(None) => Ok(()),
+        Ok(Some((owner, operation))) => {
+            let frame_position = *graph
+                .index
+                .get(&body.frame)
+                .ok_or_else(|| shape_refusal(frame, position))?;
+            let steps = [
+                Step::Key("semantic_graph"),
+                Step::Key("nodes"),
+                Step::Index(frame_position),
+                Step::Key("body"),
+            ];
+            let (frame_body, _) = read_frame_body(&frame.body, &Trail::Base(&steps))?;
+            for entry in &frame_body.deletes_scoped {
+                let DeletesScopedEntry::Parameter { name } = entry else {
+                    continue;
+                };
+                let present = operation.parameters.iter().any(|slot| {
+                    slot.name.as_deref() == Some(name.as_ref())
+                        && matches!(
+                            owner.package.slot_type(slot),
+                            Some(MemberType::Reference(_))
+                        )
+                });
+                if !present {
+                    return Err(model_refusal(
+                        ModelRefusal::missing_name(),
+                        node_pointer(frame_position),
+                        &frame.node_id,
+                    ));
+                }
+            }
+            Ok(())
+        }
         Err(refusal) => Err(model_refusal(refusal, target_at(1), &anchor.node_id)),
     }
 }

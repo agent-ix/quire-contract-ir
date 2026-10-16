@@ -1868,7 +1868,7 @@ fn build_v2_all_families() -> Value {
     let mut modifies = [
         (
             &f1515,
-            json!({"kind": "field", "declaration": node_id(&f1515), "name": "balance"}),
+            json!({"kind": "field", "declaration": node_id(&f1515), "name": "balance", "scope": "every-object"}),
         ),
         (
             &f2020,
@@ -1881,6 +1881,7 @@ fn build_v2_all_families() -> Value {
         "modifies": modifies.into_iter().map(|(_, entry)| entry).collect::<Vec<_>>(),
         "creates": [node_id(&f1515)],
         "deletes": [node_id(&f1616)],
+        "deletes_scoped": [],
     });
     let frame_key = structural_key("state", "frame", Some(&f1515), &frame_body);
 

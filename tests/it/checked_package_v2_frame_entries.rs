@@ -10,9 +10,10 @@
 //! vocabulary.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, fixture_source, mint_ungrouped_structural_keys, node_id, over_body,
-    rebuild_source_map, refresh_identity, rename_node, settle, sha256_hex, source_owner,
-    structural_key, typed_node_id, v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
+    canonical, domain_package_digest, evidence_for, family_model_document, fixture_source,
+    mint_ungrouped_structural_keys, node_id, over_body, rebuild_source_map, refresh_identity,
+    rename_node, settle, sha256_hex, source_owner, structural_key, typed_node_id, v2_all_families,
+    BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -94,7 +95,200 @@ fn digest(value: &Value, position: usize) -> String {
 }
 
 fn field(declaration: &str, name: &str) -> Value {
-    json!({"kind": "field", "declaration": node_id(declaration), "name": name})
+    json!({"kind": "field", "declaration": node_id(declaration), "name": name, "scope": "every-object"})
+}
+
+/// Tracing: TC-056
+/// ACs: FR-040-AC-18, FR-040-AC-19, FR-040-AC-20
+#[trace("TC-056", "FR-040-AC-18", "FR-040-AC-19", "FR-040-AC-20")]
+#[test]
+fn tc_056_scoped_frame_shape_refusals_precede_frame_semantics() {
+    let base = v2_all_families();
+    let frame = position(&base, "state", "frame");
+    let mut missing = base.clone();
+    missing["semantic_graph"]["nodes"][frame]["body"]
+        .as_object_mut()
+        .expect("body")
+        .remove("deletes_scoped");
+    expect(
+        "missing deletes_scoped",
+        &missing,
+        Code::InvalidSemanticGraph,
+        None,
+        &format!("/semantic_graph/nodes/{frame}/body"),
+        None,
+    );
+    for (case, entry) in [
+        (
+            "missing scope",
+            json!({"kind": "field", "declaration": node_id(object_key()), "name": "balance"}),
+        ),
+        (
+            "unknown scope",
+            json!({"kind": "field", "declaration": node_id(object_key()), "name": "balance", "scope": "other"}),
+        ),
+        (
+            "relationship scope",
+            json!({"kind": "relationship", "declaration": node_id(relationship_key()), "scope": "receiver"}),
+        ),
+    ] {
+        let mut package = base.clone();
+        package["semantic_graph"]["nodes"][frame]["body"]["modifies"][0] = entry;
+        expect(
+            case,
+            &package,
+            Code::InvalidSemanticGraph,
+            None,
+            &format!("/semantic_graph/nodes/{frame}/body/modifies/0"),
+            None,
+        );
+    }
+    for entry in [
+        json!({"kind": "other"}),
+        json!({"kind": "parameter"}),
+        json!({"kind": "receiver", "name": "x"}),
+    ] {
+        let mut package = base.clone();
+        package["semantic_graph"]["nodes"][frame]["body"]["deletes_scoped"] = json!([entry]);
+        expect(
+            "invalid scoped delete",
+            &package,
+            Code::InvalidSemanticGraph,
+            None,
+            &format!("/semantic_graph/nodes/{frame}/body/deletes_scoped/0"),
+            None,
+        );
+    }
+    let mut repeated = base.clone();
+    repeated["semantic_graph"]["nodes"][frame]["body"]["deletes_scoped"] =
+        json!([{"kind": "receiver"}, {"kind": "receiver"}]);
+    expect(
+        "repeated scoped deletion",
+        &repeated,
+        Code::InvalidSemanticGraph,
+        None,
+        &format!("/semantic_graph/nodes/{frame}/body/deletes_scoped/1"),
+        None,
+    );
+}
+
+/// Tracing: TC-056
+/// ACs: FR-040-AC-17, FR-040-AC-21, FR-040-AC-22, FR-040-AC-23, FR-040-AC-24, FR-040-AC-25, FR-040-AC-26
+#[trace(
+    "TC-056",
+    "FR-040-AC-17",
+    "FR-040-AC-21",
+    "FR-040-AC-22",
+    "FR-040-AC-23",
+    "FR-040-AC-24",
+    "FR-040-AC-25",
+    "FR-040-AC-26"
+)]
+#[test]
+fn tc_056_scoped_frame_order_conflict_and_stale_key() {
+    let (empty, _) = frame_mutation(|frame| {
+        frame["body"] = json!({"term": "frame", "modifies": [], "creates": [], "deletes": [], "deletes_scoped": []});
+        frame["dependencies"] = json!([]);
+    });
+    admits(&empty);
+    let (ordered, _) = frame_mutation(|frame| {
+        frame["body"]["deletes_scoped"] = json!([{"kind": "receiver"}, {"kind": "parameter", "name": "a"}, {"kind": "parameter", "name": "b"}]);
+    });
+    admits(&ordered);
+    let (wrong_scoped, at) = frame_mutation(|frame| {
+        frame["body"]["deletes_scoped"] =
+            json!([{"kind": "parameter", "name": "a"}, {"kind": "receiver"}]);
+    });
+    expect(
+        "receiver after parameter",
+        &wrong_scoped,
+        Code::InvalidSemanticGraph,
+        None,
+        &format!("/semantic_graph/nodes/{at}/body"),
+        Some(&digest(&wrong_scoped, at)),
+    );
+
+    let (ordered_names, _) = frame_mutation(|frame| {
+        frame["body"]["modifies"] =
+            json!([field(object_key(), "balance"), field(object_key(), "total")]);
+    });
+    admits(&ordered_names);
+    let (mixed_scopes, _) = frame_mutation(|frame| {
+        frame["body"]["modifies"] = json!([
+            {"kind": "field", "declaration": node_id(object_key()), "name": "balance", "scope": "receiver"},
+            field(object_key(), "total")
+        ]);
+    });
+    admits(&mixed_scopes);
+    let (wrong_names, at) = frame_mutation(|frame| {
+        frame["body"]["modifies"] =
+            json!([field(object_key(), "total"), field(object_key(), "balance")]);
+    });
+    expect(
+        "reverse field names",
+        &wrong_names,
+        Code::InvalidSemanticGraph,
+        None,
+        &format!("/semantic_graph/nodes/{at}/body"),
+        Some(&digest(&wrong_names, at)),
+    );
+
+    let receiver = || json!({"kind": "field", "declaration": node_id(object_key()), "name": "balance", "scope": "receiver"});
+    let every = || field(object_key(), "balance");
+    for entries in [json!([every(), receiver()]), json!([receiver(), every()])] {
+        let (package, frame) = frame_mutation(|node| node["body"]["modifies"] = entries);
+        let receiver_index = nodes(&package)[frame]["body"]["modifies"]
+            .as_array()
+            .expect("entries")
+            .iter()
+            .position(|entry| entry["scope"] == "receiver")
+            .expect("receiver");
+        expect(
+            "scope conflict",
+            &package,
+            Code::InvalidModelBinding,
+            Some(Cause::ConflictingBinding),
+            &format!("/semantic_graph/nodes/{frame}/body/modifies/{receiver_index}"),
+            Some(object_key()),
+        );
+    }
+    let (other_defect, frame) = frame_mutation(|node| {
+        node["body"]["modifies"] = json!([every(), receiver()]);
+        node["body"]["creates"] = json!([node_id(&"ef".repeat(32))]);
+    });
+    expect(
+        "meaning join before conflict",
+        &other_defect,
+        Code::MissingDeclaration,
+        Some(Cause::MissingName),
+        &format!("/semantic_graph/nodes/{frame}/body/creates/0"),
+        Some(&"ef".repeat(32)),
+    );
+    let mut stale = ordered.clone();
+    let frame = position(&stale, "state", "frame");
+    stale["semantic_graph"]["nodes"][frame]["body"]["deletes_scoped"] = json!([]);
+    refresh_identity(&mut stale);
+    expect(
+        "stale scoped deletion",
+        &stale,
+        Code::InvalidPackage,
+        Some(Cause::StaleNodeKey),
+        &format!("/semantic_graph/nodes/{frame}/node_id"),
+        None,
+    );
+    let mut stale_scope = ordered_names.clone();
+    let frame = position(&stale_scope, "state", "frame");
+    stale_scope["semantic_graph"]["nodes"][frame]["body"]["modifies"][0]["scope"] =
+        json!("receiver");
+    refresh_identity(&mut stale_scope);
+    expect(
+        "stale field scope",
+        &stale_scope,
+        Code::InvalidPackage,
+        Some(Cause::StaleNodeKey),
+        &format!("/semantic_graph/nodes/{frame}/node_id"),
+        None,
+    );
 }
 
 fn relationship(declaration: &str) -> Value {
@@ -205,7 +399,7 @@ fn tc_056_modifies_entries_admit_in_their_closed_shape_only() {
     );
     admits(&base);
     let (empty, _) = frame_mutation(|frame| {
-        frame["body"] = json!({"term": "frame", "modifies": [], "creates": [], "deletes": []});
+        frame["body"] = json!({"term": "frame", "modifies": [], "creates": [], "deletes": [], "deletes_scoped": []});
         frame["dependencies"] = json!([]);
     });
     admits(&empty);
@@ -323,8 +517,7 @@ fn tc_056_frame_entries_and_semantic_type_join_declared_dependencies() {
     ];
     for (case, modifies, creates, dependencies, code, cause, locus, member, entry) in cases {
         let (value, frame) = frame_mutation(|frame| {
-            frame["body"] =
-                json!({"term": "frame", "modifies": modifies, "creates": creates, "deletes": []});
+            frame["body"] = json!({"term": "frame", "modifies": modifies, "creates": creates, "deletes": [], "deletes_scoped": []});
             frame["dependencies"] = dependencies;
         });
         expect(
@@ -783,8 +976,8 @@ pub(crate) fn state_operand_fixture() -> (Value, usize) {
 }
 
 /// Tracing: TC-056
-/// ACs: FR-040-AC-7
-#[trace("TC-056", "FR-040-AC-7")]
+/// ACs: FR-040-AC-7, FR-040-AC-28
+#[trace("TC-056", "FR-040-AC-7", "FR-040-AC-28")]
 #[test]
 fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
     let package = StatePackage::new();
@@ -908,8 +1101,8 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
         Some(digest(&value, anchor).as_str()),
     );
 
-    // A second anchor naming the same (context, operation) pair, or the same
-    // frame, refuses at the higher-digest anchor.
+    // A duplicate (context, operation) pair refuses; distinct operations may
+    // share one frame.
     for (case, operation) in [
         ("a duplicate pair", "deposit"),
         ("a shared frame", "withdraw"),
@@ -922,8 +1115,7 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
             let mut alternate_frame = nodes(&package.value)[frame].clone();
             let alternate_key = "b7".repeat(32);
             alternate_frame["node_id"] = node_id(&alternate_key);
-            alternate_frame["body"] =
-                json!({"term": "frame", "modifies": [], "creates": [], "deletes": []});
+            alternate_frame["body"] = json!({"term": "frame", "modifies": [], "creates": [], "deletes": [], "deletes_scoped": []});
             alternate_frame["dependencies"] = json!([]);
             second["body"]["members"][2]["value"]["target"] = node_id(&alternate_key);
             second["dependencies"] = json!([node_id(object_key()), node_id(&alternate_key)]);
@@ -940,14 +1132,122 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
         settle(&mut package.value);
         let second = nodes(&package.value).len() - 1;
         let second_key = digest(&package.value, second);
-        expect(
-            case,
-            &package.value,
-            Code::AmbiguousDeclaration,
-            Some(Cause::AmbiguousName),
-            &format!("/semantic_graph/nodes/{second}"),
-            Some(&second_key),
-        );
+        if case == "a shared frame" {
+            admits(&package.value);
+        } else {
+            expect(
+                case,
+                &package.value,
+                Code::AmbiguousDeclaration,
+                Some(Cause::AmbiguousName),
+                &format!("/semantic_graph/nodes/{second}"),
+                Some(&second_key),
+            );
+        }
+    }
+}
+
+/// Tracing: TC-056
+/// ACs: FR-040-AC-28
+#[trace("TC-056", "FR-040-AC-28")]
+#[test]
+fn tc_056_shared_frame_checks_scoped_deletes_for_each_anchor() {
+    let mut package = StatePackage::new().value;
+    let anchor = position(&package, "state", "operation_anchor");
+    let frame = position(&package, "state", "frame");
+    let mut second = nodes(&package)[anchor].clone();
+    second["node_id"] = node_id(&"b6".repeat(32));
+    second["body"]["members"][1]["value"]["value"] = json!("withdraw");
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(second);
+    package["semantic_graph"]["nodes"][frame]["body"]["deletes_scoped"] =
+        json!([{"kind": "parameter", "name": "a"}]);
+    // Remove the unrelated clause signature; the test concerns anchor joins.
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .retain(|node| node["body"]["operation"]["member"]["clause"] != "precondition");
+    mint_ungrouped_structural_keys(&mut package);
+    settle(&mut package);
+    let mut anchors = nodes(&package)
+        .iter()
+        .filter(|node| node["semantic_form"] == "operation_anchor")
+        .map(|node| {
+            (
+                node["node_id"]["digest"].as_str().expect("key").to_owned(),
+                node["body"]["members"][1]["value"]["value"]
+                    .as_str()
+                    .expect("operation")
+                    .to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    anchors.sort_by(|left, right| left.0.cmp(&right.0));
+    let mut document = family_model_document();
+    let operations = document["types"][0]["operations"]
+        .as_array_mut()
+        .expect("operations");
+    let valid = operations
+        .iter_mut()
+        .find(|operation| {
+            operation["identity"]
+                .as_str()
+                .expect("identity")
+                .ends_with(&anchors[0].1)
+        })
+        .expect("first operation");
+    valid["params"] = json!([{
+        "name": "a", "typeRef": "ix://test/families/Account",
+        "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true}
+    }]);
+    let document_digest = domain_package_digest(&document);
+    package["lock"]["model_selections"][0]["digest"] = json!(document_digest.clone());
+    refresh_identity(&mut package);
+    let read_custom = |value: &Value| {
+        let mut evidence = evidence_for(value);
+        evidence
+            .insert_domain_package_document(document_digest.clone(), canonical(&document))
+            .expect("selected document");
+        CheckedPackageV2::read(
+            &canonical(value),
+            CheckedPackageReadLimits::bounded(),
+            &evidence,
+        )
+    };
+    let mut first_only = package.clone();
+    first_only["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .retain(|node| {
+            node["semantic_form"] != "operation_anchor"
+                || node["body"]["members"][1]["value"]["value"] == anchors[0].1
+        });
+    rebuild_source_map(&mut first_only);
+    refresh_identity(&mut first_only);
+    assert!(
+        matches!(
+            read_custom(&first_only),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "the first anchor's reference parameter is valid"
+    );
+    let frame = position(&package, "state", "frame");
+    match read_custom(&package) {
+        CheckedPackageV2ReadResult::Refused(refusal) => assert_eq!(
+            (
+                refusal.code,
+                refusal.cause,
+                refusal.path.as_ref().map(|path| path.as_str())
+            ),
+            (
+                Code::MissingDeclaration,
+                Some(Cause::MissingName),
+                Some(format!("/semantic_graph/nodes/{frame}").as_str())
+            )
+        ),
+        other => panic!("the second anchor must check the shared frame: {other:?}"),
     }
 }
 
@@ -2127,6 +2427,52 @@ impl ModelPackage {
             node["dependencies"] = Value::Array(deps);
         })
     }
+}
+
+/// Tracing: TC-056
+/// ACs: FR-040-AC-27, FR-040-AC-29, FR-040-AC-30
+#[trace("TC-056", "FR-040-AC-27", "FR-040-AC-29", "FR-040-AC-30")]
+#[test]
+fn tc_056_scoped_deletes_check_resolved_operation_after_frame_step() {
+    let base = ModelPackage::new();
+    let frame = base.frame();
+    for name in ["n", "missing"] {
+        let package = ModelPackage::new().edit(frame, |node| {
+            node["body"]["deletes_scoped"] = json!([{"kind": "parameter", "name": name}]);
+        });
+        model_expect(
+            name,
+            &package.value,
+            Code::MissingDeclaration,
+            Cause::MissingName,
+            &format!("/semantic_graph/nodes/{frame}"),
+        );
+    }
+    let package = ModelPackage::new().edit(frame, |node| {
+        node["body"]["deletes_scoped"] = json!([{"kind": "parameter", "name": "missing"}]);
+        node["body"]["modifies"] = json!([field(object_key(), "missing")]);
+    });
+    model_expect(
+        "frame defect first",
+        &package.value,
+        Code::MissingDeclaration,
+        Cause::MissingName,
+        &format!("/semantic_graph/nodes/{frame}/body/modifies/0"),
+    );
+    let mut state = StatePackage::new();
+    let object = state.at("model", "object_type");
+    state.value["semantic_graph"]["nodes"][object]["owner"] = source_owner(&fixture_source());
+    state.value["semantic_graph"]["nodes"][object]["declaration"] =
+        json!({"qualified_name": ["Account"]});
+    state.value["semantic_graph"]["nodes"][object]["occurrences"] =
+        json!([{"role": "declaration", "ordinal": 0}]);
+    mint_ungrouped_structural_keys(&mut state.value);
+    settle(&mut state.value);
+    let frame = position(&state.value, "state", "frame");
+    let package = state.edit(frame, |node| {
+        node["body"]["deletes_scoped"] = json!([{"kind": "parameter", "name": "missing"}]);
+    });
+    admits(&package.value);
 }
 
 impl ModelPackage {

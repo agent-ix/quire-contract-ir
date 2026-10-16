@@ -18,7 +18,7 @@ relationships:
 
 ## Description
 
-Verify FR-040-AC-1 through FR-040-AC-29: the V2 reader admits QSpec FR-340's
+Verify FR-040-AC-1 through FR-040-AC-30: the V2 reader admits QSpec FR-340's
 `FrameModifiesEntry` values, FR-342's operation anchor body, FR-341's state
 clause and parameter bodies and exactly the fifteen `model` forms, and
 refuses every other shape with the code, cause and locus those requirements
@@ -68,7 +68,7 @@ first refusal. Read the selected owner table at the exact work limit and one
 unit less, then repeat the existing object, relationship, anchor and clause
 controls to establish their unchanged outcomes.
 
-PLANNED / UNRUN (IR-816; FR-040-AC-17 through FR-040-AC-30): author, from this
+Implemented (FR-040-AC-17 through FR-040-AC-30): authored, from this
 repository's own public vocabulary, an object type with a field `value`
 and a field `step`, an operation with no parameter, and an operation `merge`
 with two reference parameters `a` and `b` and an integer parameter `n`.
@@ -107,8 +107,8 @@ ahead of a frame-step defect.
 FR-040-AC-1 through FR-040-AC-13 are implemented, except that the shared-frame clause of FR-040-AC-7 is superseded by FR-040-AC-28 when that is implemented, in
 `tests/it/checked_package_v2_frame_entries.rs` and the entry eligibility
 tests in `crates/quire-contract-model/src/checked_package/v2/frame.rs`.
-FR-040-AC-17 through FR-040-AC-30 are PLANNED / UNRUN (IR-816): no tagged
-implementation tests exist yet. FR-040-AC-14 through FR-040-AC-16 are implemented by the tagged public-reader
+FR-040-AC-17 through FR-040-AC-30 are implemented by tagged reader tests in
+`tests/it/checked_package_v2_frame_entries.rs`. FR-040-AC-14 through FR-040-AC-16 are implemented by the tagged public-reader
 record frame and expression cases in `tests/it/checked_package_v2_frame_entries.rs`
 and `tests/it/checked_package_v2_model_fields.rs`, and the selected-row and
 effective-type unit cases in `model_members/tests.rs` and `model_fields/tests.rs`.

@@ -693,7 +693,7 @@ fn tc_048_a_grouped_union_key_has_public_reader_stage_precedence() {
                         "integer",
                         &[],
                         "generated",
-                        json!({"term":"frame","modifies":[],"creates":[],"deletes":[]}),
+                        json!({"term":"frame","modifies":[],"creates":[],"deletes":[],"deletes_scoped":[]}),
                     ));
                 mint_ungrouped_structural_keys(&mut control);
             }
