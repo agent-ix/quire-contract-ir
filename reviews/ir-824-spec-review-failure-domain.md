@@ -36,3 +36,4 @@ input is left open.
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Fix commit 1840592 states the QSpec FR-322-AC-57 order in FR-038 (lines 1156-1170) and in the new FR-038-AC-253: receiver-endpoint checks of `arguments/0` and `arguments/1` come first, then direction, multiplicity and type. TC-048 item 11 adds the combined cases (an unrelated operand 1 with each of wrong-direction, unbounded, ordered and other-type ends refuses at arguments1). |
+| FND-002 | fixed | Fix commit 6bba066: FR-038 (lines 1167-1169) now says the implementation slice "compares operand 1 with the receiver endpoint type instead of the destination type", and TC-048 item 11 (line 1853) adds "so a well-formed other-type end still refuses at member.name"; RN-25 stays at member.name. |
