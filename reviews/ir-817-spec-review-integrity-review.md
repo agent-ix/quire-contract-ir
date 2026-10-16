@@ -22,3 +22,11 @@ Ticket: IR-817. Diffed the compound FR-020-AC-3 on origin/main (6b80801) against
 | FND-001 | medium | Conformance matrix FR-020 status says the tests are still tagged FR-020-AC-3 and AC-4..AC-12 show untagged until a follow-up retag, but this PR does the retag and quire matrix computes FR-020 12/12 tagged at f07017c | spec/conformance/matrix/tests.md:13 |
 | FND-002 | low | AC-9 rewords the old "the same number in a valid-operation input" to "a JSON number": the pairing with the decoder fixture's number is lost, and the backing test mutates with 0 and 1.0, never the decoder fixtures' -10 and 1 | spec/conformance/functional/FR-020-json-conformance-interface.md:142 |
 | FND-003 | low | AC-12 restates part of AC-1 (exit 0, one match per fixture input) and is backed by the same test; redundant criterion kept only to preserve the old clause | spec/conformance/functional/FR-020-json-conformance-interface.md:145 |
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Status cell now says AC-3..AC-14 are split under IR-817 and every FR-020 criterion has a test tag; quire matrix at 9605c5c confirms 14/14 tagged. |
+| FND-002 | fixed | AC-9 restores 'the same number as the decoder fixture'; the test now places the decoder fixtures' -10 and 1 in the ordinary inputs. |
+| FND-003 | fixed | AC-1 no longer carries exit 0 and one match per input; AC-12 owns them, so the two are distinct and nothing was lost. |

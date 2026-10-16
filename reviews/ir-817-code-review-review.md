@@ -22,3 +22,11 @@ Ticket: IR-817. The test diff (git diff -w origin/main...HEAD) touches only Trac
 | FND-001 | low | Doc comment above the canonical-files test still cites FR-020-AC-3 for the bytes and strings-only obligations, now FR-020-AC-10 and AC-11 | tests/it/conformance.rs:1084 |
 | FND-002 | low | Corpus generator comment cites FR-020-AC-3 for the decoder fixtures, now FR-020-AC-7..AC-9 (outside the diff, same split) | scripts/generate_conformance_corpus.py:235 |
 | FND-003 | low | The AC-1/AC-12 test carries its ids only in doc lines, with NFR-001-AC-1 listed twice and no #[ix_trace_rs::trace] attribute unlike every sibling the PR edits; the canonical-files test's Tracing line omits FR-016-AC-5 that its attribute carries | tests/it/conformance.rs:134-143 |
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Doc comment now cites FR-020-AC-10, AC-11 and FR-016-AC-5. |
+| FND-002 | fixed | Comment-only change in the generator; no code changed (git diff -w). |
+| FND-003 | fixed | Trace attribute added; NFR-001-AC-1 still appears twice in the doc lines (cosmetic), and the canonical-files Tracing line now lists FR-016-AC-5. |

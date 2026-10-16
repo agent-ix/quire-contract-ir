@@ -22,3 +22,11 @@ Ticket: IR-817. Plan completion: not assessed. Checked each retagged test body a
 | FND-001 | medium | AC-9 says refused "at the fixture schema check", but the decoder-fixture test asserts only error code invalid_corpus, not path fixtures.<id>.input or detail "instance does not match schema"; the runner has other invalid_corpus paths (malformed fixture input), so the stage clause is not discriminated | tests/it/conformance.rs:884-921 |
 | FND-002 | low | AC-7 oracle checks the decoder fixture input is a document_json string but not that the text carries a JSON number in one of the eight members; relies on fixture naming (verified by hand: minimum -10 and value 1) | tests/it/conformance.rs:875-879 |
 | FND-003 | low | After losing its AC-3 tag, tc_018_a_successful_expression_document_is_checked_against_the_schema backs no criterion: FR-020 describes schema-checking a successful package, not a successful document_json expression input; behaviour tested but unspecified | tests/it/conformance.rs:1390-1452 |
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Test now asserts code, path fixtures.<id>.input and detail 'instance does not match schema'. Mutant with the fixture-schema check bypassed (it fails at tests/it/conformance.rs:968 (exit 1 instead of 2)) makes it fail. |
+| FND-002 | fixed | Test parses each decoder document and asserts the member at the pointer is the JSON number -10 or 1. Mutant turning -10 into "-10" in the bound fixture (it fails (at the corpus-success assert, line 841, before the number check; the number check itself was verified by reading)) makes it fail. |
+| FND-003 | deferred | Follow-up IR-822 (Backlog) adds an FR-020 criterion for schema-checking a successful document_json expression document; the test correctly stays TC-018-only meanwhile. |

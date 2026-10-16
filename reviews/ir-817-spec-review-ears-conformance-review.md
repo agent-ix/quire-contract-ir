@@ -22,3 +22,11 @@ Ticket: IR-817. Checked FR-020-AC-3 through AC-12 for singular, direct-assertion
 | FND-001 | low | AC-5 (and AC-6 by mirror) lists four member groups then "above 9007199254740992"; the bound grammatically attaches only to the last item (coverage trace target revision) | spec/conformance/functional/FR-020-json-conformance-interface.md:138 |
 | FND-002 | low | AC-4 keeps accept-at-2^53 and reject-at-2^53+1 as one row (as does AC-3 for accept/reject spellings) while AC-5/AC-6 split refuse/pass into two; split granularity is inconsistent | spec/conformance/functional/FR-020-json-conformance-interface.md:137 |
 | FND-003 | low | AC-7's subject is the decoder fixture ("a decoder fixture ... returns"); a fixture does not return, the runner's actual result for that fixture does | spec/conformance/functional/FR-020-json-conformance-interface.md:140 |
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Bound now stated once and applied to each listed member; AC-6 mirrors it. |
+| FND-002 | fixed | Accept/reject now split uniformly: AC-3/AC-13 and AC-4/AC-14, new ids appended, nothing renumbered. |
+| FND-003 | fixed | Subject is now the runner. |
