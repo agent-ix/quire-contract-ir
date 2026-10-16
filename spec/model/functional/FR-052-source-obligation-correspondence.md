@@ -476,7 +476,7 @@ candidate denominator.
 | FR-052-AC-21 | Given synthetic outcomes, an outcome in one owner position that is both in the wrong position and incomplete yields `InventoryScopeMismatch`, and one that names the wrong source and is incomplete yields `InventorySourceMismatch`. | Test |
 | FR-052-AC-22 | Given synthetic `Complete` outcomes, two assertion IDs stating one relation with equal provenance yield exactly one accepted row, and two assertion IDs stating one relation with differing provenance are both rejected with `ConflictingProvenance` and yield no accepted row. | Test |
 | FR-052-AC-23 | Given synthetic `Complete` outcomes, an assertion whose occurrence lies under a `ConflictingIdentity` node, an assertion whose occurrence has no `SemanticNode` row, and an assertion whose production function has no `ProductionModule` row are rejected with `DanglingOccurrence`, `DanglingOccurrence` and `DanglingProductionSymbol` respectively; each orphan or conflicting row stays in the census. | Test |
-| FR-052-AC-24 | Conflicting inventory facts (two `SemanticNode` rows with one `CheckedNodeId` and differing `CheckedSemanticId`) receive their named deterministic disposition, `ConflictingIdentity`, and each conflicting entry remains inspectable. | Test |
+| FR-052-AC-24 | Conflicting inventory facts (two `SemanticNode` rows with one `CheckedNodeId` and differing `CheckedSemanticId`) receive their named deterministic disposition, `ConflictingIdentity`; each conflicting entry remains inspectable, and no occurrence under a conflicting node enters an accepted relation. | Test |
 
 FR-052-AC-8 is retired and its ID is not reused (ADR-0056).
 FR-052-AC-17 succeeds it. FR-052-AC-4 and AC-12 through AC-15, and AC-17
@@ -491,8 +491,10 @@ test can fail each of them. Owner-native evidence is still required where a
 criterion says so: under AC-6 no Quire `Complete` fixture counts as owner
 evidence until PLAT-1165 supplies it. No synthetic test grants owner-issued
 completeness, owner full-output comparison, or a complete four-owner census.
-TC-452 lists the tests that back each of these criteria. Each stays Planned
-until its tests are written and traced.
+TC-452 lists the tests that back each of these criteria. For AC-1 and AC-5
+that is a traced `#[test]` external consumer in a model-crate test target, run
+with the model crate's default features only; a doctest cannot carry the
+trace. Each criterion stays Planned until its tests are written and traced.
 
 FR-052-AC-24 holds the conflicting-inventory-facts clause split from AC-3; its
 obligation is unchanged. It stays Planned until Linear IR-820 decides whether
