@@ -91,7 +91,9 @@ other than `receiver` or `every-object`, a `relationship` entry carrying
 without `deletes_scoped` or with a member not named here each refuse as
 `invalid_semantic_graph` with no cause: at that entry for an entry, at the
 frame node's `body` for a missing or further member. A member array that
-repeats an entry refuses the same way at that member. These are schema-level
+repeats an entry refuses the same way, located at the second occurrence of
+the repeated entry (the first index whose entry equals an earlier one), as
+the reader's repeat check locates it. These are schema-level
 refusals of the node-body validation that runs before the frame step, so they
 outrank every defect the frame step and the state step report. Every
 occurrence of a frame node has role `generated`.
@@ -162,10 +164,17 @@ Two `field` entries with equal `declaration` and `name` and different scopes
 refuse as `invalid_model_binding`/`conflicting-binding`. The same pair with
 one scope listed twice is a repeated entry, a schema-level refusal above, and
 the scope component of the order key therefore places no admitted entry. IR
-reading, as for FR-346's conflicting bindings: the refusal carries one path
-and one locus, its path is the later of the two entries in array order, its
-locus is their declaring node key, and its message names both entries and
-their scopes.
+reading, in the manner of FR-346's conflicting bindings: a refusal carries
+one path and one locus (FR-038 "Locating refusals") and no member that could
+carry a second entry, so the refusal's locus is the two entries' declaring
+node key and its path is that of the entry that sorts second by the order key,
+the `receiver` one, since `every-object` sorts first. That entry is the same
+entry in whatever order the two are listed (its array index follows its
+position), which is why the rule is not "the later entry in array order",
+whose entry would change with the listing. The other entry is not carried:
+FR-340 says the refusal names both entries, and carrying the first needs a
+refusal member this repository does not have, which is a QSpec question as
+FR-346 states it for its own conflicts.
 
 One frame node reports exactly one defect: any meaning-join defect outranks a
 canonical-order defect, except that a `conflicting-binding` defect ranks after
@@ -202,15 +211,19 @@ located at the frame node (QSpec FR-342 check 5). A `receiver` entry needs no
 parameter, and a parameter is a reference parameter when its type is
 `Reference<T>` for an object type `T`. Once every
 anchor's own joins hold, a second anchor naming the same (`context`,
-`operation`) pair refuses as `ambiguous_declaration`/`ambiguous-name` at the
-second anchor in ascending node-id digest order. Two anchors of one `context`
-may reference one `frame` node, as operations with equal frames do (QSpec
-FR-342-AC-6), and the scoped-deletes check then runs against each anchor's
-operation in ascending node-id digest order, the first failure being
-reported. The `operation` name is resolved only when the `context` target is
-a model declaration node, as for field entries; any other `context` admits
-its `operation` name unresolved, and the scoped-deletes check, which needs the
-resolved operation, does not run for it.
+`operation`) pair, or the same `frame` target as another anchor, refuses as
+`ambiguous_declaration`/`ambiguous-name` at the second anchor in ascending
+node-id digest order; this is what the reader does today. QSpec FR-342-AC-6
+admits two anchors of one `context` that reference one `frame` node, as
+operations with equal frames do, and FR-040-AC-28 supersedes the
+same-`frame` refusal when it is implemented: the scoped-deletes check then
+runs against each anchor's operation in ascending node-id digest order, the
+first failure being reported. The `operation` name is resolved only when the
+`context` target is a model declaration node, as for field entries; any other
+`context` admits its `operation` name unresolved. IR reading, which QSpec
+FR-342 check 5 does not state: the scoped-deletes check needs the resolved
+operation's parameters, so it does not run for an anchor whose `operation` is
+unresolved (FR-040-AC-30).
 
 ### State clause body
 
@@ -303,7 +316,7 @@ operation anchor (including the scoped-deletes check of its frame's
 | FR-040-AC-4 | Two field entries of one declaring node in descending name order refuse as `invalid_semantic_graph`; a frame carrying a meaning-join defect and a canonical-order defect reports the meaning-join refusal regardless of member or array position; with two defective frames, the lower node-id frame's own defect is reported. | Test (TC-056) |
 | FR-040-AC-5 | A frame whose `semantic_type` names a node that is not `model`/`object_type` refuses as `invalid_model_binding`/`malformed-declaration` at its `semantic_type` before any entry defect; a frame occurrence with a role other than `generated` refuses as `invalid_semantic_graph` with no cause, located at that occurrence's `role`. | Test (TC-056) |
 | FR-040-AC-6 | Each of the fifteen `model` forms admits as a node form; `field_declaration`, `operation_declaration`, `clause_member_declaration` and any other `model` form refuse as `invalid_semantic_graph` with no cause, located at the node's `semantic_form`. | Test (TC-056) |
-| FR-040-AC-7 | An operation anchor with the three bindings in order admits. Reordered bindings, a non-text `operation`, a missing binding, and an extra binding each refuse as `invalid_semantic_graph` with no cause, located at the anchor's `body`; an occurrence role other than `anchor` refuses the same way, located at that occurrence's `role`. A `context` naming a frame, a `frame` naming an object type, and a `frame` target missing from `dependencies` refuse as `invalid_model_binding`/`malformed-declaration`, `invalid_model_binding`/`malformed-declaration` and `missing_declaration`/`missing-name` at the target; an anchor whose `semantic_type` is not its `context` refuses as `invalid_model_binding`/`malformed-declaration` at the anchor. An `operation` the model declaration `context` declares resolves; an undeclared name and a field's name refuse as `missing_declaration`/`missing-name`, an operation the context only inherits as `invalid_model_binding`/`malformed-declaration`, and a context keyed under an unselected domain package as `missing_declaration`/`missing-selection`, each at the anchor's `operation` binding. A duplicate (`context`, `operation`) pair refuses as `ambiguous_declaration`/`ambiguous-name` at the second anchor in ascending node-id digest order; two anchors of one `context` that reference one `frame` node are both admitted. | Test (TC-056) |
+| FR-040-AC-7 | An operation anchor with the three bindings in order admits. Reordered bindings, a non-text `operation`, a missing binding, and an extra binding each refuse as `invalid_semantic_graph` with no cause, located at the anchor's `body`; an occurrence role other than `anchor` refuses the same way, located at that occurrence's `role`. A `context` naming a frame, a `frame` naming an object type, and a `frame` target missing from `dependencies` refuse as `invalid_model_binding`/`malformed-declaration`, `invalid_model_binding`/`malformed-declaration` and `missing_declaration`/`missing-name` at the target; an anchor whose `semantic_type` is not its `context` refuses as `invalid_model_binding`/`malformed-declaration` at the anchor. An `operation` the model declaration `context` declares resolves; an undeclared name and a field's name refuse as `missing_declaration`/`missing-name`, an operation the context only inherits as `invalid_model_binding`/`malformed-declaration`, and a context keyed under an unselected domain package as `missing_declaration`/`missing-selection`, each at the anchor's `operation` binding. A duplicate (`context`, `operation`) pair refuses as `ambiguous_declaration`/`ambiguous-name` at the second anchor in ascending node-id digest order; a shared `frame` target refuses the same way (FR-040-AC-28 supersedes that last clause when implemented). | Test (TC-056) |
 | FR-040-AC-8 | An invariant, a precondition and a postcondition in QSpec FR-341's shape each admit; an invariant anchored at an operation anchor and a precondition anchored at an object type refuse as `invalid_model_binding`/`malformed-declaration` at the anchor's target; a parameter reference to a node that is not `value`/`parameter` refuses the same way at its target. Another operation identity, operator class, member kind or clause value, a first argument that is not an `aggregate` of `reference` terms, and a second argument that is not a `reference` each refuse as `invalid_semantic_graph` with no cause, located at the clause node's `body`; an occurrence role other than `claim` refuses the same way, located at that occurrence's `role`. | Test (TC-056) |
 | FR-040-AC-9 | For `Order.scaled(n: Integer): Integer`, a precondition binding `[Reference<Order>, Integer]` and a postcondition binding `[Reference<Order>, Integer, Integer]` admit; a precondition missing the operation parameter, a postcondition missing the result, a parameter of another type, a `self` that is a `Reference` to another object type than its anchor's, and an invariant binding a second parameter each refuse as `ill_typed`/`operator-ineligible` at the clause node's first argument. | Test (TC-056) |
 | FR-040-AC-10 | A `quire.op.state.clause` application standing as the body root of a node that is not `state`/`state_clause` refuses as `ill_typed`/`operator-ineligible` at the holding node, and one nested in a node body or another term refuses `malformed_wire` at the nested application (FR-038-AC-114); a non-Boolean condition refuses as `ill_typed`/`operator-ineligible` at the operation step. | Test (TC-056) |
@@ -316,16 +329,17 @@ operation anchor (including the scoped-deletes check of its frame's
 | FR-040-AC-17 | PLANNED / UNRUN (IR-816). A frame body carrying `modifies` field entries of scope `receiver` and `every-object` and a `deletes_scoped` of one `receiver` entry and `parameter` entries admits with each entry's scope and kind exposed; a frame of four empty members admits. | Test (TC-056) |
 | FR-040-AC-18 | PLANNED / UNRUN (IR-816). A `field` entry with no `scope`, a `field` entry with a `scope` other than `receiver` or `every-object`, and a `relationship` entry carrying `scope` each refuse `invalid_semantic_graph` with no cause, located at that entry, before the frame step. | Test (TC-056) |
 | FR-040-AC-19 | PLANNED / UNRUN (IR-816). A frame body with no `deletes_scoped` member refuses `invalid_semantic_graph` with no cause, located at the frame node's `body`, before the frame step. | Test (TC-056) |
-| FR-040-AC-20 | PLANNED / UNRUN (IR-816). A `deletes_scoped` entry of a `kind` other than `receiver` or `parameter`, a `parameter` entry with no `name`, an entry carrying a further member, and an array repeating an entry each refuse `invalid_semantic_graph` with no cause, located at that entry or member, before the frame step. | Test (TC-056) |
+| FR-040-AC-20 | PLANNED / UNRUN (IR-816). A `deletes_scoped` entry of a `kind` other than `receiver` or `parameter`, a `parameter` entry with no `name`, an entry carrying a further member, and an array repeating an entry each refuse `invalid_semantic_graph` with no cause before the frame step, located at the offending entry and, for a repeat, at the second occurrence of the repeated entry; a missing or further member of the frame body is located at the body (FR-040-AC-19). | Test (TC-056) |
 | FR-040-AC-21 | PLANNED / UNRUN (IR-816). A `deletes_scoped` that does not hold the `receiver` entry first and the `parameter` entries ascending by name as UTF-8 bytes refuses `invalid_semantic_graph` with no cause, located at the frame node; `receiver`, `parameter a`, `parameter b` admits and `parameter a`, `receiver`, `parameter b` refuses. | Test (TC-056) |
-| FR-040-AC-22 | PLANNED / UNRUN (IR-816). The `modifies` entries of one declaring node ascend by name, then by scope with `every-object` first; entries (`step`, `receiver`) then (`value`, `every-object`) admit and the reverse order refuses `invalid_semantic_graph` with no cause, located at the frame node. | Test (TC-056) |
-| FR-040-AC-23 | PLANNED / UNRUN (IR-816). Two `field` entries sharing a declaration and name and differing in scope refuse `invalid_model_binding`/`conflicting-binding`, with the later entry in array order as the path, the declaring node key as the locus and both entries named, whichever order they are listed in. | Test (TC-056) |
+| FR-040-AC-22 | PLANNED / UNRUN (IR-816). The `modifies` entries of one declaring node ascend by name as UTF-8 bytes; entries (`step`, `receiver`) then (`value`, `every-object`) admit and the reverse order refuses `invalid_semantic_graph` with no cause, located at the frame node. | Test (TC-056) |
+| FR-040-AC-23 | PLANNED / UNRUN (IR-816). Two `field` entries sharing a declaration and name and differing in scope refuse `invalid_model_binding`/`conflicting-binding` with the declaring node key as the locus and, as the path, that of the entry that sorts second by the order key (`every-object` before `receiver`, so the `receiver` entry), whichever order the two are listed in; the other entry is not carried. | Test (TC-056) |
 | FR-040-AC-24 | PLANNED / UNRUN (IR-816). A frame holding a `conflicting-binding` defect and a canonical-order defect reports the `conflicting-binding` and not the `invalid_semantic_graph` of the misordered array. | Test (TC-056) |
 | FR-040-AC-25 | PLANNED / UNRUN (IR-816). A frame holding a `conflicting-binding` defect and any other meaning-join defect reports the other meaning-join defect. | Test (TC-056) |
 | FR-040-AC-26 | PLANNED / UNRUN (IR-816). A `scope` or a `deletes_scoped` entry changed in a frame node left under its old key refuses `invalid_package`/`stale-node-key` before the frame step. | Test (TC-056) |
 | FR-040-AC-27 | PLANNED / UNRUN (IR-816). A `parameter` entry of a frame's `deletes_scoped` naming no reference parameter of the operation an anchor referencing the frame resolves refuses `missing_declaration`/`missing-name`, located at the frame node, in the state step after that anchor's own joins hold, and not in the frame step. | Test (TC-056) |
-| FR-040-AC-28 | PLANNED / UNRUN (IR-816). Two anchors of one `context` referencing one `frame` node both admit, and the frame's `parameter` entries are checked against each anchor's operation, the first failure in ascending anchor node-id digest order being reported. | Test (TC-056) |
+| FR-040-AC-28 | PLANNED / UNRUN (IR-816). Two anchors of one `context` referencing one `frame` node both admit, and the frame's `parameter` entries are checked against each anchor's operation, the first failure in ascending anchor node-id digest order being reported. When implemented this criterion supersedes the last clause of FR-040-AC-7: the existing test tagged FR-040-AC-7 (`tc_056_operation_anchors_admit_their_three_bindings_and_joins`, case "a shared frame"), which asserts the refusal, changes to assert the admission, and no other outcome of AC-7 changes. | Test (TC-056) |
 | FR-040-AC-29 | PLANNED / UNRUN (IR-816). A package carrying a frame-step defect and a `parameter` entry that fails the state step's scoped-deletes check reports the frame-step defect. | Test (TC-056) |
+| FR-040-AC-30 | PLANNED / UNRUN (IR-816). An anchor whose `context` is not a model declaration node, and so whose `operation` is admitted unresolved, is not checked for scoped deletes: a frame `parameter` entry naming no parameter admits in the state step for it. | Test (TC-056) |
 
 ## Dependencies
 
