@@ -434,8 +434,10 @@ candidate denominator.
 - IR V2 semantic-node identity, owned by FR-052-AC-9's IR V2 adapter. The
   `SemanticNode` inventory identity carries a `CheckedSemanticId`, but a
   checked V2 graph node carries `semantic_type` as a `CheckedNodeId`, so an
-  owner-native adapter cannot fill the identity as specified. The synthetic
-  census (FR-052-AC-17 through AC-23) does not depend on the answer.
+  owner-native adapter cannot fill the identity as specified. Linear IR-820
+  tracks the decision. The synthetic census (FR-052-AC-17 through AC-23) does
+  not depend on the answer; FR-052-AC-24, the conflicting-inventory-facts case
+  that names `CheckedSemanticId`, waits on it.
 - Conflicting binding. The census construction rules read a binding's
   `obligation_scope()` as one obligation declaration that every Quire
   `Criterion` row must carry. FR-052-AC-7 names the bound corpus's "declared
@@ -454,7 +456,7 @@ candidate denominator.
 | --- | --- | --- |
 | FR-052-AC-1 | A default-feature consumer imports and calls the input, constructor, census and row types from `quire_contract_model::source_obligation`; FR-019's public-items inventory lists every exported item. | Test |
 | FR-052-AC-2 | A typed fixture containing two Quire-authored acceptance criteria, including one with no mapping, three semantic occurrences, one empty module, two production functions and explicit many-to-many assertions preserves every inventory row and exactly the asserted valid relations with their selected-source provenance. Unmapped criteria, occurrences, modules and functions remain visible with typed missing reasons. Reordering equivalent inputs yields the same ordered census; removing one occurrence from a complete IR V2 outcome changes it. | Test |
-| FR-052-AC-3 | A foreign source, each dangling endpoint, an exact duplicate, conflicting inventory facts (two `SemanticNode` rows with one `CheckedNodeId` and differing `CheckedSemanticId`), conflicting assertion relation facts, and conflicting assertion provenance each receive their named deterministic disposition; rejected entries remain inspectable and never enter accepted relations. A foreign-source inventory row is refused at the outcome boundary, not by the census (FR-052-AC-13). | Test |
+| FR-052-AC-3 | A foreign source, each dangling endpoint, an exact duplicate, conflicting assertion relation facts, and conflicting assertion provenance each receive their named deterministic disposition; rejected entries remain inspectable and never enter accepted relations. A foreign-source inventory row is refused at the outcome boundary, not by the census (FR-052-AC-13). Conflicting inventory facts are FR-052-AC-24. | Test |
 | FR-052-AC-4 | Inspection of the public constructor and `SourceObligationInput` signature confirms that the input schema has no result, method, profile, artifact, attempt or run field. | Inspection |
 | FR-052-AC-5 | An external default-feature consumer compiles a borrow of `SourceObligationCensus` and its rows from `quire_contract_model::source_obligation`. | Test |
 | FR-052-AC-6 | Omitting each of the four owner outcomes in turn returns `MissingOwnerInventory` naming that owner and no census. Supplying, for each position, an outcome whose enumerator ended with a typed `Err` (issued `Incomplete`) returns `IncompleteOwnerInventory` with the supplied typed cause and no census. A fully parsed production module with no function facts is accepted as complete, retains the module row, and differs observably from both outcomes. No Quire `Complete` fixture counts as owner evidence until PLAT-1165 supplies it. | Test |
@@ -467,25 +469,46 @@ candidate denominator.
 | FR-052-AC-14 | A default-feature neutral consumer distinguishes a typed Quire criterion identity containing obligation declaration, scoped document and authored criterion ID from `ClauseRef` and QSL `RequirementRecord`. Two neutral fixture rows with distinct authored criterion identities, one without a correspondence assertion, remain distinct Quire-owned rows before any generation or result. A formal clause, QSL requirement record or assertion-only key cannot substitute for either fixture criterion. This neutral fixture does not claim Quire owner-issued completeness. | Test |
 | FR-052-AC-15 | An explicit source-author binding connects the selected Quire corpus/obligation scope to the selected IR `SourceIdentity`. A missing, foreign or conflicting binding refuses a complete census with distinct typed causes; a matching label or revision alone is not treated as proof of equal source bytes across Quire, IR V2 and QSL. Foreign and dangling AC-to-occurrence/function assertions retain their separate typed dispositions. | Test |
 | FR-052-AC-16 | With PLAT-1165's real Quire producer, normal exhaustion of the validated selected scope issues `Complete` with every authored criterion and its provenance; a valid empty scope completes with zero rows. Changing or deleting one authored criterion in the selected Quire corpus changes the owner-issued inventory before generation or proof results, including when that criterion has zero mappings. An unreadable selected document, skipped criterion row, failed discovery, missing declared table/ID column, and early stop each report typed `Incomplete` with emitted partial rows, and deletion of a row from full owner output fails comparison even when the shortened count matches. Until this producer exists, no Quire `Complete` or full FR-052 census is claimed. | Test |
-| FR-052-AC-17 | Given four synthetic `Complete` outcomes and a valid binding, where the outcomes hold the AC-2 fixture shape plus a QSL outcome with at least one `RequirementRecord` row and one `PendingObligation` row, `build_source_obligation_census` returns a census equal to a hand-written expected census: every inventory row with its disposition and missing-mapping reason, every accepted row with its provenance, and their orderings. In that census an occurrence asserted only without a production function is `ZeroMappings(ExplicitNoProductionFunction)` and each QSL row is `ZeroMappings(NoAuthoredMapping)`; the QSL expectation is an IR reading pending owner confirmation (see Open questions). This grants no owner-native completeness or FR-052-AC-2 full-owner credit. | Test |
-| FR-052-AC-18 | Given synthetic outcomes, two faults in adjacent positions of the order (missing or foreign binding, Quire outcome, conflicting binding, IR V2, QSL, `quire-code-rs`) yield only the error for the earlier position. The tested pairs are a foreign binding with an incomplete Quire outcome (`ForeignCriterionSourceBinding`), an incomplete Quire outcome with a conflicting binding (`IncompleteOwnerInventory` for Quire), a conflicting binding with a missing IR V2 outcome (`ConflictingCriterionSourceBinding`), a missing IR V2 outcome with a missing QSL outcome (`MissingOwnerInventory` for IR V2), and an incomplete QSL outcome with a missing `quire-code-rs` outcome (`IncompleteOwnerInventory` for QSL). The conflicting-binding definition used is an IR reading pending owner confirmation. This grants no FR-052-AC-6 or AC-7 owner-native credit. | Test |
-| FR-052-AC-19 | Given synthetic `Complete` outcomes, an assertion that is both foreign and dangling is rejected only with `ForeignSource`, and one repeated assertion ID whose members differ in both relation and provenance is rejected only with `ConflictingRelation`. This grants no FR-052-AC-3 full-owner credit. | Test |
+| FR-052-AC-17 | Given four synthetic `Complete` outcomes and a valid binding, where the outcomes hold the AC-2 fixture shape plus a QSL outcome with at least one `RequirementRecord` row and one `PendingObligation` row, `build_source_obligation_census` returns a census equal to a hand-written expected census: every inventory row with its disposition and missing-mapping reason, every accepted row with its provenance, and their orderings. In that census an occurrence asserted only without a production function is `ZeroMappings(ExplicitNoProductionFunction)` and each QSL row is `ZeroMappings(NoAuthoredMapping)`; the QSL expectation is an IR reading pending owner confirmation (see Open questions). This grants no owner-native completeness and does not by itself back FR-052-AC-2. | Test |
+| FR-052-AC-18 | Given synthetic outcomes, two faults in adjacent positions of the order (missing or foreign binding, Quire outcome, conflicting binding, IR V2, QSL, `quire-code-rs`) yield only the error for the earlier position. The tested pairs are a foreign binding with an incomplete Quire outcome (`ForeignCriterionSourceBinding`), an incomplete Quire outcome with a conflicting binding (`IncompleteOwnerInventory` for Quire), a conflicting binding with a missing IR V2 outcome (`ConflictingCriterionSourceBinding`), a missing IR V2 outcome with a missing QSL outcome (`MissingOwnerInventory` for IR V2), and an incomplete QSL outcome with a missing `quire-code-rs` outcome (`IncompleteOwnerInventory` for QSL). The conflicting-binding definition used is an IR reading pending owner confirmation. This does not by itself back FR-052-AC-6 and grants no AC-7 owner-native credit. | Test |
+| FR-052-AC-19 | Given synthetic `Complete` outcomes, an assertion that is both foreign and dangling is rejected only with `ForeignSource`, and one repeated assertion ID whose members differ in both relation and provenance is rejected only with `ConflictingRelation`. This does not by itself back FR-052-AC-3. | Test |
 | FR-052-AC-20 | Given the FR-052-AC-17 inputs, permuting the assertion order and the row order of each outcome yields a census equal to the unpermuted one. | Test |
 | FR-052-AC-21 | Given synthetic outcomes, an outcome in one owner position that is both in the wrong position and incomplete yields `InventoryScopeMismatch`, and one that names the wrong source and is incomplete yields `InventorySourceMismatch`. | Test |
 | FR-052-AC-22 | Given synthetic `Complete` outcomes, two assertion IDs stating one relation with equal provenance yield exactly one accepted row, and two assertion IDs stating one relation with differing provenance are both rejected with `ConflictingProvenance` and yield no accepted row. | Test |
 | FR-052-AC-23 | Given synthetic `Complete` outcomes, an assertion whose occurrence lies under a `ConflictingIdentity` node, an assertion whose occurrence has no `SemanticNode` row, and an assertion whose production function has no `ProductionModule` row are rejected with `DanglingOccurrence`, `DanglingOccurrence` and `DanglingProductionSymbol` respectively; each orphan or conflicting row stays in the census. | Test |
+| FR-052-AC-24 | Conflicting inventory facts (two `SemanticNode` rows with one `CheckedNodeId` and differing `CheckedSemanticId`) receive their named deterministic disposition, `ConflictingIdentity`, and each conflicting entry remains inspectable. | Test |
 
 FR-052-AC-8 is retired and its ID is not reused (ADR-0056).
 FR-052-AC-17 succeeds it. FR-052-AC-4 and AC-12 through AC-15, and AC-17
 through AC-23 are Implemented for the neutral synthetic boundary with traced
 tests. Assertion deduplication, foreign provenance, rejection precedence,
-and rejection ordering are exercised by AC-19 and AC-22 tests. AC-3 remains
-Planned/UNRUN until owner-native evidence exists. AC-1 through AC-3, AC-5
-through AC-7, AC-9 through AC-11, and AC-16 remain Planned/UNRUN pending
-owner-native adapters and PLAT-1165. Synthetic completion does not establish
-the full matched-source FR-052 census or close IR-759. Passing the synthetic
-AC-17 through AC-23 checks shall not change the status of AC-1 through AC-3,
-AC-5 through AC-7, or AC-9 through AC-11.
+and rejection ordering are exercised by AC-19 and AC-22 tests.
+
+FR-052-AC-1, AC-2, AC-3, AC-5 and AC-6 remain Planned. They are to be backed
+by synthetic tests, because their criteria name the neutral public surface, a
+typed fixture, census dispositions and typed census errors, and a synthetic
+test can fail each of them. Owner-native evidence is still required where a
+criterion says so: under AC-6 no Quire `Complete` fixture counts as owner
+evidence until PLAT-1165 supplies it. No synthetic test grants owner-issued
+completeness, owner full-output comparison, or a complete four-owner census.
+TC-452 lists the tests that back each of these criteria. Each stays Planned
+until its tests are written and traced.
+
+FR-052-AC-24 holds the conflicting-inventory-facts clause split from AC-3; its
+obligation is unchanged. It stays Planned until Linear IR-820 decides whether
+the `SemanticNode` inventory fact is a `CheckedSemanticId` or a
+`CheckedNodeId`, and IR-825 then backs it. No existing test is traced to AC-24
+before that decision.
+
+AC-7, AC-9, AC-10 and AC-11 name owner scopes, owner-native enumerators or
+owner adapter tests, and they remain Planned/UNRUN pending owner-native
+adapters. Quire's selected-scope producer awaits PLAT-1165, and the IR V2
+adapter also waits on IR-820. AC-11's first sentence is exercised at the
+neutral boundary by the AC-13 tests, but its second sentence needs owner
+adapter tests, so AC-11 stays Planned as a whole. AC-16 remains Planned/UNRUN
+pending PLAT-1165. Synthetic completion does not establish the full
+matched-source FR-052 census or close IR-759. Passing the AC-17 through AC-23
+checks does not by itself change the status of any other criterion.
 
 ## Dependencies
 
