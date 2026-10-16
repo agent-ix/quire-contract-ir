@@ -43,11 +43,6 @@ pub enum CheckedCompositeOperator {
     Ne,
 }
 
-enum EligibleOperator {
-    Eq,
-    Ne,
-}
-
 /// One authentic positional operand.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CheckedCompositeOperand {
@@ -359,7 +354,8 @@ fn collection(kind: CheckedNodeKind) -> Option<CheckedCollectionKind> {
 }
 
 impl CheckedPackageV2 {
-    /// Returns authored domains of `structural.eq` or `structural.ne` operands in argument order.
+    /// Returns authored domains in argument order with their typed operator:
+    /// `Eq` for `structural.eq` or `Ne` for `structural.ne`.
     ///
     /// The supplied occurrence must belong to the application. The finite work
     /// limit bounds logical graph visits, retained paths and copied text. No
@@ -403,18 +399,14 @@ impl CheckedPackageV2 {
             .ok_or_else(|| Error::UnknownOperator {
                 application: application.clone(),
             })?;
-        let eligible = match identity {
-            "quire.op.structural.eq" => EligibleOperator::Eq,
-            "quire.op.structural.ne" => EligibleOperator::Ne,
+        let operator = match identity {
+            "quire.op.structural.eq" => CheckedCompositeOperator::Eq,
+            "quire.op.structural.ne" => CheckedCompositeOperator::Ne,
             _ => {
                 return Err(Error::IneligibleOperator {
                     application: application.clone(),
                 })
             }
-        };
-        let operator = match eligible {
-            EligibleOperator::Eq => CheckedCompositeOperator::Eq,
-            EligibleOperator::Ne => CheckedCompositeOperator::Ne,
         };
         let arguments = node
             .body
