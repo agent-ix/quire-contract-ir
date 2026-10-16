@@ -17,37 +17,36 @@ invalid selection outcomes.
 
 ## Test Procedure
 
-1. Obtain the QSL checked-source fixture with two distinct bindings of
-   `Population<M::Order>[N]` and one different object type. Extend the producer
-   fixture, in the authoritative QSL checkout, to emit an actual checked V2
-   package; consume that fixture here rather than copying its schema or
-   synthesizing V2 bytes in the IR test.
+1. Run QSL's authoritative `population_v2_fixtures` producer and consume its
+   `SameTypeAndOtherType`, `ChangedMax`, and `RetargetedParameter` emitted V2
+   packages here. Do not copy schema or synthesize V2 bytes in the IR test.
 2. Read the package through `CheckedPackageV2::read`, then select the exact
    `bounded_domain` / `model_population` node identity and its `Type`
    occurrence through a compiled default-feature consumer of
-   `quire_contract_model::checked_package`.
+   `quire_contract_model::selected_population`.
 3. Assert each selected result retains its package, population-node identity,
    occurrence, selected object-type identity, source regions, and exact
-   inclusive `[0,N]`. Include one node with maximum zero. Change only a source
-   maximum and regenerate its admitted fixture; confirm the selected node and
+   inclusive `[0,N]`. Include one node with maximum zero. Read the authoritative
+   changed-maximum variant and confirm only the changed binding identity and
    extent change. Confirm the `N=0` result is `[0,0]`.
-4. Select the other `Population<M::Order>[N]` occurrence and verify that it
-   returns its own bound and provenance. Change only reader/Codegen resource
-   ceilings and fixture object membership; verify neither changes either
-   selected result.
-5. Rebuild an otherwise valid fixture after changing one parameter node's
-   `semantic_type` reference from the first population node to the second,
-   re-deriving affected identities and `package_id`, while retaining the
-   original source-map rows and original selector. The reader admits this
-   retargeted package under FR-038. Query the original selector, then pair the
-   second node with the first occurrence.
+4. Select the second same-type `Population<M::Gadget>[N]` occurrence and the
+   `Population<M::Widget>[N]` occurrence; verify each returns its own bound,
+   object type, and provenance. Change only reader/Codegen resource ceilings
+   and fixture object membership; verify neither changes either selected
+   result.
+5. Read the producer's valid retargeted and re-keyed package, where one
+   parameter's `semantic_type` points from the first same-type population node
+   to the second. Confirm the package identity changes while direct selection
+   still returns the original population nodes, extents, object types, and
+   source-map provenance.
 6. Verify a field's edge multiplicity only through
    `CheckedPackageV2::model_object_fields`; no population result or selected
    extent supplies or replaces that field multiplicity.
 7. Query without a selector and assert `Unavailable` with no extent. Query
    selectors for an absent binding, stale binding, foreign package, a missing
-   occurrence, and a valid non-population binding; assert the distinct typed
-   outcomes and absence of extent for each.
+   occurrence, a valid non-population binding, and a reader-admitted package
+   with a duplicated `max` binding (re-keyed after the mutation); assert the
+   distinct typed outcomes and absence of extent for each.
 8. Select a domain-package PopulationRecord with `Closed` extent and no
    maximum; assert `Unbounded` and no extent. Separately feed QSL's typed
    `AdmissionOutcome::UnknownClosure` through the neutral source adapter and
@@ -77,3 +76,13 @@ adapter without fabricating an admitted package. Closure, resource ceilings
 and fixture membership never produce or alter a finite maximum. The model
 consumer uses the selected population projection only for the population
 extent; `model_object_fields` remains authoritative for edge multiplicity.
+
+## Current Verification Status
+
+The default-feature public consumer exercises QSL-emitted maxima `0`, `1`,
+`3`, and `[2,5]`, plus the authoritative same-type/second-type, changed-maximum,
+and retargeted/re-keyed variants. It verifies exact node/occurrence identity,
+provenance, selected object type, reader-limit invariance, typed non-finite
+outcomes, and rejection of malformed maximum body shapes, including a
+reader-admitted duplicate-`max` package. No copied V2 bytes or IR-authored
+substitute fixture is used.

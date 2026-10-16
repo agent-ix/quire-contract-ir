@@ -27,6 +27,7 @@ help:
 	@echo "  make conformance-qsl-ir703 - Fresh ConfigVersion V2 producer/IR accessor check (needs QUIRE_SPEC_LANGUAGE_DIR and its current binaries)"
 	@echo "  make conformance-qsl-ir769 - Fresh QSL scalar result context through admitted IR (needs QUIRE_SPEC_LANGUAGE_DIR and its current binary)"
 	@echo "  make conformance-qsl-ir779 - QSL FR-062 RR-13 path conditions through admitted IR (needs QUIRE_SPEC_LANGUAGE_DIR and its current binary)"
+	@echo "  make conformance-qsl-ir760 - QSL-emitted Population<T>[N] through the default-feature model consumer (needs QUIRE_SPEC_LANGUAGE_DIR)"
 	@echo "  make build            - Release build"
 	@echo "  make clean            - cargo clean"
 	@echo "  make deny             - Run all cargo-deny policy checks"
@@ -124,6 +125,12 @@ conformance-qsl-ir779:
 	[ "$$status" -eq 0 ] || exit "$$status"; \
 	passed=$$(printf '%s\n' "$$output" | grep -c '^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured;' || true); \
 	[ "$$passed" -eq 1 ] || { echo 'required TC-450 QSL producer test did not run exactly once' >&2; exit 1; }
+
+.PHONY: conformance-qsl-ir760
+conformance-qsl-ir760:
+	@test -n "$(QUIRE_SPEC_LANGUAGE_DIR)" || { echo 'QUIRE_SPEC_LANGUAGE_DIR is required' >&2; exit 1; }
+	@QUIRE_SPEC_LANGUAGE_DIR="$(QUIRE_SPEC_LANGUAGE_DIR)" QUIRE_SPEC_LANGUAGE_TARGET_DIR="$(CURDIR)/target/qsl-producer" CARGO_TARGET_DIR="$(CURDIR)/target" $(CARGO) test $(LOCKED) --manifest-path crates/quire-contract-model/Cargo.toml --test selected_population_public -- --nocapture
+	@QUIRE_SPEC_LANGUAGE_DIR="$(QUIRE_SPEC_LANGUAGE_DIR)" QUIRE_SPEC_LANGUAGE_TARGET_DIR="$(CURDIR)/target/qsl-producer" CARGO_TARGET_DIR="$(CURDIR)/target" $(CARGO) test $(LOCKED) --test it selected_population::duplicate_max_on_reader_admitted_population_is_not_population -- --exact --nocapture
 
 .PHONY: build
 build:
