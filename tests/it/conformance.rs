@@ -1464,8 +1464,9 @@ fn tc_018_the_recorded_canonical_files_spell_the_eight_members_as_strings() {
 /// package document is: the decoder ignores an unknown member of an
 /// expression node, the schema does not.
 ///
-/// Tracing: TC-018.
-#[ix_trace_rs::trace("TC-018")]
+/// Tracing: TC-018, FR-020-AC-15.
+/// FR-020-AC-15.
+#[ix_trace_rs::trace("TC-018", "FR-020-AC-15")]
 #[test]
 fn tc_018_a_successful_expression_document_is_checked_against_the_schema() {
     let scratch = Scratch::corpus("expression-document");
