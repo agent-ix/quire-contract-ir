@@ -346,7 +346,7 @@ The adverse packages must be valid through earlier wire, identity and resource
 checks so they distinguish these admission failures from the existing first
 refusal order. These cases do not assert an admitted same-width IEEE operation.
 
-Implemented (IR-225; FR-038-AC-247 through FR-038-AC-251). Build fresh otherwise valid
+Implemented (IR-225; FR-038-AC-247 through FR-038-AC-250; AC-251 withdrawn). Build fresh otherwise valid
 `quire.op.ieee.to_rational` applications for both Float32 and Float64 source
 operands, using the catalogue's `member` result form, `type_argument` member
 and `member_family: rational` constraint. For each source width, admit the
@@ -396,18 +396,17 @@ since neither kind has an existing IR case. In each new package, make the
 member declaration differ from `result_type` and require continued admission;
 applying the type-argument equality rule to either kind must fail this check.
 
-For AC-251, at an isolated catalogue-entry seam, change a currently catalogued
-type-argument member-result entry's result form and member kind separately,
-and remove its required `member_family` separately. Each shape defect refuses
-the typed package rather than silently dropping the result rule. A changed
-member kind that disagrees with the wire member first refuses
-`invalid_package`/`operation-member-mismatch` at `operation.member`; where
-that earlier check passes, the shape guard refuses
-`ill_typed`/`operator-ineligible` at application `result_type`. Check the
-IEEE pair as the AC-223 invariant.
-For a two-defect `quantity.convert` with wrong `result_type` and wrong
-rounding-mode type, require the result refusal first; the result check runs
-after member shape and operand checks and before `result_inner`, state-clause
+AC-251 is withdrawn: selection reads the current catalogue entry. Check that
+`model.lookup` and `model.all_instances`, whose result forms are not `member`,
+still admit, and that `collection.fold` and `collection.reduce`, which have no
+`member_family`, admit when their declaration equals their result (AC-247/248).
+For fold and reduce, an unequal result must refuse at `result_type`. A wire
+member kind that disagrees with the current entry still refuses earlier at
+`operation.member` (AC-249).
+For a two-defect `quantity.convert` with wrong `result_type` and a true
+rounding-mode type defect, require the result refusal first; pair an operand
+defect with a wrong `result_type` and require the operand refusal first. The
+result check runs after member shape and operand checks and before `result_inner`, state-clause
 result, model-member, mode-type and leaf checks (AC-247). Compare typed code,
 cause, pointer and locus throughout.
 
