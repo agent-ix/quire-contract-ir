@@ -69,8 +69,9 @@ row vector, count, or absent stop reason into evidence of exhaustion.
 
 On completion, the public `quire_contract_model::source_obligation` module shall export
 `SourceObligationInput`, `SourceObligationCensus`, `SourceObligationRow`,
-`SourceInventoryRow`, `SourceCorrespondenceAssertion`,
-`SourceCorrespondenceRejection`, `SourceMissingMappingReason`,
+`SourceInventoryRow`, `SourceCensusInventoryRow`, `SourceCorrespondenceAssertion`,
+`SourceCorrespondenceRejection`, `SourceCorrespondenceRejectionReason`,
+`SourceMissingMappingReason`,
 `SourceInventoryOutcome`, `SourceInventoryOutcomeError`,
 `SourceInventoryEnumerator`, `SourceInventoryDisposition`,
 `SourceInventoryCompleteness`, `SourceInventoryIncompleteReason`, `SourceInventoryOwner`,
@@ -136,14 +137,17 @@ native pending-obligation set, and `quire-code-rs`'s complete selected
 production-module and function facts. Each outcome's owner and scope
 shall match its required input position, and its source shall match the
 top-level selected source.
-The provisional envelope input retains reports by position; the completed
-census shall refuse an envelope whose owner does not match that position.
+The census accepts no `SourceInventoryEnvelope`. A well-formed outcome
+supplied in another owner's position shall be refused with
+`InventoryScopeMismatch`.
 
 The Quire selection shall identify the exact corpus and validated traceability
 model used to derive the criterion population. The source-contract author
 shall bind that selection to the same selected `SourceIdentity` used by the
 other outcomes and assertions. A missing, conflicting, or foreign binding
-shall refuse the census with a distinct typed cause; matching labels alone
+shall refuse the census with a distinct typed cause
+(`MissingCriterionSourceBinding`, `ConflictingCriterionSourceBinding`, or
+`ForeignCriterionSourceBinding`); matching labels alone
 shall not authenticate equal content across Quire, IR V2, QSL, and production
 sources. In particular, QSL's current `CheckedUnit` checks source labels for
 its graph and type report, not one shared digest-bound parse. No complete
@@ -267,7 +271,11 @@ earlier by `SourceInventoryOutcomeError` and never reaches the census. For
 scope, the census sees only a well-formed outcome supplied in the wrong owner
 position, which returns `InventoryScopeMismatch`. The census shall
 report the first failing owner in fixed order: Quire, IR V2, QSL, then
-`quire-code-rs`. The
+`quire-code-rs`. The binding belongs to the Quire position: a missing binding
+and then a foreign binding are checked before the Quire outcome, and a
+conflicting binding is checked after the Quire outcome passes and before IR V2.
+Within one owner position the checks run in this order: missing outcome,
+scope mismatch, source mismatch, then incomplete outcome. The
 constructor shall not treat a missing outcome or partial owner enumeration as
 a zero-mapping entity or a complete empty inventory. A census is complete only
 when the binding and all four required owner outcomes pass these checks.
@@ -281,7 +289,11 @@ its corresponding scope. `SourceCorrespondenceError` shall expose distinct
 variants `MissingOwnerInventory`, `IncompleteOwnerInventory`,
 `InventorySourceMismatch`, and `InventoryScopeMismatch`, retaining the
 owner and the relevant expected and observed source or scope, and the
-typed incomplete cause where applicable. It has no item-count variant.
+typed incomplete cause where applicable. It shall also expose
+`MissingCriterionSourceBinding`, `ForeignCriterionSourceBinding` retaining the
+expected and observed `SourceIdentity`, and `ConflictingCriterionSourceBinding`
+retaining the binding's obligation scope and the first conflicting criterion in
+ascending criterion order. It has no item-count variant.
 
 ### Census and correspondence
 
@@ -326,6 +338,81 @@ An assertion-only criterion key, a QSL `RequirementRecord`, or a formal
 `ClauseRef` outside an explicit authored relation shall never satisfy the
 criterion endpoint lookup.
 
+### Census construction rules
+
+`SourceObligationInput::new` shall take, in order, the selected
+`SourceIdentity`, an `Option<SourceCriterionSourceBinding>`, one
+`Option<SourceInventoryOutcome>` for each of the Quire, IR V2, QSL and
+`quire-code-rs` positions, and a `Vec<SourceCorrespondenceAssertion>`.
+`build_source_obligation_census` shall take that input by value and return
+`Result<SourceObligationCensus, SourceCorrespondenceError>`.
+
+A binding is foreign when its `source()` differs from the selected source. A
+binding conflicts when a `Criterion` row of the Quire outcome has an
+`obligation_declaration()` different from the binding's `obligation_scope()`.
+The census does not compare the binding's corpus, traceability model or author
+with any other input.
+
+`SourceObligationCensus` shall expose `source()`, `criterion_source_binding()`,
+`inventory_rows()` returning `&[SourceCensusInventoryRow]`,
+`correspondence_rows()` returning `&[SourceObligationRow]`, and
+`rejected_assertions()` returning `&[SourceCorrespondenceRejection]`.
+`SourceCensusInventoryRow` shall expose `row()`, the retained
+`SourceInventoryRow`, and `disposition()`. `SourceInventoryDisposition` shall
+have the variants `Mapped`, `ZeroMappings(SourceMissingMappingReason)` and
+`ConflictingIdentity`. `SourceMissingMappingReason` shall have the variants
+`NoAuthoredMapping` and `ExplicitNoProductionFunction`.
+`SourceObligationRow` shall expose `criterion()`, `occurrence()`,
+`production_function()` as an `Option`, and `provenance()`.
+`SourceCorrespondenceRejection` shall expose `assertion()`, the original
+assertion, and `reason()`, a `SourceCorrespondenceRejectionReason`.
+
+An assertion endpoint resolves only by exact typed identity. The criterion
+endpoint resolves against `Criterion` rows. The occurrence endpoint resolves
+against `SemanticOccurrence` rows whose node has no `ConflictingIdentity` row.
+A present production-function endpoint resolves against `ProductionFunction`
+rows. An absent production function is an explicit authored absence and needs
+no function row.
+
+The census shall process assertions in these steps:
+
+1. Exact duplicate assertions, equal in every field, collapse to one.
+2. Assertions sharing one `SourceAssertionId` form a group. When the group
+   holds more than one distinct tuple of source, criterion, occurrence and
+   production function, every member is rejected with `ConflictingRelation`.
+   Otherwise, when it holds more than one distinct provenance, every member is
+   rejected with `ConflictingProvenance`.
+3. Each remaining assertion receives the first matching reason in this order:
+   `ForeignSource` when its source or its provenance source differs from the
+   selected source, then `DanglingCriterion`, `DanglingOccurrence` and
+   `DanglingProductionSymbol`.
+4. Remaining assertions with one criterion, occurrence and production function
+   form one relation. When a relation holds more than one distinct provenance,
+   every member is rejected with `ConflictingProvenance`. Otherwise the relation
+   yields exactly one `SourceObligationRow`, whatever the number of assertion
+   IDs that state it.
+
+Each rejected assertion carries exactly one reason.
+
+The census shall assign each inventory row one disposition. A `SemanticNode`
+row in a conflicting key group is `ConflictingIdentity`. Otherwise a row is
+`Mapped` when an accepted row names it, under these rules. A criterion or
+production function is named by an accepted row that contains it. A semantic
+occurrence is named by an accepted row that contains it with a production
+function. A semantic node is named when one of its occurrences is `Mapped`, and
+a production module when one of its functions is `Mapped`. A row that is not
+`Mapped` is `ZeroMappings(ExplicitNoProductionFunction)` when it is an
+occurrence, or the node of an occurrence, named by an accepted row with no
+production function. Every other row, including an empty module and every QSL
+`RequirementRecord` and `PendingObligation` row, is
+`ZeroMappings(NoAuthoredMapping)`; no assertion endpoint can name a QSL row.
+
+Inventory rows shall be ordered by owner in the order Quire, IR V2, QSL,
+`quire-code-rs`, then by `SourceInventoryIdentity` ascending. Accepted rows
+shall be ordered ascending by criterion, occurrence, production function and
+provenance. Rejections shall be ordered ascending by assertion ID, source,
+criterion, occurrence, production function, provenance and reason.
+
 The source-obligation input schema shall contain no method, profile, result,
 artifact, attempt, or run field. Census membership is derived only from the
 selected source inventories and explicit assertions. The model shall not
@@ -352,6 +439,9 @@ candidate denominator.
 | FR-052-AC-14 | A default-feature neutral consumer distinguishes a typed Quire criterion identity containing obligation declaration, scoped document and authored criterion ID from `ClauseRef` and QSL `RequirementRecord`. Two neutral fixture rows with distinct authored criterion identities, one without a correspondence assertion, remain distinct Quire-owned rows before any generation or result. A formal clause, QSL requirement record or assertion-only key cannot substitute for either fixture criterion. This neutral fixture does not claim Quire owner-issued completeness. | Test |
 | FR-052-AC-15 | An explicit source-author binding connects the selected Quire corpus/obligation scope to the selected IR `SourceIdentity`. A missing, foreign or conflicting binding refuses a complete census with distinct typed causes; a matching label or revision alone is not treated as proof of equal source bytes across Quire, IR V2 and QSL. Foreign and dangling AC-to-occurrence/function assertions retain their separate typed dispositions. | Test |
 | FR-052-AC-16 | With PLAT-1165's real Quire producer, normal exhaustion of the validated selected scope issues `Complete` with every authored criterion and its provenance; a valid empty scope completes with zero rows. Changing or deleting one authored criterion in the selected Quire corpus changes the owner-issued inventory before generation or proof results, including when that criterion has zero mappings. An unreadable selected document, skipped criterion row, failed discovery, missing declared table/ID column, and early stop each report typed `Incomplete` with emitted partial rows, and deletion of a row from full owner output fails comparison even when the shortened count matches. Until this producer exists, no Quire `Complete` or full FR-052 census is claimed. | Test |
+| FR-052-AC-17 | Given four synthetic `Complete` outcomes and a valid binding for the AC-2 fixture shape, `build_source_obligation_census` returns a census whose inventory rows, dispositions, missing-mapping reasons, accepted rows and their provenance, and orderings follow the census construction rules; an occurrence asserted only without a production function is `ZeroMappings(ExplicitNoProductionFunction)`, and every QSL row is `ZeroMappings(NoAuthoredMapping)`. Permuting assertion order and outcome row order yields an equal census. This grants no owner-native completeness or FR-052-AC-2 full-owner credit. | Test |
+| FR-052-AC-18 | Given synthetic outcomes, a fault in each of two owner positions yields only the error for the earlier position in the order Quire binding, Quire, IR V2, QSL, `quire-code-rs`; within one position an outcome that is both in the wrong position and incomplete yields `InventoryScopeMismatch`, and one that has the wrong source and is incomplete yields `InventorySourceMismatch`. This grants no FR-052-AC-6 or AC-7 owner-native credit. | Test |
+| FR-052-AC-19 | Given synthetic `Complete` outcomes, an assertion that is both foreign and dangling is rejected only with `ForeignSource`; one repeated assertion ID with differing relation and differing provenance is rejected only with `ConflictingRelation`; two assertion IDs stating one relation with equal provenance yield one accepted row; two IDs stating one relation with differing provenance are both rejected with `ConflictingProvenance`; and an occurrence under a `ConflictingIdentity` node is rejected with `DanglingOccurrence`. This grants no FR-052-AC-3 full-owner credit. | Test |
 
 FR-052-AC-4 and FR-052-AC-8 have provisional-port evidence. FR-052-AC-12
 and AC-13 are Implemented with traced tests for the neutral synthetic
@@ -366,6 +456,10 @@ Quire-owned rows, with traced integration tests and untraced compile-fail
 doctests. The neutral port retains an explicit binding, but FR-052-AC-15 remains
 Planned/UNRUN and unbacked until the census builder tests its missing, foreign,
 and conflicting binding refusals and assertion dispositions.
+FR-052-AC-17 through AC-19 are Planned/UNRUN until the census builder exists;
+they exercise the neutral census over synthetic outcomes only, and passing them
+shall not change the status of AC-1 through AC-3, AC-5 through AC-7, or AC-9
+through AC-11.
 AC-16 and the Quire portion of AC-2, AC-6, AC-7, and AC-9 through AC-11
 remain Planned/UNRUN pending PLAT-1165. The matched-source FR-052 census and
 IR-759 acceptance remain open.

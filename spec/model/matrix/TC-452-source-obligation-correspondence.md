@@ -24,7 +24,9 @@ through AC-11.
 The neutral identity checks for FR-052-AC-14 are implemented and traced in
 `tests/it/source_obligation.rs`. The port retains a source binding, but AC-15
 remains unbacked and UNRUN until the census builder tests its binding refusals
-and assertion dispositions.
+and assertion dispositions. The synthetic-census checks for FR-052-AC-17
+through AC-19 are UNRUN until the census builder exists; they cannot discharge
+AC-1 through AC-3, AC-5 through AC-7, or AC-9 through AC-11.
 Quire's selected-scope owner-issued criterion output is pending PLAT-1165;
 therefore this procedure cannot yet claim a full FR-052 or IR-759 census.
 
@@ -148,6 +150,21 @@ conflicting inventory facts (a `SemanticNode` repeated with one `CheckedNodeId` 
 conflicting assertion provenance. Permute equivalent inputs and remove one
 occurrence from a complete IR V2 inventory.
 
+Separately, build the same fixture from four synthetic `Complete` outcomes
+and a valid binding. Compare every inventory row, disposition, missing-mapping
+reason, accepted row, rejection and ordering with the census construction
+rules, including an occurrence asserted only without a production function and
+QSL rows that no assertion can name. Permute assertion order and outcome row
+order. Inject faults into two owner positions at once, and into one position
+twice (wrong position with incomplete, wrong source with incomplete). Supply a
+missing binding, a binding naming another source, and a binding whose
+obligation scope differs from a Quire criterion row's obligation declaration.
+Supply an assertion that is both foreign and dangling; one assertion ID with
+differing relation and provenance; two assertion IDs stating one relation with
+equal provenance and with differing provenance; and an assertion whose
+occurrence lies under a conflicting `SemanticNode`. These checks use synthetic
+outcomes only.
+
 ## Expected Results
 
 The external consumer compiles and can borrow the census; the constructor has
@@ -193,3 +210,14 @@ outcome count. The accessor fixture compiles; each direct-field or struct-
 literal fixture fails for field privacy, and none fails for an unrelated
 reason. None of these observations grants owner-native AC-9 through
 AC-11 credit.
+
+The synthetic census matches the census construction rules field by field and
+is equal under permutation. Only the earliest failing position's error is
+returned, and within one position scope mismatch precedes source mismatch,
+which precedes incompleteness. Missing, foreign and conflicting bindings
+return `MissingCriterionSourceBinding`, `ForeignCriterionSourceBinding` and
+`ConflictingCriterionSourceBinding`. Each rejected assertion carries the single
+reason the precedence selects, one relation stated by two IDs with equal
+provenance yields one accepted row, and the occurrence under a conflicting
+node is `DanglingOccurrence`. None of these observations grants full-owner
+AC-1 through AC-3, AC-5 through AC-7, or AC-9 through AC-11 credit.
