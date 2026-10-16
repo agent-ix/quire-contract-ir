@@ -364,7 +364,13 @@ float/float exercises the resolved-family constraint (AC-248). A valid
 and result must admit despite its unresolved family, as FR-038 defers that
 family ruling to FR-322 (AC-248). A resolved non-quantity declared type with
 equal member and result on an otherwise valid `quantity.convert` must refuse at
-`result_type` by its `member_family` constraint (AC-248).
+`result_type` by its `member_family` constraint (AC-248). Add an otherwise valid
+`quire.op.collection.size` public-reader package with a collection-kind operand,
+a `model_population` type-argument declaration whose semantic type is its
+`Set<Reference<T>>` base, and `result_type` equal to that declaration. It must
+remain admitted: this result check skips the unresolved `model_population`
+family rather than applying the generic walk's `set` family to the entry's
+`integer` member-family constraint (AC-248).
 
 For AC-249, separately remove `declaration`, malform its node id, and replace
 it with a `type_argument` key on an otherwise valid type-argument member.
@@ -380,9 +386,15 @@ For each identity, change only `result_type` and the enclosing root
 and all other operation requirements valid. Re-derive affected identities and
 require `ill_typed`/`operator-ineligible` at application `result_type`, with
 the application node as locus. These are two distinct non-IEEE catalogue
-entries. Exercise the existing member-specific result cases for `field`,
-`position`, `element`, `relationship_end` and `operation` without applying
-the type-argument equality rule to them.
+entries. Exercise the existing `field` case in
+`tests/it/checked_package_v2_model_fields.rs` (`record.project`) and the
+`relationship_end` and `operation` cases in
+`tests/it/checked_package_v2_model_members.rs` (`model.navigate` and
+`model.dispatch_call`). The code PR adds one admitted public-reader package
+for `tuple.project` (`position`) and one for `collection.index` (`element`),
+since neither kind has an existing IR case. In each new package, make the
+member declaration differ from `result_type` and require continued admission;
+applying the type-argument equality rule to either kind must fail this check.
 
 For AC-251, at an isolated catalogue-entry seam, change a currently catalogued
 type-argument member-result entry's result form and member kind separately,
