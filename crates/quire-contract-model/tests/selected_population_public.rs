@@ -405,3 +405,78 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
         },
     );
 }
+
+#[trace("FR-053-AC-3", "FR-053-AC-4", "FR-053-AC-5", "TC-453")]
+#[test]
+fn selected_population_tracks_authoritative_variants_and_retargeted_package() {
+    let scratch = run_producer();
+    let emitted = scratch.0.join("emitted");
+    let domain = fs::read(emitted.join("spine-model.semantic-ir.json"))
+        .expect("QSL producer wrote domain evidence");
+    let same_type = read_package(&emitted.join("population-variant-same-type.json"), &domain);
+    let changed_max = read_package(
+        &emitted.join("population-variant-changed-max.json"),
+        &domain,
+    );
+    let retargeted = read_package(&emitted.join("population-variant-retargeted.json"), &domain);
+
+    let selected = |package: &CheckedPackageV2| {
+        let mut populations: Vec<_> = population_nodes(package)
+            .into_iter()
+            .map(|node| {
+                match select_population(Source::Admitted {
+                    package,
+                    selector: selector(package, node),
+                }) {
+                    Outcome::Finite(population) => population,
+                    other => panic!("QSL-produced population must be finite: {other:?}"),
+                }
+            })
+            .collect();
+        populations.sort_by_key(|population| population.maximum);
+        populations
+    };
+
+    let before = selected(&same_type);
+    assert_eq!(
+        before
+            .iter()
+            .map(|population| population.maximum)
+            .collect::<Vec<_>>(),
+        vec![0, 3, 5]
+    );
+    assert_eq!(before[0].object_type, before[2].object_type);
+    assert_ne!(before[0].binding, before[2].binding);
+    assert_ne!(before[0].object_type, before[1].object_type);
+
+    let changed = selected(&changed_max);
+    assert_ne!(same_type.package_id(), changed_max.package_id());
+    assert_eq!(
+        changed
+            .iter()
+            .map(|population| population.maximum)
+            .collect::<Vec<_>>(),
+        vec![0, 3, 6]
+    );
+    for (old, new) in before.iter().take(2).zip(changed.iter().take(2)) {
+        assert_eq!(old.maximum, new.maximum);
+        assert_eq!(old.binding, new.binding);
+    }
+    assert_ne!(before[2].binding, changed[2].binding);
+
+    let retargeted_selections = selected(&retargeted);
+    assert_ne!(same_type.package_id(), retargeted.package_id());
+    assert_eq!(
+        retargeted_selections
+            .iter()
+            .map(|population| population.maximum)
+            .collect::<Vec<_>>(),
+        vec![0, 3, 5]
+    );
+    for (original, after_retarget) in before.iter().zip(retargeted_selections.iter()) {
+        assert_eq!(original.binding, after_retarget.binding);
+        assert_eq!(original.maximum, after_retarget.maximum);
+        assert_eq!(original.object_type, after_retarget.object_type);
+        assert_eq!(original.provenance, after_retarget.provenance);
+    }
+}
