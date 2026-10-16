@@ -48,6 +48,7 @@ use crate::checked_package::common::{
     body_term, exact_members, node_pointer, visit_reference, ReferenceMember, Trail,
     ValidationFailure,
 };
+use crate::checked_package::shared::CheckedPackageRefusalCause;
 use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -70,6 +71,16 @@ pub(super) enum ModifiesEntry {
 pub(super) enum FieldScope {
     EveryObject,
     Receiver,
+}
+
+impl FieldScope {
+    fn from_wire(value: &str) -> Option<Self> {
+        match value {
+            "every-object" => Some(Self::EveryObject),
+            "receiver" => Some(Self::Receiver),
+            _ => None,
+        }
+    }
 }
 
 /// One scoped deletion grant.
@@ -256,11 +267,11 @@ fn read_modifies_entry(entry: &Value, at: &Trail<'_>) -> Result<ModifiesEntry, V
                 .and_then(Value::as_str)
                 .filter(|name| is_identifier(name))
                 .ok_or_else(invalid)?;
-            let scope = match object.get("scope").and_then(Value::as_str) {
-                Some("every-object") => FieldScope::EveryObject,
-                Some("receiver") => FieldScope::Receiver,
-                _ => return Err(invalid()),
-            };
+            let scope = object
+                .get("scope")
+                .and_then(Value::as_str)
+                .and_then(FieldScope::from_wire)
+                .ok_or_else(invalid)?;
             ModifiesEntry::Field {
                 declaration,
                 name: name.into(),
@@ -515,6 +526,7 @@ fn frame_defect(
         )));
     }
     let mut scopes = BTreeMap::new();
+    let mut conflict = None;
     for (entry_index, entry) in body.modifies.iter().enumerate() {
         if let ModifiesEntry::Field {
             declaration,
@@ -531,15 +543,30 @@ fn frame_defect(
                     } else {
                         earlier_index
                     };
-                    return Ok(Some(ValidationFailure::refused_at(
-                        CheckedPackageRefusalCode::InvalidModelBinding,
-                        node_pointer(frame_position).key("body").key("modifies").index(receiver_index),
-                        Some(crate::checked_package::shared::CheckedPackageRefusalCause::ConflictingBinding),
-                        declaration.clone(),
-                    )));
+                    let candidate = (declaration, name.as_ref(), receiver_index);
+                    if conflict
+                        .as_ref()
+                        .is_none_or(|best: &(&CheckedNodeId, &str, usize)| {
+                            (candidate.0.digest.as_ref(), candidate.1)
+                                < (best.0.digest.as_ref(), best.1)
+                        })
+                    {
+                        conflict = Some(candidate);
+                    }
                 }
             }
         }
+    }
+    if let Some((declaration, _, receiver_index)) = conflict {
+        return Ok(Some(ValidationFailure::refused_at(
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            node_pointer(frame_position)
+                .key("body")
+                .key("modifies")
+                .index(receiver_index),
+            Some(CheckedPackageRefusalCause::ConflictingBinding),
+            declaration.clone(),
+        )));
     }
     let ascending = |keys: Vec<(&str, &str)>| keys.windows(2).all(|pair| pair[0] < pair[1]);
     let modifies_ordered = body

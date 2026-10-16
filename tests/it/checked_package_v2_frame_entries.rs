@@ -18,9 +18,9 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedComparisonPath, CheckedComparisonRefusal, CheckedMemberType, CheckedNodeId,
-    CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    CheckedNodeTag, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
 };
 use serde_json::{json, Value};
 use std::sync::LazyLock;
@@ -39,6 +39,22 @@ fn read(value: &Value) -> CheckedPackageV2ReadResult {
 fn admits(value: &Value) {
     match read(value) {
         CheckedPackageV2ReadResult::Admitted(_) => {}
+        other => panic!("expected admission, read {other:?}"),
+    }
+}
+
+fn admitted_frame_body(value: &Value) -> Value {
+    match read(value) {
+        CheckedPackageV2ReadResult::Admitted(package) => package
+            .graph()
+            .nodes
+            .iter()
+            .find(|node| {
+                node.node_tag.as_ref() == "state" && node.semantic_form.as_ref() == "frame"
+            })
+            .expect("admitted frame")
+            .body
+            .clone(),
         other => panic!("expected admission, read {other:?}"),
     }
 }
@@ -95,7 +111,8 @@ fn digest(value: &Value, position: usize) -> String {
 }
 
 fn field(declaration: &str, name: &str) -> Value {
-    json!({"kind": "field", "declaration": node_id(declaration), "name": name, "scope": "every-object"})
+    json!({"kind": "field", "declaration": node_id(declaration), "name": name,
+        "scope": "every-object"})
 }
 
 /// Tracing: TC-056
@@ -125,11 +142,13 @@ fn tc_056_scoped_frame_shape_refusals_precede_frame_semantics() {
         ),
         (
             "unknown scope",
-            json!({"kind": "field", "declaration": node_id(object_key()), "name": "balance", "scope": "other"}),
+            json!({"kind": "field", "declaration": node_id(object_key()), "name": "balance",
+                "scope": "other"}),
         ),
         (
             "relationship scope",
-            json!({"kind": "relationship", "declaration": node_id(relationship_key()), "scope": "receiver"}),
+            json!({"kind": "relationship", "declaration": node_id(relationship_key()),
+                "scope": "receiver"}),
         ),
     ] {
         let mut package = base.clone();
@@ -173,7 +192,8 @@ fn tc_056_scoped_frame_shape_refusals_precede_frame_semantics() {
 }
 
 /// Tracing: TC-056
-/// ACs: FR-040-AC-17, FR-040-AC-21, FR-040-AC-22, FR-040-AC-23, FR-040-AC-24, FR-040-AC-25, FR-040-AC-26
+/// ACs: FR-040-AC-17, FR-040-AC-21, FR-040-AC-22, FR-040-AC-23, FR-040-AC-24, FR-040-AC-25,
+/// FR-040-AC-26
 #[trace(
     "TC-056",
     "FR-040-AC-17",
@@ -187,14 +207,19 @@ fn tc_056_scoped_frame_shape_refusals_precede_frame_semantics() {
 #[test]
 fn tc_056_scoped_frame_order_conflict_and_stale_key() {
     let (empty, _) = frame_mutation(|frame| {
-        frame["body"] = json!({"term": "frame", "modifies": [], "creates": [], "deletes": [], "deletes_scoped": []});
+        frame["body"] = json!({"term": "frame", "modifies": [], "creates": [], "deletes": [],
+            "deletes_scoped": []});
         frame["dependencies"] = json!([]);
     });
     admits(&empty);
     let (ordered, _) = frame_mutation(|frame| {
-        frame["body"]["deletes_scoped"] = json!([{"kind": "receiver"}, {"kind": "parameter", "name": "a"}, {"kind": "parameter", "name": "b"}]);
+        frame["body"]["deletes_scoped"] = json!([{"kind": "receiver"}, {"kind": "parameter",
+            "name": "a"}, {"kind": "parameter", "name": "b"}]);
     });
     admits(&ordered);
+    let exposed = admitted_frame_body(&ordered);
+    assert_eq!(exposed["deletes_scoped"][0]["kind"], "receiver");
+    assert_eq!(exposed["deletes_scoped"][1]["kind"], "parameter");
     let (wrong_scoped, at) = frame_mutation(|frame| {
         frame["body"]["deletes_scoped"] =
             json!([{"kind": "parameter", "name": "a"}, {"kind": "receiver"}]);
@@ -207,6 +232,21 @@ fn tc_056_scoped_frame_order_conflict_and_stale_key() {
         &format!("/semantic_graph/nodes/{at}/body"),
         Some(&digest(&wrong_scoped, at)),
     );
+    let (wrong_parameter_order, at) = frame_mutation(|frame| {
+        frame["body"]["deletes_scoped"] = json!([
+            {"kind": "receiver"},
+            {"kind": "parameter", "name": "b"},
+            {"kind": "parameter", "name": "a"}
+        ]);
+    });
+    expect(
+        "parameter names descending",
+        &wrong_parameter_order,
+        Code::InvalidSemanticGraph,
+        None,
+        &format!("/semantic_graph/nodes/{at}/body"),
+        Some(&digest(&wrong_parameter_order, at)),
+    );
 
     let (ordered_names, _) = frame_mutation(|frame| {
         frame["body"]["modifies"] =
@@ -215,11 +255,16 @@ fn tc_056_scoped_frame_order_conflict_and_stale_key() {
     admits(&ordered_names);
     let (mixed_scopes, _) = frame_mutation(|frame| {
         frame["body"]["modifies"] = json!([
-            {"kind": "field", "declaration": node_id(object_key()), "name": "balance", "scope": "receiver"},
+            {"kind": "field", "declaration": node_id(object_key()), "name": "balance",
+                "scope": "receiver"},
             field(object_key(), "total")
         ]);
     });
     admits(&mixed_scopes);
+    let mixed = admitted_frame_body(&mixed_scopes);
+    assert_eq!(mixed["modifies"][0]["scope"], "receiver");
+    assert_eq!(mixed["modifies"][0]["kind"], "field");
+    assert_eq!(mixed["modifies"][1]["scope"], "every-object");
     let (wrong_names, at) = frame_mutation(|frame| {
         frame["body"]["modifies"] =
             json!([field(object_key(), "total"), field(object_key(), "balance")]);
@@ -233,7 +278,10 @@ fn tc_056_scoped_frame_order_conflict_and_stale_key() {
         Some(&digest(&wrong_names, at)),
     );
 
-    let receiver = || json!({"kind": "field", "declaration": node_id(object_key()), "name": "balance", "scope": "receiver"});
+    let receiver = || {
+        json!({"kind": "field", "declaration": node_id(object_key()),
+        "name": "balance", "scope": "receiver"})
+    };
     let every = || field(object_key(), "balance");
     for entries in [json!([every(), receiver()]), json!([receiver(), every()])] {
         let (package, frame) = frame_mutation(|node| node["body"]["modifies"] = entries);
@@ -252,6 +300,23 @@ fn tc_056_scoped_frame_order_conflict_and_stale_key() {
             Some(object_key()),
         );
     }
+    let (two_conflicts, frame) = frame_mutation(|node| {
+        node["body"]["modifies"] = json!([
+            field(object_key(), "total"),
+            {"kind": "field", "declaration": node_id(object_key()),
+                "name": "total", "scope": "receiver"},
+            field(object_key(), "balance"),
+            receiver()
+        ]);
+    });
+    expect(
+        "least order key conflict",
+        &two_conflicts,
+        Code::InvalidModelBinding,
+        Some(Cause::ConflictingBinding),
+        &format!("/semantic_graph/nodes/{frame}/body/modifies/3"),
+        Some(object_key()),
+    );
     let (other_defect, frame) = frame_mutation(|node| {
         node["body"]["modifies"] = json!([every(), receiver()]);
         node["body"]["creates"] = json!([node_id(&"ef".repeat(32))]);
@@ -399,7 +464,8 @@ fn tc_056_modifies_entries_admit_in_their_closed_shape_only() {
     );
     admits(&base);
     let (empty, _) = frame_mutation(|frame| {
-        frame["body"] = json!({"term": "frame", "modifies": [], "creates": [], "deletes": [], "deletes_scoped": []});
+        frame["body"] = json!({"term": "frame", "modifies": [], "creates": [], "deletes": [],
+            "deletes_scoped": []});
         frame["dependencies"] = json!([]);
     });
     admits(&empty);
@@ -416,7 +482,8 @@ fn tc_056_modifies_entries_admit_in_their_closed_shape_only() {
         ),
         (
             "a relationship entry carrying name",
-            json!({"kind": "relationship", "declaration": node_id(relationship_key()), "name": "x"}),
+            json!({"kind": "relationship", "declaration": node_id(relationship_key()),
+                "name": "x"}),
         ),
         (
             "an extra member",
@@ -517,7 +584,8 @@ fn tc_056_frame_entries_and_semantic_type_join_declared_dependencies() {
     ];
     for (case, modifies, creates, dependencies, code, cause, locus, member, entry) in cases {
         let (value, frame) = frame_mutation(|frame| {
-            frame["body"] = json!({"term": "frame", "modifies": modifies, "creates": creates, "deletes": [], "deletes_scoped": []});
+            frame["body"] = json!({"term": "frame", "modifies": modifies, "creates": creates,
+                "deletes": [], "deletes_scoped": []});
             frame["dependencies"] = dependencies;
         });
         expect(
@@ -800,7 +868,8 @@ fn self_key() -> &'static str {
         let ty = reference_key(object_key());
         let body = json!({"term": "aggregate", "members": [
             binding("name", text("self")),
-            binding("level", json!({"term": "literal", "type": node_id(INTEGER), "value_kind": "integer", "value": "0"})),
+            binding("level", json!({"term": "literal", "type": node_id(INTEGER),
+                "value_kind": "integer", "value": "0"})),
         ]});
         structural_key("value", "parameter", Some(&ty), &body)
     });
@@ -846,7 +915,8 @@ fn clause_body(clause: &str, parameters: &[&str], anchor: &str, condition: &str)
             "member": {"kind": "state_clause", "clause": clause}, "leaves": []},
         "result_type": node_id(&boolean()),
         "arguments": [
-            {"term": "aggregate", "members": parameters.iter().map(|p| reference(p)).collect::<Vec<_>>()},
+            {"term": "aggregate",
+                "members": parameters.iter().map(|p| reference(p)).collect::<Vec<_>>()},
             reference(anchor),
             reference(condition),
         ],
@@ -917,7 +987,8 @@ impl StatePackage {
                 "expression",
                 json!({"term": "aggregate", "members": [
                     binding("name", text("self")),
-                    binding("level", json!({"term": "literal", "type": node_id(INTEGER), "value_kind": "integer", "value": "0"})),
+                    binding("level", json!({"term": "literal", "type": node_id(INTEGER),
+                        "value_kind": "integer", "value": "0"})),
                 ]}),
             ),
             plain(
@@ -999,7 +1070,8 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
             "a non-text operation",
             anchor_body(
                 object_key(),
-                json!({"term": "literal", "type": node_id(INTEGER), "value_kind": "integer", "value": "1"}),
+                json!({"term": "literal", "type": node_id(INTEGER), "value_kind": "integer",
+                    "value": "1"}),
                 &frame_key,
             ),
         ),
@@ -1115,7 +1187,8 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
             let mut alternate_frame = nodes(&package.value)[frame].clone();
             let alternate_key = "b7".repeat(32);
             alternate_frame["node_id"] = node_id(&alternate_key);
-            alternate_frame["body"] = json!({"term": "frame", "modifies": [], "creates": [], "deletes": [], "deletes_scoped": []});
+            alternate_frame["body"] = json!({"term": "frame", "modifies": [], "creates": [],
+                "deletes": [], "deletes_scoped": []});
             alternate_frame["dependencies"] = json!([]);
             second["body"]["members"][2]["value"]["target"] = node_id(&alternate_key);
             second["dependencies"] = json!([node_id(object_key()), node_id(&alternate_key)]);
@@ -1532,15 +1605,18 @@ fn tc_056_parameter_bodies_admit_name_then_level_only() {
     let shapes: [(&str, Value); 4] = [
         (
             "reordered bindings",
-            json!({"term": "aggregate", "members": [binding("level", level.clone()), binding("name", text("self"))]}),
+            json!({"term": "aggregate", "members": [binding("level", level.clone()),
+                binding("name", text("self"))]}),
         ),
         (
             "a non-text name",
-            json!({"term": "aggregate", "members": [binding("name", level.clone()), binding("level", level.clone())]}),
+            json!({"term": "aggregate", "members": [binding("name", level.clone()),
+                binding("level", level.clone())]}),
         ),
         (
             "a non-integer level",
-            json!({"term": "aggregate", "members": [binding("name", text("self")), binding("level", text("zero"))]}),
+            json!({"term": "aggregate", "members": [binding("name", text("self")),
+                binding("level", text("zero"))]}),
         ),
         (
             "a missing binding",
@@ -1663,6 +1739,12 @@ fn slot(type_ref: &str) -> Value {
         "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true}})
 }
 
+fn named_slot(type_ref: &str, name: &str) -> Value {
+    let mut value = slot(type_ref);
+    value["name"] = json!(name);
+    value
+}
+
 fn domain_field(owner: &str, name: &str) -> Value {
     json!({
         "identity": format!("{owner}/{name}"), "name": name, "typeRef": NATIVE_INTEGER,
@@ -1692,7 +1774,8 @@ fn orders_document() -> Value {
         }],
         "types": [
             domain_type(ORDER_NODE, &[], vec![domain_field(ORDER_NODE, "total")], json!([
-                {"identity": format!("{ORDER_NODE}/scaled"), "params": [slot(NATIVE_INTEGER)],
+                {"identity": format!("{ORDER_NODE}/scaled"),
+                    "params": [named_slot(NATIVE_INTEGER, "n")],
                  "returns": slot(NATIVE_INTEGER)},
                 {"identity": format!("{ORDER_NODE}/reset"), "params": []},
             ])),
@@ -2210,16 +2293,18 @@ fn unselected_key() -> String {
 
 /// Reads `value` with [`orders_document`] supplied under its digest.
 fn read_model(value: &Value) -> CheckedPackageV2ReadResult {
+    read_model_with_work(value, CheckedPackageReadLimits::bounded().work)
+}
+
+fn read_model_with_work(value: &Value, work: u64) -> CheckedPackageV2ReadResult {
     let document = orders_document();
     let mut evidence = evidence_for(value);
     evidence
         .insert_domain_package_document(sha256_hex(&canonical(&document)), canonical(&document))
         .expect("domain evidence declarations agree on exact bytes");
-    CheckedPackageV2::read(
-        &canonical(value),
-        CheckedPackageReadLimits::bounded(),
-        &evidence,
-    )
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = work;
+    CheckedPackageV2::read(&canonical(value), limits, &evidence)
 }
 
 fn model_admits(case: &str, value: &Value) {
@@ -2230,7 +2315,13 @@ fn model_admits(case: &str, value: &Value) {
 }
 
 /// Asserts the refusal's code, cause and pointer.
-fn model_expect(case: &str, value: &Value, code: Code, cause: Cause, path: &str) {
+fn model_expect(
+    case: &str,
+    value: &Value,
+    code: Code,
+    cause: Cause,
+    path: &str,
+) -> CheckedPackageRefusal {
     let refusal = match read_model(value) {
         CheckedPackageV2ReadResult::Refused(refusal) => refusal,
         other => panic!("{case}: expected a refusal, read {other:?}"),
@@ -2244,6 +2335,7 @@ fn model_expect(case: &str, value: &Value, code: Code, cause: Cause, path: &str)
         (code, Some(cause), Some(path)),
         "{case}: {refusal:?}"
     );
+    refusal
 }
 
 /// [`StatePackage`] over the selected `Order`: its frame and anchor bind
@@ -2270,7 +2362,8 @@ fn model_parameter(key: &str, name: &str, level: &str, ty: &str) -> Value {
         "expression",
         json!({"term": "aggregate", "members": [
             binding("name", text(name)),
-            binding("level", json!({"term": "literal", "type": node_id(INTEGER), "value_kind": "integer", "value": level})),
+            binding("level", json!({"term": "literal", "type": node_id(INTEGER),
+                "value_kind": "integer", "value": level})),
         ]}),
     )
 }
@@ -2440,12 +2533,17 @@ fn tc_056_scoped_deletes_check_resolved_operation_after_frame_step() {
         let package = ModelPackage::new().edit(frame, |node| {
             node["body"]["deletes_scoped"] = json!([{"kind": "parameter", "name": name}]);
         });
-        model_expect(
+        let refusal = model_expect(
             name,
             &package.value,
             Code::MissingDeclaration,
             Cause::MissingName,
             &format!("/semantic_graph/nodes/{frame}"),
+        );
+        assert_eq!(
+            refusal.locus.as_ref().map(|id| id.digest.as_ref()),
+            Some(digest(&package.value, frame).as_str()),
+            "{name}: frame-node locus"
         );
     }
     let package = ModelPackage::new().edit(frame, |node| {
@@ -2473,6 +2571,32 @@ fn tc_056_scoped_deletes_check_resolved_operation_after_frame_step() {
         node["body"]["deletes_scoped"] = json!([{"kind": "parameter", "name": "missing"}]);
     });
     admits(&package.value);
+}
+
+/// Trace: FR-040-AC-27
+#[trace("TC-056", "FR-040-AC-27")]
+#[test]
+fn tc_056_scoped_delete_parameter_scan_charges_validation_work() {
+    let frame = ModelPackage::new().frame();
+    let parameter = ModelPackage::new().edit(frame, |node| {
+        node["body"]["deletes_scoped"] = json!([{"kind": "parameter", "name": "n"}]);
+    });
+    let incomplete = match read_model_with_work(&parameter.value, 292) {
+        CheckedPackageV2ReadResult::Incomplete(incomplete) => incomplete,
+        other => panic!("expected work limit at scoped parameter scan, got {other:?}"),
+    };
+    assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+    assert_eq!(incomplete.consumed, 293);
+    assert_eq!(
+        incomplete.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{frame}/body").as_str())
+    );
+    let refusal = match read_model_with_work(&parameter.value, 293) {
+        CheckedPackageV2ReadResult::Refused(refusal) => refusal,
+        other => panic!("expected missing-name after paying for scan, got {other:?}"),
+    };
+    assert_eq!(refusal.code, Code::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(Cause::MissingName));
 }
 
 impl ModelPackage {

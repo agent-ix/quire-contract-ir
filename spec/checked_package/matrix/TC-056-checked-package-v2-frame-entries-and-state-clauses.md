@@ -69,9 +69,10 @@ unit less, then repeat the existing object, relationship, anchor and clause
 controls to establish their unchanged outcomes.
 
 Implemented (FR-040-AC-17 through FR-040-AC-30): authored, from this
-repository's own public vocabulary, an object type with a field `value`
-and a field `step`, an operation with no parameter, and an operation `merge`
-with two reference parameters `a` and `b` and an integer parameter `n`.
+repository's own public vocabulary, the in-repo `Account` fixture with
+`balance` and `total` fields, and
+the selected `Order` fixture with a `scaled` operation whose named `n`
+parameter has Integer type and a `reset` operation with no parameters.
 Oracle: quire-spec-language TC-1043 (wire vectors W1 to W6 and reader rows X1 to
 X9), referenced by id and re-authored here, never copied. Read frames, each
 carrying all four members and its anchor, in these cases: a receiver entry and
@@ -83,8 +84,9 @@ with a repeated entry; `modifies` entries in wrong name or scope order; two
 entries for one field with different scopes, listed in either order (X8, X9),
 alone (asserting the same entry, the `receiver` one, is located in both listings), beside a misordered array and beside another meaning-join defect; an
 edited `scope` or `deletes_scoped` with the frame node left under its old key; a
-`parameter` entry naming a non-reference parameter (`n`) and one naming no
-parameter of `merge` (X6), with the frame step admitting and the state step
+`parameter` entry naming the non-reference `scaled` parameter (`n`) and one
+naming no parameter of `scaled` (X6), with the frame step admitting and the
+state step
 refusing at the frame node; two anchors of one context sharing one frame node,
 where one operation has the named parameter and the other has not; an anchor whose context is not a model declaration node, with a `parameter` entry naming no parameter, admitted in the state step; and a frame
 defect beside a failing `parameter` entry. Assert the order schema, stale key,
@@ -104,7 +106,8 @@ ahead of a frame-step defect.
 
 ## Status
 
-FR-040-AC-1 through FR-040-AC-13 are implemented, except that the shared-frame clause of FR-040-AC-7 is superseded by FR-040-AC-28 when that is implemented, in
+FR-040-AC-1 through FR-040-AC-13 are implemented. FR-040-AC-28 supersedes
+the former shared-frame refusal of FR-040-AC-7. Their tests are in
 `tests/it/checked_package_v2_frame_entries.rs` and the entry eligibility
 tests in `crates/quire-contract-model/src/checked_package/v2/frame.rs`.
 FR-040-AC-17 through FR-040-AC-30 are implemented by tagged reader tests in

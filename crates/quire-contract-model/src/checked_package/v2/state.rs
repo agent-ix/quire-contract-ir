@@ -282,18 +282,26 @@ fn check_anchor(
                 Step::Index(frame_position),
                 Step::Key("body"),
             ];
-            let (frame_body, _) = read_frame_body(&frame.body, &Trail::Base(&steps))?;
+            let (frame_body, work) = read_frame_body(&frame.body, &Trail::Base(&steps))?;
+            meter.charge(work, || node_pointer(frame_position).key("body"))?;
             for entry in &frame_body.deletes_scoped {
-                let DeletesScopedEntry::Parameter { name } = entry else {
-                    continue;
+                let name = match entry {
+                    DeletesScopedEntry::Receiver => continue,
+                    DeletesScopedEntry::Parameter { name } => name,
                 };
-                let present = operation.parameters.iter().any(|slot| {
-                    slot.name.as_deref() == Some(name.as_ref())
+                let mut present = false;
+                for slot in &operation.parameters {
+                    meter.charge(1, || node_pointer(frame_position).key("body"))?;
+                    if slot.name.as_deref() == Some(name.as_ref())
                         && matches!(
                             owner.package.slot_type(slot),
                             Some(MemberType::Reference(_))
                         )
-                });
+                    {
+                        present = true;
+                        break;
+                    }
+                }
                 if !present {
                     return Err(model_refusal(
                         ModelRefusal::missing_name(),
