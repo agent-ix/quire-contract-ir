@@ -1024,9 +1024,17 @@ fn reaches_with_operands(
     first_type: &str,
     second_type: &str,
 ) -> (Value, quire_contract_model::CheckedPackageEvidence) {
-    let relation = authored_relationship();
-    let (mut package, _) = relationship_operation_package(relation.clone(), "links", true);
-    let mut document = domain_document(json!({"relationships": [relation]}));
+    reaches_over(authored_relationship(), "links", first_type, second_type)
+}
+
+fn reaches_over(
+    relation: Value,
+    role: &str,
+    first_type: &str,
+    second_type: &str,
+) -> (Value, quire_contract_model::CheckedPackageEvidence) {
+    let (mut package, _) = relationship_operation_package(relation.clone(), role, true);
+    let mut document = domain_document(json!({"relationships": [relation.clone()]}));
     let nodes = package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes");
@@ -1087,6 +1095,25 @@ fn reaches_with_operands(
         );
         nodes.push(operand);
         operand_keys.push(key);
+    }
+    for end in ["sourceEnd", "targetEnd"] {
+        let ty = relation[end]["type"].as_str().expect("end type");
+        if !document["types"]
+            .as_array()
+            .expect("types")
+            .iter()
+            .any(|object| object["identity"] == ty)
+        {
+            document["types"]
+                .as_array_mut()
+                .expect("types")
+                .push(json!({
+                    "identity": ty, "displayName": ty.rsplit('/').next().expect("name"),
+                    "kind": {"module": IDENTITY, "name": "entity"},
+                    "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
+                    "supertypes": [], "fields": [], "operations": [],
+                }));
+        }
     }
     let relation_key = nodes[CALL]["body"]["operation"]["member"]["declaration"]["digest"]
         .as_str()
@@ -1310,18 +1337,10 @@ fn tc_048_a_selected_self_relationship_reaches_through_either_named_end() {
     set_edge["targetEnd"]["multiplicity"]["lower"] = json!(2);
     set_edge["targetEnd"]["multiplicity"]["upper"] = json!(3);
     let (package, evidence) = relationship_operation_package(set_edge, "links", true);
-    let refusal = refused(&package, &evidence);
-    assert_eq!(
-        (refusal.code, refusal.cause),
-        (
-            CheckedPackageRefusalCode::IllTyped,
-            Some(CheckedPackageRefusalCause::OperatorIneligible)
-        )
-    );
-    assert_eq!(
-        refusal.path.as_ref().map(ToString::to_string).as_deref(),
-        Some("/semantic_graph/nodes/6/body/operation/member/name")
-    );
+    assert!(matches!(
+        read(&package, &evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
     let (package, evidence) = reaches_with_operands(PRIORITY_ORDER, PREFERRED_ORDER);
     assert!(matches!(
         read(&package, &evidence),
@@ -1345,6 +1364,243 @@ fn tc_048_a_selected_self_relationship_reaches_through_either_named_end() {
             Some(expected_path)
         );
     }
+}
+
+/// Trace: FR-038-AC-252
+#[trace("TC-048", "FR-038-AC-252")]
+#[test]
+fn tc_048_reaches_finite_multivalued_ends_keep_the_single_valued_node_shape() {
+    for (role, end) in [("links", "targetEnd"), ("linkedBy", "sourceEnd")] {
+        let mut baseline = None;
+        for (lower, upper, unique) in [
+            (0, 1, true),
+            (1, 1, true),
+            (0, 3, true),
+            (0, 3, false),
+            (2, 3, true),
+        ] {
+            let mut relation = authored_relationship();
+            relation[end]["multiplicity"] = json!({
+                "lower": lower, "upper": upper, "ordered": false, "unique": unique,
+            });
+            let (package, evidence) = relationship_operation_package(relation, role, true);
+            let result = read(&package, &evidence);
+            assert!(
+                matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+                "{lower}..{upper}, unique={unique}: {result:?}"
+            );
+            let nodes = &package["semantic_graph"]["nodes"];
+            let body = &nodes[CALL]["body"];
+            assert_eq!(body["operator"], "reaches");
+            assert_eq!(body["operation"]["member"]["kind"], "relationship_end");
+            assert_eq!(body["arguments"].as_array().expect("arguments").len(), 2);
+            assert_eq!(nodes[4]["semantic_type"], nodes[3]["node_id"]);
+            assert_eq!(nodes[7]["semantic_type"], nodes[3]["node_id"]);
+            assert_eq!(body["result_type"], nodes[9]["node_id"]);
+            assert_eq!(nodes[9]["semantic_form"], "boolean");
+            assert!(body.get("multiplicity").is_none());
+            assert!(body.get("charge").is_none());
+            if let Some(single) = &baseline {
+                assert_eq!(
+                    body, single,
+                    "the end multiplicity must not alter the reaches body"
+                );
+            } else {
+                baseline = Some(body.clone());
+            }
+        }
+    }
+}
+
+/// Trace: FR-038-AC-253
+#[trace("TC-048", "FR-038-AC-253")]
+#[test]
+fn tc_048_reaches_checks_operand_one_against_receiver_before_edge_defects() {
+    let mut finite = authored_relationship();
+    finite["targetEnd"]["multiplicity"] = json!({
+        "lower": 0, "upper": 3, "ordered": false, "unique": false,
+    });
+    let (package, evidence) = reaches_over(finite.clone(), "links", ORDER, PRIORITY_ORDER);
+    assert!(matches!(
+        read(&package, &evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    for (relation, role) in [
+        (finite.clone(), "links"),
+        (
+            {
+                let mut relation = finite.clone();
+                relation["direction"] = json!("source-to-target");
+                relation
+            },
+            "linkedBy",
+        ),
+        (
+            {
+                let mut relation = finite.clone();
+                relation["targetEnd"]["multiplicity"]
+                    .as_object_mut()
+                    .expect("multiplicity")
+                    .remove("upper");
+                relation
+            },
+            "links",
+        ),
+        (
+            {
+                let mut relation = finite.clone();
+                relation["targetEnd"]["multiplicity"]["ordered"] = json!(true);
+                relation
+            },
+            "links",
+        ),
+        (
+            {
+                let mut relation = finite.clone();
+                relation["targetEnd"]["type"] = json!(CUSTOMER);
+                relation
+            },
+            "links",
+        ),
+    ] {
+        let (package, evidence) = reaches_over(relation, role, ORDER, CUSTOMER);
+        let refusal = refused(&package, &evidence);
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (
+                CheckedPackageRefusalCode::IllTyped,
+                Some(CheckedPackageRefusalCause::OperatorIneligible)
+            )
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            Some("/semantic_graph/nodes/6/body/arguments/1")
+        );
+    }
+}
+
+/// Trace: FR-038-AC-254, FR-038-AC-255, FR-038-AC-256
+#[trace("TC-048", "FR-038-AC-254", "FR-038-AC-255", "FR-038-AC-256")]
+#[test]
+fn tc_048_reaches_refusal_order_is_direction_then_multiplicity_then_type() {
+    let mut relation = authored_relationship();
+    relation["direction"] = json!("source-to-target");
+    relation["sourceEnd"]["multiplicity"]
+        .as_object_mut()
+        .expect("multiplicity")
+        .remove("upper");
+    let cases = [
+        (
+            relation,
+            "linkedBy",
+            CheckedPackageRefusalCode::IllTyped,
+            CheckedPackageRefusalCause::OperatorIneligible,
+        ),
+        (
+            {
+                let mut r = authored_relationship();
+                r["targetEnd"]["multiplicity"]
+                    .as_object_mut()
+                    .expect("multiplicity")
+                    .remove("upper");
+                r
+            },
+            "links",
+            CheckedPackageRefusalCode::UnsupportedConstruct,
+            CheckedPackageRefusalCause::ExpressionForm,
+        ),
+        (
+            {
+                let mut r = authored_relationship();
+                r["targetEnd"]["multiplicity"]["ordered"] = json!(true);
+                r
+            },
+            "links",
+            CheckedPackageRefusalCode::UnsupportedConstruct,
+            CheckedPackageRefusalCause::ExpressionForm,
+        ),
+        (
+            {
+                let mut r = authored_relationship();
+                r["targetEnd"]["type"] = json!(CUSTOMER);
+                r["targetEnd"]["multiplicity"]
+                    .as_object_mut()
+                    .expect("multiplicity")
+                    .remove("upper");
+                r
+            },
+            "links",
+            CheckedPackageRefusalCode::UnsupportedConstruct,
+            CheckedPackageRefusalCause::ExpressionForm,
+        ),
+        (
+            {
+                let mut r = authored_relationship();
+                r["targetEnd"]["type"] = json!(CUSTOMER);
+                r
+            },
+            "links",
+            CheckedPackageRefusalCode::IllTyped,
+            CheckedPackageRefusalCause::OperatorIneligible,
+        ),
+        (
+            {
+                let mut r = authored_relationship();
+                r["targetEnd"]["type"] = json!(CUSTOMER);
+                r["targetEnd"]["multiplicity"]["upper"] = json!(3);
+                r
+            },
+            "links",
+            CheckedPackageRefusalCode::IllTyped,
+            CheckedPackageRefusalCause::OperatorIneligible,
+        ),
+    ];
+    for (relation, role, code, cause) in cases {
+        let (package, evidence) = reaches_over(relation, role, ORDER, ORDER);
+        let refusal = refused(&package, &evidence);
+        assert_eq!((refusal.code, refusal.cause), (code, Some(cause)));
+        assert_eq!(
+            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            Some("/semantic_graph/nodes/6/body/operation/member/name")
+        );
+    }
+}
+
+/// Trace: FR-038-AC-257
+#[trace("TC-048", "FR-038-AC-257")]
+#[test]
+fn tc_048_reaches_multivalued_end_requires_boolean_result() {
+    let mut relation = authored_relationship();
+    relation["targetEnd"]["multiplicity"]["upper"] = json!(3);
+    let (mut package, evidence) = relationship_operation_package(relation, "links", true);
+    let result = package["semantic_graph"]["nodes"][3]["node_id"].clone();
+    let call = &mut package["semantic_graph"]["nodes"][CALL];
+    call["body"]["result_type"] = result.clone();
+    call["semantic_type"] = result;
+    let body = call["body"].clone();
+    let result_type = call["semantic_type"]["digest"]
+        .as_str()
+        .expect("result key");
+    call["node_id"] = node_id(&application_node_key(
+        "expression",
+        "reachability",
+        result_type,
+        &body,
+    ));
+    rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
+    let refusal = refused(&package, &evidence);
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (
+            CheckedPackageRefusalCode::IllTyped,
+            Some(CheckedPackageRefusalCause::OperatorIneligible)
+        )
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        Some("/semantic_graph/nodes/6/body/result_type")
+    );
 }
 
 /// Trace: FR-038-AC-171

@@ -1642,8 +1642,9 @@ clause's profile-fit defect; and the two inputs with rational-object bounds refu
 
 ## FCD relationships and named ends (FR-038-AC-165 through FR-038-AC-173 and FR-038-AC-252 through FR-038-AC-257)
 
-Status: **PLANNED / UNRUN**. These procedures are new acceptance work for
-IR-661. Existing TC-048 implementation and trace tags do not establish them.
+Status: items 1-10 remain **PLANNED / UNRUN** under IR-661; item 11 is
+**Implemented** under IR-824 with tagged TC-048 reader tests. Existing TC-048
+trace tags alone do not establish the remaining procedures.
 They require independently authored minimal Semantic IR 2.0.0 documents and
 packages built from this repository's public vocabulary. Do not copy an FCD
 schema, fixture, binary or another repository's package into this repository.
@@ -1823,7 +1824,7 @@ results.
     distinct from the relationship graph node; no Reference<relationship>
     substitutes for an object reference. These are static reader procedures,
     not runtime graph execution evidence.
-11. (FR-038-AC-252 through FR-038-AC-257, IR-824; QSpec FR-322-AC-57 RN-18 and RN-20 through
+11. Implemented with tagged TC-048 reader tests (FR-038-AC-252 through FR-038-AC-257, IR-824; QSpec FR-322-AC-57 RN-18 and RN-20 through
     RN-27, referenced by id only.) Start from item 10's homogeneous `Order`
     self-relationship and author each variant independently from this
     repository's public vocabulary, recomputing identities after each edit.
@@ -1864,9 +1865,8 @@ additionally retain authentic declaration identity and valid origin under
 FR-038-AC-174/175 and FR-038-AC-186 through FR-038-AC-196, with absence for missing/malformed origin. The existing
 model-intake conversion to `ValidationFailure` retains code/path/cause only;
 these procedures assert no public metadata extension. Do not parse diagnostic
-prose or infer a graph locus from a semantic declaration URI. All outcomes and
-new retention checks remain **PLANNED / UNRUN** until the implementation lane
-records executed evidence.
+prose or infer a graph locus from a semantic declaration URI. Item 11 is **Implemented** with tagged TC-048 reader tests. The other planned
+outcomes and new retention checks retain their separate status.
 
 
 ### Private intake refusal-origin checks
