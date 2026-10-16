@@ -62,6 +62,7 @@ type: TestMatrix
 | Functional Req | Acceptance Criteria | Test Case | Status | Required cases |
 |---|---|---|---|---|
 | FR-038 | FR-038-AC-222, FR-038-AC-223 | TC-048 | ✅ Implemented (IR-742) | Public-reader Float64→Float32 and Float32→Float64 admission with genuine recomputed identities; both opposite-width literal kind/type mismatches at the literal `type`; for each conversion, wrong `result_type` with valid `type_argument` and wrong `type_argument` with matching wrong `result_type`, each with enclosing root `semantic_type` matched to `result_type` and refusal at application `result_type`; exact typed code, cause, pointer and locus; no stale-identity substitute. |
+| FR-038 | FR-038-AC-247 | TC-048 | 🚧 PLANNED/UNRUN (IR-225); no tagged implementation test yet | Entry-driven `member`/`type_argument` result equality and catalogued `member_family` admission; `to_rational` rational/rational admission and float/float, float/rational, rational/float refusals for both Float32 and Float64 operands at application `result_type`, with recomputed identities and typed code, cause, pointer and locus; the same check applies to other type-argument member-result entries. |
 
 ## Pending structural type work coverage (IR-490)
 

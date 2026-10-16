@@ -346,6 +346,40 @@ The adverse packages must be valid through earlier wire, identity and resource
 checks so they distinguish these admission failures from the existing first
 refusal order. These cases do not assert an admitted same-width IEEE operation.
 
+PLANNED/UNRUN (IR-225; FR-038-AC-247). Build fresh otherwise valid
+`quire.op.ieee.to_rational` applications for both Float32 and Float64 source
+operands, using the catalogue's `member` result form, `type_argument` member
+and `member_family: rational` constraint. For each source width, admit the
+rational/rational member declaration and `result_type` pair. Then separately
+read float/float (the source width in both positions), float/rational and
+rational/float pairs. Match the root node's `semantic_type` to each candidate
+`result_type` so the root mismatch rule cannot decide the case. Independently
+re-derive all affected node keys, references, identity projection and package
+identity before each public read. Each adverse package must pass earlier wire,
+identity and resource checks and refuse `ill_typed`/`operator-ineligible` at
+`/semantic_graph/nodes/{i}/body/result_type`, with the application node as
+locus. Confirm by catalogue inspection that the check is selected by
+`result: member` and `member: type_argument`, rather than an IEEE operation-name
+allowlist; apply the same check to the other catalogued type-argument member
+results, including non-IEEE conversions. Other member kinds retain their
+member-specific result rules. Compare typed code, cause, pointer and locus.
+
+The catalogue's `result: member` entries with `member: type_argument` are
+`quire.op.quantity.convert`, `quire.op.ieee.to_float32`,
+`quire.op.ieee.to_float64`, `quire.op.ieee.to_rational`,
+`quire.op.ieee.from_exact`, `quire.op.reference.upcast`,
+`quire.op.numeric.convert`, `quire.op.numeric.convert_rounding`,
+`quire.op.numeric.narrow`, `quire.op.rational.narrow`,
+`quire.op.collection.fold`, `quire.op.collection.reduce`,
+`quire.op.collection.count`, `quire.op.collection.sum.integer`,
+`quire.op.collection.sum.rational`, `quire.op.collection.sum.decimal`,
+`quire.op.collection.sum.float32`, `quire.op.collection.sum.float64`,
+`quire.op.collection.sum.quantity`, `quire.op.collection.size` and
+`quire.op.collection.convert`. The five other `result: member` entries are
+`quire.op.record.project` (`field`), `quire.op.tuple.project` (`position`),
+`quire.op.collection.index` (`element`), `quire.op.model.navigate`
+(`relationship_end`) and `quire.op.model.dispatch_call` (`operation`).
+
 ## Selections bind by identity (FR-038-AC-62 through FR-038-AC-64)
 
 Build a package whose lock and identity preimage carry the same
