@@ -276,7 +276,7 @@ fn native_qsl_identity_fields_and_stop_causes_remain_distinct() {
 /// Trace: FR-052-AC-4
 #[trace("FR-052-AC-4")]
 #[test]
-fn provisional_input_has_no_result_or_completeness_fields() {
+fn census_input_has_no_result_or_completeness_fields() {
     let source = include_str!("../../crates/quire-contract-model/src/source_obligation.rs");
     let input = source
         .split("pub struct SourceObligationInput {")
@@ -670,6 +670,7 @@ fn synthetic_census_has_hand_written_rows_and_dispositions() {
         mk("a", 0, Some(function.clone())),
         mk("b", 1, Some(second.clone())),
         mk("c", 2, None),
+        mk("d", 0, Some(second.clone())),
     ]))
     .expect("census");
     use SourceInventoryDisposition::{Mapped, ZeroMappings};
@@ -776,6 +777,15 @@ fn synthetic_census_has_hand_written_rows_and_dispositions() {
             ),
             (
                 criterion("AC-1"),
+                occurrence_at(0),
+                Some(second.clone()),
+                SourceAssertionProvenance {
+                    source: source(),
+                    author: SourceContractAuthorId::new("author")
+                }
+            ),
+            (
+                criterion("AC-1"),
                 occurrence_at(1),
                 Some(second),
                 SourceAssertionProvenance {
@@ -801,14 +811,14 @@ fn synthetic_census_has_hand_written_rows_and_dispositions() {
 #[trace("TC-452", "FR-052-AC-15")]
 #[test]
 fn binding_refusals_are_typed() {
-    let mut input = census_input(vec![]);
-    input = SourceObligationInput::new(
+    let base = census_input(vec![]);
+    let input = SourceObligationInput::new(
         source(),
         None,
-        input.quire().cloned(),
-        input.ir_v2().cloned(),
-        input.qsl().cloned(),
-        input.quire_code_rs().cloned(),
+        base.quire().cloned(),
+        base.ir_v2().cloned(),
+        base.qsl().cloned(),
+        base.quire_code_rs().cloned(),
         vec![],
     );
     assert_eq!(
@@ -838,8 +848,8 @@ fn binding_refusals_are_typed() {
     );
 }
 
-/// Trace: FR-052-AC-19, FR-052-AC-22, TC-452
-#[trace("TC-452", "FR-052-AC-19", "FR-052-AC-22")]
+/// Trace: FR-052-AC-22, TC-452
+#[trace("TC-452", "FR-052-AC-22")]
 #[test]
 fn assertion_conflicts_and_relation_dedup_are_deterministic() {
     let a = census_assertion("a", "AC-1", None);
@@ -885,7 +895,6 @@ fn assertion_conflicts_and_relation_dedup_are_deterministic() {
 }
 
 fn with_positions(
-    base: &SourceObligationInput,
     binding_value: Option<SourceCriterionSourceBinding>,
     quire: Option<SourceInventoryOutcome>,
     ir: Option<SourceInventoryOutcome>,
@@ -893,7 +902,6 @@ fn with_positions(
     code: Option<SourceInventoryOutcome>,
     assertions: Vec<SourceCorrespondenceAssertion>,
 ) -> SourceObligationInput {
-    let _ = base;
     SourceObligationInput::new(source(), binding_value, quire, ir, qsl, code, assertions)
 }
 
@@ -980,7 +988,6 @@ fn adjacent_census_refusals_follow_fixed_position_order() {
     for (binding_value, quire, ir, qsl, code, expected) in cases {
         assert_eq!(
             build_source_obligation_census(with_positions(
-                &base,
                 binding_value,
                 quire,
                 ir,
@@ -1002,7 +1009,6 @@ fn adjacent_census_refusals_follow_fixed_position_order() {
     let conflicting_quire = census_outcome(SourceInventoryOwner::Quire, vec![conflict]);
     assert_eq!(
         build_source_obligation_census(with_positions(
-            &base,
             Some(binding(source())),
             Some(conflicting_quire),
             None,
@@ -1061,7 +1067,6 @@ fn input_permutations_produce_equal_ordered_census() {
         census_outcome(owner, outcome.items().iter().cloned().rev().collect())
     };
     let permuted = build_source_obligation_census(with_positions(
-        &base,
         Some(binding(source())),
         Some(reverse(SourceInventoryOwner::Quire, base.quire().unwrap())),
         Some(reverse(SourceInventoryOwner::IrV2, base.ir_v2().unwrap())),
@@ -1081,9 +1086,51 @@ fn input_permutations_produce_equal_ordered_census() {
 #[test]
 fn owner_scope_and_source_errors_precede_incompleteness() {
     let base = census_input(vec![]);
+    for (owner, expected) in [
+        (
+            SourceInventoryOwner::IrV2,
+            SourceInventoryScope::IrV2SemanticGraphAndOccurrences,
+        ),
+        (
+            SourceInventoryOwner::Qsl,
+            SourceInventoryScope::QslCheckedRequirementsAndPendingObligations,
+        ),
+        (
+            SourceInventoryOwner::QuireCodeRs,
+            SourceInventoryScope::QuireCodeRsProductionModulesAndFunctions,
+        ),
+    ] {
+        let wrong = Some(incomplete(SourceInventoryOwner::Quire));
+        let (ir, qsl, code) = match owner {
+            SourceInventoryOwner::IrV2 => {
+                (wrong, base.qsl().cloned(), base.quire_code_rs().cloned())
+            }
+            SourceInventoryOwner::Qsl => {
+                (base.ir_v2().cloned(), wrong, base.quire_code_rs().cloned())
+            }
+            SourceInventoryOwner::QuireCodeRs => {
+                (base.ir_v2().cloned(), base.qsl().cloned(), wrong)
+            }
+            SourceInventoryOwner::Quire => unreachable!(),
+        };
+        assert_eq!(
+            build_source_obligation_census(with_positions(
+                Some(binding(source())),
+                base.quire().cloned(),
+                ir,
+                qsl,
+                code,
+                vec![],
+            )),
+            Err(SourceCorrespondenceError::InventoryScopeMismatch {
+                owner,
+                expected,
+                observed: SourceInventoryScope::QuireSelectedAuthoredCriteria,
+            })
+        );
+    }
     assert_eq!(
         build_source_obligation_census(with_positions(
-            &base,
             Some(binding(source())),
             Some(incomplete(SourceInventoryOwner::Qsl)),
             base.ir_v2().cloned(),
@@ -1108,7 +1155,6 @@ fn owner_scope_and_source_errors_precede_incompleteness() {
     });
     assert_eq!(
         build_source_obligation_census(with_positions(
-            &base,
             Some(binding(source())),
             Some(SourceInventoryOutcome::from_enumerator(wrong_both).unwrap()),
             base.ir_v2().cloned(),
@@ -1130,7 +1176,6 @@ fn owner_scope_and_source_errors_precede_incompleteness() {
     let foreign = SourceInventoryOutcome::from_enumerator(e).unwrap();
     assert_eq!(
         build_source_obligation_census(with_positions(
-            &base,
             Some(binding(source())),
             Some(foreign),
             base.ir_v2().cloned(),
@@ -1143,6 +1188,79 @@ fn owner_scope_and_source_errors_precede_incompleteness() {
             expected: source(),
             observed: other
         })
+    );
+}
+
+/// Trace: FR-052-AC-19, FR-052-AC-22, TC-452
+#[trace("TC-452", "FR-052-AC-19", "FR-052-AC-22")]
+#[test]
+fn rejected_assertions_collapse_duplicates_and_sort_with_reason_precedence() {
+    let foreign_source = SourceIdentity::new(
+        SourceDocumentId::new("other").unwrap(),
+        SourceRevision::new(1).unwrap(),
+    );
+    let provenance_foreign = SourceCorrespondenceAssertion::new(
+        SourceAssertionId::new("z"),
+        source(),
+        criterion("AC-1"),
+        occurrence(),
+        None,
+        SourceAssertionProvenance {
+            source: foreign_source,
+            author: SourceContractAuthorId::new("author"),
+        },
+    );
+    let both_dangling = SourceCorrespondenceAssertion::new(
+        SourceAssertionId::new("b"),
+        source(),
+        criterion("missing"),
+        occurrence_at(99),
+        None,
+        SourceAssertionProvenance {
+            source: source(),
+            author: SourceContractAuthorId::new("author"),
+        },
+    );
+    let repeated = census_assertion("a", "missing", None);
+    let conflict = SourceCorrespondenceAssertion::new(
+        SourceAssertionId::new("d"),
+        source(),
+        criterion("AC-1"),
+        occurrence(),
+        None,
+        SourceAssertionProvenance {
+            source: source(),
+            author: SourceContractAuthorId::new("other"),
+        },
+    );
+    let census = build_source_obligation_census(census_input(vec![
+        provenance_foreign,
+        both_dangling,
+        census_assertion("c", "AC-1", None),
+        conflict,
+        repeated.clone(),
+        repeated,
+    ]))
+    .unwrap();
+    assert_eq!(
+        census
+            .rejected_assertions()
+            .iter()
+            .map(|r| (r.assertion().id().as_str(), r.reason()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("a", SourceCorrespondenceRejectionReason::DanglingCriterion),
+            ("b", SourceCorrespondenceRejectionReason::DanglingCriterion),
+            (
+                "c",
+                SourceCorrespondenceRejectionReason::ConflictingProvenance
+            ),
+            (
+                "d",
+                SourceCorrespondenceRejectionReason::ConflictingProvenance
+            ),
+            ("z", SourceCorrespondenceRejectionReason::ForeignSource),
+        ]
     );
 }
 
@@ -1230,7 +1348,6 @@ fn orphan_or_conflicting_endpoints_do_not_resolve() {
     .enumerate()
     {
         let census = build_source_obligation_census(with_positions(
-            &base,
             Some(binding(source())),
             base.quire().cloned(),
             Some(census_outcome(SourceInventoryOwner::IrV2, rows)),
@@ -1262,7 +1379,6 @@ fn orphan_or_conflicting_endpoints_do_not_resolve() {
     let function =
         SourceProductionFunctionId::new(SourceProductionModuleId::new("missing.rs"), "check");
     let census = build_source_obligation_census(with_positions(
-        &base,
         Some(binding(source())),
         base.quire().cloned(),
         base.ir_v2().cloned(),

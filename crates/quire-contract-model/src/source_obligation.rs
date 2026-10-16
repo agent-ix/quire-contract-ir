@@ -1128,10 +1128,17 @@ fn assertion_key(
     )
 }
 
-/// Build the ordered source census from four complete outcomes and authored assertions.
-pub fn build_source_obligation_census(
+fn checked_census_positions(
     input: SourceObligationInput,
-) -> Result<SourceObligationCensus, SourceCorrespondenceError> {
+) -> Result<
+    (
+        SourceIdentity,
+        SourceCriterionSourceBinding,
+        Vec<SourceInventoryRow>,
+        Vec<SourceCorrespondenceAssertion>,
+    ),
+    SourceCorrespondenceError,
+> {
     let binding = input
         .criterion_source_binding
         .ok_or(SourceCorrespondenceError::MissingCriterionSourceBinding)?;
@@ -1182,11 +1189,26 @@ pub fn build_source_obligation_census(
         &input.source,
         input.quire_code_rs,
     )?);
+
+    order_inventory_rows(&mut rows);
+    Ok((input.source, binding, rows, input.assertions))
+}
+
+fn order_inventory_rows(rows: &mut Vec<SourceInventoryRow>) {
     rows.sort_by(|a, b| (&a.owner, &a.identity).cmp(&(&b.owner, &b.identity)));
     rows.dedup();
+}
 
+fn census_endpoints(
+    rows: &[SourceInventoryRow],
+) -> (
+    BTreeSet<CheckedNodeId>,
+    BTreeSet<SourceAuthoredCriterionId>,
+    BTreeSet<SourceSemanticOccurrenceId>,
+    BTreeSet<SourceProductionFunctionId>,
+) {
     let mut node_facts: BTreeMap<&CheckedNodeId, BTreeSet<&CheckedSemanticId>> = BTreeMap::new();
-    for row in &rows {
+    for row in rows {
         if let SourceInventoryIdentity::SemanticNode { identity, semantic } = &row.identity {
             node_facts.entry(identity).or_default().insert(semantic);
         }
@@ -1255,9 +1277,19 @@ pub fn build_source_obligation_census(
         })
         .collect();
 
+    (conflicting_nodes, criteria, occurrences, functions)
+}
+
+fn process_census_assertions(
+    assertions: Vec<SourceCorrespondenceAssertion>,
+    source: &SourceIdentity,
+    criteria: &BTreeSet<SourceAuthoredCriterionId>,
+    occurrences: &BTreeSet<SourceSemanticOccurrenceId>,
+    functions: &BTreeSet<SourceProductionFunctionId>,
+) -> (Vec<SourceObligationRow>, Vec<SourceCorrespondenceRejection>) {
     let mut by_id: BTreeMap<SourceAssertionId, Vec<SourceCorrespondenceAssertion>> =
         BTreeMap::new();
-    for a in input.assertions {
+    for a in assertions {
         by_id.entry(a.id.clone()).or_default().push(a);
     }
     let mut candidates = Vec::new();
@@ -1286,7 +1318,7 @@ pub fn build_source_obligation_census(
         };
         for assertion in group {
             let reason = group_reason.or_else(|| {
-                if assertion.source != input.source || assertion.provenance.source != input.source {
+                if &assertion.source != source || &assertion.provenance.source != source {
                     Some(SourceCorrespondenceRejectionReason::ForeignSource)
                 } else if !criteria.contains(&assertion.criterion) {
                     Some(SourceCorrespondenceRejectionReason::DanglingCriterion)
@@ -1353,11 +1385,26 @@ pub fn build_source_obligation_census(
             });
         }
     }
+    order_census_results(&mut accepted, &mut rejected);
+
+    (accepted, rejected)
+}
+
+fn order_census_results(
+    accepted: &mut [SourceObligationRow],
+    rejected: &mut [SourceCorrespondenceRejection],
+) {
     accepted.sort();
     rejected.sort_by(|a, b| {
         (assertion_key(&a.assertion), a.reason).cmp(&(assertion_key(&b.assertion), b.reason))
     });
+}
 
+fn census_dispositions(
+    rows: Vec<SourceInventoryRow>,
+    accepted: &[SourceObligationRow],
+    conflicting_nodes: &BTreeSet<CheckedNodeId>,
+) -> Vec<SourceCensusInventoryRow> {
     let mapped_criteria: BTreeSet<_> = accepted.iter().map(|r| &r.criterion).collect();
     let mapped_occurrences: BTreeSet<_> = accepted
         .iter()
@@ -1376,8 +1423,7 @@ pub fn build_source_obligation_census(
     let mapped_modules: BTreeSet<_> = mapped_functions.iter().map(|f| f.module()).collect();
     let mapped_nodes: BTreeSet<_> = mapped_occurrences.iter().map(|o| o.node()).collect();
     let absent_nodes: BTreeSet<_> = absent_occurrences.iter().map(|o| o.node()).collect();
-    let inventory_rows = rows
-        .into_iter()
+    rows.into_iter()
         .map(|row| {
             let disposition = match &row.identity {
                 SourceInventoryIdentity::Criterion(c) => {
@@ -1444,9 +1490,20 @@ pub fn build_source_obligation_census(
             };
             SourceCensusInventoryRow { row, disposition }
         })
-        .collect();
+        .collect()
+}
+
+/// Build the ordered source census from four complete outcomes and authored assertions.
+pub fn build_source_obligation_census(
+    input: SourceObligationInput,
+) -> Result<SourceObligationCensus, SourceCorrespondenceError> {
+    let (source, binding, rows, assertions) = checked_census_positions(input)?;
+    let (conflicting_nodes, criteria, occurrences, functions) = census_endpoints(&rows);
+    let (accepted, rejected) =
+        process_census_assertions(assertions, &source, &criteria, &occurrences, &functions);
+    let inventory_rows = census_dispositions(rows, &accepted, &conflicting_nodes);
     Ok(SourceObligationCensus {
-        source: input.source,
+        source,
         criterion_source_binding: binding,
         inventory_rows,
         correspondence_rows: accepted,

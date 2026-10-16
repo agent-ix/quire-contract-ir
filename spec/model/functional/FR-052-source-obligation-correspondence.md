@@ -478,10 +478,15 @@ candidate denominator.
 FR-052-AC-8 is retired and its ID is not reused (ADR-0056).
 FR-052-AC-17 succeeds it. FR-052-AC-4 and AC-12 through AC-15, and AC-17
 through AC-23 are Implemented for the neutral synthetic boundary with traced
-tests. AC-1 through AC-3, AC-5 through AC-7, AC-9 through AC-11, and AC-16
-remain Planned/UNRUN pending owner-native adapters and PLAT-1165. Synthetic
-completion does not establish the full matched-source FR-052 census or close
-IR-759.
+tests. Assertion deduplication, foreign provenance, rejection precedence,
+and rejection ordering are exercised by AC-19 and AC-22 tests. AC-3 remains
+Planned/UNRUN until owner-native evidence exists. AC-1 through AC-3, AC-5
+through AC-7, AC-9 through AC-11, and AC-16 remain Planned/UNRUN pending
+owner-native adapters and PLAT-1165. Synthetic completion does not establish
+the full matched-source FR-052 census or close IR-759. Passing the synthetic
+AC-17 through AC-23 checks shall not change the status of AC-1 through AC-3,
+AC-5 through AC-7, or AC-9 through AC-11.
+
 ## Dependencies
 
 [FR-045](../../core/functional/FR-045-derive-proof-coverage-baseline.md)
