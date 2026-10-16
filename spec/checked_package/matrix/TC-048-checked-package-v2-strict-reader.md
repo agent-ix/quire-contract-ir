@@ -346,7 +346,7 @@ The adverse packages must be valid through earlier wire, identity and resource
 checks so they distinguish these admission failures from the existing first
 refusal order. These cases do not assert an admitted same-width IEEE operation.
 
-PLANNED/UNRUN (IR-225; FR-038-AC-247 through FR-038-AC-251). Build fresh otherwise valid
+Implemented (IR-225; FR-038-AC-247 through FR-038-AC-251). Build fresh otherwise valid
 `quire.op.ieee.to_rational` applications for both Float32 and Float64 source
 operands, using the catalogue's `member` result form, `type_argument` member
 and `member_family: rational` constraint. For each source width, admit the

@@ -893,7 +893,7 @@ fn residual_result_inner_map_flat_map_flatten_and_convert_use_result_element() {
             };
             if identity == "convert" {
                 node["body"]["operation"]["member"] = json!({
-                    "kind":"type_argument", "type_argument":result_id
+                    "kind":"type_argument", "declaration":result_id
                 });
             }
         });
@@ -978,7 +978,7 @@ fn residual_result_inner_sequence_results_expect_no_leaves() {
             };
             if identity == "convert" {
                 node["body"]["operation"]["member"] = json!({
-                    "kind":"type_argument", "type_argument":result_id
+                    "kind":"type_argument", "declaration":result_id
                 });
             }
         });

@@ -7,8 +7,8 @@
 
 use crate::support::checked_package::{
     application_node_key, boolean_key, canonical, evidence_for, node_id, pointer,
-    rebuild_source_map, refresh_identity, rekey_application_node, rename_node, structural_key,
-    v2_all_families,
+    rebuild_source_map, refresh_identity, rekey_application_node, rename_node, settle,
+    structural_key, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -334,6 +334,20 @@ fn with_ieee_conversion(
     member_family: &str,
     result_family: &str,
 ) -> (Value, usize) {
+    let source_family = if identity.ends_with("to_float32") {
+        "float64"
+    } else {
+        "float32"
+    };
+    with_ieee_conversion_source(identity, source_family, member_family, result_family)
+}
+
+fn with_ieee_conversion_source(
+    identity: &str,
+    source_family: &str,
+    member_family: &str,
+    result_family: &str,
+) -> (Value, usize) {
     let (mut package, _) = with_ieee_literal("float32_bits", "float32");
     let type_id = |family: &str| {
         node_id(&structural_key(
@@ -345,11 +359,25 @@ fn with_ieee_conversion(
     };
     let float32 = type_id("float32");
     let float64 = type_id("float64");
-    let source = if identity.ends_with("to_float32") {
-        float64.clone()
+    let source = if source_family == "float64" {
+        float64
     } else {
-        float32.clone()
+        float32
     };
+    if member_family == "rational" || result_family == "rational" {
+        let digest = structural_key(
+            "scalar_type",
+            "rational",
+            None,
+            &json!({"term": "aggregate", "members": []}),
+        );
+        package["semantic_graph"]["nodes"].as_array_mut().expect("nodes").push(json!({
+            "node_id": node_id(&digest), "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "scalar_type", "semantic_form": "rational", "semantic_type": node_id(&digest),
+            "dependencies": [], "occurrences": [{"role": "generated", "ordinal": 0}],
+            "body": {"term": "aggregate", "members": []}
+        }));
+    }
     let destination = type_id(member_family);
     let result = type_id(result_family);
     let ieee_definition = json!({
@@ -372,8 +400,8 @@ fn with_ieee_conversion(
         "result_type": result.clone(),
         "arguments": [{
             "term": "literal", "type": source,
-            "value_kind": if identity.ends_with("to_float32") {"float64_bits"} else {"float32_bits"},
-            "value": if identity.ends_with("to_float32") {"3ff0000000000000"} else {"3f800000"},
+            "value_kind": if source_family == "float64" {"float64_bits"} else {"float32_bits"},
+            "value": if source_family == "float64" {"3ff0000000000000"} else {"3f800000"},
         }],
     });
     let digest = application_node_key(
@@ -466,6 +494,83 @@ fn tc_048_cross_width_ieee_result_is_the_type_argument_of_the_catalogued_family(
         assert_eq!(
             serde_json::to_value(refusal.locus).expect("locus"),
             same_width["semantic_graph"]["nodes"][position]["node_id"]
+        );
+    }
+}
+
+fn assert_member_result_refusal(
+    package: &Value,
+    position: usize,
+    suffix: &str,
+    code: CheckedPackageRefusalCode,
+    cause: CheckedPackageRefusalCause,
+) {
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(package) else {
+        panic!("member result must refuse at {suffix}");
+    };
+    assert_eq!(refusal.code, code, "{refusal:?}");
+    assert_eq!(refusal.cause, Some(cause));
+    assert_eq!(
+        refusal.path,
+        Some(pointer(&format!(
+            "/semantic_graph/nodes/{position}/body/{suffix}"
+        )))
+    );
+    assert_eq!(
+        serde_json::to_value(refusal.locus).expect("locus"),
+        package["semantic_graph"]["nodes"][position]["node_id"]
+    );
+}
+
+/// Trace: TC-048, FR-038-AC-247, FR-038-AC-248.
+#[trace("TC-048", "FR-038-AC-247", "FR-038-AC-248")]
+#[test]
+fn tc_048_to_rational_member_result_and_family_for_both_widths() {
+    for source in ["float32", "float64"] {
+        let (valid, _) = with_ieee_conversion_source(
+            "quire.op.ieee.to_rational",
+            source,
+            "rational",
+            "rational",
+        );
+        assert!(
+            matches!(read(&valid), CheckedPackageV2ReadResult::Admitted(_)),
+            "{source} rational/rational must admit"
+        );
+        for (member, result) in [(source, "rational"), ("rational", source), (source, source)] {
+            let (adverse, position) =
+                with_ieee_conversion_source("quire.op.ieee.to_rational", source, member, result);
+            assert_member_result_refusal(
+                &adverse,
+                position,
+                "result_type",
+                CheckedPackageRefusalCode::IllTyped,
+                CheckedPackageRefusalCause::OperatorIneligible,
+            );
+        }
+    }
+}
+
+/// Trace: TC-048, FR-038-AC-249.
+#[trace("TC-048", "FR-038-AC-249")]
+#[test]
+fn tc_048_type_argument_member_requires_closed_declaration() {
+    let (valid, position) = with_ieee_conversion("quire.op.ieee.to_float32", "float32", "float32");
+    for member in [
+        json!({"kind": "type_argument"}),
+        json!({"kind": "type_argument", "declaration": "bad"}),
+        json!({"kind": "type_argument", "declaration": valid["semantic_graph"]["nodes"][position]["body"]["result_type"], "extra": true}),
+        json!({"kind": "type_argument", "type_argument": valid["semantic_graph"]["nodes"][position]["body"]["result_type"]}),
+    ] {
+        let mut adverse = valid.clone();
+        adverse["semantic_graph"]["nodes"][position]["body"]["operation"]["member"] = member;
+        settle(&mut adverse);
+        assert_member_result_refusal(
+            &adverse,
+            position,
+            "operation/member",
+            CheckedPackageRefusalCode::InvalidPackage,
+            CheckedPackageRefusalCause::OperationMemberMismatch,
         );
     }
 }

@@ -31,15 +31,15 @@
 //! upstream vector. Each item is a silent no-op (never a false refusal), not
 //! a silent admission of something the upstream corpus requires rejected: an
 //! `operation.member` of kind `position`, `element`, `relationship_end`,
-//! `type_argument` or `operation` is checked for presence and kind only, not
+//! `operation` is checked for presence and kind only, not
 //! that its `declaration` resolves to a real, eligible node (`field` is the
 //! one kind an upstream mutation exercises, so it alone is checked in full,
 //! including that the named field is actually declared; the `temporal_interval`
 //! and `fairness` members are checked for their closed shape here and by
 //! [`super::temporal`] for their meaning); a `constraints`
 //! entry other than `same_family`/`same_type`/`conforming_reference`/
-//! `reference_edge`/`union_arms` is not enforced except the two IEEE
-//! conversion entries' `member_family` constraint; leaf-path
+//! `reference_edge`/`union_arms` and type-argument member-result
+//! `member_family` is not enforced; leaf-path
 //! resolution covers exactly one shape, `["field:<name>"]` against the first
 //! operand's record type, the one the upstream vectors exercise;
 //! [`validate_application_keys`] re-derives a key for a node whose own
@@ -48,9 +48,8 @@
 //! identity check (`flat_wire`), so every application's key and its own
 //! `operation` are checked here; `operation.mode` is checked for kind and
 //! type pins, but its value is not checked against the catalog's closed
-//! `modes` vocabulary. The catalog's `member` result form and `member_family`
-//! constraint are checked for the two cross-width IEEE conversions; other
-//! result forms and member-family constraints remain unenforced.
+//! `modes` vocabulary. The catalog's `member` result form is checked for
+//! type-argument members; other result forms remain unenforced.
 
 use super::application_identity::{application_digest, ApplicationGroup};
 use super::dependency_references::{DependencyReferences, Referrer, SuppliedDependencies};
@@ -516,20 +515,23 @@ impl StructuralTypes {
     }
 }
 
-/// IEEE cross-width conversions take their result from the type-argument
-/// member. The member's family comes from the catalogued constraint, not from
-/// an operation name or an independently maintained result table.
-fn check_ieee_member_result(
+/// Check the catalogued type-argument member result after operand admission.
+/// A partially changed entry still reaches the shape guard, so a catalogue
+/// change cannot silently remove this result check.
+fn check_type_argument_member_result(
     application: Application<'_>,
     operation: &OperationWire,
     entry: &OperationCatalogEntry,
     graph: &Graph<'_>,
     catalog: &OperationCatalog,
 ) -> Option<ValidationFailure> {
-    if !matches!(
-        entry.identity.as_ref(),
-        "quire.op.ieee.to_float32" | "quire.op.ieee.to_float64"
-    ) {
+    let has_member_family = entry
+        .constraints
+        .iter()
+        .any(|constraint| constraint.kind == OperationConstraintKind::MemberFamily);
+    if entry.member != Some(OperationMemberKind::TypeArgument)
+        && !(entry.result.as_ref() == "member" && has_member_family)
+    {
         return None;
     }
     let refuse = || {
@@ -539,8 +541,8 @@ fn check_ieee_member_result(
             CheckedPackageRefusalCause::OperatorIneligible,
         )
     };
-    // The identity fixes the conversion contract. If its catalogued result
-    // shape drifts, refuse the typed package instead of silently skipping it.
+    // The entry fixes the result contract. Retain the refusal when one part
+    // of its shape changes, including a missing family constraint.
     if entry.result.as_ref() != "member" || entry.member != Some(OperationMemberKind::TypeArgument)
     {
         return Some(refuse());
@@ -564,13 +566,25 @@ fn check_ieee_member_result(
     let Some(result) = result else {
         return Some(refuse());
     };
-    let family = resolve_family(&member, graph.nodes, graph.kinds, graph.index);
-    if result == member && family.is_some_and(|family| catalog.family_fits(family, expected_family))
-    {
-        None
-    } else {
-        Some(refuse())
+    if result != member {
+        return Some(refuse());
     }
+    let unresolved = graph
+        .index
+        .get(&member)
+        .and_then(|position| graph.nodes.get(*position))
+        .is_some_and(|node| {
+            node.semantic_form.as_ref() == "model_population"
+                || node.semantic_form.as_ref() == "compound_unit"
+                || node.semantic_form.as_ref() == "alias"
+        });
+    if !unresolved
+        && resolve_family(&member, graph.nodes, graph.kinds, graph.index)
+            .is_some_and(|family| !catalog.family_fits(family, expected_family))
+    {
+        return Some(refuse());
+    }
+    None
 }
 
 fn operation_defect(
@@ -742,7 +756,13 @@ fn operation_defect(
             let shaped = operation
                 .member
                 .as_ref()
-                .is_some_and(|member| member_is_well_formed(wire_kind, member));
+                .is_some_and(|member| match wire_kind {
+                    OperationMemberKind::TypeArgument => {
+                        member.as_object().is_some_and(|fields| fields.len() == 2)
+                            && member_declaration(&operation).is_some()
+                    }
+                    _ => member_is_well_formed(wire_kind, member),
+                });
             if kind != wire_kind || !shaped {
                 return member_mismatch();
             }
@@ -792,7 +812,8 @@ fn operation_defect(
     )? {
         return Ok(Some(failure));
     }
-    if let Some(failure) = check_ieee_member_result(application, &operation, entry, graph, catalog)
+    if let Some(failure) =
+        check_type_argument_member_result(application, &operation, entry, graph, catalog)
     {
         return Ok(Some(failure));
     }
@@ -3805,11 +3826,12 @@ mod tests {
     use super::super::encode::GroupPlace;
     use super::super::CheckedSelectionRole;
     use super::{
-        is_type_shaped, operand_family, operation_catalog, operation_defect,
-        validate_application_keys, Application, ApplicationOperator, CheckedNodeId,
-        CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedPackageRefusalCause,
-        CheckedPackageRefusalCode, CheckedSemanticNodeV2, DependencyReferences, ExpressionForm,
-        Graph, LawRole, ModelOwners, StructuralTypes, SuppliedDependencies, TemporalForm,
+        check_type_argument_member_result, is_type_shaped, operand_family, operation_catalog,
+        operation_defect, validate_application_keys, Application, ApplicationOperator,
+        CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2,
+        CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticNodeV2,
+        DependencyReferences, ExpressionForm, Graph, LawRole, ModelOwners, OperationConstraintKind,
+        OperationMemberKind, OperationWire, StructuralTypes, SuppliedDependencies, TemporalForm,
         ValidationFailure, WorkMeter,
     };
     use crate::checked_package::common::NODE_DOMAIN;
@@ -8891,6 +8913,110 @@ mod tests {
                 "/semantic_graph/nodes/0/body/operation/member",
                 Some(CheckedPackageRefusalCause::OperationMemberMismatch),
                 node.node_id.clone(),
+            )))
+        );
+    }
+
+    /// Trace: TC-048, FR-038-AC-251. The public reader cannot replace one
+    /// embedded catalogue entry, so exercise the private guard at that seam.
+    #[trace("TC-048", "FR-038-AC-251")]
+    #[test]
+    fn tc_048_changed_type_argument_result_catalogue_shape_refuses() {
+        let catalog = operation_catalog();
+        let original = catalog
+            .entry("quire.op.ieee.to_rational")
+            .expect("entry")
+            .clone();
+        let declaration = node_id('a');
+        let operation_value = json!({
+            "identity":"quire.op.ieee.to_rational", "laws":[], "mode":null,
+            "member":{"kind":"type_argument","declaration":declaration}, "leaves":[]
+        });
+        let operation: OperationWire =
+            serde_json::from_value(operation_value.clone()).expect("operation");
+        let mut application_node = custom_application_node("convert", operation_value, vec![]);
+        application_node.body["result_type"] = serde_json::to_value(&declaration).expect("id");
+        let type_node = graph_node(
+            'a',
+            "scalar_type",
+            "rational",
+            &declaration,
+            json!({"term":"aggregate","members":[]}),
+        );
+        let nodes = [application_node, type_node];
+        let kinds = kinds_of(&nodes);
+        let index = BTreeMap::from([(&nodes[0].node_id, 0), (&nodes[1].node_id, 1)]);
+        let graph = Graph {
+            nodes: &nodes,
+            kinds: &kinds,
+            index: &index,
+        };
+        let application = Application {
+            node: &nodes[0],
+            position: 0,
+        };
+        assert_eq!(
+            check_type_argument_member_result(application, &operation, &original, &graph, catalog),
+            None
+        );
+        let expected = Some(application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            application.body(&["result_type"]),
+            CheckedPackageRefusalCause::OperatorIneligible,
+        ));
+        let mut changed_result = original.clone();
+        changed_result.result = "rational".into();
+        assert_eq!(
+            check_type_argument_member_result(
+                application,
+                &operation,
+                &changed_result,
+                &graph,
+                catalog
+            ),
+            expected
+        );
+        let mut changed_member = original.clone();
+        changed_member.member = Some(OperationMemberKind::Position);
+        assert_eq!(
+            check_type_argument_member_result(
+                application,
+                &operation,
+                &changed_member,
+                &graph,
+                catalog
+            ),
+            expected
+        );
+        let mut missing_family = original;
+        missing_family
+            .constraints
+            .retain(|constraint| constraint.kind != OperationConstraintKind::MemberFamily);
+        assert_eq!(
+            check_type_argument_member_result(
+                application,
+                &operation,
+                &missing_family,
+                &graph,
+                catalog
+            ),
+            expected
+        );
+
+        let mut mismatched_wire = plain_operation("quire.op.numeric.narrow");
+        mismatched_wire["member"] = json!({"kind":"position"});
+        let mismatch_node = custom_application_node(
+            "convert",
+            mismatched_wire,
+            vec![json!({"term":"literal","value":1})],
+        );
+        assert_eq!(
+            defect_for(&mismatch_node),
+            Ok(Some(refused_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                "/semantic_graph/nodes/0/body/operation/member",
+                Some(CheckedPackageRefusalCause::OperationMemberMismatch),
+                mismatch_node.node_id.clone(),
             )))
         );
     }
