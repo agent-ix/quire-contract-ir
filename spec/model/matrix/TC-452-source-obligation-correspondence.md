@@ -14,7 +14,8 @@ Planned/UNRUN. The provisional input port retains typed rows and stop causes,
 but exposes no complete census. No owner adapter yet compares a declared
 complete inventory with the full selected Quire, IR V2, QSL, or `quire-code-rs`
 output. FR-052-AC-8 tests cover only that provisional port; they do not run
-this full-owner procedure. The narrower IR-794 owner-issued completion boundary
+this full-owner procedure. FR-052-AC-17 supersedes AC-8 when the census
+builder lands, and the envelope port and its AC-8 tests are then removed. The narrower IR-794 owner-issued completion boundary
 and its owner-output comparison (FR-052-AC-9 through AC-11) are also UNRUN;
 they do not by themselves complete this four-owner census case.
 The separate synthetic neutral-boundary checks for FR-052-AC-12 and AC-13
