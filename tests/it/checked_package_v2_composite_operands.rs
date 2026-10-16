@@ -12,8 +12,8 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedAuthoredCompositeDomain as Domain, CheckedCollectionKind, CheckedCompositeDomainKey,
     CheckedCompositeOperandDomain as OperandDomain, CheckedCompositeOperandError as Error,
-    CheckedCompositeOperands, CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole,
-    CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedCompositeOperands, CheckedCompositeOperator, CheckedNodeId, CheckedOccurrence,
+    CheckedOccurrenceRole, CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
     CheckedScalarOperandChild,
 };
 use serde_json::{json, Value};
@@ -287,9 +287,15 @@ fn inspect_public_fields(result: &CheckedCompositeOperands) {
     let CheckedCompositeOperands {
         application,
         occurrence,
+        operator,
         operands,
         consumed_work,
     } = result;
+    // An external exhaustive match fails to compile if this public enum is non-exhaustive.
+    match operator {
+        CheckedCompositeOperator::Eq => {}
+        CheckedCompositeOperator::Ne => {}
+    }
     assert_eq!(
         application.domain.as_ref(),
         "quire.checked-semantic-node/v1"
@@ -390,6 +396,57 @@ fn parameter_domain(
     match &result.operands[operand].domain {
         OperandDomain::Parameter { shape, positions } => (shape, positions),
         OperandDomain::Literal => panic!("expected parameter"),
+    }
+}
+
+#[trace("FR-038-AC-246")]
+#[test]
+fn tc_048_structural_operator_is_typed_across_operand_shapes() {
+    let mut fixture = Fixture::new();
+    let boolean = fixture.boolean.clone();
+    let record = fixture.record(&[("ready", &boolean)]);
+    let left = fixture.parameter("left", &record);
+    let right = fixture.parameter("right", &record);
+    let closed = fixture.graph_value(
+        "record_value",
+        &record,
+        aggregate(vec![binding(
+            "ready",
+            json!({"term":"literal","type":node_id(&boolean),"value_kind":"boolean","value":true}),
+        )]),
+    );
+    let shapes = [
+        (reference(&left), reference(&right)),
+        (reference(&left), reference(&closed)),
+        (reference(&closed), reference(&closed)),
+    ];
+    let applications = shapes.map(|(left, right)| {
+        let arguments = vec![left, right];
+        (
+            fixture.application(arguments.clone(), "quire.op.structural.eq"),
+            fixture.application(arguments, "quire.op.structural.ne"),
+        )
+    });
+    let package = fixture.read();
+    for (eq_id, ne_id) in applications {
+        let eq = project(&package, &eq_id);
+        let ne = project(&package, &ne_id);
+        assert_eq!(eq.operator, CheckedCompositeOperator::Eq);
+        assert_eq!(ne.operator, CheckedCompositeOperator::Ne);
+        assert_ne!(eq.application, ne.application);
+        assert_eq!(eq.application, typed_node_id(&eq_id));
+        assert_eq!(ne.application, typed_node_id(&ne_id));
+        assert_eq!(eq.occurrence, occurrence(0));
+        assert_eq!(ne.occurrence, occurrence(0));
+        assert_eq!(eq.operands, ne.operands);
+        assert_eq!(
+            eq.operands
+                .iter()
+                .map(|operand| operand.ordinal)
+                .collect::<Vec<_>>(),
+            vec![0, 1]
+        );
+        assert_eq!(eq.consumed_work, ne.consumed_work);
     }
 }
 

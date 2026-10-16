@@ -49,7 +49,7 @@ pub use composite_operands::{
     CheckedAuthoredCompositeDomain, CheckedCanonicalIntegerBound, CheckedCompositeChildEdge,
     CheckedCompositeDomainKey, CheckedCompositeDomainPosition, CheckedCompositeOperand,
     CheckedCompositeOperandDomain, CheckedCompositeOperandError, CheckedCompositeOperands,
-    CheckedCompositeShapeEntry, CheckedUnsupportedCompositeOperand,
+    CheckedCompositeOperator, CheckedCompositeShapeEntry, CheckedUnsupportedCompositeOperand,
 };
 pub use contract_package::{
     ContractBodyIncompleteV1, ContractBodyRefusalV1, ContractDependencies, ContractDependencyInput,
