@@ -2223,6 +2223,22 @@ fn check_relationship_member(
     {
         return ineligible(argument_at(0));
     }
+    let reaches = operation.identity.as_ref() == "quire.op.model.reaches";
+    if reaches {
+        let actual_target = match operand_owner(1) {
+            Ok(Some(owner)) => owner,
+            Ok(None) => return ineligible(argument_at(1)),
+            Err(refusal) => return refuse(argument_at(1), refusal),
+        };
+        if !std::ptr::eq(actual_target.package, owner.package)
+            || actual_target.object_type().is_none()
+            || !owner
+                .package
+                .conforms_to(actual_target.node, &receiver.type_ref, &mut budget)?
+        {
+            return ineligible(argument_at(1));
+        }
+    }
     if !relationship.direction.admits(forward) {
         return ineligible(member_at("name"));
     }
@@ -2246,30 +2262,10 @@ fn check_relationship_member(
         Ok(member_type) => member_type,
         Err(refusal) => return refuse(member_at("name"), refusal),
     };
-    if operation.identity.as_ref() == "quire.op.model.reaches" {
-        if relationship.source.type_ref != relationship.target.type_ref
-            || !matches!(
-                member_type,
-                MemberType::Reference(_) | MemberType::Option(_)
-            )
-        {
-            return ineligible(member_at("name"));
-        }
-        let actual_target = match operand_owner(1) {
-            Ok(Some(owner)) => owner,
-            Ok(None) => return ineligible(argument_at(1)),
-            Err(refusal) => return refuse(argument_at(1), refusal),
-        };
-        if !std::ptr::eq(actual_target.package, owner.package)
-            || actual_target.object_type().is_none()
-            || !owner
-                .package
-                .conforms_to(actual_target.node, &destination.type_ref, &mut budget)?
-        {
-            return ineligible(argument_at(1));
-        }
+    if reaches && relationship.source.type_ref != relationship.target.type_ref {
+        return ineligible(member_at("name"));
     }
-    let expected = if operation.identity.as_ref() == "quire.op.model.reaches" {
+    let expected = if reaches {
         MemberType::Boolean
     } else {
         member_type
