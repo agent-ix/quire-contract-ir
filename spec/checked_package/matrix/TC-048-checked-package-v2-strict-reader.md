@@ -67,9 +67,9 @@ over admitted application nodes and explicit post-admission mutation rows.
 FR-038-AC-210 through FR-038-AC-213 have tagged public-reader admission
 and adverse controls for the published operation catalog's declared-unit
 quantity, aggregate, same-family, literal-kind and rounding-mode rules.
-FR-038-AC-222 and FR-038-AC-223 are planned public-reader controls for the
-IEEE literal-family and catalog-result rules of QSpec FR-322-AC-23; no tagged
-test or admission correction is claimed yet.
+FR-038-AC-222 and FR-038-AC-223 have tagged public-reader controls for the
+IEEE literal-family and catalog-result rules of QSpec FR-322-AC-23; IR-742's
+tagged reader tests passed.
 FR-038-AC-242 through FR-038-AC-245 have tagged public-reader controls for
 QSpec FR-322-AC-31/67's distinct native String, UUID and Timestamp types,
 six comparisons, canonical literal payloads and typed refusals; IR-800's
@@ -313,8 +313,9 @@ retains the reader's existing incomplete-before-later-defect precedence.
 
 ## IEEE literal and catalog result admission (FR-038-AC-222 and FR-038-AC-223)
 
-PLANNED/UNRUN (IR-742). Build otherwise valid V2 packages using the published
-`quire.op.ieee.to_float32` and `quire.op.ieee.to_float64` entries, their selected
+Implemented (IR-742). Build otherwise valid V2
+packages using the published `quire.op.ieee.to_float32` and
+`quire.op.ieee.to_float64` entries, their selected
 IEEE law, correctly typed `type_argument`, and genuine Float32 and Float64
 type nodes. The Float64→Float32 package with a `float64_bits` source literal
 and Float32→Float64 package with a `float32_bits` source literal must each

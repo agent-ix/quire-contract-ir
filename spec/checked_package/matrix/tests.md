@@ -57,11 +57,11 @@ type: TestMatrix
 | TC-056 cases | Coverage, boundary, error, precedence | Existing AC-1 through AC-13 controls; selected record owner with own and inherited effective fields, nested, optional, bounded-sequence and finite-recursive record types; unknown and ambiguous record field names; unselected or wrong-kind owner; separate frame-entry and expression-projection refusal codes; exact/one-less work, stage and frame-order precedence; source-declared object, relationship, anchor and clause controls. |
 | TC-445 cases | Coverage, boundary, error, context | fresh authoritative QSL ConfigVersion output admitted by IR; separately labeled synthetic packages for six comparisons, three clause kinds, Current/Post/Pre, direct state fields and operation inputs, graph/inline integer literals, authored order, exact i128 bounds, typed refusal and locus, claim-versus-child occurrence distinction, external typed API and clone equality |
 
-## Pending IEEE admission coverage (IR-742)
+## IEEE admission coverage (IR-742)
 
 | Functional Req | Acceptance Criteria | Test Case | Status | Required cases |
 |---|---|---|---|---|
-| FR-038 | FR-038-AC-222, FR-038-AC-223 | TC-048 | 🚧 PLANNED/UNRUN; no tagged implementation test yet | Public-reader Float64→Float32 and Float32→Float64 admission with genuine recomputed identities; both opposite-width literal kind/type mismatches at the literal `type`; for each conversion, wrong `result_type` with valid `type_argument` and wrong `type_argument` with matching wrong `result_type`, each with enclosing root `semantic_type` matched to `result_type` and refusal at application `result_type`; exact typed code, cause, pointer and locus; no stale-identity substitute. |
+| FR-038 | FR-038-AC-222, FR-038-AC-223 | TC-048 | ✅ Implemented (IR-742) | Public-reader Float64→Float32 and Float32→Float64 admission with genuine recomputed identities; both opposite-width literal kind/type mismatches at the literal `type`; for each conversion, wrong `result_type` with valid `type_argument` and wrong `type_argument` with matching wrong `result_type`, each with enclosing root `semantic_type` matched to `result_type` and refusal at application `result_type`; exact typed code, cause, pointer and locus; no stale-identity substitute. |
 
 ## Pending structural type work coverage (IR-490)
 
