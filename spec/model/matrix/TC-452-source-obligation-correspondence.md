@@ -13,10 +13,14 @@ relationships:
 Mixed. The neutral outcome and synthetic census checks for FR-052-AC-4,
 AC-12 through AC-15, and AC-17 through AC-23 are Implemented and traced in
 `tests/it/source_obligation.rs`. FR-052-AC-8 is retired (ADR-0056).
-Owner-native completion, full-output comparison, and the full matched-source
-census remain Planned/UNRUN under AC-1 through AC-3, AC-5 through AC-7,
-AC-9 through AC-11, and AC-16. Quire's selected-scope producer awaits
-PLAT-1165. Synthetic outcomes do not establish owner-native exhaustion.
+FR-052-AC-1, AC-2, AC-3, AC-5 and AC-6 are Planned, to be backed by the
+synthetic tests listed under "Synthetic backing for FR-052-AC-1, AC-2, AC-3,
+AC-5 and AC-6"; owner-native evidence is still required where a criterion says
+so. FR-052-AC-24, split from AC-3, is Planned until Linear IR-820 settles the
+`SemanticNode` fact. Owner-native completion, full-output comparison, and the
+full matched-source census remain Planned/UNRUN under AC-7, AC-9 through
+AC-11, and AC-16. Quire's selected-scope producer awaits PLAT-1165. Synthetic
+outcomes do not establish owner-native exhaustion.
 
 ## Description
 
@@ -29,11 +33,14 @@ complete-looking census when any owner input is absent or incomplete.
 Compile an external default-feature consumer that constructs
 `SourceObligationInput`, calls `build_source_obligation_census`, and borrows
 the resulting `SourceObligationCensus` and rows through
-`quire_contract_model::source_obligation`. Inspect the public constructor
+`quire_contract_model::source_obligation`. The test that does this is
+specified under "Synthetic backing for FR-052-AC-1, AC-2, AC-3, AC-5 and
+AC-6". Inspect the public constructor
 signature and public-item inventory for the absence of result, method, profile,
 artifact, attempt, and run inputs.
 
-Build four owner inputs with their native APIs or typed adapters. For Quire,
+For the owner-native criteria (FR-052-AC-7, AC-9 through AC-11, and AC-16),
+build four owner inputs with their native APIs or typed adapters. For Quire,
 select a validated spec corpus and its declared obligation sources. Enumerate
 every authored acceptance criterion as the tuple of obligation declaration,
 scope-relative document and authored criterion ID, including a criterion with
@@ -120,23 +127,19 @@ private, not because of an unrelated import, type or syntax error. A change
 that makes either field public or permits literal construction must turn its
 corresponding negative fixture into an unexpected compile success.
 
-Using a valid selection, omit the Quire, IR V2, QSL, and `quire-code-rs` outcomes one
-at a time. For each owner, also supply an outcome from an
-enumerator whose terminal event is `Err(owner-typed cause)`, issued `Incomplete`; exercise early termination for IR V2,
-QSL type-work exhaustion and unfinished typing, and a selected module parse failure
-for `quire-code-rs`. Compare each with an outcome issued `Complete` after the enumerator's `Ok(None)`
-whose valid scope contains an empty subinventory, such as the function facts
-for a fully parsed module with no functions. Supply to the census an outcome whose source differs from the selected
+The census checks below use synthetic outcomes. The FR-052-AC-6 exercise
+(each owner outcome omitted in turn, a typed `Err` stop in each position, and
+the complete empty module) is specified under "Synthetic backing for
+FR-052-AC-1, AC-2, AC-3, AC-5 and AC-6". Its `quire-code-rs` stop is
+`ModuleUnavailable`. Supply to the census an outcome whose source differs from the selected
 source, and a well-formed outcome in the wrong owner position. Separately
 supply an owner/scope pair mismatch to the outcome boundary. Separately supply an observed count that
 differs from the retained rows, and a foreign-source row, to the outcome
 boundary.
-Then build the full two-authored-criterion, three-occurrence, one-empty-module,
-two-function fixture with explicit many-to-many assertions, and exercise
-unmapped entities, foreign-source and dangling assertion endpoints, exact duplicate inputs,
-conflicting inventory facts (a `SemanticNode` repeated with one `CheckedNodeId` and differing `CheckedSemanticId`), conflicting assertion relation facts, and
-conflicting assertion provenance. Permute equivalent inputs and remove one
-occurrence from a complete IR V2 inventory.
+The FR-052-AC-2 fixture and the FR-052-AC-3 dispositions are specified in
+that same section. Conflicting inventory facts (a `SemanticNode` repeated
+with one `CheckedNodeId` and differing `CheckedSemanticId`) belong to
+FR-052-AC-24, which waits on Linear IR-820.
 
 Separately, build the same fixture from four synthetic `Complete` outcomes
 and a valid binding. Its QSL outcome holds at least one `RequirementRecord` row
@@ -169,6 +172,107 @@ lies under a conflicting `SemanticNode`, one whose occurrence has no
 `SemanticNode` row, and one whose production function has no
 `ProductionModule` row. These checks use synthetic outcomes only.
 
+### Synthetic backing for FR-052-AC-1, AC-2, AC-3, AC-5 and AC-6
+
+These tests use synthetic outcomes. Each criterion stays Planned until its
+tests below are written and traced; none of them grants owner-issued
+completeness, owner full-output comparison, or a complete four-owner census.
+
+- FR-052-AC-1 and AC-5: add a `#[test]` external consumer in a new
+  model-crate integration target,
+  `crates/quire-contract-model/tests/source_obligation_public.rs`, traced with
+  `#[trace("TC-452", "FR-052-AC-1", "FR-052-AC-5")]`. This follows the
+  FR-053-AC-1 precedent in `tests/selected_population_public.rs`; `quire
+  matrix` binds a trace only to a `#[test]` function, not to a doctest. A
+  `tests/it` test does not satisfy "default-feature": the root package's
+  dev-dependency enables `fault-injection`, and a `--workspace` build unifies
+  that feature into the model crate. So add a `make test` line that runs
+  `cargo test -p quire-contract-model --test source_obligation_public` on its
+  own, which builds the model crate with only its default features, next to
+  the existing `-p quire-contract-model --doc` line. The test imports the
+  input, constructor, census and row types from
+  `quire_contract_model::source_obligation`. It builds four synthetic
+  `Complete` outcomes through a `SourceInventoryEnumerator` and a valid
+  binding, then calls `SourceObligationInput::new` and
+  `build_source_obligation_census`. It borrows the `SourceObligationCensus`
+  and, through `inventory_rows()`, `correspondence_rows()` and
+  `rejected_assertions()`, a `SourceCensusInventoryRow`, a
+  `SourceObligationRow` and a `SourceCorrespondenceRejection`, each bound to an
+  explicitly typed reference. A doctest on `build_source_obligation_census`
+  may repeat this as extra evidence, but it is not the traced test. For the
+  inventory half of AC-1, also trace
+  `tc_058_model_root_exports_exactly_the_documented_public_items` to
+  FR-052-AC-1: it compares the `source_obligation` module's top-level public
+  items with FR-019's table in both directions. When AC-1 and AC-5 are
+  backed, add them to the FR-052 list in FR-019's `source_obligation`
+  public-items row; that list must not name them before then.
+- FR-052-AC-6: add one test in `tests/it/source_obligation.rs` that keeps the
+  other three positions complete and, for each of the Quire, IR V2, QSL and
+  `quire-code-rs` positions in turn:
+  - omits that outcome and observes `MissingOwnerInventory` naming the owner
+    and no census;
+  - supplies an outcome whose enumerator ended with `Err(cause)` and observes
+    `IncompleteOwnerInventory` for that owner, with a cause equal to the
+    supplied one, and no census. The causes are `EarlyStop` for Quire; both
+    `EarlyStop` and `IrV2ReadLimit` with its `CheckedPackageIncomplete` fields
+    for IR V2; both `TypeWorkExhausted` and `TypeAdmissionUnfinished` for QSL;
+    and `ModuleUnavailable` for `quire-code-rs`.
+
+  The same test builds the census with a `Complete` `quire-code-rs` outcome
+  holding a module row with no function facts. It observes a census, that the
+  module row stays with `ZeroMappings(NoAuthoredMapping)`, and that this
+  result differs from both the missing and the incomplete results. The
+  synthetic Quire `Complete` outcome is not owner evidence.
+- FR-052-AC-2: add one test that builds the AC-2 fixture: two criteria, one of
+  them unmapped; three occurrences; one empty module; two production
+  functions. A two-function fixture cannot both map every function
+  many-to-many and leave one function unmapped, so the test builds the same
+  inventory with two assertion sets:
+  - The first set is many-to-many: one occurrence maps to both functions, and
+    one function maps from two occurrences. Assert the exact accepted rows with
+    their selected-source provenance and every inventory row.
+  - The second set leaves one function, one occurrence and the second criterion
+    with no accepted mapping. Assert each is visible with
+    `ZeroMappings(NoAuthoredMapping)`, and the empty module likewise.
+
+  For the first set, permute the assertion order and each outcome's row order
+  and assert an equal census. Then rebuild it with one occurrence row removed
+  from the `Complete` IR V2 outcome. Assert that the census differs and lacks
+  that occurrence row.
+- FR-052-AC-3: trace a test to AC-3 only where it asserts the clause:
+  - foreign source and the dangling criterion and production symbol:
+    `foreign_and_dangling_assertions_remain_separate_from_unmapped_inventory`;
+  - an occurrence that does not resolve, and a function whose module row is
+    absent: `orphan_or_conflicting_endpoints_do_not_resolve`;
+  - exact duplicate assertions:
+    `rejected_assertions_collapse_duplicates_and_sort_with_reason_precedence`,
+    which observes one rejection for a repeated assertion. Do not use
+    `assertion_conflicts_and_relation_dedup_are_deterministic` for this clause:
+    its repeated assertion states the same relation and provenance as another
+    ID, so relation deduplication (step 4) yields one row even without the
+    exact-duplicate collapse (step 1);
+  - exact duplicate inventory rows:
+    `synthetic_census_has_hand_written_rows_and_dispositions`;
+  - the foreign-source inventory row refused at the outcome boundary:
+    `terminal_boundary_preserves_typed_stops_and_rejects_mismatched_rows`.
+
+  Three clauses need new assertions before AC-3 is traced:
+  - `assertion_reason_precedence_rejects_foreign_before_dangling_and_relation_before_provenance`
+    observes `ConflictingRelation` but does not assert that no accepted row
+    holds the conflicting relation; add that assertion.
+  - No test asserts `DanglingOccurrence` for an assertion with a valid
+    criterion whose occurrence is absent from the IR V2 inventory; add that
+    case.
+  - Conflicting assertion provenance means one `SourceAssertionId` whose
+    members state one relation with differing provenance (step 2). The
+    existing provenance cases use two assertion IDs, which is FR-052-AC-22's
+    case (step 4). Add a case with one assertion ID, one relation and only
+    the provenance differing; observe that every member is rejected with
+    `ConflictingProvenance` and that no accepted row holds the relation.
+
+  Do not trace `orphan_or_conflicting_endpoints_do_not_resolve` to
+  FR-052-AC-24 before IR-820 is decided.
+
 ## Expected Results
 
 The external consumer compiles and can borrow the census; the constructor has
@@ -192,7 +296,8 @@ refused by `SourceInventoryOutcomeError::ObservedCountMismatch` and a foreign
 row by `RowSourceMismatch`, each with no outcome. Rejected assertions retain their distinct typed
 reasons; `ConflictingRelation` and `ConflictingProvenance` are each directly
 observed and neither conflicting relation is accepted. Exact duplicates
-collapse, conflicting inventory entries remain inspectable, equivalent input
+collapse, conflicting inventory entries remain inspectable (FR-052-AC-24,
+pending IR-820), equivalent input
 permutations produce equal ordered censuses, and removing one authoritative
 occurrence changes the census.
 
@@ -234,5 +339,19 @@ accepted row, and with differing provenance both assertions are rejected with
 conflicting node or has no node row is rejected with `DanglingOccurrence`. The
 assertion whose function has no module row is rejected with
 `DanglingProductionSymbol`. The orphan and conflicting rows stay in the census.
-None of these observations grants full-owner AC-1 through AC-3, AC-5 through
-AC-7, or AC-9 through AC-11 credit.
+None of these observations grants AC-7 or AC-9 through AC-11 credit.
+
+For the synthetic backing of FR-052-AC-1, AC-2, AC-3, AC-5 and AC-6, the
+`source_obligation_public` test, run with the model crate's default features
+only, compiles and borrows the census and its rows, and tc_058 finds FR-019's table equal to the exported items. Each omitted owner
+outcome returns `MissingOwnerInventory` for that owner, and each `Err` stop
+returns `IncompleteOwnerInventory` with the supplied cause; no census is
+returned in either case. The complete empty module yields a census that keeps
+its module row. The AC-2 fixture keeps every inventory row and exactly the
+asserted relations, and its unmapped criterion, occurrence, function and
+module are visible with `ZeroMappings(NoAuthoredMapping)`. Its permuted
+census is equal, and the census without one IR V2 occurrence differs. Each
+AC-3 clause receives its named disposition, including `ConflictingProvenance`
+for every member of one assertion ID that differs only in provenance, and no
+rejected assertion is an accepted row. These observations grant no owner-issued completeness, Quire
+owner evidence, or four-owner census credit.
