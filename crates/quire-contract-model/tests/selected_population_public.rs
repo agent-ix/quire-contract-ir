@@ -168,7 +168,14 @@ fn assert_no_extent(outcome: Outcome, expected: impl FnOnce(&Outcome) -> bool) {
     );
 }
 
-#[trace("FR-053-AC-3", "FR-053-AC-4", "FR-053-AC-5", "TC-453")]
+#[trace(
+    "FR-053-AC-1",
+    "FR-053-AC-2",
+    "FR-053-AC-3",
+    "FR-053-AC-4",
+    "FR-053-AC-5",
+    "TC-453"
+)]
 #[test]
 fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
     let scratch = run_producer();
@@ -411,7 +418,14 @@ fn selected_population_is_bound_to_the_emitted_node_and_source_occurrence() {
     );
 }
 
-#[trace("FR-053-AC-3", "FR-053-AC-4", "FR-053-AC-5", "TC-453")]
+#[trace(
+    "FR-053-AC-1",
+    "FR-053-AC-2",
+    "FR-053-AC-3",
+    "FR-053-AC-4",
+    "FR-053-AC-5",
+    "TC-453"
+)]
 #[test]
 fn selected_population_tracks_authoritative_variants_and_retargeted_package() {
     let scratch = run_producer();
