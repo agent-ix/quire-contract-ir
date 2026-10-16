@@ -74,6 +74,7 @@ test:
 	# The model's own doctests with its test-only fault-injection feature off:
 	# they prove a default build does not export that surface (FR-019-AC-4).
 	$(CARGO) test $(LOCKED) -p quire-contract-model --doc
+	$(CARGO) test $(LOCKED) -p quire-contract-model --test source_obligation_public
 	# The root crate's doctests, which `--all-targets` leaves out: the
 	# `compile_fail` probes of the non-success constructor (FR-030-AC-6).
 	$(CARGO) test $(LOCKED) -p quire-contract-ir --doc
