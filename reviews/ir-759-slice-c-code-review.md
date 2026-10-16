@@ -63,3 +63,17 @@ scope:
 - {id: FR-052-AC-2, role: context_only, path: spec/model/functional/FR-052-source-obligation-correspondence.md, excerpt: "A typed fixture containing two Quire-authored acceptance criteria, including one with no mapping, three semantic occurrences, one empty module, two production functions and explicit many-to-many assertions"}
 - {id: FR-019, role: examined, path: spec/model/functional/FR-019-rust-library-interface.md, excerpt: "`source_obligation` public-items row (line 191)"}
 ```
+
+## Dispositions
+
+Round 1, checked against fix commit aa0daad on top of 32fd1e8. All 25 mutants were re-run in a throwaway worktree, which has since been removed: 24 killed and 1 equivalent (`accepted.sort()`). The six round-0 survivors (M1, M4b, M8b, M11, M12, M14) are now killed. fmt, both clippy runs (-D warnings), the 20 source_obligation and public_interface tests and the 10 doctests pass. The census builder split into `checked_census_positions`, `order_inventory_rows`, `census_endpoints`, `process_census_assertions`, `order_census_results` and `census_dispositions` moves code without changing behaviour: the bodies are textually the same apart from `input.source` becoming the threaded `source`. No new findings.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The AC-17 fixture adds `mk("d", 0, Some(second))`, so occurrence 0 maps to both functions and `verify` is reached from two occurrences. The hand-written census gains the row (AC-1, occ0, verify). The M11 mutant is killed. |
+| FND-002 | fixed | A new test, `rejected_assertions_collapse_duplicates_and_sort_with_reason_precedence`, repeats a dangling assertion "a" twice and expects one rejection. M4b is killed. |
+| FND-003 | fixed | The same test has assertion "z" with a matching source and a foreign provenance source, and expects `ForeignSource`. M12 is killed. |
+| FND-004 | fixed | The same test has "b", which dangles in both criterion and occurrence, and expects `DanglingCriterion`. Step-4 `ConflictingProvenance` rejections ("c" and "d") arrive after the step-3 rejection "z", and the test expects sorted order. M14 and M8b are killed. |
+| FND-005 | fixed | `owner_scope_and_source_errors_precede_incompleteness` now asserts `InventoryScopeMismatch` with the exact `expected` scope for the IR V2, QSL and `quire-code-rs` positions. M1 is killed. |
+| FND-006 | fixed | `assertion_conflicts_and_relation_dedup_are_deterministic` is now tagged TC-452 and FR-052-AC-22 only. |
+| FND-007 | fixed | The unused `base` parameter is removed, `let mut input` is replaced by `let base`, the test is renamed `census_input_has_no_result_or_completeness_fields`, and the builder is split into six named stages without any behaviour change. |

@@ -58,3 +58,13 @@ scope:
 - {id: FR-052-AC-23, role: examined, path: spec/model/functional/FR-052-source-obligation-correspondence.md, excerpt: "each orphan or conflicting row stays in the census."}
 - {id: TC-452, role: examined, path: spec/model/matrix/TC-452-source-obligation-correspondence.md, excerpt: "Mixed. The neutral outcome and synthetic census checks for FR-052-AC-4, AC-12 through AC-15, and AC-17 through AC-23 are Implemented and traced"}
 ```
+
+## Dispositions
+
+Round 1, checked against fix commit aa0daad. `quire coverage --scope . --strict` at aa0daad still reports 47 unbacked rows and 0 contradicted. `quire validate` is clean over `spec/**` and `reviews/**`. No new findings.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The AC-17 fixture now holds the many-to-many shape: occurrence 0 maps to two functions, and `verify` is reached from occurrences 0 and 1. The hand-written census is extended to match, and the relation-key mutant is killed. |
+| FND-002 | fixed | Both options were taken. A new tagged test covers step-1 duplicate collapse, provenance-only `ForeignSource`, the dangling precedence and the rejection ordering, and kills all four mutants. The FR-052 status now names that evidence and says AC-3 stays Planned/UNRUN. |
+| FND-003 | fixed | FR-019:191 is alphabetical again. The FR-052 status has a blank line before `## Dependencies` and restores the guard that the synthetic AC-17 through AC-23 checks do not change the status of AC-1 through AC-3, AC-5 through AC-7 or AC-9 through AC-11. |
