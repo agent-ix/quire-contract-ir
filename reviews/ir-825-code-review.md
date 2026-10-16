@@ -82,3 +82,18 @@ The rest is sound:
   repeats the AC-1 row; the dedup mutant confirmed this.
 - No `#[allow]`, `unsafe`, lint weakening or CI-lane change. The Makefile
   change only adds a lane.
+
+## Dispositions
+
+Round 1. Checked against fix commit 9b67792179fb9f697cb821dfe466cc0c73d9b653
+with `git diff 5e0eb9b..9b67792`, and with the mutant re-run on a throwaway
+worktree at that commit. Checks run there:
+
+- fmt passed.
+- `clippy --workspace --all-targets -D warnings` passed.
+- All 19 `source_obligation` tests and `source_obligation_public` pass.
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | `absent_occurrence_and_same_id_provenance_conflict_never_enter_accepted_rows` now adds the same-ID "mixed" case. One member has `source()` provenance and the other a foreign provenance source. The test asserts two `ConflictingProvenance` rejections and no accepted rows. With source_obligation.rs:1314-1315 disabled again, that test now fails (18 passed, 1 failed), so the mutant is killed. |
+| FND-002 | fixed | Every `/// Trace:` doc line on the retagged tests now lists the same ids as its `#[trace]` attribute, checked by a script over both files. Examples are `/// Trace: FR-052-AC-12, FR-052-AC-13, FR-052-AC-3` and `/// Trace: TC-058, FR-019-AC-5, FR-052-AC-1`. One pre-existing, unrelated doc line at tests/it/public_interface.rs:237 (FR-048, omits TC-058) is out of scope. |

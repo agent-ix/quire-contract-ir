@@ -62,3 +62,15 @@ instructions to a record of what exists.
 - Reverse gap: none (no production code changed)
 - Stubs: none
 - Semantic review: run as mutation testing (16 mutants, 15 killed); see SR-11845
+
+## Dispositions
+
+Round 1. Checked against fix commit 9b67792179fb9f697cb821dfe466cc0c73d9b653
+with `git diff 5e0eb9b..9b67792`. `quire coverage --strict` still reports 43
+unbacked rows and 0 contradicted. In `quire matrix`, FR-052-AC-1, 2, 3, 5 and
+6 are tagged and AC-24 is untagged. `quire validate` over spec/** and
+reviews/** reports 899/899 docs clean.
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Both parts are resolved. First, the AC-3 claim in FR-052 is now true without a prose change: the new same-ID mixed-provenance case backs the conflicting-provenance disposition, and it kills the early-check mutant (SR-11845 FND-001). The coder's statement that FR-052 needed no edit is correct. Second, the TC-452 "Synthetic backing" section is now a record of what exists rather than a list of instructions. It names each backing test, lists `tc_058` for the inventory half of AC-1, adds the mixed-provenance case under AC-3, and drops "Three clauses need new assertions before AC-3 is traced". |
