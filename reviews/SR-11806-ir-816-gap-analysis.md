@@ -126,3 +126,17 @@ scope:
   role: context_only
   excerpt: "X6 refuses, in the state step at `merge`'s anchor and not in the frame step, `missing_declaration`/`missing-name`."
 ```
+
+## Dispositions
+
+Round 1, checked against fix commit a0b693e. Gates and mutants were re-run in a throwaway worktree (removed): `cargo test --test it` with `QUIRE_SPEC_LANGUAGE_DIR` set passed 608, failed 0, ignored 1. All three mutants that survived round 0 are now killed: parameter-name order unchecked, scoped-delete locus at the anchor, and the Reference check dropped. No new finding.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | `tc_056_scoped_frame_order_conflict_and_stale_key` adds `[receiver, parameter b, parameter a]` (TC-1043 X5), which refuses `invalid_semantic_graph` at the frame body. The param-order mutant is killed. |
+| FND-002 | fixed | `orders_document`'s `scaled` slot is now `named_slot(NATIVE_INTEGER, "n")`, so the `"n"` case refuses on the reference-type rule. The `&&` to `||` mutant is killed. |
+| FND-003 | fixed | `model_expect` now returns the refusal. The `n` and `missing` cases assert the locus equals the frame node's digest, and the anchor-locus mutant is killed. |
+| FND-004 | fixed | spec/tests.md:15, checked_package/matrix/tests.md:16 and :41 now state that AC-17 to AC-30 are implemented (IR-816) with tagged TC-056 reader tests. |
+| FND-005 | fixed | The TC-056 procedure now names the in-repo `Account` fixture (`balance`, `total`) and the selected `Order` fixture's `scaled(n: Integer)` and `reset()`, which are what the tests author. |
+| FND-006 | fixed | The FR-040 Operation anchor text drops "this is what the reader does today" and the "when it is implemented" clause. The AC-28 row and TC-056 Status now speak in the present tense. The AC-7 row keeps its shared-frame clause with "(FR-040-AC-28 supersedes the former shared-frame refusal)", which states the supersession explicitly. |
+| FND-007 | fixed | `admitted_frame_body` reads the admitted package's frame node. The test asserts `deletes_scoped` kinds `receiver` and `parameter`, and `modifies` scopes `receiver` and `every-object` with kind `field`. |

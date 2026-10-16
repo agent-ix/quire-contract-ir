@@ -95,3 +95,27 @@ scope:
   role: context_only
   excerpt: "5. Scoped deletes. Every `parameter` entry of the `frame` target's `deletes_scoped` names a reference parameter of the resolved operation, else `missing_declaration`/`missing-name` with the frame node as the locus. A frame shared by several anchors is checked against each anchor's operation."
 ```
+
+## Dispositions
+
+Round 1, checked against fix commit a0b693e on top of a38dbe7. Gates were run in a throwaway worktree at a0b693e, which has since been removed:
+
+- `cargo fmt --check`: clean.
+- `cargo clippy --workspace --all-targets -D warnings`: clean.
+- `cargo test -p quire-contract-model --lib checked_package::v2`: 170 passed.
+- `cargo test --test it` with `QUIRE_SPEC_LANGUAGE_DIR` set to a detached QSL origin/main worktree (b2c925a03, since removed): 608 passed, 0 failed, 1 ignored.
+
+Mutants re-run against a0b693e, all killed:
+
+- conflict selected first in array order;
+- conflict selected by the greatest order key;
+- the scan's per-parameter work charge removed.
+
+No line in frame.rs or state.rs exceeds 100 columns.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | frame.rs:528-570 keeps the least (declaration digest, name) conflict and reports its receiver index. `tc_056_scoped_frame_order_conflict_and_stale_key` asserts `/modifies/3` for [total/eo, total/rcv, balance/eo, balance/rcv]. The array-order and greatest-key mutants are killed. |
+| FND-002 | fixed | state.rs:288-291 is now an exhaustive `match entry { DeletesScopedEntry::Receiver => continue, DeletesScopedEntry::Parameter { name } => name }`. |
+| FND-003 | fixed | state.rs:285-286 charges the re-parse work at the frame body, and :294 charges one unit per scanned parameter. `tc_056_scoped_delete_parameter_scan_charges_validation_work` pins the exact boundary: incomplete at 292, refused at 293. The no-charge mutant is killed. |
+| FND-004 | fixed | `CheckedPackageRefusalCause` is imported. `FieldScope::from_wire` replaces the inline literals (frame.rs:76-84, 270-274), and no line exceeds 100 columns. |
