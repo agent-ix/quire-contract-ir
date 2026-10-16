@@ -76,3 +76,12 @@ scope:
   role: examined
   excerpt: PLANNED / UNRUN (IR-816). A package carrying a frame-step defect and a `parameter` entry that fails the state step's scoped-deletes check reports the frame-step defect.
 ```
+
+## Dispositions
+
+Round 1, fix commit 99f4936 on 9526be4.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | FR-038's precedence paragraph (:3962-3965) and FR-038-AC-14 now both carry the `conflicting-binding` exception, citing FR-040-AC-25. |
+| FND-002 | fixed | FR-038 :3901-3909 now limits the node-key and node-identity-domain clauses to `creates`/`deletes`/`modifies`, states that `deletes_scoped` entries are never node keys and that FR-040 owns their refusals, and locates a repeat at the second occurrence, as `reject_repeat` does. |

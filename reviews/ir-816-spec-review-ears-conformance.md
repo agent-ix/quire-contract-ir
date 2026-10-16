@@ -90,3 +90,12 @@ scope:
   role: examined
   excerpt: PLANNED / UNRUN (IR-816). A package carrying a frame-step defect and a `parameter` entry that fails the state step's scoped-deletes check reports the frame-step defect.
 ```
+
+## Dispositions
+
+Round 1, fix commit 99f4936 on 9526be4.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | AC-20 now locates each case at the offending entry, and a repeat at its second occurrence. FR-040 :94-96 and FR-038 say the same, and so does `reject_repeat` (frame.rs:150-158). |
+| FND-002 | fixed | AC-22 now asserts name order only; the conflict naming order is carried by AC-23. |

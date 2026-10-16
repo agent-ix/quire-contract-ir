@@ -100,3 +100,13 @@ scope:
   role: examined
   excerpt: A `modifies` array holding a `relationship` entry and a `field` entry, each naming an eligible declared dependency, admits; an all-empty frame body of four empty members admits; a bare node key, an entry of another `kind`, a `field` entry without `name`, a `relationship` entry carrying `name`, and an entry with an extra member each refuse as `invalid_semantic_graph` with no cause, located at that entry.
 ```
+
+## Dispositions
+
+Round 1, fix commit 99f4936 on 9526be4.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | FR-040 :166-177 and AC-23 drop the message claim. The refusal carries one path and one locus, "the other entry is not carried", and this is recorded as a QSpec question in FR-346's words. That matches FR-346 :246-253 and the refusal type (no message member). |
+| FND-002 | fixed | AC-7 again states today's behaviour: a shared frame refuses `ambiguous-name`, which the existing tagged test asserts. AC-28 owns the admission and names the AC-7 test case that changes when it is implemented. TC-056 Status and both matrix rows record the supersession. |
+| FND-003 | fixed | The TC-056 matrix cell now marks AC-14..16 implemented (IR-770). |
