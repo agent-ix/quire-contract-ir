@@ -879,8 +879,8 @@ from the returned result and read no body JSON for the operation identity. Exten
 the AC-182 public-fields inspection in
 `tests/it/checked_package_v2_composite_operands.rs` (`inspect_public_fields`) to
 exhaustively match both `CheckedCompositeOperator` variants, with no wildcard arm
-and no `#[non_exhaustive]`. Mark this step PLANNED/UNRUN
-until the typed result and tagged assertions land.
+and no `#[non_exhaustive]`. This step is implemented (IR-803) by the tagged typed-result and exhaustive
+public-fields assertions.
 
 For AC178, compare a supported closed record/tuple/collection/Option graph value
 with its original node identity and assert Literal disposition/no positions.

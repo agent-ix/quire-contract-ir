@@ -26,10 +26,26 @@ pub struct CheckedCompositeOperands {
     pub application: CheckedNodeId,
     /// The selected occurrence belonging to that node.
     pub occurrence: CheckedOccurrence,
+    /// The admitted structural comparison operation.
+    pub operator: CheckedCompositeOperator,
     /// One entry per argument, without deduplication.
     pub operands: Vec<CheckedCompositeOperand>,
     /// The exact logical work consumed by this projection.
     pub consumed_work: u64,
+}
+
+/// The closed structural comparison operators supported by composite operand projection.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CheckedCompositeOperator {
+    /// Structural equality.
+    Eq,
+    /// Structural inequality.
+    Ne,
+}
+
+enum EligibleOperator {
+    Eq,
+    Ne,
 }
 
 /// One authentic positional operand.
@@ -387,14 +403,19 @@ impl CheckedPackageV2 {
             .ok_or_else(|| Error::UnknownOperator {
                 application: application.clone(),
             })?;
-        if !matches!(
-            identity,
-            "quire.op.structural.eq" | "quire.op.structural.ne"
-        ) {
-            return Err(Error::IneligibleOperator {
-                application: application.clone(),
-            });
-        }
+        let eligible = match identity {
+            "quire.op.structural.eq" => EligibleOperator::Eq,
+            "quire.op.structural.ne" => EligibleOperator::Ne,
+            _ => {
+                return Err(Error::IneligibleOperator {
+                    application: application.clone(),
+                })
+            }
+        };
+        let operator = match eligible {
+            EligibleOperator::Eq => CheckedCompositeOperator::Eq,
+            EligibleOperator::Ne => CheckedCompositeOperator::Ne,
+        };
         let arguments = node
             .body
             .get("arguments")
@@ -486,6 +507,7 @@ impl CheckedPackageV2 {
         Ok(CheckedCompositeOperands {
             application: application.clone(),
             occurrence: occurrence.clone(),
+            operator,
             operands,
             consumed_work: meter.consumed,
         })
