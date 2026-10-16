@@ -1850,7 +1850,9 @@ results.
     turn, an end against the declared direction, a `{0,unbounded}` end, a
     `{0,3}` ordered end and an end of another type, each refuses
     `ill_typed`/`operator-ineligible` at arguments1, not at member.name. The
-    implementation slice reorders the reader's operand-1 check to match; a
+    implementation slice reorders the reader's operand-1 check to match and
+    compares operand 1 with the receiver endpoint type, not the destination
+    type, so a well-formed other-type end still refuses at member.name; a
     single-defect package is unchanged. These are static reader procedures;
     reachability charges are not asserted here.
 

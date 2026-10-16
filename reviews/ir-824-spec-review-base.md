@@ -42,3 +42,9 @@ unbacked row.
 | ID      | Severity | Summary | Refs |
 | ------- | -------- | ------- | ---- |
 | FND-001 | low      | The new FR-038 reaches paragraph states the check order twice in one sentence ("The checks run in the order direction, multiplicity, then type: ... with multiplicity decided before type and direction before multiplicity"); the trailing restatement is redundant. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1156-1161 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fix commit 1840592 rewrote the sentence (FR-038 lines 1156-1170): the order is stated once, "The checks run in the order stated by FR-322-AC-57: ... then direction; then destination multiplicity; then type", with no trailing restatement. |

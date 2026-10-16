@@ -1165,7 +1165,8 @@ end of another type than the receiver endpoint refuses
 defects therefore reports the earlier check: an unrelated operand 1 over a
 wrong-direction, unbounded, ordered or other-type end refuses at `arguments/1`.
 The implementation slice moves the operand-1 check ahead of direction to
-match this order; that changes which refusal wins for a package with more than
+match this order and compares operand 1 with the receiver endpoint type
+instead of the destination type; that changes which refusal wins for a package with more than
 one `reaches` defect, and leaves every single-defect outcome unchanged. An
 otherwise well-formed edge or pair of operands that fails reference-edge
 admissibility refuses `ill_typed`/`operator-ineligible`. The result remains
