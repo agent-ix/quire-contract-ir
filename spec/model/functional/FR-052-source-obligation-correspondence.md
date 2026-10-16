@@ -77,7 +77,7 @@ On completion, the public `quire_contract_model::source_obligation` module shall
 `SourceInventoryScope`, `SourceCorrespondenceError`, and
 `build_source_obligation_census`. These types shall be listed in FR-019's
 public-items inventory when implemented. The current compiled surface has two parts, and
-FR-019 lists it exactly. The provisional IR-784 envelope port exports
+FR-019 lists it exactly. The provisional envelope port exports
 `SourceObligationInput`, `SourceInventoryEnvelope`, `SourceInventoryRow`,
 typed owner identities and stop causes, and authored assertion/provenance
 types; none of these carries a completeness state. The IR-794 neutral outcome
@@ -86,19 +86,17 @@ boundary exports `SourceInventoryEnumerator`, `SourceInventoryOutcome`,
 only completeness carrier. `SourceInventoryEnvelope` is not a census input.
 Neither part exports a census or census builder.
 
-The corrected neutral port shall use a typed
+The neutral port uses a typed
 `SourceAuthoredCriterionId` carrying Quire's obligation declaration, scoped
 document and criterion ID, plus a typed `SourceCriterionSourceBinding` carrying
 the selected Quire scope and the source-contract author's selected
-`SourceIdentity`. A `SourceInventoryIdentity::Criterion` row shall have owner
-`Quire`; QSL rows shall contain only native checked requirement records and
-pending obligations. The current port's `Criterion(ClauseRef)` and its QSL
-owner assignment are provisional defects to correct under IR-795, not evidence
-that a formal clause is an authored acceptance criterion. Any explicit
+`SourceIdentity`. A `SourceInventoryIdentity::Criterion` row has owner
+`Quire`; QSL rows contain only native checked requirement records and
+pending obligations. A formal `ClauseRef` is distinct from an authored
+acceptance criterion. Any explicit
 criterion-to-formal-clause relation shall use separate typed endpoints and
-must not alter criterion inventory membership. FR-019 shall add the two new
-public items when implemented, while retaining its inventory of the current
-compiled surface until then.
+must not alter criterion inventory membership. FR-019 lists both public
+items in its compiled-surface inventory.
 
 The immutable census shall expose borrowed accessors for the selected source,
 all inventory rows, accepted correspondence rows, and rejected assertions.
@@ -138,6 +136,8 @@ native pending-obligation set, and `quire-code-rs`'s complete selected
 production-module and function facts. Each outcome's owner and scope
 shall match its required input position, and its source shall match the
 top-level selected source.
+The provisional envelope input retains reports by position; the completed
+census shall refuse an envelope whose owner does not match that position.
 
 The Quire selection shall identify the exact corpus and validated traceability
 model used to derive the criterion population. The source-contract author
@@ -361,7 +361,11 @@ adapters compare each declared complete outcome with full selected owner
 output and the completed census API exists. FR-052-AC-9 through AC-11 are
 Planned/UNRUN until the owner-issued boundary and its full-output oracle land.
 Passing AC-12 and AC-13 shall not change AC-9 through AC-11 status.
-FR-052-AC-14 and AC-15 define the IR-795 neutral identity and binding work;
+FR-052-AC-14 is Implemented for the neutral typed identity and synthetic
+Quire-owned rows, with traced integration tests and untraced compile-fail
+doctests. The neutral port retains an explicit binding, but FR-052-AC-15 remains
+Planned/UNRUN and unbacked until the census builder tests its missing, foreign,
+and conflicting binding refusals and assertion dispositions.
 AC-16 and the Quire portion of AC-2, AC-6, AC-7, and AC-9 through AC-11
 remain Planned/UNRUN pending PLAT-1165. The matched-source FR-052 census and
 IR-759 acceptance remain open.

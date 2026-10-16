@@ -21,6 +21,10 @@ The separate synthetic neutral-boundary checks for FR-052-AC-12 and AC-13
 are implemented and traced (tests/it/source_obligation.rs and the
 `SourceInventoryOutcome` `compile_fail` doctests); they cannot discharge AC-9
 through AC-11.
+The neutral identity checks for FR-052-AC-14 are implemented and traced in
+`tests/it/source_obligation.rs`. The port retains a source binding, but AC-15
+remains unbacked and UNRUN until the census builder tests its binding refusals
+and assertion dispositions.
 Quire's selected-scope owner-issued criterion output is pending PLAT-1165;
 therefore this procedure cannot yet claim a full FR-052 or IR-759 census.
 

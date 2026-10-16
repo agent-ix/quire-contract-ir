@@ -3886,23 +3886,30 @@ equality and collection-type admission checks.
 
 A `state` node of `semantic_form` `frame` carries a frame body, and only a
 frame body: `{"term": "frame", "modifies": [...], "creates": [...],
-"deletes": [...]}`, with all three members required and each a
+"deletes": [...], "deletes_scoped": [...]}`, with all four members required and each a
 `uniqueItems` array per the wire schema: `creates` and `deletes` of node
-keys, and `modifies` of the `FrameModifiesEntry` values
+keys, `modifies` of the `FrameModifiesEntry` values and `deletes_scoped` of the
+`FrameDeletesScopedEntry` values
 [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md) defines. The reader shall validate a
 `state`/`frame` node's `body` against this shape alone, a
 `correspondence`/`abstraction_relation` node's `body` against the shape of
 [FR-346](./FR-346-admit-abstraction-relation-body.md) alone, and every other
 node's `body` against the semantic-term grammar alone. A frame body that omits one of
-the three members, carries any further member, or does not carry this closed
+the four members, carries any further member, or does not carry this closed
 shape refuses as `invalid_semantic_graph` at the frame body; so does a node of
 any other tag or form whose body carries the frame shape. Within one member
-array, an entry that repeats another entry of the same array, or that is not a
-node key, refuses as `invalid_semantic_graph` at that member's own path
-(`semantic_graph.nodes.body.modifies`, `.creates` or `.deletes`); an entry
+array, an entry that repeats another entry of the same array refuses as
+`invalid_semantic_graph` at the second occurrence's entry, and a `creates`,
+`deletes` or `modifies` entry that is not a node key (or, for `modifies`, a
+`FrameModifiesEntry`) refuses the same way at that entry (the path of the
+entry under `semantic_graph.nodes.body.modifies`, `.creates` or `.deletes`); an entry
 naming a node key outside the reader's node-identity domain refuses as
-`digest_domain_mismatch` at that same member path. Three empty members are
-admitted.
+`digest_domain_mismatch` at that entry. `deletes_scoped` entries are never node
+keys: the node-key and node-identity-domain clauses do not apply to them, and
+FR-040 owns their shape, repeat and order refusals. Four empty members are
+admitted. The shape, ordering, conflict and state-step rules of the `modifies`
+field entries' `scope` and of `deletes_scoped` are
+[FR-040](./FR-040-admit-frame-entries-and-state-clauses.md)'s.
 
 The frame-body-semantics stage charges no work of its own: every entry it
 walks was already parsed, shape-validated and charged once by the per-node
@@ -3953,7 +3960,9 @@ frame whose member order is wrong and whose entries are also ineligible
 refuses for the meaning-join defect, never the order defect. Among
 meaning-join defects, the member the defect's entry sits in decides first —
 `modifies` before `creates` before `deletes` — and, within one member,
-ascending entry digest breaks the tie; the selected defect therefore never
+ascending entry digest breaks the tie, except that a `conflicting-binding`
+defect of two scoped `modifies` entries ranks after every other meaning-join
+defect in any member (FR-040-AC-25); the selected defect therefore never
 depends on where in its array an entry sits or on which member an author
 wrote a defect into. A package carrying more than one defective frame node
 refuses at the frame the reader reaches first in ascending `node_id` digest
@@ -4169,7 +4178,7 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-11 | A `lock.model_selections` array carrying both a repeated entry and an entry whose digest no document the package evidence supplies satisfies refuses as `malformed_wire` at `lock.model_selections`, never as `stale_dependency`, regardless of whether the repeated entry or the stale entry appears first in the array — the uniqueness check runs over the whole array before any entry's digest is checked against the supplied documents, so the outcome does not depend on array position. | Test (TC-048) |
 | FR-038-AC-12 | A `creates` or `deletes` entry's eligibility is exactly `model`/`object_type` and `model`/`process`, and this eligibility predicate is checked against every `(member, tag, form)` triple the closed node taxonomy can produce, not sampled; the `modifies` entry shape and its eligibility are [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md)'s. The refusal an ineligible triple drives — `invalid_model_binding` with cause `malformed-declaration`, located at the offending entry — is verified end-to-end through the reader for a representative ineligible triple in each of `creates` and `deletes` and every node family; the reader's mapping from an ineligible predicate result to that refusal depends only on which member the entry sits in, never on its tag or form, so this sample together with the exhaustive predicate check covers the full triple space without driving every one of it through the reader. Each of the two eligible triples the published all-families fixture's own frame body does not already exercise (`process` in `creates`, `object_type` in `deletes`) is independently shown admitted. | Test (TC-053) |
 | FR-038-AC-13 | An entry naming a digest that is not among the frame node's own `dependencies` refuses as `missing_declaration` with cause `missing-name`, located at that entry, whether the digest resolves to no node the frame declared as a dependency (a real node elsewhere in the graph) or to no node anywhere in the graph at all — both conditions are the same refusal, never `invalid_model_binding` and never the graph's generic unresolved-reference `invalid_semantic_graph`. | Test (TC-053) |
-| FR-038-AC-14 | A frame node carrying both a meaning-join defect and a canonical-order defect refuses for the meaning-join defect; among two meaning-join defects in different members, the earlier member (`modifies` before `creates` before `deletes`) is selected regardless of which defect's entry digest is lower; among two meaning-join defects in the same member, the lower entry digest is selected; a member array not in strictly ascending digest order, with no meaning-join defect present, refuses as `invalid_semantic_graph` at the frame body path, located at the frame node itself and carrying no cause. | Test (TC-053) |
+| FR-038-AC-14 | A frame node carrying both a meaning-join defect and a canonical-order defect refuses for the meaning-join defect; among two meaning-join defects in different members, the earlier member (`modifies` before `creates` before `deletes`) is selected regardless of which defect's entry digest is lower, except that a `conflicting-binding` defect ranks after every other meaning-join defect (FR-040-AC-25); among two meaning-join defects in the same member, the lower entry digest is selected; a member array not in strictly ascending digest order, with no meaning-join defect present, refuses as `invalid_semantic_graph` at the frame body path, located at the frame node itself and carrying no cause. | Test (TC-053) |
 | FR-038-AC-15 | A package carrying two defective `state`/`frame` nodes refuses at the one with the lower `node_id` digest, reporting only that frame's own defect, even when the other frame's defect would otherwise outrank it under FR-038-AC-14's precedence — the visit order is ascending node-id digest across frames, and the reader reports the first defective frame it reaches rather than comparing every frame's defect. | Test (TC-053) |
 | FR-038-AC-17 | Each declared wire member the V2 contract carries is read and enters the identity projection: a declaring node's `declaration.qualified_name`, a `literal` term's `type`, and an `application` term's `operation` and `result_type`. Deleting any one of them from a single node of an otherwise unmodified `positive-operation-identities` package refuses as `invalid_semantic_graph`, whether or not the deletion is mirrored into `identity_preimage.identity_projection`: a missing `declaration` refuses at `semantic_graph.nodes.declaration` and a missing `literal.type`, `application.operation` or `application.result_type` refuses at `semantic_graph.nodes.body`, because each check applies to the graph node's own closed member set unconditionally, before the projection comparison is reached — mirroring the deletion into the preimage changes nothing, since the graph node's own defect refuses first either way; and the fifteen `expression` forms the contract declares are each admitted as a node form while a sixteenth `expression` form refuses as `invalid_semantic_graph`; the admitted `model` forms are [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md)'s. | Test (TC-048) |
 | FR-038-AC-18 | For a keyed input that reaches the graph-reference stage, a self-typed node's own body-root `literal.type` naming itself is exempt from the reference-cycle check and needs no declared `recursion_group`. The same self-reference nested in an `aggregate` member, `binding` value or `application` argument is not exempt and refuses as `invalid_semantic_graph` at `/semantic_graph/nodes/<n>` (the node object lacking `recursion_group`), as do a self-typed node's `reference` body and `application.result_type` naming itself. Public admission authenticates content-derived structural and application keys before that stage; a body embedding its own final key has no constructible honest preimage. Public tests assert that first stale-key refusal, and a private graph-stage test verifies the conditional carve-out. | Test (TC-048) |
@@ -4425,5 +4434,5 @@ is computed through quire-canonical" consume (FR-038-AC-74 through
 FR-038-AC-80, FR-038-AC-89 through FR-038-AC-95 and FR-038-AC-109 through FR-038-AC-111), including its
 `Encode` for `serde_json::Value` (quire-canonical #7, merged).
 [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md) owns the
-QSpec FR-340 `modifies` entry shape, the FR-341 state clause and FR-342
+QSpec FR-340 `modifies` entry shape, scope and `deletes_scoped`, the FR-341 state clause and FR-342
 operation anchor bodies, and the `model` form set.

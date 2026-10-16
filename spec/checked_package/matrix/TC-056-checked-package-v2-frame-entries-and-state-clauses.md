@@ -11,12 +11,14 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-342
     type: references
+  - target: ix://agent-ix/quire-spec-language/TC-1043
+    type: references
 ---
 # TC-056: CheckedPackage V2 frame entries, operation anchors and state clauses admit or refuse exactly
 
 ## Description
 
-Verify FR-040-AC-1 through FR-040-AC-16: the V2 reader admits QSpec FR-340's
+Verify FR-040-AC-1 through FR-040-AC-29: the V2 reader admits QSpec FR-340's
 `FrameModifiesEntry` values, FR-342's operation anchor body, FR-341's state
 clause and parameter bodies and exactly the fifteen `model` forms, and
 refuses every other shape with the code, cause and locus those requirements
@@ -66,18 +68,47 @@ first refusal. Read the selected owner table at the exact work limit and one
 unit less, then repeat the existing object, relationship, anchor and clause
 controls to establish their unchanged outcomes.
 
+PLANNED / UNRUN (IR-816; FR-040-AC-17 through FR-040-AC-30): author, from this
+repository's own public vocabulary, an object type with a field `value`
+and a field `step`, an operation with no parameter, and an operation `merge`
+with two reference parameters `a` and `b` and an integer parameter `n`.
+Oracle: quire-spec-language TC-1043 (wire vectors W1 to W6 and reader rows X1 to
+X9), referenced by id and re-authored here, never copied. Read frames, each
+carrying all four members and its anchor, in these cases: a receiver entry and
+an every-object entry with `deletes_scoped` of `receiver` (W1); a frame with
+`parameter a`, `parameter b` after `receiver` (W2) and the empty frame (W3);
+a `field` entry without `scope` and with another `scope` (X1, X2); a body
+without `deletes_scoped` (X3); `deletes_scoped` in a wrong order (X4, X5) and
+with a repeated entry; `modifies` entries in wrong name or scope order; two
+entries for one field with different scopes, listed in either order (X8, X9),
+alone (asserting the same entry, the `receiver` one, is located in both listings), beside a misordered array and beside another meaning-join defect; an
+edited `scope` or `deletes_scoped` with the frame node left under its old key; a
+`parameter` entry naming a non-reference parameter (`n`) and one naming no
+parameter of `merge` (X6), with the frame step admitting and the state step
+refusing at the frame node; two anchors of one context sharing one frame node,
+where one operation has the named parameter and the other has not; an anchor whose context is not a model declaration node, with a `parameter` entry naming no parameter, admitted in the state step; and a frame
+defect beside a failing `parameter` entry. Assert the order schema, stale key,
+frame step (meaning-join with `conflicting-binding` last, then canonical
+order), state step.
+
 ## Expected Results
 
 The unmutated package admits. Each mutation returns exactly the code, cause
 and RFC 6901 locus its criterion names and no package; a package with defects
-in two steps reports the earlier step's defect.
+in two steps reports the earlier step's defect. The IR-816 cases return the
+codes, causes, paths and loci FR-040-AC-17 through FR-040-AC-30 name; a
+`conflicting-binding` is reported over a misordered array and after any other
+meaning-join defect; a scoped-deletes `parameter` defect is a state-step
+`missing_declaration`/`missing-name` at the frame node and is never reported
+ahead of a frame-step defect.
 
 ## Status
 
-FR-040-AC-1 through FR-040-AC-13 are implemented in
+FR-040-AC-1 through FR-040-AC-13 are implemented, except that the shared-frame clause of FR-040-AC-7 is superseded by FR-040-AC-28 when that is implemented, in
 `tests/it/checked_package_v2_frame_entries.rs` and the entry eligibility
 tests in `crates/quire-contract-model/src/checked_package/v2/frame.rs`.
-FR-040-AC-14 through FR-040-AC-16 are implemented by the tagged public-reader
+FR-040-AC-17 through FR-040-AC-30 are PLANNED / UNRUN (IR-816): no tagged
+implementation tests exist yet. FR-040-AC-14 through FR-040-AC-16 are implemented by the tagged public-reader
 record frame and expression cases in `tests/it/checked_package_v2_frame_entries.rs`
 and `tests/it/checked_package_v2_model_fields.rs`, and the selected-row and
 effective-type unit cases in `model_members/tests.rs` and `model_fields/tests.rs`.
