@@ -87,7 +87,7 @@ FR-038 consumes the QSpec I04 `quire.checked-package/v2` contract through a
 strict reader that parses `contract_version` once, admits only
 `quire.checked-package/v2`, re-derives every package and nominal node
 identity, and lowers admitted items independently per request. FR-040 admits
-QSpec FR-340's frame `modifies` entries, FR-342's operation anchors and
+QSpec FR-340's frame entries (`modifies` with scope, `deletes_scoped`), FR-342's operation anchors and
 FR-341's state clause and parameter bodies in that reader, and FR-344 refuses
 the ADR-002 2.0.0 members the V2 wire does not yet carry. FR-346 admits
 QSpec FR-451's abstraction relation body in that reader. FR-347 admits a

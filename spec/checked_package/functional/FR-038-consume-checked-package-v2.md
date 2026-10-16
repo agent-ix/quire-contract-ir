@@ -3886,23 +3886,27 @@ equality and collection-type admission checks.
 
 A `state` node of `semantic_form` `frame` carries a frame body, and only a
 frame body: `{"term": "frame", "modifies": [...], "creates": [...],
-"deletes": [...]}`, with all three members required and each a
+"deletes": [...], "deletes_scoped": [...]}`, with all four members required and each a
 `uniqueItems` array per the wire schema: `creates` and `deletes` of node
-keys, and `modifies` of the `FrameModifiesEntry` values
+keys, `modifies` of the `FrameModifiesEntry` values and `deletes_scoped` of the
+`FrameDeletesScopedEntry` values
 [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md) defines. The reader shall validate a
 `state`/`frame` node's `body` against this shape alone, a
 `correspondence`/`abstraction_relation` node's `body` against the shape of
 [FR-346](./FR-346-admit-abstraction-relation-body.md) alone, and every other
 node's `body` against the semantic-term grammar alone. A frame body that omits one of
-the three members, carries any further member, or does not carry this closed
+the four members, carries any further member, or does not carry this closed
 shape refuses as `invalid_semantic_graph` at the frame body; so does a node of
 any other tag or form whose body carries the frame shape. Within one member
 array, an entry that repeats another entry of the same array, or that is not a
 node key, refuses as `invalid_semantic_graph` at that member's own path
-(`semantic_graph.nodes.body.modifies`, `.creates` or `.deletes`); an entry
+(`semantic_graph.nodes.body.modifies`, `.creates`, `.deletes` or
+`.deletes_scoped`); an entry
 naming a node key outside the reader's node-identity domain refuses as
-`digest_domain_mismatch` at that same member path. Three empty members are
-admitted.
+`digest_domain_mismatch` at that same member path. Four empty members are
+admitted. The shape, ordering, conflict and state-step rules of the `modifies`
+field entries' `scope` and of `deletes_scoped` are
+[FR-040](./FR-040-admit-frame-entries-and-state-clauses.md)'s.
 
 The frame-body-semantics stage charges no work of its own: every entry it
 walks was already parsed, shape-validated and charged once by the per-node
@@ -4425,5 +4429,5 @@ is computed through quire-canonical" consume (FR-038-AC-74 through
 FR-038-AC-80, FR-038-AC-89 through FR-038-AC-95 and FR-038-AC-109 through FR-038-AC-111), including its
 `Encode` for `serde_json::Value` (quire-canonical #7, merged).
 [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md) owns the
-QSpec FR-340 `modifies` entry shape, the FR-341 state clause and FR-342
+QSpec FR-340 `modifies` entry shape, scope and `deletes_scoped`, the FR-341 state clause and FR-342
 operation anchor bodies, and the `model` form set.
