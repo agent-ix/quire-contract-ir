@@ -16,11 +16,13 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 const COMPLETE_VALUE_FEATURE: &str = "quire.value.complete/v1";
 const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
 const PACKAGE_DOMAIN: &str = "quire.package.semantic/v2";
+static NEXT_SCRATCH_ID: AtomicU64 = AtomicU64::new(0);
 
 struct Scratch(PathBuf);
 
@@ -59,8 +61,11 @@ fn run_producer() -> Scratch {
     let qsl = std::env::var_os("QUIRE_SPEC_LANGUAGE_DIR")
         .map(PathBuf::from)
         .expect("selected-population conformance requires QUIRE_SPEC_LANGUAGE_DIR");
-    let scratch_path =
-        std::env::temp_dir().join(format!("ir760-population-{}", std::process::id()));
+    let scratch_path = std::env::temp_dir().join(format!(
+        "ir760-population-{}-{}",
+        std::process::id(),
+        NEXT_SCRATCH_ID.fetch_add(1, Ordering::Relaxed)
+    ));
     let _ = fs::remove_dir_all(&scratch_path);
     fs::create_dir(&scratch_path).expect("create owned QSL producer scratch");
     let output = scratch_path.join("emitted");
