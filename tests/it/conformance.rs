@@ -132,12 +132,14 @@ fn input_count(corpus: &Path) -> usize {
 }
 
 /// Tracing: TC-018, FR-018-AC-1, FR-019-AC-1, FR-019-AC-3, FR-020-AC-1,
+/// FR-020-AC-12,
 /// NFR-001-AC-1.
 /// NFR-001-AC-1.
 /// FR-018-AC-1.
 /// FR-019-AC-1.
 /// FR-019-AC-3.
 /// FR-020-AC-1.
+/// FR-020-AC-12.
 #[test]
 fn tc_018_the_corpus_runs_deterministically_and_every_fixture_matches() {
     // FR-019-AC-3: expected_inventory is exactly the five published registries
@@ -781,9 +783,9 @@ fn tc_018_the_fixture_schema_takes_the_eight_members_as_integer_strings() {
     }
 }
 
-/// Tracing: TC-018, FR-020-AC-3.
-/// FR-020-AC-3.
-#[ix_trace_rs::trace("TC-018", "FR-020-AC-3")]
+/// Tracing: TC-018, FR-020-AC-4.
+/// FR-020-AC-4.
+#[ix_trace_rs::trace("TC-018", "FR-020-AC-4")]
 #[test]
 fn tc_018_the_package_schemas_bound_a_revision_and_a_byte_offset_at_two_to_the_53() {
     const BOUND: u64 = 9_007_199_254_740_992;
@@ -817,9 +819,11 @@ fn tc_018_the_package_schemas_bound_a_revision_and_a_byte_offset_at_two_to_the_5
     }
 }
 
-/// Tracing: TC-018, FR-020-AC-3.
-/// FR-020-AC-3.
-#[ix_trace_rs::trace("TC-018", "FR-020-AC-3")]
+/// Tracing: TC-018, FR-020-AC-7, FR-020-AC-8, FR-020-AC-9.
+/// FR-020-AC-7.
+/// FR-020-AC-8.
+/// FR-020-AC-9.
+#[ix_trace_rs::trace("TC-018", "FR-020-AC-7", "FR-020-AC-8", "FR-020-AC-9")]
 #[test]
 fn tc_018_a_decoder_fixture_reaches_the_decoder_and_a_schema_input_does_not() {
     let corpus = corpus();
@@ -917,11 +921,20 @@ fn tc_018_a_decoder_fixture_reaches_the_decoder_and_a_schema_input_does_not() {
     assert!(scratch.run().status.success());
 }
 
-/// Tracing: TC-015, TC-018, FR-011-AC-3, FR-012-AC-6, FR-020-AC-3.
+/// Tracing: TC-015, TC-018, FR-011-AC-3, FR-012-AC-6, FR-020-AC-5,
+/// FR-020-AC-6.
 /// FR-011-AC-3.
 /// FR-012-AC-6.
-/// FR-020-AC-3.
-#[ix_trace_rs::trace("TC-015", "TC-018", "FR-011-AC-3", "FR-012-AC-6", "FR-020-AC-3")]
+/// FR-020-AC-5.
+/// FR-020-AC-6.
+#[ix_trace_rs::trace(
+    "TC-015",
+    "TC-018",
+    "FR-011-AC-3",
+    "FR-012-AC-6",
+    "FR-020-AC-5",
+    "FR-020-AC-6"
+)]
 #[test]
 fn tc_018_probe_and_coverage_bounds_fail_at_the_fixture_schema() {
     const BOUND: u64 = 9_007_199_254_740_992;
@@ -1071,9 +1084,10 @@ fn tc_018_probe_and_coverage_bounds_fail_at_the_fixture_schema() {
 /// strings; the test asserts both for every holding file (FR-020-AC-3,
 /// FR-016-AC-5).
 ///
-/// Tracing: TC-018, FR-020-AC-3.
-/// FR-020-AC-3.
-#[ix_trace_rs::trace("TC-018", "FR-020-AC-3", "FR-016-AC-5")]
+/// Tracing: TC-018, FR-020-AC-10, FR-020-AC-11.
+/// FR-020-AC-10.
+/// FR-020-AC-11.
+#[ix_trace_rs::trace("TC-018", "FR-020-AC-10", "FR-020-AC-11", "FR-016-AC-5")]
 #[test]
 fn tc_018_the_recorded_canonical_files_spell_the_eight_members_as_strings() {
     // The expected bytes are written out here, not produced by the encoder
@@ -1378,9 +1392,8 @@ fn tc_018_the_recorded_canonical_files_spell_the_eight_members_as_strings() {
 /// package document is: the decoder ignores an unknown member of an
 /// expression node, the schema does not.
 ///
-/// Tracing: TC-018, FR-020-AC-3.
-/// FR-020-AC-3.
-#[ix_trace_rs::trace("TC-018", "FR-020-AC-3")]
+/// Tracing: TC-018.
+#[ix_trace_rs::trace("TC-018")]
 #[test]
 fn tc_018_a_successful_expression_document_is_checked_against_the_schema() {
     let scratch = Scratch::corpus("expression-document");
