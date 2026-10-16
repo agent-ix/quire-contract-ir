@@ -37,3 +37,12 @@ only open PR.
 Not mergeable until FND-001 is fixed. It is a one-clause addition to AC-24.
 Everything else in the split is consistent, and it carries its owner and
 dependency.
+
+## Dispositions
+
+Round 1, verified against fix commit c4681e7 (after merge 629ae82 of
+origin/main) with `git diff origin/main...HEAD`.
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | FR-052-AC-24 now ends "and no occurrence under a conflicting node enters an accepted relation", restoring AC-3's "never enter accepted relations" for the split clause. |

@@ -70,3 +70,16 @@ the code slice. Under that plan, AC-1/AC-5 would stay untagged, and AC-3 would
 be traced to a test that cannot fail one of its clauses while missing another
 clause entirely. FND-004 and FND-005 are small consistency fixes in the same
 PR. See SR-11841 for the AC-24 split.
+
+## Dispositions
+
+Round 1, verified against fix commit c4681e7 (after merge 629ae82 of
+origin/main) with `git diff origin/main...HEAD`.
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | TC-452 now names a traced `#[test]` in `crates/quire-contract-model/tests/source_obligation_public.rs` run alone with `-p quire-contract-model`; `quire matrix` already binds the analogous `#[trace]` in `tests/selected_population_public.rs` (FR-053-AC-1 tagged). The doctest is demoted to untraced extra evidence. |
+| FND-002 | fixed | The exact-duplicate bullet now names only `rejected_assertions_collapse_duplicates_and_sort_with_reason_precedence` and explains why the relation-dedup test cannot fail step 1. |
+| FND-003 | fixed | A third new assertion is required before AC-3 is traced: one `SourceAssertionId`, one relation, only provenance differing, every member `ConflictingProvenance`, no accepted row; Expected Results records it. |
+| FND-004 | fixed | The native-API paragraph is scoped to owner-native AC-7, AC-9..AC-11 and AC-16; the census exercise points to the synthetic section, uses `ModuleUnavailable`, and moves conflicting inventory facts to AC-24 pending IR-820. |
+| FND-005 | fixed | TC-452's AC-1/AC-5 bullet instructs the code slice to add AC-1 and AC-5 to FR-019's `source_obligation` row once backed, and not before. |
