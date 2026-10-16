@@ -761,7 +761,7 @@ An external API fixture exhaustively matches the public identity and error
 enums and consumes every result member without JSON access. Repeated calls
 and a package clone return equal values, with package equality unchanged.
 
-## Typed package-authored composite operand projection (FR-038-AC-177 through FR-038-AC-182)
+## Typed package-authored composite operand projection (FR-038-AC-177 through FR-038-AC-182, FR-038-AC-246)
 
 The accessor is implemented by `composite_application_operands` and has `tc_048_`
 composite operand integration tests and narrowly scoped model-unit tests; the
@@ -771,6 +771,17 @@ Use authentic parameter and closed graph-composite value references, with two
 actual occurrences of one application. Assert the tabled application, occurrence,
 ordinals, child identities, type identities and domain fields. Swap arguments
 and repeat one parameter without deduplication (AC177).
+
+For AC246, admit otherwise equivalent structural.eq and structural.ne
+applications through the public reader, with the same ordered operand children
+and an authentic occurrence in each. Call `composite_application_operands` once
+per application. Assert `operator` is `CheckedCompositeOperator::Eq` for eq and
+`CheckedCompositeOperator::Ne` for ne in the returned operand-bearing result.
+Compare the results' operands, ordinals, children, domains and `consumed_work`
+for equality, while asserting each result retains its own authentic application
+identity and occurrence. Assert the consumer reads no operation identity from
+the body and performs no second accessor lookup. Mark this step PLANNED/UNRUN
+until the typed result and tagged assertions land.
 
 For AC178, compare a supported closed record/tuple/collection/Option graph value
 with its original node identity and assert Literal disposition/no positions.
