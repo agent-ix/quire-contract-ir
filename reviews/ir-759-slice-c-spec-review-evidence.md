@@ -53,3 +53,13 @@ scope:
   role: examined
   excerpt: '| TC-452 | ... | FR-052-AC-1, ..., FR-052-AC-17, FR-052-AC-18, FR-052-AC-19 | Planned/UNRUN: ... AC-17..19 synthetic-census checks await the census builder and grant no full-owner credit; AC-8 is covered by provisional-port tests and is superseded by AC-17 when the census builder lands, which removes the envelope port and those tests; ...'
 ```
+
+## Dispositions
+
+Round 1, against fix commit 8119d05.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | - |
+| FND-002 | fixed | - |
+| FND-003 | fixed | - |

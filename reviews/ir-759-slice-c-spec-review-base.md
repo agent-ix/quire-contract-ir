@@ -113,3 +113,20 @@ scope:
   role: examined
   excerpt: '| TC-452 | ... | FR-052-AC-1, ..., FR-052-AC-17, FR-052-AC-18, FR-052-AC-19 | Planned/UNRUN: ... AC-17..19 synthetic-census checks await the census builder and grant no full-owner credit; AC-8 is covered by provisional-port tests and is superseded by AC-17 when the census builder lands, which removes the envelope port and those tests; ...'
 ```
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-005 | low | New in round 1: the transition list (item 4) names every envelope clause it rewrites, but TC-452 Test Procedure still says 'capture its full output independently of the model envelope' (TC-452:93). After the census change there is no envelope; the clause means the outcome. Add it to item 4 or reword it now to 'the model outcome'. | spec/model/matrix/TC-452-source-obligation-correspondence.md:93 |
+
+## Dispositions
+
+Round 1, against fix commit 8119d05.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | - |
+| FND-002 | fixed | - |
+| FND-003 | fixed | - |
+| FND-004 | fixed | - |

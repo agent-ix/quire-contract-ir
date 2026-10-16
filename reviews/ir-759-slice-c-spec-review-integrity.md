@@ -57,3 +57,13 @@ scope:
   role: examined
   excerpt: 'A default-feature consumer can construct and borrow provisional owner rows, ... and the public module exposes no census or complete-census builder. FR-052-AC-17 supersedes this criterion when the census builder lands: that code change removes `SourceInventoryEnvelope`, the envelope-taking `SourceObligationInput` constructor, the tests tagged FR-052-AC-8, and the no-census assertions in `tests/it/source_obligation.rs` (lines 368-369); the FR-052-AC-4 inspection of `SourceObligationInput` fields remains.'
 ```
+
+## Dispositions
+
+Round 1, against fix commit 8119d05.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | - |
+| FND-002 | fixed | - |
+| FND-003 | fixed | - |

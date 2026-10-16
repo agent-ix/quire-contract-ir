@@ -90,7 +90,7 @@ after full output, even with an adjusted count, must fail owner comparison.
 
 For the IR-794 boundary, drive each owner-native enumerator or typed adapter
 from its selected owner object to normal exhaustion and capture its full
-output independently of the model envelope. Compare source, typed owner,
+output independently of the model outcome. Compare source, typed owner,
 scope, every row and observed count field by field. Repeat with a complete
 zero-row scope and a fully parsed production module with zero functions.
 Delete one emitted row after the owner produces its full output; even if the

@@ -44,3 +44,12 @@ scope:
   role: examined
   excerpt: '`SourceObligationCensus` shall expose `source()`, `criterion_source_binding()`, `inventory_rows()` returning `&[SourceCensusInventoryRow]`, `correspondence_rows()` returning `&[SourceObligationRow]`, and `rejected_assertions()` returning `&[SourceCorrespondenceRejection]`. `SourceCensusInventoryRow` shall expose `row()`, the retained `SourceInventoryRow`, and `disposition()`.'
 ```
+
+## Dispositions
+
+Round 1, against fix commit 8119d05.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | - |
+| FND-002 | fixed | - |

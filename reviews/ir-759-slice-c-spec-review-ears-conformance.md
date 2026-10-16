@@ -47,3 +47,11 @@ scope:
   role: examined
   excerpt: 1. Exact duplicate assertions, equal in every field, collapse to one. 2. Assertions sharing one `SourceAssertionId` form a group. ... `ConflictingRelation` ... Otherwise ... `ConflictingProvenance`. 3. ... `ForeignSource` when its source or its provenance source differs from the selected source, then `DanglingCriterion`, `DanglingOccurrence` and `DanglingProductionSymbol`. 4. Remaining assertions with one criterion, occurrence and production function form one relation. When a relation holds more than one distinct provenance, every member is rejected with `ConflictingProvenance`. Otherwise the relation yields exactly one `SourceObligationRow`, whatever the number of assertion IDs that state it.
 ```
+
+## Dispositions
+
+Round 1, against fix commit 8119d05.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | - |
