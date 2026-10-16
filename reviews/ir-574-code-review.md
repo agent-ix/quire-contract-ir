@@ -94,3 +94,10 @@ scope:
   role: context_only
   excerpt: "validate_schema(&value)?; let projection: Projection = serde_json::from_value(value).map_err(|_| invalid(\"invalid projection envelope\"))?;"
 ```
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Commit 98a73f8 asserts `diagnostics[0].message == "projection does not satisfy its normative schema"` for every member and value. Re-run in a throwaway worktree at 98a73f8: the mutant that removes the schema limit on the binding clause reference revision (conformance `requirementRef.revision`) now fails ("binding clause reference revision at 9007199254740993", left "invalid projection envelope"). `tc_035_` passes 14 of 14, and fmt and clippy are clean. |
+| FND-002 | fixed | Commit 98a73f8 removes `TC-015` from the test's trace; it is now `#[trace("TC-035", "FR-023-AC-6")]`. TC-015 keeps its own binder in tests/it/identity.rs. |
