@@ -361,7 +361,11 @@ adapters compare each declared complete outcome with full selected owner
 output and the completed census API exists. FR-052-AC-9 through AC-11 are
 Planned/UNRUN until the owner-issued boundary and its full-output oracle land.
 Passing AC-12 and AC-13 shall not change AC-9 through AC-11 status.
-FR-052-AC-14 and AC-15 define the IR-795 neutral identity and binding work;
+FR-052-AC-14 is Implemented for the neutral typed identity and synthetic
+Quire-owned rows, with traced integration and compile-fail tests. The neutral
+binding retention portion of FR-052-AC-15 is Implemented with traced tests;
+its missing, foreign, and conflicting binding census refusals and assertion
+dispositions remain Planned/UNRUN until the census builder exists.
 AC-16 and the Quire portion of AC-2, AC-6, AC-7, and AC-9 through AC-11
 remain Planned/UNRUN pending PLAT-1165. The matched-source FR-052 census and
 IR-759 acceptance remain open.

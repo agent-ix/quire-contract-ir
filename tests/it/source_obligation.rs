@@ -5,20 +5,19 @@
 
 use ix_trace_rs::trace;
 use quire_contract_model::source_obligation::{
-    SourceAssertionId, SourceAssertionProvenance, SourceContractAuthorId,
-    SourceCorrespondenceAssertion, SourceDeclarationHandle, SourceExpressionHandle,
-    SourceInventoryCompleteness, SourceInventoryEnumerator, SourceInventoryEnvelope,
-    SourceInventoryIdentity, SourceInventoryIncompleteReason, SourceInventoryOutcome,
-    SourceInventoryOutcomeError, SourceInventoryOwner, SourceInventoryRow, SourceInventoryScope,
-    SourceObligationInput, SourceObligationSite, SourcePendingObligationId,
-    SourcePendingObligationKind, SourceProductionFunctionId, SourceProductionModuleId,
-    SourceRequirementOccurrenceId, SourceSemanticOccurrenceId, SourceTypeExhaustion,
-    SourceTypeWorkDimension, SourceUnitHandle,
+    SourceAssertionId, SourceAssertionProvenance, SourceAuthoredCriterionId,
+    SourceContractAuthorId, SourceCorrespondenceAssertion, SourceCriterionSourceBinding,
+    SourceDeclarationHandle, SourceExpressionHandle, SourceInventoryCompleteness,
+    SourceInventoryEnumerator, SourceInventoryEnvelope, SourceInventoryIdentity,
+    SourceInventoryIncompleteReason, SourceInventoryOutcome, SourceInventoryOutcomeError,
+    SourceInventoryOwner, SourceInventoryRow, SourceInventoryScope, SourceObligationInput,
+    SourceObligationSite, SourcePendingObligationId, SourcePendingObligationKind,
+    SourceProductionFunctionId, SourceProductionModuleId, SourceRequirementOccurrenceId,
+    SourceSemanticOccurrenceId, SourceTypeExhaustion, SourceTypeWorkDimension, SourceUnitHandle,
 };
 use quire_contract_model::{
     CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageIncomplete,
-    CheckedPackageLimit, ClauseId, ClauseRef, PackageId, RequirementId, RequirementRef,
-    RequirementRevision, SourceDocumentId, SourceIdentity, SourceRevision,
+    CheckedPackageLimit, SourceDocumentId, SourceIdentity, SourceRevision,
 };
 
 fn source() -> SourceIdentity {
@@ -45,14 +44,17 @@ fn pending(
     SourcePendingObligationId { site, kind }
 }
 
-fn criterion() -> ClauseRef {
-    ClauseRef::new(
-        RequirementRef::new(
-            PackageId::new("example.contract").expect("valid package"),
-            RequirementId::new("REQ_source_obligation").expect("valid requirement"),
-            RequirementRevision::new(1).expect("valid revision"),
-        ),
-        ClauseId::new("AC_1").expect("valid criterion"),
+fn criterion(id: &str) -> SourceAuthoredCriterionId {
+    SourceAuthoredCriterionId::new("obligations", "spec/model/FR-052.md", id)
+}
+
+fn binding(selected: SourceIdentity) -> SourceCriterionSourceBinding {
+    SourceCriterionSourceBinding::new(
+        "selected-corpus",
+        "traceability-model",
+        "obligations",
+        selected,
+        SourceContractAuthorId::new("author"),
     )
 }
 
@@ -92,7 +94,7 @@ fn provisional_input_retains_owner_rows_and_authored_assertions_without_a_census
     let assertion = SourceCorrespondenceAssertion::new(
         SourceAssertionId::new("link-1"),
         selected.clone(),
-        criterion(),
+        criterion("AC-1"),
         occurrence(),
         Some(function.clone()),
         SourceAssertionProvenance {
@@ -100,8 +102,15 @@ fn provisional_input_retains_owner_rows_and_authored_assertions_without_a_census
             author: SourceContractAuthorId::new("author"),
         },
     );
-    let input =
-        SourceObligationInput::new(selected.clone(), None, Some(qsl), None, vec![assertion]);
+    let input = SourceObligationInput::new(
+        selected.clone(),
+        Some(binding(selected.clone())),
+        None,
+        None,
+        Some(qsl),
+        None,
+        vec![assertion],
+    );
     assert_eq!(input.source(), &selected);
     assert!(input.ir_v2().is_none());
     assert!(input.quire_code_rs().is_none());
@@ -119,6 +128,113 @@ fn provisional_input_retains_owner_rows_and_authored_assertions_without_a_census
     assert_eq!(report.items()[0].identity(), &qsl_identity);
     assert_eq!(input.assertions().len(), 1);
     assert_eq!(input.assertions()[0].production_function(), Some(&function));
+}
+
+/// Trace: FR-052-AC-14, FR-052-AC-15, TC-452
+#[trace("TC-452", "FR-052-AC-14", "FR-052-AC-15")]
+#[test]
+fn quire_criteria_and_selection_binding_remain_typed_and_distinct() {
+    let selected = source();
+    let first = criterion("AC-1");
+    let second = criterion("AC-2");
+    let rows = vec![
+        SourceInventoryRow::new(
+            selected.clone(),
+            SourceInventoryIdentity::Criterion(first.clone()),
+        ),
+        SourceInventoryRow::new(
+            selected.clone(),
+            SourceInventoryIdentity::Criterion(second.clone()),
+        ),
+    ];
+    assert_ne!(first, second);
+    assert_eq!(first.obligation_declaration(), "obligations");
+    assert_eq!(first.scoped_document(), "spec/model/FR-052.md");
+    assert_eq!(first.criterion_id(), "AC-1");
+    assert_eq!(rows[0].owner(), SourceInventoryOwner::Quire);
+    assert_eq!(rows[1].owner(), SourceInventoryOwner::Quire);
+    assert_ne!(rows[0].identity(), rows[1].identity());
+
+    let quire = SourceInventoryEnvelope::new(
+        SourceInventoryOwner::Quire,
+        selected.clone(),
+        SourceInventoryScope::QuireSelectedAuthoredCriteria,
+        rows.clone(),
+        None,
+    );
+    let link = SourceCorrespondenceAssertion::new(
+        SourceAssertionId::new("link-1"),
+        selected.clone(),
+        first.clone(),
+        occurrence(),
+        None,
+        SourceAssertionProvenance {
+            source: selected.clone(),
+            author: SourceContractAuthorId::new("author"),
+        },
+    );
+    let chosen = binding(selected.clone());
+    let input = SourceObligationInput::new(
+        selected.clone(),
+        Some(chosen.clone()),
+        Some(quire),
+        None,
+        None,
+        None,
+        vec![link],
+    );
+    assert_eq!(input.criterion_source_binding(), Some(&chosen));
+    assert_eq!(chosen.quire_corpus(), "selected-corpus");
+    assert_eq!(chosen.traceability_model(), "traceability-model");
+    assert_eq!(chosen.obligation_scope(), "obligations");
+    assert_eq!(chosen.source(), &selected);
+    assert_eq!(chosen.author().as_str(), "author");
+    assert_eq!(input.quire().expect("Quire report").items(), rows);
+    assert_eq!(input.assertions()[0].criterion(), &first);
+    assert_ne!(input.assertions()[0].criterion(), &second);
+}
+
+/// Trace: FR-052-AC-14, FR-052-AC-15, TC-452
+#[trace("TC-452", "FR-052-AC-14", "FR-052-AC-15")]
+#[test]
+fn quire_outcome_rejects_other_owner_scope_and_rows() {
+    let selected = source();
+    let row = SourceInventoryRow::new(
+        selected.clone(),
+        SourceInventoryIdentity::Criterion(criterion("AC-1")),
+    );
+    let outcome = SourceInventoryOutcome::from_enumerator(TestEnumerator::new(
+        SourceInventoryOwner::Quire,
+        vec![row.clone()],
+    ))
+    .expect("synthetic Quire outcome");
+    assert_eq!(
+        outcome.scope(),
+        SourceInventoryScope::QuireSelectedAuthoredCriteria
+    );
+    assert_eq!(outcome.items(), &[row]);
+
+    let mut wrong_scope = TestEnumerator::new(SourceInventoryOwner::Quire, vec![]);
+    wrong_scope.scope = SourceInventoryScope::QslCheckedRequirementsAndPendingObligations;
+    assert_eq!(
+        SourceInventoryOutcome::from_enumerator(wrong_scope),
+        Err(SourceInventoryOutcomeError::OwnerScopeMismatch)
+    );
+    let qsl_row = SourceInventoryRow::new(
+        selected,
+        SourceInventoryIdentity::RequirementRecord(SourceRequirementOccurrenceId {
+            node: [1; 32],
+            role: "expression".into(),
+            ordinal: 0,
+        }),
+    );
+    assert_eq!(
+        SourceInventoryOutcome::from_enumerator(TestEnumerator::new(
+            SourceInventoryOwner::Quire,
+            vec![qsl_row],
+        )),
+        Err(SourceInventoryOutcomeError::RowOwnerMismatch)
+    );
 }
 
 /// Trace: FR-052-AC-8
@@ -268,6 +384,7 @@ struct TestEnumerator {
 impl TestEnumerator {
     fn new(owner: SourceInventoryOwner, rows: Vec<SourceInventoryRow>) -> Self {
         let scope = match owner {
+            SourceInventoryOwner::Quire => SourceInventoryScope::QuireSelectedAuthoredCriteria,
             SourceInventoryOwner::IrV2 => SourceInventoryScope::IrV2SemanticGraphAndOccurrences,
             SourceInventoryOwner::Qsl => {
                 SourceInventoryScope::QslCheckedRequirementsAndPendingObligations

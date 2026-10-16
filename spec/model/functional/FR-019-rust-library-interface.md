@@ -188,18 +188,17 @@ of the item and are not listed separately.
 | `crate_root` | module `source_obligation` | FR-052 |
 | `crate_root` | module `selected_population` | FR-053 |
 | `selected_population` | function `select_population`; types `CheckedSelectedPopulation`, `CheckedSelectedPopulationOutcome`, `CheckedSelectedPopulationSelector`, `CheckedSelectedPopulationSource` | FR-053 |
-| `source_obligation` | types `SourceAssertionId`, `SourceAssertionProvenance`, `SourceContractAuthorId`, `SourceCorrespondenceAssertion`, `SourceDeclarationHandle`, `SourceExpressionHandle`, `SourceInventoryCancelCause`, `SourceInventoryCompleteness`, `SourceInventoryEnvelope`, `SourceInventoryIdentity`, `SourceInventoryIncompleteReason`, `SourceInventoryOutcome`, `SourceInventoryOutcomeError`, `SourceInventoryOwner`, `SourceInventoryRow`, `SourceInventoryScope`, `SourceObligationInput`, `SourceObligationSite`, `SourcePendingObligationId`, `SourcePendingObligationKind`, `SourceProductionFunctionId`, `SourceProductionModuleId`, `SourceRequirementOccurrenceId`, `SourceSemanticOccurrenceId`, `SourceTypeExhaustion`, `SourceTypeWorkDimension`, `SourceUnitHandle`; trait `SourceInventoryEnumerator` | FR-052-AC-8, FR-052-AC-12 and FR-052-AC-13 (neutral boundary only; owner adapters and FR-052-AC-9 through AC-11 remain Planned) |
+| `source_obligation` | types `SourceAssertionId`, `SourceAssertionProvenance`, `SourceAuthoredCriterionId`, `SourceContractAuthorId`, `SourceCorrespondenceAssertion`, `SourceCriterionSourceBinding`, `SourceDeclarationHandle`, `SourceExpressionHandle`, `SourceInventoryCancelCause`, `SourceInventoryCompleteness`, `SourceInventoryEnvelope`, `SourceInventoryIdentity`, `SourceInventoryIncompleteReason`, `SourceInventoryOutcome`, `SourceInventoryOutcomeError`, `SourceInventoryOwner`, `SourceInventoryRow`, `SourceInventoryScope`, `SourceObligationInput`, `SourceObligationSite`, `SourcePendingObligationId`, `SourcePendingObligationKind`, `SourceProductionFunctionId`, `SourceProductionModuleId`, `SourceRequirementOccurrenceId`, `SourceSemanticOccurrenceId`, `SourceTypeExhaustion`, `SourceTypeWorkDimension`, `SourceUnitHandle`; trait `SourceInventoryEnumerator` | FR-052-AC-8, FR-052-AC-12, FR-052-AC-13 and FR-052-AC-14 (neutral boundary only; owner adapters and FR-052-AC-9 through AC-11 remain Planned) |
 | `checked_package` (ContractPackage v1) | types `ContractBodyIncompleteV1`, `ContractBodyRefusalV1`, `ContractDependencies`, `ContractDependencyInput`, `ContractDispositionV1`, `ContractFeatureRecordV1`, `ContractGuardContextErrorV1`, `ContractGuardContextFailureCauseV1`, `ContractGuardContextFailureV1`, `ContractGuardContextViewV1`, `ContractGuardReferenceV1`, `ContractLoweredGuardContextV1`, `ContractLoweredResultV1`, `ContractNodeSourcesV1`, `ContractOccurrenceKeyV1`, `ContractPackageReadResult`, `ContractPackageV1`, `ContractPackageWireV1`, `ContractPathGuardV1`, `ContractProvenanceV1`, `ContractReachedClosureV1`, `ContractReachedNodeV1`, `ContractRefusalSourcesV1`, `ContractRequestSourcesV1`, `ContractResultBoundV1`, `ContractResultContextV1`, `ContractResultViewV1`, `ContractRootViewError`, `ContractRootViewV1`, `ContractSelectedReferenceV1`, `ContractSemanticGraphV1`, `ContractSourceMapV1`, `ContractSourceV1`, `LoweringProfileRef` | FR-035, FR-049, FR-050 (consumes QSL FR-062 path conditions) |
 
 With the `fault-injection` feature the crate root also exports
 `MappingAllocationPoint`; that item is outside the stable surface.
 
-The table records the compiled public surface. FR-052-AC-14 and AC-15 plan
-`SourceAuthoredCriterionId` and `SourceCriterionSourceBinding` for the
-Quire-authored acceptance-criterion identity and its explicit selected-source
-binding. They enter the table only when implemented. The current
-`SourceInventoryIdentity::Criterion(ClauseRef)` is a provisional identity to
-correct under IR-795; it does not attest an authored acceptance criterion.
+The table records the compiled public surface. `SourceAuthoredCriterionId`
+identifies a Quire-authored acceptance criterion, and
+`SourceCriterionSourceBinding` records the source author's selected Quire scope
+and IR source. The neutral input retains the binding; census refusal on a
+missing, foreign, or conflicting binding remains Planned under FR-052-AC-15.
 
 ## Acceptance Criteria
 

@@ -5,18 +5,19 @@
 //!
 //! Provisional envelopes retain reported rows without claiming completion.
 //! Terminal outcomes retain an enumerator's state, but do not authenticate an
-//! external owner's traversal or claim a completed three-owner census.
+//! external owner's traversal or claim a completed four-owner census.
 
 use std::fmt;
 
 use crate::{
-    CheckedNodeId, CheckedOccurrence, CheckedPackageIncomplete, CheckedSemanticId, ClauseRef,
-    SourceIdentity,
+    CheckedNodeId, CheckedOccurrence, CheckedPackageIncomplete, CheckedSemanticId, SourceIdentity,
 };
 
 /// The owner whose reported rows an envelope carries.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SourceInventoryOwner {
+    /// Quire's selected authored acceptance criteria.
+    Quire,
     /// Contract IR V2 semantic graph and source occurrences.
     IrV2,
     /// QSL checked requirements and native pending obligations.
@@ -28,6 +29,8 @@ pub enum SourceInventoryOwner {
 /// The named scope an owner reports rows for.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SourceInventoryScope {
+    /// Every authored criterion in the selected Quire corpus and obligation scope.
+    QuireSelectedAuthoredCriteria,
     /// Every semantic node and source occurrence in the selected V2 graph.
     IrV2SemanticGraphAndOccurrences,
     /// Every checked requirement and native pending obligation for the request.
@@ -40,6 +43,7 @@ impl SourceInventoryScope {
     /// The only owner that can enumerate this named scope.
     pub const fn owner(self) -> SourceInventoryOwner {
         match self {
+            Self::QuireSelectedAuthoredCriteria => SourceInventoryOwner::Quire,
             Self::IrV2SemanticGraphAndOccurrences => SourceInventoryOwner::IrV2,
             Self::QslCheckedRequirementsAndPendingObligations => SourceInventoryOwner::Qsl,
             Self::QuireCodeRsProductionModulesAndFunctions => SourceInventoryOwner::QuireCodeRs,
@@ -300,11 +304,64 @@ impl SourceSemanticOccurrenceId {
     }
 }
 
+/// Quire's authored criterion within an obligation declaration and scoped document.
+/// This identity is independent of a formal Contract IR clause.
+///
+/// ```compile_fail
+/// use quire_contract_model::source_obligation::SourceAuthoredCriterionId;
+/// use quire_contract_model::{ClauseId, ClauseRef, PackageId, RequirementId, RequirementRef, RequirementRevision};
+/// let clause = ClauseRef::new(
+///     RequirementRef::new(PackageId::new("pkg").unwrap(), RequirementId::new("REQ_a").unwrap(), RequirementRevision::new(1).unwrap()),
+///     ClauseId::new("AC_1").unwrap(),
+/// );
+/// let _: SourceAuthoredCriterionId = clause;
+/// ```
+///
+/// ```compile_fail
+/// use quire_contract_model::source_obligation::{SourceAuthoredCriterionId, SourceRequirementOccurrenceId};
+/// let requirement = SourceRequirementOccurrenceId { node: [1; 32], role: "claim".into(), ordinal: 0 };
+/// let _: SourceAuthoredCriterionId = requirement;
+/// ```
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct SourceAuthoredCriterionId {
+    obligation_declaration: Box<str>,
+    scoped_document: Box<str>,
+    criterion_id: Box<str>,
+}
+
+impl SourceAuthoredCriterionId {
+    /// Retain the three Quire-authored identity components without interpreting them.
+    pub fn new(
+        obligation_declaration: impl Into<Box<str>>,
+        scoped_document: impl Into<Box<str>>,
+        criterion_id: impl Into<Box<str>>,
+    ) -> Self {
+        Self {
+            obligation_declaration: obligation_declaration.into(),
+            scoped_document: scoped_document.into(),
+            criterion_id: criterion_id.into(),
+        }
+    }
+
+    /// Borrow the declared obligation source.
+    pub fn obligation_declaration(&self) -> &str {
+        &self.obligation_declaration
+    }
+    /// Borrow the document path relative to the selected scope.
+    pub fn scoped_document(&self) -> &str {
+        &self.scoped_document
+    }
+    /// Borrow the authored criterion identifier.
+    pub fn criterion_id(&self) -> &str {
+        &self.criterion_id
+    }
+}
+
 /// Typed identity of an item in an owner inventory.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum SourceInventoryIdentity {
-    /// A checked source criterion, identified by its native clause reference.
-    Criterion(ClauseRef),
+    /// A Quire-authored acceptance criterion.
+    Criterion(SourceAuthoredCriterionId),
     /// A complete checked requirement record reported by QSL.
     RequirementRecord(SourceRequirementOccurrenceId),
     /// A semantic node from the selected IR V2 graph.
@@ -327,10 +384,9 @@ pub enum SourceInventoryIdentity {
 impl SourceInventoryIdentity {
     fn owner(&self) -> SourceInventoryOwner {
         match self {
+            Self::Criterion(_) => SourceInventoryOwner::Quire,
             Self::SemanticNode { .. } | Self::SemanticOccurrence(_) => SourceInventoryOwner::IrV2,
-            Self::Criterion(_) | Self::RequirementRecord(_) | Self::PendingObligation(_) => {
-                SourceInventoryOwner::Qsl
-            }
+            Self::RequirementRecord(_) | Self::PendingObligation(_) => SourceInventoryOwner::Qsl,
             Self::ProductionModule(_) | Self::ProductionFunction(_) => {
                 SourceInventoryOwner::QuireCodeRs
             }
@@ -672,6 +728,57 @@ impl SourceContractAuthorId {
     }
 }
 
+/// The source-contract author's explicit link from a selected Quire scope to an IR source.
+/// This records provenance; matching labels do not authenticate equal source bytes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SourceCriterionSourceBinding {
+    quire_corpus: Box<str>,
+    traceability_model: Box<str>,
+    obligation_scope: Box<str>,
+    source: SourceIdentity,
+    author: SourceContractAuthorId,
+}
+
+impl SourceCriterionSourceBinding {
+    /// Retain the selected corpus, validated model, declared scope, source, and author.
+    pub fn new(
+        quire_corpus: impl Into<Box<str>>,
+        traceability_model: impl Into<Box<str>>,
+        obligation_scope: impl Into<Box<str>>,
+        source: SourceIdentity,
+        author: SourceContractAuthorId,
+    ) -> Self {
+        Self {
+            quire_corpus: quire_corpus.into(),
+            traceability_model: traceability_model.into(),
+            obligation_scope: obligation_scope.into(),
+            source,
+            author,
+        }
+    }
+
+    /// Borrow the selected Quire corpus identity.
+    pub fn quire_corpus(&self) -> &str {
+        &self.quire_corpus
+    }
+    /// Borrow the selected validated traceability model identity.
+    pub fn traceability_model(&self) -> &str {
+        &self.traceability_model
+    }
+    /// Borrow the selected obligation declaration scope.
+    pub fn obligation_scope(&self) -> &str {
+        &self.obligation_scope
+    }
+    /// Borrow the source selected by the source-contract author.
+    pub fn source(&self) -> &SourceIdentity {
+        &self.source
+    }
+    /// Borrow the source-contract author identity.
+    pub fn author(&self) -> &SourceContractAuthorId {
+        &self.author
+    }
+}
+
 /// Provenance attached to a source-contract assertion.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct SourceAssertionProvenance {
@@ -686,7 +793,7 @@ pub struct SourceAssertionProvenance {
 pub struct SourceCorrespondenceAssertion {
     id: SourceAssertionId,
     source: SourceIdentity,
-    criterion: ClauseRef,
+    criterion: SourceAuthoredCriterionId,
     occurrence: SourceSemanticOccurrenceId,
     production_function: Option<SourceProductionFunctionId>,
     provenance: SourceAssertionProvenance,
@@ -700,7 +807,7 @@ impl SourceCorrespondenceAssertion {
     pub fn new(
         id: SourceAssertionId,
         source: SourceIdentity,
-        criterion: ClauseRef,
+        criterion: SourceAuthoredCriterionId,
         occurrence: SourceSemanticOccurrenceId,
         production_function: Option<SourceProductionFunctionId>,
         provenance: SourceAssertionProvenance,
@@ -724,7 +831,7 @@ impl SourceCorrespondenceAssertion {
         &self.source
     }
     /// Borrow the criterion endpoint.
-    pub fn criterion(&self) -> &ClauseRef {
+    pub fn criterion(&self) -> &SourceAuthoredCriterionId {
         &self.criterion
     }
     /// Borrow the semantic occurrence endpoint.
@@ -745,6 +852,8 @@ impl SourceCorrespondenceAssertion {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceObligationInput {
     source: SourceIdentity,
+    criterion_source_binding: Option<SourceCriterionSourceBinding>,
+    quire: Option<SourceInventoryEnvelope>,
     ir_v2: Option<SourceInventoryEnvelope>,
     qsl: Option<SourceInventoryEnvelope>,
     quire_code_rs: Option<SourceInventoryEnvelope>,
@@ -756,6 +865,8 @@ impl SourceObligationInput {
     /// No input here proves complete enumeration or an accepted correspondence.
     pub fn new(
         source: SourceIdentity,
+        criterion_source_binding: Option<SourceCriterionSourceBinding>,
+        quire: Option<SourceInventoryEnvelope>,
         ir_v2: Option<SourceInventoryEnvelope>,
         qsl: Option<SourceInventoryEnvelope>,
         quire_code_rs: Option<SourceInventoryEnvelope>,
@@ -763,6 +874,8 @@ impl SourceObligationInput {
     ) -> Self {
         Self {
             source,
+            criterion_source_binding,
+            quire,
             ir_v2,
             qsl,
             quire_code_rs,
@@ -773,6 +886,16 @@ impl SourceObligationInput {
     /// Borrow the selected source.
     pub fn source(&self) -> &SourceIdentity {
         &self.source
+    }
+
+    /// Borrow the explicit Quire-selection-to-source binding, if supplied.
+    pub fn criterion_source_binding(&self) -> Option<&SourceCriterionSourceBinding> {
+        self.criterion_source_binding.as_ref()
+    }
+
+    /// Borrow the reported Quire criterion envelope, if supplied.
+    pub fn quire(&self) -> Option<&SourceInventoryEnvelope> {
+        self.quire.as_ref()
     }
 
     /// Borrow the reported IR V2 envelope, if supplied.
