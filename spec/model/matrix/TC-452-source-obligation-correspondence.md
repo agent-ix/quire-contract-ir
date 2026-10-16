@@ -10,27 +10,13 @@ relationships:
 
 ## Execution Status
 
-Planned/UNRUN. The provisional input port retains typed rows and stop causes,
-but exposes no complete census. No owner adapter yet compares a declared
-complete inventory with the full selected Quire, IR V2, QSL, or `quire-code-rs`
-output. FR-052-AC-8 tests cover only that provisional port; they do not run
-this full-owner procedure. FR-052-AC-17 supersedes AC-8; the census-builder
-code change retires AC-8 under ADR-0056 and removes the envelope port and its
-AC-8 tags (FR-052 Outputs transition list). The narrower IR-794 owner-issued completion boundary
-and its owner-output comparison (FR-052-AC-9 through AC-11) are also UNRUN;
-they do not by themselves complete this four-owner census case.
-The separate synthetic neutral-boundary checks for FR-052-AC-12 and AC-13
-are implemented and traced (tests/it/source_obligation.rs and the
-`SourceInventoryOutcome` `compile_fail` doctests); they cannot discharge AC-9
-through AC-11.
-The neutral identity checks for FR-052-AC-14 are implemented and traced in
-`tests/it/source_obligation.rs`. The port retains a source binding, but AC-15
-remains unbacked and UNRUN until the census builder tests its binding refusals
-and assertion dispositions. The synthetic-census checks for FR-052-AC-17
-through AC-23 are UNRUN until the census builder exists; they cannot discharge
-AC-1 through AC-3, AC-5 through AC-7, or AC-9 through AC-11.
-Quire's selected-scope owner-issued criterion output is pending PLAT-1165;
-therefore this procedure cannot yet claim a full FR-052 or IR-759 census.
+Mixed. The neutral outcome and synthetic census checks for FR-052-AC-4,
+AC-12 through AC-15, and AC-17 through AC-23 are Implemented and traced in
+`tests/it/source_obligation.rs`. FR-052-AC-8 is retired (ADR-0056).
+Owner-native completion, full-output comparison, and the full matched-source
+census remain Planned/UNRUN under AC-1 through AC-3, AC-5 through AC-7,
+AC-9 through AC-11, and AC-16. Quire's selected-scope producer awaits
+PLAT-1165. Synthetic outcomes do not establish owner-native exhaustion.
 
 ## Description
 
