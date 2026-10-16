@@ -135,8 +135,8 @@ fn tc_035_refuses_invalid_binding_population_and_context() {
     }
 }
 
-/// Tracing: TC-015, TC-035, FR-023-AC-6
-#[trace("TC-015", "TC-035", "FR-023-AC-6")]
+/// Tracing: TC-035, FR-023-AC-6
+#[trace("TC-035", "FR-023-AC-6")]
 #[test]
 fn tc_035_projection_revisions_and_offsets_obey_the_schema_boundary() {
     const BOUND: u64 = 9_007_199_254_740_992;
@@ -194,6 +194,10 @@ fn tc_035_projection_revisions_and_offsets_obey_the_schema_boundary() {
                 "{member} at {value}"
             );
             assert_eq!(diagnostics[0].path, "projection", "{member} at {value}");
+            assert_eq!(
+                diagnostics[0].message, "projection does not satisfy its normative schema",
+                "{member} at {value}: the schema, not a typed decoder, refuses it"
+            );
             assert!(
                 diagnostics.iter().all(|diagnostic| !matches!(
                     diagnostic.code,
