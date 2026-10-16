@@ -146,7 +146,7 @@ and exits 0 without reading a corpus.
 | FR-020-AC-12 | A published corpus run exits 0 and emits one row per fixture input, with every row reporting `match`. | Test (TC-018) |
 | FR-020-AC-13 | The published fixture schema rejects `0`, `1.0`, `"+1"`, `"01"`, `"-0"` and `""` in each of the eight integer members. | Test (TC-018) |
 | FR-020-AC-14 | The published package schema rejects a revision and a byte offset of `9007199254740993`. | Test (TC-018) |
-| FR-020-AC-15 | A `document_json` expression document that decodes successfully and that the published schema rejects makes the runner exit 2 with the code `invalid_corpus`. | Test (TC-018) |
+| FR-020-AC-15 | A successful `document_json` expression document that the published schema rejects makes the runner exit 2 with the code `invalid_corpus`. | Test (TC-018) |
 
 ## Dependencies
 
