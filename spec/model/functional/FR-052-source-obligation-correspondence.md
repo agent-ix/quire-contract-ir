@@ -484,17 +484,15 @@ through AC-23 are Implemented for the neutral synthetic boundary with traced
 tests. Assertion deduplication, foreign provenance, rejection precedence,
 and rejection ordering are exercised by AC-19 and AC-22 tests.
 
-FR-052-AC-1, AC-2, AC-3, AC-5 and AC-6 remain Planned. They are to be backed
-by synthetic tests, because their criteria name the neutral public surface, a
-typed fixture, census dispositions and typed census errors, and a synthetic
-test can fail each of them. Owner-native evidence is still required where a
-criterion says so: under AC-6 no Quire `Complete` fixture counts as owner
-evidence until PLAT-1165 supplies it. No synthetic test grants owner-issued
-completeness, owner full-output comparison, or a complete four-owner census.
-TC-452 lists the tests that back each of these criteria. For AC-1 and AC-5
-that is a traced `#[test]` external consumer in a model-crate test target, run
-with the model crate's default features only; a doctest cannot carry the
-trace. Each criterion stays Planned until its tests are written and traced.
+FR-052-AC-1, AC-2, AC-3, AC-5 and AC-6 are Implemented for the neutral
+synthetic boundary with the traced TC-452 tests. The external model-crate test
+runs with default features; the AC-2 fixture verifies both many-to-many and
+unmapped-function assertion sets, input permutations and occurrence removal.
+AC-3 tests assert every named rejection and absence from accepted rows. AC-6
+compares missing and typed incomplete outcomes at every owner position with a
+complete module that has no functions. These synthetic tests grant no
+owner-issued completeness, owner full-output comparison, or complete four-owner
+census.
 
 FR-052-AC-24 holds the conflicting-inventory-facts clause split from AC-3; its
 obligation is unchanged. It stays Planned until Linear IR-820 decides whether

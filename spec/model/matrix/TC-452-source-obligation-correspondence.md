@@ -10,14 +10,12 @@ relationships:
 
 ## Execution Status
 
-Mixed. The neutral outcome and synthetic census checks for FR-052-AC-4,
-AC-12 through AC-15, and AC-17 through AC-23 are Implemented and traced in
-`tests/it/source_obligation.rs`. FR-052-AC-8 is retired (ADR-0056).
-FR-052-AC-1, AC-2, AC-3, AC-5 and AC-6 are Planned, to be backed by the
-synthetic tests listed under "Synthetic backing for FR-052-AC-1, AC-2, AC-3,
-AC-5 and AC-6"; owner-native evidence is still required where a criterion says
-so. FR-052-AC-24, split from AC-3, is Planned until Linear IR-820 settles the
-`SemanticNode` fact. Owner-native completion, full-output comparison, and the
+Mixed. The neutral outcome and synthetic census checks for FR-052-AC-1
+through AC-6, AC-12 through AC-15, and AC-17 through AC-23 are Implemented
+with traced tests in `tests/it/source_obligation.rs` and the default-feature
+model-crate consumer. FR-052-AC-8 is retired (ADR-0056). Owner-native evidence
+is still required where a criterion says so. FR-052-AC-24, split from AC-3, is
+Planned until Linear IR-820 settles the `SemanticNode` fact. Owner-native completion, full-output comparison, and the
 full matched-source census remain Planned/UNRUN under AC-7, AC-9 through
 AC-11, and AC-16. Quire's selected-scope producer awaits PLAT-1165. Synthetic
 outcomes do not establish owner-native exhaustion.
@@ -174,9 +172,9 @@ lies under a conflicting `SemanticNode`, one whose occurrence has no
 
 ### Synthetic backing for FR-052-AC-1, AC-2, AC-3, AC-5 and AC-6
 
-These tests use synthetic outcomes. Each criterion stays Planned until its
-tests below are written and traced; none of them grants owner-issued
-completeness, owner full-output comparison, or a complete four-owner census.
+These tests use synthetic outcomes. Each criterion has the traced tests
+below; none grants owner-issued completeness, owner full-output comparison,
+or a complete four-owner census.
 
 - FR-052-AC-1 and AC-5: add a `#[test]` external consumer in a new
   model-crate integration target,
