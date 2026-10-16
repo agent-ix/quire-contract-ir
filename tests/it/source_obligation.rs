@@ -130,8 +130,8 @@ fn provisional_input_retains_owner_rows_and_authored_assertions_without_a_census
     assert_eq!(input.assertions()[0].production_function(), Some(&function));
 }
 
-/// Trace: FR-052-AC-14, FR-052-AC-15, TC-452
-#[trace("TC-452", "FR-052-AC-14", "FR-052-AC-15")]
+/// Trace: FR-052-AC-14, TC-452
+#[trace("TC-452", "FR-052-AC-14")]
 #[test]
 fn quire_criteria_and_selection_binding_remain_typed_and_distinct() {
     let selected = source();
@@ -194,8 +194,8 @@ fn quire_criteria_and_selection_binding_remain_typed_and_distinct() {
     assert_ne!(input.assertions()[0].criterion(), &second);
 }
 
-/// Trace: FR-052-AC-14, FR-052-AC-15, TC-452
-#[trace("TC-452", "FR-052-AC-14", "FR-052-AC-15")]
+/// Trace: FR-052-AC-14, TC-452
+#[trace("TC-452", "FR-052-AC-14")]
 #[test]
 fn quire_outcome_rejects_other_owner_scope_and_rows() {
     let selected = source();

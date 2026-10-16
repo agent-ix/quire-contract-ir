@@ -307,7 +307,7 @@ impl SourceSemanticOccurrenceId {
 /// Quire's authored criterion within an obligation declaration and scoped document.
 /// This identity is independent of a formal Contract IR clause.
 ///
-/// ```compile_fail
+/// ```compile_fail,E0308
 /// use quire_contract_model::source_obligation::SourceAuthoredCriterionId;
 /// use quire_contract_model::{ClauseId, ClauseRef, PackageId, RequirementId, RequirementRef, RequirementRevision};
 /// let clause = ClauseRef::new(
@@ -317,10 +317,42 @@ impl SourceSemanticOccurrenceId {
 /// let _: SourceAuthoredCriterionId = clause;
 /// ```
 ///
-/// ```compile_fail
+/// ```compile_fail,E0277
+/// use quire_contract_model::source_obligation::SourceAuthoredCriterionId;
+/// use quire_contract_model::{ClauseId, ClauseRef, PackageId, RequirementId, RequirementRef, RequirementRevision};
+/// let clause = ClauseRef::new(
+///     RequirementRef::new(PackageId::new("pkg").unwrap(), RequirementId::new("REQ_a").unwrap(), RequirementRevision::new(1).unwrap()),
+///     ClauseId::new("AC_1").unwrap(),
+/// );
+/// let _: SourceAuthoredCriterionId = SourceAuthoredCriterionId::from(clause);
+/// ```
+///
+/// ```compile_fail,E0277
+/// use quire_contract_model::source_obligation::SourceAuthoredCriterionId;
+/// use quire_contract_model::{ClauseId, ClauseRef, PackageId, RequirementId, RequirementRef, RequirementRevision};
+/// let clause = ClauseRef::new(
+///     RequirementRef::new(PackageId::new("pkg").unwrap(), RequirementId::new("REQ_a").unwrap(), RequirementRevision::new(1).unwrap()),
+///     ClauseId::new("AC_1").unwrap(),
+/// );
+/// let _: SourceAuthoredCriterionId = clause.into();
+/// ```
+///
+/// ```compile_fail,E0308
 /// use quire_contract_model::source_obligation::{SourceAuthoredCriterionId, SourceRequirementOccurrenceId};
 /// let requirement = SourceRequirementOccurrenceId { node: [1; 32], role: "claim".into(), ordinal: 0 };
 /// let _: SourceAuthoredCriterionId = requirement;
+/// ```
+///
+/// ```compile_fail,E0277
+/// use quire_contract_model::source_obligation::{SourceAuthoredCriterionId, SourceRequirementOccurrenceId};
+/// let requirement = SourceRequirementOccurrenceId { node: [1; 32], role: "claim".into(), ordinal: 0 };
+/// let _: SourceAuthoredCriterionId = SourceAuthoredCriterionId::from(requirement);
+/// ```
+///
+/// ```compile_fail,E0277
+/// use quire_contract_model::source_obligation::{SourceAuthoredCriterionId, SourceRequirementOccurrenceId};
+/// let requirement = SourceRequirementOccurrenceId { node: [1; 32], role: "claim".into(), ordinal: 0 };
+/// let _: SourceAuthoredCriterionId = requirement.into();
 /// ```
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SourceAuthoredCriterionId {
