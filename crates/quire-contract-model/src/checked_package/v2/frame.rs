@@ -1,11 +1,12 @@
 //! QSpec FR-340 frame bodies: the closed `{term: "frame", modifies, creates,
-//! deletes}` body of a `state`/`frame` node, and the frame step of the
+//! deletes, deletes_scoped}` body of a `state`/`frame` node, and the frame step of the
 //! reader order.
 //!
 //! [`read_frame_body`] is the shape check the per-node body loop runs: each
 //! member an array of distinct entries, `creates` and `deletes` of node keys
 //! and `modifies` of `FrameModifiesEntry` values, `{kind: "relationship",
-//! declaration}` or `{kind: "field", declaration, name}`. A shape defect
+//! declaration}` or `{kind: "field", declaration, name, scope}`, and
+//! `deletes_scoped` of receiver or named parameter entries. A shape defect
 //! refuses as `invalid_semantic_graph` at the entry (a node key outside the
 //! node domain as `digest_domain_mismatch`), a repeated entry at its second
 //! occurrence.
@@ -30,9 +31,10 @@
 //! its own `declaration` is declared by this package's source, names no
 //! member in its body, and is not resolved against any domain package.
 //!
-//! The reported defect is the least by (position, entry declaration digest,
+//! The reported meaning defect is the least by (position, entry declaration digest,
 //! field name), positions ordered `semantic_type`, `modifies`, `creates`,
-//! `deletes`; with no meaning-join defect, a member not strictly ascending by
+//! `deletes`. A conflicting pair of field scopes follows other meaning defects
+//! and precedes order checks. With no meaning defect, a member not strictly ascending by
 //! its order key refuses as `invalid_semantic_graph` at the frame body,
 //! located at the frame node. The first frame carrying a defect is reported.
 
@@ -46,6 +48,7 @@ use crate::checked_package::common::{
     body_term, exact_members, node_pointer, visit_reference, ReferenceMember, Trail,
     ValidationFailure,
 };
+use crate::checked_package::shared::CheckedPackageRefusalCause;
 use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -55,11 +58,36 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(super) enum ModifiesEntry {
     /// `{kind: "relationship", declaration}`.
     Relationship { declaration: CheckedNodeId },
-    /// `{kind: "field", declaration, name}`.
+    /// `{kind: "field", declaration, name, scope}`.
     Field {
         declaration: CheckedNodeId,
         name: Box<str>,
+        scope: FieldScope,
     },
+}
+
+/// Scope of a field write grant.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) enum FieldScope {
+    EveryObject,
+    Receiver,
+}
+
+impl FieldScope {
+    fn from_wire(value: &str) -> Option<Self> {
+        match value {
+            "every-object" => Some(Self::EveryObject),
+            "receiver" => Some(Self::Receiver),
+            _ => None,
+        }
+    }
+}
+
+/// One scoped deletion grant.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) enum DeletesScopedEntry {
+    Receiver,
+    Parameter { name: Box<str> },
 }
 
 impl ModifiesEntry {
@@ -77,9 +105,13 @@ impl ModifiesEntry {
         }
     }
 
-    /// FR-340's order key: the declaration digest, then the field name.
-    fn order_key(&self) -> (&str, &str) {
-        (&self.declaration().digest, self.name())
+    /// FR-340's order key: the declaration digest, field name, then scope.
+    fn order_key(&self) -> (&str, &str, Option<FieldScope>) {
+        let scope = match self {
+            Self::Relationship { .. } => None,
+            Self::Field { scope, .. } => Some(*scope),
+        };
+        (&self.declaration().digest, self.name(), scope)
     }
 }
 
@@ -89,6 +121,7 @@ pub(super) struct FrameBody {
     pub(super) modifies: Vec<ModifiesEntry>,
     pub(super) creates: Vec<CheckedNodeId>,
     pub(super) deletes: Vec<CheckedNodeId>,
+    pub(super) deletes_scoped: Vec<DeletesScopedEntry>,
 }
 
 /// Reads a `state`/`frame` node's body at `at`, returning it and its work:
@@ -106,7 +139,10 @@ pub(super) fn read_frame_body(
     let Value::Object(object) = body else {
         return Err(invalid(at));
     };
-    if !exact_members(object, &["term", "modifies", "creates", "deletes"]) {
+    if !exact_members(
+        object,
+        &["term", "modifies", "creates", "deletes", "deletes_scoped"],
+    ) {
         return Err(invalid(at));
     }
     if body_term(body) != Some(BodyTerm::Frame) {
@@ -131,16 +167,25 @@ pub(super) fn read_frame_body(
     let deletes_at = at.key("deletes");
     let deletes = read_node_keys(entries("deletes")?, &deletes_at)?;
     reject_repeat(&deletes, &deletes_at)?;
+    let deletes_scoped_at = at.key("deletes_scoped");
+    let deletes_scoped = entries("deletes_scoped")?
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| read_deletes_scoped_entry(entry, &deletes_scoped_at.index(index)))
+        .collect::<Result<Vec<_>, _>>()?;
+    reject_repeat(&deletes_scoped, &deletes_scoped_at)?;
     let count = |len: usize| u64::try_from(len).unwrap_or(u64::MAX);
     let work = 1_u64
         .saturating_add(count(modifies.len()))
         .saturating_add(count(creates.len()))
         .saturating_add(count(deletes.len()));
+    let work = work.saturating_add(count(deletes_scoped.len()));
     Ok((
         FrameBody {
             modifies,
             creates,
             deletes,
+            deletes_scoped,
         },
         work,
     ))
@@ -208,7 +253,7 @@ fn read_modifies_entry(entry: &Value, at: &Trail<'_>) -> Result<ModifiesEntry, V
     let kind = FrameEntryKind::from_wire(kind).ok_or_else(invalid)?;
     let members: &[&str] = match kind {
         FrameEntryKind::Relationship => &["kind", "declaration"],
-        FrameEntryKind::Field => &["kind", "declaration", "name"],
+        FrameEntryKind::Field => &["kind", "declaration", "name", "scope"],
     };
     if !exact_members(object, members) {
         return Err(invalid());
@@ -222,12 +267,46 @@ fn read_modifies_entry(entry: &Value, at: &Trail<'_>) -> Result<ModifiesEntry, V
                 .and_then(Value::as_str)
                 .filter(|name| is_identifier(name))
                 .ok_or_else(invalid)?;
+            let scope = object
+                .get("scope")
+                .and_then(Value::as_str)
+                .and_then(FieldScope::from_wire)
+                .ok_or_else(invalid)?;
             ModifiesEntry::Field {
                 declaration,
                 name: name.into(),
+                scope,
             }
         }
     })
+}
+
+/// One closed scoped-deletion entry at `at`.
+fn read_deletes_scoped_entry(
+    entry: &Value,
+    at: &Trail<'_>,
+) -> Result<DeletesScopedEntry, ValidationFailure> {
+    let invalid = || {
+        ValidationFailure::refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            at.pointer(),
+        )
+    };
+    let Value::Object(object) = entry else {
+        return Err(invalid());
+    };
+    match object.get("kind").and_then(Value::as_str) {
+        Some("receiver") if exact_members(object, &["kind"]) => Ok(DeletesScopedEntry::Receiver),
+        Some("parameter") if exact_members(object, &["kind", "name"]) => {
+            let name = object
+                .get("name")
+                .and_then(Value::as_str)
+                .filter(|name| is_identifier(name))
+                .ok_or_else(invalid)?;
+            Ok(DeletesScopedEntry::Parameter { name: name.into() })
+        }
+        _ => Err(invalid()),
+    }
 }
 
 /// A frame body position, in FR-340's tie-break order.
@@ -446,8 +525,57 @@ fn frame_defect(
             },
         )));
     }
+    let mut scopes = BTreeMap::new();
+    let mut conflict = None;
+    for (entry_index, entry) in body.modifies.iter().enumerate() {
+        if let ModifiesEntry::Field {
+            declaration,
+            name,
+            scope,
+        } = entry
+        {
+            let key = (&declaration.digest, name);
+            if let Some((earlier_scope, earlier_index)) = scopes.insert(key, (*scope, entry_index))
+            {
+                if earlier_scope != *scope {
+                    let receiver_index = if *scope == FieldScope::Receiver {
+                        entry_index
+                    } else {
+                        earlier_index
+                    };
+                    let candidate = (declaration, name.as_ref(), receiver_index);
+                    if conflict
+                        .as_ref()
+                        .is_none_or(|best: &(&CheckedNodeId, &str, usize)| {
+                            (candidate.0.digest.as_ref(), candidate.1)
+                                < (best.0.digest.as_ref(), best.1)
+                        })
+                    {
+                        conflict = Some(candidate);
+                    }
+                }
+            }
+        }
+    }
+    if let Some((declaration, _, receiver_index)) = conflict {
+        return Ok(Some(ValidationFailure::refused_at(
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            node_pointer(frame_position)
+                .key("body")
+                .key("modifies")
+                .index(receiver_index),
+            Some(CheckedPackageRefusalCause::ConflictingBinding),
+            declaration.clone(),
+        )));
+    }
     let ascending = |keys: Vec<(&str, &str)>| keys.windows(2).all(|pair| pair[0] < pair[1]);
-    let in_order = ascending(body.modifies.iter().map(ModifiesEntry::order_key).collect())
+    let modifies_ordered = body
+        .modifies
+        .windows(2)
+        .all(|pair| pair[0].order_key() < pair[1].order_key());
+    let scoped_ordered = body.deletes_scoped.windows(2).all(|pair| pair[0] < pair[1]);
+    let in_order = modifies_ordered
+        && scoped_ordered
         && ascending(body.creates.iter().map(|id| (&*id.digest, "")).collect())
         && ascending(body.deletes.iter().map(|id| (&*id.digest, "")).collect());
     if in_order {

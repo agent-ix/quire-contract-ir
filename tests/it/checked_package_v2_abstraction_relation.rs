@@ -1149,7 +1149,7 @@ fn tc_225_a_node_key_outside_the_node_domain_refuses_as_a_domain_mismatch() {
 // AC-3.
 
 fn state_frame(context: &str) -> Value {
-    let body = json!({"term": "frame", "modifies": [], "creates": [], "deletes": []});
+    let body = json!({"term": "frame", "modifies": [], "creates": [], "deletes": [], "deletes_scoped": []});
     let key = structural_key("state", "frame", Some(context), &body);
     plain(
         &key,

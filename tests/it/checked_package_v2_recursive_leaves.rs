@@ -1156,7 +1156,7 @@ fn residual_compared_operand_rejects_binder_and_aggregate_families_first() {
 fn residual_non_member_terms_refuse_before_operand_family_and_leaves() {
     let (base, _) = equality_package(vec![record("r", &[("n", "integer")])], "r", vec![]);
     for term in [
-        json!({"term":"frame","modifies":[],"creates":[],"deletes":[]}),
+        json!({"term":"frame","modifies":[],"creates":[],"deletes":[],"deletes_scoped":[]}),
         json!({"term":"abstraction_relation","members":[]}),
     ] {
         let mut package = base.clone();
