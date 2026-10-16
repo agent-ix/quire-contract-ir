@@ -26,3 +26,11 @@ FND-001 failure scenario: a merger or later miner reading the PR body records th
 ## Verdict
 
 PASS with one low finding on PR metadata. The code hunk is correct, convention-conforming and binds; the test kills the skip-the-schema-check mutant.
+
+## Dispositions
+
+Round 1, verified against the PR #424 body as returned by `gh pr view 424` at head a287a083ccc652645e665a119f2f6cb59619c26b.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The PR body now states the test carries `FR-020-AC-15` beside `TC-018` (tag and doc line only), and that `quire coverage --strict` stays at 48 unbacked rows before and after because the AC-15 row targets TC-018; the "spec-only, no trace tag" and "47 to 48" claims are gone. Its "495/560 -> 496/560" is the pre-tag commit 79123dd to head (origin/main is 495/559), which is accurate for "before and after the tag". |

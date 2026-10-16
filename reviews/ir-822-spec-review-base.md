@@ -38,3 +38,11 @@ FND-001 failure scenario: a `document_json` expression fixture whose document de
 ## Verdict
 
 PASS with one medium wording finding. The change is additive, ids are stable, matrix and status text are true at head, and the bound test genuinely exercises the criterion (see SR-11852 for the mutation). The coverage count of 48 unbacked rows is correct at base and head and is explained above.
+
+## Dispositions
+
+Round 1, verified at a287a083ccc652645e665a119f2f6cb59619c26b (`git diff edd0830..a287a08`).
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | FR-020-AC-15 (FR-020-json-conformance-interface.md:149) now reads "A successful `document_json` expression document that the published schema rejects makes the runner exit 2 with the code `invalid_corpus`.", matching the Behavior paragraph's "a successful package or `document_json` expression document" and the runner's `valid: true` gate; quire validate clean and quire matrix still binds AC-15 to tests/it/conformance.rs:1471 as tagged. |
