@@ -18,7 +18,9 @@ this full-owner procedure. The narrower IR-794 owner-issued completion boundary
 and its owner-output comparison (FR-052-AC-9 through AC-11) are also UNRUN;
 they do not by themselves complete this four-owner census case.
 The separate synthetic neutral-boundary checks for FR-052-AC-12 and AC-13
-are Planned/UNRUN and cannot discharge AC-9 through AC-11.
+are implemented and traced (tests/it/source_obligation.rs and the
+`SourceInventoryOutcome` `compile_fail` doctests); they cannot discharge AC-9
+through AC-11.
 Quire's selected-scope owner-issued criterion output is pending PLAT-1165;
 therefore this procedure cannot yet claim a full FR-052 or IR-759 census.
 
@@ -60,12 +62,12 @@ including a predicate target. Distinguish changes to each projected field;
 collapse only identical native tuples. Exercise distinct typed QSL exhaustion
 and unfinished-disposition causes, retaining the exhaustion dimension, limit,
 prior, requested charge, and site and the unfinished declaration handle. Have
-each input carry its matching owner, selected source, scope, item count, and the
+each `SourceInventoryOutcome` carry its matching owner, selected source, scope, observed count, and the
 owner-emitted completeness state. Verify that `Complete` is emitted only after
 normal exhaustion of that owner's full scope, and compare every complete
-envelope's entries with the full owner output for that selection. An owner
+outcome's entries with the full owner output for that selection. An owner
 item omitted from an otherwise populated selected source must prevent a
-complete envelope.
+complete outcome.
 
 Until PLAT-1165 provides a Quire API that issues terminal outcomes, record the
 Quire owner portion of this procedure as UNRUN. `obligation::derive` returns
@@ -124,18 +126,21 @@ private, not because of an unrelated import, type or syntax error. A change
 that makes either field public or permits literal construction must turn its
 corresponding negative fixture into an unexpected compile success.
 
-Using a valid selection, omit the Quire, IR V2, QSL, and `quire-code-rs` envelopes one
-at a time. For each owner, also supply a partial enumeration marked
-`Incomplete` with an owner-typed cause; exercise early termination for IR V2,
+Using a valid selection, omit the Quire, IR V2, QSL, and `quire-code-rs` outcomes one
+at a time. For each owner, also supply an outcome from an
+enumerator whose terminal event is `Err(owner-typed cause)`, issued `Incomplete`; exercise early termination for IR V2,
 QSL type-work exhaustion and unfinished typing, and a selected module parse failure
-for `quire-code-rs`. Compare each with an owner response marked `Complete`
+for `quire-code-rs`. Compare each with an outcome issued `Complete` after the enumerator's `Ok(None)`
 whose valid scope contains an empty subinventory, such as the function facts
-for a fully parsed module with no functions. Supply a source mismatch, a wrong
-owner/scope pairing, and an item count that differs from the retained items.
+for a fully parsed module with no functions. Supply to the census an outcome whose source differs from the selected
+source, and a well-formed outcome in the wrong owner position. Separately
+supply an owner/scope pair mismatch to the outcome boundary. Separately supply an observed count that
+differs from the retained rows, and a foreign-source row, to the outcome
+boundary.
 Then build the full two-authored-criterion, three-occurrence, one-empty-module,
 two-function fixture with explicit many-to-many assertions, and exercise
-unmapped entities, foreign and dangling endpoints, exact duplicate inputs,
-conflicting inventory facts, conflicting assertion relation facts, and
+unmapped entities, foreign-source and dangling assertion endpoints, exact duplicate inputs,
+conflicting inventory facts (a `SemanticNode` repeated with one `CheckedNodeId` and differing `CheckedSemanticId`), conflicting assertion relation facts, and
 conflicting assertion provenance. Permute equivalent inputs and remove one
 occurrence from a complete IR V2 inventory.
 
@@ -150,14 +155,16 @@ explicit and missing, foreign and conflicting bindings refuse completion.
 Quire's `Complete` result and the full matched-source result remain UNRUN until
 PLAT-1165 provides an owner-issued outcome and the four real owner selections
 are shown to agree; synthetic criterion fixtures cannot discharge them.
-For each owner, an absent envelope returns `MissingOwnerInventory` with that
-owner and no census. An incomplete envelope returns
+For each owner, an absent outcome returns `MissingOwnerInventory` with that
+owner and no census. An incomplete outcome returns
 `IncompleteOwnerInventory` with the original typed cause and no census. A
 fully parsed production module with no function facts is accepted as complete,
 its module row remains visible, and it differs from both errors. A source
-mismatch returns `InventorySourceMismatch`; a wrong owner/scope returns
-`InventoryScopeMismatch`; and a count mismatch returns
-`InventoryItemCountMismatch`, each with no census. Rejected assertions retain their distinct typed
+mismatch returns `InventorySourceMismatch`; a well-formed outcome in the wrong owner position returns
+`InventoryScopeMismatch`, each with no census; an owner/scope pair mismatch is
+refused earlier as `OwnerScopeMismatch` with no outcome. A count mismatch is
+refused by `SourceInventoryOutcomeError::ObservedCountMismatch` and a foreign
+row by `RowSourceMismatch`, each with no outcome. Rejected assertions retain their distinct typed
 reasons; `ConflictingRelation` and `ConflictingProvenance` are each directly
 observed and neither conflicting relation is accepted. Exact duplicates
 collapse, conflicting inventory entries remain inspectable, equivalent input
