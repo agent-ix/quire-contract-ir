@@ -61,3 +61,16 @@ the AC-172 row is unchanged and keeps its AC-252 supersession pointer.
 
 PASS with two low test-clarity findings. The production change is correct
 against FR-322-AC-57 order, RN-18 and RN-20..27 and Y18; no blocking defect.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fix commit 6ec6ec9: the AC-252 test now reads the body, operand count and result form back from the admitted graph (`admitted_reaches`) and adds a tamper control per multiplicity that inserts a `multiplicity` member, re-keys the node and expects non-admission. Probed: the tampered package refuses `invalid_semantic_graph` at `/semantic_graph/nodes/6/body`, and the same re-keying without the member admits, so the refusal comes from the member. |
+| FND-002 | fixed | Fix commit 6ec6ec9: the wrong-direction case now sets `sourceEnd` to `{0,3}` not unique, so `linkedBy` traverses a wrong-direction multi-valued end; a mutant that decides direction before operand 1 turns this test red. |
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | low | The AC-252 tamper control asserts only that the tampered package is not admitted; any refusal passes, including one caused by a re-keying mistake in the test. It refuses correctly today (`invalid_semantic_graph` at `/semantic_graph/nodes/6/body`), but the assertion should pin that code and path so it cannot later pass for the wrong reason. | tests/it/checked_package_v2_model_members.rs:1440-1467 |

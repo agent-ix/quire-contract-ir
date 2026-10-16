@@ -36,3 +36,9 @@ Mergeable after FND-001 is fixed: author the multi-valued end's own
 `Set<Reference<Order>>[l,u]` (and a `Bag` variant) type node as the result in
 the AC-257 test, recomputing identities, and assert the `body/result_type`
 refusal.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fix commit 6ec6ec9: the AC-257 test authors the `[1,3]` end's own navigation type (`set` for unique, `bag` for not unique, via `bounded_collection`, the same builder the navigate tests use) as `result_type`, re-keys the node and asserts `ill_typed`/`operator-ineligible` at `/semantic_graph/nodes/6/body/result_type`. Re-ran the surviving mutant (reader admits when `result_type` equals the `navigation_type` key): the AC-257 test now fails (the package is admitted), so the fixture key equals the reader's navigation key and the refusal is pinned. |

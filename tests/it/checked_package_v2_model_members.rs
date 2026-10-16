@@ -1458,12 +1458,16 @@ fn tc_048_reaches_finite_multivalued_ends_keep_the_single_valued_node_shape() {
             ));
             rebuild_source_map(&mut tampered);
             refresh_identity(&mut tampered);
-            assert!(
-                !matches!(
-                    read(&tampered, &evidence),
-                    CheckedPackageV2ReadResult::Admitted(_)
-                ),
+            let refusal = refused(&tampered, &evidence);
+            assert_eq!(
+                refusal.code,
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
                 "{lower}..{upper}, unique={unique}: a multiplicity member must be refused"
+            );
+            assert_eq!(
+                refusal.path.as_ref().map(ToString::to_string).as_deref(),
+                Some("/semantic_graph/nodes/6/body"),
+                "{lower}..{upper}, unique={unique}"
             );
         }
     }
