@@ -346,6 +346,87 @@ The adverse packages must be valid through earlier wire, identity and resource
 checks so they distinguish these admission failures from the existing first
 refusal order. These cases do not assert an admitted same-width IEEE operation.
 
+PLANNED/UNRUN (IR-225; FR-038-AC-247 through FR-038-AC-251). Build fresh otherwise valid
+`quire.op.ieee.to_rational` applications for both Float32 and Float64 source
+operands, using the catalogue's `member` result form, `type_argument` member
+and `member_family: rational` constraint. For each source width, admit the
+rational/rational member declaration and `result_type` pair. Then separately
+read float/float (the source width in both positions), float/rational and
+rational/float pairs. Match the root node's `semantic_type` to each candidate
+`result_type` so the root mismatch rule cannot decide the case. Independently
+re-derive all affected node keys, references, identity projection and package
+identity before each public read. Each adverse package must pass earlier wire,
+identity and resource checks and refuse `ill_typed`/`operator-ineligible` at
+`/semantic_graph/nodes/{i}/body/result_type`, with the application node as
+locus: float/rational and rational/float exercise equality (AC-247), while
+float/float exercises the resolved-family constraint (AC-248). A valid
+`quire.op.quantity.convert` into a `compound_unit` with equal member declaration
+and result must admit despite its unresolved family, as FR-038 defers that
+family ruling to FR-322 (AC-248). A resolved non-quantity declared type with
+equal member and result on an otherwise valid `quantity.convert` must refuse at
+`result_type` by its `member_family` constraint (AC-248). Add an otherwise valid
+`quire.op.collection.size` public-reader package with a collection-kind operand,
+a `model_population` type-argument declaration whose semantic type is its
+`Set<Reference<T>>` base, and `result_type` equal to that declaration. It must
+remain admitted: this result check skips the unresolved `model_population`
+family rather than applying the generic walk's `set` family to the entry's
+`integer` member-family constraint (AC-248).
+
+For AC-249, separately remove `declaration`, malform its node id, and replace
+it with a `type_argument` key on an otherwise valid type-argument member.
+Each refuses `invalid_package`/`operation-member-mismatch` at
+`/semantic_graph/nodes/{i}/body/operation/member`, with the application node
+as locus. The code PR updates the eleven existing IR fixtures that spell
+`member.type_argument` to `member.declaration`; it adds no alternate reader.
+
+For AC-250, start from admitted `quire.op.numeric.narrow` and
+`quire.op.quantity.convert` fixtures with `member.declaration == result_type`.
+For each identity, change only `result_type` and the enclosing root
+`semantic_type` to a distinct valid type while keeping the member declaration
+and all other operation requirements valid. Re-derive affected identities and
+require `ill_typed`/`operator-ineligible` at application `result_type`, with
+the application node as locus. These are two distinct non-IEEE catalogue
+entries. Exercise the existing `field` case in
+`tests/it/checked_package_v2_model_fields.rs` (`record.project`) and the
+`relationship_end` and `operation` cases in
+`tests/it/checked_package_v2_model_members.rs` (`model.navigate` and
+`model.dispatch_call`). The code PR adds one admitted public-reader package
+for `tuple.project` (`position`) and one for `collection.index` (`element`),
+since neither kind has an existing IR case. In each new package, make the
+member declaration differ from `result_type` and require continued admission;
+applying the type-argument equality rule to either kind must fail this check.
+
+For AC-251, at an isolated catalogue-entry seam, change a currently catalogued
+type-argument member-result entry's result form and member kind separately,
+and remove its required `member_family` separately. Each shape defect refuses
+the typed package rather than silently dropping the result rule. A changed
+member kind that disagrees with the wire member first refuses
+`invalid_package`/`operation-member-mismatch` at `operation.member`; where
+that earlier check passes, the shape guard refuses
+`ill_typed`/`operator-ineligible` at application `result_type`. Check the
+IEEE pair as the AC-223 invariant.
+For a two-defect `quantity.convert` with wrong `result_type` and wrong
+rounding-mode type, require the result refusal first; the result check runs
+after member shape and operand checks and before `result_inner`, state-clause
+result, model-member, mode-type and leaf checks (AC-247). Compare typed code,
+cause, pointer and locus throughout.
+
+The catalogue's `result: member` entries with `member: type_argument` are
+`quire.op.quantity.convert`, `quire.op.ieee.to_float32`,
+`quire.op.ieee.to_float64`, `quire.op.ieee.to_rational`,
+`quire.op.ieee.from_exact`, `quire.op.reference.upcast`,
+`quire.op.numeric.convert`, `quire.op.numeric.convert_rounding`,
+`quire.op.numeric.narrow`, `quire.op.rational.narrow`,
+`quire.op.collection.fold`, `quire.op.collection.reduce`,
+`quire.op.collection.count`, `quire.op.collection.sum.integer`,
+`quire.op.collection.sum.rational`, `quire.op.collection.sum.decimal`,
+`quire.op.collection.sum.float32`, `quire.op.collection.sum.float64`,
+`quire.op.collection.sum.quantity`, `quire.op.collection.size` and
+`quire.op.collection.convert`. The five other `result: member` entries are
+`quire.op.record.project` (`field`), `quire.op.tuple.project` (`position`),
+`quire.op.collection.index` (`element`), `quire.op.model.navigate`
+(`relationship_end`) and `quire.op.model.dispatch_call` (`operation`).
+
 ## Selections bind by identity (FR-038-AC-62 through FR-038-AC-64)
 
 Build a package whose lock and identity preimage carry the same
