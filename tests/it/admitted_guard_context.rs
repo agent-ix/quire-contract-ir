@@ -156,7 +156,7 @@ fn guard_source() -> Value {
                 "identity": "quire.op.numeric.narrow",
                 "laws": [],
                 "mode": null,
-                "member": {"kind": "type_argument", "type_argument": node_id(&family_key("cccc"))},
+                "member": {"kind": "type_argument", "declaration": node_id(&family_key("cccc"))},
                 "leaves": [],
             }),
             &family_key("cccc"),

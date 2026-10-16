@@ -407,6 +407,15 @@ fn read_fairness_member(member: &Value) -> Option<FairnessMember> {
     (member.kind == OperationMemberKind::Fairness && is_identifier(&member.name)).then_some(member)
 }
 
+/// Closed type-argument member; the declaration is validated as a node id.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TypeArgumentMember {
+    kind: OperationMemberKind,
+    #[serde(rename = "declaration")]
+    _declaration: CheckedNodeId,
+}
+
 /// Whether `member` has the closed shape its catalogued member `kind`
 /// requires; the other member kinds are checked elsewhere.
 pub(in crate::checked_package) fn member_is_well_formed(
@@ -416,12 +425,13 @@ pub(in crate::checked_package) fn member_is_well_formed(
     match kind {
         OperationMemberKind::TemporalInterval => read_interval_member(member).is_some(),
         OperationMemberKind::Fairness => read_fairness_member(member).is_some(),
+        OperationMemberKind::TypeArgument => TypeArgumentMember::deserialize(member)
+            .is_ok_and(|member| member.kind == OperationMemberKind::TypeArgument),
         OperationMemberKind::Field
         | OperationMemberKind::Position
         | OperationMemberKind::Element
         | OperationMemberKind::RelationshipEnd
         | OperationMemberKind::Operation
-        | OperationMemberKind::TypeArgument
         | OperationMemberKind::ProfileOperator
         | OperationMemberKind::StateClause => true,
     }

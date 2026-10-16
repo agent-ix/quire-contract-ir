@@ -700,7 +700,7 @@ fn quantity_family_checks_every_catalogued_quantity_operand() {
             Value::Null
         };
         let member = if convert {
-            json!({"kind": "type_argument", "type_argument": node_id(&unit)})
+            json!({"kind": "type_argument", "declaration": node_id(&unit)})
         } else {
             Value::Null
         };
@@ -992,7 +992,7 @@ fn quantity_conversion_defaults_to_exact_rounding() {
         operation(
             "quire.op.quantity.convert",
             json!({"kind": "rounding", "value": "exact"}),
-            json!({"kind": "type_argument", "type_argument": node_id(&unit)}),
+            json!({"kind": "type_argument", "declaration": node_id(&unit)}),
         ),
         &unit,
         vec![reference(&left)],
@@ -1009,10 +1009,366 @@ fn quantity_conversion_defaults_to_exact_rounding() {
     );
 }
 
-/// Trace: TC-048, FR-038-AC-213
-#[trace("TC-048", "FR-038-AC-213")]
+/// Trace: TC-048, FR-038-AC-247, FR-038-AC-248, FR-038-AC-250.
+#[trace("TC-048", "FR-038-AC-247", "FR-038-AC-248", "FR-038-AC-250")]
 #[test]
-fn quantity_sum_uses_its_result_type_exact_rounding_pin() {
+fn quantity_convert_checks_member_result_before_rounding_type() {
+    let (mut valid, unit, _, integer, left, _) = fixture();
+    let at = append_application(
+        &mut valid,
+        "convert",
+        "conversion",
+        operation(
+            "quire.op.quantity.convert",
+            json!({"kind": "rounding", "value": "exact"}),
+            json!({"kind": "type_argument", "declaration": node_id(&unit)}),
+        ),
+        &unit,
+        vec![reference(&left)],
+    );
+    admits(&valid);
+    for (declaration, result, wrong_mode) in [
+        (unit.as_str(), integer.as_str(), false),
+        // The unit result also requires exact rounding, so this is a real
+        // mode-type defect if the result check is moved later.
+        (integer.as_str(), unit.as_str(), true),
+        (integer.as_str(), integer.as_str(), false),
+    ] {
+        let mut adverse = valid.clone();
+        let node = &mut adverse["semantic_graph"]["nodes"][at];
+        node["body"]["operation"]["member"]["declaration"] = node_id(declaration);
+        node["body"]["result_type"] = node_id(result);
+        node["semantic_type"] = node_id(result);
+        if wrong_mode {
+            node["body"]["operation"]["mode"]["value"] = json!("toward-zero");
+        }
+        settle(&mut adverse);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&adverse) else {
+            panic!("quantity.convert must refuse member/result {declaration}/{result}");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::IllTyped,
+            "{refusal:?}"
+        );
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::OperatorIneligible)
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(ToString::to_string),
+            Some(format!("/semantic_graph/nodes/{at}/body/result_type"))
+        );
+        assert_eq!(
+            serde_json::to_value(refusal.locus).expect("locus"),
+            adverse["semantic_graph"]["nodes"][at]["node_id"]
+        );
+    }
+
+    let mut operand_and_result = valid.clone();
+    let node = &mut operand_and_result["semantic_graph"]["nodes"][at];
+    node["body"]["result_type"] = node_id(&integer);
+    node["semantic_type"] = node_id(&integer);
+    node["body"]["arguments"] = json!([]);
+    settle(&mut operand_and_result);
+    refuses(
+        &operand_and_result,
+        CheckedPackageRefusalCode::IllTyped,
+        CheckedPackageRefusalCause::OperatorIneligible,
+        &format!("/semantic_graph/nodes/{at}/body/arguments"),
+    );
+}
+
+/// Trace: TC-048, FR-038-AC-250.
+#[trace("TC-048", "FR-038-AC-250")]
+#[test]
+fn position_and_element_member_results_do_not_require_declaration_equality() {
+    let (mut tuple_package, _, _, integer, _, _) = fixture();
+    let tuple_body = json!({"term": "aggregate", "members": [reference(&integer)]});
+    let tuple = structural_key("composite_type", "tuple", None, &tuple_body);
+    add_node(
+        &mut tuple_package,
+        &tuple,
+        "composite_type",
+        "tuple",
+        &tuple,
+        tuple_body,
+    );
+    append_application(
+        &mut tuple_package,
+        "query",
+        "query",
+        operation(
+            "quire.op.tuple.project",
+            Value::Null,
+            json!({"kind": "position", "declaration": node_id(&tuple), "index": 0}),
+        ),
+        &integer,
+        vec![reference(&tuple)],
+    );
+    admits(&tuple_package);
+
+    let (mut index_package, _, _, integer, _, _) = fixture();
+    let set_body = json!({"term": "aggregate", "members": [reference(&integer)]});
+    let set = structural_key("composite_type", "set", None, &set_body);
+    add_node(
+        &mut index_package,
+        &set,
+        "composite_type",
+        "set",
+        &set,
+        set_body,
+    );
+    append_application(
+        &mut index_package,
+        "query",
+        "query",
+        operation(
+            "quire.op.collection.index",
+            Value::Null,
+            json!({"kind": "element", "declaration": node_id(&set)}),
+        ),
+        &integer,
+        vec![
+            reference(&set),
+            json!({"term":"literal","type":node_id(&integer),"value_kind":"integer","value":"0"}),
+        ],
+    );
+    admits(&index_package);
+}
+
+/// Trace: TC-048, FR-038-AC-247, FR-038-AC-248.
+#[trace("TC-048", "FR-038-AC-247", "FR-038-AC-248")]
+#[test]
+fn quantity_convert_admits_equal_compound_unit_result() {
+    let (mut package, unit, _, integer, left, _) = fixture();
+    let body = json!({"term":"aggregate","members":[{"term":"aggregate","members":[
+        {"term":"binding","name":"unit","value":reference(&unit)},
+        {"term":"binding","name":"exponent","value":{"term":"literal","type":node_id(&integer),"value_kind":"integer","value":"2"}}
+    ]}]});
+    let compound = structural_key("scalar_type", "compound_unit", None, &body);
+    add_node(
+        &mut package,
+        &compound,
+        "scalar_type",
+        "compound_unit",
+        &compound,
+        body,
+    );
+    let compound_at = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    package["semantic_graph"]["nodes"][compound_at]["dependencies"] = json!([node_id(&unit)]);
+    let at = append_application(
+        &mut package,
+        "convert",
+        "conversion",
+        operation(
+            "quire.op.quantity.convert",
+            json!({"kind":"rounding","value":"exact"}),
+            json!({"kind":"type_argument","declaration":node_id(&compound)}),
+        ),
+        &compound,
+        vec![reference(&left)],
+    );
+    admits(&package);
+    package["semantic_graph"]["nodes"][at]["body"]["result_type"] = node_id(&unit);
+    package["semantic_graph"]["nodes"][at]["semantic_type"] = node_id(&unit);
+    settle(&mut package);
+    refuses(
+        &package,
+        CheckedPackageRefusalCode::IllTyped,
+        CheckedPackageRefusalCause::OperatorIneligible,
+        &format!("/semantic_graph/nodes/{at}/body/result_type"),
+    );
+}
+
+/// Trace: TC-048, FR-038-AC-247, FR-038-AC-248.
+#[trace("TC-048", "FR-038-AC-247", "FR-038-AC-248")]
+#[test]
+fn collection_size_admits_equal_model_population_result() {
+    let (mut package, unit, _, integer, _, _) = fixture();
+    let reference_body = json!({"term":"aggregate","members":[reference(&unit)]});
+    let reference_type = structural_key("composite_type", "reference", None, &reference_body);
+    add_node(
+        &mut package,
+        &reference_type,
+        "composite_type",
+        "reference",
+        &reference_type,
+        reference_body,
+    );
+    let set_body = json!({"term":"aggregate","members":[reference(&reference_type)]});
+    let set = structural_key("composite_type", "set", None, &set_body);
+    add_node(&mut package, &set, "composite_type", "set", &set, set_body);
+    let population_body = json!({"term":"aggregate","members":[]});
+    let population = structural_key(
+        "bounded_domain",
+        "model_population",
+        Some(&set),
+        &population_body,
+    );
+    add_node(
+        &mut package,
+        &population,
+        "bounded_domain",
+        "model_population",
+        &set,
+        population_body,
+    );
+    let at = append_application(
+        &mut package,
+        "collection",
+        "collection",
+        operation(
+            "quire.op.collection.size",
+            Value::Null,
+            json!({"kind":"type_argument","declaration":node_id(&population)}),
+        ),
+        &population,
+        vec![reference(&set)],
+    );
+    admits(&package);
+    package["semantic_graph"]["nodes"][at]["body"]["result_type"] = node_id(&integer);
+    package["semantic_graph"]["nodes"][at]["semantic_type"] = node_id(&integer);
+    settle(&mut package);
+    refuses(
+        &package,
+        CheckedPackageRefusalCode::IllTyped,
+        CheckedPackageRefusalCause::OperatorIneligible,
+        &format!("/semantic_graph/nodes/{at}/body/result_type"),
+    );
+}
+
+/// Trace: TC-048, FR-038-AC-247, FR-038-AC-248.
+#[trace("TC-048", "FR-038-AC-247", "FR-038-AC-248")]
+#[test]
+fn fold_and_reduce_admit_without_member_family_and_refuse_unequal_result() {
+    for identity in ["quire.op.collection.fold", "quire.op.collection.reduce"] {
+        let (mut package, _, boolean, integer, _, _) = fixture();
+        let set_body = json!({"term":"aggregate","members":[reference(&integer)]});
+        let set = structural_key("composite_type", "set", None, &set_body);
+        add_node(&mut package, &set, "composite_type", "set", &set, set_body);
+        let value =
+            json!({"term":"literal","type":node_id(&integer),"value_kind":"integer","value":"1"});
+        let mut arguments = vec![
+            reference(&set),
+            json!({"term":"binding","name":"item","value":value}),
+        ];
+        if identity.ends_with("fold") {
+            arguments.push(json!({"term":"literal","type":node_id(&integer),"value_kind":"integer","value":"0"}));
+        }
+        let at = append_application(
+            &mut package,
+            "collection",
+            "collection",
+            operation(
+                identity,
+                Value::Null,
+                json!({"kind":"type_argument","declaration":node_id(&integer)}),
+            ),
+            &integer,
+            arguments,
+        );
+        admits(&package);
+        package["semantic_graph"]["nodes"][at]["body"]["result_type"] = node_id(&boolean);
+        package["semantic_graph"]["nodes"][at]["semantic_type"] = node_id(&boolean);
+        settle(&mut package);
+        refuses(
+            &package,
+            CheckedPackageRefusalCode::IllTyped,
+            CheckedPackageRefusalCause::OperatorIneligible,
+            &format!("/semantic_graph/nodes/{at}/body/result_type"),
+        );
+    }
+}
+
+/// Trace: TC-048, FR-038-AC-247, FR-038-AC-248.
+#[trace("TC-048", "FR-038-AC-247", "FR-038-AC-248")]
+#[test]
+fn non_member_model_results_remain_admitted() {
+    for lookup in [false, true] {
+        let (mut package, unit, _, _, left, _) = fixture();
+        let reference_body = json!({"term":"aggregate","members":[reference(&unit)]});
+        let reference_type = structural_key("composite_type", "reference", None, &reference_body);
+        add_node(
+            &mut package,
+            &reference_type,
+            "composite_type",
+            "reference",
+            &reference_type,
+            reference_body,
+        );
+        let result_form = if lookup { "option" } else { "set" };
+        let result_body = json!({"term":"aggregate","members":[reference(if lookup { &unit } else { &reference_type })]});
+        let result = structural_key("composite_type", result_form, None, &result_body);
+        add_node(
+            &mut package,
+            &result,
+            "composite_type",
+            result_form,
+            &result,
+            result_body,
+        );
+        let text = structural_key(
+            "scalar_type",
+            "text",
+            None,
+            &json!({"term":"aggregate","members":[]}),
+        );
+        let population_body = json!({"term":"aggregate","members":[{"term":"binding","name":"identity","value":{
+            "term":"literal","type":node_id(&text),"value_kind":"text","value":"population-a"}}]});
+        let population = structural_key("relation", "population", None, &population_body);
+        add_node(
+            &mut package,
+            &population,
+            "relation",
+            "population",
+            &population,
+            population_body,
+        );
+        let mut arguments = vec![reference(&population)];
+        if lookup {
+            let body = reference(&left);
+            let expression =
+                structural_key("expression", "reference", Some(&reference_type), &body);
+            add_node(
+                &mut package,
+                &expression,
+                "expression",
+                "reference",
+                &reference_type,
+                body,
+            );
+            arguments.push(reference(&expression));
+        }
+        append_application(
+            &mut package,
+            "query",
+            "query",
+            operation(
+                if lookup {
+                    "quire.op.model.lookup"
+                } else {
+                    "quire.op.model.all_instances"
+                },
+                if lookup {
+                    json!({"kind":"absence","value":"option"})
+                } else {
+                    Value::Null
+                },
+                json!({"kind":"type_argument","declaration":node_id(&unit)}),
+            ),
+            &result,
+            arguments,
+        );
+        admits(&package);
+    }
+}
+
+pub(crate) fn quantity_sum_control() -> (Value, usize) {
     let (mut package, unit, _, _, left, _) = fixture();
     let set_body = json!({"term": "aggregate", "members": [reference(&unit)]});
     let set = structural_key("composite_type", "set", None, &set_body);
@@ -1024,7 +1380,7 @@ fn quantity_sum_uses_its_result_type_exact_rounding_pin() {
         operation(
             "quire.op.collection.sum.quantity",
             json!({"kind": "rounding", "value": "exact"}),
-            json!({"kind": "type_argument", "type_argument": node_id(&unit)}),
+            json!({"kind": "type_argument", "declaration": node_id(&unit)}),
         ),
         &unit,
         vec![
@@ -1032,6 +1388,14 @@ fn quantity_sum_uses_its_result_type_exact_rounding_pin() {
             json!({"term": "binding", "name": "item", "value": reference(&left)}),
         ],
     );
+    (package, at)
+}
+
+/// Trace: TC-048, FR-038-AC-213
+#[trace("TC-048", "FR-038-AC-213")]
+#[test]
+fn quantity_sum_uses_its_result_type_exact_rounding_pin() {
+    let (mut package, at) = quantity_sum_control();
     admits(&package);
     package["semantic_graph"]["nodes"][at]["body"]["operation"]["mode"]["value"] =
         json!("toward-zero");

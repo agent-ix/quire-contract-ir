@@ -511,6 +511,21 @@ fn admit(document: &Value, declared: &[(&str, &str)], reads: &[Read]) -> Checked
     }
 }
 
+pub(crate) fn record_project_control() -> (Value, CheckedPackageEvidence) {
+    let document = document(vec![object(
+        ORDER,
+        &[],
+        &[field("string", "ix://quire/native/String")],
+    )]);
+    let read = Read {
+        owner: ORDER,
+        field: "string",
+        ty: Ty::String,
+    };
+    let (package, evidence, _) = self::package(&document, &[(ORDER, OBJECT)], &[read]);
+    (package, evidence)
+}
+
 fn declaration_id(short: &str) -> CheckedNodeId {
     serde_json::from_value(node_id(&declaration_key(short, OBJECT))).expect("a node id")
 }

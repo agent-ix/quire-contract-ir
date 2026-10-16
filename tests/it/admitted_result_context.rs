@@ -10,10 +10,11 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     BoundedDomainForm, CheckedNodeId, CheckedNodeTag, CheckedOccurrenceRole,
-    CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CompleteLoweringProfileV2, ContractDependencies, ContractFeatureRecordV1,
-    ContractOccurrenceKeyV1, ContractPackageReadResult, ContractPackageV1, ContractPackageWireV1,
-    ContractResultContextV1, ContractResultViewV1, ContractRootViewError, LoweringProfileRef,
+    CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+    CheckedPackageV2, CheckedPackageV2ReadResult, CompleteLoweringProfileV2, ContractDependencies,
+    ContractFeatureRecordV1, ContractOccurrenceKeyV1, ContractPackageReadResult, ContractPackageV1,
+    ContractPackageWireV1, ContractResultContextV1, ContractResultViewV1, ContractRootViewError,
+    LoweringProfileRef,
 };
 use serde_json::{json, Value};
 
@@ -52,7 +53,7 @@ fn expression_ref(digest: &str) -> Value {
 /// Builds test-authored integer intervals matching FR-049's QSL declaration.
 /// This is an IR reader fixture; the named producer lane separately checks
 /// the source-to-wire correspondence with QSL's current compiler.
-fn fixture() -> Value {
+pub(crate) fn fixture() -> Value {
     let mut value = v2_all_families();
     let integer = family_key("a3a3");
     let text = family_key("a1a1");
@@ -115,7 +116,7 @@ fn fixture() -> Value {
             "convert",
             operation(
                 "quire.op.numeric.narrow",
-                json!({"kind": "type_argument", "type_argument": node_id(&result_bound)}),
+                json!({"kind": "type_argument", "declaration": node_id(&result_bound)}),
             ),
             &result_bound,
             vec![expression_ref(&add)],
@@ -128,6 +129,48 @@ fn fixture() -> Value {
     mint_ungrouped_structural_keys(&mut value);
     settle(&mut value);
     value
+}
+
+/// Trace: TC-048, FR-038-AC-247, FR-038-AC-250.
+#[trace("TC-048", "FR-038-AC-247", "FR-038-AC-250")]
+#[test]
+fn tc_048_numeric_narrow_result_equals_type_argument() {
+    let mut wire = fixture();
+    let at = wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["body"]["operation"]["identity"] == "quire.op.numeric.narrow")
+        .expect("narrow");
+    admit(&wire);
+    let integer = family_key("a3a3");
+    wire["semantic_graph"]["nodes"][at]["body"]["result_type"] = node_id(&integer);
+    wire["semantic_graph"]["nodes"][at]["semantic_type"] = node_id(&integer);
+    settle(&mut wire);
+    let CheckedPackageV2ReadResult::Refused(refusal) = CheckedPackageV2::read(
+        &canonical(&wire),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&wire),
+    ) else {
+        panic!("numeric.narrow mismatch must refuse");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::IllTyped,
+        "{refusal:?}"
+    );
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::OperatorIneligible)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{at}/body/result_type"))
+    );
+    assert_eq!(
+        serde_json::to_value(refusal.locus).expect("locus"),
+        wire["semantic_graph"]["nodes"][at]["node_id"]
+    );
 }
 
 fn admit(value: &Value) -> CheckedPackageV2 {
@@ -509,7 +552,7 @@ fn tc_447_represented_wrong_conversion_shapes_refuse_without_a_bound() {
             "convert",
             operation(
                 "quire.op.numeric.narrow",
-                json!({"kind": "type_argument", "type_argument": node_id(&result_bound)}),
+                json!({"kind": "type_argument", "declaration": node_id(&result_bound)}),
             ),
             &result_bound,
             vec![expression_ref(&other_add_key)],
@@ -524,7 +567,7 @@ fn tc_447_represented_wrong_conversion_shapes_refuse_without_a_bound() {
             "convert",
             operation(
                 "quire.op.numeric.convert",
-                json!({"kind": "type_argument", "type_argument": node_id(&rational)}),
+                json!({"kind": "type_argument", "declaration": node_id(&rational)}),
             ),
             &rational,
             vec![expression_ref(&add_key)],
@@ -738,7 +781,7 @@ fn tc_447_direct_bounded_expression_keeps_own_result_until_its_narrow_is_selecte
             "convert",
             operation(
                 "quire.op.numeric.narrow",
-                json!({"kind": "type_argument", "type_argument": node_id(&result_bound)}),
+                json!({"kind": "type_argument", "declaration": node_id(&result_bound)}),
             ),
             &result_bound,
             vec![expression_ref(&expression_key)],
@@ -841,7 +884,7 @@ fn tc_447_shared_expression_uses_each_supplied_occurrence_and_direct_narrow() {
             "convert",
             operation(
                 "quire.op.numeric.narrow",
-                json!({"kind": "type_argument", "type_argument": node_id(&other_bound)}),
+                json!({"kind": "type_argument", "declaration": node_id(&other_bound)}),
             ),
             &other_bound,
             vec![expression_ref(&add_key)],

@@ -346,7 +346,7 @@ The adverse packages must be valid through earlier wire, identity and resource
 checks so they distinguish these admission failures from the existing first
 refusal order. These cases do not assert an admitted same-width IEEE operation.
 
-PLANNED/UNRUN (IR-225; FR-038-AC-247 through FR-038-AC-251). Build fresh otherwise valid
+Implemented (IR-225; FR-038-AC-247 through FR-038-AC-251). Build fresh otherwise valid
 `quire.op.ieee.to_rational` applications for both Float32 and Float64 source
 operands, using the catalogue's `member` result form, `type_argument` member
 and `member_family: rational` constraint. For each source width, admit the
@@ -396,18 +396,32 @@ since neither kind has an existing IR case. In each new package, make the
 member declaration differ from `result_type` and require continued admission;
 applying the type-argument equality rule to either kind must fail this check.
 
-For AC-251, at an isolated catalogue-entry seam, change a currently catalogued
-type-argument member-result entry's result form and member kind separately,
-and remove its required `member_family` separately. Each shape defect refuses
-the typed package rather than silently dropping the result rule. A changed
-member kind that disagrees with the wire member first refuses
-`invalid_package`/`operation-member-mismatch` at `operation.member`; where
-that earlier check passes, the shape guard refuses
-`ill_typed`/`operator-ineligible` at application `result_type`. Check the
-IEEE pair as the AC-223 invariant.
-For a two-defect `quantity.convert` with wrong `result_type` and wrong
-rounding-mode type, require the result refusal first; the result check runs
-after member shape and operand checks and before `result_inner`, state-clause
+For AC-251, read every entry from the published catalogue used by the reader.
+Build a fresh, previously admitted package for each identity supported by the
+fixture helpers and require continued admission. Compare the remaining identity
+set with an explicitly named and counted unavailable set, with its fixture
+limitation stated, so a new catalogue entry cannot silently escape the test.
+The differential currently has behavioral controls for 56 of 160 entries;
+the remaining 104 are classified by the fixture they require: 25 need
+control, temporal, state, claim or protocol context; 15 need IEEE profile and typed operands;
+3 need selected model declarations; and 61 need other typed operands or member
+fixtures. These counts describe this differential's controls, not a complete
+baseline for the catalogue.
+The admitted controls must include `model.lookup` and `model.all_instances`,
+whose result forms are not `member`, and `collection.fold` and
+`collection.reduce`, which have no `member_family` and admit when their
+declaration equals their result. Require the newly refused `to_rational`
+same-width and mismatched pairs and the count, sum, convert and narrow
+mismatched-result cases. Verify that selecting by member kind alone breaks the
+lookup/all-instances admitted controls, and that selecting an IEEE-only identity
+allow-list breaks a non-IEEE mismatched-result control.
+For fold and reduce, an unequal result must refuse at `result_type`. A wire
+member kind that disagrees with the current entry still refuses earlier at
+`operation.member` (AC-69 and AC-98; AC-65 defines the closed member-kind vocabulary).
+For a two-defect `quantity.convert` with wrong `result_type` and a true
+rounding-mode type defect, require the result refusal first; pair an operand
+defect with a wrong `result_type` and require the operand refusal first. The
+result check runs after member shape and operand checks and before `result_inner`, state-clause
 result, model-member, mode-type and leaf checks (AC-247). Compare typed code,
 cause, pointer and locus throughout.
 
