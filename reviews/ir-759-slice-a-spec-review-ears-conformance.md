@@ -45,3 +45,4 @@ Round 1. Reviewed head 6f3115000fac784783339a2140794883583e1baf, diff `git diff 
 | --- | --- | --- |
 | FND-001 | fixed | "and one condition has one rule" is gone from FR-052:318. "owns that rule" is replaced by a behavioural statement (:161-163): "A mismatch is refused with `SourceInventoryOutcomeError::ObservedCountMismatch` at outcome construction, so the census never receives one." |
 | FND-002 | still-open | This round introduced it, and the typo is present at 6f31150 (FR-052:162, "retained rows; A mismatch"). It needs a one-character fix to lower-case "a", or a lead decision of accepted-no-change. |
+| FND-002 | fixed | Round 2 (a517be0): FR-052:162 now reads "retained rows; a mismatch is refused with". That one character is the only spec change in the commit. |
