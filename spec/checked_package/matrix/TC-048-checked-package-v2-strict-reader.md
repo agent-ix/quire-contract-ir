@@ -346,7 +346,7 @@ The adverse packages must be valid through earlier wire, identity and resource
 checks so they distinguish these admission failures from the existing first
 refusal order. These cases do not assert an admitted same-width IEEE operation.
 
-PLANNED/UNRUN (IR-225; FR-038-AC-247). Build fresh otherwise valid
+PLANNED/UNRUN (IR-225; FR-038-AC-247 through FR-038-AC-251). Build fresh otherwise valid
 `quire.op.ieee.to_rational` applications for both Float32 and Float64 source
 operands, using the catalogue's `member` result form, `type_argument` member
 and `member_family: rational` constraint. For each source width, admit the
@@ -358,11 +358,46 @@ re-derive all affected node keys, references, identity projection and package
 identity before each public read. Each adverse package must pass earlier wire,
 identity and resource checks and refuse `ill_typed`/`operator-ineligible` at
 `/semantic_graph/nodes/{i}/body/result_type`, with the application node as
-locus. Confirm by catalogue inspection that the check is selected by
-`result: member` and `member: type_argument`, rather than an IEEE operation-name
-allowlist; apply the same check to the other catalogued type-argument member
-results, including non-IEEE conversions. Other member kinds retain their
-member-specific result rules. Compare typed code, cause, pointer and locus.
+locus: float/rational and rational/float exercise equality (AC-247), while
+float/float exercises the resolved-family constraint (AC-248). A valid
+`quire.op.quantity.convert` into a `compound_unit` with equal member declaration
+and result must admit despite its unresolved family, as FR-038 defers that
+family ruling to FR-322 (AC-248). A resolved non-quantity declared type with
+equal member and result on an otherwise valid `quantity.convert` must refuse at
+`result_type` by its `member_family` constraint (AC-248).
+
+For AC-249, separately remove `declaration`, malform its node id, and replace
+it with a `type_argument` key on an otherwise valid type-argument member.
+Each refuses `invalid_package`/`operation-member-mismatch` at
+`/semantic_graph/nodes/{i}/body/operation/member`, with the application node
+as locus. The code PR updates the eleven existing IR fixtures that spell
+`member.type_argument` to `member.declaration`; it adds no alternate reader.
+
+For AC-250, start from admitted `quire.op.numeric.narrow` and
+`quire.op.quantity.convert` fixtures with `member.declaration == result_type`.
+For each identity, change only `result_type` and the enclosing root
+`semantic_type` to a distinct valid type while keeping the member declaration
+and all other operation requirements valid. Re-derive affected identities and
+require `ill_typed`/`operator-ineligible` at application `result_type`, with
+the application node as locus. These are two distinct non-IEEE catalogue
+entries. Exercise the existing member-specific result cases for `field`,
+`position`, `element`, `relationship_end` and `operation` without applying
+the type-argument equality rule to them.
+
+For AC-251, at an isolated catalogue-entry seam, change a currently catalogued
+type-argument member-result entry's result form and member kind separately,
+and remove its required `member_family` separately. Each shape defect refuses
+the typed package rather than silently dropping the result rule. A changed
+member kind that disagrees with the wire member first refuses
+`invalid_package`/`operation-member-mismatch` at `operation.member`; where
+that earlier check passes, the shape guard refuses
+`ill_typed`/`operator-ineligible` at application `result_type`. Check the
+IEEE pair as the AC-223 invariant.
+For a two-defect `quantity.convert` with wrong `result_type` and wrong
+rounding-mode type, require the result refusal first; the result check runs
+after member shape and operand checks and before `result_inner`, state-clause
+result, model-member, mode-type and leaf checks (AC-247). Compare typed code,
+cause, pointer and locus throughout.
 
 The catalogue's `result: member` entries with `member: type_argument` are
 `quire.op.quantity.convert`, `quire.op.ieee.to_float32`,
