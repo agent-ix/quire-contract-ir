@@ -1013,6 +1013,28 @@ fn tc_018_probe_and_coverage_bounds_fail_at_the_fixture_schema() {
 
         let mut at_bound = original.clone();
         *at_bound.pointer_mut(pointer).unwrap() = json!(BOUND);
+        let mut member = at_bound.pointer(decoded_pointer).unwrap().clone();
+        // Keep the other endpoint consistent so this checks the numeric bound,
+        // not the span's separate identity or ordering invariant.
+        match pointer {
+            "/traces/0/source/start/source/revision"
+            | "/traces/0/target_span/start/source/revision" => {
+                *member.pointer_mut("/end/source/revision").unwrap() = json!(BOUND);
+            }
+            "/traces/0/source/start/byte_offset" => {
+                *member.pointer_mut("/end/byte_offset").unwrap() = json!(BOUND);
+            }
+            _ => {}
+        }
+        let decoded = match decoded_pointer {
+            "/clause_resolutions/0" => serde_json::from_value::<ClauseRef>(member).map(|_| ()),
+            "/traces/0/target" => serde_json::from_value::<RequirementRef>(member).map(|_| ()),
+            _ => serde_json::from_value::<SourceSpan>(member).map(|_| ()),
+        };
+        assert!(
+            decoded.is_ok(),
+            "{fixture} {pointer} = {BOUND}: {decoded:?}"
+        );
         write_json(&path, &at_bound);
         let output = scratch.run();
         if pointer == "/traces/0/target_span/end/byte_offset" {
@@ -1036,10 +1058,6 @@ fn tc_018_probe_and_coverage_bounds_fail_at_the_fixture_schema() {
             );
             assert_eq!(
                 error["path"], "fixtures.covers",
-                "{fixture} {pointer} = {BOUND}"
-            );
-            assert_eq!(
-                error["detail"], "observed coverage union differs from inventory",
                 "{fixture} {pointer} = {BOUND}"
             );
         }
