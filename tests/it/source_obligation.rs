@@ -73,7 +73,7 @@ fn occurrence() -> SourceSemanticOccurrenceId {
     )
 }
 
-/// Trace: FR-052-AC-14, TC-452
+/// Trace: TC-452, FR-052-AC-14
 #[trace("TC-452", "FR-052-AC-14")]
 #[test]
 fn quire_criteria_and_selection_binding_remain_typed_and_distinct() {
@@ -135,7 +135,7 @@ fn quire_criteria_and_selection_binding_remain_typed_and_distinct() {
     assert_ne!(input.assertions()[0].criterion(), &second);
 }
 
-/// Trace: FR-052-AC-14, TC-452
+/// Trace: TC-452, FR-052-AC-14
 #[trace("TC-452", "FR-052-AC-14")]
 #[test]
 fn quire_outcome_rejects_other_owner_scope_and_rows() {
@@ -414,7 +414,7 @@ fn terminal_boundary_distinguishes_empty_complete_partial_and_invalid_count() {
     );
 }
 
-/// Trace: FR-052-AC-12, FR-052-AC-13
+/// Trace: FR-052-AC-12, FR-052-AC-13, FR-052-AC-3
 #[trace("FR-052-AC-12", "FR-052-AC-13", "FR-052-AC-3")]
 #[test]
 fn terminal_boundary_preserves_typed_stops_and_rejects_mismatched_rows() {
@@ -645,7 +645,7 @@ fn census_assertion(
     )
 }
 
-/// Trace: FR-052-AC-17, TC-452
+/// Trace: TC-452, FR-052-AC-17, FR-052-AC-3
 #[trace("TC-452", "FR-052-AC-17", "FR-052-AC-3")]
 #[test]
 fn synthetic_census_has_hand_written_rows_and_dispositions() {
@@ -807,7 +807,7 @@ fn synthetic_census_has_hand_written_rows_and_dispositions() {
     assert!(census.rejected_assertions().is_empty());
 }
 
-/// Trace: FR-052-AC-15, TC-452
+/// Trace: TC-452, FR-052-AC-15
 #[trace("TC-452", "FR-052-AC-15")]
 #[test]
 fn binding_refusals_are_typed() {
@@ -848,7 +848,7 @@ fn binding_refusals_are_typed() {
     );
 }
 
-/// Trace: FR-052-AC-22, TC-452
+/// Trace: TC-452, FR-052-AC-22
 #[trace("TC-452", "FR-052-AC-22")]
 #[test]
 fn assertion_conflicts_and_relation_dedup_are_deterministic() {
@@ -905,7 +905,7 @@ fn with_positions(
     SourceObligationInput::new(source(), binding_value, quire, ir, qsl, code, assertions)
 }
 
-/// Trace: FR-052-AC-6, TC-452
+/// Trace: TC-452, FR-052-AC-6
 #[trace("TC-452", "FR-052-AC-6")]
 #[test]
 fn every_owner_position_refuses_missing_and_typed_incomplete_outcomes() {
@@ -1015,7 +1015,7 @@ fn every_owner_position_refuses_missing_and_typed_incomplete_outcomes() {
     }));
 }
 
-/// Trace: FR-052-AC-2, TC-452
+/// Trace: TC-452, FR-052-AC-2
 #[trace("TC-452", "FR-052-AC-2")]
 #[test]
 fn synthetic_many_to_many_and_unmapped_inventory_survive_permutation_and_row_removal() {
@@ -1211,7 +1211,7 @@ fn incomplete_conflicting_quire() -> SourceInventoryOutcome {
     SourceInventoryOutcome::from_enumerator(e).unwrap()
 }
 
-/// Trace: FR-052-AC-15, FR-052-AC-18, TC-452
+/// Trace: TC-452, FR-052-AC-15, FR-052-AC-18
 #[trace("TC-452", "FR-052-AC-15", "FR-052-AC-18")]
 #[test]
 fn adjacent_census_refusals_follow_fixed_position_order() {
@@ -1309,7 +1309,7 @@ fn adjacent_census_refusals_follow_fixed_position_order() {
     );
 }
 
-/// Trace: FR-052-AC-20, TC-452
+/// Trace: TC-452, FR-052-AC-20
 #[trace("TC-452", "FR-052-AC-20")]
 #[test]
 fn input_permutations_produce_equal_ordered_census() {
@@ -1365,7 +1365,7 @@ fn input_permutations_produce_equal_ordered_census() {
     assert_eq!(original, permuted);
 }
 
-/// Trace: FR-052-AC-21, TC-452
+/// Trace: TC-452, FR-052-AC-21
 #[trace("TC-452", "FR-052-AC-21")]
 #[test]
 fn owner_scope_and_source_errors_precede_incompleteness() {
@@ -1475,7 +1475,7 @@ fn owner_scope_and_source_errors_precede_incompleteness() {
     );
 }
 
-/// Trace: FR-052-AC-19, FR-052-AC-22, TC-452
+/// Trace: TC-452, FR-052-AC-19, FR-052-AC-22, FR-052-AC-3
 #[trace("TC-452", "FR-052-AC-19", "FR-052-AC-22", "FR-052-AC-3")]
 #[test]
 fn rejected_assertions_collapse_duplicates_and_sort_with_reason_precedence() {
@@ -1548,7 +1548,7 @@ fn rejected_assertions_collapse_duplicates_and_sort_with_reason_precedence() {
     );
 }
 
-/// Trace: FR-052-AC-19, TC-452
+/// Trace: TC-452, FR-052-AC-19, FR-052-AC-3
 #[trace("TC-452", "FR-052-AC-19", "FR-052-AC-3")]
 #[test]
 fn assertion_reason_precedence_rejects_foreign_before_dangling_and_relation_before_provenance() {
@@ -1596,7 +1596,7 @@ fn assertion_reason_precedence_rejects_foreign_before_dangling_and_relation_befo
     assert!(census.correspondence_rows().is_empty());
 }
 
-/// Trace: FR-052-AC-23, TC-452
+/// Trace: TC-452, FR-052-AC-23, FR-052-AC-3
 #[trace("TC-452", "FR-052-AC-23", "FR-052-AC-3")]
 #[test]
 fn orphan_or_conflicting_endpoints_do_not_resolve() {
@@ -1688,7 +1688,7 @@ fn orphan_or_conflicting_endpoints_do_not_resolve() {
     )));
 }
 
-/// Trace: FR-052-AC-3, TC-452
+/// Trace: TC-452, FR-052-AC-3
 #[trace("TC-452", "FR-052-AC-3")]
 #[test]
 fn absent_occurrence_and_same_id_provenance_conflict_never_enter_accepted_rows() {
@@ -1730,9 +1730,34 @@ fn absent_occurrence_and_same_id_provenance_conflict_never_enter_accepted_rows()
         .iter()
         .all(|row| row.reason() == SourceCorrespondenceRejectionReason::ConflictingProvenance));
     assert!(census.correspondence_rows().is_empty());
+
+    let other = SourceIdentity::new(
+        SourceDocumentId::new("other").unwrap(),
+        SourceRevision::new(1).unwrap(),
+    );
+    let valid = census_assertion("mixed", "AC-1", None);
+    let foreign_provenance = SourceCorrespondenceAssertion::new(
+        SourceAssertionId::new("mixed"),
+        source(),
+        criterion("AC-1"),
+        occurrence(),
+        None,
+        SourceAssertionProvenance {
+            source: other,
+            author: SourceContractAuthorId::new("author"),
+        },
+    );
+    let census =
+        build_source_obligation_census(census_input(vec![valid, foreign_provenance])).unwrap();
+    assert_eq!(census.rejected_assertions().len(), 2);
+    assert!(census
+        .rejected_assertions()
+        .iter()
+        .all(|row| row.reason() == SourceCorrespondenceRejectionReason::ConflictingProvenance));
+    assert!(census.correspondence_rows().is_empty());
 }
 
-/// Trace: FR-052-AC-15, TC-452
+/// Trace: TC-452, FR-052-AC-15, FR-052-AC-3
 #[trace("TC-452", "FR-052-AC-15", "FR-052-AC-3")]
 #[test]
 fn foreign_and_dangling_assertions_remain_separate_from_unmapped_inventory() {

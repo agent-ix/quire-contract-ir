@@ -183,7 +183,7 @@ fn exported_items() -> BTreeMap<String, BTreeSet<String>> {
     items
 }
 
-/// Trace: FR-019-AC-5
+/// Trace: TC-058, FR-019-AC-5, FR-052-AC-1
 #[trace("TC-058", "FR-019-AC-5", "FR-052-AC-1")]
 #[test]
 fn tc_058_model_root_exports_exactly_the_documented_public_items() {
