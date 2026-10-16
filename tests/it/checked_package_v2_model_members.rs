@@ -770,6 +770,16 @@ fn relationship_package(
     relationship_operation_package(relationship, role, false)
 }
 
+pub(crate) fn model_member_control(
+    identity: &str,
+) -> (Value, quire_contract_model::CheckedPackageEvidence) {
+    match identity {
+        "quire.op.model.navigate" => relationship_package(authored_relationship(), "links"),
+        "quire.op.model.dispatch_call" => package_over(&domain_document(json!({})), "total"),
+        _ => unreachable!("only the two model member controls are requested"),
+    }
+}
+
 fn relationship_operation_package(
     relationship: Value,
     role: &str,

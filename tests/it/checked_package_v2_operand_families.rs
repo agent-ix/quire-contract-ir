@@ -1368,10 +1368,7 @@ fn non_member_model_results_remain_admitted() {
     }
 }
 
-/// Trace: TC-048, FR-038-AC-213
-#[trace("TC-048", "FR-038-AC-213")]
-#[test]
-fn quantity_sum_uses_its_result_type_exact_rounding_pin() {
+pub(crate) fn quantity_sum_control() -> (Value, usize) {
     let (mut package, unit, _, _, left, _) = fixture();
     let set_body = json!({"term": "aggregate", "members": [reference(&unit)]});
     let set = structural_key("composite_type", "set", None, &set_body);
@@ -1391,6 +1388,14 @@ fn quantity_sum_uses_its_result_type_exact_rounding_pin() {
             json!({"term": "binding", "name": "item", "value": reference(&left)}),
         ],
     );
+    (package, at)
+}
+
+/// Trace: TC-048, FR-038-AC-213
+#[trace("TC-048", "FR-038-AC-213")]
+#[test]
+fn quantity_sum_uses_its_result_type_exact_rounding_pin() {
+    let (mut package, at) = quantity_sum_control();
     admits(&package);
     package["semantic_graph"]["nodes"][at]["body"]["operation"]["mode"]["value"] =
         json!("toward-zero");

@@ -401,6 +401,12 @@ Build a fresh, previously admitted package for each identity supported by the
 fixture helpers and require continued admission. Compare the remaining identity
 set with an explicitly named and counted unavailable set, with its fixture
 limitation stated, so a new catalogue entry cannot silently escape the test.
+The differential currently has behavioral controls for 56 of 160 entries;
+the remaining 104 are classified by the fixture they require: 25 need
+control, temporal, state, claim or protocol context; 15 need IEEE profile and typed operands;
+3 need selected model declarations; and 61 need other typed operands or member
+fixtures. These counts describe this differential's controls, not a complete
+baseline for the catalogue.
 The admitted controls must include `model.lookup` and `model.all_instances`,
 whose result forms are not `member`, and `collection.fold` and
 `collection.reduce`, which have no `member_family` and admit when their
@@ -411,7 +417,7 @@ lookup/all-instances admitted controls, and that selecting an IEEE-only identity
 allow-list breaks a non-IEEE mismatched-result control.
 For fold and reduce, an unequal result must refuse at `result_type`. A wire
 member kind that disagrees with the current entry still refuses earlier at
-`operation.member` (AC-249).
+`operation.member` (AC-69 and AC-98; AC-65 defines the closed member-kind vocabulary).
 For a two-defect `quantity.convert` with wrong `result_type` and a true
 rounding-mode type defect, require the result refusal first; pair an operand
 defect with a wrong `result_type` and require the operand refusal first. The

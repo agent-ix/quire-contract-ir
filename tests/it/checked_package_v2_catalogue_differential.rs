@@ -9,11 +9,11 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 fn node(package: &mut Value, key: &str, tag: &str, form: &str, ty: &str, body: Value) {
     package["semantic_graph"]["nodes"]
@@ -124,6 +124,42 @@ fn rational_parameter(f: &mut Fixture) -> String {
     );
     key
 }
+fn scalar(f: &mut Fixture, form: &str) -> String {
+    let body = json!({"term": "aggregate", "members": []});
+    let key = structural_key("scalar_type", form, None, &body);
+    node(&mut f.package, &key, "scalar_type", form, &key, body);
+    key
+}
+fn parameter(f: &mut Fixture, ty: &str, name: &str) -> String {
+    let body = json!({"term":"aggregate", "members":[
+        {"term":"binding", "name":"name", "value":
+            {"term":"literal", "type":node_id(&f.text), "value_kind":"text", "value":name}},
+        {"term":"binding", "name":"level", "value":integer_literal(&f.integer)}
+    ]});
+    let key = structural_key("value", "parameter", Some(ty), &body);
+    node(&mut f.package, &key, "value", "parameter", ty, body);
+    key
+}
+fn ieee_law(f: &mut Fixture, position: usize) {
+    let definition = json!({"authority":"agent-ix",
+        "identity":"quire.value.ieee754-2019-default/v1"});
+    f.package["lock"]["definition_selections"]
+        .as_array_mut()
+        .expect("selections")
+        .push(definition.clone());
+    f.package["semantic_graph"]["nodes"][position]["body"]["operation"]["laws"] =
+        json!([{"role":"ieee_profile", "definition":definition}]);
+    settle(&mut f.package);
+}
+fn numeric_literal(ty: &str, form: &str) -> Value {
+    match form {
+        "float32" => json!({"term":"literal", "type":node_id(ty),
+            "value_kind":"float32_bits", "value":"3f800000"}),
+        "float64" => json!({"term":"literal", "type":node_id(ty),
+            "value_kind":"float64_bits", "value":"3ff0000000000000"}),
+        _ => unreachable!(),
+    }
+}
 fn application(
     f: &mut Fixture,
     operator: &str,
@@ -165,6 +201,16 @@ fn read(package: &Value) -> CheckedPackageV2ReadResult {
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
+    )
+}
+fn read_with_evidence(
+    package: &Value,
+    evidence: &CheckedPackageEvidence,
+) -> CheckedPackageV2ReadResult {
+    CheckedPackageV2::read(
+        &canonical(package),
+        CheckedPackageReadLimits::bounded(),
+        evidence,
     )
 }
 
@@ -224,11 +270,25 @@ fn simple_fixture(entry: &Value) -> Option<Value> {
     Some(f.package)
 }
 
+fn unavailable_class(identity: &str) -> &'static str {
+    match identity.split('.').nth(2).expect("operation family") {
+        "control" | "temporal" | "state" | "claim" | "protocol" => {
+            "requires control, temporal, state, claim, or protocol context not built here"
+        }
+        "ieee" => "requires an IEEE profile and typed operands not built here",
+        "model" => "requires selected model declarations not built here",
+        _ => "requires typed operands or member fixtures not built here",
+    }
+}
+
 // A fresh package is built for each identity. These are the entries for which
 // the existing nominal/structural fixture helpers produce a valid source.
 fn admitted_fixture(identity: &str) -> Option<Value> {
     if identity == "quire.op.numeric.narrow" {
         return Some(crate::admitted_result_context::fixture());
+    }
+    if identity == "quire.op.collection.sum.quantity" {
+        return Some(crate::checked_package_v2_operand_families::quantity_sum_control().0);
     }
     if matches!(
         identity,
@@ -257,6 +317,52 @@ fn admitted_fixture(identity: &str) -> Option<Value> {
     let b = f.boolean.clone();
     let mut set_i = || composite(&mut f.package, "set", &i);
     match identity {
+        "quire.op.ieee.from_exact" | "quire.op.numeric.convert_rounding" => {
+            let family = if identity == "quire.op.ieee.from_exact" {
+                "float32"
+            } else {
+                "decimal"
+            };
+            let destination = scalar(&mut f, family);
+            let at = application(
+                &mut f,
+                "convert",
+                "conversion",
+                identity,
+                json!({"kind":"rounding", "value":"exact"}),
+                &destination,
+                &destination,
+                vec![integer_literal(&i)],
+            );
+            if identity == "quire.op.ieee.from_exact" {
+                ieee_law(&mut f, at);
+            }
+        }
+        "quire.op.collection.sum.decimal"
+        | "quire.op.collection.sum.float32"
+        | "quire.op.collection.sum.float64" => {
+            let family = identity.rsplit('.').next().expect("family");
+            let destination = scalar(&mut f, family);
+            let set = composite(&mut f.package, "set", &destination);
+            let bound = if family == "decimal" {
+                reference(&parameter(&mut f, &destination, "decimal"))
+            } else {
+                numeric_literal(&destination, family)
+            };
+            let at = application(
+                &mut f,
+                "collection",
+                "collection",
+                identity,
+                json!({"kind":"rounding", "value":"exact"}),
+                &destination,
+                &destination,
+                vec![reference(&set), binder(bound)],
+            );
+            if family.starts_with("float") {
+                ieee_law(&mut f, at);
+            }
+        }
         "quire.op.collection.fold" => {
             let set = set_i();
             application(
@@ -474,9 +580,26 @@ fn tc_048_every_catalogue_entry_retains_its_constructible_admission() {
     let entries = catalog["operations"].as_array().expect("operations");
     let mut admitted = BTreeSet::new();
     let mut unavailable = BTreeSet::new();
+    let mut unavailable_classes = BTreeMap::new();
     for entry in entries {
         let identity = entry["identity"].as_str().expect("identity");
-        if let Some(package) = admitted_fixture(identity).or_else(|| simple_fixture(entry)) {
+        let external = match identity {
+            "quire.op.record.project" => {
+                Some(crate::checked_package_v2_model_fields::record_project_control())
+            }
+            "quire.op.model.navigate" | "quire.op.model.dispatch_call" => {
+                Some(crate::checked_package_v2_model_members::model_member_control(identity))
+            }
+            _ => None,
+        };
+        if let Some((package, evidence)) = external {
+            let result = read_with_evidence(&package, &evidence);
+            assert!(
+                matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+                "{identity}: {result:?}"
+            );
+            admitted.insert(identity.to_owned());
+        } else if let Some(package) = admitted_fixture(identity).or_else(|| simple_fixture(entry)) {
             assert!(
                 matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
                 "{identity}: {:?}",
@@ -484,44 +607,64 @@ fn tc_048_every_catalogue_entry_retains_its_constructible_admission() {
             );
             admitted.insert(identity.to_owned());
         } else {
+            assert!(
+                entry["result"] != "member" && entry["member"] != "type_argument",
+                "member-result or type-argument lookalike {identity} needs an admitted control"
+            );
             unavailable.insert(identity.to_owned());
+            *unavailable_classes
+                .entry(unavailable_class(identity))
+                .or_insert(0usize) += 1;
         }
     }
-    assert_eq!(admitted.len(), 47, "admitted fixture count changed");
-    assert_eq!(unavailable.len(), 113, "unavailable fixture count changed");
+    assert_eq!(admitted.len(), 56, "admitted fixture count changed");
+    assert_eq!(unavailable.len(), 104, "unavailable fixture count changed");
+    assert_eq!(
+        unavailable_classes,
+        BTreeMap::from([
+            (
+                "requires control, temporal, state, claim, or protocol context not built here",
+                25
+            ),
+            (
+                "requires an IEEE profile and typed operands not built here",
+                15
+            ),
+            ("requires selected model declarations not built here", 3),
+            (
+                "requires typed operands or member fixtures not built here",
+                61
+            ),
+        ])
+    );
     assert_eq!(
         unavailable,
         expected_unavailable(),
         "an entry needs an admitted fixture or an explicit gap reason"
     );
 
-    // An IEEE identity allow-list misses these non-IEEE equality failures.
-    for identity in [
-        "quire.op.collection.count",
-        "quire.op.collection.sum.integer",
-        "quire.op.collection.convert",
-        "quire.op.numeric.convert",
-        "quire.op.rational.narrow",
-        "quire.op.quantity.convert",
-        "quire.op.numeric.narrow",
-    ] {
+    // Each selected entry has an admitted witness and a mismatched-result
+    // refusal. This catches selection and family regressions across the catalogue.
+    for entry in entries
+        .iter()
+        .filter(|entry| entry["result"] == "member" && entry["member"] == "type_argument")
+    {
+        let identity = entry["identity"].as_str().expect("identity");
         let mut package = admitted_fixture(identity).expect("admitted control");
         let position = package["semantic_graph"]["nodes"]
             .as_array()
             .expect("nodes")
             .len()
             - 1;
-        let other = if matches!(
-            identity,
-            "quire.op.quantity.convert"
-                | "quire.op.numeric.narrow"
-                | "quire.op.collection.convert"
-                | "quire.op.numeric.convert"
-                | "quire.op.rational.narrow"
-        ) {
-            "integer"
-        } else {
-            "rational"
+        let other = match identity {
+            "quire.op.ieee.to_float32" => "float64",
+            "quire.op.ieee.to_float64" | "quire.op.ieee.to_rational" => "float32",
+            "quire.op.collection.fold"
+            | "quire.op.collection.reduce"
+            | "quire.op.collection.count"
+            | "quire.op.collection.sum.integer"
+            | "quire.op.collection.size" => "rational",
+            _ => "integer",
         };
         let key = if identity == "quire.op.numeric.narrow" {
             family_key("a3a3")
@@ -576,11 +719,51 @@ fn assert_result_refusal(package: &Value, position: usize, identity: &str) {
     );
 }
 
+/// Trace: TC-048, FR-038-AC-69, FR-038-AC-251.
+#[trace("TC-048", "FR-038-AC-69", "FR-038-AC-251")]
+#[test]
+fn tc_048_member_kind_mismatch_precedes_member_result_check() {
+    let mut package = admitted_fixture("quire.op.collection.fold").expect("fold control");
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    package["semantic_graph"]["nodes"][position]["body"]["operation"]["member"] = json!({"kind":"position", "declaration":node_id(&structural_key(
+            "scalar_type", "integer", None, &json!({"term":"aggregate", "members":[]}))),
+            "index":0});
+    let wrong = structural_key(
+        "scalar_type",
+        "rational",
+        None,
+        &json!({"term":"aggregate", "members":[]}),
+    );
+    package["semantic_graph"]["nodes"][position]["body"]["result_type"] = node_id(&wrong);
+    package["semantic_graph"]["nodes"][position]["semantic_type"] = node_id(&wrong);
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("wrong member kind must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::OperationMemberMismatch)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string),
+        Some(format!(
+            "/semantic_graph/nodes/{position}/body/operation/member"
+        ))
+    );
+    assert_eq!(
+        serde_json::to_value(refusal.locus).expect("locus"),
+        package["semantic_graph"]["nodes"][position]["node_id"]
+    );
+}
+
 fn expected_unavailable() -> BTreeSet<String> {
-    // These identities need operands, selected laws, model declarations, or
-    // temporal/state context beyond the nominal and structural builders used
-    // here; a fresh admitted package cannot be built from these helpers.
-    // This exact inventory is intentionally reviewed whenever the catalogue changes.
+    // Every identity here is outside the member-result selector. The exact
+    // inventory ensures a new or newly selected entry needs an admission control.
     [
         "quire.op.control.case",
         "quire.op.string.eq",
@@ -617,10 +800,6 @@ fn expected_unavailable() -> BTreeSet<String> {
         "quire.op.collection.ordered_set",
         "quire.op.collection.sequence",
         "quire.op.collection.set",
-        "quire.op.collection.sum.decimal",
-        "quire.op.collection.sum.float32",
-        "quire.op.collection.sum.float64",
-        "quire.op.collection.sum.quantity",
         "quire.op.control.if",
         "quire.op.control.let",
         "quire.op.decimal.add",
@@ -654,17 +833,13 @@ fn expected_unavailable() -> BTreeSet<String> {
         "quire.op.ieee.float64.mul",
         "quire.op.ieee.float64.sqrt",
         "quire.op.ieee.float64.sub",
-        "quire.op.ieee.from_exact",
         "quire.op.ieee.numeric_equal",
         "quire.op.ieee.total_order",
         "quire.op.integer.div",
         "quire.op.integer.rem",
         "quire.op.model.deref",
-        "quire.op.model.dispatch_call",
-        "quire.op.model.navigate",
         "quire.op.model.reaches",
         "quire.op.model.reaches_field",
-        "quire.op.numeric.convert_rounding",
         "quire.op.option.present",
         "quire.op.option.value",
         "quire.op.protocol.control",
@@ -679,7 +854,6 @@ fn expected_unavailable() -> BTreeSet<String> {
         "quire.op.quantity.ne",
         "quire.op.quantity.pow",
         "quire.op.quantity.sub",
-        "quire.op.record.project",
         "quire.op.reference.eq",
         "quire.op.reference.ne",
         "quire.op.state.clause",
