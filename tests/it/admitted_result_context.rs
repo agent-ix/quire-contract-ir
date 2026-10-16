@@ -53,7 +53,7 @@ fn expression_ref(digest: &str) -> Value {
 /// Builds test-authored integer intervals matching FR-049's QSL declaration.
 /// This is an IR reader fixture; the named producer lane separately checks
 /// the source-to-wire correspondence with QSL's current compiler.
-fn fixture() -> Value {
+pub(crate) fn fixture() -> Value {
     let mut value = v2_all_families();
     let integer = family_key("a3a3");
     let text = family_key("a1a1");

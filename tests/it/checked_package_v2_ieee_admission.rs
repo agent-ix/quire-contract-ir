@@ -342,7 +342,7 @@ fn with_ieee_conversion(
     with_ieee_conversion_source(identity, source_family, member_family, result_family)
 }
 
-fn with_ieee_conversion_source(
+pub(crate) fn with_ieee_conversion_source(
     identity: &str,
     source_family: &str,
     member_family: &str,

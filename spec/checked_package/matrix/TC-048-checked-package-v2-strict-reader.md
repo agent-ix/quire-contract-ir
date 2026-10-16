@@ -346,7 +346,7 @@ The adverse packages must be valid through earlier wire, identity and resource
 checks so they distinguish these admission failures from the existing first
 refusal order. These cases do not assert an admitted same-width IEEE operation.
 
-Implemented (IR-225; FR-038-AC-247 through FR-038-AC-250; AC-251 withdrawn). Build fresh otherwise valid
+Implemented (IR-225; FR-038-AC-247 through FR-038-AC-251). Build fresh otherwise valid
 `quire.op.ieee.to_rational` applications for both Float32 and Float64 source
 operands, using the catalogue's `member` result form, `type_argument` member
 and `member_family: rational` constraint. For each source width, admit the
@@ -396,10 +396,19 @@ since neither kind has an existing IR case. In each new package, make the
 member declaration differ from `result_type` and require continued admission;
 applying the type-argument equality rule to either kind must fail this check.
 
-AC-251 is withdrawn: selection reads the current catalogue entry. Check that
-`model.lookup` and `model.all_instances`, whose result forms are not `member`,
-still admit, and that `collection.fold` and `collection.reduce`, which have no
-`member_family`, admit when their declaration equals their result (AC-247/248).
+For AC-251, read every entry from the published catalogue used by the reader.
+Build a fresh, previously admitted package for each identity supported by the
+fixture helpers and require continued admission. Compare the remaining identity
+set with an explicitly named and counted unavailable set, with its fixture
+limitation stated, so a new catalogue entry cannot silently escape the test.
+The admitted controls must include `model.lookup` and `model.all_instances`,
+whose result forms are not `member`, and `collection.fold` and
+`collection.reduce`, which have no `member_family` and admit when their
+declaration equals their result. Require the newly refused `to_rational`
+same-width and mismatched pairs and the count, sum, convert and narrow
+mismatched-result cases. Verify that selecting by member kind alone breaks the
+lookup/all-instances admitted controls, and that selecting an IEEE-only identity
+allow-list breaks a non-IEEE mismatched-result control.
 For fold and reduce, an unequal result must refuse at `result_type`. A wire
 member kind that disagrees with the current entry still refuses earlier at
 `operation.member` (AC-249).
