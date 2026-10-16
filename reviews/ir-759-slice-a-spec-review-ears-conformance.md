@@ -30,3 +30,18 @@ Ticket: IR-759 (Slice A). This review checks the requirement sentences that PR #
 ## Verdict
 
 ACCEPTABLE WITH ONE LOW FINDING. The rewritten constructor, position and census-refusal sentences are well-formed "shall" requirements with explicit conditions. The unwanted-behaviour sentence ("If ... absent, incomplete, or has a mismatched scope or source ... shall return a typed error") follows the EARS If/then pattern.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | low | The rewritten count sentence capitalizes after a semicolon: "The outcome's observed row count shall equal the number of retained rows; A mismatch is refused with `SourceInventoryOutcomeError::ObservedCountMismatch` at outcome construction". The text is a single-character typo introduced by fix commit 6f31150. Behaviour is unaffected. | spec/model/functional/FR-052-source-obligation-correspondence.md:161-162 |
+
+## Dispositions
+
+Round 1. Reviewed head 6f3115000fac784783339a2140794883583e1baf, diff `git diff 7e0e95b..6f31150`.
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | "and one condition has one rule" is gone from FR-052:318. "owns that rule" is replaced by a behavioural statement (:161-163): "A mismatch is refused with `SourceInventoryOutcomeError::ObservedCountMismatch` at outcome construction, so the census never receives one." |
+| FND-002 | still-open | This round introduced it, and the typo is present at 6f31150 (FR-052:162, "retained rows; A mismatch"). It needs a one-character fix to lower-case "a", or a lead decision of accepted-no-change. |

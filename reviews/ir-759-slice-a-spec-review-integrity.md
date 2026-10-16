@@ -41,3 +41,12 @@ ACCEPTABLE WITH LOW FINDINGS. The core change is internally consistent:
 - The two rules that moved now have exactly one owner each. `InventoryItemCountMismatch` is gone from FR-052, TC-452 and the error list, and only `ObservedCountMismatch` (source_obligation.rs:596-600) applies. `ForeignInventory` is gone, and only `RowSourceMismatch` (:578-579) applies. AC-3 and AC-7 point to the outcome boundary for both.
 - The remaining dispositions (Mapped, ZeroMappings, ConflictingIdentity) and rejection reasons agree with AC-2, 3, 5, 6 and 7 and with TC-452 Expected Results.
 - Whether the duplicate and conflict cases are reachable is covered separately in SR-11742.
+
+## Dispositions
+
+Round 1. Reviewed head 6f3115000fac784783339a2140794883583e1baf, diff `git diff 7e0e95b..6f31150`.
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | FR-052:264-268 now adds the owner/scope pair to the conditions refused earlier by `SourceInventoryOutcomeError`, and states that the census sees only a well-formed outcome in the wrong owner position (`InventoryScopeMismatch`). TC-452 Procedure (:135-138) and Expected Results (:163-165) separate the two cases: wrong position gives `InventoryScopeMismatch` with no census, and a pair mismatch gives `OwnerScopeMismatch` with no outcome. This matches `from_enumerator` (source_obligation.rs:567-568). |
+| FND-002 | fixed | AC-6 now reads "an outcome whose enumerator ended with a typed `Err` (issued `Incomplete`)". TC-452:130-133 says "issued `Incomplete`" and "issued `Complete` after the enumerator's `Ok(None)`". No caller-flag wording remains. |

@@ -159,7 +159,7 @@ prior, requested charge and site in a dedicated typed cause. QSL
 `TypeDisposition::Unfinished` shall be a different typed cause keyed by its
 native declaration handle. This state is evidence from enumeration, not a
 caller-authored boolean or eligibility policy. The outcome's observed row count shall equal the number of
-retained rows; A mismatch is refused with
+retained rows; a mismatch is refused with
 `SourceInventoryOutcomeError::ObservedCountMismatch` at outcome construction,
 so the census never receives one. The outcome retains every emitted row without
 deduplication, and its observed count counts duplicates. `Complete` with zero

@@ -41,3 +41,20 @@ The other failure modes now have exactly one owning rule each:
 - An absent or incomplete outcome produces `MissingOwnerInventory` or `IncompleteOwnerInventory`.
 
 Assertion-side duplicates and conflicts (`ConflictingRelation`, `ConflictingProvenance`) do not depend on outcomes and remain producible as written.
+
+## Dispositions
+
+Round 1. Reviewed head 6f3115000fac784783339a2140794883583e1baf, diff `git diff 7e0e95b..6f31150`.
+
+The author observed that `SourceInventoryIdentity` derives Eq/Ord over the whole variant (source_obligation.rs:304), so two `SemanticNode` rows that share a node id but differ in semantic id compare unequal in code. I re-checked the per-variant key table in FR-052:295-308 against the identity types:
+- `RequirementRecord`: `SourceRequirementOccurrenceId` is node, role and ordinal. That is QSL's own map key, so keying on the whole identity is right.
+- `SemanticOccurrence`: `CheckedOccurrence` is role and ordinal, scoped to its node (checked_package/shared.rs:524-529). Keying on the whole node-plus-occurrence identity is right.
+- `PendingObligation`: FR-052:58-61 already makes site and kind together the identity.
+- `ProductionModule` and `ProductionFunction`: the function is module plus name.
+- The row's owner is derived from its identity, and its source is forced equal to the outcome source (:574-579). So `CheckedSemanticId` is the only fact that is not part of the key.
+
+The statement is sound as a requirement on the census, which does not exist yet. The derived Eq on the identity enum only governs `SourceInventoryRow` equality; it does not say what the future census groups on. FR-052 now requires the census to group `SemanticNode` on `CheckedNodeId`, which makes `ConflictingIdentity` reachable, and AC-3 and TC-452:143 name exactly that fixture. A caveat for later: the "criterion identity" key and the "only fact beyond the key" sentence describe today's enum. IR-795's `SourceAuthoredCriterionId`, and any Quire provenance a PLAT-1165 row carries, will have to restate them. This is forward work already owned by IR-795, not a defect now.
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | FR-052:295-308 now covers all four points. Duplicates and conflicts arise only within one outcome. The inventory key is named for each `SourceInventoryIdentity` variant. `CheckedSemanticId` on `SemanticNode` is the one conflicting fact. Census collapse leaves the outcome's rows and `observed_count` unchanged, so a census may hold fewer rows than the count. FR-052:162-165 states that outcomes keep duplicates and count them. AC-3 and TC-452:143 name the reachable conflict fixture. |

@@ -43,3 +43,12 @@ CHANGES REQUESTED for FND-001, a stale public-surface claim in the paragraph thi
   - The `compile_fail,E0616`/`E0451` doctests at source_obligation.rs:520-548 and the positive accessor doctest at :487-515 cover field privacy. The doctests are cited in prose only and carry no trace tag.
   - No other AC was promoted. AC-1..3, 5..7, 9..11 and 14..16 remain Planned/UNRUN.
 - Coverage is unchanged against the measured baseline: 49 unbacked and 0 contradicted on both sides.
+
+## Dispositions
+
+Round 1. Reviewed head 6f3115000fac784783339a2140794883583e1baf, diff `git diff 7e0e95b..6f31150`. Each outcome was checked against that head and against the code in `crates/quire-contract-model/src/source_obligation.rs`.
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | FR-052:79-87 now splits the current compiled surface into two parts. Part one is the IR-784 envelope port: Input, Envelope, Row, identities, stop causes and assertion types. Part two is the IR-794 outcome boundary: `SourceInventoryEnumerator`, `SourceInventoryOutcome`, `SourceInventoryOutcomeError` and `SourceInventoryCompleteness`. FR-052 says FR-019 lists the surface exactly, and FR-019:191 agrees. FR-052:249 now reads "The provisional envelope port has no completeness state", which matches `SourceInventoryEnvelope` (source_obligation.rs:377-383). "Neither part exports a census" is true: there is no `SourceObligationCensus` or `build_source_obligation_census` in the module. |
+| FND-002 | fixed | The AC-12 and AC-13 rows no longer start with "Implemented by …". `quire matrix` shows the criterion text itself and keeps both tests tagged (tests/it/source_obligation.rs:326, :379). The status is still stated in the FR status paragraph, TC-452 Execution Status and the tests.md row. |
