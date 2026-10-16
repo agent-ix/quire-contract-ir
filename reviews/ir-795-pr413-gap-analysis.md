@@ -42,3 +42,17 @@ The AC-15 prose is truthful, since census refusals stay Planned. However, the tr
 ## Coverage
 
 Before (origin/main): 49 unbacked, 0 contradicted. After (77284f7): 47 unbacked, 0 contradicted. FR-052 is backed for 6 of 16 criteria. AC-14 is genuinely backed. AC-15 is tagged, but see FND-001.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fixed in 36707b1. The FR-052-AC-15 trace tags are removed from both tests, and AC-15 is now unbacked: `quire coverage --strict` reports 48 unbacked and 0 contradicted, with AC-15 listed. AC-15 kept as one criterion that is Planned and unbacked is consistent in the prose and in the computed matrix, which is acceptable. |
+| FND-002 | fixed | Fixed in 36707b1. FR-052:89-99 now gives the current state: the neutral port uses `SourceAuthoredCriterionId`, a Criterion row has owner Quire, and FR-019 lists both public items. |
+| FND-003 | fixed | Fixed in 36707b1. FR-052:364-365 now reads "traced integration tests and untraced compile-fail doctests". |
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | medium | Commit 36707b1 copied SR-11760 over the existing `reviews/ir-795-code-review.md`. On main that file is SR-11135, the PR #401 code review, so the merge would delete that review record from HEAD. The slug collision came from this reviewer's file name. Restore the main version and commit the PR #413 artifacts under distinct names (`reviews/ir-795-pr413-code-review.md`, `reviews/ir-795-pr413-gap-analysis.md`). | reviews/ir-795-code-review.md, reviews/ir-795-gap-analysis.md |
