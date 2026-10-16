@@ -110,3 +110,9 @@ scope:
   role: examined
   excerpt: "TC-018 verifies that over-bound coverage trace offsets instead meet their fixture schema before typed decoding and return `invalid_corpus` at `fixtures.coverage-deep.input`; the exact bound passes that schema."
 ```
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fix commit 46edc40. At exactly 2^53, every member is now decoded directly with the public API (`ClauseRef`, `RequirementRef` or `SourceSpan`), with the other endpoint kept consistent, and the test asserts `decoded.is_ok()`. That shows the typed decoder accepts the bound. The runner control still asserts `fixtures.covers`, which proves only that the schema stage was passed. It no longer depends on the inventory message text, so that coupling is accepted as the stage check. Re-measured in a throwaway worktree at 46edc40. Raising the fixture-schema `revision` maximum is killed. Making the model revision bound exclusive (`>=`) is killed directly by the new control at the first member. With the control removed, that mutant is caught only incidentally, when the unrelated `package-revision-maximum` fixture fails the run. With the control removed and no mutant, the test stays green, so the control is the direct kill. |

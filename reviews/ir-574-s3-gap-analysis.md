@@ -66,3 +66,16 @@ scope:
   role: examined
   excerpt: "Whole projections meet the published schema first (`invalid_wire_format` at `projection`, planned FR-023-AC-6); ... FR-023-AC-6 is planned (IR-574)."
 ```
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fix commit 46edc40 adds a clause to FR-020-AC-3. Probe clause-reference revisions and coverage trace source, target-span and target revisions and byte offsets above 2^53 are refused as `invalid_corpus` at the fixture input schema, while exactly 2^53 passes. The AC is extended, not weakened: every earlier clause is unchanged. The revision half now has an owning AC, and FR-011-AC-3 correctly stays scoped to the constructors and typed decoders. |
+| FND-002 | fixed | Fix commit 46edc40 updates the `spec/tests.md` Core row to "implemented FR-023-AC-6 in TC-035" and the Model row to "FR-023-AC-6 is implemented in TC-035". Both now agree with the core matrix rows. |
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | low | FR-020-AC-3 is not singular and not in EARS form. It is a compound "Landed with code change B (IR-274): ...; ...; ..." list, and the new clause makes six obligations under one id. The compound shape predates this PR, and the extension follows it. The new clause also reads "target revisions and byte offsets", but a coverage `target` (`RequirementRef`) has no byte offset, so the offsets belong only to source and target-span. Splitting AC-3 and naming the offset members exactly is a spec follow-up. This is non-blocking, and deferral is recommended. | spec/conformance/functional/FR-020-json-conformance-interface.md:136 |
