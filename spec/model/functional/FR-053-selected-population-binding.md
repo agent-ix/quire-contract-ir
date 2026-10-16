@@ -39,10 +39,10 @@ names an object type alone, supplies a bound, or provides source text.
 
 ## Outputs
 
-The model crate exposes `select_population`,
+The model crate exposes `selected_population::select_population`,
 `CheckedSelectedPopulationSource`, `CheckedSelectedPopulationSelector`,
 `CheckedSelectedPopulation`, and `CheckedSelectedPopulationOutcome` in
-`checked_package`. A finite result retains the selected package identity,
+`selected_population`. A finite result retains the selected package identity,
 population binding node identity, occurrence, selected model object type
 identity, inclusive extent `[0, N]`, and the authentic source regions
 associated with that exact node-occurrence pair. The outcome is typed and
@@ -111,7 +111,7 @@ introduce a competing graph-edge table.
 ### Public boundary
 
 The public query and result types SHALL be owned by the cycle-free
-`quire-contract-model::checked_package` API, listed in [FR-019](./FR-019-rust-library-interface.md),
+`quire-contract-model::selected_population` API, listed in [FR-019](./FR-019-rust-library-interface.md),
 and accessible to a default-feature model consumer without source-text
 parsing, a QSL dependency, or a Codegen dependency. No item is re-exported from
 the `quire-contract-ir` root. The selected population result is a typed
@@ -127,7 +127,7 @@ text or copying the QSL admission schema.
 | --- | --- | --- |
 | FR-053-AC-1 | Through a default-feature public model consumer and an admitted QSL-produced V2 package, selecting the exact keyed `bounded_domain` / `model_population` node and its `Type` occurrence for `Population<T>[N]` returns that node, occurrence, selected `T`, authentic source regions, and inclusive `[0,N]`; `N=0` returns `[0,0]`. Changing only the checked source maximum changes the selected node and returned extent. | Test |
 | FR-053-AC-2 | Two population nodes with the same selected object type but distinct source occurrences retain their own maxima and provenance. A valid package that re-points a parameter's `semantic_type` at the other population node and re-derives affected keys still returns the extent of the node-occurrence pair named by the selector; the query never follows that parameter pointer. Selecting the other node with the first occurrence returns `MissingOccurrence` unless that exact pair is source-mapped. Changing only the Codegen or IR resource ceiling or observed fixture membership does not change either extent. | Test |
-| FR-053-AC-3 | An absent selector yields `Unavailable`; an absent binding identity yields `StaleBinding`, a present binding without the selected occurrence yields `MissingOccurrence`, a foreign package identity yields `ForeignPackage`, and a present non-population binding yields `NotPopulation`; each has no extent. A selector with the right object type but a different binding or occurrence cannot satisfy the request. | Test |
+| FR-053-AC-3 | An absent selector yields `Unavailable`; an absent binding identity yields `StaleBinding`, a present binding without the selected occurrence yields `MissingOccurrence`, a foreign package identity yields `ForeignPackage`, and a present non-population binding or population binding with duplicate `max` fields yields `NotPopulation`; each has no extent. A selector with the right object type but a different binding or occurrence cannot satisfy the request. | Test |
 | FR-053-AC-4 | A selected domain-package PopulationRecord with closed extent but no binding maximum yields `Unbounded`; an open extent or unresolved object/subtype closure maps QSL's typed pre-admission `UnknownClosure` to the distinct typed outcome with no package, binding or finite extent. A consumer can distinguish both from `Unavailable`. Source inspection finds no finite-bound path from closure, resource limits, fixture or member count, or caller-provided maximum. | Test, Inspection |
 | FR-053-AC-5 | A compiled default-feature consumer reads the typed result through the public model API from a real QSL-produced admitted V2 package without parsing source text or importing QSL/Codegen; `model_object_fields` remains the only edge-field multiplicity authority, and the root crate re-exports none of the new items. | Test |
 

@@ -13,6 +13,11 @@ repository = "https://github.com/agent-ix/quire-contract-ir"
 name = "quire_contract_model"
 path = "src/lib.rs"
 
+[[test]]
+name = "selected_population_public"
+path = "tests/selected_population_public.rs"
+test = false
+
 [features]
 # Test-only deterministic allocation-failure injection for the output-mapping
 # pipeline. Outside the stable surface (FR-019); enabled only by the root
