@@ -22,13 +22,11 @@ author-authored requirement criteria and semantic obligation occurrences to
 selected production symbols, and retain its complete source census for
 downstream consumers before any generation or proof attempt.
 
-The complete census and its owner-output oracle remain Planned/UNRUN. IR-784
-provides only the provisional typed input port in this repository. That port
-retains reported rows and authored assertions; it does not accept a
-completeness attestation or publish a census.
-
+The neutral census builder accepts four owner-issued outcomes and an explicit
+source-author binding. Synthetic outcomes test its construction and refusal
+rules; owner-native completeness and full-output comparison remain Planned/UNRUN.
 IR-794 defines the narrower owner-issued enumeration outcome that the neutral
-model may retain before the census exists. It does not make a caller-supplied
+model retains. It does not make a caller-supplied
 row vector, count, or absent stop reason into evidence of exhaustion.
 
 ## Inputs
@@ -38,7 +36,7 @@ row vector, count, or absent stop reason into evidence of exhaustion.
   corpus and obligation declaration scope to that `SourceIdentity`. This binding
   is authored provenance, not proof that two producers read identical bytes.
 - Owner-issued `SourceInventoryOutcome` values, one for each of four owner
-  positions (the census does not accept raw `SourceInventoryEnvelope` values).
+  positions.
   They carry the complete typed inventories from their owners: Quire-authored acceptance
   criteria; Contract IR V2 semantic nodes
   and source occurrences; QSL checked `RequirementRecord` values and native
@@ -67,7 +65,7 @@ row vector, count, or absent stop reason into evidence of exhaustion.
 
 ## Outputs
 
-On completion, the public `quire_contract_model::source_obligation` module shall export
+The public `quire_contract_model::source_obligation` module exports
 `SourceObligationInput`, `SourceObligationCensus`, `SourceObligationRow`,
 `SourceInventoryRow`, `SourceCensusInventoryRow`, `SourceCorrespondenceAssertion`,
 `SourceCorrespondenceRejection`, `SourceCorrespondenceRejectionReason`,
@@ -77,59 +75,14 @@ On completion, the public `quire_contract_model::source_obligation` module shall
 `SourceInventoryCompleteness`, `SourceInventoryIncompleteReason`, `SourceInventoryOwner`,
 `SourceInventoryScope`, `SourceCorrespondenceError`, and
 `build_source_obligation_census`. These types shall be listed in FR-019's
-public-items inventory when implemented. The current compiled surface has two parts, and
-FR-019 lists it exactly. The provisional envelope port exports
-`SourceObligationInput`, `SourceInventoryEnvelope`, `SourceInventoryRow`,
-typed owner identities and stop causes, and authored assertion/provenance
-types; none of these carries a completeness state. The IR-794 neutral outcome
-boundary exports `SourceInventoryEnumerator`, `SourceInventoryOutcome`,
-`SourceInventoryOutcomeError` and `SourceInventoryCompleteness`; this is the
-only completeness carrier. `SourceInventoryEnvelope` is not a census input.
-Neither part exports a census or census builder.
-
-The census builder replaces the provisional envelope port. FR-052-AC-17
-supersedes FR-052-AC-8. The code change that adds
-`build_source_obligation_census` also makes these changes:
-
-1. It removes `SourceInventoryEnvelope` and the envelope-taking
-   `SourceObligationInput::new`. The constructor then takes the outcomes
-   described under "Census construction rules".
-2. It retires FR-052-AC-8 under ADR-0056. It deletes the FR-052-AC-8 table
-   row, and the status text then states "FR-052-AC-8 is retired and its ID is
-   not reused (ADR-0056)", naming FR-052-AC-17 as its successor. It drops
-   FR-052-AC-8 from TC-452's criteria in `spec/model/matrix/tests.md`. FR-052-AC-8
-   is never left as an unbacked row.
-3. In `tests/it/source_obligation.rs` it removes every FR-052-AC-8 trace tag
-   and every use of `SourceInventoryEnvelope`. It deletes
-   `provisional_input_retains_owner_rows_and_authored_assertions_without_a_census`.
-   It rebuilds the FR-052-AC-14 test
-   `quire_criteria_and_selection_binding_remain_typed_and_distinct` and the
-   QSL identity test `native_qsl_identity_fields_and_stop_causes_remain_distinct`
-   on outcomes or on bare rows. From
-   `provisional_input_has_no_result_or_completeness_fields` it deletes the
-   envelope checks and the two assertions that the source contains no
-   `pub struct SourceObligationCensus` and no
-   `pub fn build_source_obligation_census`; that test's FR-052-AC-4 field check
-   on `SourceObligationInput` remains.
-4. It rewrites, for the census end state, the clauses that describe the
-   envelope port. In this requirement these are the second Description
-   paragraph (IR-784's provisional port), the Inputs parenthetical on raw
-   `SourceInventoryEnvelope` values, the "current compiled surface" paragraph
-   of Outputs, this transition list, the first sentence of the Behavior
-   paragraph that begins "The census accepts no `SourceInventoryEnvelope`",
-   the Behavior paragraph that begins "The provisional envelope port has no
-   completeness state", and the status text below the Acceptance Criteria.
-   In TC-452 they are its Execution Status, and in `spec/model/matrix/tests.md`
-   the TC-452 row's status.
-5. It updates FR-019's `source_obligation` public-items row. That row drops
-   `SourceInventoryEnvelope`, adds the census items listed above, and replaces
-   its FR-052-AC-8 citation.
-
-The other clauses that once named the envelope (FR-052-AC-10, the
-adapter-translation sentence under Behavior, and TC-452's absent-stop-cause
-procedure and result) are already stated without the envelope and need no
-change.
-
+public-items inventory. FR-019 lists the compiled public surface exactly. The owner-issued outcome
+boundary supplies `SourceInventoryOutcome` and `SourceInventoryEnumerator`;
+`SourceObligationInput` consumes four optional outcomes, and the census
+builder evaluates their typed terminal states and authored assertions.
+The census builder supersedes the provisional input port. FR-052-AC-17
+supersedes retired FR-052-AC-8. `SourceObligationInput::new` now accepts the
+four optional outcomes in Quire, IR V2, QSL and `quire-code-rs` order. TC-452
+records the synthetic census checks separately from pending owner-native work.
 The neutral port uses a typed
 `SourceAuthoredCriterionId` carrying Quire's obligation declaration, scoped
 document and criterion ID, plus a typed `SourceCriterionSourceBinding` carrying
@@ -180,8 +133,7 @@ native pending-obligation set, and `quire-code-rs`'s complete selected
 production-module and function facts. Each outcome's owner and scope
 shall match its required input position, and its source shall match the
 top-level selected source.
-The census accepts no `SourceInventoryEnvelope`. A well-formed outcome
-supplied in another owner's position shall be refused with
+A well-formed outcome supplied in another owner's position shall be refused with
 `InventoryScopeMismatch`.
 
 The Quire selection shall identify the exact corpus and validated traceability
@@ -293,22 +245,18 @@ and nonzero synthetic streams. It does not discharge the owner-native
 enumeration, full-output comparison, or matched-source census obligations in
 FR-052-AC-9 through AC-11.
 
-The provisional envelope port has no completeness state, caller supplied
-item count, or complete-census constructor. Its envelope carries owner,
-source, named scope, reported rows, and an optional typed `stop_reason`.
-`stop_reason: None` means only that no stop cause was reported; it is never
-proof of normal exhaustion or complete owner output. The provisional input
-retains the selected source, optional owner envelopes, and authored assertions
-without accepting or rejecting any correspondence.
-Source-contract authoring is the assertion producer; the constructor validates
-and preserves assertions but does not infer or repair them. Each assertion and
+The completed input retains the selected source, optional owner-issued
+outcomes, and authored assertions. It cannot claim owner-native exhaustion
+without each owner's full-output oracle.
+Source-contract authoring is the assertion producer; the input constructor
+preserves assertions, and the census builder validates them without inference or repair. Each assertion and
 inventory item shall carry selected-source provenance sufficient to establish
 which source selection it belongs to. The census shall retain the supplied
 provenance, including provenance on rejected rows.
 
 If the Quire binding or any owner outcome is absent, incomplete, or has a
 mismatched scope or source, `build_source_obligation_census` shall return a
-typed error naming that owner and shall return no census. An item-count,
+typed error naming the failing binding or owner and shall return no census. An item-count,
 owner/scope-pair, row-owner, row-source or stop-owner inconsistency is refused
 earlier by `SourceInventoryOutcomeError` and never reaches the census. For
 scope, the census sees only a well-formed outcome supplied in the wrong owner
@@ -511,7 +459,6 @@ candidate denominator.
 | FR-052-AC-5 | An external default-feature consumer compiles a borrow of `SourceObligationCensus` and its rows from `quire_contract_model::source_obligation`. | Test |
 | FR-052-AC-6 | Omitting each of the four owner outcomes in turn returns `MissingOwnerInventory` naming that owner and no census. Supplying, for each position, an outcome whose enumerator ended with a typed `Err` (issued `Incomplete`) returns `IncompleteOwnerInventory` with the supplied typed cause and no census. A fully parsed production module with no function facts is accepted as complete, retains the module row, and differs observably from both outcomes. No Quire `Complete` fixture counts as owner evidence until PLAT-1165 supplies it. | Test |
 | FR-052-AC-7 | Complete Quire scope covers every authored acceptance criterion in the bound selected corpus and declared obligation sources, including unbound criteria; complete IR V2 scope covers every semantic node and source occurrence in the selected V2 graph; complete QSL scope covers every checked `RequirementRecord` and native pending obligation for the selected request, identified by its collision-free native occurrence key or site/kind tuple rather than an IR requirement reference or semantic digest; complete `quire-code-rs` scope covers every selected production module and every function fact, including empty modules. Normal exhaustion is required for `Complete`; Quire skipped/load/scan failures, QSL exhaustion and `Unfinished`, early stop, failed parse/request, unavailable selected module, or scope/source mismatch produce a typed incomplete or error result and no census; an observed-count mismatch is refused as `SourceInventoryOutcomeError::ObservedCountMismatch` and issues no outcome. | Test |
-| FR-052-AC-8 | A default-feature consumer can construct and borrow provisional owner rows, QSL native occurrence and pending-obligation identity projections, distinct typed QSL exhaustion and unfinished stop causes, and authored assertions through `SourceObligationInput`. The envelope exposes no `Complete` claim or caller item count, and the public module exposes no census or complete-census builder. FR-052-AC-17 supersedes this criterion. The code change that adds the census builder retires it under ADR-0056 and deletes this row. That change also removes `SourceInventoryEnvelope`, the envelope-taking `SourceObligationInput` constructor and the FR-052-AC-8 trace tags. It deletes the two no-census assertions of `provisional_input_has_no_result_or_completeness_fields`; that test's FR-052-AC-4 field check remains (see the transition list under Outputs). | Test |
 | FR-052-AC-9 | For each of the four owners, the native enumerator or typed adapter issues a `Complete` outcome only after the selected named scope reaches its normal end; the outcome retains the selected source, typed owner and scope, every owner-emitted row and the observed count. For Quire this requires PLAT-1165's selected-scope producer, not an IR traversal of `obligation::derive` output. A complete zero-row scope and a fully parsed module with zero functions remain complete, while an absent owner report remains absent. Deleting one row after the owner's full output is observed makes the owner-output comparison fail even when the remaining row count is changed to match. | Test |
 | FR-052-AC-10 | For each owner, stopping before normal exhaustion issues `Incomplete` with retained partial rows and the typed cause the owner actually reports. Quire discovery/load/scan/skipped-row failures retain their distinct owner-native causes once PLAT-1165 supplies them; current `obligation::derive` cannot issue `Complete`. QSL type-work exhaustion retains dimension, limit, prior, requested charge and site; QSL `TypeDisposition::Unfinished` retains its declaration handle and is distinct. An IR V2 reader limit retains the `CheckedPackageIncomplete` fields. For an owner path that reports `quire_exact::CancelCause`, requested and deadline cancellation remain distinct through `SourceInventoryCancelCause`; the current QSL inventory and `quire-code-rs` adapter do not claim cancellation support. An absent stop cause cannot be promoted to `Complete`, which follows only from the enumerator's `Ok(None)`, and a new owner stop type cannot be projected into a string or generic early stop. | Test |
 | FR-052-AC-11 | The neutral model retains an owner-issued outcome only when its source, owner, scope and observed count match the retained rows; a mismatch is typed and refuses the outcome. Owner adapter tests show that no adapter completion branch accepts an arbitrary caller-supplied row vector/count/completion flag in place of enumerating the selected native owner output. The model does not claim independent authentication of external owner exhaustion or a completed four-owner census. | Test |
@@ -528,30 +475,17 @@ candidate denominator.
 | FR-052-AC-22 | Given synthetic `Complete` outcomes, two assertion IDs stating one relation with equal provenance yield exactly one accepted row, and two assertion IDs stating one relation with differing provenance are both rejected with `ConflictingProvenance` and yield no accepted row. | Test |
 | FR-052-AC-23 | Given synthetic `Complete` outcomes, an assertion whose occurrence lies under a `ConflictingIdentity` node, an assertion whose occurrence has no `SemanticNode` row, and an assertion whose production function has no `ProductionModule` row are rejected with `DanglingOccurrence`, `DanglingOccurrence` and `DanglingProductionSymbol` respectively; each orphan or conflicting row stays in the census. | Test |
 
-FR-052-AC-4 and FR-052-AC-8 have provisional-port evidence. FR-052-AC-8
-is Implemented and superseded by FR-052-AC-17. The census-builder code change
-retires it under ADR-0056, as the transition list under Outputs states. FR-052-AC-12
-and AC-13 are Implemented with traced tests for the neutral synthetic
-boundary only. FR-052-AC-1
-through AC-3 and AC-5 through AC-7 remain Planned/UNRUN until native owner
-adapters compare each declared complete outcome with full selected owner
-output and the completed census API exists. FR-052-AC-9 through AC-11 are
-Planned/UNRUN until the owner-issued boundary and its full-output oracle land.
-Passing AC-12 and AC-13 shall not change AC-9 through AC-11 status.
-FR-052-AC-14 is Implemented for the neutral typed identity and synthetic
-Quire-owned rows, with traced integration tests and untraced compile-fail
-doctests. The neutral port retains an explicit binding, but FR-052-AC-15 remains
-Planned/UNRUN and unbacked until the census builder tests its missing, foreign,
-and conflicting binding refusals and assertion dispositions.
-FR-052-AC-17 through AC-23 are Planned/UNRUN until the census builder exists;
-they exercise the neutral census over synthetic outcomes only, and passing them
-shall not change the status of AC-1 through AC-3, AC-5 through AC-7, or AC-9
-through AC-11.
-AC-16 and the Quire portion of AC-2, AC-6, AC-7, and AC-9 through AC-11
-remain Planned/UNRUN pending PLAT-1165. The matched-source FR-052 census and
-IR-759 acceptance remain open.
-The model API tests use synthetic inventories and do not establish owner-issued
-completeness.
+FR-052-AC-8 is retired and its ID is not reused (ADR-0056).
+FR-052-AC-17 succeeds it. FR-052-AC-4 and AC-12 through AC-15, and AC-17
+through AC-23 are Implemented for the neutral synthetic boundary with traced
+tests. Assertion deduplication, foreign provenance, rejection precedence,
+and rejection ordering are exercised by AC-19 and AC-22 tests. AC-3 remains
+Planned/UNRUN until owner-native evidence exists. AC-1 through AC-3, AC-5
+through AC-7, AC-9 through AC-11, and AC-16 remain Planned/UNRUN pending
+owner-native adapters and PLAT-1165. Synthetic completion does not establish
+the full matched-source FR-052 census or close IR-759. Passing the synthetic
+AC-17 through AC-23 checks shall not change the status of AC-1 through AC-3,
+AC-5 through AC-7, or AC-9 through AC-11.
 
 ## Dependencies
 

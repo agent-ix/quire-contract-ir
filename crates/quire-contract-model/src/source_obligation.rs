@@ -3,17 +3,20 @@
 
 //! FR-052 typed source-obligation input and owner enumeration boundary.
 //!
-//! Provisional envelopes retain reported rows without claiming completion.
-//! Terminal outcomes retain an enumerator's state, but do not authenticate an
-//! external owner's traversal or claim a completed four-owner census.
+//! Owner outcomes retain enumerator state, while the census deterministically
+//! evaluates four synthetic or owner-issued inventories and authored assertions.
+//! External owner traversal remains the responsibility of each owner adapter.
 
-use std::fmt;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 
 use crate::{
     CheckedNodeId, CheckedOccurrence, CheckedPackageIncomplete, CheckedSemanticId, SourceIdentity,
 };
 
-/// The owner whose reported rows an envelope carries.
+/// The owner whose inventory rows an outcome carries.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SourceInventoryOwner {
     /// Quire's selected authored acceptance criteria.
@@ -460,65 +463,7 @@ impl SourceInventoryRow {
     }
 }
 
-/// Provisional rows and any reported stop cause for one owner scope.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SourceInventoryEnvelope {
-    owner: SourceInventoryOwner,
-    source: SourceIdentity,
-    scope: SourceInventoryScope,
-    items: Vec<SourceInventoryRow>,
-    stop_reason: Option<SourceInventoryIncompleteReason>,
-}
-
-impl SourceInventoryEnvelope {
-    /// Retain owner-reported rows and an optional typed stop cause.
-    ///
-    /// `stop_reason: None` means no stop cause was reported. It does not prove
-    /// that enumeration exhausted the owner scope or that any row is present.
-    pub fn new(
-        owner: SourceInventoryOwner,
-        source: SourceIdentity,
-        scope: SourceInventoryScope,
-        items: Vec<SourceInventoryRow>,
-        stop_reason: Option<SourceInventoryIncompleteReason>,
-    ) -> Self {
-        Self {
-            owner,
-            source,
-            scope,
-            items,
-            stop_reason,
-        }
-    }
-
-    /// Return the owner reported by this envelope.
-    pub const fn owner(&self) -> SourceInventoryOwner {
-        self.owner
-    }
-
-    /// Borrow the source reported for this envelope.
-    pub fn source(&self) -> &SourceIdentity {
-        &self.source
-    }
-
-    /// Return the scope reported by the owner.
-    pub const fn scope(&self) -> SourceInventoryScope {
-        self.scope
-    }
-
-    /// Borrow all reported rows, without asserting completeness.
-    pub fn items(&self) -> &[SourceInventoryRow] {
-        &self.items
-    }
-
-    /// Borrow the reported stop cause, if any; absence does not prove completion.
-    pub fn stop_reason(&self) -> Option<&SourceInventoryIncompleteReason> {
-        self.stop_reason.as_ref()
-    }
-}
-
-/// The terminal state issued by an owner enumerator, never inferred from a
-/// provisional envelope's absent stop reason.
+/// The terminal state issued by an owner enumerator after normal end or stop.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SourceInventoryCompleteness {
     /// The owner enumerator reached the normal end of its selected scope.
@@ -568,7 +513,7 @@ pub enum SourceInventoryOutcomeError {
 }
 
 /// One owner-issued terminal outcome. Its fields are private so a caller
-/// cannot turn a provisional row vector or absent stop cause into `Complete`.
+/// cannot turn a caller-supplied row vector or absent stop cause into `Complete`.
 /// A default-feature consumer can build an outcome through the enumerator and
 /// inspect it through its public accessors:
 ///
@@ -880,28 +825,27 @@ impl SourceCorrespondenceAssertion {
     }
 }
 
-/// Provisional typed owner reports and authored assertions for one source.
+/// Four optional owner outcomes and authored assertions for one source.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceObligationInput {
     source: SourceIdentity,
     criterion_source_binding: Option<SourceCriterionSourceBinding>,
-    quire: Option<SourceInventoryEnvelope>,
-    ir_v2: Option<SourceInventoryEnvelope>,
-    qsl: Option<SourceInventoryEnvelope>,
-    quire_code_rs: Option<SourceInventoryEnvelope>,
+    quire: Option<SourceInventoryOutcome>,
+    ir_v2: Option<SourceInventoryOutcome>,
+    qsl: Option<SourceInventoryOutcome>,
+    quire_code_rs: Option<SourceInventoryOutcome>,
     assertions: Vec<SourceCorrespondenceAssertion>,
 }
 
 impl SourceObligationInput {
-    /// Retain the selected source, optional owner reports, and authored assertions.
-    /// No input here proves complete enumeration or an accepted correspondence.
+    /// Retain the selected source, optional owner outcomes, and authored assertions.
     pub fn new(
         source: SourceIdentity,
         criterion_source_binding: Option<SourceCriterionSourceBinding>,
-        quire: Option<SourceInventoryEnvelope>,
-        ir_v2: Option<SourceInventoryEnvelope>,
-        qsl: Option<SourceInventoryEnvelope>,
-        quire_code_rs: Option<SourceInventoryEnvelope>,
+        quire: Option<SourceInventoryOutcome>,
+        ir_v2: Option<SourceInventoryOutcome>,
+        qsl: Option<SourceInventoryOutcome>,
+        quire_code_rs: Option<SourceInventoryOutcome>,
         assertions: Vec<SourceCorrespondenceAssertion>,
     ) -> Self {
         Self {
@@ -925,23 +869,23 @@ impl SourceObligationInput {
         self.criterion_source_binding.as_ref()
     }
 
-    /// Borrow the reported Quire criterion envelope, if supplied.
-    pub fn quire(&self) -> Option<&SourceInventoryEnvelope> {
+    /// Borrow the Quire outcome, if supplied.
+    pub fn quire(&self) -> Option<&SourceInventoryOutcome> {
         self.quire.as_ref()
     }
 
-    /// Borrow the reported IR V2 envelope, if supplied.
-    pub fn ir_v2(&self) -> Option<&SourceInventoryEnvelope> {
+    /// Borrow the IR V2 outcome, if supplied.
+    pub fn ir_v2(&self) -> Option<&SourceInventoryOutcome> {
         self.ir_v2.as_ref()
     }
 
-    /// Borrow the reported QSL envelope, if supplied.
-    pub fn qsl(&self) -> Option<&SourceInventoryEnvelope> {
+    /// Borrow the QSL outcome, if supplied.
+    pub fn qsl(&self) -> Option<&SourceInventoryOutcome> {
         self.qsl.as_ref()
     }
 
-    /// Borrow the reported `quire-code-rs` envelope, if supplied.
-    pub fn quire_code_rs(&self) -> Option<&SourceInventoryEnvelope> {
+    /// Borrow the `quire-code-rs` outcome, if supplied.
+    pub fn quire_code_rs(&self) -> Option<&SourceInventoryOutcome> {
         self.quire_code_rs.as_ref()
     }
 
@@ -949,4 +893,620 @@ impl SourceObligationInput {
     pub fn assertions(&self) -> &[SourceCorrespondenceAssertion] {
         &self.assertions
     }
+}
+
+/// Why an inventoried entity has no accepted production mapping.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum SourceMissingMappingReason {
+    /// No accepted authored mapping names the entity.
+    NoAuthoredMapping,
+    /// An accepted assertion explicitly has no production function.
+    ExplicitNoProductionFunction,
+}
+
+/// Disposition of one distinct owner inventory row.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum SourceInventoryDisposition {
+    /// An accepted relation maps this entity to a production function.
+    Mapped,
+    /// The entity remains inventoried without a production mapping.
+    ZeroMappings(SourceMissingMappingReason),
+    /// One node key has differing semantic facts.
+    ConflictingIdentity,
+}
+
+/// One owner row retained in the census with its disposition.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SourceCensusInventoryRow {
+    row: SourceInventoryRow,
+    disposition: SourceInventoryDisposition,
+}
+
+impl SourceCensusInventoryRow {
+    /// Borrow the owner row.
+    pub fn row(&self) -> &SourceInventoryRow {
+        &self.row
+    }
+    /// Return its disposition.
+    pub const fn disposition(&self) -> SourceInventoryDisposition {
+        self.disposition
+    }
+}
+
+/// Reason an authored assertion was rejected.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum SourceCorrespondenceRejectionReason {
+    /// Assertion or provenance names another source.
+    ForeignSource,
+    /// Criterion is absent from Quire's inventory.
+    DanglingCriterion,
+    /// Occurrence or its unconflicted node is absent.
+    DanglingOccurrence,
+    /// Function or its module is absent.
+    DanglingProductionSymbol,
+    /// One assertion ID names differing relation facts.
+    ConflictingRelation,
+    /// One assertion ID or relation names differing provenance.
+    ConflictingProvenance,
+}
+
+/// Rejected authored assertion with its original fields.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SourceCorrespondenceRejection {
+    assertion: SourceCorrespondenceAssertion,
+    reason: SourceCorrespondenceRejectionReason,
+}
+
+impl SourceCorrespondenceRejection {
+    /// Borrow the original assertion.
+    pub fn assertion(&self) -> &SourceCorrespondenceAssertion {
+        &self.assertion
+    }
+    /// Return its rejection reason.
+    pub const fn reason(&self) -> SourceCorrespondenceRejectionReason {
+        self.reason
+    }
+}
+
+/// One accepted authored relation.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct SourceObligationRow {
+    criterion: SourceAuthoredCriterionId,
+    occurrence: SourceSemanticOccurrenceId,
+    production_function: Option<SourceProductionFunctionId>,
+    provenance: SourceAssertionProvenance,
+}
+
+impl SourceObligationRow {
+    /// Borrow the authored criterion.
+    pub fn criterion(&self) -> &SourceAuthoredCriterionId {
+        &self.criterion
+    }
+    /// Borrow the semantic occurrence.
+    pub fn occurrence(&self) -> &SourceSemanticOccurrenceId {
+        &self.occurrence
+    }
+    /// Borrow the production function when present.
+    pub fn production_function(&self) -> Option<&SourceProductionFunctionId> {
+        self.production_function.as_ref()
+    }
+    /// Borrow the authored provenance.
+    pub fn provenance(&self) -> &SourceAssertionProvenance {
+        &self.provenance
+    }
+}
+
+/// Immutable census over four complete owner outcomes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SourceObligationCensus {
+    source: SourceIdentity,
+    criterion_source_binding: SourceCriterionSourceBinding,
+    inventory_rows: Vec<SourceCensusInventoryRow>,
+    correspondence_rows: Vec<SourceObligationRow>,
+    rejected_assertions: Vec<SourceCorrespondenceRejection>,
+}
+
+impl SourceObligationCensus {
+    /// Borrow the selected source.
+    pub fn source(&self) -> &SourceIdentity {
+        &self.source
+    }
+    /// Borrow the source author's Quire selection binding.
+    pub fn criterion_source_binding(&self) -> &SourceCriterionSourceBinding {
+        &self.criterion_source_binding
+    }
+    /// Borrow every distinct owner row.
+    pub fn inventory_rows(&self) -> &[SourceCensusInventoryRow] {
+        &self.inventory_rows
+    }
+    /// Borrow accepted relations.
+    pub fn correspondence_rows(&self) -> &[SourceObligationRow] {
+        &self.correspondence_rows
+    }
+    /// Borrow rejected assertions.
+    pub fn rejected_assertions(&self) -> &[SourceCorrespondenceRejection] {
+        &self.rejected_assertions
+    }
+}
+
+/// A required owner outcome or Quire binding cannot establish the census.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum SourceCorrespondenceError {
+    /// No Quire selection binding was supplied.
+    #[error("missing criterion source binding")]
+    MissingCriterionSourceBinding,
+    /// Binding names another source.
+    #[error("foreign criterion source binding")]
+    ForeignCriterionSourceBinding {
+        expected: SourceIdentity,
+        observed: SourceIdentity,
+    },
+    /// Binding scope disagrees with an authored criterion.
+    #[error("conflicting criterion source binding")]
+    ConflictingCriterionSourceBinding {
+        binding_scope: Box<str>,
+        criterion: SourceAuthoredCriterionId,
+    },
+    /// No outcome was supplied at this owner position.
+    #[error("missing {owner:?} inventory")]
+    MissingOwnerInventory { owner: SourceInventoryOwner },
+    /// Outcome ended before normal exhaustion.
+    #[error("incomplete {owner:?} inventory")]
+    IncompleteOwnerInventory {
+        owner: SourceInventoryOwner,
+        cause: SourceInventoryIncompleteReason,
+    },
+    /// Outcome names another selected source.
+    #[error("{owner:?} inventory source mismatch")]
+    InventorySourceMismatch {
+        owner: SourceInventoryOwner,
+        expected: SourceIdentity,
+        observed: SourceIdentity,
+    },
+    /// Outcome belongs to a different owner position.
+    #[error("{owner:?} inventory scope mismatch")]
+    InventoryScopeMismatch {
+        owner: SourceInventoryOwner,
+        expected: SourceInventoryScope,
+        observed: SourceInventoryScope,
+    },
+}
+
+fn census_owner_rows(
+    owner: SourceInventoryOwner,
+    source: &SourceIdentity,
+    outcome: Option<SourceInventoryOutcome>,
+) -> Result<Vec<SourceInventoryRow>, SourceCorrespondenceError> {
+    let outcome = outcome.ok_or(SourceCorrespondenceError::MissingOwnerInventory { owner })?;
+    let expected = match owner {
+        SourceInventoryOwner::Quire => SourceInventoryScope::QuireSelectedAuthoredCriteria,
+        SourceInventoryOwner::IrV2 => SourceInventoryScope::IrV2SemanticGraphAndOccurrences,
+        SourceInventoryOwner::Qsl => {
+            SourceInventoryScope::QslCheckedRequirementsAndPendingObligations
+        }
+        SourceInventoryOwner::QuireCodeRs => {
+            SourceInventoryScope::QuireCodeRsProductionModulesAndFunctions
+        }
+    };
+    if outcome.owner != owner || outcome.scope != expected {
+        return Err(SourceCorrespondenceError::InventoryScopeMismatch {
+            owner,
+            expected,
+            observed: outcome.scope,
+        });
+    }
+    if &outcome.source != source {
+        return Err(SourceCorrespondenceError::InventorySourceMismatch {
+            owner,
+            expected: source.clone(),
+            observed: outcome.source,
+        });
+    }
+    if let SourceInventoryCompleteness::Incomplete(cause) = outcome.completeness {
+        return Err(SourceCorrespondenceError::IncompleteOwnerInventory { owner, cause });
+    }
+    Ok(outcome.items)
+}
+
+fn assertion_key(
+    a: &SourceCorrespondenceAssertion,
+) -> (
+    &SourceAssertionId,
+    &SourceIdentity,
+    &SourceAuthoredCriterionId,
+    &SourceSemanticOccurrenceId,
+    &Option<SourceProductionFunctionId>,
+    &SourceAssertionProvenance,
+) {
+    (
+        &a.id,
+        &a.source,
+        &a.criterion,
+        &a.occurrence,
+        &a.production_function,
+        &a.provenance,
+    )
+}
+
+fn checked_census_positions(
+    input: SourceObligationInput,
+) -> Result<
+    (
+        SourceIdentity,
+        SourceCriterionSourceBinding,
+        Vec<SourceInventoryRow>,
+        Vec<SourceCorrespondenceAssertion>,
+    ),
+    SourceCorrespondenceError,
+> {
+    let binding = input
+        .criterion_source_binding
+        .ok_or(SourceCorrespondenceError::MissingCriterionSourceBinding)?;
+    if binding.source != input.source {
+        return Err(SourceCorrespondenceError::ForeignCriterionSourceBinding {
+            expected: input.source,
+            observed: binding.source,
+        });
+    }
+    let mut rows = census_owner_rows(SourceInventoryOwner::Quire, &input.source, input.quire)?;
+    let first_conflict = rows
+        .iter()
+        .filter_map(|r| match &r.identity {
+            SourceInventoryIdentity::Criterion(c)
+                if c.obligation_declaration() != binding.obligation_scope() =>
+            {
+                Some(c)
+            }
+            SourceInventoryIdentity::Criterion(_) => None,
+            SourceInventoryIdentity::RequirementRecord(_)
+            | SourceInventoryIdentity::SemanticNode { .. }
+            | SourceInventoryIdentity::SemanticOccurrence(_)
+            | SourceInventoryIdentity::PendingObligation(_)
+            | SourceInventoryIdentity::ProductionModule(_)
+            | SourceInventoryIdentity::ProductionFunction(_) => None,
+        })
+        .min();
+    if let Some(criterion) = first_conflict {
+        return Err(
+            SourceCorrespondenceError::ConflictingCriterionSourceBinding {
+                binding_scope: binding.obligation_scope.clone(),
+                criterion: criterion.clone(),
+            },
+        );
+    }
+    rows.extend(census_owner_rows(
+        SourceInventoryOwner::IrV2,
+        &input.source,
+        input.ir_v2,
+    )?);
+    rows.extend(census_owner_rows(
+        SourceInventoryOwner::Qsl,
+        &input.source,
+        input.qsl,
+    )?);
+    rows.extend(census_owner_rows(
+        SourceInventoryOwner::QuireCodeRs,
+        &input.source,
+        input.quire_code_rs,
+    )?);
+
+    order_inventory_rows(&mut rows);
+    Ok((input.source, binding, rows, input.assertions))
+}
+
+fn order_inventory_rows(rows: &mut Vec<SourceInventoryRow>) {
+    rows.sort_by(|a, b| (&a.owner, &a.identity).cmp(&(&b.owner, &b.identity)));
+    rows.dedup();
+}
+
+fn census_endpoints(
+    rows: &[SourceInventoryRow],
+) -> (
+    BTreeSet<CheckedNodeId>,
+    BTreeSet<SourceAuthoredCriterionId>,
+    BTreeSet<SourceSemanticOccurrenceId>,
+    BTreeSet<SourceProductionFunctionId>,
+) {
+    let mut node_facts: BTreeMap<&CheckedNodeId, BTreeSet<&CheckedSemanticId>> = BTreeMap::new();
+    for row in rows {
+        if let SourceInventoryIdentity::SemanticNode { identity, semantic } = &row.identity {
+            node_facts.entry(identity).or_default().insert(semantic);
+        }
+    }
+    let conflicting_nodes: BTreeSet<_> = node_facts
+        .iter()
+        .filter_map(|(n, facts)| (facts.len() > 1).then_some((*n).clone()))
+        .collect();
+    let nodes: BTreeSet<_> = node_facts
+        .keys()
+        .filter(|n| !conflicting_nodes.contains(*n))
+        .map(|n| (*n).clone())
+        .collect();
+    let criteria: BTreeSet<_> = rows
+        .iter()
+        .filter_map(|r| match &r.identity {
+            SourceInventoryIdentity::Criterion(c) => Some(c.clone()),
+            SourceInventoryIdentity::RequirementRecord(_)
+            | SourceInventoryIdentity::SemanticNode { .. }
+            | SourceInventoryIdentity::SemanticOccurrence(_)
+            | SourceInventoryIdentity::PendingObligation(_)
+            | SourceInventoryIdentity::ProductionModule(_)
+            | SourceInventoryIdentity::ProductionFunction(_) => None,
+        })
+        .collect();
+    let occurrences: BTreeSet<_> = rows
+        .iter()
+        .filter_map(|r| match &r.identity {
+            SourceInventoryIdentity::SemanticOccurrence(o) if nodes.contains(o.node()) => {
+                Some(o.clone())
+            }
+            SourceInventoryIdentity::SemanticOccurrence(_)
+            | SourceInventoryIdentity::Criterion(_)
+            | SourceInventoryIdentity::RequirementRecord(_)
+            | SourceInventoryIdentity::SemanticNode { .. }
+            | SourceInventoryIdentity::PendingObligation(_)
+            | SourceInventoryIdentity::ProductionModule(_)
+            | SourceInventoryIdentity::ProductionFunction(_) => None,
+        })
+        .collect();
+    let modules: BTreeSet<_> = rows
+        .iter()
+        .filter_map(|r| match &r.identity {
+            SourceInventoryIdentity::ProductionModule(m) => Some(m.clone()),
+            SourceInventoryIdentity::Criterion(_)
+            | SourceInventoryIdentity::RequirementRecord(_)
+            | SourceInventoryIdentity::SemanticNode { .. }
+            | SourceInventoryIdentity::SemanticOccurrence(_)
+            | SourceInventoryIdentity::PendingObligation(_)
+            | SourceInventoryIdentity::ProductionFunction(_) => None,
+        })
+        .collect();
+    let functions: BTreeSet<_> = rows
+        .iter()
+        .filter_map(|r| match &r.identity {
+            SourceInventoryIdentity::ProductionFunction(f) if modules.contains(f.module()) => {
+                Some(f.clone())
+            }
+            SourceInventoryIdentity::ProductionFunction(_)
+            | SourceInventoryIdentity::Criterion(_)
+            | SourceInventoryIdentity::RequirementRecord(_)
+            | SourceInventoryIdentity::SemanticNode { .. }
+            | SourceInventoryIdentity::SemanticOccurrence(_)
+            | SourceInventoryIdentity::PendingObligation(_)
+            | SourceInventoryIdentity::ProductionModule(_) => None,
+        })
+        .collect();
+
+    (conflicting_nodes, criteria, occurrences, functions)
+}
+
+fn process_census_assertions(
+    assertions: Vec<SourceCorrespondenceAssertion>,
+    source: &SourceIdentity,
+    criteria: &BTreeSet<SourceAuthoredCriterionId>,
+    occurrences: &BTreeSet<SourceSemanticOccurrenceId>,
+    functions: &BTreeSet<SourceProductionFunctionId>,
+) -> (Vec<SourceObligationRow>, Vec<SourceCorrespondenceRejection>) {
+    let mut by_id: BTreeMap<SourceAssertionId, Vec<SourceCorrespondenceAssertion>> =
+        BTreeMap::new();
+    for a in assertions {
+        by_id.entry(a.id.clone()).or_default().push(a);
+    }
+    let mut candidates = Vec::new();
+    let mut rejected = Vec::new();
+    for (_, mut group) in by_id {
+        group.sort_by(|a, b| assertion_key(a).cmp(&assertion_key(b)));
+        group.dedup();
+        let relations: BTreeSet<_> = group
+            .iter()
+            .map(|a| {
+                (
+                    &a.source,
+                    &a.criterion,
+                    &a.occurrence,
+                    &a.production_function,
+                )
+            })
+            .collect();
+        let provenances: BTreeSet<_> = group.iter().map(|a| &a.provenance).collect();
+        let group_reason = if relations.len() > 1 {
+            Some(SourceCorrespondenceRejectionReason::ConflictingRelation)
+        } else if provenances.len() > 1 {
+            Some(SourceCorrespondenceRejectionReason::ConflictingProvenance)
+        } else {
+            None
+        };
+        for assertion in group {
+            let reason = group_reason.or_else(|| {
+                if &assertion.source != source || &assertion.provenance.source != source {
+                    Some(SourceCorrespondenceRejectionReason::ForeignSource)
+                } else if !criteria.contains(&assertion.criterion) {
+                    Some(SourceCorrespondenceRejectionReason::DanglingCriterion)
+                } else if !occurrences.contains(&assertion.occurrence) {
+                    Some(SourceCorrespondenceRejectionReason::DanglingOccurrence)
+                } else if assertion
+                    .production_function
+                    .as_ref()
+                    .is_some_and(|f| !functions.contains(f))
+                {
+                    Some(SourceCorrespondenceRejectionReason::DanglingProductionSymbol)
+                } else {
+                    None
+                }
+            });
+            if let Some(reason) = reason {
+                rejected.push(SourceCorrespondenceRejection { assertion, reason });
+            } else {
+                candidates.push(assertion);
+            }
+        }
+    }
+    let mut by_relation: BTreeMap<
+        (
+            SourceAuthoredCriterionId,
+            SourceSemanticOccurrenceId,
+            Option<SourceProductionFunctionId>,
+        ),
+        Vec<SourceCorrespondenceAssertion>,
+    > = BTreeMap::new();
+    for a in candidates {
+        by_relation
+            .entry((
+                a.criterion.clone(),
+                a.occurrence.clone(),
+                a.production_function.clone(),
+            ))
+            .or_default()
+            .push(a);
+    }
+    let mut accepted = Vec::new();
+    for (_, group) in by_relation {
+        if group
+            .iter()
+            .map(|a| &a.provenance)
+            .collect::<BTreeSet<_>>()
+            .len()
+            > 1
+        {
+            rejected.extend(
+                group
+                    .into_iter()
+                    .map(|assertion| SourceCorrespondenceRejection {
+                        assertion,
+                        reason: SourceCorrespondenceRejectionReason::ConflictingProvenance,
+                    }),
+            );
+        } else if let Some(a) = group.into_iter().next() {
+            accepted.push(SourceObligationRow {
+                criterion: a.criterion,
+                occurrence: a.occurrence,
+                production_function: a.production_function,
+                provenance: a.provenance,
+            });
+        }
+    }
+    order_census_results(&mut accepted, &mut rejected);
+
+    (accepted, rejected)
+}
+
+fn order_census_results(
+    accepted: &mut [SourceObligationRow],
+    rejected: &mut [SourceCorrespondenceRejection],
+) {
+    accepted.sort();
+    rejected.sort_by(|a, b| {
+        (assertion_key(&a.assertion), a.reason).cmp(&(assertion_key(&b.assertion), b.reason))
+    });
+}
+
+fn census_dispositions(
+    rows: Vec<SourceInventoryRow>,
+    accepted: &[SourceObligationRow],
+    conflicting_nodes: &BTreeSet<CheckedNodeId>,
+) -> Vec<SourceCensusInventoryRow> {
+    let mapped_criteria: BTreeSet<_> = accepted.iter().map(|r| &r.criterion).collect();
+    let mapped_occurrences: BTreeSet<_> = accepted
+        .iter()
+        .filter(|r| r.production_function.is_some())
+        .map(|r| &r.occurrence)
+        .collect();
+    let absent_occurrences: BTreeSet<_> = accepted
+        .iter()
+        .filter(|r| r.production_function.is_none())
+        .map(|r| &r.occurrence)
+        .collect();
+    let mapped_functions: BTreeSet<_> = accepted
+        .iter()
+        .filter_map(|r| r.production_function.as_ref())
+        .collect();
+    let mapped_modules: BTreeSet<_> = mapped_functions.iter().map(|f| f.module()).collect();
+    let mapped_nodes: BTreeSet<_> = mapped_occurrences.iter().map(|o| o.node()).collect();
+    let absent_nodes: BTreeSet<_> = absent_occurrences.iter().map(|o| o.node()).collect();
+    rows.into_iter()
+        .map(|row| {
+            let disposition = match &row.identity {
+                SourceInventoryIdentity::Criterion(c) => {
+                    if mapped_criteria.contains(c) {
+                        SourceInventoryDisposition::Mapped
+                    } else {
+                        SourceInventoryDisposition::ZeroMappings(
+                            SourceMissingMappingReason::NoAuthoredMapping,
+                        )
+                    }
+                }
+                SourceInventoryIdentity::SemanticNode { identity, .. } => {
+                    if conflicting_nodes.contains(identity) {
+                        SourceInventoryDisposition::ConflictingIdentity
+                    } else if mapped_nodes.contains(identity) {
+                        SourceInventoryDisposition::Mapped
+                    } else if absent_nodes.contains(identity) {
+                        SourceInventoryDisposition::ZeroMappings(
+                            SourceMissingMappingReason::ExplicitNoProductionFunction,
+                        )
+                    } else {
+                        SourceInventoryDisposition::ZeroMappings(
+                            SourceMissingMappingReason::NoAuthoredMapping,
+                        )
+                    }
+                }
+                SourceInventoryIdentity::SemanticOccurrence(o) => {
+                    if mapped_occurrences.contains(o) {
+                        SourceInventoryDisposition::Mapped
+                    } else if absent_occurrences.contains(o) {
+                        SourceInventoryDisposition::ZeroMappings(
+                            SourceMissingMappingReason::ExplicitNoProductionFunction,
+                        )
+                    } else {
+                        SourceInventoryDisposition::ZeroMappings(
+                            SourceMissingMappingReason::NoAuthoredMapping,
+                        )
+                    }
+                }
+                SourceInventoryIdentity::ProductionModule(m) => {
+                    if mapped_modules.contains(m) {
+                        SourceInventoryDisposition::Mapped
+                    } else {
+                        SourceInventoryDisposition::ZeroMappings(
+                            SourceMissingMappingReason::NoAuthoredMapping,
+                        )
+                    }
+                }
+                SourceInventoryIdentity::ProductionFunction(f) => {
+                    if mapped_functions.contains(f) {
+                        SourceInventoryDisposition::Mapped
+                    } else {
+                        SourceInventoryDisposition::ZeroMappings(
+                            SourceMissingMappingReason::NoAuthoredMapping,
+                        )
+                    }
+                }
+                SourceInventoryIdentity::RequirementRecord(_)
+                | SourceInventoryIdentity::PendingObligation(_) => {
+                    SourceInventoryDisposition::ZeroMappings(
+                        SourceMissingMappingReason::NoAuthoredMapping,
+                    )
+                }
+            };
+            SourceCensusInventoryRow { row, disposition }
+        })
+        .collect()
+}
+
+/// Build the ordered source census from four complete outcomes and authored assertions.
+pub fn build_source_obligation_census(
+    input: SourceObligationInput,
+) -> Result<SourceObligationCensus, SourceCorrespondenceError> {
+    let (source, binding, rows, assertions) = checked_census_positions(input)?;
+    let (conflicting_nodes, criteria, occurrences, functions) = census_endpoints(&rows);
+    let (accepted, rejected) =
+        process_census_assertions(assertions, &source, &criteria, &occurrences, &functions);
+    let inventory_rows = census_dispositions(rows, &accepted, &conflicting_nodes);
+    Ok(SourceObligationCensus {
+        source,
+        criterion_source_binding: binding,
+        inventory_rows,
+        correspondence_rows: accepted,
+        rejected_assertions: rejected,
+    })
 }
