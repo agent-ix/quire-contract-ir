@@ -617,7 +617,12 @@ fn tc_048_every_catalogue_entry_retains_its_constructible_admission() {
                 .or_insert(0usize) += 1;
         }
     }
-    assert_eq!(admitted.len(), 56, "admitted fixture count changed");
+    assert_eq!(entries.len(), 160, "catalogue entry count changed");
+    assert_eq!(
+        admitted.len(),
+        56,
+        "56 of 160 entries have behavioral controls"
+    );
     assert_eq!(unavailable.len(), 104, "unavailable fixture count changed");
     assert_eq!(
         unavailable_classes,
