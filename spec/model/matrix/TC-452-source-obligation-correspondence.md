@@ -14,8 +14,9 @@ Planned/UNRUN. The provisional input port retains typed rows and stop causes,
 but exposes no complete census. No owner adapter yet compares a declared
 complete inventory with the full selected Quire, IR V2, QSL, or `quire-code-rs`
 output. FR-052-AC-8 tests cover only that provisional port; they do not run
-this full-owner procedure. FR-052-AC-17 supersedes AC-8 when the census
-builder lands, and the envelope port and its AC-8 tests are then removed. The narrower IR-794 owner-issued completion boundary
+this full-owner procedure. FR-052-AC-17 supersedes AC-8; the census-builder
+code change retires AC-8 under ADR-0056 and removes the envelope port and its
+AC-8 tags (FR-052 Outputs transition list). The narrower IR-794 owner-issued completion boundary
 and its owner-output comparison (FR-052-AC-9 through AC-11) are also UNRUN;
 they do not by themselves complete this four-owner census case.
 The separate synthetic neutral-boundary checks for FR-052-AC-12 and AC-13
@@ -26,7 +27,7 @@ The neutral identity checks for FR-052-AC-14 are implemented and traced in
 `tests/it/source_obligation.rs`. The port retains a source binding, but AC-15
 remains unbacked and UNRUN until the census builder tests its binding refusals
 and assertion dispositions. The synthetic-census checks for FR-052-AC-17
-through AC-19 are UNRUN until the census builder exists; they cannot discharge
+through AC-23 are UNRUN until the census builder exists; they cannot discharge
 AC-1 through AC-3, AC-5 through AC-7, or AC-9 through AC-11.
 Quire's selected-scope owner-issued criterion output is pending PLAT-1165;
 therefore this procedure cannot yet claim a full FR-052 or IR-759 census.
@@ -108,9 +109,9 @@ neutral cause. On an owner path that accepts `quire_exact::Cancel`, trigger
 `SourceInventoryCancelCause` variants; do not attribute this behavior to the
 current QSL inventory or `quire-code-rs` adapter. Confirm that an owner stop
 type with no typed neutral projection cannot be silently converted to an
-`EarlyStop`, `RequestFailed` string or `Complete`. Pass a provisional envelope
-with `stop_reason: None`
-and verify no API promotes it to `Complete`. Pass mismatched source, owner,
+`EarlyStop`, `RequestFailed` string or `Complete`. Verify that no API
+promotes an absent stop cause to `Complete`; `Complete` follows only from the
+enumerator's `Ok(None)`. Pass mismatched source, owner,
 scope and row count to the neutral retention boundary and verify typed refusal.
 These checks do not substitute for matched-source four-owner census tests.
 
@@ -152,19 +153,35 @@ conflicting assertion provenance. Permute equivalent inputs and remove one
 occurrence from a complete IR V2 inventory.
 
 Separately, build the same fixture from four synthetic `Complete` outcomes
-and a valid binding. Compare every inventory row, disposition, missing-mapping
-reason, accepted row, rejection and ordering with the census construction
-rules, including an occurrence asserted only without a production function and
-QSL rows that no assertion can name. Permute assertion order and outcome row
-order. Inject faults into two owner positions at once, and into one position
-twice (wrong position with incomplete, wrong source with incomplete). Supply a
-missing binding, a binding naming another source, and a binding whose
-obligation scope differs from a Quire criterion row's obligation declaration.
-Supply an assertion that is both foreign and dangling; one assertion ID with
-differing relation and provenance; two assertion IDs stating one relation with
-equal provenance and with differing provenance; and an assertion whose
-occurrence lies under a conflicting `SemanticNode`. These checks use synthetic
-outcomes only.
+and a valid binding. Its QSL outcome holds at least one `RequirementRecord` row
+and one `PendingObligation` row, and one occurrence is asserted only without a
+production function. Hand-write the expected census for this fixture: every
+inventory row with its disposition and missing-mapping reason, every accepted
+row with its provenance, every rejection, and their order. Compare the built
+census with it for equality. Do not derive the expectation by re-running the
+census construction rules in a helper. The QSL rows' expected
+`ZeroMappings(NoAuthoredMapping)` is an IR reading pending owner confirmation.
+Permute assertion order and the row order of each outcome.
+Inject two faults in each adjacent pair of positions in the order missing or
+foreign binding, Quire outcome, conflicting binding, IR V2, QSL,
+`quire-code-rs`:
+- a foreign binding with an incomplete Quire outcome;
+- an incomplete Quire outcome with a conflicting binding;
+- a conflicting binding with a missing IR V2 outcome;
+- missing IR V2 and QSL outcomes;
+- an incomplete QSL outcome with a missing `quire-code-rs` outcome.
+Fault one position twice: wrong position with incomplete, and wrong source with
+incomplete. Supply a missing binding, a binding naming another source, and a
+binding whose obligation scope differs from a Quire criterion row's obligation
+declaration. That last case uses the conflicting-binding definition, which is
+an IR reading pending owner confirmation.
+Supply an assertion that is both foreign and dangling, and one assertion ID
+whose members differ in both relation and provenance. Supply two assertion IDs
+stating one relation with equal provenance, and two with differing provenance.
+Supply three assertions whose endpoints do not resolve: one whose occurrence
+lies under a conflicting `SemanticNode`, one whose occurrence has no
+`SemanticNode` row, and one whose production function has no
+`ProductionModule` row. These checks use synthetic outcomes only.
 
 ## Expected Results
 
@@ -199,8 +216,8 @@ fails the independent owner full-output comparison even with a self-consistent
 shortened count. Every stopped path remains `Incomplete` with its original
 typed cause and retained partial rows; QSL exhaustion and unfinished are
 distinct, IR V2 reader limits retain their fields, and an actually reported
-requested/deadline cancellation remains two typed causes. A missing stop cause
-on the provisional input remains provisional.
+requested/deadline cancellation remains two typed causes. An absent stop cause
+is never promoted to `Complete`.
 The neutral model rejects mismatched source, owner, scope or count. No result
 from these checks alone is reported as a complete source-obligation census.
 
@@ -212,13 +229,24 @@ literal fixture fails for field privacy, and none fails for an unrelated
 reason. None of these observations grants owner-native AC-9 through
 AC-11 credit.
 
-The synthetic census matches the census construction rules field by field and
-is equal under permutation. Only the earliest failing position's error is
-returned, and within one position scope mismatch precedes source mismatch,
-which precedes incompleteness. Missing, foreign and conflicting bindings
-return `MissingCriterionSourceBinding`, `ForeignCriterionSourceBinding` and
-`ConflictingCriterionSourceBinding`. Each rejected assertion carries the single
-reason the precedence selects, one relation stated by two IDs with equal
-provenance yields one accepted row, and the occurrence under a conflicting
-node is `DanglingOccurrence`. None of these observations grants full-owner
-AC-1 through AC-3, AC-5 through AC-7, or AC-9 through AC-11 credit.
+The synthetic census equals the hand-written expected census and is equal
+under permutation. Each QSL row is `ZeroMappings(NoAuthoredMapping)`, which is
+an IR reading pending owner confirmation. Each adjacent pair returns only the
+earlier position's error, in the order missing or foreign binding, Quire
+outcome, conflicting binding, IR V2, QSL, `quire-code-rs`:
+`ForeignCriterionSourceBinding`, `IncompleteOwnerInventory` for Quire,
+`ConflictingCriterionSourceBinding`, `MissingOwnerInventory` for IR V2, and
+`IncompleteOwnerInventory` for QSL. Within one position, scope mismatch
+precedes source mismatch, which precedes incompleteness. Missing, foreign and
+conflicting bindings return `MissingCriterionSourceBinding`,
+`ForeignCriterionSourceBinding` and `ConflictingCriterionSourceBinding`; the
+conflicting case follows the IR reading of a conflicting binding, pending owner
+confirmation. Each rejected assertion carries the single reason the precedence
+selects. One relation stated by two IDs with equal provenance yields one
+accepted row, and with differing provenance both assertions are rejected with
+`ConflictingProvenance`. Each assertion whose occurrence lies under a
+conflicting node or has no node row is rejected with `DanglingOccurrence`. The
+assertion whose function has no module row is rejected with
+`DanglingProductionSymbol`. The orphan and conflicting rows stay in the census.
+None of these observations grants full-owner AC-1 through AC-3, AC-5 through
+AC-7, or AC-9 through AC-11 credit.
