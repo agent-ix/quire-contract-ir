@@ -8,11 +8,11 @@ use std::{
 };
 
 use quire_contract_model::{
-    expected_inventory, ContractPackage, DeclarationEnvironment, DiagnosticCode, PackageId,
-    RequirementId, RequirementRef, RequirementRevision, SourceDocumentId, SourceIdentity,
-    SourceLocation, SourceRevision, SourceSpan, SymbolName, ValidationOptions, ValueDeclaration,
-    ValueDeclarationKind, ValueType, MAX_SEMANTIC_COLLECTION_ITEMS, MAX_SEMANTIC_DEPTH,
-    MAX_WIRE_JSON_DEPTH,
+    expected_inventory, ClauseRef, ContractPackage, DeclarationEnvironment, DiagnosticCode,
+    PackageId, RequirementId, RequirementRef, RequirementRevision, SourceDocumentId,
+    SourceIdentity, SourceLocation, SourceRevision, SourceSpan, SymbolName, ValidationOptions,
+    ValueDeclaration, ValueDeclarationKind, ValueType, MAX_SEMANTIC_COLLECTION_ITEMS,
+    MAX_SEMANTIC_DEPTH, MAX_WIRE_JSON_DEPTH,
 };
 use serde_json::{json, Value};
 
@@ -910,6 +910,155 @@ fn tc_018_a_decoder_fixture_reaches_the_decoder_and_a_schema_input_does_not() {
                 error_code(&scratch.run()),
                 "invalid_corpus",
                 "{fixture} {pointer} = {spelling}"
+            );
+        }
+        write_json(&path, &original);
+    }
+    assert!(scratch.run().status.success());
+}
+
+/// Tracing: TC-015, TC-018, FR-011-AC-3, FR-012-AC-6, FR-020-AC-3.
+/// FR-011-AC-3.
+/// FR-012-AC-6.
+/// FR-020-AC-3.
+#[ix_trace_rs::trace("TC-015", "TC-018", "FR-011-AC-3", "FR-012-AC-6", "FR-020-AC-3")]
+#[test]
+fn tc_018_probe_and_coverage_bounds_fail_at_the_fixture_schema() {
+    const BOUND: u64 = 9_007_199_254_740_992;
+    let scratch = Scratch::corpus("probe-coverage-bounds");
+    for (fixture, pointer, decoded_pointer, code) in [
+        (
+            "package-orphan-clause",
+            "/clause_resolutions/0/requirement/revision",
+            "/clause_resolutions/0",
+            "invalid_requirement_revision",
+        ),
+        (
+            "coverage-deep",
+            "/traces/0/source/start/source/revision",
+            "/traces/0/source",
+            "invalid_source_revision",
+        ),
+        (
+            "coverage-deep",
+            "/traces/0/source/start/byte_offset",
+            "/traces/0/source",
+            "invalid_source_span",
+        ),
+        (
+            "coverage-deep",
+            "/traces/0/target_span/start/source/revision",
+            "/traces/0/target_span",
+            "invalid_source_revision",
+        ),
+        (
+            "coverage-deep",
+            "/traces/0/target_span/end/byte_offset",
+            "/traces/0/target_span",
+            "invalid_source_span",
+        ),
+        (
+            "coverage-deep",
+            "/traces/0/target/revision",
+            "/traces/0/target",
+            "invalid_requirement_revision",
+        ),
+    ] {
+        let path = scratch.0.join(format!("inputs/{fixture}.json"));
+        let original = read_json(&path);
+        for value in [BOUND + 1, u64::MAX] {
+            let mut changed = original.clone();
+            *changed.pointer_mut(pointer).expect("fixture member exists") = json!(value);
+            write_json(&path, &changed);
+
+            let output = scratch.run();
+            assert_eq!(
+                output.status.code(),
+                Some(2),
+                "{fixture} {pointer} = {value}"
+            );
+            assert!(output.stdout.is_empty(), "{fixture} {pointer} = {value}");
+            let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+            assert_eq!(
+                error["code"], "invalid_corpus",
+                "{fixture} {pointer} = {value}"
+            );
+            assert_eq!(
+                error["path"],
+                format!("fixtures.{fixture}.input"),
+                "{fixture} {pointer} = {value}"
+            );
+            assert_eq!(
+                error["detail"], "instance does not match schema",
+                "{fixture} {pointer} = {value}"
+            );
+
+            let member = changed.pointer(decoded_pointer).unwrap().clone();
+            let decoded = match decoded_pointer {
+                "/clause_resolutions/0" => serde_json::from_value::<ClauseRef>(member)
+                    .map(|_| ())
+                    .unwrap_err(),
+                "/traces/0/target" => serde_json::from_value::<RequirementRef>(member)
+                    .map(|_| ())
+                    .unwrap_err(),
+                _ => serde_json::from_value::<SourceSpan>(member)
+                    .map(|_| ())
+                    .unwrap_err(),
+            };
+            assert!(
+                decoded.to_string().starts_with(&format!("{code} at ")),
+                "{fixture} {pointer} = {value}: {decoded}"
+            );
+        }
+
+        let mut at_bound = original.clone();
+        *at_bound.pointer_mut(pointer).unwrap() = json!(BOUND);
+        let mut member = at_bound.pointer(decoded_pointer).unwrap().clone();
+        // Keep the other endpoint consistent so this checks the numeric bound,
+        // not the span's separate identity or ordering invariant.
+        match pointer {
+            "/traces/0/source/start/source/revision"
+            | "/traces/0/target_span/start/source/revision" => {
+                *member.pointer_mut("/end/source/revision").unwrap() = json!(BOUND);
+            }
+            "/traces/0/source/start/byte_offset" => {
+                *member.pointer_mut("/end/byte_offset").unwrap() = json!(BOUND);
+            }
+            _ => {}
+        }
+        let decoded = match decoded_pointer {
+            "/clause_resolutions/0" => serde_json::from_value::<ClauseRef>(member).map(|_| ()),
+            "/traces/0/target" => serde_json::from_value::<RequirementRef>(member).map(|_| ()),
+            _ => serde_json::from_value::<SourceSpan>(member).map(|_| ()),
+        };
+        assert!(
+            decoded.is_ok(),
+            "{fixture} {pointer} = {BOUND}: {decoded:?}"
+        );
+        write_json(&path, &at_bound);
+        let output = scratch.run();
+        if pointer == "/traces/0/target_span/end/byte_offset" {
+            assert!(output.status.success(), "{fixture} {pointer} = {BOUND}");
+            let row = rows(&output)
+                .into_iter()
+                .find(|row| row["fixture_id"] == fixture)
+                .unwrap();
+            assert_eq!(row["status"], "match", "{fixture} {pointer} = {BOUND}");
+        } else {
+            assert_eq!(
+                output.status.code(),
+                Some(2),
+                "{fixture} {pointer} = {BOUND}"
+            );
+            assert!(output.stdout.is_empty(), "{fixture} {pointer} = {BOUND}");
+            let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+            assert_eq!(
+                error["code"], "invalid_corpus",
+                "{fixture} {pointer} = {BOUND}"
+            );
+            assert_eq!(
+                error["path"], "fixtures.covers",
+                "{fixture} {pointer} = {BOUND}"
             );
         }
         write_json(&path, &original);
