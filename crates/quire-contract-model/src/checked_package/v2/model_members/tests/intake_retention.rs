@@ -155,7 +155,6 @@ fn tc_048_intake_retains_generated_version_and_ordered_repeated_inputs() {
     );
 }
 
-/// Trace: FR-038-AC-174, FR-038-AC-188
 #[trace("TC-048", "FR-038-AC-174", "FR-038-AC-188")]
 #[test]
 fn tc_048_intake_retains_actual_nested_declaration_not_owner_or_missing_target() {
