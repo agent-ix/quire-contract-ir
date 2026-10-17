@@ -2326,3 +2326,46 @@ constructs the result field by field (AC-267). Assert separately (AC-268) that
 `selected_population` item is `pub use`d at the model root or re-exported from the
 `quire-contract-ir` root, and that the AC-252 through AC-257 outcomes are
 unchanged. Do not take the expected values from the accessor under test.
+
+## Typed population of a reaches application (FR-038-AC-269 through FR-038-AC-278)
+
+PLANNED / UNRUN (IR-852); no tagged test yet. The new error type is listed in the
+FR-019 Public items table by the code change that exports it, not by the
+specification change; [TC-058](../../model/matrix/TC-058-model-crate-public-interface.md)
+compares the compiled exports to that table. The producer rule that admits the
+`population` member key is outside this repository; build the fixtures from this
+repository's own wire so that the key is present or absent as the case needs.
+
+Build admitted packages from the IR-824 and IR-851 reaches fixtures, adding a
+`bounded_domain` / `model_population` node of the receiver end's declared type
+(its `max` binding an integer literal, its `semantic_type` a `Set` of
+`Reference` of the object type, two `Type` occurrences at ordinals 1 and 4 each
+with one source-map row) and the `population` key in the application's
+`operation.member`, with the node id in the application's `dependencies`.
+Further packages: a second population node with another `max`, a reaches
+application with no key, and a package holding a population node that no
+application names. Derive the expected binding, ordinal, maximum and object
+type from the fixture and the key derivation, not from the accessor.
+
+Expected: `reaches_population` returns the selector with the supplied node id and
+ordinal 1, and `select_population` over `Admitted` with it returns `Finite` with
+the fixture's maximum, minimum 0 and the object type; an application without the
+key returns `Ok(None)`; two applications over one population return equal
+selectors and over two populations differ in `binding`. Supply an unknown id
+(`UnknownNode`) and a navigate application, an `integer.add` application, the
+relationship node, a population node and a literal (`NotReachesApplication`). In
+crate-internal unit tests beside the accessor, mutate an admitted application's
+`population` to a non-node-id value, to an absent id, to a non-population node
+and strip the population node's `Type` occurrences, and assert
+`UnresolvedPopulation` and no partial selector. Through the public reader, refuse
+a `population` that is a non-node-id or names no node (`missing_declaration`/
+`missing-selection`), names a non-population node or a node with no `Type`
+occurrence, or names a population over a subtype or another object type
+(`ill_typed`/`operator-ineligible`), each at the `population` pointer; admit the
+exact type; refuse a navigate application carrying `population`; omit the
+population id from `dependencies` and list an unreferenced one (each
+`invalid_semantic_graph`, no cause). Combine an invalid `population` with an
+earlier existing defect and assert the earlier defect is refused. Call twice and
+on a clone and compare results, package equality and work. An external fixture
+exhaustively matches the error enum and binds the result type (AC-278). Do not
+take the expected values from the accessor under test.
