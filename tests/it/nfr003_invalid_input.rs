@@ -338,7 +338,6 @@ const AFTER_DECODE: [&str; 5] = [
 
 /// The class table is the STD-001 registry: same codes, no duplicates, and
 /// every fixture it names exists in the corpus.
-///
 #[trace("TC-454", "NFR-003-AC-1")]
 #[test]
 fn declared_classes_match_std001() {

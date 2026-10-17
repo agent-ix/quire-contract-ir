@@ -1025,7 +1025,6 @@ fn tc_018_probe_and_coverage_bounds_fail_at_the_fixture_schema() {
 /// eight members equals the bytes written out here and holds them only as
 /// strings; the test asserts both for every holding file (FR-020-AC-10,
 /// FR-020-AC-11, FR-016-AC-5).
-///
 #[trace("TC-018", "FR-020-AC-10", "FR-020-AC-11", "FR-016-AC-5")]
 #[test]
 fn tc_018_the_recorded_canonical_files_spell_the_eight_members_as_strings() {
@@ -1330,7 +1329,6 @@ fn tc_018_the_recorded_canonical_files_spell_the_eight_members_as_strings() {
 /// against the fixture schema like a plain one is on load, as a successful
 /// package document is: the decoder ignores an unknown member of an
 /// expression node, the schema does not.
-///
 #[trace("TC-018", "FR-020-AC-15")]
 #[test]
 fn tc_018_a_successful_expression_document_is_checked_against_the_schema() {

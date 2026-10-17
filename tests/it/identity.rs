@@ -759,7 +759,6 @@ fn dependency_package(
 /// A source or requirement revision and a byte offset above 2^53
 /// (9007199254740992), the largest integer RFC 8785 spells exactly, are
 /// refused with the registered code; 2^53 itself is accepted.
-///
 #[trace("TC-015", "FR-011-AC-3", "FR-012-AC-6")]
 #[test]
 fn tc_015_a_revision_or_byte_offset_above_two_to_the_53_is_refused() {

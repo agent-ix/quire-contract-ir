@@ -1723,7 +1723,6 @@ fn assert_guarded_products_check(leaf_counts: &[usize]) {
 /// reports exactly that test passed, so a renamed test cannot pass silently. Elsewhere only
 /// 16 leaves run in-process, a size whose unmerged growth is bounded, and the unit tests
 /// cover repeated products.
-///
 #[trace("TC-016", "FR-014-AC-7")]
 #[test]
 fn tc_016_guard_split_products_merge_instead_of_multiplying_out() {
@@ -1756,7 +1755,6 @@ fn tc_016_guard_split_products_merge_instead_of_multiplying_out() {
 
 /// A range set past 64 intervals is widened, not refused: sums of 64, 100 and 200 guarded
 /// leaves check under every overflow policy and numeric family.
-///
 #[trace("TC-016", "FR-014-AC-7")]
 #[test]
 fn tc_016_range_sets_beyond_the_limit_widen_and_still_check() {
@@ -1772,7 +1770,6 @@ fn tc_016_range_sets_beyond_the_limit_widen_and_still_check() {
 /// while 131 leaves carry an interval widened earlier in the chain across zero, so the
 /// divisor's own obligation is reported. Integer only: a rational quotient by a wide sum
 /// exceeds the one-denominator type for its own reasons.
-///
 #[trace("TC-016", "FR-014-AC-7")]
 #[test]
 fn tc_016_divisors_reaching_zero_through_widening_report_their_own_obligation() {
@@ -1794,7 +1791,6 @@ fn tc_016_divisors_reaching_zero_through_widening_report_their_own_obligation() 
 
 /// The `!= 0` split keeps both halves: the product of the split range excludes zero, a
 /// sum with a literal reaches zero, and without the guard the divisor may be zero.
-///
 #[trace("TC-016", "FR-014-AC-7")]
 #[test]
 fn tc_016_nonzero_split_keeps_both_halves_for_every_numeric_family() {
