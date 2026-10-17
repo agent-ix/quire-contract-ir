@@ -2253,9 +2253,14 @@ the fixture builder shall not implement or copy its private preimage.
 
 ## Typed parameter declaration (FR-038-AC-258 through FR-038-AC-261)
 
-PLANNED/UNRUN (IR-832); no test is tagged yet. The code change that exports
-`CheckedParameterDeclaration` and `CheckedParameterDeclarationError` adds their
-FR-019 Public items row; FR-019 lists only exported items. Build a self-built
+Implemented (IR-832) with tagged tests. `CheckedParameterDeclaration` and
+`CheckedParameterDeclarationError` are exported and listed in the FR-019 Public
+items table; FR-019 lists only exported items. The `MalformedBody` mutations
+are crate-internal unit tests beside the accessor, since they need the private
+wire. Their fixture is a never-admitted package of admitted shape with its kinds
+decoded from the wire, following the `scalar_application_operands` precedent
+(a module test can admit a package, as the composite operand tests do, but a
+parameter fixture would need its own keyed graph for no added check). Build a self-built
 admitted package with a pair of parameters named `x` at levels `0` and `1`, a
 parameter at level `10`, and add applications over parameters `a` and `b`, each
 typed at `Int[0, 9]` (an `integer_range` `bounded_domain`, since a parameter typed
@@ -2273,7 +2278,10 @@ that is not `scalar_type`/`text`, or gives `"level"` the value `"010"`
 (`MalformedBody`);
 assert the typed error and no partial value. Feed each `GraphChild` id from
 `scalar_application_operands` for the add applications to the accessor and
-compare the names in ordinal order, then in the swapped package. Do not
+compare the names in ordinal order, then in the swapped package. For an add
+with an inline literal operand, destructure its `InlineLiteral` without `..`:
+it holds the containing application's id and no operand id, and
+`parameter_declaration` over that id refuses `NotParameter`. Do not
 construct the expected name or level from the accessor under test. The
 compiled public inventory of the two new types is covered by
 [TC-058](../../model/matrix/TC-058-model-crate-public-interface.md).
