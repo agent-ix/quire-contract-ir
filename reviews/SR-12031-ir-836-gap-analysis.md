@@ -64,3 +64,16 @@ Clean units:
 - **Trace.** The three `#[trace]` attributes and `/// Trace:` lines name only TC-019 and NFR-003-AC-1/2. No other test claims NFR-003-AC-1/2 (`quire trace`).
 - **Fixtures.** Every fixture is from the repo's own `corpus/contract-v0.1`. Nothing is copied, and no corpus file changes.
 - **Not run.** `quoin:spec-review` and its sub-analyses were not run, as the brief directed. The spec diff is three status/type cells, and they are judged here.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1, head b21a6a2. NFR-003-AC-1/2 now cite "Test (TC-454)". The new row `TC-454 \| Every declared invalid-input class fails closed ... \| Integration \| P0 \| NFR-003` is added, and the three tests tag `TC-454` with NFR-003-AC-1/2. TC-019 is back to `Analysis`, traces NFR-001 and NFR-002 only, and is planned. TC-454 is unused on origin/main (whose highest TC is TC-453) and in open PR #427 (which uses only TC-048). Measured with `quire coverage --scope . --strict`: origin/main 30cba8c has 45 unbacked rows and head b21a6a2 has 43. The only rows that leave the list are NFR-003-AC-1 and NFR-003-AC-2. NFR-001-AC-2, NFR-001-AC-3, NFR-002-AC-1 and TC-019 (no backing symbol, verified by Analysis) are listed again. `quire trace --id TC-454` shows 3 claims, and `--id TC-019` shows 0. |
+| FND-002 | fixed | Round 1, head b21a6a2. NFR-003's Scope now states the class set: the `DiagnosticCode` values of STD-001's four tables, from "Identity and Reference Codes" through "Semantic Limit Codes". It also states three exclusions, each with a reason and its evidence: the `kani_*` codes including `kani_outcome_invalid` (FR-030 outcomes, not rejected input); `invalid_code_form` (FR-044, asserted by TC-442); and the six FR-020 runner codes (asserted by TC-018). The runner exclusion quotes STD-001 accurately ("neither `DiagnosticCode` values nor semantic diagnostic shapes", STD-001 Dependencies) and rests on NFR-003's statement about rejected semantic conditions. I accept these exclusions. Each is stated and backed by tagged evidence elsewhere, and the runner's no-panic obligation stays with TC-018. |
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | low | Two status cells are stale now that TC-454 owns NFR-003-AC-1/2. The model matrix TC-017 row (on main since #426) still says "NFR-003-AC-1 through AC-3 remain planned (IR-836 tracks NFR-003; TC-019 has no test)". The core TC-019 row, which now traces only NFR-001/NFR-002, still lists "fail-closed threshold analysis" among its planned work and keeps "fail-closed" in its title. Neither cell affects coverage. Fix: in the TC-017 row, say NFR-003-AC-1/2 are TC-454's and only AC-3 is planned, and drop the fail-closed part from TC-019. | spec/model/matrix/tests.md:29, spec/core/matrix/tests.md:47 |
