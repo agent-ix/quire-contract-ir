@@ -81,3 +81,12 @@ Recommended follow-ups (not in this PR):
 
 - **FND-001.** Open a ticket to give FR-019-AC-1 real inspection evidence.
 - **FND-002.** Either add an FR-016 criterion, or add an STD-001 note on the encoder-fault message, and retag tc_017 to it.
+
+## Dispositions
+
+Round 1, head dae5d00. Coverage was re-measured: 43 unbacked and 0 status lies, 508/565 backed. `groups` and `minted_targets` are identical to origin/main. FR-013-AC-5 has 7 binders (main 6) and FR-016-AC-6 has 2 (main 2). Both follow-up tickets exist in Linear.
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | deferred: IR-855 | The FR-019-AC-1 sole backer was weak before this PR and its credit is unchanged here. IR-855 tracks giving the criterion real signature and inspection evidence. |
+| FND-002 | deferred: IR-856 | The encoder-fault message behaviour has no owning criterion. IR-856 tracks adding one, after which tc_017 can be retagged. The misfit FR-016-AC-6 tag is already removed (SR-12110 FND-001, fixed). |

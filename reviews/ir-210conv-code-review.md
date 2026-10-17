@@ -94,3 +94,18 @@ Checked clean:
   - **Tests.** `cargo fmt --all --check` is clean. `cargo clippy --locked --workspace --all-targets -- -D warnings` is clean. `cargo test --test it -- conformance:: identity::tc_015 expression::wide` passed 16 of 16. The model lib tests `decimal::tests`, `canonical::tests` and the two `range_set_tests` passed 5 of 5.
   - **Line length (note).** The single `/// Trace:` line on the corpus test is 111 columns, over `max_width = 100`. rustfmt does not reflow comments here, and the file already has longer lines, so this is cosmetic and not a finding.
 - **PR body.** The body is accurate on every measured claim: the 6->8 and 2->3 gains, no lost pair, 43/0, 508/565, and unmatched tags 75->62. It names quire 0.36.1, while this machine has 0.36.2. The results reproduce on 0.36.2. The body does not say whether the gained bindings were checked against the criterion text. FND-001 shows one of them does not hold.
+
+## Dispositions
+
+Round 1, head dae5d00, measured with quire 0.36.2 (engine 0.50.2). The fix commit changes only trace metadata on three tests, plus the two copied review files.
+
+- **Coverage.** `quire coverage --scope . --strict --json` gives 43 unbacked and 0 status lies, with 508/565 backed. `groups` and `minted_targets` are identical to origin/main fabdbb4.
+- **Binder changes.** The only row that differs from main is FR-013-AC-5, at 7 binders against 6 on main. The extra binder is `tc_016_range_is_decided_after_the_grammar`. FR-016-AC-6 is at 2, the same as main.
+- **Gates.** `cargo fmt --check` and `cargo clippy --workspace --all-targets -D warnings` are clean. The `decimal::tests` and `canonical::tests` unit tests pass 3/3.
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | `tc_017_a_limit_and_an_encoder_fault_share_the_code_but_not_the_message` now carries `/// Trace: TC-017` and `#[trace("TC-017")]`. FR-016-AC-6 keeps its two backers in `canonical_v1_quire_canonical.rs`, the same as main. |
+| FND-002 | fixed | FR-013-AC-5 is dropped from `tc_016_the_grammar_is_minimal_base_ten`, which asserted only the private grammar predicate. It is kept on `tc_016_range_is_decided_after_the_grammar`, and that binding is right. The test asserts that `"170141183460469231731687303715884105728"` (2^127) decodes as grammar-valid and then refuses `invalid_numeric_bounds`. That string and that code are a verbatim clause of FR-013-AC-5. The test is a partial backer at the decoder-type level, and the per-member codes stay with the `wire.rs` tests. |
+
+Round 1 note on the line split: the corpus test's `Trace:` line is now two lines, `/// Trace: TC-018, FR-018-AC-1, FR-019-AC-1, FR-019-AC-3, FR-020-AC-1` and `/// Trace: TC-018, FR-020-AC-12, NFR-001-AC-1, StR-003-VC-1`. TC-018 is repeated on the second line. Both lines fit in 100 columns. Together they carry exactly the attribute's eight ids, and `quire trace --file` reads all eight as `rust-trace-attribute`.
