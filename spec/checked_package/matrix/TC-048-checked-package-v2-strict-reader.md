@@ -2327,7 +2327,7 @@ constructs the result field by field (AC-267). Assert separately (AC-268) that
 `quire-contract-ir` root, and that the AC-252 through AC-257 outcomes are
 unchanged. Do not take the expected values from the accessor under test.
 
-## Typed population of a reaches application (FR-038-AC-269 through FR-038-AC-278)
+## Typed population of a reaches application (FR-038-AC-269 through FR-038-AC-280)
 
 PLANNED / UNRUN (IR-852); no tagged test yet. The new error type is listed in the
 FR-019 Public items table by the code change that exports it, not by the
@@ -2364,8 +2364,16 @@ occurrence, or names a population over a subtype or another object type
 (`ill_typed`/`operator-ineligible`), each at the `population` pointer; admit the
 exact type; refuse a navigate application carrying `population`; omit the
 population id from `dependencies` and list an unreferenced one (each
-`invalid_semantic_graph`, no cause). Combine an invalid `population` with an
-earlier existing defect and assert the earlier defect is refused. Call twice and
+`invalid_semantic_graph`, no cause). Refuse each `max` defect of AC-279 (missing, two `max` members, non-binding,
+non-integer literal, negative, above `u64`) and admit `0` and a decimal-string
+`max`. Build a navigate application carrying `population` twice: with the id in
+`dependencies` (refused at the `population` pointer, operation stage) and
+without it (refused by the join, `invalid_semantic_graph`, no cause); an
+application of another operation carrying the key keeps its outcome. For the
+order (AC-280), combine an invalid `population` whose node id is listed in
+`dependencies` with an operand 1 that does not conform to the receiver end and
+assert the refusal is at the operand; combine an invalid `population` with a
+mode or leaf-count defect and assert the refusal is at `population`. Call twice and
 on a clone and compare results, package equality and work. An external fixture
 exhaustively matches the error enum and binds the result type (AC-278). Do not
 take the expected values from the accessor under test.
