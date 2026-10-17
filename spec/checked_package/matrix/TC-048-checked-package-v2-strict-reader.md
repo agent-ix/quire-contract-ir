@@ -2286,7 +2286,7 @@ construct the expected name or level from the accessor under test. The
 compiled public inventory of the two new types is covered by
 [TC-058](../../model/matrix/TC-058-model-crate-public-interface.md).
 
-## Typed relationship end of a reaches claim (FR-038-AC-262 through FR-038-AC-267)
+## Typed relationship end of a reaches application (FR-038-AC-262 through FR-038-AC-268)
 
 PLANNED / UNRUN (IR-851); no tagged test yet. The two new types are listed in
 the FR-019 Public items table by the code change that exports them, not by the
@@ -2294,29 +2294,35 @@ specification change; [TC-058](../../model/matrix/TC-058-model-crate-public-inte
 compares the compiled exports to that table.
 
 Build admitted packages from the IR-824 reaches fixtures: a homogeneous
-self-relationship whose source end is `{1,1}` with its own role and
-whose target end is `{2,3}` unique with role `peer`, one claim naming the source
-role (forward) and one naming the target role (inverse); further packages with
-the destination end `{0,3}` unique, `{0,3}` not unique, `{0,1}` and `{1,1}`,
-and one whose destination end omits its role. Derive the expected bounds,
-roles and destination declaration node id from the domain package document and
-the graph, not from the accessor.
+self-relationship with direction `bidirectional` (so that both a forward and an
+inverse application admit; a `source_to_target` or `target_to_source` direction
+admits only one of them, AC-254) whose source end is `{1,1}` with its own role
+and whose target end is `{2,3}` unique with role `peer`, one application naming
+the source role (forward) and one naming the target role (inverse); further
+packages with the destination end `{0,3}` unique, `{0,3}` not unique, `{0,1}`
+and `{1,1}`, one whose destination end omits its role, and one whose operand 1 is
+a subtype of the receiver endpoint type, with a variant whose graph holds no node
+with the declared end type's declaration id. Derive the expected bounds, roles,
+relationship id and destination declaration node id from the domain package
+document, the application's member and the key derivation, not from the
+accessor.
 
-Expected: `relationship_end` over each claim returns the supplied id, the
-destination end's `lower`, `upper`, `unique`, `role` and `forward`, `ordered`
-false and `upper` `Some`, and the destination type id; the forward and inverse
-claims of the unequal relationship return different bounds. Supply an unknown id
-(`UnknownNode`) and a navigate application, an `integer.add` application, the
-relationship node, an object declaration node and a literal
-(`NotRelationshipEndClaim`). In crate-internal unit tests beside the accessor,
-where the private wire is available, mutate an admitted claim so its
-declaration resolves to no relationship, its name matches neither role, its
-name matches both roles, or its destination declaration node is absent from the
-graph index, and assert `UnresolvedEnd` and no partial value for each; give the
-same defects to the reader and assert their existing admission refusals.
-Call twice and on a clone and compare results, package equality and work. An
-external fixture exhaustively matches the error enum and constructs the result
-field by field. Assert that `model_object_fields` over the object type returns
-only its fields, that the model root exports no `selected_population` item, and
-that the AC-252 through AC-257 outcomes are unchanged. Do not take the expected
-values from the accessor under test.
+Expected: `relationship_end` over each application returns the supplied id, the
+relationship id, the destination end's `lower`, `upper`, `unique`, `role` and
+`forward`, `ordered` false and `upper` `Some`, and the declared destination type
+id (also for the subtype operand and the missing-node variant); the forward and
+inverse applications of the unequal relationship return different bounds. Supply
+an unknown id (`UnknownNode`) and a navigate application, an `integer.add`
+application, the relationship node, an object declaration node, a field-read
+node and a literal (`NotReachesApplication`). In crate-internal unit tests
+beside the accessor, where the private wire is available, mutate an admitted
+application so its member is absent, its member `kind` is not `relationship_end`,
+its declaration is not a node id or resolves to no relationship, its name is not
+text, matches neither role or matches both roles, and assert `UnresolvedEnd` and
+no partial value for each. Call twice and on a clone and compare results, package
+equality and work. An external fixture exhaustively matches the error enum and
+constructs the result field by field (AC-267). Assert separately (AC-268) that
+`model_object_fields` over the object type returns only its fields and that no
+`selected_population` item is `pub use`d at the model root or re-exported from the
+`quire-contract-ir` root, and that the AC-252 through AC-257 outcomes are
+unchanged. Do not take the expected values from the accessor under test.

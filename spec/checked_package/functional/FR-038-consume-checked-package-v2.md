@@ -130,8 +130,8 @@ it admits in its own reader — `crates/quire-contract-model/src/checked_package
   declared name and level, `parameter_declaration`; see "Typed parameter
   declaration" (FR-038-AC-258 through FR-038-AC-261, IR-832).
 - A typed accessor on the admitted package for the destination end of a
-  `quire.op.model.reaches` claim, `relationship_end`; see "Typed relationship
-  end of a reaches claim" (FR-038-AC-262 through FR-038-AC-267, IR-851).
+  `quire.op.model.reaches` application, `relationship_end`; see "Typed relationship
+  end of a reaches application" (FR-038-AC-262 through FR-038-AC-268, IR-851).
 
 - A typed composite operand accessor, `composite_application_operands`,
   returning authentic positional children, authored shapes and introduced positions
@@ -3182,7 +3182,7 @@ provides no lookup from a name to a parameter node or an operand ordinal, no
 value store, and no evaluation. A caller whose operands include two parameter
 nodes of one name tells them apart by the returned `level` and node id.
 
-### Typed relationship end of a reaches claim
+### Typed relationship end of a reaches application
 
 Measured at `origin/main` (IR-851, whose own text is a claim and was
 re-measured). The reader resolves a `quire.op.model.reaches` application's
@@ -3194,20 +3194,23 @@ declaration index, the object types' field tables and the operation parameter
 types, so an admitted `CheckedPackageV2` holds no relationship end. The only
 public multiplicity-bearing accessor is `model_object_fields`, which returns an
 object type's edge FIELDS; a relationship end is not a field. A consumer that
-must draw a finite number of targets for a reachability claim (a
-[CG FR-015](https://github.com/agent-ix/quire-contract-codegen) harness) has
-no typed way to read the end's bounds, and decoding the claim's `body` and the
-selected domain package document would duplicate the reader's derivation.
+must draw a finite number of targets for a reachability claim (the
+bounded-harness consumer, CG FR-015) has no typed way to read the end's bounds,
+and decoding the application's `body` and the selected domain package document
+would duplicate the reader's derivation.
 
-`CheckedPackageV2::relationship_end(&self, claim: &CheckedNodeId) ->
+`CheckedPackageV2::relationship_end(&self, application: &CheckedNodeId) ->
 Result<CheckedRelationshipEnd, CheckedRelationshipEndError>` shall return the
-destination end the reader resolved for that claim, as typed Rust values. The
-IR-owned public types are:
+destination end the reader resolved for that application, as typed Rust values.
+`application` is the node whose body root is the `quire.op.model.reaches`
+application (the reachability expression), not the `state_clause` or other node
+that encloses it; a consumer that holds a clause and an argument path supplies
+the id of the application at that path. The IR-owned public types are:
 
 | Public type | Exposed fields or closed variants |
 | --- | --- |
-| `CheckedRelationshipEnd` | `claim: CheckedNodeId`, `role: Option<Box<str>>`, `destination_type: CheckedNodeId`, `lower: u64`, `upper: Option<u64>`, `ordered: bool`, `unique: bool`, `forward: bool` |
-| `CheckedRelationshipEndError` | Closed variants `UnknownNode`, `NotRelationshipEndClaim` and `UnresolvedEnd` |
+| `CheckedRelationshipEnd` | `application: CheckedNodeId`, `relationship: CheckedNodeId`, `role: Option<Box<str>>`, `destination_type: CheckedNodeId`, `lower: u64`, `upper: Option<u64>`, `ordered: bool`, `unique: bool`, `forward: bool` |
+| `CheckedRelationshipEndError` | Closed variants `UnknownNode`, `NotReachesApplication` and `UnresolvedEnd` |
 
 These types are exported at the model root and listed in
 [FR-019](../../model/functional/FR-019-rust-library-interface.md)'s Public items
@@ -3215,59 +3218,71 @@ table, which lists only exported items (FR-019-AC-5). The code change that
 exports them adds that row; this specification change does not, because the
 table lists exported items only.
 
-**Selection.** `claim` is the supplied id and the node must be one whose body
-root is a `quire.op.model.reaches` application, which the reader admitted. The
-accessor reads the application's `operation.member` (`declaration` and `name`)
-and resolves them through the same rule as admission: the relationship named by
-`declaration`, then the end whose authored role equals `name`. Admission's
-direction rule applies unchanged: the end whose role equals `name` in the
-relationship's source end gives `forward` true and the destination is the
-target end; the end whose role equals `name` in the target end gives `forward`
+**Selection.** The accessor reads the application's `operation.member`
+(`declaration` and `name`) and resolves them through the same rule as
+admission: the relationship named by `declaration`, then the end whose authored
+role equals `name`. Admission's direction rule applies unchanged: when the
+relationship's source end has role `name`, `forward` is true and the
+destination is the target end; when its target end has role `name`, `forward` is
 false and the destination is the source end (the destination rule of
-`navigation_type`, FR-152). The accessor adds no second derivation: it
-reads the relationship record that admission consulted, which the reader
-therefore retains for each selected relationship declaration (both ends' role,
-type reference and multiplicity, and the direction) in the same retained state
-as the field tables. That retention is not part of package equality, charges no
-work beyond what admission already charges, and does not change the reader's
-refusal order.
+`navigation_type`, FR-152).
 
-**Result.** `role` is the destination end's authored role, `None` when that end
-carries none (a target role may be omitted, FR-038-AC-166); it is the role the
-data holds and is never synthesised. `destination_type` is the identity of the
-destination object type's (or systems interface's) model declaration node, the
-node whose `Reference` is the claim's operand type. `lower`, `upper` and
-`unique` are the destination end's declared multiplicity and `ordered` its
-declared ordering, with no change of value or type: `upper` is `None` when the
-declaration is unbounded. The result carries no member type, charge, population,
-bound, evaluation or source text, and no `serde_json::Value`.
+**Retention.** The reader shall retain, for each selected relationship
+declaration, the record admission consults: both ends' role, type reference and
+multiplicity, the direction, and the derived model declaration node id of each
+end's type (the id admission computes from the selected document's identity,
+the end type's object-type or systems-interface form and the byte limit). The
+accessor shall not recompute that id. The reader shall keep this record outside
+package equality, shall charge no work beyond what admission already charges,
+and shall not change its refusal order. The accessor shall read this record and
+add no second derivation.
 
-**What an admitted claim yields.** The reaches branch refuses an unbounded or an
-ordered destination end (FR-038-AC-255), a destination end of another type than
-the receiver endpoint (AC-256) and a traversal against the declared direction
-(AC-254), so no node that survives admission has such an end. For every
-admitted reaches claim the accessor therefore returns `ordered` false, `upper`
-`Some` and a `destination_type` that names the receiver endpoint's own object
-type. The accessor does not itself re-check those properties and promises
-nothing beyond them: it returns the declared `lower`, `upper` and `unique`
-(for example `{0,3}` unique, `{0,3}` not unique, `{2,3}`, `{0,1}`, `{1,1}`),
-and it makes no statement about any end of a relationship that no admitted
-claim names.
+**Result.** `application` is the supplied id and `relationship` is the
+`operation.member.declaration` node id the application names, so a consumer can
+name the edge. `role` is the destination end's authored role, `None` when that
+end carries none (a target role may be omitted, FR-038-AC-166); it is the role
+the data holds and is never synthesised. `destination_type` is the identity of
+the declared destination end's type, the model declaration node of the
+destination object type (or systems interface) that admission derived; it is
+the declared end type to which every operand conforms, not the type of a
+particular operand, so a subtype operand does not change it. The node need not
+be present in the graph: the reaches path computes it and does not look it up
+(the result is Boolean), so the accessor returns the derived id whether or not
+the graph holds that node. `lower`, `upper` and `unique` are the destination
+end's declared multiplicity and `ordered` its declared ordering, with no change
+of value or type: `upper` is `None` when the declaration is unbounded. The
+result carries no member type, charge, population, bound, evaluation or source
+text, and no `serde_json::Value`.
+
+**What an admitted application yields.** The reaches branch refuses an
+unbounded or an ordered destination end (FR-038-AC-255), a destination end of
+another type than the receiver endpoint (AC-256) and a traversal against the
+declared direction (AC-254), so no node that survives admission has such an
+end. For every admitted reaches application the accessor therefore returns
+`ordered` false, `upper` `Some` and a `destination_type` that is the receiver
+endpoint's own declared type. The accessor does not itself re-check those
+properties and promises nothing beyond them: it returns the declared `lower`,
+`upper` and `unique` (for example `{0,3}` unique, `{0,3}` not unique, `{2,3}`,
+`{0,1}`, `{1,1}`).
 
 An unknown id shall refuse `UnknownNode`. A node whose body root is not a
-`quire.op.model.reaches` application shall refuse `NotRelationshipEndClaim`,
+`quire.op.model.reaches` application shall refuse `NotReachesApplication`,
 whatever its tag, including a `quire.op.model.navigate` application over a
-`relationship_end` member, a relationship declaration node, a field read and an
-application of any other operation. A claim whose `declaration` does not resolve
-to a retained relationship, whose `name` matches no role or both roles of it, or
-whose destination type has no model declaration node in the graph shall refuse
-`UnresolvedEnd`. Admission refuses each of those states (`missing_declaration`,
-`ill_typed`), so `UnresolvedEnd` is reachable only from a package that a
-crate-internal post-admission mutation changed, as `MalformedBody` is for
-`parameter_declaration`; no reader-admitted package returns it. Each refusal
-shall return only the typed error and no partial end. The accessor shall not
-panic on any input, shall charge no work, shall not change package admission or
-the V2 reader's refusal order, and shall not mutate the package.
+`relationship_end` member (a relationship-end application that is not a
+reachability application), a relationship declaration node, a field read and an
+application of any other operation. A reaches application whose
+`operation.member` no longer resolves as admission resolved it shall refuse
+`UnresolvedEnd`: a member that is absent, whose `kind` is not `relationship_end`,
+whose `declaration` is not a node id or does not resolve to a retained
+relationship, or whose `name` is not text, matches no role or matches both roles
+of it. `UnresolvedEnd` is a catch-all in the way `MalformedBody` is for
+`parameter_declaration`. Admission refuses each of those states
+(`missing_declaration`, `ill_typed`), so `UnresolvedEnd` is reachable only from a
+package that a crate-internal post-admission mutation changed; no reader-admitted
+package returns it. Each refusal shall return only the typed error and no
+partial end. The accessor shall not panic on any input, shall charge no work,
+shall not change package admission or the V2 reader's refusal order, and shall
+not mutate the package.
 
 A relationship end is not an edge field. [FR-053](../../model/functional/FR-053-selected-population-binding.md)
 and its AC-5 name `model_object_fields` as the sole authority for model
@@ -3275,9 +3290,9 @@ edge-FIELD multiplicity; that sentence is about fields and stays true, so
 FR-053 is not amended. `relationship_end` is the authority for relationship-end
 multiplicity and `model_object_fields` returns no relationship end. This
 accessor exposes no population, population binding or bound; selecting a
-population remains FR-053's `select_population`, which the model root does not
-re-export. Deriving a reaches claim's population is a separate decision
-(IR-852).
+population remains FR-053's `select_population`, none of whose items is
+re-exported from the `quire-contract-ir` root. Deriving a reaches
+application's population is a separate decision (IR-852).
 
 ### Typed authored domains of composite equality and inequality operands
 
@@ -4606,12 +4621,13 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-259 | Implemented (IR-832). `parameter_declaration` over an id absent from the graph refuses `UnknownNode`; over an existing `value`/`literal`, an `application` node and a `function` node it refuses `NotParameter` for each; over a parameter node whose `body` a crate-internal post-admission mutation changed to lack the `"name"` binding, to give `"name"` a non-text value, to give `"name"` a non-identifier value, to type the name literal at a node that is not `scalar_type`/`text`, and to give `"level"` the non-canonical value `"010"`, it refuses `MalformedBody` for each. Every refusal returns only the typed error and no partial declaration. | Test (TC-048) |
 | FR-038-AC-260 | Implemented (IR-832). Two admitted parameter nodes named `x` at levels `0` and `1` have distinct ids, and `parameter_declaration` returns `level` `"0"` for one and `"1"` for the other with `name` `x` for both, so the accessor separates equal names by level and not by an enclosing function. The result type has no member naming a function, owner or declaration, which a compiled field-by-field construction of `CheckedParameterDeclaration` shows. | Test (TC-048) |
 | FR-038-AC-261 | Implemented (IR-832). For an admitted `quire.op.integer.add` application whose two operands reference parameters `a` and `b`, each typed at `Int[0, 9]` (a finite `bounded_domain`/`integer_range`, so that `scalar_application_operands` returns `Ok` and not `UnboundedRange`), calling `parameter_declaration` on each `GraphChild` id returned by `scalar_application_operands` yields `a` then `b` in operand ordinal order, and the same application with its arguments swapped in a separately admitted package yields `b` then `a`. An `InlineLiteral` operand carries no operand `CheckedNodeId`: the only id its `CheckedScalarOperandChild::InlineLiteral` holds is `application`, the containing application's, and `parameter_declaration` over that id refuses `NotParameter`. | Test (TC-048) |
-| FR-038-AC-262 | PLANNED / UNRUN (IR-851). When `relationship_end` is called with the id of an admitted `quire.op.model.reaches` claim over a homogeneous relationship whose source end is `{1,1}` and whose target end is `{2,3}` unique with role `peer`, it returns `Ok` with `claim` equal to the supplied id, `forward` true when the claim names the source role, and `lower` 2, `upper` `Some(3)`, `unique` true, `ordered` false and `role` `Some("peer")`; for a second admitted claim over the same relationship naming the target role it returns `forward` false and the source end's `lower` 1, `upper` `Some(1)`, `unique` false and its own `role`, so a swap of the two ends fails. `destination_type` equals the model declaration node id of the destination end's object type, derived independently of the accessor. | Test (TC-048) |
-| FR-038-AC-263 | PLANNED / UNRUN (IR-851). For admitted reaches claims over a destination end of `{0,3}` unique, `{0,3}` not unique, `{2,3}`, `{0,1}` and `{1,1}`, `relationship_end` returns exactly that `lower`, `upper` and `unique` with `ordered` false and `upper` `Some`, and for a destination end that omits its role it returns `role` `None`; an `unbounded` or `ordered` destination end is refused at admission by FR-038-AC-255, so no claim exists to be read. The accessor makes no statement about a subtype operand, which does not change the end. | Test (TC-048) |
-| FR-038-AC-264 | PLANNED / UNRUN (IR-851). `relationship_end` over an id absent from the graph refuses `UnknownNode`; over an admitted `quire.op.model.navigate` application with a `relationship_end` member, an application of `quire.op.integer.add`, the relationship declaration node, an object type's declaration node and a `value`/`literal` node it refuses `NotRelationshipEndClaim` for each. Every refusal returns only the typed error and no partial end. | Test (TC-048) |
-| FR-038-AC-265 | PLANNED / UNRUN (IR-851). When a crate-internal post-admission mutation of an admitted reaches claim points its `declaration` at a node that resolves to no retained relationship, sets its `name` to a text equal to neither role, sets its `name` to a text equal to both roles, or removes the destination type's model declaration node from the graph index, `relationship_end` refuses `UnresolvedEnd` for each and returns no partial end; the same four defects in a package given to the reader are refused at admission as before. | Test (TC-048) |
-| FR-038-AC-266 | PLANNED / UNRUN (IR-851). When `relationship_end` is called twice on an admitted reaches claim and on a clone of the admitted package, the results are equal, the package equals its pre-call self, the accessor charges no work, and every package of FR-038-AC-252 through FR-038-AC-257 yields its pre-change admission or refusal outcome at the same pointer and the same refusal order. | Test (TC-048) |
-| FR-038-AC-267 | PLANNED / UNRUN (IR-851). An external Rust API fixture calls `relationship_end` with `&CheckedNodeId`, exhaustively matches `CheckedRelationshipEndError` without a wildcard arm and constructs `CheckedRelationshipEnd` field by field with exactly the eight fields of the table, so a ninth public field or a `serde_json::Value`, `CheckedMemberType` or population member fails to compile; `model_object_fields` over the object type named by a relationship returns the same fields as before this change and no relationship end, and `relationship_end` over a field-read node refuses `NotRelationshipEndClaim`; the model root exports none of the `selected_population` items (FR-053-AC-5). The FR-019 Public items row for the two new types is added by the code change that exports them, not by this specification change. | Test (TC-048) |
+| FR-038-AC-262 | PLANNED / UNRUN (IR-851). When `relationship_end` is called with the id of an admitted `quire.op.model.reaches` application over a bidirectional homogeneous relationship (the direction under which both a forward and an inverse application admit) whose source end is `{1,1}` and whose target end is `{2,3}` unique with role `peer`, it returns `Ok` with `application` equal to the supplied id, `relationship` equal to the relationship node the application names, `forward` true when the application names the source role, and `lower` 2, `upper` `Some(3)`, `unique` true, `ordered` false and `role` `Some("peer")`; for a second admitted application over the same relationship naming the target role it returns `forward` false and the source end's `lower` 1, `upper` `Some(1)`, `unique` false and its own `role`, so a swap of the two ends fails. `destination_type` equals the model declaration node id of the destination end's object type, derived independently of the accessor. | Test (TC-048) |
+| FR-038-AC-263 | PLANNED / UNRUN (IR-851). For admitted reaches applications over a destination end of `{0,3}` unique, `{0,3}` not unique, `{2,3}`, `{0,1}` and `{1,1}`, `relationship_end` returns exactly that `lower`, `upper` and `unique` with `ordered` false and `upper` `Some`, and for a destination end that omits its role it returns `role` `None`; an `unbounded` or `ordered` destination end is refused at admission by FR-038-AC-255, so no application exists to be read. For an admitted application whose operand 1 is a subtype of the receiver endpoint type, `destination_type` is the declared end type's derived declaration node id and not the subtype's, including when the graph holds no node with that id, and the result is `Ok`. | Test (TC-048) |
+| FR-038-AC-264 | PLANNED / UNRUN (IR-851). `relationship_end` over an id absent from the graph refuses `UnknownNode`; over an admitted `quire.op.model.navigate` application with a `relationship_end` member, an application of `quire.op.integer.add`, the relationship declaration node, an object type's declaration node, a field-read node and a `value`/`literal` node it refuses `NotReachesApplication` for each. Every refusal returns only the typed error and no partial end. | Test (TC-048) |
+| FR-038-AC-265 | PLANNED / UNRUN (IR-851). When a crate-internal post-admission mutation of an admitted reaches application removes its `operation.member`, sets the member `kind` to a value other than `relationship_end`, sets its `declaration` to a non-node-id value, points it at a node that resolves to no retained relationship, sets its `name` to a non-text value, to a text equal to neither role or to a text equal to both roles, `relationship_end` refuses `UnresolvedEnd` for each and returns no partial end; the defects that the reader can see in a package given to it are refused at admission as before. | Test (TC-048) |
+| FR-038-AC-266 | PLANNED / UNRUN (IR-851). When `relationship_end` is called twice on an admitted reaches application and on a clone of the admitted package, the results are equal, the package equals its pre-call self, the accessor charges no work, and every package of FR-038-AC-252 through FR-038-AC-257 yields its pre-change admission or refusal outcome at the same pointer and the same refusal order. | Test (TC-048) |
+| FR-038-AC-267 | PLANNED / UNRUN (IR-851). An external Rust API fixture calls `relationship_end` with `&CheckedNodeId`, exhaustively matches `CheckedRelationshipEndError` without a wildcard arm and constructs `CheckedRelationshipEnd` field by field with exactly the nine fields of the table, so a tenth public field or a `serde_json::Value`, `CheckedMemberType` or population member fails to compile. The FR-019 Public items row for the two new types is added by the code change that exports them, not by this specification change. | Test (TC-048) |
+| FR-038-AC-268 | PLANNED / UNRUN (IR-851). `model_object_fields` over the object type named by a relationship returns the same fields as before this change and no relationship end, and no `selected_population` item is `pub use`d at the model crate root or re-exported from the `quire-contract-ir` root (FR-053-AC-5); `selected_population` stays reachable only by its module path. | Test (TC-048) |
 | FR-038-AC-246 | Implemented (IR-803). For a reader-admitted `quire.op.structural.eq` application, `composite_application_operands` returns `CheckedCompositeOperator::Eq` together with its operands; for an otherwise equivalent reader-admitted `quire.op.structural.ne` application it returns `CheckedCompositeOperator::Ne` together with its operands. Between those cases, only the returned operator and the selected application's identity and occurrence may differ; operands (including order, child identities, semantic types and domains), ordinals and `consumed_work` are equal. The AC-182 public-fields inspection in `tests/it/checked_package_v2_composite_operands.rs` (`inspect_public_fields`) must exhaustively match both `CheckedCompositeOperator` variants, without a wildcard arm or `#[non_exhaustive]`. The consumer needs no separate operation lookup. TC-048 composite operand tests verify both cases. | Test |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
