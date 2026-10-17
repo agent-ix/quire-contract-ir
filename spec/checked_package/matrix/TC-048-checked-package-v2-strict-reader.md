@@ -2376,10 +2376,16 @@ application of another operation carrying the key keeps its outcome. For the
 order (AC-280), combine an invalid `population` whose node id is listed in
 `dependencies` with an operand 1 that does not conform to the receiver end and
 assert the refusal is at the operand; give a reaches application a mode and,
-separately, a leaf, with and without an invalid `population`, and assert the
+separately, a leaf, with a `population` that is a listed node id (and, separately, an invalid id missing from `dependencies`, refused by the join), and assert the
 identity-stage refusal (`operation-mode-mismatch`, a law mismatch) in each case.
-Where the published QSpec `reaches_population_cases` vectors exist, run them
-through `make conformance-qspec` and assert the same outcomes. Call twice and
+Where the published QSpec `reaches_population_cases` vectors exist, build each
+descriptor into a package in the IR harness and run it through
+`make conformance-qspec`, asserting the same outcomes. The harness shall give
+each appended node (`Reference`, `Set`, population) exactly one `Type`
+occurrence and one matching `source_map` row, because the reader requires the
+source map to equal the occurrence set exactly; it shall reuse an existing
+`Reference` of the object type instead of appending a duplicate. A package built
+without those rows is refused `invalid_source_map` before any population check. Call twice and
 on a clone and compare results, package equality and work. An external fixture
 exhaustively matches the error enum and binds the result type (AC-278). Do not
 take the expected values from the accessor under test.

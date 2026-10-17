@@ -82,3 +82,20 @@ Round 1, reviewed at fffaf6495052405fa07a0a6a145bbbeb079bcfce.
 | FND-001 | fixed | The position is pinned as "the last step of check_relationship_member, immediately after that function's result_type check". The join and the key stage are stated to run first. AC-277 is split, and the ordering case moved to AC-280 with the invalid id listed in `dependencies` (join-consistent). AC-280's first clause holds against operations.rs:2132-2286. Its second clause is wrong; see FND-004. |
 | FND-002 | fixed | AC-252 now says "The optional population member key is specified separately by FR-038-AC-269 through FR-038-AC-280; it is not a charge or multiplicity member and does not change this criterion." No PLANNED behaviour remains in the implemented row. |
 | FND-003 | fixed | AC-272 now says "for each of the two (a null value is the first)". |
+
+## New findings (disposition pass 2)
+
+Reviewed at 444e675529d80ac4561e1f98a0e3ff1aeb96e475.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-006 | low | AC-280 now says that a reaches application with a mode or a leaf "is refused by the identity stage ... whatever its `population`". The TC step tests this "with and without an invalid `population`". But the structural dependency join and the application-key stage run before the identity stage (mod.rs:1989-1990). An invalid `population` whose id the application's `dependencies` do not list is refused `invalid_semantic_graph` by the join, not by the identity stage. Fix: limit "whatever" to a `population` that is a node id listed in `dependencies` (join-consistent), as AC-280's first clause already does. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4811, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md:2377-2380, crates/quire-contract-model/src/checked_package/v2/mod.rs:1989-1990 |
+
+## Dispositions (round 2)
+
+Round 2, reviewed at 444e675529d80ac4561e1f98a0e3ff1aeb96e475.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-004 | fixed | AC-280 is reversed: a mode or a leaf on a reaches application is refused by the identity stage. I verified this against the code: the catalog gives `mode: null` and `leaves: null`, a mode is refused `operation-mode-mismatch` (operations.rs:712-726), and a leaf is refused `OperationLawMismatch` at `operation/leaves/0` (operations.rs:659-663). The prose says `check_mode_type` and `check_leaf_count` are inert for these operations. One residual is FND-006. |
+| FND-005 | fixed | AC-279 now spells the case as the decimal string `"18446744073709551616"` and notes that a JSON number that large is refused earlier as `noncanonical_wire`. |

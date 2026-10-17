@@ -62,3 +62,9 @@ Round 1, reviewed at fffaf6495052405fa07a0a6a145bbbeb079bcfce.
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | The error paragraph now reads "When called with an id absent from the graph, reaches_population shall refuse UnknownNode". The reader rules read "the reader shall refuse ...". The `null` case is a reader obligation ("the reader shall refuse it") and AC-272 names it ("a null value is the first"). The new garbled lead clause is FND-002. |
+
+Round 2, reviewed at 444e675529d80ac4561e1f98a0e3ff1aeb96e475.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-002 | fixed | The link now separates the producer rule ("The producer omits the key, and never writes null ... owned by the QSL lowering") from the reader obligation ("The V2 reader shall refuse a present population that is not a node id, null included"). |

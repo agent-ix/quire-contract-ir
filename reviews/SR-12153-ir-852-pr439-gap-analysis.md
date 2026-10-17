@@ -86,3 +86,41 @@ Round 1, reviewed at fffaf6495052405fa07a0a6a145bbbeb079bcfce.
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | still-open | The wording part is fixed: the link now says "that amendment is pending ... this requirement does not claim that the key is already admitted by FR-322". The gate remains. The QSpec amendment now exists as quire-specification PR #268, open and not merged, and the QSL-819 spec is PR #923, open and not merged. Merge this PR only after both land. Then cite the merged FR-322-AC-73 instead of "pending". The two specs also disagree; see FND-002. |
+
+## New findings (disposition pass 2)
+
+Reviewed at 444e675529d80ac4561e1f98a0e3ff1aeb96e475, against quire-specification PR #268 at 33e6aaff080118064e123aab230877634b5a9b27 (open) and quire-spec-language PR #923 at 00f7403ec2cfb10ef7c717ae2cd4cb4b77a6669f (open).
+
+The four cross-repository points the author now states:
+
+1. **Non-NodeId values.** The difference of stage is stated, but the code claim is wrong; see FND-004.
+2. **Other member kinds.** Honestly stated: the amendment's schema refuses the key on every other member kind, and this reader does not add that refusal. No #268 vector exercises it.
+3. **IR-only refusals.** Mostly honest. The no-`Type`-occurrence refusal does not trip on the #268 vectors: QSpec's own builder (`append_population_chain`) clones the population node from the fixture's `bounded_domain`/`integer_range` node 139f40f80f, whose occurrences are `[{ordinal: 0, role: type}]`. The vectors' `max` values `"3"` and `"0"` are accepted by `population_maximum`. The negative `max` is a code disagreement, not just "the amendment states the negative case only"; see FND-003.
+4. **No QSpec vector for the `navigate` refusal.** True: `reaches_population_cases` has no navigate case.
+
+Read as published descriptors, the seven `reaches_population_cases` agree with the IR head:
+
+| Case | Expected outcome |
+| --- | --- |
+| no key | admitted |
+| `max` 3 | admitted |
+| `max` 0 | admitted |
+| integer-range node | `ill_typed`/`operator-ineligible` |
+| absent node | `ill_typed`/`operator-ineligible` |
+| another model declaration | `ill_typed`/`operator-ineligible` |
+| omitted from dependencies | `invalid_semantic_graph` |
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | medium | AC-279's negative `max` case conflicts with QSpec FR-322. FR-322 on main already has `RM-POP-MAX` (FR-322 :867): a negative `max` on a `model_population` node is refused `invalid_package`/`invalid-derived-shape` at that node. The #268 amendment says "a negative `max` refuses as it does there". IR AC-279 refuses it `ill_typed`/`operator-ineligible` at `member.population`, and the IR prose says only "The amendment states the negative case only". IR has no derived-shape check for `model_population` (`Shape::of` gives none; FR-038-AC-131 is still PLANNED), so this is a real difference of code, pointer and stage, and it is not stated. No #268 vector exercises it. Fix: state the difference honestly (QSpec's derived-shape refusal at the node, owned by FR-038-AC-131, against IR's operation-stage `ill_typed` at `population` until then). Or use the FR-322 code and pointer for the negative case. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3416-3422, spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4810, crates/quire-contract-model/src/checked_package/v2/derived_keys.rs:82 |
+| FND-004 | low | The rule for a non-node-id `population` says that the amendment's schema stage refuses it and that "this reader ... refuses at its operation stage with the same code". The code is not the same. A V2 schema failure is refused `malformed_wire` (FR-322 :708 states this for a schema failure), while IR refuses `ill_typed`/`operator-ineligible`. The divergence is code and stage, not stage alone. No #268 vector exercises it. Fix: say "with `ill_typed`/`operator-ineligible` where the amendment's schema refuses `malformed_wire`", or adopt `malformed_wire`. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3401-3409 |
+| FND-005 | medium | The new TC-048 step says to run the published `reaches_population_cases` "through `make conformance-qspec` and assert the same outcomes". Those cases are descriptors, not packages, so IR must build each package itself. QSpec's own builder cannot be copied. It appends the `Reference`, `Set` and population nodes (`append_rekeyed_structural_node`, tests/checked_package_v2.rs:4858-4888) with the template's `{type, 0}` occurrence but adds no `source_map` row. IR's reader requires the source map to equal the occurrence set exactly (common.rs:737-763), so a package built that way is refused `invalid_source_map` before any population check, including in the three admitted cases. As descriptors, IR does not fail the #268 vectors. Built as QSpec builds them, IR would fail every case. Fix: write the IR construction rule into the TC step: one `Type` occurrence and one `source_map` row for each appended node, and reuse an existing `Reference<Order>` instead of appending a duplicate. Raise the missing source-map rows with the QSpec owner on #268. | spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md:2381-2382, crates/quire-contract-model/src/checked_package/common.rs:737-763 |
+
+## Dispositions (round 2)
+
+Round 2, reviewed at 444e675529d80ac4561e1f98a0e3ff1aeb96e475.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | still-open | Gate unchanged. QSpec PR #268 (FR-322-AC-73) and QSL PR #923 are both OPEN. Merge this PR after both, and cite the merged FR-322-AC-73 in place of "that amendment is pending". |
+| FND-002 | fixed | For the vector cases the IR codes now match #268. An unresolved, absent, non-population or wrong-`T` `population` is refused `ill_typed`/`operator-ineligible` at `member.population`. `navigate` is refused first. Omitted dependencies are `invalid_semantic_graph`. `max` 0 is admitted. The remaining differences are now stated in the text. The two misstated ones are FND-003 and FND-004; the vector-construction gap is FND-005. |

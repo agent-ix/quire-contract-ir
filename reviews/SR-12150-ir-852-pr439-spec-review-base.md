@@ -114,3 +114,20 @@ Round 1, reviewed at fffaf6495052405fa07a0a6a145bbbeb079bcfce.
 | FND-001 | fixed | A third reader rule now refuses a `max` that FR-053's `population_maximum` rejects, read through that function itself. AC-279 backs it. `Finite` is now justified "Because the reader check below refuses a population node whose max FR-053 cannot read". |
 | FND-002 | fixed | The fifth bullet is narrowed to `navigate`. The join is scoped to reaches and navigate applications. AC-275 covers the listed-id and omitted-id cases and other operations. The residual prose overstatement is FND-004. |
 | FND-003 | fixed | The reader derives the object type "through FR-053's population_object_type itself, so that there is one derivation". |
+
+## New findings (disposition pass 2)
+
+Reviewed at 444e675529d80ac4561e1f98a0e3ff1aeb96e475.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-006 | low | The new paragraph on other operations sorts member kinds into "closed today (`type_argument`, `temporal_interval`, `fairness`, `state_clause`)" and "opaque today (`field`, `position`, `element`)". It leaves out `operation` and `profile_operator`. `member_is_well_formed` returns true for both (temporal.rs:430-436) and no stage closes their shape, so they also admit the key unread. A reader of the two lists cannot tell what happens to those two kinds. Fix: add `operation` and `profile_operator` to the opaque list, or say "every other kind is opaque". | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3432-3438, crates/quire-contract-model/src/checked_package/v2/temporal.rs:421-438 |
+
+## Dispositions (round 2)
+
+Round 2, reviewed at 444e675529d80ac4561e1f98a0e3ff1aeb96e475.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-004 | fixed | The prose now says that a member kind whose shape is closed today refuses the key as it does today, and an opaque kind admits it unread, and it names the kinds. AC-275 matches. The incomplete opaque list is FND-006. |
+| FND-005 | fixed | The `navigate` rule is now the first population rule ("before it resolves the value ... the refusal does not depend on what the value names"). AC-275 covers an absent node, an integer-range node and a valid population node. |
