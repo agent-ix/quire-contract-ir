@@ -786,9 +786,11 @@ fn is_positive_integer(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ix_trace_rs::trace;
     use serde_json::json;
 
-    /// Tracing: TC-048, FR-038-AC-22
+    /// Trace: TC-048, FR-038-AC-22
+    #[trace("TC-048", "FR-038-AC-22")]
     #[test]
     fn tc_048_structural_integer_grammars_are_exact() {
         assert!(is_non_negative_integer("0"));
@@ -807,7 +809,8 @@ mod tests {
         json!({"domain": "quire.checked-semantic-node/v1", "digest": fill.to_string().repeat(64)})
     }
 
-    /// Tracing: TC-048, FR-038-AC-23
+    /// Trace: TC-048, FR-038-AC-23
+    #[trace("TC-048", "FR-038-AC-23")]
     #[test]
     fn tc_048_application_join_collects_targets_and_member_declarations_only() {
         let body = json!({

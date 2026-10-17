@@ -1,3 +1,4 @@
+use ix_trace_rs::trace;
 use quire_contract_model::{
     AnchorName, Clause, ClauseId, ClauseKind, ClauseRef, ContractPackage, DependencyIdentity,
     DependencyKind, DependencyName, DependencySource, DiagnosticCode, ExecutionPoint, PackageId,
@@ -114,20 +115,22 @@ fn diagnostic_code<T: std::fmt::Debug>(
     result.unwrap_err().code
 }
 
-/// Tracing: TC-015
-/// TC-015.
-/// StR-001-VC-1.
-/// StR-001-VC-2.
-/// FR-011-AC-1.
-/// FR-011-AC-2.
-/// FR-011-AC-3.
-/// FR-012-AC-1.
-/// FR-012-AC-2.
-/// FR-012-AC-3.
-/// FR-012-AC-4.
-/// FR-012-AC-6.
-/// NFR-002-AC-3.
-/// STD-001.
+/// Trace: TC-015, FR-011-AC-1, FR-011-AC-2, FR-011-AC-3, FR-012-AC-1, FR-012-AC-2,
+/// FR-012-AC-3, FR-012-AC-4, FR-012-AC-6, NFR-002-AC-3, StR-001-VC-1, StR-001-VC-2
+#[trace(
+    "TC-015",
+    "FR-011-AC-1",
+    "FR-011-AC-2",
+    "FR-011-AC-3",
+    "FR-012-AC-1",
+    "FR-012-AC-2",
+    "FR-012-AC-3",
+    "FR-012-AC-4",
+    "FR-012-AC-6",
+    "NFR-002-AC-3",
+    "StR-001-VC-1",
+    "StR-001-VC-2"
+)]
 #[test]
 fn tc_015_identity_anchor_dependency_and_reference_contract_conforms() {
     let package = valid_package();
@@ -545,14 +548,8 @@ fn tc_015_identity_anchor_dependency_and_reference_contract_conforms() {
     }
 }
 
-/// Tracing: TC-015
-/// TC-015.
-/// FR-011-AC-1.
-/// FR-011-AC-3.
-/// FR-012-AC-3.
-/// FR-012-AC-4.
-/// FR-012-AC-6.
-/// STD-001.
+/// Trace: TC-015, FR-011-AC-3, FR-012-AC-3, FR-012-AC-4, FR-012-AC-6
+#[trace("TC-015", "FR-011-AC-3", "FR-012-AC-3", "FR-012-AC-4", "FR-012-AC-6")]
 #[test]
 fn tc_015_untrusted_json_preserves_structured_failure_codes() {
     let package = valid_package();
