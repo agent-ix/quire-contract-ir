@@ -1131,12 +1131,13 @@ fn plan_node<'a>(stack: &mut Vec<Step<'a>>, kind: &'a ExpressionKind) {
 
 #[cfg(test)]
 mod tests {
+    use ix_trace_rs::trace;
     use quire_canonical::{LimitExceeded, LimitKind, ProtocolViolation};
 
     use super::*;
 
-    /// Tracing: TC-017, FR-016-AC-6.
-    #[ix_trace_rs::trace("TC-017", "FR-016-AC-6")]
+    /// Trace: TC-017
+    #[trace("TC-017")]
     #[test]
     fn tc_017_a_limit_and_an_encoder_fault_share_the_code_but_not_the_message() {
         let limit = Error::Limit(LimitExceeded {
