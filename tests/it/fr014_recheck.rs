@@ -382,7 +382,6 @@ fn check(environment: &DeclarationEnvironment, case: &Case) -> Outcome {
     }
 }
 
-/// Trace: TC-016, FR-014-AC-4
 #[trace("TC-016", "FR-014-AC-4")]
 #[test]
 fn rechecking_identical_input_gives_equal_typed_output_diagnostics_and_dependencies() {

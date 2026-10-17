@@ -339,7 +339,6 @@ const AFTER_DECODE: [&str; 5] = [
 /// The class table is the STD-001 registry: same codes, no duplicates, and
 /// every fixture it names exists in the corpus.
 ///
-/// Trace: TC-454, NFR-003-AC-1
 #[trace("TC-454", "NFR-003-AC-1")]
 #[test]
 fn declared_classes_match_std001() {
@@ -369,7 +368,6 @@ fn declared_classes_match_std001() {
     }
 }
 
-/// Trace: TC-454, NFR-003-AC-1
 #[trace("TC-454", "NFR-003-AC-1")]
 #[test]
 fn tc_454_every_declared_invalid_input_class_returns_a_stable_code_and_no_panic() {
@@ -453,7 +451,6 @@ fn tc_454_every_declared_invalid_input_class_returns_a_stable_code_and_no_panic(
     );
 }
 
-/// Trace: TC-454, NFR-003-AC-2
 #[trace("TC-454", "NFR-003-AC-2")]
 #[test]
 fn tc_454_no_invalid_input_contributes_canonical_identity_or_covered_status() {

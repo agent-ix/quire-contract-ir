@@ -115,8 +115,6 @@ fn diagnostic_code<T: std::fmt::Debug>(
     result.unwrap_err().code
 }
 
-/// Trace: TC-015, FR-011-AC-1, FR-011-AC-2, FR-011-AC-3, FR-012-AC-1, FR-012-AC-2,
-/// FR-012-AC-3, FR-012-AC-4, FR-012-AC-6, NFR-002-AC-3, StR-001-VC-1, StR-001-VC-2
 #[trace(
     "TC-015",
     "FR-011-AC-1",
@@ -548,7 +546,6 @@ fn tc_015_identity_anchor_dependency_and_reference_contract_conforms() {
     }
 }
 
-/// Trace: TC-015, FR-011-AC-3, FR-012-AC-3, FR-012-AC-4, FR-012-AC-6
 #[trace("TC-015", "FR-011-AC-3", "FR-012-AC-3", "FR-012-AC-4", "FR-012-AC-6")]
 #[test]
 fn tc_015_untrusted_json_preserves_structured_failure_codes() {
@@ -763,7 +760,6 @@ fn dependency_package(
 /// (9007199254740992), the largest integer RFC 8785 spells exactly, are
 /// refused with the registered code; 2^53 itself is accepted.
 ///
-/// Trace: TC-015, FR-011-AC-3, FR-012-AC-6
 #[trace("TC-015", "FR-011-AC-3", "FR-012-AC-6")]
 #[test]
 fn tc_015_a_revision_or_byte_offset_above_two_to_the_53_is_refused() {

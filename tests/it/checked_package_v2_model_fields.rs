@@ -759,7 +759,6 @@ fn scalar_operand_package_named(
     (admitted, application_id)
 }
 
-/// Tracing: TC-048, FR-038-AC-261
 #[trace("TC-048", "FR-038-AC-261")]
 #[test]
 fn tc_048_parameter_declarations_follow_scalar_operand_order() {

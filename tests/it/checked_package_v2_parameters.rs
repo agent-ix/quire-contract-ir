@@ -676,7 +676,6 @@ fn declared(package: &CheckedPackageV2, key: &str) -> (String, String) {
     (declaration.name.to_string(), declaration.level.to_string())
 }
 
-/// Tracing: TC-048, FR-038-AC-258
 #[trace("TC-048", "FR-038-AC-258")]
 #[test]
 fn tc_048_parameter_declaration_returns_name_and_level_text() {
@@ -691,7 +690,6 @@ fn tc_048_parameter_declaration_returns_name_and_level_text() {
     assert_eq!(declared(&package, &ten), ("c".to_owned(), "10".to_owned()));
 }
 
-/// Tracing: TC-048, FR-038-AC-259
 #[trace("TC-048", "FR-038-AC-259")]
 #[test]
 fn tc_048_parameter_declaration_refuses_unknown_and_non_parameter_nodes() {
@@ -715,7 +713,6 @@ fn tc_048_parameter_declaration_refuses_unknown_and_non_parameter_nodes() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-260
 #[trace("TC-048", "FR-038-AC-260")]
 #[test]
 fn tc_048_parameters_of_one_name_differ_by_level_and_carry_no_function() {

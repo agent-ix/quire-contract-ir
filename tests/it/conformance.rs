@@ -33,8 +33,6 @@ fn input_count(corpus: &Path) -> usize {
     fs::read_dir(corpus.join("inputs")).unwrap().count()
 }
 
-/// Trace: TC-018, FR-018-AC-1, FR-019-AC-1, FR-019-AC-3, FR-020-AC-1
-/// Trace: TC-018, FR-020-AC-12, NFR-001-AC-1, StR-003-VC-1
 #[trace(
     "TC-018",
     "FR-018-AC-1",
@@ -114,7 +112,6 @@ fn tc_018_the_corpus_runs_deterministically_and_every_fixture_matches() {
     assert_eq!(invalid_utf8[0].code, DiagnosticCode::InvalidWireFormat);
 }
 
-/// Trace: TC-018, FR-018-AC-1, FR-018-AC-2, FR-020-AC-2
 #[trace("TC-018", "FR-018-AC-1", "FR-018-AC-2", "FR-020-AC-2")]
 #[test]
 fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
@@ -333,7 +330,6 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
     }
 }
 
-/// Trace: TC-018, FR-020-AC-2
 #[trace("TC-018", "FR-020-AC-2")]
 #[test]
 fn tc_018_runner_refuses_unsafe_paths_foreign_schemas_and_stray_entries() {
@@ -407,7 +403,6 @@ fn tc_018_runner_refuses_unsafe_paths_foreign_schemas_and_stray_entries() {
     assert_eq!(error_code(&orphan.run()), "invalid_corpus");
 }
 
-/// Trace: TC-018, FR-019-AC-2
 #[trace("TC-018", "FR-019-AC-2")]
 #[test]
 fn tc_018_semantic_depth_and_collection_edges_preflight_without_panic() {
@@ -540,7 +535,6 @@ fn tc_018_semantic_depth_and_collection_edges_preflight_without_panic() {
     );
 }
 
-/// Trace: TC-018, FR-018-AC-3
 #[trace("TC-018", "FR-018-AC-3")]
 #[test]
 fn tc_018_wire_depth_controls_ignore_quoted_delimiters_and_pin_literal_cliff() {
@@ -604,7 +598,6 @@ fn integer_string_spellings() -> (Vec<Value>, Vec<Value>) {
     (accepted, refused)
 }
 
-/// Trace: TC-018, FR-013-AC-5, FR-020-AC-3, FR-020-AC-13
 #[trace("TC-018", "FR-013-AC-5", "FR-020-AC-3", "FR-020-AC-13")]
 #[test]
 fn tc_018_the_fixture_schema_takes_the_eight_members_as_integer_strings() {
@@ -682,7 +675,6 @@ fn tc_018_the_fixture_schema_takes_the_eight_members_as_integer_strings() {
     }
 }
 
-/// Trace: TC-018, FR-020-AC-4, FR-020-AC-14
 #[trace("TC-018", "FR-020-AC-4", "FR-020-AC-14")]
 #[test]
 fn tc_018_the_package_schemas_bound_a_revision_and_a_byte_offset_at_two_to_the_53() {
@@ -717,7 +709,6 @@ fn tc_018_the_package_schemas_bound_a_revision_and_a_byte_offset_at_two_to_the_5
     }
 }
 
-/// Trace: TC-018, FR-020-AC-7, FR-020-AC-8, FR-020-AC-9
 #[trace("TC-018", "FR-020-AC-7", "FR-020-AC-8", "FR-020-AC-9")]
 #[test]
 fn tc_018_a_decoder_fixture_reaches_the_decoder_and_a_schema_input_does_not() {
@@ -878,7 +869,6 @@ fn tc_018_a_decoder_fixture_reaches_the_decoder_and_a_schema_input_does_not() {
     assert!(scratch.run().status.success());
 }
 
-/// Trace: TC-015, TC-018, FR-011-AC-3, FR-012-AC-6, FR-020-AC-5, FR-020-AC-6
 #[trace(
     "TC-015",
     "TC-018",
@@ -1036,7 +1026,6 @@ fn tc_018_probe_and_coverage_bounds_fail_at_the_fixture_schema() {
 /// strings; the test asserts both for every holding file (FR-020-AC-10,
 /// FR-020-AC-11, FR-016-AC-5).
 ///
-/// Trace: TC-018, FR-020-AC-10, FR-020-AC-11, FR-016-AC-5
 #[trace("TC-018", "FR-020-AC-10", "FR-020-AC-11", "FR-016-AC-5")]
 #[test]
 fn tc_018_the_recorded_canonical_files_spell_the_eight_members_as_strings() {
@@ -1342,7 +1331,6 @@ fn tc_018_the_recorded_canonical_files_spell_the_eight_members_as_strings() {
 /// package document is: the decoder ignores an unknown member of an
 /// expression node, the schema does not.
 ///
-/// Trace: TC-018, FR-020-AC-15
 #[trace("TC-018", "FR-020-AC-15")]
 #[test]
 fn tc_018_a_successful_expression_document_is_checked_against_the_schema() {
