@@ -272,6 +272,11 @@ pub(super) fn least_type_occurrence(
 
 /// The inclusive maximum of a population node's `max` member, when FR-053 can
 /// read one.
+///
+/// The body is untyped here. On a package the V2 reader admitted every body
+/// member is a valid term and only a `binding` carries a `name`, so the
+/// `binding` term check below can fail only for a body that did not come from
+/// admission.
 pub(super) fn population_maximum(body: &Value) -> Option<u64> {
     let mut maximum_members = body
         .get("members")?

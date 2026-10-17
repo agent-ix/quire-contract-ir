@@ -260,7 +260,6 @@ fn reaches_id(package: &CheckedPackageV2) -> CheckedNodeId {
     application_of(package, "quire.op.model.reaches")
 }
 
-/// Trace: TC-048, FR-038-AC-269
 #[trace("TC-048", "FR-038-AC-269")]
 #[test]
 fn tc_048_reaches_population_returns_the_least_ordinal_type_occurrence() {
@@ -297,7 +296,6 @@ fn tc_048_reaches_population_returns_the_least_ordinal_type_occurrence() {
     }
 }
 
-/// Trace: TC-048, FR-038-AC-270
 #[trace("TC-048", "FR-038-AC-270")]
 #[test]
 fn tc_048_reaches_population_is_none_without_a_key_and_distinguishes_populations() {
@@ -332,7 +330,6 @@ fn tc_048_reaches_population_is_none_without_a_key_and_distinguishes_populations
     assert_eq!(package.reaches_population(&no_key), Ok(None));
 }
 
-/// Trace: TC-048, FR-038-AC-271
 #[trace("TC-048", "FR-038-AC-271")]
 #[test]
 fn tc_048_reaches_population_refuses_every_node_that_is_not_a_reaches_application() {
@@ -370,7 +367,6 @@ fn tc_048_reaches_population_refuses_every_node_that_is_not_a_reaches_applicatio
     assert_eq!(package.reaches_population(&literal), refusal, "literal");
 }
 
-/// Trace: TC-048, FR-038-AC-272
 #[trace("TC-048", "FR-038-AC-272")]
 #[test]
 fn tc_048_a_population_that_is_not_a_listed_node_id_is_refused_ill_typed() {
@@ -399,7 +395,6 @@ fn tc_048_a_population_that_is_not_a_listed_node_id_is_refused_ill_typed() {
     }
 }
 
-/// Trace: TC-048, FR-038-AC-273
 #[trace("TC-048", "FR-038-AC-273")]
 #[test]
 fn tc_048_a_population_that_is_not_a_population_with_a_type_occurrence_is_refused() {
@@ -432,7 +427,6 @@ fn tc_048_a_population_that_is_not_a_population_with_a_type_occurrence_is_refuse
     scenario.assert_refused(ILL_TYPED, POPULATION_AT);
 }
 
-/// Trace: TC-048, FR-038-AC-274
 #[trace("TC-048", "FR-038-AC-274")]
 #[test]
 fn tc_048_a_population_of_another_object_type_than_the_receiver_end_is_refused() {
@@ -480,7 +474,6 @@ fn navigating(population: Value, listed: Option<&str>, extra: Vec<Value>) -> Sce
     scenario
 }
 
-/// Trace: TC-048, FR-038-AC-275
 #[trace("TC-048", "FR-038-AC-275")]
 #[test]
 fn tc_048_a_navigate_application_never_carries_a_population() {
@@ -570,7 +563,6 @@ fn position_of(package: &Value, operation: &str) -> usize {
         .expect("an application of the operation")
 }
 
-/// Trace: TC-048, FR-038-AC-275
 #[trace("TC-048", "FR-038-AC-275")]
 #[test]
 fn tc_048_other_operations_keep_their_present_outcome_for_a_population_key() {
@@ -609,7 +601,6 @@ fn tc_048_other_operations_keep_their_present_outcome_for_a_population_key() {
     }
 }
 
-/// Trace: TC-048, FR-038-AC-276
 #[trace("TC-048", "FR-038-AC-276")]
 #[test]
 fn tc_048_the_dependency_join_lists_exactly_the_named_population() {
@@ -690,7 +681,6 @@ fn least_admitting_work(scenario: &Scenario) -> u64 {
     sufficient
 }
 
-/// Trace: TC-048, FR-038-AC-277
 #[trace("TC-048", "FR-038-AC-277")]
 #[test]
 fn tc_048_reaches_population_is_repeatable_and_charges_no_work() {
@@ -718,7 +708,6 @@ fn tc_048_reaches_population_is_repeatable_and_charges_no_work() {
     assert_eq!(least_admitting_work(&plain), REACHES_ADMISSION_WORK);
 }
 
-/// Trace: TC-048, FR-038-AC-278
 #[trace("TC-048", "FR-038-AC-278")]
 #[test]
 fn tc_048_reaches_population_api_is_a_closed_error_and_exports_no_selected_population_item() {
@@ -752,7 +741,6 @@ fn tc_048_reaches_population_api_is_a_closed_error_and_exports_no_selected_popul
     assert!(!include_str!("../../../src/lib.rs").contains("selected_population"));
 }
 
-/// Trace: TC-048, FR-038-AC-279
 #[trace("TC-048", "FR-038-AC-279")]
 #[test]
 fn tc_048_a_population_whose_max_selection_cannot_read_is_refused() {
@@ -808,7 +796,6 @@ fn tc_048_a_population_whose_max_selection_cannot_read_is_refused() {
     }
 }
 
-/// Trace: TC-048, FR-038-AC-280
 #[trace("TC-048", "FR-038-AC-280")]
 #[test]
 fn tc_048_the_population_check_follows_every_earlier_check() {

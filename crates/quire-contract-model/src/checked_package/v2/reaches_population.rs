@@ -109,7 +109,6 @@ mod tests {
     /// Post-admission mutations of the `population` key refuse
     /// `UnresolvedPopulation`; the unmutated link resolves.
     ///
-    /// Trace: TC-048, FR-038-AC-271
     #[trace("TC-048", "FR-038-AC-271")]
     #[test]
     fn tc_048_post_admission_mutations_of_the_population_refuse_unresolved_population() {

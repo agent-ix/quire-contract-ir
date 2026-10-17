@@ -2364,8 +2364,8 @@ population over a subtype or another object type (each `ill_typed`/
 pointer; admit the
 exact type; refuse a navigate application carrying `population`; omit the
 population id from `dependencies` and list an unreferenced one (each
-`invalid_semantic_graph`, no cause). Refuse each `max` defect of AC-279 (missing, two `max` members, non-binding,
-non-integer literal, negative, above `u64`) and admit `0` and a decimal-string
+`invalid_semantic_graph`, no cause). Refuse each `max` defect of AC-279 (missing, two `max` members,
+non-integer literal, negative, above `u64`); a non-binding `max` member is refused earlier as `invalid_semantic_graph` at the member; admit `0` and a decimal-string
 `max`; spell the above-`u64` `max` as a decimal string. Build a navigate
 application carrying `population` twice, naming an absent node, an
 integer-range node and a valid population node in turn: with the id in
