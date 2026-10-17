@@ -3326,10 +3326,10 @@ included, as the reader check below states. The key is added to no other object
 of the application: the application body, its `operation` object, its operands,
 its `result_type` and its catalog arity are unchanged, and the key is not a
 second operand. The member-shape rule that admits the key belongs to the QSpec
-checked-package application rule (FR-322); that amendment is pending, and until
-it lands this requirement does not claim that the key is already admitted by
-FR-322. Where that amendment states a refusal, the reader check below follows
-its code, cause and pointer; a difference of stage (the amendment's schema stage
+checked-package application rule (FR-322), which states the key, its checks and
+their order in FR-322-AC-73 ("Population link of a `reaches`"). Where
+FR-322-AC-73 states a refusal, the reader check below follows
+its code, cause and pointer; a difference of stage (FR-322's schema stage
 against this reader's operation stage, which has no member schema) is stated
 where it arises.
 
@@ -3404,15 +3404,16 @@ order:
   `ill_typed`/`operator-ineligible`. An absent node is `ill_typed` and not
   `missing_declaration`: graph shape compares `dependencies` without resolving
   them, so an unresolved population is a failed population link and not an
-  unselected declaration. For a value that is not a node id the amendment's
-  schema stage refuses; this reader has no member schema (`operation.member` is
+  unselected declaration. For a value that is not a node id FR-322's
+  schema stage refuses (the V2 schemas type the key as a node id,
+  FR-322-AC-73); this reader has no member schema (`operation.member` is
   an opaque value), so it refuses at its operation stage with
-  `ill_typed`/`operator-ineligible`, where the amendment's schema failure is
+  `ill_typed`/`operator-ineligible`, where FR-322's schema failure is
   refused `malformed_wire`. The difference is code and stage.
 - When the node is not a `bounded_domain` / `model_population` node, the
   reader shall refuse `ill_typed`/`operator-ineligible`.
 - When the node has no `Type` occurrence, the reader shall refuse
-  `ill_typed`/`operator-ineligible`. The amendment is silent on this; the
+  `ill_typed`/`operator-ineligible`. FR-322-AC-73 is silent on this; the
   refusal exists because `reaches_population` returns the least `Type`
   ordinal.
 - When the node's `max` is one that FR-053's `population_maximum` rejects (the
@@ -3421,13 +3422,14 @@ order:
   `ill_typed`/`operator-ineligible`. The reader shall read `max` through
   `population_maximum` itself, so that a package the reader admits is one for
   which `select_population` is `Finite`; a `max` of 0 is admitted. For a negative
-  `max` the amendment refers to the model-population `max` rule of FR-322, which
-  refuses it `invalid_package`/`invalid-derived-shape` at the population node.
+  `max` FR-322-AC-73 refers to the model-population `max` rule of FR-322 (the
+  RM-POP-MAX vector), which refuses it `invalid_package`/`invalid-derived-shape`
+  at the population node.
   This reader has no derived-shape check for a `model_population` node (that is
   FR-038-AC-131, still PLANNED), so it cannot produce that refusal, and until
   AC-131 lands it refuses a negative `max` `ill_typed`/`operator-ineligible` at
-  `member.population`. The two differ in code, pointer and stage; the code of the
-  amendment governs once AC-131 admits it, and no published vector exercises the
+  `member.population`. The two differ in code, pointer and stage; the code of
+  FR-322 governs once AC-131 admits it, and no published vector exercises the
   case.
 - When the node's object type is not the declared type of the receiver end that
   the member's `name` selects (the destination end's type, which a reaches
@@ -3443,7 +3445,7 @@ For an application of any operation other than `navigate` and `reaches`,
 outcome for a `population` key in its member: a member kind whose shape is
 closed today (`type_argument`, `temporal_interval`, `fairness`, `state_clause`)
 refuses the key as it does today, and every other member kind (`field`, `position`,
-`element`, `operation`, `profile_operator`) is opaque today and admits it unread. The amendment has its schema
+`element`, `operation`, `profile_operator`) is opaque today and admits it unread. FR-322-AC-73 has the schema
 refuse the key on every other member kind; this reader does not add that refusal.
 
 No new refusal code, cause or pointer vocabulary is introduced.

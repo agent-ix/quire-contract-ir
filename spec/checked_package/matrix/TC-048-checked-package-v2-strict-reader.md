@@ -2378,7 +2378,7 @@ order (AC-280), combine an invalid `population` whose node id is listed in
 assert the refusal is at the operand; give a reaches application a mode and,
 separately, a leaf, with a `population` that is a listed node id (and, separately, an invalid id missing from `dependencies`, refused by the join), and assert the
 identity-stage refusal (`operation-mode-mismatch`, a law mismatch) in each case.
-Where the published QSpec `reaches_population_cases` vectors exist, build each
+For the published QSpec `reaches_population_cases` vectors (FR-322-AC-73), build each
 descriptor into a package in the IR harness and run it through
 `make conformance-qspec`, asserting the same outcomes. The harness shall give
 each appended node (`Reference`, `Set`, population) exactly one `Type`
