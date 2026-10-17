@@ -1831,8 +1831,8 @@ fn tc_016_nonzero_split_keeps_both_halves_for_every_numeric_family() {
     }
 }
 
-/// Trace: FR-013-AC-6, FR-014-AC-8, FR-019-AC-7.
-#[ix_trace_rs::trace("TC-016", "TC-018", "FR-013-AC-6", "FR-014-AC-8", "FR-019-AC-7")]
+/// Trace: TC-016, TC-018, FR-013-AC-6, FR-014-AC-8, FR-019-AC-7
+#[trace("TC-016", "TC-018", "FR-013-AC-6", "FR-014-AC-8", "FR-019-AC-7")]
 #[test]
 fn wide_public_numeric_values_retain_their_type_and_literal_payloads() {
     let environment = environment();
@@ -1940,8 +1940,8 @@ fn wide_public_numeric_values_retain_their_type_and_literal_payloads() {
     }
 }
 
-/// Trace: FR-015-AC-8.
-#[ix_trace_rs::trace("TC-016", "FR-015-AC-8")]
+/// Trace: TC-016, FR-015-AC-8
+#[trace("TC-016", "FR-015-AC-8")]
 #[test]
 fn wide_numeric_operations_prove_reduced_results_and_refuse_unrepresentable_ones() {
     let environment = environment();

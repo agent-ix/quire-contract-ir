@@ -85,10 +85,12 @@ impl<'de> Deserialize<'de> for IntegerString {
 
 #[cfg(test)]
 mod tests {
+    use ix_trace_rs::trace;
+
     use super::*;
 
-    /// Tracing: TC-016, FR-013-AC-5.
-    #[ix_trace_rs::trace("TC-016", "FR-013-AC-5")]
+    /// Trace: TC-016
+    #[trace("TC-016")]
     #[test]
     fn tc_016_the_grammar_is_minimal_base_ten() {
         for accepted in [
@@ -108,8 +110,8 @@ mod tests {
         }
     }
 
-    /// Tracing: TC-016, FR-013-AC-5.
-    #[ix_trace_rs::trace("TC-016", "FR-013-AC-5")]
+    /// Trace: TC-016, FR-013-AC-5
+    #[trace("TC-016", "FR-013-AC-5")]
     #[test]
     fn tc_016_range_is_decided_after_the_grammar() {
         let in_range: IntegerString = serde_json::from_str("\"-9223372036854775808\"").unwrap();
