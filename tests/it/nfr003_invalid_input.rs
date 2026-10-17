@@ -13,7 +13,7 @@ use std::{collections::BTreeSet, fs, path::PathBuf};
 
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    run_corpus, ContractPackage, DiagnosticCode, FixtureResult, FixtureStatus, ValidationOptions,
+    run_corpus, ContractPackage, DiagnosticCode, FixtureResult, ValidationOptions,
 };
 use serde_json::Value;
 
@@ -241,13 +241,12 @@ fn schemas() -> PathBuf {
 }
 
 /// Runs the whole corpus. A fixture whose execution panics is reported by the
-/// runner as an error, so `unwrap` fails the calling test for it.
+/// runner as an error, so `unwrap` fails the calling test for it. Whether each
+/// fixture still equals its frozen expectation is TC-018's gate, not read here:
+/// the NFR-003 criteria are asserted on each row's `actual` below.
 fn run() -> Vec<Value> {
     let results: Vec<FixtureResult> =
         run_corpus(&corpus(), &schemas()).expect("no fixture of the corpus panics or fails to run");
-    for result in &results {
-        assert_eq!(result.status(), FixtureStatus::Match);
-    }
     results
         .iter()
         .map(|result| serde_json::to_value(result).unwrap())
