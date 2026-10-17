@@ -131,3 +131,11 @@ Round 2, reviewed at 444e675529d80ac4561e1f98a0e3ff1aeb96e475.
 | --- | --- | --- |
 | FND-004 | fixed | The prose now says that a member kind whose shape is closed today refuses the key as it does today, and an opaque kind admits it unread, and it names the kinds. AC-275 matches. The incomplete opaque list is FND-006. |
 | FND-005 | fixed | The `navigate` rule is now the first population rule ("before it resolves the value ... the refusal does not depend on what the value names"). AC-275 covers an absent node, an integer-range node and a valid population node. |
+
+## Dispositions (round 3)
+
+Round 3, reviewed at ae53240f24cec523e98e83e211a1e0cc20b74425.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-006 | fixed | The paragraph now reads "every other member kind (`field`, `position`, `element`, `operation`, `profile_operator`) is opaque today and admits it unread". This matches `member_is_well_formed` (temporal.rs:430-436). |

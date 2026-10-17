@@ -124,3 +124,14 @@ Round 2, reviewed at 444e675529d80ac4561e1f98a0e3ff1aeb96e475.
 | --- | --- | --- |
 | FND-001 | still-open | Gate unchanged. QSpec PR #268 (FR-322-AC-73) and QSL PR #923 are both OPEN. Merge this PR after both, and cite the merged FR-322-AC-73 in place of "that amendment is pending". |
 | FND-002 | fixed | For the vector cases the IR codes now match #268. An unresolved, absent, non-population or wrong-`T` `population` is refused `ill_typed`/`operator-ineligible` at `member.population`. `navigate` is refused first. Omitted dependencies are `invalid_semantic_graph`. `max` 0 is admitted. The remaining differences are now stated in the text. The two misstated ones are FND-003 and FND-004; the vector-construction gap is FND-005. |
+
+## Dispositions (round 3)
+
+Round 3, reviewed at ae53240f24cec523e98e83e211a1e0cc20b74425. QSpec PR #268 (33e6aaf) and QSL PR #923 (00f7403ec) are both still OPEN. The PR #439 title now reads AC-269..280. The body no longer carries the IR-841 text: it says "Refs IR-852", has a "Do not merge until" section naming both upstream PRs, and lists six open cross-repo points, each matching the spec text.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | still-open | The merge gate is unchanged. QSpec #268 and QSL #923 are both OPEN. Merge this PR only after both merge, and cite FR-322-AC-73 in place of "pending". |
+| FND-003 | fixed | The negative-`max` disagreement is now stated honestly. The spec says the amendment's FR-322 rule refuses `invalid_package`/`invalid-derived-shape` at the node, that this reader has no derived-shape check for `model_population` (FR-038-AC-131, PLANNED), and that until then it refuses `ill_typed` at `member.population`. It says the two differ in code, pointer and stage, that the amendment's code governs once AC-131 lands, and that no vector exercises the case. AC-279 cross-refers to this. |
+| FND-004 | fixed | The spec now says "refuses at its operation stage with ill_typed/operator-ineligible, where the amendment's schema failure is refused malformed_wire. The difference is code and stage." This is accurate (FR-322 :708). |
+| FND-005 | fixed | The TC-048 step now requires the IR harness to build each descriptor into a package, giving each appended node exactly one `Type` occurrence and one matching `source_map` row and reusing an existing `Reference` of the object type. The rule is buildable. `validate_source_map_entries` (common.rs:725-825) also needs each row to have a nonempty region (`start < end`) in a locked source, but overlap is checked only within one entry, so the harness can copy a region from an existing row. The QSpec-side construction gap is recorded in the PR body for the #268 owner. |

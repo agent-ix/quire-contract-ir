@@ -99,3 +99,11 @@ Round 2, reviewed at 444e675529d80ac4561e1f98a0e3ff1aeb96e475.
 | --- | --- | --- |
 | FND-004 | fixed | AC-280 is reversed: a mode or a leaf on a reaches application is refused by the identity stage. I verified this against the code: the catalog gives `mode: null` and `leaves: null`, a mode is refused `operation-mode-mismatch` (operations.rs:712-726), and a leaf is refused `OperationLawMismatch` at `operation/leaves/0` (operations.rs:659-663). The prose says `check_mode_type` and `check_leaf_count` are inert for these operations. One residual is FND-006. |
 | FND-005 | fixed | AC-279 now spells the case as the decimal string `"18446744073709551616"` and notes that a JSON number that large is refused earlier as `noncanonical_wire`. |
+
+## Dispositions (round 3)
+
+Round 3, reviewed at ae53240f24cec523e98e83e211a1e0cc20b74425.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-006 | fixed | AC-280 now limits "whatever its population" to "when the population is a node id listed in the application's dependencies". It adds that an invalid id missing from `dependencies` "is refused earlier by the dependency join ... which runs before the identity stage" (mod.rs:1989-1990). The TC step matches. |
