@@ -46,3 +46,19 @@ no "shall".
 
 PASS WITH FINDINGS. The core statements are conformant EARS (ubiquitous accessor,
 event-driven bullets, state-driven reader check). FND-001 is wording only.
+
+## New findings (disposition pass 1)
+
+Reviewed at fffaf6495052405fa07a0a6a145bbbeb079bcfce.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | low | The new link sentence "The V2 reader shall treat the key as absent, never `null`, when the walked population has no authored bound" gives the reader an obligation it cannot meet. The reader cannot know whether the walked population has an authored bound; that is the producer's rule. The sentence also reads as "treat `null` as absent", which contradicts the next clause ("the reader shall refuse it"). Fix: state the producer rule as a wire fact ("the producer omits the key, never writing `null`, when ...") and keep the reader obligation as "the V2 reader shall refuse a `null` `population` as not a node id". | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3321-3324 |
+
+## Dispositions
+
+Round 1, reviewed at fffaf6495052405fa07a0a6a145bbbeb079bcfce.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The error paragraph now reads "When called with an id absent from the graph, reaches_population shall refuse UnknownNode". The reader rules read "the reader shall refuse ...". The `null` case is a reader obligation ("the reader shall refuse it") and AC-272 names it ("a null value is the first"). The new garbled lead clause is FND-002. |

@@ -2358,22 +2358,28 @@ crate-internal unit tests beside the accessor, mutate an admitted application's
 `population` to a non-node-id value, to an absent id, to a non-population node
 and strip the population node's `Type` occurrences, and assert
 `UnresolvedPopulation` and no partial selector. Through the public reader, refuse
-a `population` that is a non-node-id or names no node (`missing_declaration`/
-`missing-selection`), names a non-population node or a node with no `Type`
-occurrence, or names a population over a subtype or another object type
-(`ill_typed`/`operator-ineligible`), each at the `population` pointer; admit the
+a `population` that is a non-node-id (a number, an object, `null`) or names no
+node, names a non-population node or a node with no `Type` occurrence, or names a
+population over a subtype or another object type (each `ill_typed`/
+`operator-ineligible`, never `missing_declaration`), each at the `population`
+pointer; admit the
 exact type; refuse a navigate application carrying `population`; omit the
 population id from `dependencies` and list an unreferenced one (each
 `invalid_semantic_graph`, no cause). Refuse each `max` defect of AC-279 (missing, two `max` members, non-binding,
 non-integer literal, negative, above `u64`) and admit `0` and a decimal-string
-`max`. Build a navigate application carrying `population` twice: with the id in
-`dependencies` (refused at the `population` pointer, operation stage) and
+`max`; spell the above-`u64` `max` as a decimal string. Build a navigate
+application carrying `population` twice, naming an absent node, an
+integer-range node and a valid population node in turn: with the id in
+`dependencies` (each refused at the `population` pointer, operation stage) and
 without it (refused by the join, `invalid_semantic_graph`, no cause); an
 application of another operation carrying the key keeps its outcome. For the
 order (AC-280), combine an invalid `population` whose node id is listed in
 `dependencies` with an operand 1 that does not conform to the receiver end and
-assert the refusal is at the operand; combine an invalid `population` with a
-mode or leaf-count defect and assert the refusal is at `population`. Call twice and
+assert the refusal is at the operand; give a reaches application a mode and,
+separately, a leaf, with and without an invalid `population`, and assert the
+identity-stage refusal (`operation-mode-mismatch`, a law mismatch) in each case.
+Where the published QSpec `reaches_population_cases` vectors exist, run them
+through `make conformance-qspec` and assert the same outcomes. Call twice and
 on a clone and compare results, package equality and work. An external fixture
 exhaustively matches the error enum and binds the result type (AC-278). Do not
 take the expected values from the accessor under test.

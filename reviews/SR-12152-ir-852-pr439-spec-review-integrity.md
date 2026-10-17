@@ -63,3 +63,22 @@ structural dependency join runs before every operation-stage check (mod.rs:1989)
 PASS WITH FINDINGS. Ids, ranges, PLANNED statuses, the TC procedure and the FR-019
 deferral are consistent. FND-001 must be settled before the code PR, because the
 test author cannot build AC-277's ordering case without it.
+
+## New findings (disposition pass 1)
+
+Reviewed at fffaf6495052405fa07a0a6a145bbbeb079bcfce.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | high | AC-280's second clause cannot pass. It says "an invalid `population` on an application that also has a mode or leaf-count defect is refused at `population`, because the `population` check precedes `check_mode_type` and `check_leaf_count`". The catalog entries for `quire.op.model.reaches` and `quire.op.model.navigate` have `mode: null` and `leaves: null` (quire-verification-contracts checked-operation-catalog-v1.json). So a mode on such an application is refused `invalid_package`/`operation-mode-mismatch` at `operation/mode` by the identity stage (operations.rs:712-726). A supplied leaf is refused as a law mismatch at `operation/leaves/0` (operations.rs:~659). Both run before `check_relationship_member`. For these operations `check_mode_type` returns at `operation.mode.as_ref()?` and `check_leaf_count` returns at `entry.leaves.as_deref()`, so neither can ever refuse after the population check. The TC-048 step "assert the refusal is at `population`" would fail. Fix: drop the clause, or replace it with the true order (a mode or leaf defect is refused at the identity stage, before `population`). The prose sentence saying `check_mode_type` and `check_leaf_count` "follow it" is true, but those checks are inert for reaches and navigate; say so. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4786, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md:2373-2376, crates/quire-contract-model/src/checked_package/v2/operations.rs:655-726, crates/quire-contract-model/src/checked_package/v2/operations.rs:2673-2674, crates/quire-contract-model/src/checked_package/v2/operations.rs:3624-3626 |
+| FND-005 | medium | AC-279's "a `max` above `u64`" case does not say how the value is spelled. Written as a JSON number, it is above 2^53, so the whole package is refused `noncanonical_wire` at the wire stage (FR-038-AC-74..80), long before the population check. Only the decimal-string spelling (for example `"18446744073709551616"`) reaches `population_maximum` and the `ill_typed` refusal. The negative case works in either spelling. Fix: say the above-`u64` `max` is the decimal string, matching the admitted decimal-string case. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4785, crates/quire-contract-model/src/checked_package/selected_population.rs:278-282 |
+
+## Dispositions
+
+Round 1, reviewed at fffaf6495052405fa07a0a6a145bbbeb079bcfce.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The position is pinned as "the last step of check_relationship_member, immediately after that function's result_type check". The join and the key stage are stated to run first. AC-277 is split, and the ordering case moved to AC-280 with the invalid id listed in `dependencies` (join-consistent). AC-280's first clause holds against operations.rs:2132-2286. Its second clause is wrong; see FND-004. |
+| FND-002 | fixed | AC-252 now says "The optional population member key is specified separately by FR-038-AC-269 through FR-038-AC-280; it is not a charge or multiplicity member and does not change this criterion." No PLANNED behaviour remains in the implemented row. |
+| FND-003 | fixed | AC-272 now says "for each of the two (a null value is the first)". |

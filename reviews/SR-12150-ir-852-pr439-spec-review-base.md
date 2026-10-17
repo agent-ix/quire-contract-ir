@@ -95,3 +95,22 @@ the `Type` occurrence of a `Population<E>[N]` parameter type that shares the nod
 so the `Finite` provenance may point at that parameter's span rather than at the
 `bound` declaration. Both specs accept this (QSL FR-365: "the node does not say
 which place it came from").
+
+## New findings (disposition pass 1)
+
+Reviewed at fffaf6495052405fa07a0a6a145bbbeb079bcfce.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | low | The narrowed fifth bullet says that for any other operation "`operation.member` stays opaque and unread as it is today". That is false for several member kinds. `member_is_well_formed` closes the `type_argument`, `temporal_interval` and `fairness` member shapes (temporal.rs:421-438) and `clause_body` closes the `state_clause` member to `{kind, clause}` (structural.rs:574). A `population` key there is refused today. AC-275's "keeps its present admission outcome" is correct; only the prose overstates it. The open QSpec FR-322 amendment (quire-specification #268) also says "on any other member kind the schema refuses it". Fix: say that a member of any other kind keeps its present outcome (opaque kinds unread, closed kinds refused as today), and do not say it is unread. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3409-3413, crates/quire-contract-model/src/checked_package/v2/temporal.rs:421-438, crates/quire-contract-model/src/checked_package/v2/structural.rs:574 |
+| FND-005 | low | The reader-check rules apply "in this order", and the `navigate` rule comes last. A `navigate` application whose `population` names no node therefore refuses `missing_declaration`/`missing-selection` (rule 1), not AC-275's `ill_typed`/`operator-ineligible`. A node of the wrong form refuses under rule 2 with the same code but for a different reason. AC-275 says only "a node id that its `dependencies` list", so the fixture is underdetermined. Fix: make the `navigate` rule the first population rule (refuse a key on `navigate` before resolving it, as QSpec #268 states it). Or say in AC-275 that the id names a valid population node of the receiver end's type. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3383-3413, spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4781 |
+
+## Dispositions
+
+Round 1, reviewed at fffaf6495052405fa07a0a6a145bbbeb079bcfce.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | A third reader rule now refuses a `max` that FR-053's `population_maximum` rejects, read through that function itself. AC-279 backs it. `Finite` is now justified "Because the reader check below refuses a population node whose max FR-053 cannot read". |
+| FND-002 | fixed | The fifth bullet is narrowed to `navigate`. The join is scoped to reaches and navigate applications. AC-275 covers the listed-id and omitted-id cases and other operations. The residual prose overstatement is FND-004. |
+| FND-003 | fixed | The reader derives the object type "through FR-053's population_object_type itself, so that there is one derivation". |

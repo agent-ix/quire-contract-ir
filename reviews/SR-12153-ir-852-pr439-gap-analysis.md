@@ -70,3 +70,19 @@ cross-repository gating gap, not a defect in the IR text's design.
 - Stubs / coverage inflation: none. There are no tests.
 - Semantic review: skipped (spec-only PR; not requested).
 - Plan completion: not assessed
+
+## New findings (disposition pass 1)
+
+Reviewed at fffaf6495052405fa07a0a6a145bbbeb079bcfce, against the upstream amendment that now exists: quire-specification PR #268 (open, branch `qsl-819-population-bound`, FR-322 "Population link of a `reaches`", FR-322-AC-73, `adverse.json` `reaches_population_cases`), and quire-spec-language PR #923 (open, branch `qsl819-population-bound`, 00f7403ec).
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | high | The IR reader check disagrees with the QSpec FR-322 amendment it says it follows. (1) QSpec #268 refuses a `population` "that does not resolve" with `ill_typed`/`operator-ineligible`, and `adverse.json` records `reaches-population-names-absent-node` with exactly that code. IR AC-272 refuses an absent node `missing_declaration`/`missing-selection`. (2) QSpec's schema types `population` as `NodeId` inside a closed `relationship_end` member, so a non-NodeId value such as `null` is a schema refusal. IR AC-272 refuses it `missing_declaration`/`missing-selection`. (3) QSpec has the schema refuse `population` "on any other member kind"; IR AC-275 leaves other operations at their present outcome, which is admission for the opaque kinds. (4) IR also refuses a population node with no `Type` occurrence and a `max` that is missing, duplicated, not a binding or not an integer literal; QSpec names only the negative-`max` refusal and admits `max` 0. Those are extra IR refusals the contract does not state. With both PRs merged as they are, IR's reader would fail the published `reaches_population_cases` vector. Fix: settle the codes with the QSpec owner before either PR merges (on the merits, either both mirror the `declaration` precedent or both use `ill_typed`), then cite FR-322-AC-73 and run `reaches_population_cases` under `make conformance-qspec` in the code PR. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3383-3413, spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4778, spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4781 |
+
+## Dispositions
+
+Round 1, reviewed at fffaf6495052405fa07a0a6a145bbbeb079bcfce.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | still-open | The wording part is fixed: the link now says "that amendment is pending ... this requirement does not claim that the key is already admitted by FR-322". The gate remains. The QSpec amendment now exists as quire-specification PR #268, open and not merged, and the QSL-819 spec is PR #923, open and not merged. Merge this PR only after both land. Then cite the merged FR-322-AC-73 instead of "pending". The two specs also disagree; see FND-002. |
