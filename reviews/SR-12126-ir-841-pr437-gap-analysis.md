@@ -43,3 +43,11 @@ One low finding, which predates the PR. Nothing in this PR's scope blocks merge.
 - Whether the oracle is faithful: a work count is a sound oracle for "linear time" only over the steps that charge. On this test's input, that is one step: the outer loop turn (SR-12125 FND-001). A real quadratic that takes the charged `pointer` path is caught. One that does uncharged work (a per-level stack rescan) is not, and the old wall-clock test would have caught it. The new test is deterministic: it gives the same counts on every run and does not depend on load. The trade is that it detects fewer regressions.
 - The test has no stub or tautology. It asserts a count the real parser produces on a real input, plus the `malformed` outcome.
 - Tag and trace are unchanged. `quire trace --id TC-048 --json` still resolves the test by the same name. `make spec` gives strict 43 unbacked / 0 contradicted and `Coverage: 508/565 rows backed`, both unchanged. No spec or plan file is in the diff.
+
+## Dispositions
+
+Round 1, against head c3738d742f2dd8a582c59ce9fe57151819a08929.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | deferred | This predates the PR and is out of its scope: closing it means a spec change to FR-038/TC-048, adding a criterion for the first pass's cost, and IR-841 is a test-determinism ticket. No follow-up ticket exists yet (tracker search found none); the lead should file one if the property is wanted as a criterion. The PR body acknowledges the gap, and the test's doc comment no longer claims more than the count shows. |
