@@ -133,8 +133,9 @@ fn input_count(corpus: &Path) -> usize {
 }
 
 /// Tracing: TC-018, FR-018-AC-1, FR-019-AC-1, FR-019-AC-3, FR-020-AC-1,
-/// FR-020-AC-12, NFR-001-AC-1.
+/// FR-020-AC-12, NFR-001-AC-1, StR-003-VC-1.
 /// NFR-001-AC-1.
+/// StR-003-VC-1.
 /// FR-018-AC-1.
 /// FR-019-AC-1.
 /// FR-019-AC-3.
@@ -147,7 +148,8 @@ fn input_count(corpus: &Path) -> usize {
     "FR-019-AC-3",
     "FR-020-AC-1",
     "FR-020-AC-12",
-    "NFR-001-AC-1"
+    "NFR-001-AC-1",
+    "StR-003-VC-1"
 )]
 #[test]
 fn tc_018_the_corpus_runs_deterministically_and_every_fixture_matches() {

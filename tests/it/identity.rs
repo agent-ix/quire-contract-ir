@@ -116,7 +116,7 @@ fn diagnostic_code<T: std::fmt::Debug>(
 }
 
 /// Trace: TC-015, FR-011-AC-1, FR-011-AC-2, FR-011-AC-3, FR-012-AC-1, FR-012-AC-2,
-/// FR-012-AC-3, FR-012-AC-4, FR-012-AC-6, NFR-002-AC-3
+/// FR-012-AC-3, FR-012-AC-4, FR-012-AC-6, NFR-002-AC-3, StR-001-VC-1, StR-001-VC-2
 #[trace(
     "TC-015",
     "FR-011-AC-1",
@@ -127,7 +127,9 @@ fn diagnostic_code<T: std::fmt::Debug>(
     "FR-012-AC-3",
     "FR-012-AC-4",
     "FR-012-AC-6",
-    "NFR-002-AC-3"
+    "NFR-002-AC-3",
+    "StR-001-VC-1",
+    "StR-001-VC-2"
 )]
 #[test]
 fn tc_015_identity_anchor_dependency_and_reference_contract_conforms() {
