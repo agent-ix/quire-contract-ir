@@ -83,3 +83,10 @@ CHANGES REQUESTED (one medium, one low).
 **Out of diff, for later slices.** `crates/quire-contract-model/src/canonical.rs` `tests::tc_017_a_limit_and_an_encoder_fault_...` carries `#[ix_trace_rs::trace("TC-017", "FR-016-AC-6")]`, yet base `quire trace --id TC-017` credits it only by `rust-test-name-id`. The path-qualified attribute form appears not to be read, so that test still depends on its name.
 
 **Gate.** `cargo test --locked --workspace --test it canonicalization` on head: 4 passed, 0 failed (reviewer re-run, scratch target dir since deleted). PR CI runs only the CLA checks, so this re-run is the test evidence.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1, head 1eb5872: `spec/model/matrix/tests.md` was corrected, prose only.<br>FR-016 is now 🚧: AC-4 is tagged, and AC-1, AC-2 and AC-3 "have no test tagged and await direct assertions".<br>FR-017 is now "AC-1 and AC-5 tagged; AC-2 awaits over-limit, shallow-row and no-digest assertions".<br>TC-017 now lists FR-016-AC-4, FR-017-AC-1 and FR-017-AC-5 as tagged, and FR-016-AC-1/2/3, FR-017-AC-2..4, FR-017-AC-6 and NFR-003-AC-1..3 as planned (IR-836 tracks NFR-003).<br>Each claim matches the tags on head, and no other spec file names those ids. |
+| FND-002 | fixed | Round 1, head 1eb5872: `tc_017_coverage_classes_orphans_diagnostics_and_sorting_conform` now carries `/// Trace: TC-017, FR-017-AC-5` / `#[trace("TC-017", "FR-017-AC-5")]`. The body was re-read against the criterion and is unchanged.<br>Exactly one row: 7 traces over 6 distinct ids, with `artifacts().len() == 6`.<br>`orphaned`/`duplicate_artifact`: the `art_duplicate` row asserts `CoverageClass::Orphaned` and `OrphanReason::DuplicateArtifact`.<br>No coverage, even though the first occurrence is valid: REQ_b's only traces are the pair, a valid shallow reference to the current REQ_b revision 2, and REQ_b is asserted `Uncovered`. |

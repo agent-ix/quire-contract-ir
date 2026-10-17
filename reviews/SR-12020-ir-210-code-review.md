@@ -60,3 +60,10 @@ Clean units:
   - StR-002-VC-1: "every supported platform", while CI runs one `ubuntu-24.04` job.
 - **Rust lane.** `use ix_trace_rs::trace;` is the repo's import form: it appears in at least 10 test files, including `tests/it/checked_package_v2_protocol_reference.rs`. The doc-line form `/// Trace: <ids>` with comma-separated ids and no trailing period matches the 230 existing `/// Trace:` lines. Both TC-first (59) and FR-first (171) orders are in use. The attribute ids equal the doc-line ids on every test.
 - **Gates.** `cargo test --locked --workspace --test it canonicalization` was re-run on head: 4 passed. There is no panic, unsafe or integer-conversion surface in the diff.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1, head 1eb5872 (commit 1eb5872): `FR-016-AC-2` is removed from both the `/// Trace:` line and the `#[trace(...)]` attribute of `tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform`, which now reads `/// Trace: TC-017, FR-016-AC-4` / `#[trace("TC-017", "FR-016-AC-4")]`. No other test carries the id; the FR-016 matrix row now says AC-2 has no test tagged. The test body is unchanged. |
+| FND-002 | fixed | Round 1, head 1eb5872: `tc_017_version_preflight_supports_only_schema_1_1` now carries `/// Trace: TC-017, FR-017-AC-1, StR-002-VC-2` / `#[trace("TC-017", "FR-017-AC-1", "StR-002-VC-2")]`. That body asserts the criterion: for 1.0, 1.2, 1.9, 2.0 and 2.1 the decode returns exactly one diagnostic, coded `UnsupportedSchemaVersion` and located at `schema_version.minor` or `.major`, which is a structured rejection. Leaving StR-002-VC-1 ("identical canonical bytes and digests on every supported platform") unbacked is correct, because CI runs one `ubuntu-24.04` job and no test compares platforms. Re-measured with `quire coverage --scope . --strict` on 1eb5872: 501/564 rows backed and 45 unbacked, with the same unbacked list as 95e3df1 (only NFR-003-AC-1/2 added over base). StR-002 is 1/2, FR-016 6/9 and FR-017 2/6. |
