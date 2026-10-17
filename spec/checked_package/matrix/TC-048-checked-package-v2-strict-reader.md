@@ -2257,7 +2257,9 @@ Implemented (IR-832) with tagged tests. `CheckedParameterDeclaration` and
 `CheckedParameterDeclarationError` are exported and listed in the FR-019 Public
 items table; FR-019 lists only exported items. The `MalformedBody` mutations
 are crate-internal unit tests beside the accessor, since they need the private
-wire. Build a self-built
+wire. Their fixture is a never-admitted package of admitted shape with its kinds
+decoded from the wire, because a module test cannot derive the structural keys
+an admitted read requires. Build a self-built
 admitted package with a pair of parameters named `x` at levels `0` and `1`, a
 parameter at level `10`, and add applications over parameters `a` and `b`, each
 typed at `Int[0, 9]` (an `integer_range` `bounded_domain`, since a parameter typed
@@ -2275,7 +2277,10 @@ that is not `scalar_type`/`text`, or gives `"level"` the value `"010"`
 (`MalformedBody`);
 assert the typed error and no partial value. Feed each `GraphChild` id from
 `scalar_application_operands` for the add applications to the accessor and
-compare the names in ordinal order, then in the swapped package. Do not
+compare the names in ordinal order, then in the swapped package. For an add
+with an inline literal operand, destructure its `InlineLiteral` without `..`:
+it holds the containing application's id and no operand id, and
+`parameter_declaration` over that id refuses `NotParameter`. Do not
 construct the expected name or level from the accessor under test. The
 compiled public inventory of the two new types is covered by
 [TC-058](../../model/matrix/TC-058-model-crate-public-interface.md).

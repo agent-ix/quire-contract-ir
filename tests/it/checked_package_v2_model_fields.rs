@@ -756,7 +756,8 @@ fn scalar_operand_package_named(
 #[test]
 fn tc_048_parameter_declarations_follow_scalar_operand_order() {
     use quire_contract_model::{
-        CheckedOccurrence, CheckedOccurrenceRole, CheckedScalarOperandChild,
+        CheckedOccurrence, CheckedOccurrenceRole, CheckedParameterDeclarationError,
+        CheckedScalarOperandChild,
     };
     let occurrence = CheckedOccurrence {
         role: CheckedOccurrenceRole::Expression,
@@ -791,7 +792,8 @@ fn tc_048_parameter_declarations_follow_scalar_operand_order() {
     assert_eq!(declared(vec![argument('a'), argument('b')]), ["a", "b"]);
     assert_eq!(declared(vec![argument('b'), argument('a')]), ["b", "a"]);
 
-    // An inline literal operand has no node id to pass to the accessor.
+    // An inline literal operand carries no operand node id: its only id is the
+    // containing application's, which is not a parameter.
     let (package, application) = scalar_operand_package_named(
         "quire.op.integer.add",
         "binary",
@@ -807,10 +809,19 @@ fn tc_048_parameter_declarations_follow_scalar_operand_order() {
     let operands = package
         .scalar_application_operands(&application, &occurrence)
         .expect("operands");
-    assert!(matches!(
-        &operands[1].child,
-        CheckedScalarOperandChild::InlineLiteral { .. }
-    ));
+    let CheckedScalarOperandChild::InlineLiteral {
+        application: carried,
+        occurrence: at,
+        ordinal,
+    } = &operands[1].child
+    else {
+        panic!("the literal operand is inline");
+    };
+    assert_eq!((carried, at, *ordinal), (&application, &occurrence, 1));
+    assert_eq!(
+        package.parameter_declaration(carried),
+        Err(CheckedParameterDeclarationError::NotParameter)
+    );
 }
 
 /// The child's independently built QSL key: the public accessor test does

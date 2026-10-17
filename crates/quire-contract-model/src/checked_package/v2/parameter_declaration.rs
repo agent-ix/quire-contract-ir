@@ -1,7 +1,7 @@
 //! Typed declared name and level of an admitted `value`/`parameter` node.
 
 use super::structural::parameter_binding;
-use super::{CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedPackageV2};
+use super::{CheckedNodeId, CheckedNodeKind, CheckedPackageV2, ValueForm};
 use thiserror::Error;
 
 /// The declared name and level of one parameter node.
@@ -44,19 +44,21 @@ impl CheckedPackageV2 {
     ) -> Result<CheckedParameterDeclaration, CheckedParameterDeclarationError> {
         use CheckedParameterDeclarationError as Error;
 
-        let nodes = &self.wire.semantic_graph.nodes;
-        let found = nodes
-            .iter()
-            .find(|candidate| &candidate.node_id == node)
+        let kind_of = |id: &CheckedNodeId| {
+            let position = *self.node_index.get(id)?;
+            self.kinds.get(position).copied()
+        };
+        let position = *self.node_index.get(node).ok_or(Error::UnknownNode)?;
+        let found = self
+            .wire
+            .semantic_graph
+            .nodes
+            .get(position)
+            .filter(|candidate| &candidate.node_id == node)
             .ok_or(Error::UnknownNode)?;
-        if found.node_tag.as_ref() != "value" || found.semantic_form.as_ref() != "parameter" {
+        if kind_of(node) != Some(CheckedNodeKind::Value(ValueForm::Parameter)) {
             return Err(Error::NotParameter);
         }
-        let kind_of = |id: &CheckedNodeId| {
-            let target = nodes.iter().find(|candidate| &candidate.node_id == id)?;
-            let tag = CheckedNodeTag::from_wire(&target.node_tag)?;
-            CheckedNodeKind::decode(tag, &target.semantic_form)
-        };
         let (name, level) = parameter_binding(&found.body, &kind_of).ok_or(Error::MalformedBody)?;
         Ok(CheckedParameterDeclaration {
             node: node.clone(),
@@ -69,7 +71,7 @@ impl CheckedPackageV2 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::checked_package::v2::{CheckedPackageWireV2, RetainedModels};
+    use crate::checked_package::v2::{CheckedNodeTag, CheckedPackageWireV2, RetainedModels};
     use ix_trace_rs::trace;
     use serde_json::{json, Value};
 
@@ -96,7 +98,9 @@ mod tests {
 
     /// The accessor reads only the semantic graph. This private fixture has
     /// the other wire members needed to construct a package, then tests may
-    /// mutate the graph in states admission would ordinarily reject. Nodes:
+    /// mutate the graph in states admission would ordinarily reject. The
+    /// package is never admitted (its keys are not derived); only the shapes
+    /// and the decoded kinds are those of an admitted one. Nodes:
     /// `1` text, `2` integer, `3` parameter `a` at level `10`, `4` a literal.
     fn fixture_package() -> CheckedPackageV2 {
         let node = |digit: char, tag: &str, form: &str, ty: char, body: Value| {
@@ -135,10 +139,19 @@ mod tests {
             "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"}, "entries": []},
         }))
         .expect("private package fixture");
+        let kinds = wire
+            .semantic_graph
+            .nodes
+            .iter()
+            .map(|node| {
+                let tag = CheckedNodeTag::from_wire(&node.node_tag).expect("fixture tag");
+                CheckedNodeKind::decode(tag, &node.semantic_form).expect("fixture form")
+            })
+            .collect();
         CheckedPackageV2 {
             node_index: super::super::retained_node_index(&wire),
             wire,
-            kinds: Vec::new(),
+            kinds,
             bytes: 1 << 20,
             models: RetainedModels::default(),
         }
