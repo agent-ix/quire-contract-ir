@@ -55,6 +55,7 @@ mod conformance;
 mod cycle_free_model;
 mod executable_binding;
 mod expression;
+mod fr014_recheck;
 mod identity;
 mod integration;
 mod kani_arithmetic;
