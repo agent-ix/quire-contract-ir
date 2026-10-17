@@ -2288,9 +2288,8 @@ compiled public inventory of the two new types is covered by
 
 ## Typed relationship end of a reaches application (FR-038-AC-262 through FR-038-AC-268)
 
-PLANNED / UNRUN (IR-851); no tagged test yet. The two new types are listed in
-the FR-019 Public items table by the code change that exports them, not by the
-specification change; [TC-058](../../model/matrix/TC-058-model-crate-public-interface.md)
+Implemented (IR-851); tagged tests. The two new types are listed in
+the FR-019 Public items table by the code change that exported them; [TC-058](../../model/matrix/TC-058-model-crate-public-interface.md)
 compares the compiled exports to that table.
 
 Build admitted packages from the IR-824 reaches fixtures: a homogeneous
