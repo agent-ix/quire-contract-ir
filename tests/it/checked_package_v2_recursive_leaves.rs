@@ -405,8 +405,7 @@ fn collection_of_nfc_id(package: &Value, form: &str) -> Value {
         .clone()
 }
 
-/// Trace: FR-038-AC-228
-#[trace("FR-038-AC-228")]
+#[trace("TC-048", "FR-038-AC-228")]
 #[test]
 fn residual_operand_source_reads_value_type_and_direct_type_references() {
     for identity in ["quire.op.structural.eq", "quire.op.structural.ne"] {
@@ -472,8 +471,7 @@ fn residual_operand_source_reads_value_type_and_direct_type_references() {
     }
 }
 
-/// Trace: FR-038-AC-228
-#[trace("FR-038-AC-228")]
+#[trace("TC-048", "FR-038-AC-228")]
 #[test]
 fn residual_operand_source_reads_option_none_literal_type() {
     let (mut option_package, _) = equality_package(vec![option_of("r", "integer")], "r", vec![]);
@@ -489,8 +487,7 @@ fn residual_operand_source_reads_option_none_literal_type() {
     );
 }
 
-/// Trace: FR-038-AC-228
-#[trace("FR-038-AC-228")]
+#[trace("TC-048", "FR-038-AC-228")]
 #[test]
 fn residual_operand_source_reads_referenced_application_result_type() {
     let (mut package, _) = equality_package(
@@ -578,8 +575,7 @@ fn residual_operand_source_reads_referenced_application_result_type() {
     assert_eq!(refusal.cause, None);
 }
 
-/// Trace: FR-038-AC-231
-#[trace("FR-038-AC-231")]
+#[trace("TC-048", "FR-038-AC-231")]
 #[test]
 fn residual_compared_type_reaching_ieee_refuses_but_integer_control_admits() {
     for ieee in ["float32", "float64"] {
@@ -643,8 +639,7 @@ fn residual_compared_type_reaching_ieee_refuses_but_integer_control_admits() {
     }
 }
 
-/// Trace: FR-038-AC-180, FR-038-AC-231
-#[trace("FR-038-AC-180", "FR-038-AC-231")]
+#[trace("TC-048", "FR-038-AC-180", "FR-038-AC-231")]
 #[test]
 fn residual_float_rounding_compared_type_refuses_after_graph_admission() {
     for ieee in ["float32", "float64"] {
@@ -697,8 +692,7 @@ fn residual_float_rounding_compared_type_refuses_after_graph_admission() {
     }
 }
 
-/// Trace: FR-038-AC-230
-#[trace("FR-038-AC-230")]
+#[trace("TC-048", "FR-038-AC-230")]
 #[test]
 fn residual_result_inner_set_like_elements_require_an_empty_path_leaf() {
     for form in ["set", "bag", "ordered_set"] {
@@ -754,8 +748,7 @@ fn residual_result_inner_set_like_elements_require_an_empty_path_leaf() {
     }
 }
 
-/// Trace: FR-038-AC-229, FR-038-AC-230
-#[trace("FR-038-AC-229", "FR-038-AC-230")]
+#[trace("TC-048", "FR-038-AC-229", "FR-038-AC-230")]
 #[test]
 fn residual_required_leaf_sources_refuse_missing_referenced_types_on_public_read() {
     for leaves in [vec![], vec![text_leaf(&[])]] {
@@ -800,8 +793,7 @@ fn residual_required_leaf_sources_refuse_missing_referenced_types_on_public_read
     }
 }
 
-/// Trace: FR-038-AC-230
-#[trace("FR-038-AC-230")]
+#[trace("TC-048", "FR-038-AC-230")]
 #[test]
 fn residual_set_result_refuses_missing_element_type_on_public_read() {
     for leaves in [vec![], vec![text_leaf(&[])]] {
@@ -833,8 +825,7 @@ fn residual_set_result_refuses_missing_element_type_on_public_read() {
     }
 }
 
-/// Trace: FR-038-AC-230
-#[trace("FR-038-AC-230")]
+#[trace("TC-048", "FR-038-AC-230")]
 #[test]
 fn residual_result_inner_map_flat_map_flatten_and_convert_use_result_element() {
     for identity in ["map", "flat_map", "flatten", "convert"] {
@@ -919,8 +910,7 @@ fn residual_result_inner_map_flat_map_flatten_and_convert_use_result_element() {
     }
 }
 
-/// Trace: FR-038-AC-230
-#[trace("FR-038-AC-230")]
+#[trace("TC-048", "FR-038-AC-230")]
 #[test]
 fn residual_result_inner_sequence_results_expect_no_leaves() {
     for identity in ["map", "flat_map", "flatten", "convert"] {
@@ -1004,8 +994,7 @@ fn residual_result_inner_sequence_results_expect_no_leaves() {
     }
 }
 
-/// Trace: FR-038-AC-231
-#[trace("FR-038-AC-231")]
+#[trace("TC-048", "FR-038-AC-231")]
 #[test]
 fn residual_flatten_sequence_result_does_not_compare_its_ieee_element() {
     for ieee in ["float32", "float64"] {
@@ -1049,8 +1038,7 @@ fn residual_flatten_sequence_result_does_not_compare_its_ieee_element() {
     }
 }
 
-/// Trace: FR-038-AC-231
-#[trace("FR-038-AC-231")]
+#[trace("TC-048", "FR-038-AC-231")]
 #[test]
 fn residual_contains_sequence_compares_its_ieee_element() {
     for form in ["float32", "float64", "integer"] {
@@ -1112,8 +1100,7 @@ fn residual_contains_sequence_compares_its_ieee_element() {
     }
 }
 
-/// Trace: FR-038-AC-229
-#[trace("FR-038-AC-229")]
+#[trace("TC-048", "FR-038-AC-229")]
 #[test]
 fn residual_compared_operand_rejects_binder_and_aggregate_families_first() {
     let (base, _) = equality_package(vec![record("r", &[("n", "integer")])], "r", vec![]);
@@ -1150,8 +1137,7 @@ fn residual_compared_operand_rejects_binder_and_aggregate_families_first() {
     }
 }
 
-/// Trace: FR-038-AC-229
-#[trace("FR-038-AC-229")]
+#[trace("TC-048", "FR-038-AC-229")]
 #[test]
 fn residual_non_member_terms_refuse_before_operand_family_and_leaves() {
     let (base, _) = equality_package(vec![record("r", &[("n", "integer")])], "r", vec![]);
@@ -1189,8 +1175,7 @@ fn residual_non_member_terms_refuse_before_operand_family_and_leaves() {
     }
 }
 
-/// Trace: FR-038-AC-229
-#[trace("FR-038-AC-229")]
+#[trace("TC-048", "FR-038-AC-229")]
 #[test]
 fn residual_dependency_reference_cannot_be_a_comparison_operand() {
     let (mut package, _) = equality_package(vec![record("r", &[("n", "integer")])], "r", vec![]);
@@ -1861,8 +1846,7 @@ fn forwarding_operation_package(route: &str) -> (Value, String) {
     (package, id)
 }
 
-/// Trace: FR-038-AC-224, FR-038-AC-229, FR-038-AC-230
-#[trace("FR-038-AC-224", "FR-038-AC-229", "FR-038-AC-230")]
+#[trace("TC-048", "FR-038-AC-224", "FR-038-AC-229", "FR-038-AC-230")]
 #[test]
 fn structural_forwarding_reader_routes_have_exact_and_one_less_work_boundaries() {
     for route in ["inner:0", "result_inner", "leaf edge"] {
