@@ -89,7 +89,6 @@ mod tests {
 
     use super::*;
 
-    /// Trace: TC-016
     #[trace("TC-016")]
     #[test]
     fn tc_016_the_grammar_is_minimal_base_ten() {
@@ -110,7 +109,6 @@ mod tests {
         }
     }
 
-    /// Trace: TC-016, FR-013-AC-5
     #[trace("TC-016", "FR-013-AC-5")]
     #[test]
     fn tc_016_range_is_decided_after_the_grammar() {

@@ -3266,7 +3266,6 @@ mod tests {
         assert_eq!(refusal.path(), "package.identity");
     }
 
-    /// Trace: TC-043
     #[trace("TC-043")]
     #[test]
     fn tc_043_absolute_region_arithmetic_overflow_refuses() {

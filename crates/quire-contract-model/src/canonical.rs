@@ -1136,7 +1136,6 @@ mod tests {
 
     use super::*;
 
-    /// Trace: TC-017
     #[trace("TC-017")]
     #[test]
     fn tc_017_a_limit_and_an_encoder_fault_share_the_code_but_not_the_message() {
