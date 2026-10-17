@@ -121,3 +121,10 @@ APPROVE WITH NITS. There are two low trace findings and no medium or high. Merge
 - `cargo test -p quire-contract-model --lib -- checked_package:: output_mapping::tests::tc_043_absolute_region` passes 188 of 188.
 
 No mutants were run. No body or assertion changed, so the tags were judged by reading each assertion against the AC.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fix commit a42fe9f, checked on head 5c6ecd5: `tc_048_a_document_within_the_parse_recursion_limit_is_read` now carries `#[trace("TC-048")]` and `/// Trace: TC-048`. `quire trace --file` shows only a TC-048 verifies claim. The doc sentence's "(FR-038-AC-117)" remains as an `evidence_near_miss` citation, not a claim. The AC-117 row keeps 14 binders. |
+| FND-002 | fixed | Fix commit a42fe9f, checked on head 5c6ecd5: `tc_048_strict_shape_agrees_with_the_strict_parser` now carries `#[trace("TC-048")]` and `/// Trace: TC-048`. `quire trace --file` shows only a TC-048 verifies claim. The FR-038-AC-2 row keeps 8 binders. Strict coverage is still 508/565, 43 unbacked, 0 status lies, and minted targets are 508/565. |
