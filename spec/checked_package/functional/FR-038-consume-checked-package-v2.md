@@ -3329,9 +3329,10 @@ second operand. The member-shape rule that admits the key belongs to the QSpec
 checked-package application rule (FR-322), which states the key and its checks in FR-322-AC-73, and their order in its section
 "Population link of a `reaches`". Where
 FR-322 states a refusal, the reader check below follows
-its code, cause and pointer; a difference of stage (FR-322's schema stage
-against this reader's operation stage, which has no member schema) is stated
-where it arises.
+its code, cause and pointer, except that a difference of code, pointer or stage
+(FR-322's schema stage against this reader's operation stage, which has no member
+schema, and FR-322's derived-shape check against this reader's lack of one) is
+stated where it arises.
 
 **The accessor.** `CheckedPackageV2::reaches_population(&self, application:
 &CheckedNodeId) -> Result<Option<CheckedSelectedPopulationSelector>,

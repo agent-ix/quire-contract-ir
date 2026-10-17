@@ -151,3 +151,19 @@ Round 4, reviewed at 76c8df6a932662e51653c4b4f76127981bf8b795. QSpec PR #268 is 
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Both upstream PRs are merged, so the gate is met. FR-322 on main now has the "Population link of a `reaches`" rule (:1088-1114) and FR-322-AC-73 (:1523). Both V2 schemas give `relationship_end` an optional `population` typed `NodeId` (schema.json :127, node-identity-preimage.schema.json :51). `adverse.json` publishes the seven `reaches_population_cases`. They match the IR outcomes recorded in round 2. FR-038 now cites FR-322-AC-73 in place of "pending". Its claims of code, stage and agreement hold against main. One citation is imprecise; that is FND-006. |
+
+## New findings (disposition pass 5)
+
+Reviewed at 20a4eaf2fda35792c51e613505fc40ca5b3d3d4e, against quire-specification origin/main 6f6136a6c.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-007 | low | The round-5 edit widened the general rule of "The link" so that it now overclaims. It used to say "Where FR-322-AC-73 states a refusal". It now says "Where FR-322 states a refusal, the reader check below follows its code, cause and pointer; a difference of stage ... is stated where it arises". Every refusal FR-322-AC-73 states does match the IR codes. But FR-322 as a whole also states two refusals whose code differs from IR's, and the bullets below say so: (1) a non-node-id `population` fails the schema and is refused `malformed_wire`, where IR refuses `ill_typed` ("The difference is code and stage", :3412); (2) a negative `max` is refused `invalid_package`/`invalid-derived-shape` at the node, where IR refuses `ill_typed` at `member.population` ("differ in code, pointer and stage", :3431). So the general sentence ("follows its code, cause and pointer"; only a "difference of stage" is noted) contradicts two of the bullets it introduces. Fix: either go back to "Where FR-322-AC-73 states a refusal", or keep "FR-322" and say "a difference of code, pointer or stage ... is stated where it arises". | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3330-3334, spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3407-3412, spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3424-3433 |
+
+## Dispositions (round 5)
+
+Round 5, reviewed at 20a4eaf2fda35792c51e613505fc40ca5b3d3d4e.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-006 | fixed | All three citations now point where the text actually is. (1) The negative-`max` rule: "FR-322's section "Population link of a `reaches`" refers to the model-population `max` rule (RM-POP-MAX, FR-322-AC-62)". This matches FR-322 :1109-1110, :869 and :1512. (2) The refusal on other member kinds: "FR-322's section "Population link of a `reaches`" has the schema refuse the key on every other member kind" (FR-322 :1096-1098). (3) "states the key and its checks in FR-322-AC-73, and their order in its section". AC-73 (:1523) states the key and its refusals; the section (:1105-1106) states the order. The widened refusal sentence in the same edit is FND-007. |
