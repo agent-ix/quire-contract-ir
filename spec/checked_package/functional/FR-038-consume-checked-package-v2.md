@@ -126,6 +126,9 @@ it admits in its own reader — `crates/quire-contract-model/src/checked_package
   operands. Each entry carries its argument ordinal, a typed child identity,
   and its own inclusive integer range; see "Typed scalar application operands"
   (FR-038-AC-159 through FR-038-AC-164).
+- A typed accessor on the admitted package for a `value`/`parameter` node's
+  declared name and level, `parameter_declaration`; see "Typed parameter
+  declaration" (FR-038-AC-258 through FR-038-AC-261, IR-832).
 
 - A typed composite operand accessor, `composite_application_operands`,
   returning authentic positional children, authored shapes and introduced positions
@@ -3113,6 +3116,70 @@ key; the operand identity is not a new obligation preimage member. QSL
 confirmed the two-variant operand identity for this seam while its FR-357 and
 ADR-013 wording is being amended (QSL-641).
 
+### Typed parameter declaration
+
+A consumer that binds a call's named arguments to a scalar application's
+ordered operands needs each parameter operand's declared name, which
+`scalar_application_operands` does not return and no public accessor reads from
+the node's `body`. `CheckedPackageV2::parameter_declaration(&self, node:
+&CheckedNodeId) -> Result<CheckedParameterDeclaration,
+CheckedParameterDeclarationError>` shall return it as typed Rust values, so the
+consumer does not decode the package's `body`. The IR-owned public types, not
+QSL wire types, are:
+
+| Public type | Exposed fields or closed variants |
+| --- | --- |
+| `CheckedParameterDeclaration` | `node: CheckedNodeId`, `name: Box<str>`, `level: Box<str>` |
+| `CheckedParameterDeclarationError` | Closed variants `UnknownNode`, `NotParameter` and `MalformedBody` |
+
+These types are planned and are not yet in
+[FR-019](../../model/functional/FR-019-rust-library-interface.md)'s Public items
+table, which lists only exported items (FR-019-AC-5). The code change that
+exports them adds their table row in the same change.
+
+`node` is the supplied id. `name` is the value of the `"name"` binding's text
+literal and `level` is the canonical non-negative decimal text of the `"level"`
+binding's integer literal, both exactly as the reader admitted them under
+"Parameter and compound-unit nodes, and the application dependency join". The
+level is returned as that text so that the accessor adds no integer bound the
+reader does not impose. The result exposes no `serde_json::Value`, body
+fragment, occurrence or region, and no semantic type, function or value.
+
+The accessor shall identify a parameter by node id alone and shall return no
+enclosing-function identity. QSL [FR-092](ix://agent-ix/quire-spec-language/FR-092)
+("Parameter nodes") gives a parameter node no `owner`, no `declaration` and no
+function identity, so that its key does not depend on the function that
+declares it: two functions whose parameters have the same name, level and
+type share one node (QSL FR-092-AC-5), and the node therefore cannot say which
+function it belongs to. The declared name is a property of the node, so the
+same node id always returns the same name and level. Two parameter nodes of one
+name that differ in level or type are distinct nodes with distinct ids; the
+`level` member is what distinguishes the binders of a repeated name within one
+scope chain (QSL FR-092: a reference to a parameter node of level `k` denotes
+the one enclosing binder at level `k`).
+
+An unknown id shall refuse `UnknownNode`. A node whose tag and form are not
+`value`/`parameter` shall refuse `NotParameter`, whatever its body. A parameter
+node whose body fails any of these checks shall refuse `MalformedBody`, a state
+only a crate-internal post-admission mutation can produce: the body is an
+aggregate of exactly the `"name"` and `"level"` bindings; the `"name"` binding is
+a `text` literal typed at a `scalar_type`/`text` node whose value is an
+identifier; the `"level"` binding is an `integer` literal typed at a
+`scalar_type`/`integer` node whose value is a canonical non-negative decimal
+string. The accessor shall not otherwise re-check the package.
+
+Each refusal shall return only the typed error and no partial declaration.
+The accessor shall not panic on any input. The accessor shall not change
+package admission or the V2 reader's refusal order.
+
+Binding concrete values is the caller's join and not an IR API: the caller
+reads a call's operands with `scalar_application_operands`, reads each
+`GraphChild` parameter's declared name with this accessor, and maps its own
+named argument to the operand ordinal whose parameter has that name. The IR
+provides no lookup from a name to a parameter node or an operand ordinal, no
+value store, and no evaluation. A caller whose operands include two parameter
+nodes of one name tells them apart by the returned `level` and node id.
+
 ### Typed authored domains of composite equality and inequality operands
 
 When supplied an admitted `quire.op.structural.eq` or `quire.op.structural.ne`
@@ -4436,6 +4503,10 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-255 | Implemented (IR-824). For `quire.op.model.reaches` over an eligible direction, an `unbounded` upper bound or an `ordered` destination end refuses `unsupported_construct`/`expression-form` at `member.name`, decided before type: an `unbounded` end of another type refuses with this outcome (QSpec RN-23, RN-24, RN-26). | Test (TC-048) |
 | FR-038-AC-256 | Implemented (IR-824). For `quire.op.model.reaches` over an eligible direction and a finite end, a destination end whose type differs from the receiver endpoint's, single-valued or multi-valued, refuses `ill_typed`/`operator-ineligible` at `member.name` (QSpec RN-25). | Test (TC-048) |
 | FR-038-AC-257 | Implemented (IR-824). A `quire.op.model.reaches` application over an admitted finite multi-valued end whose `result_type` names a navigation result type instead of the catalog's Boolean node refuses `ill_typed`/`operator-ineligible` at `body.result_type`. | Test (TC-048) |
+| FR-038-AC-258 | PLANNED/UNRUN (IR-832). For an admitted `value`/`parameter` node, `parameter_declaration` returns `Ok` whose `node` equals the supplied id, whose `name` equals the node's admitted `"name"` text literal and whose `level` equals the canonical decimal text of its admitted `"level"` integer literal; for parameters named `a` at level `0` and `b` at level `1` it returns exactly `("a", "0")` and `("b", "1")`, and a level of `10` is returned as `"10"` and not read as an integer. | Test (TC-048) |
+| FR-038-AC-259 | PLANNED/UNRUN (IR-832). `parameter_declaration` over an id absent from the graph refuses `UnknownNode`; over an existing `value`/`literal`, an `application` node and a `function` node it refuses `NotParameter` for each; over a parameter node whose `body` a crate-internal post-admission mutation changed to lack the `"name"` binding, to give `"name"` a non-text value, to give `"name"` a non-identifier value, to type the name literal at a node that is not `scalar_type`/`text`, and to give `"level"` the non-canonical value `"010"`, it refuses `MalformedBody` for each. Every refusal returns only the typed error and no partial declaration. | Test (TC-048) |
+| FR-038-AC-260 | PLANNED/UNRUN (IR-832). Two admitted parameter nodes named `x` at levels `0` and `1` have distinct ids, and `parameter_declaration` returns `level` `"0"` for one and `"1"` for the other with `name` `x` for both, so the accessor separates equal names by level and not by an enclosing function. The result type has no member naming a function, owner or declaration, which a compiled field-by-field construction of `CheckedParameterDeclaration` shows. | Test (TC-048) |
+| FR-038-AC-261 | PLANNED/UNRUN (IR-832). For an admitted `quire.op.integer.add` application whose two operands reference parameters `a` and `b`, each typed at `Int[0, 9]` (a finite `bounded_domain`/`integer_range`, so that `scalar_application_operands` returns `Ok` and not `UnboundedRange`), calling `parameter_declaration` on each `GraphChild` id returned by `scalar_application_operands` yields `a` then `b` in operand ordinal order, and the same application with its arguments swapped in a separately admitted package yields `b` then `a`. An `InlineLiteral` operand carries no `CheckedNodeId`, so the type of `CheckedScalarOperandChild::InlineLiteral` offers no id to pass to the accessor. | Test (TC-048) |
 | FR-038-AC-246 | Implemented (IR-803). For a reader-admitted `quire.op.structural.eq` application, `composite_application_operands` returns `CheckedCompositeOperator::Eq` together with its operands; for an otherwise equivalent reader-admitted `quire.op.structural.ne` application it returns `CheckedCompositeOperator::Ne` together with its operands. Between those cases, only the returned operator and the selected application's identity and occurrence may differ; operands (including order, child identities, semantic types and domains), ordinals and `consumed_work` are equal. The AC-182 public-fields inspection in `tests/it/checked_package_v2_composite_operands.rs` (`inspect_public_fields`) must exhaustively match both `CheckedCompositeOperator` variants, without a wildcard arm or `#[non_exhaustive]`. The consumer needs no separate operation lookup. TC-048 composite operand tests verify both cases. | Test |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
