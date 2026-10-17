@@ -205,6 +205,7 @@ pub(super) fn coprime(
 mod tests {
     use super::*;
     use crate::checked_package::shared::CheckedPackageLimit;
+    use ix_trace_rs::trace;
 
     /// The rational a charge is reported at in these tests.
     fn at() -> JsonPointer {
@@ -217,7 +218,7 @@ mod tests {
     }
 
     /// Trace: TC-048, FR-038-AC-121
-    #[ix_trace_rs::trace("TC-048", "FR-038-AC-121")]
+    #[trace("TC-048", "FR-038-AC-121")]
     #[test]
     fn tc_048_decides_reduction_beyond_u128() {
         assert!(check("340282366920938463463374607431768211457", "1"));
@@ -242,7 +243,7 @@ mod tests {
     }
 
     /// Trace: TC-048, FR-038-AC-3
-    #[ix_trace_rs::trace("TC-048", "FR-038-AC-3")]
+    #[trace("TC-048", "FR-038-AC-3")]
     #[test]
     fn tc_048_charges_work_and_stops_at_the_limit() {
         let mut meter = WorkMeter::new(3);
@@ -277,7 +278,7 @@ mod tests {
     }
 
     /// Trace: TC-048, FR-038-AC-3
-    #[ix_trace_rs::trace("TC-048", "FR-038-AC-3")]
+    #[trace("TC-048", "FR-038-AC-3")]
     #[test]
     fn tc_048_parse_work_grows_with_limbs_not_digits() {
         // Every digit after the first limb touches every accumulated limb, so
@@ -313,7 +314,7 @@ mod tests {
     /// rationals, equal ones included, as their values do.
     ///
     /// Trace: TC-048, FR-038-AC-121
-    #[ix_trace_rs::trace("TC-048", "FR-038-AC-121")]
+    #[trace("TC-048", "FR-038-AC-121")]
     #[test]
     fn tc_048_compares_rationals_exactly_beyond_2_pow_64() {
         let above = ("18446744073709551617", "3");
@@ -336,7 +337,7 @@ mod tests {
     /// at the limit.
     ///
     /// Trace: TC-048, FR-038-AC-3
-    #[ix_trace_rs::trace("TC-048", "FR-038-AC-3")]
+    #[trace("TC-048", "FR-038-AC-3")]
     #[test]
     fn tc_048_comparison_work_is_charged_and_stops_at_the_limit() {
         let left = ("18446744073709551617", "3");

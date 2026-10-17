@@ -394,6 +394,7 @@ mod tests {
     use super::{check_term, scan_members, Place};
     use crate::checked_package::common::Trail;
     use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
+    use ix_trace_rs::trace;
     use serde_json::{json, Map, Value};
 
     /// `value` nested in `levels` arrays, each moved into the next: `json!`
@@ -412,7 +413,7 @@ mod tests {
     /// body with none is charged one unit per value.
     ///
     /// Trace: TC-048, FR-038-AC-117
-    #[ix_trace_rs::trace("TC-048", "FR-038-AC-117")]
+    #[trace("TC-048", "FR-038-AC-117")]
     #[test]
     fn tc_048_the_member_scan_reaches_a_deep_application_on_a_small_stack() {
         const LEVELS: usize = 200_000;
@@ -457,7 +458,7 @@ mod tests {
     /// root, a Group's member is no aggregate, and a Tuple's member is no binding.
     ///
     /// Trace: TC-048, FR-038-AC-114
-    #[ix_trace_rs::trace("TC-048", "FR-038-AC-114")]
+    #[trace("TC-048", "FR-038-AC-114")]
     #[test]
     fn tc_048_a_term_is_checked_against_the_place_it_stands_in() {
         let leaf = json!({"term": "reference", "target": {}});

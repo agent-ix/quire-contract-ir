@@ -3267,7 +3267,7 @@ mod tests {
     }
 
     /// Trace: TC-043
-    #[ix_trace_rs::trace("TC-043")]
+    #[trace("TC-043")]
     #[test]
     fn tc_043_absolute_region_arithmetic_overflow_refuses() {
         let region = OutputByteRegion::new(u64::MAX - 1, u64::MAX).expect("valid high region");

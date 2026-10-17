@@ -894,9 +894,10 @@ fn validate_unit_path(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ix_trace_rs::trace;
 
     /// Trace: TC-048
-    #[ix_trace_rs::trace("TC-048")]
+    #[trace("TC-048")]
     #[test]
     fn tc_048_integer_and_identifier_grammars_are_exact() {
         assert_eq!(integer_magnitude("0"), Some("0"));

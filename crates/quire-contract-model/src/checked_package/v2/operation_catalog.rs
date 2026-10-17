@@ -394,7 +394,7 @@ mod tests {
     /// exactly the catalog's profile law roles.
     ///
     /// Trace: TC-048, FR-038-AC-65
-    #[ix_trace_rs::trace("TC-048", "FR-038-AC-65")]
+    #[trace("TC-048", "FR-038-AC-65")]
     #[test]
     fn tc_048_the_catalog_vocabularies_are_the_decoded_enums() {
         use std::collections::BTreeSet;

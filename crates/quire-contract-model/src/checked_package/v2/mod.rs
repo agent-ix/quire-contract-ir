@@ -2626,7 +2626,7 @@ mod tests {
     /// the abstraction relation body.
     ///
     /// Trace: TC-225, FR-346-AC-2
-    #[ix_trace_rs::trace("TC-225", "FR-346-AC-2")]
+    #[trace("TC-225", "FR-346-AC-2")]
     #[test]
     fn tc_225_exactly_one_kind_has_an_abstraction_relation_body() {
         let relations = CheckedNodeKind::all()
