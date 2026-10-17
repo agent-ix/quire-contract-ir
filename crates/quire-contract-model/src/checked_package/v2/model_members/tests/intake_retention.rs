@@ -57,6 +57,7 @@ fn bad_type(origin: Value) -> Value {
 }
 
 /// Trace: FR-038-AC-174, FR-038-AC-175, FR-038-AC-186
+#[trace("TC-048", "FR-038-AC-174", "FR-038-AC-175", "FR-038-AC-186")]
 #[test]
 fn tc_048_intake_retains_source_values_after_authentic_document_release() {
     let value = refusal(document(vec![bad_type(source("types/source.md"))]));
@@ -103,6 +104,7 @@ fn tc_048_intake_retains_source_values_after_authentic_document_release() {
 }
 
 /// Trace: FR-038-AC-187
+#[trace("TC-048", "FR-038-AC-187")]
 #[test]
 fn tc_048_intake_retains_generated_version_and_ordered_repeated_inputs() {
     for (generator, version, inputs) in [
@@ -153,7 +155,8 @@ fn tc_048_intake_retains_generated_version_and_ordered_repeated_inputs() {
     );
 }
 
-/// Trace: FR-038-AC-174, FR-038-AC-188, FR-038-AC-189
+/// Trace: FR-038-AC-174, FR-038-AC-188
+#[trace("TC-048", "FR-038-AC-174", "FR-038-AC-188")]
 #[test]
 fn tc_048_intake_retains_actual_nested_declaration_not_owner_or_missing_target() {
     let missing = "ix://acme/orders/Absent";
@@ -303,6 +306,7 @@ fn tc_048_intake_retains_actual_nested_declaration_not_owner_or_missing_target()
 }
 
 /// Trace: FR-038-AC-189, FR-038-AC-190, FR-038-AC-192
+#[trace("TC-048", "FR-038-AC-189", "FR-038-AC-190", "FR-038-AC-192")]
 #[test]
 fn tc_048_intake_group_origin_requires_every_valid_equal_candidate() {
     // Keep document parsing in the same byte-work band. An extra actual
@@ -424,6 +428,7 @@ fn tc_048_intake_group_origin_requires_every_valid_equal_candidate() {
 }
 
 /// Trace: FR-038-AC-196
+#[trace("TC-048", "FR-038-AC-196")]
 #[test]
 fn tc_048_intake_sequential_relationship_uses_later_actual_context() {
     let mut first = relationship();
@@ -487,6 +492,7 @@ fn assert_retention_work_limit(failure: ValidationFailure, limit: u64, consumed:
 }
 
 /// Trace: FR-038-AC-191, FR-038-AC-192
+#[trace("TC-048", "FR-038-AC-191", "FR-038-AC-192")]
 #[test]
 fn tc_048_intake_metadata_work_and_original_first_refusal_are_exact() {
     // Independent expected logical charges for fixed authored records, separate
@@ -586,6 +592,7 @@ fn tc_048_intake_metadata_work_and_original_first_refusal_are_exact() {
 }
 
 /// Trace: FR-038-AC-175, FR-038-AC-191
+#[trace("TC-048", "FR-038-AC-175", "FR-038-AC-191")]
 #[test]
 fn tc_048_intake_predeclaration_failures_have_no_invented_metadata() {
     let original_document = document(vec![bad_type(source("unused.md"))]);
