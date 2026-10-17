@@ -2258,8 +2258,9 @@ Implemented (IR-832) with tagged tests. `CheckedParameterDeclaration` and
 items table; FR-019 lists only exported items. The `MalformedBody` mutations
 are crate-internal unit tests beside the accessor, since they need the private
 wire. Their fixture is a never-admitted package of admitted shape with its kinds
-decoded from the wire, because a module test cannot derive the structural keys
-an admitted read requires. Build a self-built
+decoded from the wire, following the `scalar_application_operands` precedent
+(a module test can admit a package, as the composite operand tests do, but a
+parameter fixture would need its own keyed graph for no added check). Build a self-built
 admitted package with a pair of parameters named `x` at levels `0` and `1`, a
 parameter at level `10`, and add applications over parameters `a` and `b`, each
 typed at `Int[0, 9]` (an `integer_range` `bounded_domain`, since a parameter typed

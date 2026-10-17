@@ -92,3 +92,16 @@ Bindings were checked against the test bodies:
 ## Verdict
 
 Mergeable after FND-001. FND-001 is a spec-text and test fix inside this PR: restate the AC-261 sentence and add one assertion. FND-002 is low and can be fixed or accepted with a TC-048 note.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1 (f6b5bcd): AC-261 now reads "An `InlineLiteral` operand carries no operand `CheckedNodeId`: the only id its `CheckedScalarOperandChild::InlineLiteral` holds is `application`, the containing application's, and `parameter_declaration` over that id refuses `NotParameter`." The test destructures `InlineLiteral { application: carried, occurrence: at, ordinal }` without `..`, asserts `(carried, at, ordinal) == (&application, &occurrence, 1)` and asserts `parameter_declaration(carried) == Err(NotParameter)`. A mutant that accepts any known kind as a parameter is now killed by this test. TC-048 has the matching sentence. The FR-038 matrix row text changed only from "🚧 ... are PLANNED/UNRUN" to "✅ ... are implemented with tagged TC-048 tests" (a character diff of the row confirms nothing else changed), which matches the AC table and tests.md. |
+| FND-002 | fixed | Round 1 (f6b5bcd): the fixture now carries `kinds` decoded from the wire, and both its doc comment and TC-048 say it is a never-admitted package of admitted shape. This is the option the finding offered, so I accept the note in place of an admitted fixture. The rationale the note gives is wrong; that is FND-003 below. |
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | low | The new TC-048 sentence gives a reason that is false: "because a module test cannot derive the structural keys an admitted read requires". `composite_operands.rs`'s own module tests admit a package in-crate. Their `package()` calls `CheckedPackageV2::read` and panics unless the result is `Admitted`, with the comment "Every corruption below starts from a genuinely reader-admitted package". FR-038-AC-140 says the same. The note's description of the fixture is accurate. Only its stated reason is wrong, and it would mislead the next author into thinking an admitted in-crate fixture is impossible. Drop the "because" clause, or reword it as a choice, for example "kept, as in the scalar_operands precedent, rather than admitting in-crate as composite_operands does". | spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md:2260-2262; crates/quire-contract-model/src/checked_package/v2/composite_operands.rs:1289-1300 |
