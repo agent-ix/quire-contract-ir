@@ -3620,9 +3620,12 @@ fn tc_048_retaining_the_relationship_end_changes_neither_equality_nor_work() {
     assert_eq!(first, clone);
     assert_eq!(first, second);
     // `package_id()` reads the wire and the reader checks it before retention is
-    // built, so no retention change can alter it: it is not asserted here. The
-    // guards that retention can break are equality of independent admissions
-    // (above) and the charged work (below).
+    // built, so no retention change can alter it: it is not asserted here. Equal
+    // admissions carry equal retention, so the equality above cannot catch
+    // retention leaking into equality; the in-crate test
+    // `tc_048_admitted_retention_is_read_and_outside_package_equality` does, by
+    // comparing an admitted package with one whose retention is cleared. The
+    // charged work (below) is the guard this test owns.
 
     // Admission charges the same work with the relationship record retained:
     // the least work limit that admits is the one measured before retention.

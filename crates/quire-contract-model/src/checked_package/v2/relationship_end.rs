@@ -520,10 +520,7 @@ mod tests {
     /// The retained destination key cannot be absent in a package the reader
     /// admitted (admission refuses an end whose type is not a selected
     /// declaration), so this one state is produced by editing the admitted
-    /// retained record itself.
-    ///
-    /// Trace: TC-048, FR-038-AC-266
-    #[trace("TC-048", "FR-038-AC-266")]
+    /// retained record itself. It backs no acceptance criterion by itself.
     #[test]
     fn tc_048_an_absent_retained_destination_key_refuses_unresolved_end() {
         let (mut package, ids) = admitted();
