@@ -77,3 +77,18 @@ Gates on head 313c535, run in the throwaway worktree:
 - `cargo clippy --workspace --all-targets -- -D warnings` is clean.
 - `cargo test --test it fr014_recheck` passes 1 of 1.
 - `cargo test --test it expression` passes 22 of 22.
+
+## Dispositions
+
+Round 1, head 8afcbeb. The fix commit is 8afcbeb. The merge 1fbfba2 brings in origin/main (#430, #431), and against origin/main the PR diff is still `tests/it/fr014_recheck.rs`, `tests/it/main.rs` and the two `reviews/` files. Mutants were re-run in a throwaway worktree with its own target dir, both deleted afterwards.
+
+- **Gates:** `cargo fmt --all -- --check` is clean, `cargo clippy --workspace --all-targets -- -D warnings` is clean, and `cargo test --test it fr014_recheck` passes 1 of 1.
+- **Coverage:** `quire coverage` is 508/565, FR-014 is 8/9, and the test is still bound as `rust-trace-attribute` (line 388).
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | A new rejected case calls `pair(left: Boolean, right: Boolean)` with two integers and returns 2 diagnostics. That length is measured and guarded by `a.len() >= 2`. The reverse-diagnostics and swap-first-two mutants are now killed at the `a == b` comparison (line 426), in both the repeat-input and the per-call trigger modes. |
+| FND-002 | fixed | The guard is now `assert_eq!((accepted, rejected), (5, 8))`. |
+| FND-003 | fixed | The Debug `Vec<String>` projection and its "dependency order" assertion were removed. The `Outcome` doc comment now says that BTreeSet set equality decides the order. The dependency-removal mutant is still killed at the `dependencies()` assertion (line 411). |
+
+Note, not a finding: the PR body says a mutant survives when the dependency comparison is dropped. Measured at 8afcbeb with line 411 deleted, the dependency-removal mutant is still killed, at line 430 (`assert_eq!(first, second)`), because `Outcome` equality covers the whole `TypedExpression`, dependencies included. The per-field assertions give clearer failure messages but are not the only oracle. The PR body sentence is stale and should be corrected or removed. The code is unaffected.
