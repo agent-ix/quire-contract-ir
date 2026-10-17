@@ -3411,7 +3411,6 @@ fn admitted_reaching(relation: Value, role: &str) -> (CheckedPackageV2, CheckedN
     (package, application)
 }
 
-/// Trace: TC-048, FR-038-AC-262
 #[trace("TC-048", "FR-038-AC-262")]
 #[test]
 fn tc_048_relationship_end_reads_forward_and_inverse_ends_of_unequal_bounds() {
@@ -3444,7 +3443,6 @@ fn tc_048_relationship_end_reads_forward_and_inverse_ends_of_unequal_bounds() {
     );
 }
 
-/// Trace: TC-048, FR-038-AC-263
 #[trace("TC-048", "FR-038-AC-263")]
 #[test]
 fn tc_048_relationship_end_returns_the_declared_bounds_role_and_derived_type() {
@@ -3556,7 +3554,6 @@ fn tc_048_relationship_end_returns_the_declared_bounds_role_and_derived_type() {
     );
 }
 
-/// Trace: TC-048, FR-038-AC-264
 #[trace("TC-048", "FR-038-AC-264")]
 #[test]
 fn tc_048_relationship_end_refuses_every_node_that_is_not_a_reaches_application() {
@@ -3601,7 +3598,6 @@ fn tc_048_relationship_end_refuses_every_node_that_is_not_a_reaches_application(
 /// reaches package, as charged before the reader retained relationship ends.
 const REACHES_ADMISSION_WORK: u64 = 97;
 
-/// Trace: TC-048, FR-038-AC-266
 #[trace("TC-048", "FR-038-AC-266")]
 #[test]
 fn tc_048_retaining_the_relationship_end_changes_neither_equality_nor_work() {
@@ -3652,7 +3648,6 @@ fn tc_048_retaining_the_relationship_end_changes_neither_equality_nor_work() {
     );
 }
 
-/// Trace: TC-048, FR-038-AC-267
 #[trace("TC-048", "FR-038-AC-267")]
 #[test]
 fn tc_048_relationship_end_api_is_nine_fields_and_a_closed_error() {
@@ -3696,7 +3691,6 @@ fn tc_048_relationship_end_api_is_nine_fields_and_a_closed_error() {
     );
 }
 
-/// Trace: TC-048, FR-038-AC-268
 #[trace("TC-048", "FR-038-AC-268")]
 #[test]
 fn tc_048_relationship_end_is_not_a_field_and_exports_no_selected_population_item() {

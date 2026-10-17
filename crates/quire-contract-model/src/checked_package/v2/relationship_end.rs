@@ -423,8 +423,6 @@ pub(super) mod tests {
 
     /// The admitted application resolves to the retained destination end, and
     /// the retained record is outside package equality.
-    ///
-    /// Trace: TC-048, FR-038-AC-266
     #[trace("TC-048", "FR-038-AC-266")]
     #[test]
     fn tc_048_admitted_retention_is_read_and_outside_package_equality() {
@@ -459,8 +457,6 @@ pub(super) mod tests {
     /// relation node it names) after admission, so the lookup from
     /// `RetainedModels::new` through `RetainedModels::relationship` is run on
     /// the record admission built.
-    ///
-    /// Trace: TC-048, FR-038-AC-265
     #[trace("TC-048", "FR-038-AC-265")]
     #[test]
     fn tc_048_post_admission_mutations_of_an_admitted_application_refuse_unresolved_end() {
