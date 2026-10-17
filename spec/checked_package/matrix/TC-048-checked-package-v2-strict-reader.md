@@ -1456,6 +1456,39 @@ argument of the application over an unordered enum; `eq` and `ne` admit over
 either; `lt` over two different enums refuses `ill_typed`/`operator-ineligible`
 at the second argument.
 
+## Selected variant types (FR-038-AC-236 through FR-038-AC-238)
+
+Verify, through `CheckedPackageV2::read` and the tests in
+`tests/it/checked_package_v2_model_members.rs` and
+`tests/it/checked_package_v2_enum_order.rs`, that a selected Semantic IR model
+declaration of a nonempty variant type is admitted and typed exactly. Author a
+selected domain package document holding an object type with a variant type
+declaration, and a package that selects it.
+
+1. For AC-236, admit a variant declaration whose self-typed node names the
+   object type as its model owner. Use the variant as a field, a parameter and a
+   result type, and under an optional field and a bounded sequence field; require
+   the typed member of each field to name the variant. Remove the owner and
+   require `malformed_wire` at the node; name an absent declaration, and then
+   a different existing declaration, as the owner and require
+   `missing_declaration`/`missing-selection` at the declaration's `node_id`.
+2. For AC-237, admit an `enum_value` for each case name in a set holding a name
+   with a space, a digit prefix and a non-ASCII character. Admit the same case
+   under two different variant declarations and a second case under one
+   declaration, and require distinct re-derived value keys. Apply `enum.eq`
+   and `enum.ne` to two values of the variant and require admission; apply
+   `enum.lt` and `structural.eq` and require `ill_typed`/`operator-ineligible`
+   at the first argument.
+3. For AC-238, declare no case and require `invalid_model_binding`/
+   `malformed-declaration` at the selected model row. Name an absent case in an
+   `enum_value` and require `invalid_semantic_graph` at its `case`. Supply, under
+   the selection digest, a document with a different case set and require
+   `stale_dependency` at that digest. Admit an ordinary scalar enum whose cases
+   include a non-identifier spelling and require `invalid_semantic_graph`.
+
+Expected: each admission and refusal above satisfies FR-038-AC-236 through
+FR-038-AC-238 with the stated code, cause and pointer.
+
 ## Refusal and limit locations (FR-038-AC-24 through FR-038-AC-26)
 
 For every refusal above, compare the whole refusal, including its pointer,
