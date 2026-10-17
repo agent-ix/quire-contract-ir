@@ -28,6 +28,7 @@ mod operation_catalog;
 mod operations;
 mod owner;
 mod parameter_declaration;
+mod reaches_population;
 mod relationship_end;
 mod rust_spelling;
 mod scalar_operands;
@@ -72,6 +73,7 @@ pub use model_fields::{
     CheckedModelObjectFields,
 };
 pub use parameter_declaration::{CheckedParameterDeclaration, CheckedParameterDeclarationError};
+pub use reaches_population::CheckedReachesPopulationError;
 pub use relationship_end::{CheckedRelationshipEnd, CheckedRelationshipEndError};
 pub use scalar_operands::{
     CheckedScalarOperand, CheckedScalarOperandChild, CheckedScalarOperandError,

@@ -1,7 +1,7 @@
 //! Typed destination end of an admitted `quire.op.model.reaches` application.
 
 use super::model_members::SelectedEnds;
-use super::{CheckedNodeId, CheckedPackageV2};
+use super::{CheckedNodeId, CheckedPackageV2, CheckedSemanticNodeV2};
 use crate::checked_package::common::NODE_DOMAIN;
 use serde_json::Value;
 use thiserror::Error;
@@ -49,7 +49,48 @@ pub enum CheckedRelationshipEndError {
     UnresolvedEnd,
 }
 
+/// Why a node is not a reaches application.
+pub(super) enum ReachesLookup {
+    /// The id is absent from the graph.
+    Unknown,
+    /// The node's body root is not a `quire.op.model.reaches` application.
+    NotReaches,
+}
+
 impl CheckedPackageV2 {
+    /// The graph node with `id`, from the retained index.
+    pub(in crate::checked_package) fn node(
+        &self,
+        id: &CheckedNodeId,
+    ) -> Option<&CheckedSemanticNodeV2> {
+        let position = *self.node_index.get(id)?;
+        self.wire
+            .semantic_graph
+            .nodes
+            .get(position)
+            .filter(|candidate| &candidate.node_id == id)
+    }
+
+    /// The node `id` when its body root is a `quire.op.model.reaches`
+    /// application: the one rule both reaches accessors share.
+    pub(super) fn reaches_application(
+        &self,
+        id: &CheckedNodeId,
+    ) -> Result<&CheckedSemanticNodeV2, ReachesLookup> {
+        let found = self.node(id).ok_or(ReachesLookup::Unknown)?;
+        let is_reaches = found.body.get("term").and_then(Value::as_str) == Some("application")
+            && found
+                .body
+                .pointer("/operation/identity")
+                .and_then(Value::as_str)
+                == Some("quire.op.model.reaches");
+        if is_reaches {
+            Ok(found)
+        } else {
+            Err(ReachesLookup::NotReaches)
+        }
+    }
+
     /// Reads the destination end of an admitted `quire.op.model.reaches`
     /// application from the relationship record the reader retained.
     ///
@@ -62,24 +103,13 @@ impl CheckedPackageV2 {
     ) -> Result<CheckedRelationshipEnd, CheckedRelationshipEndError> {
         use CheckedRelationshipEndError as Error;
 
-        let node_at = |id: &CheckedNodeId| {
-            let position = *self.node_index.get(id)?;
-            self.wire
-                .semantic_graph
-                .nodes
-                .get(position)
-                .filter(|candidate| &candidate.node_id == id)
-        };
-        let found = node_at(application).ok_or(Error::UnknownNode)?;
-        let is_reaches = found.body.get("term").and_then(Value::as_str) == Some("application")
-            && found
-                .body
-                .pointer("/operation/identity")
-                .and_then(Value::as_str)
-                == Some("quire.op.model.reaches");
-        if !is_reaches {
-            return Err(Error::NotReachesApplication);
-        }
+        let node_at = |id: &CheckedNodeId| self.node(id);
+        let found = self
+            .reaches_application(application)
+            .map_err(|lookup| match lookup {
+                ReachesLookup::Unknown => Error::UnknownNode,
+                ReachesLookup::NotReaches => Error::NotReachesApplication,
+            })?;
         let member = found
             .body
             .pointer("/operation/member")
@@ -127,7 +157,7 @@ impl CheckedPackageV2 {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::checked_package::v2::model_fields::RetainedRelationship;
     use crate::checked_package::v2::test_support::node_id;
@@ -144,7 +174,7 @@ mod tests {
     const LINKS: &str = "ix://acme/orders/relationship/Order-links-Order";
     const SAME: &str = "ix://acme/orders/relationship/Order-same-Order";
 
-    fn raw_id(digit: char) -> Value {
+    pub(in crate::checked_package::v2) fn raw_id(digit: char) -> Value {
         json!({"domain": NODE_DOMAIN, "digest": digit.to_string().repeat(64)})
     }
 
@@ -209,7 +239,8 @@ mod tests {
     /// application `7` over `LINKS` naming role `links`. Node keys are the
     /// digests of their own preimages, authored in dependency order. Returns
     /// the package, the evidence and the placeholder-to-key map.
-    fn admitted() -> (CheckedPackageV2, BTreeMap<char, CheckedNodeId>) {
+    pub(in crate::checked_package::v2) fn admitted(
+    ) -> (CheckedPackageV2, BTreeMap<char, CheckedNodeId>) {
         let limits = quire_canonical::Limits::new(1 << 20);
         let digest_of = |value: &Value| {
             quire_canonical::sha256(value, limits)

@@ -234,15 +234,13 @@ fn select_admitted(
     }) else {
         return CheckedSelectedPopulationOutcome::MissingOccurrence(selector);
     };
-    if node.node_tag.as_ref() != "bounded_domain"
-        || node.semantic_form.as_ref() != "model_population"
-    {
+    if !is_model_population(node) {
         return CheckedSelectedPopulationOutcome::NotPopulation(selector);
     }
     let Some(maximum) = population_maximum(&node.body) else {
         return CheckedSelectedPopulationOutcome::NotPopulation(selector);
     };
-    let Some(object_type) = population_object_type(node, package.graph().nodes.as_slice()) else {
+    let Some(object_type) = population_object_type(node, |id| package.node(id)) else {
         return CheckedSelectedPopulationOutcome::NotPopulation(selector);
     };
     CheckedSelectedPopulationOutcome::Finite(CheckedSelectedPopulation {
@@ -256,7 +254,25 @@ fn select_admitted(
     })
 }
 
-fn population_maximum(body: &Value) -> Option<u64> {
+/// Whether `node` is a `bounded_domain` / `model_population` node.
+pub(super) fn is_model_population(node: &super::v2::CheckedSemanticNodeV2) -> bool {
+    node.node_tag.as_ref() == "bounded_domain" && node.semantic_form.as_ref() == "model_population"
+}
+
+/// The `Type` occurrence of `node` with the least ordinal: the one occurrence
+/// a reaches application's population link names.
+pub(super) fn least_type_occurrence(
+    node: &super::v2::CheckedSemanticNodeV2,
+) -> Option<&CheckedOccurrence> {
+    node.occurrences
+        .iter()
+        .filter(|occurrence| occurrence.role == CheckedOccurrenceRole::Type)
+        .min_by_key(|occurrence| occurrence.ordinal)
+}
+
+/// The inclusive maximum of a population node's `max` member, when FR-053 can
+/// read one.
+pub(super) fn population_maximum(body: &Value) -> Option<u64> {
     let mut maximum_members = body
         .get("members")?
         .as_array()?
@@ -282,13 +298,13 @@ fn population_maximum(body: &Value) -> Option<u64> {
     })
 }
 
-fn population_object_type(
-    node: &super::v2::CheckedSemanticNodeV2,
-    nodes: &[super::v2::CheckedSemanticNodeV2],
+/// The object type a population node's `semantic_type` chain names, resolving
+/// each node of the chain through `node`.
+pub(super) fn population_object_type<'a>(
+    population: &super::v2::CheckedSemanticNodeV2,
+    node: impl Fn(&CheckedNodeId) -> Option<&'a super::v2::CheckedSemanticNodeV2>,
 ) -> Option<CheckedNodeId> {
-    let set_type = nodes
-        .iter()
-        .find(|candidate| candidate.node_id == node.semantic_type)?;
+    let set_type = node(&population.semantic_type)?;
     let reference_target = set_type
         .body
         .get("members")?
@@ -296,9 +312,7 @@ fn population_object_type(
         .first()?
         .get("target")?;
     let reference_id: CheckedNodeId = serde_json::from_value(reference_target.clone()).ok()?;
-    let reference = nodes
-        .iter()
-        .find(|candidate| candidate.node_id == reference_id)?;
+    let reference = node(&reference_id)?;
     let object_id = reference
         .body
         .get("members")?

@@ -646,8 +646,9 @@ pub(super) fn union_value_body(body: &Value) -> Option<(&str, &[Value])> {
 
 /// FR-322's dependency join for a body that contains an `application` term
 /// at any depth: `None` for a body holding none, else the unique
-/// digest-ascending reference targets and member declarations. A member
-/// `declaration` that is not a node key is skipped here: the operation stage
+/// digest-ascending reference targets and member declarations, plus the member
+/// `population` of a reaches or navigate application. A member `declaration` or
+/// `population` that is not a node key is skipped here: the operation stage
 /// owns that refusal and its path.
 fn application_dependencies(body: &Value) -> Option<BTreeSet<CheckedNodeId>> {
     let mut contains_application = false;
@@ -661,14 +662,29 @@ fn application_dependencies(body: &Value) -> Option<BTreeSet<CheckedNodeId>> {
             }
             Some(BodyTerm::Application) => {
                 contains_application = true;
-                let declaration = term
+                let member = term
                     .get("operation")
-                    .and_then(|operation| operation.get("member"))
-                    .and_then(|member| member.get("declaration"))
-                    .and_then(|declaration| {
-                        serde_json::from_value::<CheckedNodeId>(declaration.clone()).ok()
+                    .and_then(|operation| operation.get("member"));
+                let member_id = |key: &str| {
+                    member.and_then(|member| member.get(key)).and_then(|value| {
+                        serde_json::from_value::<CheckedNodeId>(value.clone()).ok()
+                    })
+                };
+                join.extend(member_id("declaration"));
+                // Only a relationship application names a population.
+                let relationship = term
+                    .get("operation")
+                    .and_then(|operation| operation.get("identity"))
+                    .and_then(Value::as_str)
+                    .is_some_and(|identity| {
+                        matches!(
+                            identity,
+                            "quire.op.model.reaches" | "quire.op.model.navigate"
+                        )
                     });
-                join.extend(declaration);
+                if relationship {
+                    join.extend(member_id("population"));
+                }
             }
             // A literal names only its type annotation, which is not a
             // dependency; a `dependency_reference` names a node of another
