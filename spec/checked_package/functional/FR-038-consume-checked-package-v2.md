@@ -3326,9 +3326,9 @@ included, as the reader check below states. The key is added to no other object
 of the application: the application body, its `operation` object, its operands,
 its `result_type` and its catalog arity are unchanged, and the key is not a
 second operand. The member-shape rule that admits the key belongs to the QSpec
-checked-package application rule (FR-322), which states the key, its checks and
-their order in FR-322-AC-73 ("Population link of a `reaches`"). Where
-FR-322-AC-73 states a refusal, the reader check below follows
+checked-package application rule (FR-322), which states the key and its checks in FR-322-AC-73, and their order in its section
+"Population link of a `reaches`". Where
+FR-322 states a refusal, the reader check below follows
 its code, cause and pointer; a difference of stage (FR-322's schema stage
 against this reader's operation stage, which has no member schema) is stated
 where it arises.
@@ -3422,8 +3422,8 @@ order:
   `ill_typed`/`operator-ineligible`. The reader shall read `max` through
   `population_maximum` itself, so that a package the reader admits is one for
   which `select_population` is `Finite`; a `max` of 0 is admitted. For a negative
-  `max` FR-322-AC-73 refers to the model-population `max` rule of FR-322 (the
-  RM-POP-MAX vector), which refuses it `invalid_package`/`invalid-derived-shape`
+  `max` FR-322's section "Population link of a `reaches`" refers to the model-population `max` rule
+  (RM-POP-MAX, FR-322-AC-62), which refuses it `invalid_package`/`invalid-derived-shape`
   at the population node.
   This reader has no derived-shape check for a `model_population` node (that is
   FR-038-AC-131, still PLANNED), so it cannot produce that refusal, and until
@@ -3445,7 +3445,7 @@ For an application of any operation other than `navigate` and `reaches`,
 outcome for a `population` key in its member: a member kind whose shape is
 closed today (`type_argument`, `temporal_interval`, `fairness`, `state_clause`)
 refuses the key as it does today, and every other member kind (`field`, `position`,
-`element`, `operation`, `profile_operator`) is opaque today and admits it unread. FR-322-AC-73 has the schema
+`element`, `operation`, `profile_operator`) is opaque today and admits it unread. FR-322's section "Population link of a `reaches`" has the schema
 refuse the key on every other member kind; this reader does not add that refusal.
 
 No new refusal code, cause or pointer vocabulary is introduced.
