@@ -1603,7 +1603,8 @@ mod tests {
     /// every member name, array elements by index, the empty pointer for the
     /// document itself; and the text round-trips through `JsonPointer::parse`.
     ///
-    /// Tracing: TC-048, FR-038-AC-24
+    /// Trace: TC-048, FR-038-AC-24
+    #[ix_trace_rs::trace("TC-048", "FR-038-AC-24")]
     #[test]
     fn tc_048_trails_materialize_as_escaped_rfc_6901_pointers() {
         let base = [Step::Key("semantic_graph"), Step::Key("nodes")];
@@ -1634,7 +1635,8 @@ mod tests {
     /// A document within serde_json's recursion limit is read whatever its
     /// shape, and no limit of the read names a depth (FR-038-AC-117).
     ///
-    /// Tracing: TC-048, FR-038-AC-117
+    /// Trace: TC-048, FR-038-AC-117
+    #[ix_trace_rs::trace("TC-048", "FR-038-AC-117")]
     #[test]
     fn tc_048_a_document_within_the_parse_recursion_limit_is_read() {
         let value = json!({"a": [1, {"b": 2}], "c": {"d": {"e": 3}}});
@@ -1647,7 +1649,8 @@ mod tests {
 
     /// A lossy decode is located at the first member it changed or dropped.
     ///
-    /// Tracing: TC-048, FR-038-AC-24
+    /// Trace: TC-048, FR-038-AC-24
+    #[ix_trace_rs::trace("TC-048", "FR-038-AC-24")]
     #[test]
     fn tc_048_first_difference_names_the_changed_member() {
         let original = json!({"a": {"b": [1, {"c": null}], "d": 1}});
@@ -1664,7 +1667,8 @@ mod tests {
         );
     }
 
-    /// Tracing: TC-048, FR-038-AC-2
+    /// Trace: TC-048, FR-038-AC-2, FR-038-AC-79
+    #[ix_trace_rs::trace("TC-048", "FR-038-AC-2", "FR-038-AC-79")]
     #[test]
     fn tc_048_number_tokens_decode_identically_with_or_without_arbitrary_precision() {
         let limits = CheckedPackageReadLimits::bounded();
@@ -1712,7 +1716,8 @@ mod tests {
     /// 256 KiB, charged one unit per aggregate and one for the literal, and
     /// reports the one reference the literal carries.
     ///
-    /// Tracing: TC-048, FR-038-AC-117
+    /// Trace: TC-048, FR-038-AC-117
+    #[ix_trace_rs::trace("TC-048", "FR-038-AC-117")]
     #[test]
     fn tc_048_the_term_walk_validates_a_deep_term_on_a_small_stack() {
         const LEVELS: usize = 200_000;
@@ -1757,7 +1762,8 @@ mod tests {
         );
     }
 
-    /// Tracing: TC-048, FR-038-AC-2
+    /// Trace: TC-048
+    #[ix_trace_rs::trace("TC-048")]
     #[test]
     fn tc_048_v2_literal_numbers_are_integers() {
         let fractional = Value::Number(Number::from_f64(1.5).expect("finite"));
@@ -1809,7 +1815,8 @@ mod depth_tests {
     /// The iterative first pass accepts and refuses exactly what the strict
     /// parser does, with the same refusal.
     ///
-    /// Tracing: TC-048, FR-038-AC-3
+    /// Trace: TC-048, FR-038-AC-2
+    #[ix_trace_rs::trace("TC-048", "FR-038-AC-2")]
     #[test]
     fn tc_048_strict_shape_agrees_with_the_strict_parser() {
         for text in [
@@ -1882,7 +1889,8 @@ mod depth_tests {
     /// `incomplete`, and a document at or within it is read, with every outcome
     /// reached on a 256 KiB stack.
     ///
-    /// Tracing: TC-048, FR-038-AC-117
+    /// Trace: TC-048, FR-038-AC-117
+    #[ix_trace_rs::trace("TC-048", "FR-038-AC-117")]
     #[test]
     fn tc_048_the_parse_recursion_limit_refuses_malformed_wire_with_no_pointer() {
         on_small_stack(|| {
@@ -1907,7 +1915,8 @@ mod depth_tests {
     /// first, even in one nested past the recursion limit, so the recursion
     /// limit never hides it.
     ///
-    /// Tracing: TC-048, FR-038-AC-3, FR-038-AC-117
+    /// Trace: TC-048, FR-038-AC-2, FR-038-AC-117
+    #[ix_trace_rs::trace("TC-048", "FR-038-AC-2", "FR-038-AC-117")]
     #[test]
     fn tc_048_a_syntax_or_duplicate_defect_is_found_before_the_recursion_limit() {
         on_small_stack(|| {
@@ -1936,7 +1945,8 @@ mod depth_tests {
     /// about four times as long; the bound of eight separates that from
     /// sixteen, on the fastest of three runs so a busy machine does not move it.
     ///
-    /// Tracing: TC-048, FR-038-AC-3
+    /// Trace: TC-048
+    #[ix_trace_rs::trace("TC-048")]
     #[test]
     fn tc_048_a_deep_syntax_error_is_refused_in_linear_time() {
         let fastest = |depth: usize| {

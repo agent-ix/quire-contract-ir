@@ -73,7 +73,8 @@ fn is_tuple_index(text: &str) -> bool {
 mod tests {
     use super::{is_rust_field, is_rust_identifier, is_rust_path, is_rust_receiver};
 
-    /// Tracing: TC-225, FR-346-AC-6
+    /// Trace: TC-225, FR-346-AC-6
+    #[ix_trace_rs::trace("TC-225", "FR-346-AC-6")]
     #[test]
     fn tc_225_identifiers_are_non_keyword_or_raw_identifiers() {
         for text in ["version", "_x", "a1", "r#type", "r#match", "Straße", "r#a"] {
@@ -87,7 +88,8 @@ mod tests {
         }
     }
 
-    /// Tracing: TC-225, FR-346-AC-6
+    /// Trace: TC-225, FR-346-AC-6
+    #[ix_trace_rs::trace("TC-225", "FR-346-AC-6")]
     #[test]
     fn tc_225_paths_fields_and_receivers_take_their_own_syntax() {
         let path = |segments: &[&str]| {
