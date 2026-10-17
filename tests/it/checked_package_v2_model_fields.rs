@@ -526,6 +526,14 @@ pub(crate) fn record_project_control() -> (Value, CheckedPackageEvidence) {
     (package, evidence)
 }
 
+/// An admitted package holding an `integer.add` application and a
+/// `value`/`literal` node, for refusals that need neither a model member
+/// nor a relationship.
+pub(crate) fn integer_add_control() -> CheckedPackageV2 {
+    let argument = |placeholder: char| json!({"term": "reference", "target": node_id(&placeholder.to_string().repeat(64))});
+    scalar_operand_package(vec![argument('a'), argument('c')]).0
+}
+
 fn declaration_id(short: &str) -> CheckedNodeId {
     serde_json::from_value(node_id(&declaration_key(short, OBJECT))).expect("a node id")
 }

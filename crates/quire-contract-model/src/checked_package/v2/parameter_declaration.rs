@@ -71,19 +71,12 @@ impl CheckedPackageV2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::checked_package::v2::test_support::{id, node_id};
     use crate::checked_package::v2::{CheckedNodeTag, CheckedPackageWireV2, RetainedModels};
     use ix_trace_rs::trace;
     use serde_json::{json, Value};
 
     type Mutation = Box<dyn Fn(&mut CheckedPackageV2)>;
-
-    fn id(digit: char) -> Value {
-        json!({"domain": "quire.checked-semantic-node/v1", "digest": digit.to_string().repeat(64)})
-    }
-
-    fn node_id(digit: char) -> CheckedNodeId {
-        serde_json::from_value(id(digit)).expect("node id")
-    }
 
     fn literal(ty: char, value_kind: &str, value: &str) -> Value {
         json!({"term": "literal", "type": id(ty), "value_kind": value_kind, "value": value})

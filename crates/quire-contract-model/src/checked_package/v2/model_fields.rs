@@ -1,7 +1,9 @@
 //! FR-038 "Typed accessor for a model object type's fields" (IR-628): the
 //! field table the reader builds once per object type at admission, the
-//! tables and declaration index an admitted [`CheckedPackageV2`] retains, and
-//! the accessor [`CheckedPackageV2::model_object_fields`] that reads them.
+//! tables, declaration index and relationship records an admitted
+//! [`CheckedPackageV2`] retains, and the accessor
+//! [`CheckedPackageV2::model_object_fields`] that reads the field tables (the
+//! relationship records are read by `CheckedPackageV2::relationship_end`).
 //!
 //! A model declaration node's body is `aggregate{[]}` and carries no member,
 //! so the field set of a model object type is in the selected domain package
@@ -16,7 +18,7 @@
 
 use super::model_members::{
     check_declaration_node, member_name, units, Budget, CollectionKind, DeclarationForm,
-    DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType,
+    DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType, RelationshipDecl,
 };
 use super::{CheckedNodeId, CheckedPackageV2, WorkMeter};
 use crate::checked_package::common::{ValidationFailure, NODE_DOMAIN};
@@ -405,8 +407,9 @@ pub(super) struct DeclaredNode {
 pub(super) struct DeclarationIndex(pub(super) BTreeMap<String, DeclaredNode>);
 
 /// What an admitted [`CheckedPackageV2`] retains of its selected documents:
-/// the declaration index, each document's field tables, and the selected
-/// operation parameter types needed for clause-context reads.
+/// the declaration index, each document's field tables, the selected
+/// operation parameter types needed for clause-context reads, and each
+/// selected relationship's [`RetainedRelationship`] record.
 /// Not part of the package's equality, which is the equality of its admitted
 /// content.
 #[derive(Clone, Debug, Default)]
@@ -414,6 +417,31 @@ pub(super) struct RetainedModels {
     index: DeclarationIndex,
     tables: Vec<FieldTables>,
     operation_types: BTreeMap<(usize, Box<str>, Box<str>), OperationTypes>,
+    relationships: BTreeMap<(usize, Box<str>), RetainedRelationship>,
+}
+
+/// The relationship record admission consults, kept for the accessor: both
+/// ends (role, type reference, multiplicity), the direction, and the derived
+/// model declaration node key of each end's type. `None` when no such
+/// declaration is selected or the key cannot be derived, which admission
+/// refuses for an end it reads.
+#[derive(Clone, Debug)]
+pub(super) struct RetainedRelationship {
+    pub(super) declaration: RelationshipDecl,
+    pub(super) source_key: Option<Box<str>>,
+    pub(super) target_key: Option<Box<str>>,
+}
+
+impl RetainedRelationship {
+    /// The derived declaration key of the destination end of a traversal.
+    pub(super) fn destination_key(&self, forward: bool) -> Option<&str> {
+        let key = if forward {
+            &self.target_key
+        } else {
+            &self.source_key
+        };
+        key.as_deref()
+    }
 }
 
 /// The selected model signature already checked against a clause by FR-341.
@@ -449,11 +477,72 @@ impl RetainedModels {
                 }
             }
         }
+        let mut relationships = BTreeMap::new();
+        for (selection, model) in models.iter().enumerate() {
+            let key = |type_ref: &str| {
+                model
+                    .end_declaration_key(type_ref)
+                    .and_then(Result::ok)
+                    .map(Box::<str>::from)
+            };
+            for (node, declaration) in &model.relationships {
+                relationships.insert(
+                    (selection, node.clone()),
+                    RetainedRelationship {
+                        source_key: key(&declaration.source.type_ref),
+                        target_key: key(&declaration.target.type_ref),
+                        declaration: declaration.clone(),
+                    },
+                );
+            }
+        }
         Self {
             index,
             tables: models.into_iter().map(|model| model.fields).collect(),
             operation_types,
+            relationships,
         }
+    }
+
+    /// A retained index of one relationship, for tests that build a package
+    /// by hand instead of admitting one.
+    #[cfg(test)]
+    pub(super) fn with_relationship(
+        digest: &str,
+        selection: usize,
+        node: &str,
+        relationship: RetainedRelationship,
+    ) -> Self {
+        let mut index = DeclarationIndex::default();
+        index.0.insert(
+            digest.to_owned(),
+            DeclaredNode {
+                form: DeclarationForm::Relationship,
+                selection,
+                node: node.into(),
+            },
+        );
+        let mut retained = Self {
+            index,
+            ..Self::default()
+        };
+        retained
+            .relationships
+            .insert((selection, node.into()), relationship);
+        retained
+    }
+
+    /// The retained relationship the model declaration node `node` is.
+    pub(super) fn relationship(
+        &self,
+        node: &super::CheckedSemanticNodeV2,
+    ) -> Option<&RetainedRelationship> {
+        let declared = self.index.0.get(node.node_id.digest.as_ref())?;
+        check_declaration_node(declared.form, node).ok()?;
+        // The map holds relationship identities only, so an indexed
+        // declaration of another form finds nothing.
+        self.relationships
+            .get(&(declared.selection, declared.node.clone()))
     }
 
     /// The selected own operation whose signature the FR-341 clause join checked.
