@@ -183,3 +183,21 @@ Round 6, reviewed at e5e582aaca6bedc492066f406cba2217d2e105a6.
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-007 | fixed | The sentence now reads "follows its code, cause and pointer, except that a difference of code, pointer or stage (FR-322's schema stage against this reader's operation stage, which has no member schema, and FR-322's derived-shape check against this reader's lack of one) is stated where it arises". This covers both cases FND-007 named: the `malformed_wire` difference (:3413) and the negative-`max` difference (:3432). The rules that do match FR-322 are listed in this round's heading. The differences the `max` bullet still leaves unstated are FND-008. |
+
+## New findings (disposition pass 7)
+
+Reviewed at 83492489859fd49d70fe81edebcf34a00e40166f, against quire-specification origin/main 6f6136a6c (FR-322 "Derived type forms and forwarding" :836-890, "Population link of a `reaches`" :1088-1114).
+
+The author raised two more cases: a duplicated `max` and a non-binding `max`. These are acceptable and are not a remaining IR gap. FR-322's refusal text (:884) names only an absent, negative or non-integer-literal `max`. Its accepted form (:848, :877) is one integer `max` binding, and it states no refusal or code for two `max` bindings. So the IR sentence "Where FR-322 states a refusal" does not reach the duplicated case, and IR's `ill_typed` there contradicts no stated FR-322 code. Any ambiguity is QSpec's, not IR's. A member named `max` that is not a binding leaves no `max` binding, so FR-322 reads it as "absent", and IR's text already covers the absent case. Optionally, IR could add "not a binding" to the absent case in AC-279's parenthetical. That is cosmetic. A second cosmetic point: RM-POP-MAX is the negative-bound vector only. The absent and non-literal cases come from FR-322's semantic-shape check in "Derived type forms and forwarding" (:883-885), which could be cited beside it.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-009 | low | The new `semantic_type` clause understates the difference. It says this reader "does not check the `semantic_type` of the population node here", and that "The differences are in code, pointer and stage". For a `semantic_type` that is not `set<reference<T>>`, the difference is one of outcome: IR can admit what FR-322 refuses. FR-053's `population_object_type` (selected_population.rs:285-309) takes the first member `target` of the `semantic_type` node and then the first member `target` of that node, and checks neither form. So a population node whose `semantic_type` is, for example, a `Bag` or `Sequence` over a `Reference<E>` derives `E` and passes the object-type rule. The reader admits it, `select_population` returns `Finite`, and FR-322 refuses it `invalid_package`/`invalid-derived-shape` at the node (:883-884). The general sentence's exception list ("a difference of code, pointer or stage", :3331-3335) has the same gap. Fix (one clause): "and does not check the form of its `semantic_type`, so a node whose `semantic_type` is not `set<reference<T>>` but whose chain still names `E` is admitted here where FR-322 refuses it; the differences are in outcome, code, pointer and stage". | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3430-3438, spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3331-3335, crates/quire-contract-model/src/checked_package/selected_population.rs:285-309 |
+
+## Dispositions (round 7)
+
+Round 7, reviewed at 83492489859fd49d70fe81edebcf34a00e40166f.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-008 | fixed | The `max` bullet now names the absent, negative and non-integer-literal cases as FR-322 derived-shape refusals at the node (FR-322 :883-885, applied through :1109). It says this reader refuses each `ill_typed` at `member.population` until AC-131, and it names the `semantic_type` case. AC-279's parenthetical now reads "the missing, non-literal and negative cases differ". The :3329 cosmetic is done ("their order in FR-322's section"). The `semantic_type` clause understates its difference; that is FND-009. |
