@@ -1636,8 +1636,8 @@ mod tests {
     /// A document within serde_json's recursion limit is read whatever its
     /// shape, and no limit of the read names a depth (FR-038-AC-117).
     ///
-    /// Trace: TC-048, FR-038-AC-117
-    #[trace("TC-048", "FR-038-AC-117")]
+    /// Trace: TC-048
+    #[trace("TC-048")]
     #[test]
     fn tc_048_a_document_within_the_parse_recursion_limit_is_read() {
         let value = json!({"a": [1, {"b": 2}], "c": {"d": {"e": 3}}});
@@ -1817,8 +1817,8 @@ mod depth_tests {
     /// The iterative first pass accepts and refuses exactly what the strict
     /// parser does, with the same refusal.
     ///
-    /// Trace: TC-048, FR-038-AC-2
-    #[trace("TC-048", "FR-038-AC-2")]
+    /// Trace: TC-048
+    #[trace("TC-048")]
     #[test]
     fn tc_048_strict_shape_agrees_with_the_strict_parser() {
         for text in [
