@@ -643,7 +643,6 @@ mod tests {
     /// or `model`/`process` node, over every kind the closed vocabularies
     /// produce.
     ///
-    /// Trace: TC-053, FR-038-AC-12
     #[trace("TC-053", "FR-038-AC-12")]
     #[test]
     fn tc_053_creates_and_deletes_admit_exactly_object_types_and_processes() {
@@ -660,7 +659,6 @@ mod tests {
     /// and a field entry exactly a `model`/`object_type` or
     /// `model`/`record_value_type` node; no systems form is a declaring node.
     ///
-    /// Trace: TC-056, FR-040-AC-2
     #[trace("TC-056", "FR-040-AC-2")]
     #[test]
     fn tc_056_modifies_entries_admit_exactly_their_declaring_kinds() {
@@ -677,7 +675,6 @@ mod tests {
         );
     }
 
-    /// Trace: TC-056
     #[trace("TC-056")]
     #[test]
     fn tc_056_field_names_are_identifiers() {

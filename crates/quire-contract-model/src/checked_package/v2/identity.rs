@@ -896,7 +896,6 @@ mod tests {
     use super::*;
     use ix_trace_rs::trace;
 
-    /// Trace: TC-048
     #[trace("TC-048")]
     #[test]
     fn tc_048_integer_and_identifier_grammars_are_exact() {

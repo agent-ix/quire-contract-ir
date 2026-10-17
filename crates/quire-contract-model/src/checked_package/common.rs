@@ -1633,7 +1633,6 @@ mod tests {
     /// every member name, array elements by index, the empty pointer for the
     /// document itself; and the text round-trips through `JsonPointer::parse`.
     ///
-    /// Trace: TC-048, FR-038-AC-24
     #[trace("TC-048", "FR-038-AC-24")]
     #[test]
     fn tc_048_trails_materialize_as_escaped_rfc_6901_pointers() {
@@ -1665,7 +1664,6 @@ mod tests {
     /// A document within serde_json's recursion limit is read whatever its
     /// shape, and no limit of the read names a depth (FR-038-AC-117).
     ///
-    /// Trace: TC-048
     #[trace("TC-048")]
     #[test]
     fn tc_048_a_document_within_the_parse_recursion_limit_is_read() {
@@ -1679,7 +1677,6 @@ mod tests {
 
     /// A lossy decode is located at the first member it changed or dropped.
     ///
-    /// Trace: TC-048, FR-038-AC-24
     #[trace("TC-048", "FR-038-AC-24")]
     #[test]
     fn tc_048_first_difference_names_the_changed_member() {
@@ -1697,7 +1694,6 @@ mod tests {
         );
     }
 
-    /// Trace: TC-048, FR-038-AC-2, FR-038-AC-79
     #[trace("TC-048", "FR-038-AC-2", "FR-038-AC-79")]
     #[test]
     fn tc_048_number_tokens_decode_identically_with_or_without_arbitrary_precision() {
@@ -1746,7 +1742,6 @@ mod tests {
     /// 256 KiB, charged one unit per aggregate and one for the literal, and
     /// reports the one reference the literal carries.
     ///
-    /// Trace: TC-048, FR-038-AC-117
     #[trace("TC-048", "FR-038-AC-117")]
     #[test]
     fn tc_048_the_term_walk_validates_a_deep_term_on_a_small_stack() {
@@ -1792,7 +1787,6 @@ mod tests {
         );
     }
 
-    /// Trace: TC-048
     #[trace("TC-048")]
     #[test]
     fn tc_048_v2_literal_numbers_are_integers() {
@@ -1845,7 +1839,6 @@ mod depth_tests {
     /// The iterative first pass accepts and refuses exactly what the strict
     /// parser does, with the same refusal.
     ///
-    /// Trace: TC-048
     #[trace("TC-048")]
     #[test]
     fn tc_048_strict_shape_agrees_with_the_strict_parser() {
@@ -1919,7 +1912,6 @@ mod depth_tests {
     /// `incomplete`, and a document at or within it is read, with every outcome
     /// reached on a 256 KiB stack.
     ///
-    /// Trace: TC-048, FR-038-AC-117
     #[trace("TC-048", "FR-038-AC-117")]
     #[test]
     fn tc_048_the_parse_recursion_limit_refuses_malformed_wire_with_no_pointer() {
@@ -1945,7 +1937,6 @@ mod depth_tests {
     /// first, even in one nested past the recursion limit, so the recursion
     /// limit never hides it.
     ///
-    /// Trace: TC-048, FR-038-AC-2, FR-038-AC-117
     #[trace("TC-048", "FR-038-AC-2", "FR-038-AC-117")]
     #[test]
     fn tc_048_a_syntax_or_duplicate_defect_is_found_before_the_recursion_limit() {
@@ -2011,7 +2002,6 @@ mod depth_tests {
     /// those steps against a quadratic regression; it does not prove the pass
     /// linear, and work done without being counted is invisible to it.
     ///
-    /// Trace: TC-048
     #[trace("TC-048")]
     #[test]
     fn tc_048_the_counted_steps_of_a_deep_document_grow_linearly() {

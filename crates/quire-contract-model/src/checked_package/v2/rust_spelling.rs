@@ -74,7 +74,6 @@ mod tests {
     use super::{is_rust_field, is_rust_identifier, is_rust_path, is_rust_receiver};
     use ix_trace_rs::trace;
 
-    /// Trace: TC-225, FR-346-AC-6
     #[trace("TC-225", "FR-346-AC-6")]
     #[test]
     fn tc_225_identifiers_are_non_keyword_or_raw_identifiers() {
@@ -89,7 +88,6 @@ mod tests {
         }
     }
 
-    /// Trace: TC-225, FR-346-AC-6
     #[trace("TC-225", "FR-346-AC-6")]
     #[test]
     fn tc_225_paths_fields_and_receivers_take_their_own_syntax() {
