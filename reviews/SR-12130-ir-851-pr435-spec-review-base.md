@@ -67,3 +67,4 @@ PASS WITH FINDINGS. The measured gap, the direction and destination rule, the ad
 | FND-003 | fixed | Round 1 (29f86c7): UnresolvedEnd is now a catch-all, "a reaches application whose operation.member no longer resolves as admission resolved it", listing absent member, wrong kind, non-node-id or unresolved declaration, and non-text, no-role or both-role name. AC-265 covers all seven. |
 | FND-004 | fixed | Round 1 (29f86c7): AC-262 and TC-048 name a bidirectional relationship. |
 | FND-005 | fixed | Round 1 (29f86c7): the parameter and field are renamed `application`, the error is `NotReachesApplication`, and the spec states the id is the reaches application, not the enclosing state_clause. A `relationship: CheckedNodeId` field was added (nine fields). |
+| FND-006 | fixed | Round 2 (b71d804): TC-048:2298 now reads "a `source-to-target` or `target-to-source` direction", matching model_members.rs:2505-2506; no underscore spelling remains under spec/. |
