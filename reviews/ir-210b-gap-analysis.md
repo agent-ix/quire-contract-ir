@@ -111,3 +111,25 @@ Pre-existing gaps (notes, not introduced here):
 - FR-018-AC-2's "independently" leg has a single, combined-mutation backer. See SR-12065 FND-003.
 
 Gates on head 406e8d7: `cargo fmt --all -- --check` is clean, and `cargo test --locked --test it -- identity:: integration:: conformance::` passes 21 of 21. That is the 16 tests in the three files plus 5 `application_node_identity::` tests that the filter also matches.
+
+## Dispositions
+
+Round 1, head 34f35dc. Re-measured with quire 0.36.2 (engine 0.50.2):
+
+- `quire coverage --scope . --strict --format json`: 43 unbacked / 0 contradicted. The unbacked set is identical to origin/main.
+- Minted targets: 508/565 backed, the same as origin/main 1bd6749, with no target differing from main. StR-001 VC is 2/2 and StR-003 VC is 1/1.
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | StR-003-VC-1 is now credited to `tc_018_the_corpus_runs_deterministically_and_every_fixture_matches` (see below). |
+
+Detail on the FND-001 fix:
+
+- **The binding is right.** The test runs the whole published corpus and requires every row to `match`. The runner compares each invalid fixture's diagnostics structurally, by code, path and span. The test also asserts that the observed token union equals the inventory, so every STD-001 diagnostic has a failing fixture. That set includes malformed (`malformed_reference`), ill-typed (`ill_typed_expression`), undefined (`potentially_undefined`), unsupported (`unsupported_schema_version`) and orphaned (`orphaned_*_reference`) inputs. 36 expectations carry a `span`.
+- **How quire credits it.** quire binds it as `rust-doc-comment-id` through the `/// Tracing:` and bare-id lines. The test keeps the fully-qualified `#[ix_trace_rs::trace]`, and quire does not read that as `rust-trace-attribute`. The id in the attribute is still checked by the macro at compile time.
+- **The `Tracing:` line is not stale.** On this fully-qualified test it is the form quire actually credits, as on the other seven fully-qualified tests. Moving those tests to `#[trace]` is the remaining IR-210 work.
+
+PR body:
+
+- **Corrected.** A "Review round 1" section now says that VC rows are counted and that the first push dropped two only-backers. It also reports 508/565.
+- **Still stale (note, not a finding).** The older Evidence lines still say "the five touched tests" and "of the 32 at-risk rows, none loses its credit". The round-1 section also says the FR-018-AC-2 follow-up is "to be filed by the lead", but IR-839 already exists. Code and coverage are unaffected.

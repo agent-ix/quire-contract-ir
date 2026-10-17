@@ -113,3 +113,13 @@ Gates re-run on head 406e8d7:
 - `cargo test --locked --test it -- identity:: integration:: conformance::` passes 21 of 21. That is the 16 tests in the three files plus 5 `application_node_identity::` tests that the filter also matches.
 
 No mutants were run. No body changed, so a mutant would only re-measure tests that already exist on main. It cannot judge these tags, which were judged by reading each assertion against the AC.
+
+## Dispositions
+
+Round 1, head 34f35dc (fix commit 34f35dc on top of 406e8d7). Each fix was checked against the diff `406e8d7..34f35dc`, the criterion text and the test body. `quire trace --id` was re-measured. `cargo test --locked --test it -- tc_015_identity_anchor tc_018_the_corpus_runs` passes 2 of 2, and `cargo fmt --check` is clean.
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | StR-001-VC-2 is back on `tc_015_identity_anchor_dependency_and_reference_contract_conforms`, in both `#[trace]` and `/// Trace:`. `quire trace --id StR-001-VC-2` binds it there as `rust-trace-attribute`, and the row is backed again. |
+| FND-002 | fixed | StR-001-VC-1 is restored on the same test (`rust-trace-attribute`). It is still also bound by tc_016 in tests/it/expression.rs. |
+| FND-003 | deferred | IR-839 (Backlog). It asks for one mutation per fixture for each mismatch kind, traced to TC-018 and FR-018-AC-2, with a mutant that merges two kinds to show the test catches it. The claim predates this PR, and that test is the row's only backer. |
