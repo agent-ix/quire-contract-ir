@@ -3,7 +3,7 @@ use std::{
     ffi::OsString,
     fs,
     panic::catch_unwind,
-    path::{Path, PathBuf},
+    path::Path,
     process::{Command, Output},
 };
 
@@ -17,108 +17,9 @@ use quire_contract_model::{
 };
 use serde_json::{json, Value};
 
-fn repository() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn corpus() -> PathBuf {
-    repository().join("corpus/contract-v0.1")
-}
-
-fn runner(arguments: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_quire-contract-conformance"))
-        .args(arguments)
-        .output()
-        .unwrap()
-}
-
-fn schemas() -> PathBuf {
-    repository().join("schemas")
-}
-
-fn run_with(corpus: &Path, schemas: &Path) -> Output {
-    runner(&[
-        "run",
-        "--corpus",
-        corpus.to_str().unwrap(),
-        "--schemas",
-        schemas.to_str().unwrap(),
-    ])
-}
-
-fn run_corpus(path: &Path) -> Output {
-    run_with(path, &schemas())
-}
-
-/// A scratch copy of the corpus at `<root>/contract-v0.1` with the schemas it
-/// runs against at `<root>/schemas`, so a test can change either.
-struct Scratch(PathBuf);
-
-impl Scratch {
-    fn corpus(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "quire-contract-ir-tc018-{}-{label}",
-            std::process::id()
-        ));
-        if root.exists() {
-            fs::remove_dir_all(&root).unwrap();
-        }
-        let path = root.join("contract-v0.1");
-        copy_tree(&corpus(), &path);
-        copy_tree(&schemas(), &root.join("schemas"));
-        Self(path)
-    }
-
-    fn root(&self) -> &Path {
-        self.0.parent().unwrap()
-    }
-
-    fn schemas(&self) -> PathBuf {
-        self.root().join("schemas")
-    }
-
-    fn run(&self) -> Output {
-        run_with(&self.0, &self.schemas())
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        if let Some(parent) = self.0.parent() {
-            let _ = fs::remove_dir_all(parent);
-        }
-    }
-}
-
-fn copy_tree(source: &Path, target: &Path) {
-    fs::create_dir_all(target).unwrap();
-    for entry in fs::read_dir(source).unwrap() {
-        let entry = entry.unwrap();
-        let destination = target.join(entry.file_name());
-        if entry.file_type().unwrap().is_dir() {
-            copy_tree(&entry.path(), &destination);
-        } else {
-            fs::copy(entry.path(), destination).unwrap();
-        }
-    }
-}
-
-fn read_json(path: &Path) -> Value {
-    serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
-}
-
-fn write_json(path: &Path, value: &Value) {
-    fs::write(path, serde_json::to_vec_pretty(value).unwrap()).unwrap();
-}
-
-fn rows(output: &Output) -> Vec<Value> {
-    output
-        .stdout
-        .split(|byte| *byte == b'\n')
-        .filter(|row| !row.is_empty())
-        .map(|row| serde_json::from_slice::<Value>(row).unwrap())
-        .collect()
-}
+use crate::support::corpus::{
+    corpus, read_json, rows, run_corpus, runner, schemas, write_json, Scratch,
+};
 
 fn error_code(output: &Output) -> String {
     assert_eq!(output.status.code(), Some(2));

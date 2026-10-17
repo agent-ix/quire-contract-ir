@@ -52,6 +52,7 @@ mod checked_package_v2_union;
 mod complete_v1_checked_package;
 mod complete_v1_contract_package;
 mod conformance;
+mod conformance_mismatch_independence;
 mod cycle_free_model;
 mod executable_binding;
 mod expression;
