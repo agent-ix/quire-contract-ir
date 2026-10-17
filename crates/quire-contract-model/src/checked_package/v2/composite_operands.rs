@@ -1318,8 +1318,7 @@ mod tests {
         )
     }
 
-    /// Trace: FR-038-AC-180
-    #[trace("FR-038-AC-180")]
+    #[trace("TC-048", "FR-038-AC-180")]
     #[test]
     fn ieee_type_walk_keeps_authored_whole_sources_without_claiming_comparison_admission() {
         // An actual reader-admitted package supplies the graph vocabulary;
@@ -1438,7 +1437,7 @@ mod tests {
         }
     }
 
-    #[trace("FR-038-AC-181")]
+    #[trace("TC-048", "FR-038-AC-181")]
     #[test]
     fn defensive_target_failures_never_salvage_or_fabricate_a_child_identity() {
         for malformed in [
@@ -1490,7 +1489,7 @@ mod tests {
         );
     }
 
-    #[trace("FR-038-AC-181", "FR-038-AC-178")]
+    #[trace("TC-048", "FR-038-AC-181", "FR-038-AC-178")]
     #[test]
     fn defensive_operand_and_catalog_failures_keep_their_original_typed_loci() {
         let mut p = package();
@@ -1560,7 +1559,13 @@ mod tests {
 
     // A valid first operand makes these independent second-argument defects
     // kill any implementation that hard-codes the enclosing ordinal to zero.
-    #[trace("FR-038-AC-181", "FR-038-AC-178", "FR-038-AC-180", "FR-038-AC-199")]
+    #[trace(
+        "TC-048",
+        "FR-038-AC-181",
+        "FR-038-AC-178",
+        "FR-038-AC-180",
+        "FR-038-AC-199"
+    )]
     #[test]
     fn tc_048_second_operand_refusals_retain_nonzero_ordinals_and_type_loci() {
         second_operand_refusals(package());
@@ -1637,7 +1642,7 @@ mod tests {
         assert_eq!(read(&p), Err(type_error(0, Some(id('9')))));
     }
 
-    #[trace("FR-038-AC-181", "FR-038-AC-180")]
+    #[trace("TC-048", "FR-038-AC-181", "FR-038-AC-180")]
     #[test]
     fn malformed_optional_wrappers_unanchored_cycles_and_union_metadata_refuse_exactly() {
         let mut p = package();
@@ -1668,7 +1673,7 @@ mod tests {
         );
     }
 
-    #[trace("FR-038-AC-181")]
+    #[trace("TC-048", "FR-038-AC-181")]
     #[test]
     fn attempted_meter_overflow_is_a_refusal_even_at_the_maximum_limit() {
         let mut meter = Meter {
@@ -1686,7 +1691,7 @@ mod tests {
     }
 
     #[cfg(target_pointer_width = "64")]
-    #[trace("FR-038-AC-181")]
+    #[trace("TC-048", "FR-038-AC-181")]
     #[test]
     fn path_width_refusal_keeps_actual_ordinal_and_containing_type() {
         let large = usize::try_from(u64::from(u32::MAX) + 1).expect("64-bit input");
