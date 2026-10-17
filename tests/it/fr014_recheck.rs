@@ -150,6 +150,16 @@ fn environment() -> DeclarationEnvironment {
         span(16, 18),
     )
     .unwrap();
+    let pair = PureFunctionDeclaration::new(
+        name("pair"),
+        vec![
+            FunctionParameter::new(name("left"), ValueType::Boolean, span(19, 20)),
+            FunctionParameter::new(name("right"), ValueType::Boolean, span(20, 21)),
+        ],
+        ValueType::Boolean,
+        span(19, 22),
+    )
+    .unwrap();
     DeclarationEnvironment::new(
         RequirementRef::new(
             PackageId::new("agent-ix/contract").unwrap(),
@@ -163,7 +173,7 @@ fn environment() -> DeclarationEnvironment {
             },
         ],
         values,
-        vec![function],
+        vec![function, pair],
     )
     .unwrap()
 }
@@ -291,6 +301,19 @@ fn cases() -> Vec<Case> {
             true,
             false,
         ),
+        case(
+            "two ill-typed call arguments give two ordered diagnostics",
+            Expression::new(
+                ExpressionKind::Call {
+                    function: name("pair"),
+                    arguments: vec![int(1, 56), int(2, 57)],
+                },
+                span(55, 58),
+            ),
+            ValueType::Boolean,
+            false,
+            false,
+        ),
         case("call arity", call(vec![]), int_ty.clone(), false, false),
         case(
             "post observation at pre point",
@@ -340,16 +363,12 @@ fn cases() -> Vec<Case> {
     ]
 }
 
-/// Typed output, diagnostics and dependencies, each as a separately comparable component.
+/// Typed output (dependencies are a BTreeSet, so their order is the set's structural order and
+/// set equality decides it) or the ordered diagnostics.
 #[derive(Debug, PartialEq)]
 enum Outcome {
-    Typed {
-        output: Box<TypedExpression>,
-        dependencies: Vec<String>,
-    },
-    Rejected {
-        diagnostics: Vec<Diagnostic>,
-    },
+    Typed { output: Box<TypedExpression> },
+    Rejected { diagnostics: Vec<Diagnostic> },
 }
 
 fn check(environment: &DeclarationEnvironment, case: &Case) -> Outcome {
@@ -357,11 +376,6 @@ fn check(environment: &DeclarationEnvironment, case: &Case) -> Outcome {
     let expression = case.expression.clone();
     match environment.check_expression(&expression, &case.expected, &pre(), case.clause_root) {
         Ok(output) => Outcome::Typed {
-            dependencies: output
-                .dependencies()
-                .iter()
-                .map(|dependency| format!("{dependency:?}"))
-                .collect(),
             output: Box::new(output),
         },
         Err(diagnostics) => Outcome::Rejected { diagnostics },
@@ -383,28 +397,18 @@ fn rechecking_identical_input_gives_equal_typed_output_diagnostics_and_dependenc
 
         match (&first, &second, &third) {
             (
-                Outcome::Typed {
-                    output: a,
-                    dependencies: da,
-                },
-                Outcome::Typed {
-                    output: b,
-                    dependencies: db,
-                },
-                Outcome::Typed {
-                    output: c,
-                    dependencies: dc,
-                },
+                Outcome::Typed { output: a },
+                Outcome::Typed { output: b },
+                Outcome::Typed { output: c },
             ) => {
                 assert!(case.accepted, "{} unexpectedly accepted", case.label);
                 accepted += 1;
-                for other in [(b, db), (c, dc)] {
-                    assert_eq!(a.expression(), other.0.expression(), "{}", case.label);
-                    assert_eq!(a.value_type(), other.0.value_type(), "{}", case.label);
-                    assert_eq!(a.nodes(), other.0.nodes(), "{}", case.label);
-                    assert_eq!(a.obligations(), other.0.obligations(), "{}", case.label);
-                    assert_eq!(a.dependencies(), other.0.dependencies(), "{}", case.label);
-                    assert_eq!(da, other.1, "{} dependency order", case.label);
+                for other in [b, c] {
+                    assert_eq!(a.expression(), other.expression(), "{}", case.label);
+                    assert_eq!(a.value_type(), other.value_type(), "{}", case.label);
+                    assert_eq!(a.nodes(), other.nodes(), "{}", case.label);
+                    assert_eq!(a.obligations(), other.obligations(), "{}", case.label);
+                    assert_eq!(a.dependencies(), other.dependencies(), "{}", case.label);
                 }
             }
             (
@@ -414,6 +418,9 @@ fn rechecking_identical_input_gives_equal_typed_output_diagnostics_and_dependenc
             ) => {
                 assert!(!case.accepted, "{} unexpectedly rejected", case.label);
                 assert!(!a.is_empty(), "{}", case.label);
+                if case.label.starts_with("two ill-typed") {
+                    assert!(a.len() >= 2, "ordered comparison needs several diagnostics");
+                }
                 rejected += 1;
                 // Vec equality compares code, message, path, span and order.
                 assert_eq!(a, b, "{}", case.label);
@@ -424,7 +431,7 @@ fn rechecking_identical_input_gives_equal_typed_output_diagnostics_and_dependenc
         assert_eq!(first, second, "{}", case.label);
         assert_eq!(first, third, "{}", case.label);
     }
-    assert!(accepted >= 4 && rejected >= 4);
+    assert_eq!((accepted, rejected), (5, 8));
 
     // The compared dependency set is non-trivial: it carries more than one identity kind.
     let dependent = cases()
