@@ -3423,7 +3423,8 @@ order:
   `ill_typed`/`operator-ineligible`. The reader shall read `max` through
   `population_maximum` itself, so that a package the reader admits is one for
   which `select_population` is `Finite`; a `max` of 0 is admitted. For a `max` that
-  is absent, negative or not an integer literal (FR-322's model-population shape
+  is absent (a `max` that is not a binding is FR-322's absent case), negative or
+  not an integer literal (FR-322's model-population shape
   rule in "Derived type forms and forwarding", whose negative-bound vector is
   RM-POP-MAX, FR-322-AC-62, and which FR-322's section "Population link of a
   `reaches`" applies), FR-322 refuses `invalid_package`/`invalid-derived-shape`

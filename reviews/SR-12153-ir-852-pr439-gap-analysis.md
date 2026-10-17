@@ -201,3 +201,11 @@ Round 7, reviewed at 83492489859fd49d70fe81edebcf34a00e40166f.
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-008 | fixed | The `max` bullet now names the absent, negative and non-integer-literal cases as FR-322 derived-shape refusals at the node (FR-322 :883-885, applied through :1109). It says this reader refuses each `ill_typed` at `member.population` until AC-131, and it names the `semantic_type` case. AC-279's parenthetical now reads "the missing, non-literal and negative cases differ". The :3329 cosmetic is done ("their order in FR-322's section"). The `semantic_type` clause understates its difference; that is FND-009. |
+
+## Dispositions (round 8)
+
+Round 8, reviewed at 056dcef304b3860f32725ddc9e9710144b5bfcb3. I checked the changed hunks (FR-038 :3331-3335 and :3424-3441, AC-279 :4829) against `selected_population.rs` and FR-322 on quire-specification origin/main 6f6136a6c. They contain no remaining inaccuracy and no new finding. One cosmetic point is left, and it is not recorded as a finding. AC-279's parenthetical now lists "not-a-binding" among the cases that differ "as the reader check states", but the `max` bullet lists only "absent, negative or not an integer literal". The two agree in substance, because a non-binding `max` is FR-322's absent case. A reader may still want "(a `max` that is not a binding is FR-322's absent case)" added to the bullet.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-009 | fixed | The bullet now says the reader "does not check the form of the node's `semantic_type` either (FR-053's `population_object_type` follows the first member target twice and checks neither form), so a node whose `semantic_type` is not `set<reference<T>>` but whose chain still names `E` is admitted here where FR-322 refuses it". This matches `selected_population.rs:285-309` and FR-322 :883-884. The differences are now "in outcome, code, pointer and stage". The general sentence (:3331-3335) now reads "a difference of outcome, code, pointer or stage". The two cosmetics from round 7 are also applied: the shape-rule citation "in 'Derived type forms and forwarding', whose negative-bound vector is RM-POP-MAX", and "not-a-binding" in AC-279. |
