@@ -80,3 +80,17 @@ Coverage outcome is honest except for SR-12060 FND-001 (StR-001-VC-1). That find
 - **FND-002** is outside this diff's lines but inside its files. The fix is to change the four to the imported `#[trace]` form, keeping the `/// Trace:` line equal to the attribute, so the attribute ids are credited. It can be done in this PR or deferred to an IR-210 follow-up slice. Removing the four fully qualified spellings also removes a trap: today an attribute lists ids that nothing credits.
 
 Each reduced-count row was verified still backed, with the remaining binder named in the summary. None of the remaining binders over-claims its row, except where SR-12060 FND-002 and FND-003 note a kept over-claim beside an honest binder.
+
+## Dispositions
+
+Round 1, at head 6b789b9. Re-measured on a tree made of origin/main 2641418 with this head's two expression files on top.
+
+- Rows backed: 507/565.
+- `minted_targets`: the only change is FR-014-AC-4.
+- `groups`: FR-014 is 7/9.
+- Strict coverage: 43 unbacked.
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | deferred: IR-838 | FR-014-AC-4 stays unbacked until IR-838 adds a test that checks identical input twice and compares the results. That test is open as PR #433. The PR body now cites IR-838 and #433. |
+| FND-002 | deferred: follow-up IR-210 conversion slice | Changing the four fully qualified `#[ix_trace_rs::trace]` tests is out of this slice. The PR body now names all four, in its "Not changed / deferred" section, and defers them to the planned conversion slice. No ticket id is named for that slice. |

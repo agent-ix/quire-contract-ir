@@ -109,3 +109,20 @@ The fix is to keep StR-001-VC-1 on `tc_016_closed_types_...`, or better, add it 
 
 - Reviewer reran `cargo test --locked --workspace --test it expression`, `cargo test --locked -p quire-contract-model --lib range_set_tests` and `cargo fmt --check` at the head. Results are in the gap-analysis artifact (SR-12061).
 - `quire validate` and strict coverage were measured: 43 unbacked rows on the merge base, on origin/main 0747970 and at the head.
+
+## Dispositions
+
+Round 1, at head 6b789b9: the fix commit, plus a merge of origin/main 0747970. Re-measured with quire 0.36.2 on a tree made of origin/main 2641418, which now contains #430 and #431, with this head's two expression files on top. `git merge-tree` reports the merge clean.
+
+- Rows backed: 508/565 -> 507/565.
+- `minted_targets`: the only change is FR-014-AC-4.
+- `groups`: the only change is FR-014 8/9 -> 7/9.
+- Strict coverage: 43 unbacked on main, on the merged tree and at the head.
+- Gates rerun: `--test it expression` 22 passed, fmt clean, `quire validate` clean.
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | StR-001-VC-1 is now on `tc_016_mixed_dependencies_implement_the_structural_source_contract`. That test checks a clause-root typed expression (`is_clause_root = true`) and pins its exact ordered dependency set (lines 1367-1409), which is the TC-016 leg. On the merged tree the row has two binders, both canonical: this test and #430's tc_015. `minted_targets` shows it backed. |
+| FND-002 | fixed | FR-014-AC-6 is dropped from closed_types. The row is still backed by mixed_dependencies. |
+| FND-003 | fixed | FR-014-AC-1 moved to `scope_guard_...`, which asserts the InvalidScope diagnostic at its narrowest span (lines 1124-1125). The row is backed by scope_guard_... and declaration_and_literal_.... |
+| FND-004 | fixed | The long line is split into two `/// Trace:` lines, each under 100 columns. Together they are exactly the attribute's id set, and quire binds every id as `rust-trace-attribute` / canonical. |
