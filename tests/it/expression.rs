@@ -214,17 +214,16 @@ fn pre() -> ExecutionPoint {
     }
 }
 
-/// Trace: TC-016, FR-013-AC-1, FR-013-AC-2, FR-013-AC-3, FR-013-AC-4, FR-014-AC-1, FR-014-AC-2, FR-014-AC-3, FR-014-AC-6, NFR-002-AC-4
+/// Trace: TC-016, FR-013-AC-1, FR-013-AC-2, FR-013-AC-3, FR-013-AC-4
+/// Trace: TC-016, FR-014-AC-2, FR-014-AC-3, NFR-002-AC-4
 #[trace(
     "TC-016",
     "FR-013-AC-1",
     "FR-013-AC-2",
     "FR-013-AC-3",
     "FR-013-AC-4",
-    "FR-014-AC-1",
     "FR-014-AC-2",
     "FR-014-AC-3",
-    "FR-014-AC-6",
     "NFR-002-AC-4"
 )]
 #[test]
@@ -1083,8 +1082,15 @@ fn tc_016_numeric_policies_normalization_and_proof_spans_conform() {
         .any(|obligation| obligation.kind() == DefinednessObligationKind::CheckedRange));
 }
 
-/// Trace: TC-016, FR-014-AC-3, FR-015-AC-3, FR-015-AC-5, FR-015-AC-6
-#[trace("TC-016", "FR-014-AC-3", "FR-015-AC-3", "FR-015-AC-5", "FR-015-AC-6")]
+/// Trace: TC-016, FR-014-AC-1, FR-014-AC-3, FR-015-AC-3, FR-015-AC-5, FR-015-AC-6
+#[trace(
+    "TC-016",
+    "FR-014-AC-1",
+    "FR-014-AC-3",
+    "FR-015-AC-3",
+    "FR-015-AC-5",
+    "FR-015-AC-6"
+)]
 #[test]
 fn tc_016_scope_guard_flow_call_ranges_and_diagnostic_invariants_conform() {
     let environment = environment();
@@ -1301,8 +1307,8 @@ fn tc_016_scope_guard_flow_call_ranges_and_diagnostic_invariants_conform() {
         .is_ok());
 }
 
-/// Trace: TC-016, FR-012-AC-5, FR-014-AC-6
-#[trace("TC-016", "FR-012-AC-5", "FR-014-AC-6")]
+/// Trace: TC-016, FR-012-AC-5, FR-014-AC-6, StR-001-VC-1
+#[trace("TC-016", "FR-012-AC-5", "FR-014-AC-6", "StR-001-VC-1")]
 #[test]
 fn tc_016_mixed_dependencies_implement_the_structural_source_contract() {
     let environment = environment();
