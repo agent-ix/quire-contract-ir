@@ -35,3 +35,11 @@ Checked: `scalar_application_operands` (`v2/scalar_operands.rs`) computes a `Gra
 ## Verdict
 
 PASS WITH FINDINGS. AC-258 and AC-259 are falsifiable and reachable, including the level `"10"` text case and crate-internal mutation for `MalformedBody`. AC-259 bundles several refusal variants, which matches the sibling FR-038-AC-162 style. FND-001 should be fixed before the code PR so its test author does not discover it through a refusal.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1 (5ba32fd): AC-261 and TC-048 now type `a` and `b` at `Int[0, 9]` (a finite `bounded_domain`/`integer_range`) and say why: an unbounded Integer refuses `UnboundedRange`. |
+| FND-002 | fixed | Round 1 (5ba32fd): the tautological shared-node clause is gone from AC-260 and from TC-048. AC-260 now asserts distinct ids and levels for same-name parameters, plus a compiled field-by-field construction showing that the result has no function, owner or declaration member. |
+| FND-003 | fixed | Round 1 (5ba32fd): AC-261's last sentence is now a type fact: `CheckedScalarOperandChild::InlineLiteral` carries no `CheckedNodeId` to pass to the accessor. |

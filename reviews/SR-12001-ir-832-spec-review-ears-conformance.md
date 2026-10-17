@@ -32,3 +32,9 @@ Ticket: IR-832. Each new normative sentence in FR-038 "Typed parameter declarati
 ## Verdict
 
 PASS WITH FINDINGS. The API, UnknownNode, NotParameter and MalformedBody statements are ubiquitous or event-driven obligations with a named subject and an observable response. The identity statement joins two `shall` clauses that make one design decision, which is acceptable. The caller-join paragraph is correctly non-normative.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1 (5ba32fd): the sentence is split into three `shall` statements: no partial declaration, no panic, admission and refusal order unchanged. |
