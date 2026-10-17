@@ -18,10 +18,11 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    derive_structural_candidates, CheckedCollectionKind, CheckedMemberType,
+    derive_structural_candidates, CheckedCollectionKind, CheckedMemberType, CheckedNodeId,
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CheckedSemanticId, CheckedSemanticNodeV2,
+    CheckedPackageV2ReadResult, CheckedRelationshipEnd, CheckedRelationshipEndError,
+    CheckedSemanticId, CheckedSemanticNodeV2,
 };
 use serde_json::{json, Value};
 use std::sync::LazyLock;
@@ -3312,4 +3313,428 @@ fn tc_056_reaches_field_refuses_an_invalid_edge_where_it_fails() {
         refusal.path.as_ref().map(ToString::to_string).as_deref(),
         Some(format!("/semantic_graph/nodes/{unselected}/node_id").as_str())
     );
+}
+
+// --- IR-851: the typed relationship end of a reaches application --------------
+
+fn admitted(
+    package: &Value,
+    evidence: &quire_contract_model::CheckedPackageEvidence,
+) -> CheckedPackageV2 {
+    match read(package, evidence) {
+        CheckedPackageV2ReadResult::Admitted(admitted) => *admitted,
+        other => panic!("expected admission, got {other:?}"),
+    }
+}
+
+fn typed_id(key: &str) -> CheckedNodeId {
+    serde_json::from_value(node_id(key)).expect("a node id")
+}
+
+/// The node of the first application of `operation` in the admitted graph.
+fn application_of(package: &CheckedPackageV2, operation: &str) -> CheckedNodeId {
+    package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| {
+            node.body
+                .pointer("/operation/identity")
+                .and_then(Value::as_str)
+                == Some(operation)
+        })
+        .expect("an application of the operation")
+        .node_id
+        .clone()
+}
+
+/// The relationship declaration node's key, built from the authored identity.
+fn relationship_id() -> CheckedNodeId {
+    typed_id(&structural_key(
+        "relation",
+        "relationship",
+        None,
+        Some(json!({"kind": "model", "identity": IDENTITY, "node": RELATIONSHIP})),
+        &empty(),
+    ))
+}
+
+fn end_json(role: Option<&str>, lower: u64, upper: u64, unique: bool, ordered: bool) -> Value {
+    let mut end = json!({"type": ORDER, "multiplicity":
+        {"lower": lower, "upper": upper, "ordered": ordered, "unique": unique}});
+    if let Some(role) = role {
+        end["role"] = json!(role);
+    }
+    end
+}
+
+/// A bidirectional self-relationship of `Order` with the given ends.
+fn relationship_of(source: Value, target: Value) -> Value {
+    let mut relation = authored_relationship();
+    relation["sourceEnd"] = source;
+    relation["targetEnd"] = target;
+    relation
+}
+
+/// The fields of the expected result, independent of the accessor.
+fn expected_end(
+    application: &CheckedNodeId,
+    destination: &CheckedNodeId,
+    role: Option<&str>,
+    bounds: (u64, u64, bool),
+    forward: bool,
+) -> CheckedRelationshipEnd {
+    CheckedRelationshipEnd {
+        application: application.clone(),
+        relationship: relationship_id(),
+        role: role.map(Box::from),
+        destination_type: destination.clone(),
+        lower: bounds.0,
+        upper: Some(bounds.1),
+        ordered: false,
+        unique: bounds.2,
+        forward,
+    }
+}
+
+fn order_declaration_id() -> CheckedNodeId {
+    typed_id(&declaration_key_of(ORDER, IDENTITY))
+}
+
+/// The reaches package of `relation` naming `role`, admitted.
+fn admitted_reaching(relation: Value, role: &str) -> (CheckedPackageV2, CheckedNodeId) {
+    let (package, evidence) = relationship_operation_package(relation, role, true);
+    let package = admitted(&package, &evidence);
+    let application = application_of(&package, "quire.op.model.reaches");
+    (package, application)
+}
+
+/// Trace: TC-048, FR-038-AC-262
+#[trace("TC-048", "FR-038-AC-262")]
+#[test]
+fn tc_048_relationship_end_reads_forward_and_inverse_ends_of_unequal_bounds() {
+    let relation = relationship_of(
+        end_json(Some("links"), 1, 1, false, false),
+        end_json(Some("peer"), 2, 3, true, false),
+    );
+    let order = order_declaration_id();
+    let (package, forward) = admitted_reaching(relation.clone(), "links");
+    assert_eq!(
+        package.relationship_end(&forward),
+        Ok(expected_end(
+            &forward,
+            &order,
+            Some("peer"),
+            (2, 3, true),
+            true
+        ))
+    );
+    let (package, inverse) = admitted_reaching(relation, "peer");
+    assert_eq!(
+        package.relationship_end(&inverse),
+        Ok(expected_end(
+            &inverse,
+            &order,
+            Some("links"),
+            (1, 1, false),
+            false
+        ))
+    );
+}
+
+/// Trace: TC-048, FR-038-AC-263
+#[trace("TC-048", "FR-038-AC-263")]
+#[test]
+fn tc_048_relationship_end_returns_the_declared_bounds_role_and_derived_type() {
+    let order = order_declaration_id();
+    for (lower, upper, unique) in [
+        (0, 3, true),
+        (0, 3, false),
+        (2, 3, true),
+        (0, 1, true),
+        (1, 1, true),
+    ] {
+        let relation = relationship_of(
+            end_json(Some("links"), 1, 1, true, false),
+            end_json(Some("peer"), lower, upper, unique, false),
+        );
+        let (package, application) = admitted_reaching(relation, "links");
+        assert_eq!(
+            package.relationship_end(&application),
+            Ok(expected_end(
+                &application,
+                &order,
+                Some("peer"),
+                (lower, upper, unique),
+                true
+            )),
+            "{lower}..{upper} unique={unique}"
+        );
+    }
+    let relation = relationship_of(
+        end_json(Some("links"), 1, 1, true, false),
+        end_json(None, 0, 3, true, false),
+    );
+    let (package, application) = admitted_reaching(relation, "links");
+    assert_eq!(
+        package.relationship_end(&application),
+        Ok(expected_end(&application, &order, None, (0, 3, true), true))
+    );
+
+    // A subtype operand does not change the declared end type.
+    let (subtype, evidence) = reaches_over(
+        authored_relationship(),
+        "links",
+        PRIORITY_ORDER,
+        PREFERRED_ORDER,
+    );
+    let package = admitted(&subtype, &evidence);
+    let application = application_of(&package, "quire.op.model.reaches");
+    assert_eq!(
+        package.relationship_end(&application),
+        Ok(expected_end(
+            &application,
+            &order,
+            Some("linkedBy"),
+            (1, 1, true),
+            true
+        ))
+    );
+
+    // The same package without any graph node holding the declared end type.
+    let mut missing = subtype;
+    let nodes = missing["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    let mut removed = vec![order.digest.to_string()];
+    loop {
+        let before = nodes.len();
+        nodes.retain(|node| {
+            let key = node["node_id"]["digest"].as_str().expect("key").to_owned();
+            let gone = |id: &Value| removed.iter().any(|known| id["digest"] == json!(known));
+            let depends = node["dependencies"]
+                .as_array()
+                .expect("dependencies")
+                .iter()
+                .any(gone);
+            let typed_at_removed =
+                gone(&node["semantic_type"]) && node["semantic_type"]["digest"] != json!(key);
+            if depends || typed_at_removed || removed.contains(&key) {
+                removed.push(key);
+                false
+            } else {
+                true
+            }
+        });
+        if nodes.len() == before {
+            break;
+        }
+    }
+    rebuild_source_map(&mut missing);
+    refresh_identity(&mut missing);
+    let package = admitted(&missing, &evidence);
+    assert!(
+        !package
+            .graph()
+            .nodes
+            .iter()
+            .any(|node| node.node_id == order),
+        "the graph holds no node of the declared end type"
+    );
+    let application = application_of(&package, "quire.op.model.reaches");
+    assert_eq!(
+        package.relationship_end(&application),
+        Ok(expected_end(
+            &application,
+            &order,
+            Some("linkedBy"),
+            (1, 1, true),
+            true
+        ))
+    );
+}
+
+/// Trace: TC-048, FR-038-AC-264
+#[trace("TC-048", "FR-038-AC-264")]
+#[test]
+fn tc_048_relationship_end_refuses_every_node_that_is_not_a_reaches_application() {
+    let refusal = Err(CheckedRelationshipEndError::NotReachesApplication);
+    let (navigate, evidence) = relationship_package(authored_relationship(), "links");
+    let package = admitted(&navigate, &evidence);
+    assert_eq!(
+        package.relationship_end(&typed_id(&"f".repeat(64))),
+        Err(CheckedRelationshipEndError::UnknownNode)
+    );
+    for (label, node) in [
+        (
+            "navigate",
+            application_of(&package, "quire.op.model.navigate"),
+        ),
+        ("relationship", relationship_id()),
+        ("object declaration", order_declaration_id()),
+    ] {
+        assert_eq!(package.relationship_end(&node), refusal, "{label}");
+    }
+
+    let (project, evidence) = crate::checked_package_v2_model_fields::record_project_control();
+    let package = admitted(&project, &evidence);
+    let read = application_of(&package, "quire.op.record.project");
+    assert_eq!(package.relationship_end(&read), refusal, "field read");
+
+    let package = crate::checked_package_v2_model_fields::integer_add_control();
+    let add = application_of(&package, "quire.op.integer.add");
+    assert_eq!(package.relationship_end(&add), refusal, "integer.add");
+    let literal = package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.node_tag.as_ref() == "value" && node.semantic_form.as_ref() == "literal")
+        .expect("a literal node")
+        .node_id
+        .clone();
+    assert_eq!(package.relationship_end(&literal), refusal, "literal");
+}
+
+/// The least `work` limit that admits [`relationship_operation_package`]'s
+/// reaches package, as charged before the reader retained relationship ends.
+const REACHES_ADMISSION_WORK: u64 = 97;
+
+/// Trace: TC-048, FR-038-AC-266
+#[trace("TC-048", "FR-038-AC-266")]
+#[test]
+fn tc_048_retaining_the_relationship_end_changes_neither_identity_equality_nor_work() {
+    let relation = relationship_of(
+        end_json(Some("links"), 1, 1, false, false),
+        end_json(Some("peer"), 2, 3, true, false),
+    );
+    let (package, evidence) = relationship_operation_package(relation, "links", true);
+    let first = admitted(&package, &evidence);
+    let second = admitted(&package, &evidence);
+    let application = application_of(&first, "quire.op.model.reaches");
+    let clone = first.clone();
+    let result = first.relationship_end(&application);
+    assert!(result.is_ok());
+    assert_eq!(first.relationship_end(&application), result);
+    assert_eq!(clone.relationship_end(&application), result);
+    assert_eq!(second.relationship_end(&application), result);
+    assert_eq!(first, clone);
+    assert_eq!(first, second);
+    assert_eq!(first.package_id(), second.package_id());
+    assert_eq!(
+        first.package_id().digest.as_ref(),
+        package["package_id"]["digest"]
+    );
+
+    // Admission charges the same work with the relationship record retained:
+    // the least work limit that admits is the one measured before retention.
+    let bytes = canonical(&package);
+    let read_at = |work| {
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = work;
+        CheckedPackageV2::read(&bytes, limits, &evidence)
+    };
+    let (mut insufficient, mut sufficient) = (0, CheckedPackageReadLimits::bounded().work);
+    while insufficient + 1 < sufficient {
+        let middle = insufficient + (sufficient - insufficient) / 2;
+        match read_at(middle) {
+            CheckedPackageV2ReadResult::Admitted(_) => sufficient = middle,
+            CheckedPackageV2ReadResult::Incomplete(_) => insufficient = middle,
+            other => panic!("expected work boundary, got {other:?}"),
+        }
+    }
+    assert_eq!(
+        sufficient, REACHES_ADMISSION_WORK,
+        "charged admission work is unchanged"
+    );
+}
+
+/// Trace: TC-048, FR-038-AC-267
+#[trace("TC-048", "FR-038-AC-267")]
+#[test]
+fn tc_048_relationship_end_api_is_nine_fields_and_a_closed_error() {
+    let (package, application) = admitted_reaching(authored_relationship(), "links");
+    let result = package.relationship_end(&application);
+    // The result is built field by field with no `..` rest pattern: a tenth
+    // public field, or a missing one, fails to compile.
+    let CheckedRelationshipEnd {
+        application: read_application,
+        relationship,
+        role,
+        destination_type,
+        lower,
+        upper,
+        ordered,
+        unique,
+        forward,
+    } = result.expect("an admitted reaches application");
+    let rebuilt = CheckedRelationshipEnd {
+        application: read_application,
+        relationship,
+        role,
+        destination_type,
+        lower,
+        upper,
+        ordered,
+        unique,
+        forward,
+    };
+    assert_eq!(rebuilt.application, application);
+    let describe = |error: CheckedRelationshipEndError| match error {
+        CheckedRelationshipEndError::UnknownNode => "unknown",
+        CheckedRelationshipEndError::NotReachesApplication => "not reaches",
+        CheckedRelationshipEndError::UnresolvedEnd => "unresolved",
+    };
+    assert_eq!(
+        package
+            .relationship_end(&typed_id(&"f".repeat(64)))
+            .map_err(describe),
+        Err("unknown")
+    );
+}
+
+/// Trace: TC-048, FR-038-AC-268
+#[trace("TC-048", "FR-038-AC-268")]
+#[test]
+fn tc_048_relationship_end_is_not_a_field_and_exports_no_selected_population_item() {
+    let (package, _) = admitted_reaching(authored_relationship(), "links");
+    let fields = package
+        .model_object_fields(&order_declaration_id())
+        .expect("the object's fields");
+    assert!(
+        fields.fields().is_empty(),
+        "a relationship end is not an edge field"
+    );
+    assert!(fields.field("links").is_none() && fields.field("linkedBy").is_none());
+
+    let root = include_str!("../../crates/quire-contract-model/src/lib.rs");
+    let facade = include_str!("../../crates/quire-contract-model/src/selected_population.rs");
+    let exported = facade
+        .split_once("pub use crate::checked_package::{")
+        .expect("the facade names its exports")
+        .1
+        .split_once("};")
+        .expect("the export list closes")
+        .0;
+    let reexports: String = root
+        .split("pub use ")
+        .skip(1)
+        .map(|item| item.split_once(';').expect("a use item ends").0)
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(!reexports.contains("selected_population"));
+    let words: std::collections::BTreeSet<&str> = reexports
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .collect();
+    for item in exported
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+    {
+        assert!(
+            !words.contains(item),
+            "{item} must not be re-exported at the model root"
+        );
+    }
+    let ir_root = include_str!("../../src/lib.rs");
+    assert!(!ir_root.contains("selected_population"));
 }

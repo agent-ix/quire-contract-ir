@@ -2242,21 +2242,10 @@ fn check_relationship_member(
     if !relationship.direction.admits(forward) {
         return ineligible(member_at("name"));
     }
-    let Some(destination_object) = owner.package.object_types.get(&destination.type_ref) else {
-        return ineligible(member_at("name"));
-    };
-    let form = if destination_object.interface {
-        DeclarationForm::SystemsInterface
-    } else {
-        DeclarationForm::ObjectType
-    };
-    let Ok(destination_key) = declaration_key(
-        &owner.package.identity,
-        form,
-        &destination.type_ref,
-        owner.package.bytes,
-    ) else {
-        return key_refused();
+    let destination_key = match owner.package.end_declaration_key(&destination.type_ref) {
+        None => return ineligible(member_at("name")),
+        Some(Ok(key)) => key,
+        Some(Err(_)) => return key_refused(),
     };
     let member_type = match relationship.navigation_type(forward, destination_key.into()) {
         Ok(member_type) => member_type,

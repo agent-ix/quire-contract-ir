@@ -852,6 +852,24 @@ pub(super) mod probe {
 }
 
 impl DomainModel {
+    /// The model declaration node key of the object type or systems interface
+    /// `type_ref`: `None` when no such declaration is selected, `Err` when the
+    /// key cannot be derived under the reader's byte limit. The one derivation
+    /// of a relationship end's declared destination, shared by admission and
+    /// by the record the package retains.
+    pub(super) fn end_declaration_key(
+        &self,
+        type_ref: &str,
+    ) -> Option<Result<String, quire_canonical::Error>> {
+        let declared = self.object_types.get(type_ref)?;
+        let form = if declared.interface {
+            DeclarationForm::SystemsInterface
+        } else {
+            DeclarationForm::ObjectType
+        };
+        Some(declaration_key(&self.identity, form, type_ref, self.bytes))
+    }
+
     /// A field-bearing declaration, whether it is an object or a value record.
     pub(super) fn field_owner(&self, node: &str) -> Option<&FieldBearingTypeDecl> {
         self.object_types
