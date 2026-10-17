@@ -1237,6 +1237,26 @@ fn finish<T>(
     }
 }
 
+// Work units the first pass has charged on this thread. The scan charges one
+// unit per loop turn, per whitespace byte skipped, per byte a token consumes
+// and per step of a pointer it builds, so a test counts the pass's work
+// without a clock (TC-048). Test builds only; production charges nothing.
+#[cfg(test)]
+thread_local! {
+    static SCAN_WORK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Charges `units` of work to this thread's count.
+#[cfg(test)]
+fn charge(units: usize) {
+    SCAN_WORK.with(|work| work.set(work.get().saturating_add(units as u64)));
+}
+
+/// Production charges nothing.
+#[cfg(not(test))]
+#[inline(always)]
+fn charge(_units: usize) {}
+
 /// One container the scan is inside.
 enum Open {
     Array {
@@ -1283,6 +1303,7 @@ fn strict_shape_depth(input: &[u8]) -> Result<usize, ValidationFailure> {
     };
     let mut deepest = 0;
     loop {
+        charge(1);
         let opens = match scan.peek().ok_or_else(malformed)? {
             b'[' => {
                 deepest = deepest.max(scan.open.len().saturating_add(1));
@@ -1327,6 +1348,7 @@ fn strict_shape_depth(input: &[u8]) -> Result<usize, ValidationFailure> {
         // The value just read is complete: close every container it ends,
         // then read the next sibling, if any.
         loop {
+            charge(1);
             let Some(top) = scan.open.last() else {
                 return Ok(deepest);
             };
@@ -1382,6 +1404,7 @@ impl Scan<'_> {
             if !matches!(byte, b' ' | b'\t' | b'\n' | b'\r') {
                 return Some(byte);
             }
+            charge(1);
             self.at += 1;
         }
         None
@@ -1389,6 +1412,7 @@ impl Scan<'_> {
 
     /// The pointer of the value being read.
     fn pointer(&self) -> JsonPointer {
+        charge(self.open.len());
         pointer_from_steps(self.open.iter().map(Open::step))
     }
 
@@ -1399,6 +1423,7 @@ impl Scan<'_> {
         let token = tokens.next().and_then(Result::ok).ok_or_else(|| {
             ValidationFailure::refused_bytes(CheckedPackageRefusalCode::MalformedWire)
         })?;
+        charge(tokens.byte_offset());
         self.at += tokens.byte_offset();
         Ok(token)
     }
@@ -1797,7 +1822,6 @@ mod depth_tests {
         CheckedPackageReadLimits, CheckedPackageRefusalCode, JsonPointer,
     };
     use ix_trace_rs::trace;
-    use std::time::Instant;
 
     fn nested(depth: usize) -> String {
         format!("{}{}", "[".repeat(depth), "]".repeat(depth))
@@ -1940,35 +1964,37 @@ mod depth_tests {
         });
     }
 
-    /// The first pass costs time linear in the input: a syntax error at the
+    /// The first pass costs work linear in the input: a syntax error at the
     /// bottom of a document half a million levels deep, which a recursive
-    /// parser reports once per enclosing level, is refused in time that grows
-    /// with the depth, not with its square. Quadrupling the depth takes
-    /// about four times as long; the bound of eight separates that from
-    /// sixteen, on the fastest of three runs so a busy machine does not move it.
+    /// parser reports once per enclosing level, is refused after work that
+    /// grows with the depth, not with its square. The pass charges a work
+    /// unit per loop turn, skipped byte, consumed token byte and pointer step
+    /// ([`charge`]), so the count is exact and clock-free: quadrupling the
+    /// depth quadruples the work, and the bounds of 3.5 and 4.5 times separate
+    /// that from sixteen.
     ///
     /// Trace: TC-048
     #[trace("TC-048")]
     #[test]
     fn tc_048_a_deep_syntax_error_is_refused_in_linear_time() {
-        let fastest = |depth: usize| {
+        let work = |depth: usize| {
             let broken = format!("{}x{}", "[".repeat(depth), "]".repeat(depth));
-            (0..3)
-                .map(|_| {
-                    let started = Instant::now();
-                    let result = read_value(broken.as_bytes(), limits(), Ok);
-                    let elapsed = started.elapsed();
-                    assert_eq!(result, Err(malformed()));
-                    elapsed
-                })
-                .min()
-                .expect("three runs")
+            super::SCAN_WORK.with(|work| work.set(0));
+            assert_eq!(
+                read_value(broken.as_bytes(), limits(), Ok),
+                Err(malformed())
+            );
+            super::SCAN_WORK.with(|work| work.get())
         };
-        let shallow = fastest(131_000);
-        let deep = fastest(524_000);
+        let shallow = work(131_000);
+        let deep = work(524_000);
         assert!(
-            deep.as_secs_f64() < shallow.as_secs_f64() * 8.0,
-            "131000 levels took {shallow:?}, 524000 took {deep:?}"
+            shallow >= 131_000,
+            "the pass charged {shallow} for 131000 levels"
+        );
+        assert!(
+            deep * 10 >= shallow * 35 && deep * 10 <= shallow * 45,
+            "131000 levels charged {shallow} work units, 524000 charged {deep}"
         );
     }
 }
