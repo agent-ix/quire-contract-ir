@@ -217,3 +217,11 @@ Reviewed at 07dc8d630383acd1ed63ed3930f3cd4014690398, after the merge of origin/
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-010 | low | The TC-048 summary row's Traces To cell (tests.md :32) omits FR-038-AC-269 through AC-280. It is byte-identical to main, so the merge kept it unchanged. Main's IR-840 (#440) made that cell list every FR-038 criterion that a Verification cell or a TC-048 procedure section binds to TC-048, planned criteria included (AC-165 and AC-239..241, both PLANNED, are listed). Every one of AC-269..280 has Verification "Test (TC-048)" and its own TC-048 section ("Typed population of a reaches application"), and the coverage row and the per-criterion rows of this PR name TC-048. Measured on HEAD: of the FR-038 criteria whose Verification names TC-048, exactly AC-269..280 are missing from the cell. A reverse lookup ("what does TC-048 verify") therefore misses this PR's twelve criteria. `quire coverage --strict` does not catch it (still 43/0). Fix: append `FR-038-AC-269, ..., FR-038-AC-280` to the TC-048 row's Traces To cell. | spec/checked_package/matrix/tests.md:32, spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4820-4831 |
+
+## Dispositions (round 10)
+
+Round 10, reviewed at 62a49df2d3569b6924d2f4f6e15174adf9e8e461. The one commit since 07dc8d6 changes only tests.md line 32 and this SR file.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-010 | fixed | The TC-048 Traces To cell now ends with "FR-038-AC-268, FR-038-AC-269, ..., FR-038-AC-280". A character-level diff against 07dc8d6 shows that this is the only change in tests.md. The cell holds 218 FR-038 ids, in ascending order, with no duplicates and no id from another FR. Every FR-038 criterion whose Verification column names TC-048 is now listed. |
