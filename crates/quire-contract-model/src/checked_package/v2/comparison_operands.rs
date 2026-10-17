@@ -247,13 +247,7 @@ impl<'a> Context<'a> {
     }
 
     fn node(&self, id: &CheckedNodeId) -> Option<&'a CheckedSemanticNodeV2> {
-        let index = self.package.node_index.get(id)?;
-        self.package
-            .wire
-            .semantic_graph
-            .nodes
-            .get(*index)
-            .filter(|node| &node.node_id == id)
+        self.package.node(id)
     }
 }
 

@@ -28,6 +28,7 @@ mod operation_catalog;
 mod operations;
 mod owner;
 mod parameter_declaration;
+mod reaches_population;
 mod relationship_end;
 mod rust_spelling;
 mod scalar_operands;
@@ -72,6 +73,7 @@ pub use model_fields::{
     CheckedModelObjectFields,
 };
 pub use parameter_declaration::{CheckedParameterDeclaration, CheckedParameterDeclarationError};
+pub use reaches_population::CheckedReachesPopulationError;
 pub use relationship_end::{CheckedRelationshipEnd, CheckedRelationshipEndError};
 pub use scalar_operands::{
     CheckedScalarOperand, CheckedScalarOperandChild, CheckedScalarOperandError,
@@ -783,6 +785,19 @@ fn is_typed_preimage_position(path: &JsonPointer) -> bool {
 }
 
 impl CheckedPackageV2 {
+    /// The graph node with `id`, from the retained index.
+    pub(in crate::checked_package) fn node(
+        &self,
+        id: &CheckedNodeId,
+    ) -> Option<&CheckedSemanticNodeV2> {
+        let position = *self.node_index.get(id)?;
+        self.wire
+            .semantic_graph
+            .nodes
+            .get(position)
+            .filter(|candidate| &candidate.node_id == id)
+    }
+
     /// Reads one canonical V2 value without exposing a partial package.
     pub fn read(
         bytes: &[u8],

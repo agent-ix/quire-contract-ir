@@ -74,6 +74,9 @@ use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::common::{
     application_operator, body_term, decoder_pointer, literal_kind, node_pointer, NODE_DOMAIN,
 };
+use crate::checked_package::selected_population::{
+    is_model_population, least_type_occurrence, population_maximum, population_object_type,
+};
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
@@ -2247,6 +2250,7 @@ fn check_relationship_member(
         Some(Ok(key)) => key,
         Some(Err(_)) => return key_refused(),
     };
+    let receiver_type_key = destination_key.clone();
     let member_type = match relationship.navigation_type(forward, destination_key.into()) {
         Ok(member_type) => member_type,
         Err(refusal) => return refuse(member_at("name"), refusal),
@@ -2270,6 +2274,38 @@ fn check_relationship_member(
         .and_then(Value::as_str);
     if result != Some(expected_key.as_str()) {
         return ineligible(application.body(&["result_type"]));
+    }
+    // The population link is the last check of the member: every earlier defect
+    // keeps its present outcome.
+    let Some(named) = operation
+        .member
+        .as_ref()
+        .and_then(|member| member.get("population"))
+    else {
+        return Ok(None);
+    };
+    if !reaches {
+        return ineligible(member_at("population"));
+    }
+    let node_of = |id: &CheckedNodeId| graph.index.get(id).map(|&at| &graph.nodes[at]);
+    let linked = serde_json::from_value::<CheckedNodeId>(named.clone())
+        .ok()
+        .and_then(|id| node_of(&id))
+        .filter(|node| {
+            is_model_population(node)
+                && least_type_occurrence(node).is_some()
+                && population_maximum(&node.body).is_some()
+        });
+    let Some(population) = linked else {
+        return ineligible(member_at("population"));
+    };
+    // A reaches application's ends share one declared type (checked above).
+    let receiver_type = CheckedNodeId {
+        domain: NODE_DOMAIN.into(),
+        digest: receiver_type_key.into(),
+    };
+    if population_object_type(population, node_of) != Some(receiver_type) {
+        return ineligible(member_at("population"));
     }
     Ok(None)
 }

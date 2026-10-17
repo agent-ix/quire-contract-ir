@@ -27,6 +27,8 @@ use quire_contract_model::{
 use serde_json::{json, Value};
 use std::sync::LazyLock;
 
+mod reaches_population;
+
 const STRUCTURAL_NODE: &str = "quire.structural-node/v1";
 const APPLICATION_NODE: &str = "quire.application-node/v1";
 const IDENTITY: &str = "acme/orders";
