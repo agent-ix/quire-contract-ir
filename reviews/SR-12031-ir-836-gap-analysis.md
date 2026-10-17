@@ -1,0 +1,66 @@
+---
+id: SR-12031
+title: "IR-836 NFR-003 tests gap analysis"
+type: SpecReview
+analysis: gap-analysis
+scope: "agent-ix/quire-contract-ir@4e14a3fecd1960081f9a23f0b54e0f9c1164f874; spec/core/matrix/tests.md, spec/tests.md, spec/core/non-functional/NFR-001-determinism.md, spec/core/non-functional/NFR-002-portability-independence.md, spec/core/non-functional/NFR-003-diagnostic-integrity.md, spec/core/functional/STD-001-diagnostic-registry.md, tests/it/nfr003_invalid_input.rs"
+review_set: subset
+relationships:
+  - target: ix://agent-ix/quire-contract-ir/NFR-003
+    type: references
+  - target: ix://agent-ix/quire-contract-ir/NFR-001
+    type: references
+  - target: ix://agent-ix/quire-contract-ir/NFR-002
+    type: references
+  - target: ix://agent-ix/quire-contract-ir/STD-001
+    type: references
+---
+
+## Summary
+
+Ticket: IR-836, PR quire-contract-ir#428, head 4e14a3f. This analysis has no plan: it reads `quire coverage --scope . --strict` and `quire trace`. Plan completion: not assessed. Measurements were taken with quire 0.36.2 (engine 0.50.2) and quoin 0.28.3:
+
+| Tree | Strict unbacked |
+| --- | --- |
+| 299a126 (PR merge base) | 43 |
+| 30cba8c (origin/main now, with #426) | 45 |
+| head 4e14a3f | 39 |
+| head merged into 30cba8c (no-commit merge in a throwaway worktree) | 39 |
+
+The PR body says the drop from 43 to 39 is NFR-003-AC-1/2 and TC-019. That is not what was measured. On 299a126 the four rows that leave the list are `TC-019`, `NFR-001-AC-2`, `NFR-001-AC-3` and `NFR-002-AC-1`. NFR-003-AC-1/2 were not on that list then, because the legacy doc lines that #426 removed were still crediting them. On the merged tree, six rows leave the list compared with main: NFR-003-AC-1, NFR-003-AC-2, TC-019, NFR-001-AC-2, NFR-001-AC-3 and NFR-002-AC-1.
+
+`quire validate --scope .` over the three changed or affected spec files is clean (only the module-level advisory). `quire trace --id TC-019` resolves three `rust-trace-attribute` claims, one per test, plus one file-scope citation.
+
+## Reviewed scope
+
+| Unit | Role | Excerpt |
+| --- | --- | --- |
+| NFR-003-AC-1 | examined | Every declared invalid-input class returns a stable diagnostic code and no public panic. |
+| NFR-003-AC-2 | examined | No malformed, unsupported, stale, undefined, or orphaned input contributes successful canonical identity or covered status. |
+| TC-019 | examined | Determinism, portability, and fail-closed metrics meet thresholds \| Integration \| P0 \| NFR-001..NFR-003 |
+| NFR-001-AC-2 | examined | For each fixed admitted corpus input and supported profile that yields canonical output, Linux, macOS, and Windows produce byte-identical canonical bytes when cross-platform CI is enabled; compare those bytes directly. |
+| NFR-001-AC-3 | examined | For each fixed rejected corpus input and profile, repeated runs and supported operating systems produce exactly the same complete ordered sequence of diagnostic `(code, path)` tuples. |
+| NFR-002-AC-1 | examined | Public schema and model names contain no Rust-layout, architecture-language, solver, runtime, pointer-width, or operating-system-path vocabulary. |
+| NFR-003 | context_only | Scope: Parsing, validation, dependency derivation, canonicalization, coverage classification, and the conformance runner. |
+| STD-001 | context_only | This registry owns the stable machine-readable diagnostic codes of FR-011 through FR-019, the bounded-Kani cause and outcome error codes FR-030 raises and the code-form code FR-044 raises. |
+| FR-020 | context_only | Exit 2 emits ... closed code (`invalid_invocation`, `invalid_corpus`, `unsupported_profile`, `unsafe_path`, `fixture_io`, or `resource_exhausted`), and stable path; prose detail is non-comparable. Panics, partial JSON, and mixed stdout/stderr records are forbidden. |
+
+## Findings
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-001 | high | The PR retypes TC-019 as Integration and tags it on tests that cover only NFR-003. As a result, the strict coverage gate stops reporting three acceptance criteria that no test backs: NFR-001-AC-2 (cross-platform canonical bytes), NFR-001-AC-3 (ordered `(code, path)` tuples across runs and OSes) and NFR-002-AC-1 (schema/model vocabulary). Each of them has the Verification cell "Test (TC-019)". quire treats them as backed once TC-019 has a symbol, yet `quire trace --id NFR-001-AC-2` on the merged tree returns 0 claims. The TC-019 row's own status text says those parts "have no executable test". So the gate passes because the TC is too coarse, not because the criteria are met. The PR body's coverage claim (43 to 39 is "NFR-003-AC-1/2 and TC-019") hides this. Fix in this PR: give NFR-003-AC-1/2 their own TC (Integration, NFR-003), point their Verification cells and the tests' tags at it, and leave TC-019 for NFR-001/NFR-002 with its planned status. Then strict coverage on main goes from 45 to 43, with exactly NFR-003-AC-1/2 leaving the list. | spec/core/matrix/tests.md:47, tests/it/nfr003_invalid_input.rs:307, tests/it/nfr003_invalid_input.rs:337, tests/it/nfr003_invalid_input.rs:421, spec/core/non-functional/NFR-001-determinism.md:36-37, spec/core/non-functional/NFR-002-portability-independence.md:34 |
+| FND-002 | medium | NFR-003-AC-1 does not say where its "declared invalid-input classes" are declared. The PR's reading is the 44 `DiagnosticCode` codes of STD-001's four semantic tables. The NFR-003 metric "Diagnostic registry/corpus reconciliation" and the FR-011..FR-019 ownership sentence in STD-001 support that reading. The reading itself is recorded only in a test doc comment, the matrix status cell and the PR body, and the exclusions are recorded only in the PR body. One exclusion is not stated anywhere: the six runner operational codes of FR-020 (`invalid_invocation` ... `resource_exhausted`). These are closed, stable codes of "the conformance runner", which NFR-003's own Scope names, and FR-020 forbids panics for them. The exclusion of `invalid_code_form` (`Std001Code::new` validates an untrusted candidate string, and "validation" is in scope) is argued only in the PR body. Excluding the Kani codes (FR-030 outcomes, outside NFR-003's scope) and `kani_outcome_invalid` (root-crate constructor) is supported by the text. Fix: state the class set and its exclusions in NFR-003 (or the core matrix row), or include the runner codes with TC-018 as their evidence. | spec/core/non-functional/NFR-003-diagnostic-integrity.md:36, spec/core/functional/STD-001-diagnostic-registry.md:24-28, spec/conformance/functional/FR-020-json-conformance-interface.md:68-75, tests/it/nfr003_invalid_input.rs:5-6 |
+
+## Verdict
+
+CHANGES REQUESTED (one high, one medium). Not mergeable until FND-001 is fixed.
+
+Clean units:
+
+- **NFR-003-AC-1 and NFR-003-AC-2 are genuinely backed** for the class set the PR chose (see SR-12030 for the mutant evidence and the one AC-2 subset gap). On the merged tree, both leave the unbacked list for the right reason.
+- **Retyping TC-019 from Analysis to Integration is consistent with the vocabulary.** The `spec-artifacts-process` `test_type` vocabulary has no plain `Test`. `Integration` is a Test-class harness kind, and every criterion that cites TC-019 says "Test (TC-019)". `Analysis` is in `no_source_symbol`, so on main TC-019 was reported both as having no backing symbol and as "verified by `Analysis`". The defect is the TC's breadth (FND-001), not the type word.
+- **Status text.** The NFR-003 row, the TC-019 row and the spec/tests.md Core row say only that AC-1/AC-2 are implemented, and keep NFR-001/NFR-002 and AC-3 as planned. That text is accurate. Once FND-001 is fixed, the new TC row should carry it.
+- **Trace.** The three `#[trace]` attributes and `/// Trace:` lines name only TC-019 and NFR-003-AC-1/2. No other test claims NFR-003-AC-1/2 (`quire trace`).
+- **Fixtures.** Every fixture is from the repo's own `corpus/contract-v0.1`. Nothing is copied, and no corpus file changes.
+- **Not run.** `quoin:spec-review` and its sub-analyses were not run, as the brief directed. The spec diff is three status/type cells, and they are judged here.

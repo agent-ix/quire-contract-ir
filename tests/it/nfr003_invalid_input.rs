@@ -1,4 +1,4 @@
-//! NFR-003 (TC-019): every declared invalid-input class fails closed with a
+//! NFR-003 (TC-454): every declared invalid-input class fails closed with a
 //! stable diagnostic code, no public panic, and no canonical identity or
 //! covered status.
 //!
@@ -23,10 +23,12 @@ struct Class {
     fixtures: &'static [&'static str],
 }
 
-/// The declared invalid-input classes, written out from STD-001's code tables,
-/// each with its corpus fixtures. `declared_classes_match_std001` ties this
-/// list to both the STD-001 text and `DiagnosticCode::ALL`, so dropping a class
-/// here, or registering one without a row, fails the test.
+/// The declared invalid-input classes (NFR-003 Scope), written out from
+/// STD-001's code tables, each with every corpus fixture that emits its code.
+/// `declared_classes_match_std001` ties the codes to both the STD-001 text and
+/// `DiagnosticCode::ALL`; the AC-1 test ties each class's fixtures to the corpus
+/// exactly, so dropping a class or a fixture here, or adding a rejected fixture
+/// to the corpus without a row, fails.
 const CLASSES: &[Class] = &[
     Class {
         code: "invalid_package_namespace",
@@ -37,7 +39,11 @@ const CLASSES: &[Class] = &[
         fixtures: &[
             "package-unknown-field",
             "package-wire-depth-over",
+            "package-wire-depth-maximum",
             "expression-invalid-wire",
+            "expression-invalid-wire-number-bound",
+            "expression-invalid-wire-number-literal",
+            "expression-invalid-wire-string-grammar",
         ],
     },
     Class {
@@ -138,6 +144,8 @@ const CLASSES: &[Class] = &[
         code: "invalid_numeric_bounds",
         fixtures: &[
             "expression-invalid-numeric",
+            "expression-invalid-numeric-range",
+            "expression-declared-collection-over",
             "expression-rational-zero-denominator",
         ],
     },
@@ -228,6 +236,8 @@ const CLASSES: &[Class] = &[
             "expression-semantic-nodes-over",
             "expression-depth-over",
             "expression-type-depth-over",
+            "expression-embedded-type-depth-over",
+            "expression-semantic-collection-over",
         ],
     },
 ];
@@ -300,11 +310,37 @@ fn input(fixture: &str) -> Value {
     .unwrap()
 }
 
+/// Every corpus row the runner rejects: its `actual` carries diagnostics.
+fn rejected_rows(rows: &[Value]) -> Vec<&Value> {
+    rows.iter()
+        .filter(|row| !diagnostic_codes(row).is_empty())
+        .collect()
+}
+
+/// The package JSON text and decoder verdict for a package-operation row. The
+/// fixture input is the package itself, a `document_json` text, or a probe that
+/// wraps the package under `package`.
+fn decode(fixture: &str) -> Result<(), Vec<quire_contract_model::Diagnostic>> {
+    let input = input(fixture);
+    let package = input.get("package").unwrap_or(&input);
+    ContractPackage::from_json_str(&package_text(package), ValidationOptions::strict()).map(|_| ())
+}
+
+/// Codes a package can still raise after its wire form decodes: reference
+/// resolution and the canonical size limit.
+const AFTER_DECODE: [&str; 5] = [
+    "cross_package_reference",
+    "orphaned_requirement_reference",
+    "stale_requirement_revision",
+    "orphaned_clause_reference",
+    "canonicalization_resource_exhausted",
+];
+
 /// The class table is the STD-001 registry: same codes, no duplicates, and
 /// every fixture it names exists in the corpus.
 ///
-/// Trace: TC-019, NFR-003-AC-1
-#[trace("TC-019", "NFR-003-AC-1")]
+/// Trace: TC-454, NFR-003-AC-1
+#[trace("TC-454", "NFR-003-AC-1")]
 #[test]
 fn declared_classes_match_std001() {
     let table: Vec<&str> = CLASSES.iter().map(|class| class.code).collect();
@@ -312,7 +348,7 @@ fn declared_classes_match_std001() {
     assert_eq!(table.len(), table_set.len(), "a class appears twice");
     let registry: BTreeSet<&str> = DiagnosticCode::ALL.iter().map(|c| c.as_str()).collect();
     assert_eq!(table_set, registry);
-    assert_eq!(table.len(), 44);
+    assert_eq!(table.len(), DiagnosticCode::ALL.len());
     let spec = std001_declared_codes();
     assert_eq!(
         spec.iter().map(String::as_str).collect::<BTreeSet<_>>(),
@@ -333,94 +369,94 @@ fn declared_classes_match_std001() {
     }
 }
 
-/// Trace: TC-019, NFR-003-AC-1
-#[trace("TC-019", "NFR-003-AC-1")]
+/// Trace: TC-454, NFR-003-AC-1
+#[trace("TC-454", "NFR-003-AC-1")]
 #[test]
-fn tc_019_every_declared_invalid_input_class_returns_a_stable_code_and_no_panic() {
+fn tc_454_every_declared_invalid_input_class_returns_a_stable_code_and_no_panic() {
     let rows = run();
-    let mut reached = BTreeSet::new();
     for class in CLASSES {
         // The code is a registered, typed `DiagnosticCode` spelled as declared.
         let typed: DiagnosticCode =
             serde_json::from_value(Value::String(class.code.to_owned())).unwrap();
         assert_eq!(typed.as_str(), class.code);
+
+        // The class lists exactly the corpus fixtures that emit its code.
+        let mut emitting: Vec<&str> = rejected_rows(&rows)
+            .into_iter()
+            .filter(|row| diagnostic_codes(row).contains(&class.code))
+            .map(|row| row["fixture_id"].as_str().unwrap())
+            .collect();
+        let mut listed = class.fixtures.to_vec();
+        emitting.sort_unstable();
+        listed.sort_unstable();
+        assert_eq!(listed, emitting, "fixtures of class {}", class.code);
+
         for fixture in class.fixtures {
-            let row = row(&rows, fixture);
-            let codes = diagnostic_codes(row);
-            assert!(
-                codes.contains(&class.code),
-                "{fixture}: expected {} among {codes:?}",
-                class.code
-            );
-            for diagnostic in row["actual"]["diagnostics"].as_array().unwrap() {
-                assert_eq!(diagnostic["severity"], "error");
+            for diagnostic in row(&rows, fixture)["actual"]["diagnostics"]
+                .as_array()
+                .unwrap()
+            {
+                assert_eq!(diagnostic["severity"], "error", "{fixture}");
                 let code = diagnostic["code"].as_str().unwrap();
                 assert!(
                     DiagnosticCode::ALL.iter().any(|c| c.as_str() == code),
                     "{fixture}: unregistered code {code}"
                 );
             }
-            reached.insert(class.code);
         }
     }
-    assert_eq!(reached.len(), DiagnosticCode::ALL.len());
 
-    // Decoding straight through the public API: a wire-level class returns its
-    // code and does not panic.
-    for (fixture, code) in [
-        ("package-unknown-field", DiagnosticCode::InvalidWireFormat),
-        ("package-wire-depth-over", DiagnosticCode::InvalidWireFormat),
-        (
-            "package-invalid-namespace",
-            DiagnosticCode::InvalidPackageNamespace,
-        ),
-        (
-            "package-invalid-schema",
-            DiagnosticCode::InvalidSchemaVersion,
-        ),
-        (
-            "package-schema-2-0",
-            DiagnosticCode::UnsupportedSchemaVersion,
-        ),
-        (
-            "package-invalid-identifier",
-            DiagnosticCode::InvalidIdentifier,
-        ),
-        (
-            "package-invalid-requirement-revision-over",
-            DiagnosticCode::InvalidRequirementRevision,
-        ),
-        ("package-invalid-span", DiagnosticCode::InvalidSourceSpan),
-    ] {
-        let errors = ContractPackage::from_json_str(
-            &package_text(&input(fixture)),
-            ValidationOptions::strict(),
-        )
-        .expect_err(fixture);
-        assert_eq!(errors[0].code, code, "{fixture}");
+    // Decoding straight through the public API: every package fixture the
+    // decoder rejects returns exactly the codes the runner reported, and the
+    // others are rejected only after decoding.
+    let mut decode_rejected = 0;
+    for row in rejected_rows(&rows) {
+        if row["operation"] != "package" {
+            continue;
+        }
+        let fixture = row["fixture_id"].as_str().unwrap();
+        match decode(fixture) {
+            Err(errors) => {
+                decode_rejected += 1;
+                let codes: Vec<&str> = errors.iter().map(|e| e.code.as_str()).collect();
+                assert_eq!(codes, diagnostic_codes(row), "{fixture}");
+            }
+            Ok(()) => {
+                for code in diagnostic_codes(row) {
+                    assert!(AFTER_DECODE.contains(&code), "{fixture}: {code}");
+                }
+            }
+        }
     }
+    assert!(decode_rejected >= 14, "decoder rejected {decode_rejected}");
 
-    // Hostile bytes that are not a package at all.
+    // Hostile bytes that are not a package at all. The deep input is refused by
+    // the nesting pre-scan, before any recursive decoding, and says so.
     let deep = "[".repeat(100_000);
-    let hostile: [&[u8]; 6] = [
-        b"",
-        &[0xff, 0xfe],
-        b"null",
-        b"[]",
-        b"{\"id\":",
-        deep.as_bytes(),
+    let hostile: [(&[u8], &str); 6] = [
+        (b"", "document"),
+        (&[0xff, 0xfe], "document"),
+        (b"null", "document"),
+        (b"[]", "document"),
+        (b"{\"id\":", "document"),
+        (deep.as_bytes(), "document.nesting"),
     ];
-    for bytes in hostile {
+    for (bytes, path) in hostile {
         let errors = ContractPackage::from_json_bytes(bytes, ValidationOptions::strict())
             .expect_err("hostile bytes are not a package");
         assert_eq!(errors[0].code, DiagnosticCode::InvalidWireFormat);
+        assert_eq!(errors[0].path, path);
     }
+    assert_eq!(
+        row(&rows, "package-wire-depth-over")["actual"]["diagnostics"][0]["path"],
+        "document.nesting"
+    );
 }
 
-/// Trace: TC-019, NFR-003-AC-2
-#[trace("TC-019", "NFR-003-AC-2")]
+/// Trace: TC-454, NFR-003-AC-2
+#[trace("TC-454", "NFR-003-AC-2")]
 #[test]
-fn tc_019_no_invalid_input_contributes_canonical_identity_or_covered_status() {
+fn tc_454_no_invalid_input_contributes_canonical_identity_or_covered_status() {
     let rows = run();
 
     // Controls: the same runner does produce canonical identity and covered
@@ -438,63 +474,53 @@ fn tc_019_no_invalid_input_contributes_canonical_identity_or_covered_status() {
         .iter()
         .any(|requirement| requirement["class"] == "deep"));
 
-    for class in CLASSES {
-        for fixture in class.fixtures {
-            let row = row(&rows, fixture);
-            let actual = &row["actual"];
-            assert!(!diagnostic_codes(row).is_empty(), "{fixture}");
-            match row["operation"].as_str().unwrap() {
-                "package" | "expression" => {
-                    assert_eq!(actual["valid"], false, "{fixture}");
-                    assert_eq!(actual["canonical"], Value::Array(vec![]), "{fixture}");
-                    assert_eq!(actual["dependencies"], Value::Array(vec![]), "{fixture}");
-                }
-                "coverage" => {
-                    // The invalid trace is an orphaned artifact row and no
-                    // requirement row is shallow or deep because of it.
-                    let artifacts = actual["coverage"]["artifacts"].as_array().unwrap();
-                    assert!(!artifacts.is_empty(), "{fixture}");
-                    for artifact in artifacts {
-                        assert_eq!(artifact["class"], "orphaned", "{fixture}");
-                    }
-                    for requirement in actual["coverage"]["requirements"].as_array().unwrap() {
-                        assert_eq!(requirement["class"], "uncovered", "{fixture}");
-                    }
-                }
-                other => panic!("{fixture}: unexpected operation {other}"),
+    // Every rejected corpus row, derived from the corpus.
+    let rejected = rejected_rows(&rows);
+    assert!(
+        rejected.len() >= 60,
+        "only {} rejected rows",
+        rejected.len()
+    );
+    for row in rejected {
+        let fixture = row["fixture_id"].as_str().unwrap();
+        let actual = &row["actual"];
+        match row["operation"].as_str().unwrap() {
+            "package" | "expression" => {
+                assert_eq!(actual["valid"], false, "{fixture}");
+                assert_eq!(actual["canonical"], Value::Array(vec![]), "{fixture}");
+                assert_eq!(actual["dependencies"], Value::Array(vec![]), "{fixture}");
             }
+            "coverage" => {
+                // The invalid trace is an orphaned artifact row and no
+                // requirement row is shallow or deep because of it; a refused
+                // classification carries no coverage at all.
+                let coverage = &actual["coverage"];
+                if coverage.is_null() {
+                    continue;
+                }
+                let artifacts = coverage["artifacts"].as_array().unwrap();
+                assert!(!artifacts.is_empty(), "{fixture}");
+                for artifact in artifacts {
+                    assert_eq!(artifact["class"], "orphaned", "{fixture}");
+                }
+                for requirement in coverage["requirements"].as_array().unwrap() {
+                    assert_eq!(requirement["class"], "uncovered", "{fixture}");
+                }
+            }
+            other => panic!("{fixture}: unexpected operation {other}"),
         }
     }
 
-    // Decoding rejects the input, so no package exists to canonicalize or to
-    // take an identity from.
-    for class in CLASSES {
-        for fixture in class.fixtures.iter().filter(|f| {
-            matches!(
-                f.strip_prefix("package-"),
-                Some(
-                    "unknown-field"
-                        | "wire-depth-over"
-                        | "invalid-namespace"
-                        | "invalid-schema"
-                        | "schema-1-0"
-                        | "schema-1-2"
-                        | "schema-2-0"
-                        | "invalid-identifier"
-                        | "invalid-requirement-revision"
-                        | "invalid-requirement-revision-over"
-                        | "invalid-source-revision"
-                        | "invalid-source-revision-over"
-                        | "invalid-span"
-                        | "invalid-span-offset-over"
-                )
-            )
-        }) {
-            let decoded = ContractPackage::from_json_str(
-                &package_text(&input(fixture)),
-                ValidationOptions::strict(),
-            );
-            assert!(decoded.is_err(), "{fixture} decoded into a package");
+    // Decoding rejects the wire-level input, so no package exists to
+    // canonicalize or to take an identity from.
+    for row in rejected_rows(&rows) {
+        let fixture = row["fixture_id"].as_str().unwrap();
+        if row["operation"] == "package"
+            && !diagnostic_codes(row)
+                .iter()
+                .any(|c| AFTER_DECODE.contains(c))
+        {
+            assert!(decode(fixture).is_err(), "{fixture} decoded into a package");
         }
     }
 }
