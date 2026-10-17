@@ -91,3 +91,10 @@ pre-existing tag-quality issues and can be deferred. Every TC-048 binding the
 cell claims has tagged tests behind it, except AC-195 and the Inspection
 criteria. The cell's merge blocker, the 21 ids it still leaves out, is reported
 in SR-12120.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | deferred | IR-862: tag the AC-195 lane evidence, or move AC-195 to a verification method that needs no symbol. This was pre-existing and is one of the 43 baseline unbacked criteria; the count is unchanged at f967d1e. |
+| FND-002 | deferred | IR-862: add the TC-048 id to the trace tags of AC-177..182, 224, 228..231 and 236..238. This was pre-existing, and the PR changes no test. |

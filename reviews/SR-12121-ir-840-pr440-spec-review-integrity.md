@@ -54,3 +54,11 @@ PASS WITH FINDINGS for integrity. The edited cell is internally consistent and
 claims nothing that conflicts with another TC's claim. The three low findings
 are pre-existing and should be deferred to a follow-up ticket. The cell is
 still incomplete (SR-12120 FND-001..003), and that keeps the PR from merging.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | deferred | IR-861: add (TC-048) to the FR-038 Verification cells of AC-177..182, 186..201, 214 and 246. This was pre-existing, and the PR does not touch FR-038. |
+| FND-002 | deferred | IR-861: give AC-236..238 an owning TC procedure, then index them. This was pre-existing, and leaving them out of the TC-048 cell is still correct. |
+| FND-003 | fixed | Round 1 (f967d1e): the FR-038 coverage row at tests.md:21 now lists AC-214, AC-222 through AC-238, AC-242 through AC-245 and AC-247 through AC-251. AC-219..221 are not listed, which is correct because they do not exist. Only the ids changed; the status prose did not. |
