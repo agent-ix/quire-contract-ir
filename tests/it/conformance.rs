@@ -7,6 +7,7 @@ use std::{
     process::{Command, Output},
 };
 
+use ix_trace_rs::trace;
 use quire_contract_model::{
     expected_inventory, ClauseRef, ContractPackage, DeclarationEnvironment, DiagnosticCode,
     PackageId, RequirementId, RequirementRef, RequirementRevision, SourceDocumentId,
@@ -132,8 +133,9 @@ fn input_count(corpus: &Path) -> usize {
 }
 
 /// Tracing: TC-018, FR-018-AC-1, FR-019-AC-1, FR-019-AC-3, FR-020-AC-1,
-/// FR-020-AC-12, NFR-001-AC-1.
+/// FR-020-AC-12, NFR-001-AC-1, StR-003-VC-1.
 /// NFR-001-AC-1.
+/// StR-003-VC-1.
 /// FR-018-AC-1.
 /// FR-019-AC-1.
 /// FR-019-AC-3.
@@ -146,7 +148,8 @@ fn input_count(corpus: &Path) -> usize {
     "FR-019-AC-3",
     "FR-020-AC-1",
     "FR-020-AC-12",
-    "NFR-001-AC-1"
+    "NFR-001-AC-1",
+    "StR-003-VC-1"
 )]
 #[test]
 fn tc_018_the_corpus_runs_deterministically_and_every_fixture_matches() {
@@ -217,11 +220,8 @@ fn tc_018_the_corpus_runs_deterministically_and_every_fixture_matches() {
     assert_eq!(invalid_utf8[0].code, DiagnosticCode::InvalidWireFormat);
 }
 
-/// Tracing: TC-018, FR-018-AC-1, FR-018-AC-2, FR-020-AC-2.
-/// StR-003-VC-1.
-/// FR-018-AC-1.
-/// FR-018-AC-2.
-/// FR-020-AC-2.
+/// Trace: TC-018, FR-018-AC-1, FR-018-AC-2, FR-020-AC-2
+#[trace("TC-018", "FR-018-AC-1", "FR-018-AC-2", "FR-020-AC-2")]
 #[test]
 fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
     let scratch = Scratch::corpus("mismatch");
@@ -439,9 +439,8 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
     }
 }
 
-/// Tracing: TC-018, FR-018-AC-1, FR-020-AC-2.
-/// FR-018-AC-1.
-/// FR-020-AC-2.
+/// Trace: TC-018, FR-020-AC-2
+#[trace("TC-018", "FR-020-AC-2")]
 #[test]
 fn tc_018_runner_refuses_unsafe_paths_foreign_schemas_and_stray_entries() {
     let version = runner(&["--version"]);
@@ -514,8 +513,8 @@ fn tc_018_runner_refuses_unsafe_paths_foreign_schemas_and_stray_entries() {
     assert_eq!(error_code(&orphan.run()), "invalid_corpus");
 }
 
-/// Tracing: TC-018, FR-019-AC-2, NFR-003-AC-1.
-/// FR-019-AC-2.
+/// Trace: TC-018, FR-019-AC-2
+#[trace("TC-018", "FR-019-AC-2")]
 #[test]
 fn tc_018_semantic_depth_and_collection_edges_preflight_without_panic() {
     let linked_run = catch_unwind(|| quire_contract_model::run_corpus(&corpus(), &schemas()));
@@ -647,8 +646,8 @@ fn tc_018_semantic_depth_and_collection_edges_preflight_without_panic() {
     );
 }
 
-/// Tracing: TC-018, FR-018-AC-3.
-/// FR-018-AC-3.
+/// Trace: TC-018, FR-018-AC-3
+#[trace("TC-018", "FR-018-AC-3")]
 #[test]
 fn tc_018_wire_depth_controls_ignore_quoted_delimiters_and_pin_literal_cliff() {
     // Independent authored counts, not the producer's scanner or depth constant.

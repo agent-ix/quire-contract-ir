@@ -630,6 +630,7 @@ fn resolve_field(
 mod tests {
     use super::{creates_or_deletes, field_entry, is_identifier, relationship_entry};
     use crate::checked_package::v2::{CheckedNodeKind, ModelForm, RelationForm};
+    use ix_trace_rs::trace;
 
     fn admitted(admits: fn(CheckedNodeKind) -> bool) -> Vec<CheckedNodeKind> {
         CheckedNodeKind::all()
@@ -642,7 +643,8 @@ mod tests {
     /// or `model`/`process` node, over every kind the closed vocabularies
     /// produce.
     ///
-    /// Tracing: TC-053, FR-038-AC-12
+    /// Trace: TC-053, FR-038-AC-12
+    #[trace("TC-053", "FR-038-AC-12")]
     #[test]
     fn tc_053_creates_and_deletes_admit_exactly_object_types_and_processes() {
         assert_eq!(
@@ -658,7 +660,8 @@ mod tests {
     /// and a field entry exactly a `model`/`object_type` or
     /// `model`/`record_value_type` node; no systems form is a declaring node.
     ///
-    /// Tracing: TC-056, FR-040-AC-2
+    /// Trace: TC-056, FR-040-AC-2
+    #[trace("TC-056", "FR-040-AC-2")]
     #[test]
     fn tc_056_modifies_entries_admit_exactly_their_declaring_kinds() {
         assert_eq!(
@@ -674,7 +677,8 @@ mod tests {
         );
     }
 
-    /// Tracing: TC-056, FR-040-AC-1
+    /// Trace: TC-056
+    #[trace("TC-056")]
     #[test]
     fn tc_056_field_names_are_identifiers() {
         for name in ["total", "_x", "a1", "A_b"] {
