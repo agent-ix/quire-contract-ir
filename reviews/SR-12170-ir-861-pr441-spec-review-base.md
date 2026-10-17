@@ -86,3 +86,11 @@ PASS on the base review: all 38 bindings are honest, and the new section is
 accurate to the criteria and to the tests. All three findings are low and none
 blocks merge on its own. The blocking finding for this PR is in SR-12171
 FND-001: the TC-048 Traces To cell does not list AC-236..238.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1 (e1a572d): step 5 of TC-048 "Private intake refusal-origin checks" now carries the AC-192 exact-budget clause: independent charges for fixed authored source and generated origin records, success at exactly that budget, and the work-limit result with no partial package at one less, plus a selected document that succeeds at its measured work and returns the work-limit result at one less. This matches `tc_048_intake_metadata_work_and_original_first_refusal_are_exact` (intake_retention.rs:494-548), which computes the expected work independently, asserts `meter.consumed() == expected`, asserts the `Incomplete` work-limit record at `expected - 1`, and runs `selected(doc, used)` to Ok and `used - 1` to the work limit. The clause claims nothing beyond the test. |
+| FND-002 | fixed | Round 1 (e1a572d): "Expected" now names the two controls the tests add, the `malformed_wire` refusal for an absent `owner` and `ill_typed`/`operator-ineligible` for `enum.lt` and `structural.eq`, as "extra test controls ... not required by the criterion text". It no longer says they satisfy AC-236..238. |
+| FND-003 | fixed | Round 1 (e1a572d): step 3 now says "Read an ordinary scalar enum whose cases include a non-identifier spelling and require `invalid_semantic_graph`". |

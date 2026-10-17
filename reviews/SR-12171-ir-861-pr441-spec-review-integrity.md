@@ -77,3 +77,10 @@ tests.md:32. The PR does not need to wait for IR-852, and the FR-038 coverage
 row needs no change. All 38 Verification edits are honest, and the coverage
 change is fully explained: four rows, AC-193, 194, 195 and 201, with no
 contradicted status. FND-002 is low and only needs the PR body corrected.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1 (e1a572d): the TC-048 Traces To cell in tests.md:32 now lists FR-038-AC-236, FR-038-AC-237 and FR-038-AC-238 between AC-235 and AC-239. The cell holds 221 ids, ascending, with no duplicates. Only that cell changed, and the FR-038 coverage row (tests.md:21) is unchanged, which is correct. The PR body no longer defers this step to IR-852. |
+| FND-002 | fixed | Round 1 (e1a572d): the PR body now says that AC-193, 194, 195 and 201 count as backed once they name a TC, without a tagged symbol, and that "this is not new executed evidence". It also says that AC-195 is a Clippy-lane Test that stays untagged and UNRUN. |
