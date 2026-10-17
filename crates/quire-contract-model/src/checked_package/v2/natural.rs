@@ -217,7 +217,6 @@ mod tests {
         coprime(numerator, denominator, &mut meter, &at).expect("unbounded work")
     }
 
-    /// Trace: TC-048, FR-038-AC-121
     #[trace("TC-048", "FR-038-AC-121")]
     #[test]
     fn tc_048_decides_reduction_beyond_u128() {
@@ -242,7 +241,6 @@ mod tests {
         meter.consumed()
     }
 
-    /// Trace: TC-048, FR-038-AC-3
     #[trace("TC-048", "FR-038-AC-3")]
     #[test]
     fn tc_048_charges_work_and_stops_at_the_limit() {
@@ -277,7 +275,6 @@ mod tests {
         );
     }
 
-    /// Trace: TC-048, FR-038-AC-3
     #[trace("TC-048", "FR-038-AC-3")]
     #[test]
     fn tc_048_parse_work_grows_with_limbs_not_digits() {
@@ -312,8 +309,6 @@ mod tests {
 
     /// The cross-multiplied comparison is exact beyond 64 bits and orders
     /// rationals, equal ones included, as their values do.
-    ///
-    /// Trace: TC-048, FR-038-AC-121
     #[trace("TC-048", "FR-038-AC-121")]
     #[test]
     fn tc_048_compares_rationals_exactly_beyond_2_pow_64() {
@@ -335,8 +330,6 @@ mod tests {
 
     /// The comparison charges its parses and products to the meter and stops
     /// at the limit.
-    ///
-    /// Trace: TC-048, FR-038-AC-3
     #[trace("TC-048", "FR-038-AC-3")]
     #[test]
     fn tc_048_comparison_work_is_charged_and_stops_at_the_limit() {

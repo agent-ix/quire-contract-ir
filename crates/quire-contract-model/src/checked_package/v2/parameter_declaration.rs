@@ -143,7 +143,6 @@ mod tests {
         }
     }
 
-    /// Tracing: TC-048, FR-038-AC-258, FR-038-AC-259
     #[trace("TC-048", "FR-038-AC-258", "FR-038-AC-259")]
     #[test]
     fn tc_048_parameter_declaration_reads_a_healthy_body_and_refuses_other_nodes() {
@@ -167,7 +166,6 @@ mod tests {
         }
     }
 
-    /// Tracing: TC-048, FR-038-AC-259
     #[trace("TC-048", "FR-038-AC-259")]
     #[test]
     fn tc_048_post_admission_body_mutations_refuse_malformed_body() {

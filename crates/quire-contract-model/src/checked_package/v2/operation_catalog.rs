@@ -392,8 +392,6 @@ mod tests {
     /// Every catalog vocabulary the reader decodes into an enum is exactly
     /// the enum's member set, and `LawRole::selection_role` is `Some` for
     /// exactly the catalog's profile law roles.
-    ///
-    /// Trace: TC-048, FR-038-AC-65
     #[trace("TC-048", "FR-038-AC-65")]
     #[test]
     fn tc_048_the_catalog_vocabularies_are_the_decoded_enums() {
