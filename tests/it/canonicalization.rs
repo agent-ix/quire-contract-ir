@@ -74,8 +74,8 @@ fn reference(package: &ContractPackage<ReferenceBody>, id: &str, revision: u64) 
     RequirementRef::parse(package.id().as_str(), id, revision).unwrap()
 }
 
-/// Trace: TC-017, FR-016-AC-2, FR-016-AC-4
-#[trace("TC-017", "FR-016-AC-2", "FR-016-AC-4")]
+/// Trace: TC-017, FR-016-AC-4
+#[trace("TC-017", "FR-016-AC-4")]
 #[test]
 fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
     let package = package_fixture("canonical_a", false, false);
@@ -647,8 +647,8 @@ fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
     assert!(collection_text.find("z_item").unwrap() < collection_text.find("a_item").unwrap());
 }
 
-/// Trace: TC-017, FR-017-AC-1
-#[trace("TC-017", "FR-017-AC-1")]
+/// Trace: TC-017, FR-017-AC-1, StR-002-VC-2
+#[trace("TC-017", "FR-017-AC-1", "StR-002-VC-2")]
 #[test]
 fn tc_017_version_preflight_supports_only_schema_1_1() {
     let package = package_fixture("preflight", false, false);
@@ -696,8 +696,8 @@ fn tc_017_version_preflight_supports_only_schema_1_1() {
     );
 }
 
-/// Trace: TC-017
-#[trace("TC-017")]
+/// Trace: TC-017, FR-017-AC-5
+#[trace("TC-017", "FR-017-AC-5")]
 #[test]
 fn tc_017_coverage_classes_orphans_diagnostics_and_sorting_conform() {
     let package = package_fixture("coverage", false, false);
