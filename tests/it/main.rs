@@ -61,6 +61,7 @@ mod kani_arithmetic;
 mod kani_collections;
 mod kani_objects;
 mod kani_shared;
+mod nfr003_invalid_input;
 mod output_mapping;
 mod public_interface;
 mod selected_population;

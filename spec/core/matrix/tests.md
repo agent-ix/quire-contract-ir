@@ -29,7 +29,7 @@ type: TestMatrix
 |---|---|---|---|
 | NFR-001 | repeated corpus runs, direct canonical byte comparison for admitted inputs, and ordered diagnostic tuple comparison for rejected inputs | TC-017, TC-019 | 🚧 same-process canonical fixtures exist (TC-017); cross-platform canonical byte equality (AC-2) and ordered diagnostic `(code, path)` equality (AC-3) await direct TC-019 evidence |
 | NFR-002 | vocabulary, schema and API inspection | TC-015, TC-016, TC-019 | AC-3/4 implemented; cross-platform AC-1 planned |
-| NFR-003 | negative corpus, mutation, panic-free, orphan, and exact-span checks | TC-017 through TC-019 | 🚧 version and orphan fail-closed checks implemented (TC-017, TC-018); exact source/target span checks (AC-3) and threshold analysis (TC-019) planned |
+| NFR-003 | negative corpus, mutation, panic-free, orphan, and exact-span checks | TC-017 through TC-019 | 🚧 version and orphan fail-closed checks implemented (TC-017, TC-018); AC-1 and AC-2 implemented in `tests/it/nfr003_invalid_input.rs` (TC-019: every STD-001 semantic code class driven through `run_corpus` and package decoding, stable code, no panic, no canonical identity, no covered status); exact source/target span checks (AC-3) planned |
 
 ## Diagnostic Registry Coverage
 
@@ -44,4 +44,4 @@ type: TestMatrix
 | TC-015 | Package, revision, anchor, clause, dependency, and diagnostic identities conform | Integration | P0 | FR-011, FR-012, NFR-002, STD-001 | ✅ implemented |
 | TC-442 | `Std001Code` is built only by validation, a checked literal, a registered constant or a `DiagnosticCode`, serializes as the bare string and spells every registered code once | Unit | P0 | FR-044 | ✅ implemented |
 | TC-446 | Proof-coverage baseline retains the population and qualifies evidence | Integration | P0 | FR-045 | 🚧 planned; no executable test |
-| TC-019 | Determinism, portability, and fail-closed metrics meet thresholds | Analysis | P0 | NFR-001..NFR-003 | 🚧 planned: direct admitted-input canonical byte comparison, rejected-input ordered diagnostic tuple comparison, portability and fail-closed threshold analysis have no executable test |
+| TC-019 | Determinism, portability, and fail-closed metrics meet thresholds | Analysis | P0 | NFR-001..NFR-003 | 🚧 NFR-003-AC-1 and NFR-003-AC-2 implemented (`tests/it/nfr003_invalid_input.rs`); planned: direct admitted-input canonical byte comparison, rejected-input ordered diagnostic tuple comparison and portability analysis (NFR-001, NFR-002) have no executable test |
