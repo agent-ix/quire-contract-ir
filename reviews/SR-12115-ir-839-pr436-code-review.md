@@ -91,3 +91,22 @@ Traceability:
 
 - `quire trace --id FR-018-AC-2 --json` resolves three `rust-trace-attribute` claims: the old combined test plus the two new tests.
 - `make spec` gives strict 43 unbacked / 0 contradicted and `Coverage: 508/565 rows backed`. Both are unchanged; AC-2 was already backed by the combined test.
+
+## Dispositions
+
+Round 1, at head bb036a79dd78d37fb59a508b051851dd64558ab9. The new commits are 53ffcf6 (a merge of origin/main 9a1dacc) and bb036a7. The PR diff against origin/main is now `tests/it/conformance_mismatch_independence.rs`, `tests/it/main.rs`, the new `tests/it/support/corpus.rs`, `tests/it/support/mod.rs` (+1 line), `tests/it/conformance.rs` (imports only), and the two `reviews/` copies.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | bb036a7 adds `two_diagnostic_baseline()`. It builds the two-diagnostic setup, takes the observed result as the expectation, and asserts an exit-0 control run. Three tests sit on it, each with its own fresh copy and one mutation: swap the two diagnostics; change only `diagnostics[1].code`; drop the second diagnostic. I re-ran the `first_diag_only` mutant in a throwaway worktree with its own target dir (since removed). It is now killed by `tc_018_a_drift_in_the_second_diagnostic_alone_is_a_diagnostics_mismatch` and `tc_018_a_missing_second_diagnostic_alone_is_a_diagnostics_mismatch`. `sorted_diags` is still killed by the order test. |
+| FND-002 | fixed | The ten cases are now ten `#[test]` functions that call `run_case(label)`. A separate `tc_018_the_case_table_produces_every_fr020_mismatch_kind` holds the guard. The module's 14 tests run in 32 s wall, down from 102 s + 17 s. Scratch labels are `ac2-<label>`, unique across the 14 tests. None of `conformance.rs`'s 22 `Scratch::corpus` labels starts with `ac2-` or repeats. After the runs, no `quire-contract-ir-tc018-*ac2*` dir remained in `/tmp`. |
+| FND-003 | fixed | The helpers moved verbatim to `tests/it/support/corpus.rs`, now `pub`. `support/mod.rs` gains `pub mod corpus;`. `git diff origin/main...HEAD -- tests/it/conformance.rs` shows only the `PathBuf` import narrowed to `Path`, the helper block removed, and one `use crate::support::corpus::{...}` added. No test, assertion or trace attribute changed. `tc_018_all_mismatch_kinds_and_exit_classes_are_stable` is untouched. All 26 `conformance*` tests pass. |
+| FND-004 | accepted-no-change | Residual accepted, with the comment fixed. The guard comment now cites FR-020 and states that a hand-typed set cannot notice a seventh runner kind. The runner exports no kind registry. A seventh kind would need an FR-020 change, which is the point at which this list gets reviewed. The sub-dimension half is now guarded by construction: each sub-dimension has its own named test, and `run_case` unwraps the label lookup, so removing a case from the table makes its test panic. |
+
+Also checked this round:
+
+- `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --all --check` are clean.
+- `quire trace --id FR-018-AC-2` resolves 15 `rust-trace-attribute` claims: the old combined test plus 14 new ones.
+- `make spec` gives strict 43/0 and 508/572 rows backed, identical to origin/main 9a1dacc. The denominator grew from 565 to 572 through the merge of main, not through this PR.
+- The per-case tests no longer run their own unmutated-corpus control. `assert_only` still requires every other row to match, and `tc_018_the_corpus_runs_deterministically_and_every_fixture_matches` owns the baseline, so this is not a defect.
+- `Scratch` now places the copy at `<root>/contract-v0.1`, so the rows carry the real corpus id.
