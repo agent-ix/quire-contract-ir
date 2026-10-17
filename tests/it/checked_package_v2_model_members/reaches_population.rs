@@ -137,7 +137,7 @@ impl Scenario {
                 .expect("arguments")
                 .reverse();
         }
-        link_application(&mut node, population.map(|key| node_id(key)), population);
+        link_application(&mut node, population.map(node_id), population);
         let id = typed_id(node["node_id"]["digest"].as_str().expect("key"));
         self.nodes().push(node);
         self.settle();
@@ -410,6 +410,14 @@ fn tc_048_a_population_that_is_not_a_population_with_a_type_occurrence_is_refuse
 
     let mut scenario = Scenario::standard();
     scenario.link(Some(node_id(&INTEGER)), Some(&INTEGER));
+    scenario.assert_refused(ILL_TYPED, POPULATION_AT);
+
+    // A `collection_bounds` node over `Set<Reference<Order>>` has a readable
+    // `max` and an object type, and is not a population.
+    let mut scenario = Scenario::standard();
+    let reference = scenario.reference_of(ORDER);
+    let bounds = bounded_collection(scenario.nodes(), &reference, "set", 0, 3);
+    scenario.link(Some(node_id(&bounds)), Some(&bounds));
     scenario.assert_refused(ILL_TYPED, POPULATION_AT);
 
     let mut scenario = Scenario::standard();

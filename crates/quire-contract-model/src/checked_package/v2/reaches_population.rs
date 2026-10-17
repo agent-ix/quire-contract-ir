@@ -76,6 +76,8 @@ mod tests {
     use serde_json::{json, Value};
     use std::collections::BTreeMap;
 
+    type Mutation = Box<dyn Fn(&mut CheckedPackageV2, &BTreeMap<char, CheckedNodeId>)>;
+
     /// The admitted reaches package with a population node added to its graph
     /// after admission, so that `population` mutations can be applied to an
     /// application that names a real population.
@@ -118,10 +120,7 @@ mod tests {
             .expect("a selector");
         assert_eq!(selector.binding, population);
 
-        let mutations: [(
-            &str,
-            Box<dyn Fn(&mut CheckedPackageV2, &BTreeMap<char, CheckedNodeId>)>,
-        ); 5] = [
+        let mutations: [(&str, Mutation); 5] = [
             (
                 "not a node id",
                 Box::new(|package, ids| set_population(package, ids, json!(7))),
