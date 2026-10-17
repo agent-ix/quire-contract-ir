@@ -133,77 +133,66 @@ fn run_case(label: &str) {
     assert_only(&scratch.run(), case.fixture, case.kind, label);
 }
 
-/// Trace: TC-018, FR-018-AC-2
 #[trace("TC-018", "FR-018-AC-2")]
 #[test]
 fn tc_018_mismatch_validity_alone_reports_only_its_kind() {
     run_case("validity");
 }
 
-/// Trace: TC-018, FR-018-AC-2
 #[trace("TC-018", "FR-018-AC-2")]
 #[test]
 fn tc_018_mismatch_diagnostic_code_alone_reports_only_its_kind() {
     run_case("diagnostic-code");
 }
 
-/// Trace: TC-018, FR-018-AC-2
 #[trace("TC-018", "FR-018-AC-2")]
 #[test]
 fn tc_018_mismatch_diagnostic_path_alone_reports_only_its_kind() {
     run_case("diagnostic-path");
 }
 
-/// Trace: TC-018, FR-018-AC-2
 #[trace("TC-018", "FR-018-AC-2")]
 #[test]
 fn tc_018_mismatch_diagnostic_span_alone_reports_only_its_kind() {
     run_case("diagnostic-span");
 }
 
-/// Trace: TC-018, FR-018-AC-2
 #[trace("TC-018", "FR-018-AC-2")]
 #[test]
 fn tc_018_mismatch_diagnostic_obligation_alone_reports_only_its_kind() {
     run_case("diagnostic-obligation");
 }
 
-/// Trace: TC-018, FR-018-AC-2
 #[trace("TC-018", "FR-018-AC-2")]
 #[test]
 fn tc_018_mismatch_canonical_bytes_alone_reports_only_its_kind() {
     run_case("canonical-bytes");
 }
 
-/// Trace: TC-018, FR-018-AC-2
 #[trace("TC-018", "FR-018-AC-2")]
 #[test]
 fn tc_018_mismatch_canonical_digest_alone_reports_only_its_kind() {
     run_case("canonical-digest");
 }
 
-/// Trace: TC-018, FR-018-AC-2
 #[trace("TC-018", "FR-018-AC-2")]
 #[test]
 fn tc_018_mismatch_dependencies_alone_reports_only_its_kind() {
     run_case("dependencies");
 }
 
-/// Trace: TC-018, FR-018-AC-2
 #[trace("TC-018", "FR-018-AC-2")]
 #[test]
 fn tc_018_mismatch_coverage_row_alone_reports_only_its_kind() {
     run_case("coverage-row");
 }
 
-/// Trace: TC-018, FR-018-AC-2
 #[trace("TC-018", "FR-018-AC-2")]
 #[test]
 fn tc_018_mismatch_coverage_reason_alone_reports_only_its_kind() {
     run_case("coverage-reason");
 }
 
-/// Trace: TC-018, FR-018-AC-2
 #[trace("TC-018", "FR-018-AC-2")]
 #[test]
 fn tc_018_the_case_table_produces_every_fr020_mismatch_kind() {
@@ -260,7 +249,6 @@ fn two_diagnostic_baseline(label: &str) -> (Scratch, PathBuf, Value, Vec<Value>)
     (scratch, path, expectation, diagnostics)
 }
 
-/// Trace: TC-018, FR-018-AC-2
 #[trace("TC-018", "FR-018-AC-2")]
 #[test]
 fn tc_018_diagnostic_order_alone_is_reported_as_a_diagnostics_mismatch() {
@@ -271,7 +259,6 @@ fn tc_018_diagnostic_order_alone_is_reported_as_a_diagnostics_mismatch() {
     assert_only(&scratch.run(), "coverage-stale", "diagnostics", "order");
 }
 
-/// Trace: TC-018, FR-018-AC-2
 #[trace("TC-018", "FR-018-AC-2")]
 #[test]
 fn tc_018_a_drift_in_the_second_diagnostic_alone_is_a_diagnostics_mismatch() {
@@ -286,7 +273,6 @@ fn tc_018_a_drift_in_the_second_diagnostic_alone_is_a_diagnostics_mismatch() {
     );
 }
 
-/// Trace: TC-018, FR-018-AC-2
 #[trace("TC-018", "FR-018-AC-2")]
 #[test]
 fn tc_018_a_missing_second_diagnostic_alone_is_a_diagnostics_mismatch() {
