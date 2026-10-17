@@ -1,3 +1,4 @@
+use ix_trace_rs::trace;
 use quire_contract_model::{
     AnchorName, BooleanOperator, CollectionType, ComparisonOperator, DeclarationEnvironment,
     DefinednessObligationKind, DependencyKind, DiagnosticCode, EnumDeclaration,
@@ -213,21 +214,18 @@ fn pre() -> ExecutionPoint {
     }
 }
 
-/// Tracing: TC-016
-/// TC-016.
-/// StR-001-VC-1.
-/// FR-012-AC-5.
-/// FR-013-AC-1.
-/// FR-013-AC-2.
-/// FR-013-AC-3.
-/// FR-013-AC-4.
-/// FR-014-AC-1.
-/// FR-014-AC-2.
-/// FR-014-AC-3.
-/// FR-014-AC-4.
-/// FR-014-AC-6.
-/// NFR-002-AC-4.
-/// STD-001.
+/// Trace: TC-016, FR-013-AC-1, FR-013-AC-2, FR-013-AC-3, FR-013-AC-4
+/// Trace: TC-016, FR-014-AC-2, FR-014-AC-3, NFR-002-AC-4
+#[trace(
+    "TC-016",
+    "FR-013-AC-1",
+    "FR-013-AC-2",
+    "FR-013-AC-3",
+    "FR-013-AC-4",
+    "FR-014-AC-2",
+    "FR-014-AC-3",
+    "NFR-002-AC-4"
+)]
 #[test]
 fn tc_016_closed_types_expressions_scopes_and_dependencies_conform() {
     let environment = environment();
@@ -469,17 +467,15 @@ fn tc_016_closed_types_expressions_scopes_and_dependencies_conform() {
     }
 }
 
-/// Tracing: TC-016
-/// TC-016.
-/// FR-014-AC-1.
-/// FR-014-AC-4.
-/// FR-015-AC-1.
-/// FR-015-AC-2.
-/// FR-015-AC-3.
-/// FR-015-AC-4.
-/// FR-015-AC-5.
-/// FR-015-AC-6.
-/// FR-015-AC-7.
+/// Trace: TC-016, FR-015-AC-1, FR-015-AC-2, FR-015-AC-3, FR-015-AC-5, FR-015-AC-6
+#[trace(
+    "TC-016",
+    "FR-015-AC-1",
+    "FR-015-AC-2",
+    "FR-015-AC-3",
+    "FR-015-AC-5",
+    "FR-015-AC-6"
+)]
 #[test]
 fn tc_016_definedness_guards_ranges_and_quantifiers_fail_closed() {
     let environment = environment();
@@ -626,10 +622,8 @@ fn tc_016_definedness_guards_ranges_and_quantifiers_fail_closed() {
         .is_ok());
 }
 
-/// Tracing: TC-016
-/// TC-016.
-/// FR-014-AC-5.
-/// NFR-002-AC-4.
+/// Trace: TC-016, FR-014-AC-5
+#[trace("TC-016", "FR-014-AC-5")]
 #[test]
 fn tc_016_expression_limits_preflight_before_recursive_typing() {
     let environment = environment();
@@ -722,12 +716,8 @@ fn tc_016_expression_limits_preflight_before_recursive_typing() {
     );
 }
 
-/// Tracing: TC-016.
-/// FR-013-AC-1.
-/// FR-013-AC-3.
-/// FR-013-AC-4.
-/// FR-014-AC-1.
-/// STD-001.
+/// Trace: TC-016, FR-013-AC-1, FR-013-AC-3, FR-014-AC-1
+#[trace("TC-016", "FR-013-AC-1", "FR-013-AC-3", "FR-014-AC-1")]
 #[test]
 fn tc_016_declaration_and_literal_failures_are_distinct_and_ordered() {
     let base = environment();
@@ -952,12 +942,8 @@ fn tc_016_declaration_and_literal_failures_are_distinct_and_ordered() {
     }
 }
 
-/// Tracing: TC-016.
-/// FR-014-AC-4.
-/// FR-015-AC-1.
-/// FR-015-AC-4.
-/// FR-015-AC-5.
-/// FR-015-AC-7.
+/// Trace: TC-016, FR-015-AC-4, FR-015-AC-5, FR-015-AC-7
+#[trace("TC-016", "FR-015-AC-4", "FR-015-AC-5", "FR-015-AC-7")]
 #[test]
 fn tc_016_numeric_policies_normalization_and_proof_spans_conform() {
     let base = environment();
@@ -1096,12 +1082,15 @@ fn tc_016_numeric_policies_normalization_and_proof_spans_conform() {
         .any(|obligation| obligation.kind() == DefinednessObligationKind::CheckedRange));
 }
 
-/// Tracing: TC-016.
-/// FR-014-AC-3.
-/// FR-015-AC-3.
-/// FR-015-AC-5.
-/// FR-015-AC-6.
-/// STD-001.
+/// Trace: TC-016, FR-014-AC-1, FR-014-AC-3, FR-015-AC-3, FR-015-AC-5, FR-015-AC-6
+#[trace(
+    "TC-016",
+    "FR-014-AC-1",
+    "FR-014-AC-3",
+    "FR-015-AC-3",
+    "FR-015-AC-5",
+    "FR-015-AC-6"
+)]
 #[test]
 fn tc_016_scope_guard_flow_call_ranges_and_diagnostic_invariants_conform() {
     let environment = environment();
@@ -1318,9 +1307,8 @@ fn tc_016_scope_guard_flow_call_ranges_and_diagnostic_invariants_conform() {
         .is_ok());
 }
 
-/// Tracing: TC-016.
-/// FR-012-AC-5.
-/// FR-014-AC-6.
+/// Trace: TC-016, FR-012-AC-5, FR-014-AC-6, StR-001-VC-1
+#[trace("TC-016", "FR-012-AC-5", "FR-014-AC-6", "StR-001-VC-1")]
 #[test]
 fn tc_016_mixed_dependencies_implement_the_structural_source_contract() {
     let environment = environment();
@@ -1421,11 +1409,8 @@ fn tc_016_mixed_dependencies_implement_the_structural_source_contract() {
     );
 }
 
-/// Tracing: TC-016.
-/// FR-015-AC-3.
-/// FR-015-AC-5.
-/// FR-015-AC-6.
-/// FR-015-AC-7.
+/// Trace: TC-016, FR-015-AC-3, FR-015-AC-5, FR-015-AC-6, FR-015-AC-7
+#[trace("TC-016", "FR-015-AC-3", "FR-015-AC-5", "FR-015-AC-6", "FR-015-AC-7")]
 #[test]
 fn tc_016_rational_literal_guards_refine_nonzero_and_ordered_ranges() {
     let base = environment();
@@ -1748,9 +1733,8 @@ fn assert_guarded_products_check(leaf_counts: &[usize]) {
 /// 16 leaves run in-process, a size whose unmerged growth is bounded, and the unit tests
 /// cover repeated products.
 ///
-/// Tracing: TC-016
-/// TC-016.
-/// FR-014-AC-7.
+/// Trace: TC-016, FR-014-AC-7
+#[trace("TC-016", "FR-014-AC-7")]
 #[test]
 fn tc_016_guard_split_products_merge_instead_of_multiplying_out() {
     #[cfg(not(target_os = "linux"))]
@@ -1783,9 +1767,8 @@ fn tc_016_guard_split_products_merge_instead_of_multiplying_out() {
 /// A range set past 64 intervals is widened, not refused: sums of 64, 100 and 200 guarded
 /// leaves check under every overflow policy and numeric family.
 ///
-/// Tracing: TC-016
-/// TC-016.
-/// FR-014-AC-7.
+/// Trace: TC-016, FR-014-AC-7
+#[trace("TC-016", "FR-014-AC-7")]
 #[test]
 fn tc_016_range_sets_beyond_the_limit_widen_and_still_check() {
     for numeric in all_numerics() {
@@ -1801,9 +1784,8 @@ fn tc_016_range_sets_beyond_the_limit_widen_and_still_check() {
 /// divisor's own obligation is reported. Integer only: a rational quotient by a wide sum
 /// exceeds the one-denominator type for its own reasons.
 ///
-/// Tracing: TC-016
-/// TC-016.
-/// FR-014-AC-7.
+/// Trace: TC-016, FR-014-AC-7
+#[trace("TC-016", "FR-014-AC-7")]
 #[test]
 fn tc_016_divisors_reaching_zero_through_widening_report_their_own_obligation() {
     for numeric in &all_numerics()[..2] {
@@ -1825,9 +1807,8 @@ fn tc_016_divisors_reaching_zero_through_widening_report_their_own_obligation() 
 /// The `!= 0` split keeps both halves: the product of the split range excludes zero, a
 /// sum with a literal reaches zero, and without the guard the divisor may be zero.
 ///
-/// Tracing: TC-016
-/// TC-016.
-/// FR-014-AC-7.
+/// Trace: TC-016, FR-014-AC-7
+#[trace("TC-016", "FR-014-AC-7")]
 #[test]
 fn tc_016_nonzero_split_keeps_both_halves_for_every_numeric_family() {
     for numeric in all_numerics() {

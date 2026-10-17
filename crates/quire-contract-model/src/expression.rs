@@ -4051,6 +4051,7 @@ fn children(expression: &Expression) -> Vec<&Expression> {
 #[cfg(test)]
 mod range_set_tests {
     use super::*;
+    use ix_trace_rs::trace;
 
     fn full_integer_type() -> IntegerType {
         IntegerType::new(
@@ -4151,9 +4152,8 @@ mod range_set_tests {
         sets
     }
 
-    /// Tracing: TC-016
-    /// TC-016.
-    /// FR-014-AC-7.
+    /// Trace: TC-016, FR-014-AC-7
+    #[trace("TC-016", "FR-014-AC-7")]
     #[test]
     fn tc_016_merged_integer_ranges_cover_exactly_the_unmerged_pairwise_results() {
         let sets = small_sets();
@@ -4183,9 +4183,8 @@ mod range_set_tests {
         }
     }
 
-    /// Tracing: TC-016
-    /// TC-016.
-    /// FR-014-AC-7.
+    /// Trace: TC-016, FR-014-AC-7
+    #[trace("TC-016", "FR-014-AC-7")]
     #[test]
     fn tc_016_repeated_products_of_a_split_range_stay_two_intervals() {
         let split = vec![(-1, -1), (1, 1)];
@@ -4202,9 +4201,8 @@ mod range_set_tests {
         }
     }
 
-    /// Tracing: TC-016
-    /// TC-016.
-    /// FR-014-AC-7.
+    /// Trace: TC-016, FR-014-AC-7
+    #[trace("TC-016", "FR-014-AC-7")]
     #[test]
     fn tc_016_widened_ranges_are_a_superset_with_the_same_extremes_closing_the_narrowest_gaps() {
         let points: Vec<(i128, i128)> = [0, 1, 3, 4, 8, 9, 10, 15, 16, 22]
@@ -4242,9 +4240,8 @@ mod range_set_tests {
         }
     }
 
-    /// Tracing: TC-016
-    /// TC-016.
-    /// FR-014-AC-7.
+    /// Trace: TC-016, FR-014-AC-7
+    #[trace("TC-016", "FR-014-AC-7")]
     #[test]
     fn tc_016_range_sets_at_and_past_the_size_limit() {
         let split = vec![(-1, -1), (1, 1)];
@@ -4260,9 +4257,8 @@ mod range_set_tests {
         }
     }
 
-    /// Tracing: TC-016
-    /// TC-016.
-    /// FR-014-AC-7.
+    /// Trace: TC-016, FR-014-AC-7
+    #[trace("TC-016", "FR-014-AC-7")]
     #[test]
     fn tc_016_rational_ranges_merge_and_widen_like_integer_ranges() {
         let split = vec![(-1, -1), (1, 1)];
@@ -4282,9 +4278,8 @@ mod range_set_tests {
         }
     }
 
-    /// Tracing: TC-016
-    /// TC-016.
-    /// FR-014-AC-7.
+    /// Trace: TC-016, FR-014-AC-7
+    #[trace("TC-016", "FR-014-AC-7")]
     #[test]
     fn tc_016_the_limit_is_64_and_widening_keeps_a_hole_at_zero() {
         assert_eq!(MAX_RANGE_SET_SIZE, 64);
