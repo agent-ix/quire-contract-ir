@@ -4063,7 +4063,6 @@ mod range_set_tests {
         .unwrap()
     }
 
-    /// Trace: TC-016, FR-015-AC-8
     #[trace("TC-016", "FR-015-AC-8")]
     #[test]
     fn exact_rational_products_reduce_before_i128_range_check() {
@@ -4094,7 +4093,6 @@ mod range_set_tests {
         );
     }
 
-    /// Trace: TC-016, FR-015-AC-8
     #[trace("TC-016", "FR-015-AC-8")]
     #[test]
     fn saturated_integer_intermediates_clamp_at_declared_bounds() {
@@ -4152,7 +4150,6 @@ mod range_set_tests {
         sets
     }
 
-    /// Trace: TC-016, FR-014-AC-7
     #[trace("TC-016", "FR-014-AC-7")]
     #[test]
     fn tc_016_merged_integer_ranges_cover_exactly_the_unmerged_pairwise_results() {
@@ -4183,7 +4180,6 @@ mod range_set_tests {
         }
     }
 
-    /// Trace: TC-016, FR-014-AC-7
     #[trace("TC-016", "FR-014-AC-7")]
     #[test]
     fn tc_016_repeated_products_of_a_split_range_stay_two_intervals() {
@@ -4201,7 +4197,6 @@ mod range_set_tests {
         }
     }
 
-    /// Trace: TC-016, FR-014-AC-7
     #[trace("TC-016", "FR-014-AC-7")]
     #[test]
     fn tc_016_widened_ranges_are_a_superset_with_the_same_extremes_closing_the_narrowest_gaps() {
@@ -4240,7 +4235,6 @@ mod range_set_tests {
         }
     }
 
-    /// Trace: TC-016, FR-014-AC-7
     #[trace("TC-016", "FR-014-AC-7")]
     #[test]
     fn tc_016_range_sets_at_and_past_the_size_limit() {
@@ -4257,7 +4251,6 @@ mod range_set_tests {
         }
     }
 
-    /// Trace: TC-016, FR-014-AC-7
     #[trace("TC-016", "FR-014-AC-7")]
     #[test]
     fn tc_016_rational_ranges_merge_and_widen_like_integer_ranges() {
@@ -4278,7 +4271,6 @@ mod range_set_tests {
         }
     }
 
-    /// Trace: TC-016, FR-014-AC-7
     #[trace("TC-016", "FR-014-AC-7")]
     #[test]
     fn tc_016_the_limit_is_64_and_widening_keeps_a_hole_at_zero() {
