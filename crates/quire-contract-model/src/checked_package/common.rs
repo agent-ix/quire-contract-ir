@@ -1237,25 +1237,29 @@ fn finish<T>(
     }
 }
 
-// Work units the first pass has charged on this thread. The scan charges one
-// unit per loop turn, per whitespace byte skipped, per byte a token consumes
-// and per step of a pointer it builds, so a test counts the pass's work
-// without a clock (TC-048). Test builds only; production charges nothing.
+// Steps the first pass has taken on this thread, for TC-048. The scan counts one
+// step per outer-loop turn, per closing-loop turn, per whitespace byte skipped,
+// per byte a token consumes and per step of a pointer it builds. This is not
+// the FR-038 work limit and bills nothing to it. It counts only the steps that
+// call `count_scan_step`: work the scan does elsewhere is invisible to it, so a
+// test on the count guards the counted steps and does not prove the pass linear.
+// Test builds only; production counts nothing.
 #[cfg(test)]
 thread_local! {
-    static SCAN_WORK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static SCAN_STEPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
-/// Charges `units` of work to this thread's count.
+/// Adds `steps` to this thread's count of first-pass steps.
 #[cfg(test)]
-fn charge(units: usize) {
-    SCAN_WORK.with(|work| work.set(work.get().saturating_add(units as u64)));
+fn count_scan_step(steps: usize) {
+    let steps = u64::try_from(steps).unwrap_or(u64::MAX);
+    SCAN_STEPS.with(|count| count.set(count.get().saturating_add(steps)));
 }
 
-/// Production charges nothing.
+/// Production counts nothing.
 #[cfg(not(test))]
 #[inline(always)]
-fn charge(_units: usize) {}
+fn count_scan_step(_steps: usize) {}
 
 /// One container the scan is inside.
 enum Open {
@@ -1303,7 +1307,7 @@ fn strict_shape_depth(input: &[u8]) -> Result<usize, ValidationFailure> {
     };
     let mut deepest = 0;
     loop {
-        charge(1);
+        count_scan_step(1);
         let opens = match scan.peek().ok_or_else(malformed)? {
             b'[' => {
                 deepest = deepest.max(scan.open.len().saturating_add(1));
@@ -1348,7 +1352,7 @@ fn strict_shape_depth(input: &[u8]) -> Result<usize, ValidationFailure> {
         // The value just read is complete: close every container it ends,
         // then read the next sibling, if any.
         loop {
-            charge(1);
+            count_scan_step(1);
             let Some(top) = scan.open.last() else {
                 return Ok(deepest);
             };
@@ -1404,7 +1408,7 @@ impl Scan<'_> {
             if !matches!(byte, b' ' | b'\t' | b'\n' | b'\r') {
                 return Some(byte);
             }
-            charge(1);
+            count_scan_step(1);
             self.at += 1;
         }
         None
@@ -1412,7 +1416,7 @@ impl Scan<'_> {
 
     /// The pointer of the value being read.
     fn pointer(&self) -> JsonPointer {
-        charge(self.open.len());
+        count_scan_step(self.open.len());
         pointer_from_steps(self.open.iter().map(Open::step))
     }
 
@@ -1423,7 +1427,7 @@ impl Scan<'_> {
         let token = tokens.next().and_then(Result::ok).ok_or_else(|| {
             ValidationFailure::refused_bytes(CheckedPackageRefusalCode::MalformedWire)
         })?;
-        charge(tokens.byte_offset());
+        count_scan_step(tokens.byte_offset());
         self.at += tokens.byte_offset();
         Ok(token)
     }
@@ -1964,37 +1968,81 @@ mod depth_tests {
         });
     }
 
-    /// The first pass costs work linear in the input: a syntax error at the
-    /// bottom of a document half a million levels deep, which a recursive
-    /// parser reports once per enclosing level, is refused after work that
-    /// grows with the depth, not with its square. The pass charges a work
-    /// unit per loop turn, skipped byte, consumed token byte and pointer step
-    /// ([`charge`]), so the count is exact and clock-free: quadrupling the
-    /// depth quadruples the work, and the bounds of 3.5 and 4.5 times separate
-    /// that from sixteen.
+    /// Builds one deep document per counted step of the first pass, at three
+    /// depths, and returns the steps counted at each.
+    fn steps_at(build: impl Fn(usize) -> String) -> [u64; 3] {
+        [131_000, 262_000, 524_000].map(|depth| {
+            let text = build(depth);
+            super::SCAN_STEPS.with(|count| count.set(0));
+            assert!(read_value(text.as_bytes(), limits(), Ok).is_err());
+            super::SCAN_STEPS.with(|count| count.get())
+        })
+    }
+
+    /// Asserts the counted steps grow linearly in depth, and that each depth
+    /// level costs between `least` and `most` steps.
+    ///
+    /// Linear means the step from 262000 to 524000 levels is twice the step
+    /// from 131000 to 262000 (within a twentieth), whatever fixed cost the pass
+    /// has: a quadratic pass makes it six times. `least` is the per-level cost
+    /// the counted sites give this document today, so a dropped count site
+    /// fails; `most` is four times that, so a constant-factor change does not.
+    fn assert_linear(name: &str, least: u64, most: u64, build: impl Fn(usize) -> String) {
+        let [a, b, c] = steps_at(build);
+        let (first, second) = (b - a, c - b);
+        assert!(
+            first.abs_diff(second / 2) * 20 <= first,
+            "{name}: steps {a}, {b}, {c} at 131000, 262000, 524000 levels are not linear"
+        );
+        assert!(
+            (least * 131_000..=most * 131_000).contains(&first),
+            "{name}: {first} steps per 131000 levels is outside {least}..={most} per level"
+        );
+    }
+
+    /// The first pass takes steps linear in the depth of the document, for
+    /// each kind of counted step: a syntax error at the bottom of a document
+    /// half a million levels deep, which a recursive parser reports once per
+    /// enclosing level, is refused after steps that grow with the depth, not
+    /// with its square. Each document below reaches different counted sites of
+    /// the pass, so dropping any one of them fails a bound here.
+    ///
+    /// The count covers only the steps `count_scan_step` marks. It guards
+    /// those steps against a quadratic regression; it does not prove the pass
+    /// linear, and work done without being counted is invisible to it.
     ///
     /// Trace: TC-048
     #[trace("TC-048")]
     #[test]
-    fn tc_048_a_deep_syntax_error_is_refused_in_linear_time() {
-        let work = |depth: usize| {
-            let broken = format!("{}x{}", "[".repeat(depth), "]".repeat(depth));
-            super::SCAN_WORK.with(|work| work.set(0));
-            assert_eq!(
-                read_value(broken.as_bytes(), limits(), Ok),
-                Err(malformed())
-            );
-            super::SCAN_WORK.with(|work| work.get())
-        };
-        let shallow = work(131_000);
-        let deep = work(524_000);
-        assert!(
-            shallow >= 131_000,
-            "the pass charged {shallow} for 131000 levels"
-        );
-        assert!(
-            deep * 10 >= shallow * 35 && deep * 10 <= shallow * 45,
-            "131000 levels charged {shallow} work units, 524000 charged {deep}"
-        );
+    fn tc_048_the_counted_steps_of_a_deep_document_grow_linearly() {
+        // The same refusals at a small depth, so each document below is the
+        // defect it is named for.
+        let syntax =
+            |text: &str| assert_eq!(read_value(text.as_bytes(), limits(), Ok), Err(malformed()));
+        syntax(&format!("{}x{}", "[".repeat(300), "]".repeat(300)));
+        syntax(&format!("[{}1{}, x]", "[1,".repeat(300), "]".repeat(300)));
+
+        // Outer-loop turns: a syntax error at the bottom of nested arrays.
+        assert_linear("bottom syntax error", 1, 4, |depth| {
+            format!("{}x{}", "[".repeat(depth), "]".repeat(depth))
+        });
+        // Closing-loop turns and tokens: every level holds a number, the
+        // levels all close, and the syntax error comes after.
+        assert_linear("closers then error", 5, 20, |depth| {
+            format!("[{}1{}, x]", "[1,".repeat(depth), "]".repeat(depth))
+        });
+        // Whitespace: the same document with a space before every token.
+        assert_linear("whitespace", 8, 32, |depth| {
+            format!("[ {} 1 {} , x ]", "[ 1 ,".repeat(depth), " ]".repeat(depth))
+        });
+        // Pointer steps: a repeated member at the bottom of nested objects is
+        // refused with the pointer of every enclosing key.
+        assert_linear("duplicate member", 5, 20, |depth| {
+            format!(
+                "{}{{\"a\":1,\"a\":2}}{}",
+                "{\"a\":".repeat(depth),
+                "}".repeat(depth)
+            )
+        });
     }
 }
