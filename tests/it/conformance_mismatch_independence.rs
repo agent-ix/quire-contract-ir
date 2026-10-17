@@ -7,14 +7,12 @@
 //! asserts that the mutated fixture reports exactly that one kind, every other
 //! fixture still matches, and the exit class is the stable mismatch class (1).
 
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    process::{Command, Output},
-};
+use std::{collections::BTreeSet, path::PathBuf, process::Output};
 
 use ix_trace_rs::trace;
 use serde_json::{json, Value};
+
+use crate::support::corpus::{read_json, rows, write_json, Scratch};
 
 const ZERO_DIGEST: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -90,93 +88,8 @@ const CASES: &[Case] = &[
     },
 ];
 
-fn repository() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn runner(corpus: &Path, schemas: &Path) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_quire-contract-conformance"))
-        .args(["run", "--corpus"])
-        .arg(corpus)
-        .arg("--schemas")
-        .arg(schemas)
-        .output()
-        .unwrap()
-}
-
-/// A fresh copy of the corpus and schemas, removed on drop.
-struct Fresh {
-    root: PathBuf,
-}
-
-impl Fresh {
-    fn new(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "quire-contract-ir-fr018ac2-{}-{label}",
-            std::process::id()
-        ));
-        if root.exists() {
-            fs::remove_dir_all(&root).unwrap();
-        }
-        copy_tree(
-            &repository().join("corpus/contract-v0.1"),
-            &root.join("corpus"),
-        );
-        copy_tree(&repository().join("schemas"), &root.join("schemas"));
-        Self { root }
-    }
-
-    fn corpus(&self) -> PathBuf {
-        self.root.join("corpus")
-    }
-
-    fn expectation(&self, fixture: &str) -> PathBuf {
-        self.corpus().join(format!("expectations/{fixture}.json"))
-    }
-
-    fn input(&self, fixture: &str) -> PathBuf {
-        self.corpus().join(format!("inputs/{fixture}.json"))
-    }
-
-    fn run(&self) -> Output {
-        runner(&self.corpus(), &self.root.join("schemas"))
-    }
-}
-
-impl Drop for Fresh {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
-}
-
-fn copy_tree(source: &Path, target: &Path) {
-    fs::create_dir_all(target).unwrap();
-    for entry in fs::read_dir(source).unwrap() {
-        let entry = entry.unwrap();
-        let destination = target.join(entry.file_name());
-        if entry.file_type().unwrap().is_dir() {
-            copy_tree(&entry.path(), &destination);
-        } else {
-            fs::copy(entry.path(), destination).unwrap();
-        }
-    }
-}
-
-fn read_json(path: &Path) -> Value {
-    serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
-}
-
-fn write_json(path: &Path, value: &Value) {
-    fs::write(path, serde_json::to_vec_pretty(value).unwrap()).unwrap();
-}
-
-fn rows(output: &Output) -> Vec<Value> {
-    output
-        .stdout
-        .split(|byte| *byte == b'\n')
-        .filter(|row| !row.is_empty())
-        .map(|row| serde_json::from_slice::<Value>(row).unwrap())
-        .collect()
+fn expectation_path(scratch: &Scratch, fixture: &str) -> PathBuf {
+    scratch.0.join(format!("expectations/{fixture}.json"))
 }
 
 fn kinds(row: &Value) -> Vec<&str> {
@@ -193,9 +106,8 @@ fn kinds(row: &Value) -> Vec<&str> {
 fn assert_only(output: &Output, fixture: &str, kind: &str, label: &str) {
     assert_eq!(output.status.code(), Some(1), "{label}: exit class");
     assert!(output.stderr.is_empty(), "{label}: stderr");
-    let rows = rows(output);
     let mut seen = false;
-    for row in &rows {
+    for row in &rows(output) {
         if row["fixture_id"] == fixture {
             seen = true;
             assert_eq!(row["status"], "mismatch", "{label}: status");
@@ -208,32 +120,97 @@ fn assert_only(output: &Output, fixture: &str, kind: &str, label: &str) {
     assert!(seen, "{label}: fixture {fixture} has no row");
 }
 
+/// Applies exactly the named case's one mutation to a fresh corpus copy.
+fn run_case(label: &str) {
+    let case = CASES.iter().find(|case| case.label == label).unwrap();
+    let scratch = Scratch::corpus(&format!("ac2-{label}"));
+    let path = expectation_path(&scratch, case.fixture);
+    let mut expectation = read_json(&path);
+    let before = expectation.clone();
+    (case.mutate)(&mut expectation);
+    assert_ne!(before, expectation, "{label}: mutation changed nothing");
+    write_json(&path, &expectation);
+    assert_only(&scratch.run(), case.fixture, case.kind, label);
+}
+
 /// Trace: TC-018, FR-018-AC-2
 #[trace("TC-018", "FR-018-AC-2")]
 #[test]
-fn tc_018_each_mismatch_kind_is_reported_independently_for_one_mutation() {
-    let baseline = Fresh::new("baseline").run();
-    assert_eq!(baseline.status.code(), Some(0));
-    assert!(baseline.stderr.is_empty());
+fn tc_018_mismatch_validity_alone_reports_only_its_kind() {
+    run_case("validity");
+}
 
-    for case in CASES {
-        let fresh = Fresh::new(case.label);
-        let path = fresh.expectation(case.fixture);
-        let mut expectation = read_json(&path);
-        let before = expectation.clone();
-        (case.mutate)(&mut expectation);
-        assert_ne!(
-            before, expectation,
-            "{}: mutation changed nothing",
-            case.label
-        );
-        write_json(&path, &expectation);
-        assert_only(&fresh.run(), case.fixture, case.kind, case.label);
-    }
+/// Trace: TC-018, FR-018-AC-2
+#[trace("TC-018", "FR-018-AC-2")]
+#[test]
+fn tc_018_mismatch_diagnostic_code_alone_reports_only_its_kind() {
+    run_case("diagnostic-code");
+}
 
-    // Every kind the criterion names is produced by some case above, so the
-    // table cannot silently lose one.
-    let produced: std::collections::BTreeSet<_> = CASES.iter().map(|case| case.kind).collect();
+/// Trace: TC-018, FR-018-AC-2
+#[trace("TC-018", "FR-018-AC-2")]
+#[test]
+fn tc_018_mismatch_diagnostic_path_alone_reports_only_its_kind() {
+    run_case("diagnostic-path");
+}
+
+/// Trace: TC-018, FR-018-AC-2
+#[trace("TC-018", "FR-018-AC-2")]
+#[test]
+fn tc_018_mismatch_diagnostic_span_alone_reports_only_its_kind() {
+    run_case("diagnostic-span");
+}
+
+/// Trace: TC-018, FR-018-AC-2
+#[trace("TC-018", "FR-018-AC-2")]
+#[test]
+fn tc_018_mismatch_diagnostic_obligation_alone_reports_only_its_kind() {
+    run_case("diagnostic-obligation");
+}
+
+/// Trace: TC-018, FR-018-AC-2
+#[trace("TC-018", "FR-018-AC-2")]
+#[test]
+fn tc_018_mismatch_canonical_bytes_alone_reports_only_its_kind() {
+    run_case("canonical-bytes");
+}
+
+/// Trace: TC-018, FR-018-AC-2
+#[trace("TC-018", "FR-018-AC-2")]
+#[test]
+fn tc_018_mismatch_canonical_digest_alone_reports_only_its_kind() {
+    run_case("canonical-digest");
+}
+
+/// Trace: TC-018, FR-018-AC-2
+#[trace("TC-018", "FR-018-AC-2")]
+#[test]
+fn tc_018_mismatch_dependencies_alone_reports_only_its_kind() {
+    run_case("dependencies");
+}
+
+/// Trace: TC-018, FR-018-AC-2
+#[trace("TC-018", "FR-018-AC-2")]
+#[test]
+fn tc_018_mismatch_coverage_row_alone_reports_only_its_kind() {
+    run_case("coverage-row");
+}
+
+/// Trace: TC-018, FR-018-AC-2
+#[trace("TC-018", "FR-018-AC-2")]
+#[test]
+fn tc_018_mismatch_coverage_reason_alone_reports_only_its_kind() {
+    run_case("coverage-reason");
+}
+
+/// Trace: TC-018, FR-018-AC-2
+#[trace("TC-018", "FR-018-AC-2")]
+#[test]
+fn tc_018_the_case_table_produces_every_fr020_mismatch_kind() {
+    // FR-020 fixes six kinds. The runner exposes no public kind list, so this
+    // hand-typed set cannot notice a seventh runner kind; it only guards the
+    // table above against silently losing one of the six.
+    let produced: BTreeSet<_> = CASES.iter().map(|case| case.kind).collect();
     assert_eq!(
         produced.into_iter().collect::<Vec<_>>(),
         [
@@ -247,17 +224,14 @@ fn tc_018_each_mismatch_kind_is_reported_independently_for_one_mutation() {
     );
 }
 
-/// Trace: TC-018, FR-018-AC-2
-#[trace("TC-018", "FR-018-AC-2")]
-#[test]
-fn tc_018_diagnostic_order_alone_is_reported_as_a_diagnostics_mismatch() {
-    // No shipped fixture yields two diagnostics, so give the stale-revision
-    // coverage input a second stale trace (setup, not the mutation) and take the
-    // observed result as the expectation. The single mutation is then swapping
-    // the two diagnostics.
-    let fresh = Fresh::new("diagnostic-order");
+/// The two-diagnostic baseline. No shipped fixture yields two diagnostics, so
+/// the stale-revision coverage input gets a second stale trace (setup, not the
+/// mutation) and the observed result becomes the expectation. Returns the
+/// scratch copy, the expectation path, the expectation and its diagnostics.
+fn two_diagnostic_baseline(label: &str) -> (Scratch, PathBuf, Value, Vec<Value>) {
     let fixture = "coverage-stale";
-    let input_path = fresh.input(fixture);
+    let scratch = Scratch::corpus(&format!("ac2-{label}"));
+    let input_path = scratch.0.join(format!("inputs/{fixture}.json"));
     let mut input = read_json(&input_path);
     let traces = input["traces"].as_array_mut().unwrap();
     let mut second = traces[0].clone();
@@ -269,31 +243,62 @@ fn tc_018_diagnostic_order_alone_is_reported_as_a_diagnostics_mismatch() {
     traces.push(second);
     write_json(&input_path, &input);
 
-    let path = fresh.expectation(fixture);
+    let path = expectation_path(&scratch, fixture);
     let mut expectation = read_json(&path);
-    let observed = rows(&fresh.run())
+    let observed = rows(&scratch.run())
         .into_iter()
         .find(|row| row["fixture_id"] == fixture)
         .unwrap()["actual"]
         .clone();
-    let observed_diagnostics = observed["diagnostics"].as_array().unwrap().clone();
-    assert!(
-        observed_diagnostics.len() >= 2,
-        "setup must yield two diagnostics"
-    );
-    assert_ne!(
-        observed_diagnostics[0], observed_diagnostics[1],
-        "swap must change the order"
-    );
-    expectation["diagnostics"] = json!(observed_diagnostics);
+    let diagnostics = observed["diagnostics"].as_array().unwrap().clone();
+    assert!(diagnostics.len() >= 2, "setup must yield two diagnostics");
+    assert_ne!(diagnostics[0], diagnostics[1], "diagnostics must differ");
+    expectation["diagnostics"] = json!(diagnostics);
     expectation["coverage"] = observed["coverage"].clone();
     write_json(&path, &expectation);
-    let matched = fresh.run();
-    assert_eq!(matched.status.code(), Some(0));
+    assert_eq!(scratch.run().status.code(), Some(0), "{label}: baseline");
+    (scratch, path, expectation, diagnostics)
+}
 
-    let mut swapped = observed_diagnostics;
-    swapped.swap(0, 1);
-    expectation["diagnostics"] = json!(swapped);
+/// Trace: TC-018, FR-018-AC-2
+#[trace("TC-018", "FR-018-AC-2")]
+#[test]
+fn tc_018_diagnostic_order_alone_is_reported_as_a_diagnostics_mismatch() {
+    let (scratch, path, mut expectation, mut diagnostics) = two_diagnostic_baseline("order");
+    diagnostics.swap(0, 1);
+    expectation["diagnostics"] = json!(diagnostics);
     write_json(&path, &expectation);
-    assert_only(&fresh.run(), fixture, "diagnostics", "diagnostic-order");
+    assert_only(&scratch.run(), "coverage-stale", "diagnostics", "order");
+}
+
+/// Trace: TC-018, FR-018-AC-2
+#[trace("TC-018", "FR-018-AC-2")]
+#[test]
+fn tc_018_a_drift_in_the_second_diagnostic_alone_is_a_diagnostics_mismatch() {
+    let (scratch, path, mut expectation, _) = two_diagnostic_baseline("second-code");
+    expectation["diagnostics"][1]["code"] = json!("invalid_identifier");
+    write_json(&path, &expectation);
+    assert_only(
+        &scratch.run(),
+        "coverage-stale",
+        "diagnostics",
+        "second-code",
+    );
+}
+
+/// Trace: TC-018, FR-018-AC-2
+#[trace("TC-018", "FR-018-AC-2")]
+#[test]
+fn tc_018_a_missing_second_diagnostic_alone_is_a_diagnostics_mismatch() {
+    let (scratch, path, mut expectation, mut diagnostics) =
+        two_diagnostic_baseline("second-dropped");
+    diagnostics.truncate(1);
+    expectation["diagnostics"] = json!(diagnostics);
+    write_json(&path, &expectation);
+    assert_only(
+        &scratch.run(),
+        "coverage-stale",
+        "diagnostics",
+        "second-dropped",
+    );
 }
