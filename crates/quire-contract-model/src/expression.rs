@@ -4063,8 +4063,8 @@ mod range_set_tests {
         .unwrap()
     }
 
-    /// Trace: FR-015-AC-8.
-    #[ix_trace_rs::trace("TC-016", "FR-015-AC-8")]
+    /// Trace: TC-016, FR-015-AC-8
+    #[trace("TC-016", "FR-015-AC-8")]
     #[test]
     fn exact_rational_products_reduce_before_i128_range_check() {
         let maximum = i128::MAX;
@@ -4094,8 +4094,8 @@ mod range_set_tests {
         );
     }
 
-    /// Trace: FR-015-AC-8.
-    #[ix_trace_rs::trace("TC-016", "FR-015-AC-8")]
+    /// Trace: TC-016, FR-015-AC-8
+    #[trace("TC-016", "FR-015-AC-8")]
     #[test]
     fn saturated_integer_intermediates_clamp_at_declared_bounds() {
         let value_type =
