@@ -43,3 +43,10 @@ Ticket: IR-851. Each new normative sentence in the FR-038 section and each of AC
 ## Verdict
 
 PASS WITH FINDINGS. The API, UnknownNode, NotRelationshipEndClaim and UnresolvedEnd statements and the refusal-properties sentences are ubiquitous or event-driven obligations with a named subject and an observable response. AC-262, AC-264, AC-265 and AC-266 are single, falsifiable verification statements, and AC-262's unequal ends make an end swap fail. AC-263's closing clauses about unbounded/ordered ends and subtype operands are context, not obligations, which is acceptable.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1 (29f86c7): the Retention paragraph is now normative: "The reader shall retain ... The reader shall keep this record outside package equality, shall charge no work beyond what admission already charges, and shall not change its refusal order." |
+| FND-002 | fixed | Round 1 (29f86c7): the field-read case moved to AC-264. AC-267 is the public shape only, and the new AC-268 holds model_object_fields non-interference and the re-export rule. Nothing is renumbered (AC-268 is new). |

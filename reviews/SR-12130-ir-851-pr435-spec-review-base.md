@@ -51,3 +51,19 @@ Ticket: IR-851. Spec-only PR #435 adds the FR-038 section "Typed relationship en
 ## Verdict
 
 PASS WITH FINDINGS. The measured gap, the direction and destination rule, the admitted-claim guarantees (ordered false, upper Some, homogeneous destination type), the equality and work statements, and the FR-053 field/end split were each verified against origin/main. FND-001 is a hidden requirement that the code PR would hit first. The rest are wording.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-006 | low | The TC-048 fixture text spells the one-way directions `source_to_target` and `target_to_source`. The reader's wire values are `source-to-target` and `target-to-source` (`model_members.rs:2505`), so a fixture author copying the TC text gets a malformed-declaration refusal, not the AC-254 direction refusal. Fix: use the hyphenated spellings. | spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md:2298, crates/quire-contract-model/src/checked_package/v2/model_members.rs:2505 |
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1 (29f86c7): the new Retention paragraph retains "the derived model declaration node id of each end's type" and says "The accessor shall not recompute that id". The ids are already in the admission declaration index (ModelOwners::index), so this can be implemented without a second derivation. |
+| FND-002 | fixed | Round 1 (29f86c7): `destination_type` is "the declared end type to which every operand conforms, not the type of a particular operand, so a subtype operand does not change it". |
+| FND-003 | fixed | Round 1 (29f86c7): UnresolvedEnd is now a catch-all, "a reaches application whose operation.member no longer resolves as admission resolved it", listing absent member, wrong kind, non-node-id or unresolved declaration, and non-text, no-role or both-role name. AC-265 covers all seven. |
+| FND-004 | fixed | Round 1 (29f86c7): AC-262 and TC-048 name a bidirectional relationship. |
+| FND-005 | fixed | Round 1 (29f86c7): the parameter and field are renamed `application`, the error is `NotReachesApplication`, and the spec states the id is the reaches application, not the enclosing state_clause. A `relationship: CheckedNodeId` field was added (nine fields). |

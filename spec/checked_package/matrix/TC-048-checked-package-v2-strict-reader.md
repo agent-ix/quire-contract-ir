@@ -2295,7 +2295,7 @@ compares the compiled exports to that table.
 
 Build admitted packages from the IR-824 reaches fixtures: a homogeneous
 self-relationship with direction `bidirectional` (so that both a forward and an
-inverse application admit; a `source_to_target` or `target_to_source` direction
+inverse application admit; a `source-to-target` or `target-to-source` direction
 admits only one of them, AC-254) whose source end is `{1,1}` with its own role
 and whose target end is `{2,3}` unique with role `peer`, one application naming
 the source role (forward) and one naming the target role (inverse); further

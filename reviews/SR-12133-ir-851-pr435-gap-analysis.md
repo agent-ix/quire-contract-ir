@@ -47,3 +47,10 @@ What was verified:
 ## Verdict
 
 PASS WITH FINDINGS. The key claim (no relationship retention today; retention outside equality, uncharged, refusal order unchanged) is true and can be implemented. RetainedModels already retains derived operation types the same way, after validation. The result fields give CG what it needs. FND-001 must be fixed in this PR. FND-002 is an action on CG #417.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1 (29f86c7): `destination_type` is the derived id, returned "whether or not the graph holds that node". The graph-presence cause is gone from UnresolvedEnd and AC-265. AC-263 and TC-048 add a subtype-operand case with a variant whose graph lacks the declared end type's node, expecting Ok. |
+| FND-002 | deferred | The defect is in quire-contract-codegen PR #417 (FR-015-AC-108, the Description sequence, TC-025 and its tests.md row), not in this PR. Deferred to titan's CG lane, which must re-point the population half to IR-852. This PR's text ("a separate decision (IR-852)") is correct. |
