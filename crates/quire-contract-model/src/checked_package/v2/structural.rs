@@ -407,24 +407,43 @@ fn parameter_defect(node: &CheckedSemanticNodeV2, graph: &Graph<'_>) -> Option<D
     if !is_binder_type {
         return Some(Defect::SemanticType);
     }
-    let Some([name, level]) = aggregate_members(&node.body) else {
-        return Some(Defect::Body);
-    };
-    let name_ok = binding(name, "name")
-        .and_then(|value| literal(value, LiteralKind::Text, ScalarTypeForm::Text, graph))
-        .and_then(Value::as_str)
-        .is_some_and(is_identifier);
-    let level_ok = binding(level, "level")
-        .and_then(|value| literal(value, LiteralKind::Integer, ScalarTypeForm::Integer, graph))
-        .and_then(Value::as_str)
-        .is_some_and(is_non_negative_integer);
-    if !(name_ok && level_ok) {
+    if parameter_binding(&node.body, &|id| graph.kind(id)).is_none() {
         return Some(Defect::Body);
     }
     if !node.dependencies.is_empty() {
         return Some(Defect::Dependencies);
     }
     None
+}
+
+/// The declared `(name, level)` text of a `value`/`parameter` body, when the
+/// body is exactly the closed shape QSL FR-092 gives it: an `aggregate` of the
+/// `"name"` binding (an identifier `text` literal typed at a `scalar_type`/`text`
+/// node) and the `"level"` binding (a canonical non-negative `integer` literal
+/// typed at a `scalar_type`/`integer` node). `kind_of` resolves a type node's kind.
+pub(super) fn parameter_binding<'a>(
+    body: &'a Value,
+    kind_of: &impl Fn(&CheckedNodeId) -> Option<CheckedNodeKind>,
+) -> Option<(&'a str, &'a str)> {
+    let [name, level] = aggregate_members(body)? else {
+        return None;
+    };
+    let name = binding(name, "name")
+        .and_then(|value| literal(value, LiteralKind::Text, ScalarTypeForm::Text, kind_of))
+        .and_then(Value::as_str)
+        .filter(|name| is_identifier(name))?;
+    let level = binding(level, "level")
+        .and_then(|value| {
+            literal(
+                value,
+                LiteralKind::Integer,
+                ScalarTypeForm::Integer,
+                kind_of,
+            )
+        })
+        .and_then(Value::as_str)
+        .filter(|level| is_non_negative_integer(level))?;
+    Some((name, level))
 }
 
 /// The first rule a `scalar_type`/`compound_unit` node breaks, as the member
@@ -472,7 +491,14 @@ fn compound_unit_term(term: &Value, graph: &Graph<'_>) -> Option<CheckedNodeId> 
             )
     });
     let exponent_ok = binding(exponent, "exponent")
-        .and_then(|value| literal(value, LiteralKind::Integer, ScalarTypeForm::Integer, graph))
+        .and_then(|value| {
+            literal(
+                value,
+                LiteralKind::Integer,
+                ScalarTypeForm::Integer,
+                &|id| graph.kind(id),
+            )
+        })
         .and_then(Value::as_str)
         .is_some_and(is_nonzero_integer);
     (is_root_unit && exponent_ok).then_some(unit)
@@ -720,14 +746,14 @@ fn literal<'a>(
     term: &'a Value,
     value_kind: LiteralKind,
     type_form: ScalarTypeForm,
-    graph: &Graph<'_>,
+    kind_of: &impl Fn(&CheckedNodeId) -> Option<CheckedNodeKind>,
 ) -> Option<&'a Value> {
     let object = term.as_object()?;
     if body_term(term) != Some(BodyTerm::Literal) || literal_kind(term) != Some(value_kind) {
         return None;
     }
     let ty: CheckedNodeId = serde_json::from_value(object.get("type")?.clone()).ok()?;
-    (graph.kind(&ty)? == CheckedNodeKind::ScalarType(type_form))
+    (kind_of(&ty)? == CheckedNodeKind::ScalarType(type_form))
         .then(|| object.get("value"))
         .flatten()
 }

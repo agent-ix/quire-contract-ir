@@ -2253,9 +2253,11 @@ the fixture builder shall not implement or copy its private preimage.
 
 ## Typed parameter declaration (FR-038-AC-258 through FR-038-AC-261)
 
-PLANNED/UNRUN (IR-832); no test is tagged yet. The code change that exports
-`CheckedParameterDeclaration` and `CheckedParameterDeclarationError` adds their
-FR-019 Public items row; FR-019 lists only exported items. Build a self-built
+Implemented (IR-832) with tagged tests. `CheckedParameterDeclaration` and
+`CheckedParameterDeclarationError` are exported and listed in the FR-019 Public
+items table; FR-019 lists only exported items. The `MalformedBody` mutations
+are crate-internal unit tests beside the accessor, since they need the private
+wire. Build a self-built
 admitted package with a pair of parameters named `x` at levels `0` and `1`, a
 parameter at level `10`, and add applications over parameters `a` and `b`, each
 typed at `Int[0, 9]` (an `integer_range` `bounded_domain`, since a parameter typed

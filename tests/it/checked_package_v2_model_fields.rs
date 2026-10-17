@@ -569,9 +569,29 @@ fn scalar_operand_package_with_bounds(
 fn scalar_operand_package_with_literal(
     operation: &str,
     operator: &str,
+    arguments: Vec<Value>,
+    bounds: Option<(&str, &str)>,
+    literal_value: &str,
+) -> (CheckedPackageV2, CheckedNodeId) {
+    scalar_operand_package_named(
+        operation,
+        operator,
+        arguments,
+        bounds,
+        literal_value,
+        ["left", "right"],
+    )
+}
+
+/// As [`scalar_operand_package_with_literal`], naming the two parameters
+/// that the `a` and `b` argument placeholders reference.
+fn scalar_operand_package_named(
+    operation: &str,
+    operator: &str,
     mut arguments: Vec<Value>,
     bounds: Option<(&str, &str)>,
     literal_value: &str,
+    names: [&str; 2],
 ) -> (CheckedPackageV2, CheckedNodeId) {
     let mut nodes = BTreeMap::new();
     let integer = type_nodes(&Ty::Integer, &mut nodes);
@@ -605,7 +625,7 @@ fn scalar_operand_package_with_literal(
         wire_node(&text, "scalar_type", "text", &text, &[], empty()),
     );
     let mut parameter_keys = Vec::new();
-    for name in ["left", "right"] {
+    for name in names {
         let body = json!({"term": "aggregate", "members": [
             {"term": "binding", "name": "name", "value":
                 {"term": "literal", "type": node_id(&text), "value_kind": "text", "value": name}},
@@ -729,6 +749,68 @@ fn scalar_operand_package_with_literal(
         other => panic!("expected scalar fixture admission, got {other:?}"),
     };
     (admitted, application_id)
+}
+
+/// Tracing: TC-048, FR-038-AC-261
+#[trace("TC-048", "FR-038-AC-261")]
+#[test]
+fn tc_048_parameter_declarations_follow_scalar_operand_order() {
+    use quire_contract_model::{
+        CheckedOccurrence, CheckedOccurrenceRole, CheckedScalarOperandChild,
+    };
+    let occurrence = CheckedOccurrence {
+        role: CheckedOccurrenceRole::Expression,
+        ordinal: 0,
+    };
+    let argument = |placeholder: char| json!({"term": "reference", "target": node_id(&placeholder.to_string().repeat(64))});
+    let declared = |arguments: Vec<Value>| {
+        let (package, application) = scalar_operand_package_named(
+            "quire.op.integer.add",
+            "binary",
+            arguments,
+            Some(("0", "9")),
+            "7",
+            ["a", "b"],
+        );
+        package
+            .scalar_application_operands(&application, &occurrence)
+            .expect("Int[0, 9] operands are finite")
+            .into_iter()
+            .map(|operand| {
+                assert_eq!((operand.range.lower, operand.range.upper), (0, 9));
+                let CheckedScalarOperandChild::GraphChild(id) = operand.child else {
+                    panic!("a parameter operand is a graph child");
+                };
+                let declaration = package.parameter_declaration(&id).expect("declaration");
+                assert_eq!(declaration.node, id);
+                assert_eq!(declaration.level.as_ref(), "0");
+                declaration.name.to_string()
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(declared(vec![argument('a'), argument('b')]), ["a", "b"]);
+    assert_eq!(declared(vec![argument('b'), argument('a')]), ["b", "a"]);
+
+    // An inline literal operand has no node id to pass to the accessor.
+    let (package, application) = scalar_operand_package_named(
+        "quire.op.integer.add",
+        "binary",
+        vec![
+            argument('a'),
+            json!({"term": "literal", "type": node_id(&structural("scalar_type", "integer", None, None, &empty())),
+                "value_kind": "integer", "value": "7"}),
+        ],
+        Some(("0", "9")),
+        "7",
+        ["a", "b"],
+    );
+    let operands = package
+        .scalar_application_operands(&application, &occurrence)
+        .expect("operands");
+    assert!(matches!(
+        &operands[1].child,
+        CheckedScalarOperandChild::InlineLiteral { .. }
+    ));
 }
 
 /// The child's independently built QSL key: the public accessor test does

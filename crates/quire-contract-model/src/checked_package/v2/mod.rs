@@ -27,6 +27,7 @@ mod natural;
 mod operation_catalog;
 mod operations;
 mod owner;
+mod parameter_declaration;
 mod rust_spelling;
 mod scalar_operands;
 mod state;
@@ -69,6 +70,7 @@ pub use model_fields::{
     CheckedCollectionKind, CheckedMemberType, CheckedModelField, CheckedModelFieldsError,
     CheckedModelObjectFields,
 };
+pub use parameter_declaration::{CheckedParameterDeclaration, CheckedParameterDeclarationError};
 pub use scalar_operands::{
     CheckedScalarOperand, CheckedScalarOperandChild, CheckedScalarOperandError,
     CheckedScalarOperandRange,

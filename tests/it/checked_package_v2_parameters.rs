@@ -17,8 +17,9 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCode,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CompleteLoweringProfileV2,
+    CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedParameterDeclaration, CheckedParameterDeclarationError, CompleteLoweringProfileV2,
     CompleteLoweringRecordV2,
 };
 use serde_json::{json, Value};
@@ -630,4 +631,110 @@ fn tc_048_an_application_node_dependency_list_is_its_exact_body_join() {
             "{case}"
         );
     }
+}
+
+/// The parameters package with `extra` nodes appended, admitted.
+fn admitted_with(extra: Vec<Value>) -> CheckedPackageV2 {
+    let mut package = parameters_package();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .extend(extra);
+    rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
+    match read(&package) {
+        CheckedPackageV2ReadResult::Admitted(admitted) => *admitted,
+        other => panic!("expected admission, got {other:?}"),
+    }
+}
+
+fn id_of(key: &str) -> CheckedNodeId {
+    serde_json::from_value(node_id(key)).expect("node id")
+}
+
+/// An integer `value`/`literal` node, which is not a parameter.
+fn integer_literal_node() -> (String, Value) {
+    let body = literal(&INTEGER, "integer", "7");
+    let key = structural_key("value", "literal", Some(&INTEGER), None, &body);
+    let node = wire_node(
+        &key,
+        "value",
+        "literal",
+        &INTEGER,
+        &[&INTEGER],
+        "expression",
+        body,
+    );
+    (key, node)
+}
+
+fn declared(package: &CheckedPackageV2, key: &str) -> (String, String) {
+    let declaration = package
+        .parameter_declaration(&id_of(key))
+        .expect("a declaration");
+    assert_eq!(declaration.node, id_of(key));
+    (declaration.name.to_string(), declaration.level.to_string())
+}
+
+/// Tracing: TC-048, FR-038-AC-258
+#[trace("TC-048", "FR-038-AC-258")]
+#[test]
+fn tc_048_parameter_declaration_returns_name_and_level_text() {
+    let (ten, ten_node) = parameter("c", "10");
+    let package = admitted_with(vec![ten_node]);
+    let (a, b) = (
+        node_key(&parameters_package(), P1),
+        node_key(&parameters_package(), P1 + 1),
+    );
+    assert_eq!(declared(&package, &a), ("a".to_owned(), "0".to_owned()));
+    assert_eq!(declared(&package, &b), ("b".to_owned(), "1".to_owned()));
+    assert_eq!(declared(&package, &ten), ("c".to_owned(), "10".to_owned()));
+}
+
+/// Tracing: TC-048, FR-038-AC-259
+#[trace("TC-048", "FR-038-AC-259")]
+#[test]
+fn tc_048_parameter_declaration_refuses_unknown_and_non_parameter_nodes() {
+    let (literal_key, literal_node) = integer_literal_node();
+    let package = admitted_with(vec![literal_node]);
+    let parameters = parameters_package();
+    assert_eq!(
+        package.parameter_declaration(&id_of(&"f".repeat(64))),
+        Err(CheckedParameterDeclarationError::UnknownNode)
+    );
+    for (label, key) in [
+        ("literal", literal_key),
+        ("application", node_key(&parameters, E1)),
+        ("function", node_key(&parameters, E1 + 1)),
+    ] {
+        assert_eq!(
+            package.parameter_declaration(&id_of(&key)),
+            Err(CheckedParameterDeclarationError::NotParameter),
+            "{label}"
+        );
+    }
+}
+
+/// Tracing: TC-048, FR-038-AC-260
+#[trace("TC-048", "FR-038-AC-260")]
+#[test]
+fn tc_048_parameters_of_one_name_differ_by_level_and_carry_no_function() {
+    let (outer, outer_node) = parameter("x", "0");
+    let (inner, inner_node) = parameter("x", "1");
+    assert_ne!(outer, inner);
+    let package = admitted_with(vec![outer_node, inner_node]);
+    assert_eq!(declared(&package, &outer), ("x".to_owned(), "0".to_owned()));
+    assert_eq!(declared(&package, &inner), ("x".to_owned(), "1".to_owned()));
+
+    // Field-by-field construction compiles only if these are all the members.
+    let declaration = CheckedParameterDeclaration {
+        node: id_of(&outer),
+        name: "x".into(),
+        level: "0".into(),
+    };
+    let CheckedParameterDeclaration { node, name, level } = declaration;
+    assert_eq!(
+        (node, name.as_ref(), level.as_ref()),
+        (id_of(&outer), "x", "0")
+    );
 }
