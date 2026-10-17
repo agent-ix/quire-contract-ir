@@ -1,7 +1,9 @@
 //! FR-038 "Typed accessor for a model object type's fields" (IR-628): the
 //! field table the reader builds once per object type at admission, the
-//! tables and declaration index an admitted [`CheckedPackageV2`] retains, and
-//! the accessor [`CheckedPackageV2::model_object_fields`] that reads them.
+//! tables, declaration index and relationship records an admitted
+//! [`CheckedPackageV2`] retains, and the accessor
+//! [`CheckedPackageV2::model_object_fields`] that reads the field tables (the
+//! relationship records are read by `CheckedPackageV2::relationship_end`).
 //!
 //! A model declaration node's body is `aggregate{[]}` and carries no member,
 //! so the field set of a model object type is in the selected domain package
@@ -405,8 +407,9 @@ pub(super) struct DeclaredNode {
 pub(super) struct DeclarationIndex(pub(super) BTreeMap<String, DeclaredNode>);
 
 /// What an admitted [`CheckedPackageV2`] retains of its selected documents:
-/// the declaration index, each document's field tables, and the selected
-/// operation parameter types needed for clause-context reads.
+/// the declaration index, each document's field tables, the selected
+/// operation parameter types needed for clause-context reads, and each
+/// selected relationship's [`RetainedRelationship`] record.
 /// Not part of the package's equality, which is the equality of its admitted
 /// content.
 #[derive(Clone, Debug, Default)]
@@ -427,6 +430,18 @@ pub(super) struct RetainedRelationship {
     pub(super) declaration: RelationshipDecl,
     pub(super) source_key: Option<Box<str>>,
     pub(super) target_key: Option<Box<str>>,
+}
+
+impl RetainedRelationship {
+    /// The derived declaration key of the destination end of a traversal.
+    pub(super) fn destination_key(&self, forward: bool) -> Option<&str> {
+        let key = if forward {
+            &self.target_key
+        } else {
+            &self.source_key
+        };
+        key.as_deref()
+    }
 }
 
 /// The selected model signature already checked against a clause by FR-341.
@@ -524,9 +539,8 @@ impl RetainedModels {
     ) -> Option<&RetainedRelationship> {
         let declared = self.index.0.get(node.node_id.digest.as_ref())?;
         check_declaration_node(declared.form, node).ok()?;
-        if declared.form != DeclarationForm::Relationship {
-            return None;
-        }
+        // The map holds relationship identities only, so an indexed
+        // declaration of another form finds nothing.
         self.relationships
             .get(&(declared.selection, declared.node.clone()))
     }

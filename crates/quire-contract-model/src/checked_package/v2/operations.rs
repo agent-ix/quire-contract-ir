@@ -54,8 +54,8 @@
 use super::application_identity::{application_digest, ApplicationGroup};
 use super::dependency_references::{DependencyReferences, Referrer, SuppliedDependencies};
 use super::model_members::{
-    declaration_key, Budget, CollectionKind, DeclarationForm, MemberKind, MemberType, ModelFailure,
-    ModelOwners, ModelRefusal, Resolved,
+    declaration_key, Budget, CollectionKind, DeclarationForm, EndSelectionError, MemberKind,
+    MemberType, ModelFailure, ModelOwners, ModelRefusal, Resolved, SelectedEnds,
 };
 use super::operation_catalog::{operation_catalog, OperationCatalog, OperationCatalogEntry};
 use super::structural::{
@@ -2176,20 +2176,20 @@ fn check_relationship_member(
         .and_then(|member| member.get("name"))
         .and_then(Value::as_str)
         .unwrap_or("");
-    let forward = match (
-        relationship.source.role.as_deref() == Some(name),
-        relationship.target.role.as_deref() == Some(name),
-    ) {
-        (true, false) => true,
-        (false, true) => false,
-        (false, false) => return refuse(member_at("name"), ModelRefusal::missing_name()),
-        (true, true) => return refuse(member_at("name"), ModelRefusal::ambiguous()),
+    let selected = match relationship.select_ends(name) {
+        Ok(selected) => selected,
+        Err(EndSelectionError::MissingName) => {
+            return refuse(member_at("name"), ModelRefusal::missing_name())
+        }
+        Err(EndSelectionError::Ambiguous) => {
+            return refuse(member_at("name"), ModelRefusal::ambiguous())
+        }
     };
-    let (receiver, destination) = if forward {
-        (&relationship.source, &relationship.target)
-    } else {
-        (&relationship.target, &relationship.source)
-    };
+    let SelectedEnds {
+        receiver,
+        destination,
+        forward,
+    } = selected;
     let operand_owner = |position: usize| {
         let Some(argument) = arguments.get(position) else {
             return Ok(None);

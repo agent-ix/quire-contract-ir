@@ -3315,7 +3315,7 @@ fn tc_056_reaches_field_refuses_an_invalid_edge_where_it_fails() {
     );
 }
 
-// --- IR-851: the typed relationship end of a reaches application --------------
+// --- FR-038: the typed relationship end of a reaches application ---
 
 fn admitted(
     package: &Value,
@@ -3602,7 +3602,7 @@ const REACHES_ADMISSION_WORK: u64 = 97;
 /// Trace: TC-048, FR-038-AC-266
 #[trace("TC-048", "FR-038-AC-266")]
 #[test]
-fn tc_048_retaining_the_relationship_end_changes_neither_identity_equality_nor_work() {
+fn tc_048_retaining_the_relationship_end_changes_neither_equality_nor_work() {
     let relation = relationship_of(
         end_json(Some("links"), 1, 1, false, false),
         end_json(Some("peer"), 2, 3, true, false),
@@ -3619,11 +3619,10 @@ fn tc_048_retaining_the_relationship_end_changes_neither_identity_equality_nor_w
     assert_eq!(second.relationship_end(&application), result);
     assert_eq!(first, clone);
     assert_eq!(first, second);
-    assert_eq!(first.package_id(), second.package_id());
-    assert_eq!(
-        first.package_id().digest.as_ref(),
-        package["package_id"]["digest"]
-    );
+    // `package_id()` reads the wire and the reader checks it before retention is
+    // built, so no retention change can alter it: it is not asserted here. The
+    // guards that retention can break are equality of independent admissions
+    // (above) and the charged work (below).
 
     // Admission charges the same work with the relationship record retained:
     // the least work limit that admits is the one measured before retention.

@@ -549,14 +549,16 @@ pub struct CheckedPackageV2 {
     /// encode its lowering makes.
     bytes: u64,
     /// What the reader derived from the selected domain package documents and
-    /// keeps: the declaration index and the field tables (IR-628).
+    /// keeps: the declaration index, the field tables, the operation parameter
+    /// types and the relationship records.
     models: RetainedModels,
 }
 
 /// Equality is the equality of the admitted content. The read limit a package
 /// retains for its lowering is not content, so two admissions of the same bytes
-/// under different limits are equal; nor are the retained field tables and
-/// declaration index, which are derived from the documents the content's
+/// under different limits are equal; nor are the retained field tables,
+/// declaration index, operation parameter types and relationship records, which
+/// are derived from the documents the content's
 /// digests fix.
 impl PartialEq for CheckedPackageV2 {
     fn eq(&self, other: &Self) -> bool {
@@ -2434,6 +2436,23 @@ fn validate_diagnostics(
         }
     }
     Ok(())
+}
+
+/// Helpers shared by the in-crate unit tests of the typed accessors.
+#[cfg(test)]
+mod test_support {
+    use super::CheckedNodeId;
+    use serde_json::{json, Value};
+
+    /// The JSON of a node id whose digest is `digit` repeated.
+    pub(super) fn id(digit: char) -> Value {
+        json!({"domain": "quire.checked-semantic-node/v1", "digest": digit.to_string().repeat(64)})
+    }
+
+    /// The typed node id whose digest is `digit` repeated.
+    pub(super) fn node_id(digit: char) -> CheckedNodeId {
+        serde_json::from_value(id(digit)).expect("node id")
+    }
 }
 
 #[cfg(test)]

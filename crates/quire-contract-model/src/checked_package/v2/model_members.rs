@@ -247,15 +247,65 @@ impl RelationshipDirection {
     }
 }
 
+/// The ends a named role selects on a relationship.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct SelectedEnds<'a> {
+    /// The end carrying the named role.
+    pub(super) receiver: &'a RelationshipEnd,
+    /// The other end.
+    pub(super) destination: &'a RelationshipEnd,
+    /// Whether the named role is the source end's.
+    pub(super) forward: bool,
+}
+
+/// Why a role name selects no single end.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum EndSelectionError {
+    /// No end carries the role.
+    MissingName,
+    /// Both ends carry the role.
+    Ambiguous,
+}
+
 impl RelationshipDecl {
+    /// The `(receiver, destination)` ends of a traversal: forward reads from
+    /// the source end to the target end, inverse the other way.
+    pub(super) fn ends(&self, forward: bool) -> (&RelationshipEnd, &RelationshipEnd) {
+        if forward {
+            (&self.source, &self.target)
+        } else {
+            (&self.target, &self.source)
+        }
+    }
+
+    /// The one role-to-end rule of admission and of the typed accessor: the end
+    /// whose authored role equals `name` is the receiver (forward when it is
+    /// the source end) and the other end is the destination.
+    pub(super) fn select_ends(&self, name: &str) -> Result<SelectedEnds<'_>, EndSelectionError> {
+        let forward = match (
+            self.source.role.as_deref() == Some(name),
+            self.target.role.as_deref() == Some(name),
+        ) {
+            (true, false) => true,
+            (false, true) => false,
+            (false, false) => return Err(EndSelectionError::MissingName),
+            (true, true) => return Err(EndSelectionError::Ambiguous),
+        };
+        let (receiver, destination) = self.ends(forward);
+        Ok(SelectedEnds {
+            receiver,
+            destination,
+            forward,
+        })
+    }
+
     /// FR-152's single destination-multiplicity derivation for a named end.
     pub(super) fn navigation_type(
         &self,
         forward: bool,
         destination_key: Box<str>,
     ) -> Result<MemberType, ModelRefusal> {
-        let end = if forward { &self.target } else { &self.source };
-        let multiplicity = end.multiplicity;
+        let multiplicity = self.ends(forward).1.multiplicity;
         let Some(upper) = multiplicity.upper else {
             return Err(ModelRefusal::new(
                 CheckedPackageRefusalCode::UnsupportedConstruct,
