@@ -2325,3 +2325,66 @@ constructs the result field by field (AC-267). Assert separately (AC-268) that
 `selected_population` item is `pub use`d at the model root or re-exported from the
 `quire-contract-ir` root, and that the AC-252 through AC-257 outcomes are
 unchanged. Do not take the expected values from the accessor under test.
+
+## Typed population of a reaches application (FR-038-AC-269 through FR-038-AC-280)
+
+PLANNED / UNRUN (IR-852); no tagged test yet. The new error type is listed in the
+FR-019 Public items table by the code change that exports it, not by the
+specification change; [TC-058](../../model/matrix/TC-058-model-crate-public-interface.md)
+compares the compiled exports to that table. The producer rule that admits the
+`population` member key is outside this repository; build the fixtures from this
+repository's own wire so that the key is present or absent as the case needs.
+
+Build admitted packages from the IR-824 and IR-851 reaches fixtures, adding a
+`bounded_domain` / `model_population` node of the receiver end's declared type
+(its `max` binding an integer literal, its `semantic_type` a `Set` of
+`Reference` of the object type, two `Type` occurrences at ordinals 1 and 4 each
+with one source-map row) and the `population` key in the application's
+`operation.member`, with the node id in the application's `dependencies`.
+Further packages: a second population node with another `max`, a reaches
+application with no key, and a package holding a population node that no
+application names. Derive the expected binding, ordinal, maximum and object
+type from the fixture and the key derivation, not from the accessor.
+
+Expected: `reaches_population` returns the selector with the supplied node id and
+ordinal 1, and `select_population` over `Admitted` with it returns `Finite` with
+the fixture's maximum, minimum 0 and the object type; an application without the
+key returns `Ok(None)`; two applications over one population return equal
+selectors and over two populations differ in `binding`. Supply an unknown id
+(`UnknownNode`) and a navigate application, an `integer.add` application, the
+relationship node, a population node and a literal (`NotReachesApplication`). In
+crate-internal unit tests beside the accessor, mutate an admitted application's
+`population` to a non-node-id value, to an absent id, to a non-population node
+and strip the population node's `Type` occurrences, and assert
+`UnresolvedPopulation` and no partial selector. Through the public reader, refuse
+a `population` that is a non-node-id (a number, an object, `null`) or names no
+node, names a non-population node or a node with no `Type` occurrence, or names a
+population over a subtype or another object type (each `ill_typed`/
+`operator-ineligible`, never `missing_declaration`), each at the `population`
+pointer; admit the
+exact type; refuse a navigate application carrying `population`; omit the
+population id from `dependencies` and list an unreferenced one (each
+`invalid_semantic_graph`, no cause). Refuse each `max` defect of AC-279 (missing, two `max` members, non-binding,
+non-integer literal, negative, above `u64`) and admit `0` and a decimal-string
+`max`; spell the above-`u64` `max` as a decimal string. Build a navigate
+application carrying `population` twice, naming an absent node, an
+integer-range node and a valid population node in turn: with the id in
+`dependencies` (each refused at the `population` pointer, operation stage) and
+without it (refused by the join, `invalid_semantic_graph`, no cause); an
+application of another operation carrying the key keeps its outcome. For the
+order (AC-280), combine an invalid `population` whose node id is listed in
+`dependencies` with an operand 1 that does not conform to the receiver end and
+assert the refusal is at the operand; give a reaches application a mode and,
+separately, a leaf, with a `population` that is a listed node id (and, separately, an invalid id missing from `dependencies`, refused by the join), and assert the
+identity-stage refusal (`operation-mode-mismatch`, a law mismatch) in each case.
+For the published QSpec `reaches_population_cases` vectors (FR-322-AC-73), build each
+descriptor into a package in the IR harness and run it through
+`make conformance-qspec`, asserting the same outcomes. The harness shall give
+each appended node (`Reference`, `Set`, population) exactly one `Type`
+occurrence and one matching `source_map` row, because the reader requires the
+source map to equal the occurrence set exactly; it shall reuse an existing
+`Reference` of the object type instead of appending a duplicate. A package built
+without those rows is refused `invalid_source_map` before any population check. Call twice and
+on a clone and compare results, package equality and work. An external fixture
+exhaustively matches the error enum and binds the result type (AC-278). Do not
+take the expected values from the accessor under test.
