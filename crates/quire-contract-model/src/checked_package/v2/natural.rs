@@ -309,7 +309,6 @@ mod tests {
 
     /// The cross-multiplied comparison is exact beyond 64 bits and orders
     /// rationals, equal ones included, as their values do.
-    ///
     #[trace("TC-048", "FR-038-AC-121")]
     #[test]
     fn tc_048_compares_rationals_exactly_beyond_2_pow_64() {
@@ -331,7 +330,6 @@ mod tests {
 
     /// The comparison charges its parses and products to the meter and stops
     /// at the limit.
-    ///
     #[trace("TC-048", "FR-038-AC-3")]
     #[test]
     fn tc_048_comparison_work_is_charged_and_stops_at_the_limit() {
