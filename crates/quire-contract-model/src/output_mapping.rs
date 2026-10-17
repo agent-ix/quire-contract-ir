@@ -3266,7 +3266,8 @@ mod tests {
         assert_eq!(refusal.path(), "package.identity");
     }
 
-    /// Tracing: TC-043, FR-034-AC-3, NFR-060.
+    /// Trace: TC-043
+    #[trace("TC-043")]
     #[test]
     fn tc_043_absolute_region_arithmetic_overflow_refuses() {
         let region = OutputByteRegion::new(u64::MAX - 1, u64::MAX).expect("valid high region");
