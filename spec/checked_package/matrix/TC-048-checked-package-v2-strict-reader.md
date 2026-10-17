@@ -1483,11 +1483,15 @@ declaration, and a package that selects it.
    `malformed-declaration` at the selected model row. Name an absent case in an
    `enum_value` and require `invalid_semantic_graph` at its `case`. Supply, under
    the selection digest, a document with a different case set and require
-   `stale_dependency` at that digest. Admit an ordinary scalar enum whose cases
+   `stale_dependency` at that digest. Read an ordinary scalar enum whose cases
    include a non-identifier spelling and require `invalid_semantic_graph`.
 
-Expected: each admission and refusal above satisfies FR-038-AC-236 through
-FR-038-AC-238 with the stated code, cause and pointer.
+Expected: each outcome above holds with the stated code, cause and pointer. The
+criteria state these outcomes except two controls the tests add from the
+reader's general rules: an absent `owner` refuses `malformed_wire` at the
+node, and `enum.lt` and `structural.eq` over the variant refuse
+`ill_typed`/`operator-ineligible` at the first argument. Those two are extra
+test controls and are not required by the criterion text.
 
 ## Refusal and limit locations (FR-038-AC-24 through FR-038-AC-26)
 
@@ -1959,7 +1963,12 @@ No public reader/dispatch/driver metadata observation is allocated.
    selection identity; require metadata absence and original code/cause/member.
    Combine declaration defects with earlier table/member-path defects and bounded
    work exhaustion; assert the same first refusal or distinct Limit/InexactNumber
-   result and no partial package. For the inexact-number control, author bytes
+   result and no partial package. For the exact-budget clause of AC-192, charge
+   the retained identity and origin independently from fixed authored records
+   (source and generated origins) and require success at exactly that budget and
+   the existing work-limit result, with no partial package, at one less; likewise
+   require a selected document to succeed at its measured work and return the
+   work-limit result at one less. For the inexact-number control, author bytes
    with an origin integer above 2^53 and a declaration defect, then supply them
    through the actual selection-evidence path under their raw-byte digest and
    under another document's selected digest. The original typed inexact-number
