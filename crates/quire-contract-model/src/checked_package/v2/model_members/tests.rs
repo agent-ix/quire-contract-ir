@@ -121,6 +121,7 @@ fn tc_048_structural_node_keys_hash_the_expected_canonical_bytes() {
 /// the refusal-location rule of FR-038 "Every identity digest is computed
 /// through quire-canonical", which no numbered criterion states, so it carries
 /// no criterion tag.
+#[trace("TC-048")]
 #[test]
 fn tc_048_a_declaration_key_over_the_byte_limit_refuses_at_its_selection_row() {
     let mut model = read(&document(vec![object_type(WIDGET, &[], vec![])])).expect("reads");
@@ -633,6 +634,7 @@ fn tc_048_relationship_document_read_uses_the_exact_selected_row_work_budget() {
 /// subtype and a subtype conforms to its supertype, decided in either order.
 ///
 /// Trace: FR-038-AC-29
+#[trace("TC-048", "FR-038-AC-29")]
 #[test]
 fn tc_048_a_semantic_ir_document_reads_inherited_members_and_conformance() {
     let model = read(&document(vec![
@@ -672,6 +674,7 @@ fn tc_048_a_semantic_ir_document_reads_inherited_members_and_conformance() {
 /// the element type `Int[lo, hi]`.
 ///
 /// Trace: FR-038-AC-29
+#[trace("TC-048", "FR-038-AC-29")]
 #[test]
 fn tc_048_a_semantic_ir_integer_value_type_is_an_integer_range() {
     let digit = json!({
@@ -703,6 +706,7 @@ fn tc_048_a_semantic_ir_integer_value_type_is_an_integer_range() {
 /// FR-154's declaration refusals the reader draws, each for one defect.
 ///
 /// Trace: FR-038-AC-28
+#[trace("TC-048", "FR-038-AC-28")]
 #[test]
 fn tc_048_semantic_ir_declaration_defects_refuse_with_their_fr_154_cause() {
     let refused = |types| read(&document(types)).map(|_| ()).expect_err("refused");
@@ -758,6 +762,7 @@ fn tc_048_semantic_ir_declaration_defects_refuse_with_their_fr_154_cause() {
 /// is read.
 ///
 /// Trace: FR-038-AC-27
+#[trace("TC-048", "FR-038-AC-27")]
 #[test]
 fn tc_048_a_selection_admits_only_the_document_it_names() {
     let document = document(vec![object_type(WIDGET, &[], vec![])]);
@@ -835,6 +840,7 @@ const BAD_ID: &str = "ix://acme/orders/bad-id";
 /// whether the referencing node is read before or after it.
 ///
 /// Trace: FR-038-AC-28
+#[trace("TC-048", "FR-038-AC-28")]
 #[test]
 fn tc_048_a_reference_to_a_refused_node_leaves_that_nodes_own_refusal() {
     let malformed = ModelRefusal::new(Code::InvalidModelBinding, Cause::MalformedDeclaration);
@@ -872,6 +878,7 @@ fn tc_048_a_reference_to_a_refused_node_leaves_that_nodes_own_refusal() {
 /// malformed member before either, wherever each sits in the node.
 ///
 /// Trace: FR-038-AC-28
+#[trace("TC-048", "FR-038-AC-28")]
 #[test]
 fn tc_048_one_nodes_failures_report_in_table_order() {
     let missing = ModelRefusal::new(Code::MissingDeclaration, Cause::MissingName);
@@ -925,6 +932,7 @@ fn tc_048_one_nodes_failures_report_in_table_order() {
 /// or after the one naming it.
 ///
 /// Trace: FR-038-AC-28
+#[trace("TC-048", "FR-038-AC-28")]
 #[test]
 fn tc_048_a_type_ref_to_a_relationship_is_wrong_meaning_in_any_node_order() {
     let mut widget = object_type(WIDGET, &[], vec![]);
@@ -953,6 +961,7 @@ fn tc_048_a_type_ref_to_a_relationship_is_wrong_meaning_in_any_node_order() {
 /// malformed, not a `conflicting-binding`.
 ///
 /// Trace: FR-038-AC-28
+#[trace("TC-048", "FR-038-AC-28")]
 #[test]
 fn tc_048_nodes_with_no_identity_are_malformed_not_conflicting() {
     let mut nameless = object_type(WIDGET, &[], vec![]);
@@ -974,6 +983,7 @@ fn tc_048_nodes_with_no_identity_are_malformed_not_conflicting() {
 /// limit one below what a read used is `incomplete` there.
 ///
 /// Trace: FR-038-AC-30
+#[trace("TC-048", "FR-038-AC-30")]
 #[test]
 fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
     let types = || {
