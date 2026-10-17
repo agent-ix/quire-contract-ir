@@ -58,19 +58,6 @@ pub(super) enum ReachesLookup {
 }
 
 impl CheckedPackageV2 {
-    /// The graph node with `id`, from the retained index.
-    pub(in crate::checked_package) fn node(
-        &self,
-        id: &CheckedNodeId,
-    ) -> Option<&CheckedSemanticNodeV2> {
-        let position = *self.node_index.get(id)?;
-        self.wire
-            .semantic_graph
-            .nodes
-            .get(position)
-            .filter(|candidate| &candidate.node_id == id)
-    }
-
     /// The node `id` when its body root is a `quire.op.model.reaches`
     /// application: the one rule both reaches accessors share.
     pub(super) fn reaches_application(

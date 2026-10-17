@@ -48,14 +48,7 @@ impl CheckedPackageV2 {
             let position = *self.node_index.get(id)?;
             self.kinds.get(position).copied()
         };
-        let position = *self.node_index.get(node).ok_or(Error::UnknownNode)?;
-        let found = self
-            .wire
-            .semantic_graph
-            .nodes
-            .get(position)
-            .filter(|candidate| &candidate.node_id == node)
-            .ok_or(Error::UnknownNode)?;
+        let found = self.node(node).ok_or(Error::UnknownNode)?;
         if kind_of(node) != Some(CheckedNodeKind::Value(ValueForm::Parameter)) {
             return Err(Error::NotParameter);
         }

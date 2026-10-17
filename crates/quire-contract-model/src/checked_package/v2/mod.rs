@@ -785,6 +785,19 @@ fn is_typed_preimage_position(path: &JsonPointer) -> bool {
 }
 
 impl CheckedPackageV2 {
+    /// The graph node with `id`, from the retained index.
+    pub(in crate::checked_package) fn node(
+        &self,
+        id: &CheckedNodeId,
+    ) -> Option<&CheckedSemanticNodeV2> {
+        let position = *self.node_index.get(id)?;
+        self.wire
+            .semantic_graph
+            .nodes
+            .get(position)
+            .filter(|candidate| &candidate.node_id == id)
+    }
+
     /// Reads one canonical V2 value without exposing a partial package.
     pub fn read(
         bytes: &[u8],

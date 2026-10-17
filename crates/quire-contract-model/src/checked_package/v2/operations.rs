@@ -2250,6 +2250,7 @@ fn check_relationship_member(
         Some(Ok(key)) => key,
         Some(Err(_)) => return key_refused(),
     };
+    let receiver_type_key = destination_key.clone();
     let member_type = match relationship.navigation_type(forward, destination_key.into()) {
         Ok(member_type) => member_type,
         Err(refusal) => return refuse(member_at("name"), refusal),
@@ -2298,14 +2299,10 @@ fn check_relationship_member(
     let Some(population) = linked else {
         return ineligible(member_at("population"));
     };
-    // A reaches application's ends share one declared type (checked above), so
-    // this derivation succeeds whenever the destination's did.
-    let Some(Ok(receiver_key)) = owner.package.end_declaration_key(&receiver.type_ref) else {
-        return ineligible(member_at("population"));
-    };
+    // A reaches application's ends share one declared type (checked above).
     let receiver_type = CheckedNodeId {
         domain: NODE_DOMAIN.into(),
-        digest: receiver_key.into(),
+        digest: receiver_type_key.into(),
     };
     if population_object_type(population, node_of) != Some(receiver_type) {
         return ineligible(member_at("population"));

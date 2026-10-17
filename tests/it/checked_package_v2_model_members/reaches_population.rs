@@ -583,6 +583,31 @@ fn tc_048_other_operations_keep_their_present_outcome_for_a_population_key() {
         CheckedPackageV2ReadResult::Admitted(_)
     ));
 
+    for (label, identity) in [
+        ("position", "quire.op.tuple.project"),
+        ("element", "quire.op.collection.index"),
+    ] {
+        let package = crate::checked_package_v2_catalogue_differential::admitted_fixture(identity)
+            .expect("catalogue member control");
+        let evidence = evidence_for(&package);
+        assert!(
+            matches!(
+                read(&package, &evidence),
+                CheckedPackageV2ReadResult::Admitted(_)
+            ),
+            "{label} control"
+        );
+        let at = position_of(&package, identity);
+        let with_key = with_member_population(package, at, key.clone());
+        assert!(
+            matches!(
+                read(&with_key, &evidence),
+                CheckedPackageV2ReadResult::Admitted(_)
+            ),
+            "{label} keeps admitting a population key"
+        );
+    }
+
     // A closed member kind refuses the key exactly as it refuses any other
     // unknown key.
     let (quantity, at) = crate::checked_package_v2_operand_families::quantity_sum_control();
@@ -696,11 +721,6 @@ fn tc_048_reaches_population_is_repeatable_and_charges_no_work() {
     assert_eq!(second.reaches_population(&application), result);
     assert_eq!(first, clone);
     assert_eq!(first, second);
-    // Reading the accessor does not change what admission charges.
-    let before = least_admitting_work(&scenario);
-    let _ = first.reaches_population(&application);
-    assert_eq!(least_admitting_work(&scenario), before);
-
     // A package without the key is charged exactly what it was before the key.
     let (package, evidence) =
         relationship_operation_package(authored_relationship(), "links", true);

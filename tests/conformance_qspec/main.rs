@@ -32,6 +32,8 @@ use quire_contract_model::{
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
+mod reaches_population;
+
 /// The environment variable naming the root of a `quire-specification` checkout.
 const SPECIFICATION_DIR: &str = "QUIRE_SPECIFICATION_DIR";
 

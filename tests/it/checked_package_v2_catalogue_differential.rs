@@ -283,7 +283,7 @@ fn unavailable_class(identity: &str) -> &'static str {
 
 // A fresh package is built for each identity. These are the entries for which
 // the existing nominal/structural fixture helpers produce a valid source.
-fn admitted_fixture(identity: &str) -> Option<Value> {
+pub(super) fn admitted_fixture(identity: &str) -> Option<Value> {
     if identity == "quire.op.numeric.narrow" {
         return Some(crate::admitted_result_context::fixture());
     }

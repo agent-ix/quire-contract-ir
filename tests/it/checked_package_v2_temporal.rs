@@ -577,6 +577,43 @@ fn tc_048_a_fairness_node_admits_under_the_infinite_trace_profile() {
     assert_eq!(nodes(&package)[fair]["node_tag"], "temporal");
 }
 
+#[trace("TC-048", "FR-038-AC-275")]
+#[test]
+fn tc_048_temporal_members_keep_their_closed_shape_for_population() {
+    for (label, package, position) in [
+        {
+            let (package, position) = with_root(
+                TIMED,
+                "eventually",
+                timed_closed(whole("0"), whole("3")),
+                None,
+                1,
+            );
+            ("temporal_interval", package, position)
+        },
+        {
+            let (package, position) =
+                with_fairness(INFINITE, fairness_member(&model_key(ORDER_NODE), "scaled"));
+            ("fairness", package, position)
+        },
+    ] {
+        admitted(label, &package);
+        let mut with_population = package.clone();
+        with_population["semantic_graph"]["nodes"][position]["body"]["operation"]["member"]
+            ["population"] = node_id(&"a".repeat(64));
+        settle(&mut with_population);
+        let mut with_stray = package;
+        with_stray["semantic_graph"]["nodes"][position]["body"]["operation"]["member"]["stray"] =
+            node_id(&"a".repeat(64));
+        settle(&mut with_stray);
+        assert_eq!(
+            refusal_of(label, &with_population).0,
+            refusal_of(label, &with_stray).0,
+            "{label}"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // AC-97
 // ---------------------------------------------------------------------------

@@ -214,12 +214,7 @@ fn select_admitted(
     if package.package_id() != &selector.package_id {
         return CheckedSelectedPopulationOutcome::ForeignPackage(selector);
     }
-    let Some(node) = package
-        .graph()
-        .nodes
-        .iter()
-        .find(|node| node.node_id == selector.binding)
-    else {
+    let Some(node) = package.node(&selector.binding) else {
         return CheckedSelectedPopulationOutcome::StaleBinding(selector);
     };
     if selector.occurrence.role != CheckedOccurrenceRole::Type
