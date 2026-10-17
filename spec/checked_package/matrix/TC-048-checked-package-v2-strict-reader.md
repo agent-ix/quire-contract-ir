@@ -2285,3 +2285,38 @@ it holds the containing application's id and no operand id, and
 construct the expected name or level from the accessor under test. The
 compiled public inventory of the two new types is covered by
 [TC-058](../../model/matrix/TC-058-model-crate-public-interface.md).
+
+## Typed relationship end of a reaches claim (FR-038-AC-262 through FR-038-AC-267)
+
+PLANNED / UNRUN (IR-851); no tagged test yet. The two new types are listed in
+the FR-019 Public items table by the code change that exports them, not by the
+specification change; [TC-058](../../model/matrix/TC-058-model-crate-public-interface.md)
+compares the compiled exports to that table.
+
+Build admitted packages from the IR-824 reaches fixtures: a homogeneous
+self-relationship whose source end is `{1,1}` with its own role and
+whose target end is `{2,3}` unique with role `peer`, one claim naming the source
+role (forward) and one naming the target role (inverse); further packages with
+the destination end `{0,3}` unique, `{0,3}` not unique, `{0,1}` and `{1,1}`,
+and one whose destination end omits its role. Derive the expected bounds,
+roles and destination declaration node id from the domain package document and
+the graph, not from the accessor.
+
+Expected: `relationship_end` over each claim returns the supplied id, the
+destination end's `lower`, `upper`, `unique`, `role` and `forward`, `ordered`
+false and `upper` `Some`, and the destination type id; the forward and inverse
+claims of the unequal relationship return different bounds. Supply an unknown id
+(`UnknownNode`) and a navigate application, an `integer.add` application, the
+relationship node, an object declaration node and a literal
+(`NotRelationshipEndClaim`). In crate-internal unit tests beside the accessor,
+where the private wire is available, mutate an admitted claim so its
+declaration resolves to no relationship, its name matches neither role, its
+name matches both roles, or its destination declaration node is absent from the
+graph index, and assert `UnresolvedEnd` and no partial value for each; give the
+same defects to the reader and assert their existing admission refusals.
+Call twice and on a clone and compare results, package equality and work. An
+external fixture exhaustively matches the error enum and constructs the result
+field by field. Assert that `model_object_fields` over the object type returns
+only its fields, that the model root exports no `selected_population` item, and
+that the AC-252 through AC-257 outcomes are unchanged. Do not take the expected
+values from the accessor under test.
