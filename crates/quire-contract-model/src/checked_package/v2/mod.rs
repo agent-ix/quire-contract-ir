@@ -2505,8 +2505,18 @@ mod tests {
             "source_map": [], "capability_report": [],
             "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"}, "entries": []}
         })).expect("private owned wire");
+        let borrowed = super::CheckedPackageIdentityPreimageRefV2 {
+            version: &wire.identity_preimage.version,
+            edition: &wire.identity_preimage.edition,
+            profile_selections: &wire.identity_preimage.profile_selections,
+            definition_selections: &wire.identity_preimage.definition_selections,
+            model_selections: &wire.identity_preimage.model_selections,
+            required_features: &wire.identity_preimage.required_features,
+            dependency_selections: &wire.identity_preimage.dependency_selections,
+            identity_projection: &wire.semantic_graph.nodes,
+        };
         let bytes = super::encode_checked_package_v2(
-            &wire.identity_preimage,
+            &borrowed,
             &wire.package_id,
             &wire.lock,
             &wire.semantic_graph,
