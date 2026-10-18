@@ -459,6 +459,16 @@ mod tests {
             ),
             Err(ProtocolBodyDefect::MemberMismatch)
         );
+        unknown["operation"]["member"] = Value::Null;
+        assert_eq!(
+            validate_protocol_body(
+                ProtocolForm::Control,
+                &unknown,
+                &boolean(),
+                Some(&selected())
+            ),
+            Err(ProtocolBodyDefect::MemberMismatch)
+        );
     }
 
     /// The role, channel and queue cases exercise QSpec TC-947 outer shapes.
