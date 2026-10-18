@@ -3,7 +3,8 @@
 //! The V2 wire types encode to RFC 8785 canonical bytes through
 //! `quire-canonical`, which owns the encoder. A type whose JSON nests to a depth
 //! fixed by the type derives `FixedShape` where it is declared and encodes
-//! through serde. The three types here cannot: a node `body` and a diagnostic's
+//! through serde. The three retained wire types and the borrowed preimage here
+//! cannot: a node `body` and a diagnostic's
 //! `details` nest as deep as their input. Each implements
 //! [`quire_canonical::Encode`] by pushing [`Writer`] events in its own field
 //! order, delegating every fixed-depth member to [`Writer::serialize`] and

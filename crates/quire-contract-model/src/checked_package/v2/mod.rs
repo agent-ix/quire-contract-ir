@@ -527,6 +527,18 @@ type CheckedPackageWireV2 = CheckedPackageEnvelope<
 /// Canonically encodes a complete typed checked-package V2 envelope under the
 /// caller's byte limits. Identity construction and admission belong to the
 /// producer and reader respectively.
+///
+/// The encoder requires the borrowed projection view; the owned reader
+/// preimage is not a producer argument.
+///
+/// ```compile_fail
+/// use quire_contract_model::{encode_checked_package_v2, CheckedPackageIdentityPreimageV2};
+/// let owned: &CheckedPackageIdentityPreimageV2 = todo!();
+/// let _ = encode_checked_package_v2(
+///     owned, todo!(), todo!(), todo!(), todo!(), todo!(), todo!(),
+///     quire_canonical::Limits::new(1),
+/// );
+/// ```
 pub fn encode_checked_package_v2(
     identity_preimage: &CheckedPackageIdentityPreimageRefV2<'_>,
     package_id: &CheckedSemanticId,
@@ -2508,7 +2520,7 @@ mod tests {
     use ix_trace_rs::trace;
     use serde_json::json;
 
-    #[trace("TC-451", "FR-051-AC-1")]
+    #[trace("TC-451", "FR-051-AC-1", "FR-051-AC-4")]
     #[test]
     fn tc_451_borrowed_encoder_equals_private_owned_wire_bytes() {
         let edition =

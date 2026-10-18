@@ -13,11 +13,9 @@ relationships:
 ## Description
 
 Verify FR-051-AC-1 through FR-051-AC-4 through the public model-crate
-interface, canonical encoder, and existing V2 reader. Existing IR controls
-exercise the owned-preimage encoder and the unchanged clauses of AC-1 through
-AC-3. The borrowed-view clauses of AC-1 and AC-3, the replacement-signature
-probe, and AC-4 remain PLANNED for IR-875 code. QSL producer adoption remains
-separate.
+interface, canonical encoder, and existing V2 reader. Its IR-focused controls
+for AC-1 through AC-3 and the borrowed-view AC-4 are implemented in IR.
+QSL producer adoption remains separate.
 
 ## Test Procedure
 

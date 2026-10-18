@@ -3,7 +3,7 @@
 
 //! External default-feature consumer of the typed V2 envelope encoder.
 
-use crate::support::checked_package::{canonical, evidence_for, v2_all_families};
+use crate::support::checked_package::{canonical, evidence_for, v2_all_families, v2_nominal};
 use ix_trace_rs::trace;
 use quire_canonical::{Error, Limits};
 use quire_contract_model::{
@@ -75,10 +75,28 @@ fn tc_451_borrowed_projection_matches_owned_for_empty_nested_and_optional_cases(
         let graph: CheckedSemanticGraphV2 = typed(&value["semantic_graph"]);
         let borrowed = borrowed_preimage(&owned, &graph.nodes);
         let limits = Limits::new(u64::MAX);
+        let owned_bytes = quire_canonical::to_vec(&owned, limits).expect("owned preimage");
         assert_eq!(
             quire_canonical::to_vec(&borrowed, limits).expect("borrowed preimage"),
-            quire_canonical::to_vec(&owned, limits).expect("owned preimage")
+            owned_bytes
         );
+        let exact = u64::try_from(owned_bytes.len()).expect("preimage length fits u64");
+        assert_eq!(
+            quire_canonical::to_vec(&borrowed, Limits::new(exact)).expect("borrowed exact limit"),
+            owned_bytes
+        );
+        assert_eq!(
+            quire_canonical::to_vec(&owned, Limits::new(exact)).expect("owned exact limit"),
+            owned_bytes
+        );
+        assert!(matches!(
+            quire_canonical::to_vec(&borrowed, Limits::new(exact - 1)),
+            Err(Error::Limit(_))
+        ));
+        assert!(matches!(
+            quire_canonical::to_vec(&owned, Limits::new(exact - 1)),
+            Err(Error::Limit(_))
+        ));
         assert_eq!(
             quire_canonical::sha256(&borrowed, limits).expect("borrowed identity"),
             quire_canonical::sha256(&owned, limits).expect("owned identity")
@@ -92,17 +110,21 @@ fn tc_451_borrowed_projection_matches_owned_for_empty_nested_and_optional_cases(
     let value = v2_all_families();
     let graph: CheckedSemanticGraphV2 = typed(&value["semantic_graph"]);
     assert!(graph.nodes.iter().any(|node| !node.occurrences.is_empty()));
-    assert!(graph
-        .nodes
-        .iter()
-        .any(|node| node.recursion_group.is_some()));
-    assert!(graph
-        .nodes
-        .iter()
-        .any(|node| node.nominal_identity_preimage.is_some()));
     assert!(graph.nodes.iter().any(|node| node.declaration.is_some()));
     assert!(graph.nodes.iter().any(|node| node.owner.is_some()));
     assert_same(&value);
+    let nominal = v2_nominal();
+    let nominal_graph: CheckedSemanticGraphV2 = typed(&nominal["semantic_graph"]);
+    assert!(nominal_graph
+        .nodes
+        .iter()
+        .any(|node| node.nominal_identity_preimage.is_some()));
+    assert_same(&nominal);
+
+    let mut grouped = value.clone();
+    grouped["semantic_graph"]["nodes"][0]["recursion_group"] = json!("group");
+    grouped["identity_preimage"]["identity_projection"][0]["recursion_group"] = json!("group");
+    assert_same(&grouped);
 
     let owned: CheckedPackageIdentityPreimageV2 = typed(&value["identity_preimage"]);
     let mut without_occurrences = graph.clone();
@@ -159,6 +181,11 @@ fn tc_451_borrowed_projection_matches_owned_for_empty_nested_and_optional_cases(
     nested["identity_preimage"]["identity_projection"][0]["body"] = body;
     assert_same(&nested);
 
+    let mut empty_body = value.clone();
+    empty_body["semantic_graph"]["nodes"][0]["body"] = json!({});
+    empty_body["identity_preimage"]["identity_projection"][0]["body"] = json!({});
+    assert_same(&empty_body);
+
     let mut empty = value;
     empty["semantic_graph"]["nodes"] = json!([]);
     empty["identity_preimage"]["identity_projection"] = json!([]);
@@ -189,7 +216,7 @@ fn tc_451_borrowed_and_owned_projection_refuse_the_same_invalid_body() {
     ));
 }
 
-#[trace("TC-451", "FR-051-AC-1", "FR-051-AC-2", "FR-051-AC-3")]
+#[trace("TC-451", "FR-051-AC-1", "FR-051-AC-2", "FR-051-AC-3", "FR-051-AC-4")]
 #[test]
 fn tc_451_typed_envelope_has_exact_members_and_canonical_boundaries() {
     let value = v2_all_families();
