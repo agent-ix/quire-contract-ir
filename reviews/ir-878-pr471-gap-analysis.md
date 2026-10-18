@@ -45,3 +45,10 @@ scope:
   role: context_only
   excerpt: NFR-002 portability and implementation independence; AC-3 and AC-4 are verified separately by TC-015 and TC-016.
 ```
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | deferred: IR-880 | This is a gap in the TC-456 procedure, now tracked as IR-880 (child of IR-878), https://linear.app/agent-ix/issue/IR-880. Head ec344121 changes no spec text: the diff against main is tests/it/public_interface.rs plus the two reviews/ files. The const mutation M5 still passes, as expected until IR-880 lands. |
+| FND-002 | deferred: IR-880 | Whether the feature-gated `MappingAllocationPoint` export and the fields, variants and associated functions of public types are in scope is a procedure question, deferred to IR-880 (child of IR-878), https://linear.app/agent-ix/issue/IR-880. This PR changes no spec text. |

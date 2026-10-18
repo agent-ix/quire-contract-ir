@@ -54,3 +54,18 @@ scope:
   role: context_only
   excerpt: tc_058_model_root_exports_exactly_the_documented_public_items shares exported_items with TC-456.
 ```
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | medium | The fix added `strip_comments`, which does not lex string or char literals, so a `/*` or `//` inside a string is taken as the start of a comment. In mutation M6, `const _GLOB_DOC: &str = "/*";` followed by `pub struct RuntimeHandle;` in source_obligation.rs hides the forbidden struct. All 5 public_interface tests pass, TC-058 included, because FR-019 never listed the hidden item. M6b shows the same for `"http://x"`, which hides a later declaration on that line. Head 6891f296 had no such escape: it caught a forbidden pub struct (P1). | tests/it/public_interface.rs:65-84 |
+| FND-005 | low | The separator-free matching fixed FND-003 but now flags names that join two words: `profile_path` folds to `filepath`, `repos_path` to `ospath` and `profile_system` to `filesystem`. Mutations F1-F3 failed TC-456 on these benign names. This fails safe, but the test becomes brittle against legitimate names, and `profile` is core vocabulary here (`CanonicalProfile`, `BOUND_IDENTITY_PROFILE`). Matching per word after splitting on case and separator boundaries would avoid it. | tests/it/public_interface.rs:19-49 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Head ec344121 (commit 139770f) parses every `pub` statement of selected_population.rs. Aliases export their alias; globs, nested groups and paths outside `crate::checked_package` panic. Re-measured: M1 and M1b (alias, second braced block) fail TC-456 with `forbidden public names`; M1c (glob) and M1e (other path) fail closed. Nested groups were checked by reading only, since a nested path into checked_package does not compile. |
+| FND-002 | fixed | `public_item_name` skips the `const`/`async`/`unsafe`/`extern`/ABI qualifiers and `static mut`. Re-measured: `pub const fn runtime_pointer_width` (M2), `pub static mut RUNTIME_X` (M2b) and `pub unsafe extern "C" fn runtime_c` (M2c) each fail TC-456 under their real names. Inline `pub mod x {}` (M4) and `pub mod x; // note` (M4b) now fail TC-456 itself. |
+| FND-003 | fixed | Names are folded to lowercase ASCII alphanumerics before matching against `filepath`, `ospath`, `filesystem` and the other terms. Re-measured: `filePath`, `FilePath`, `osPath` and `file_system` (M3a-d) each fail TC-456. The three adverse controls and the `jsonpointer` control still behave (C1 and C2 go red), and P1-P4 stay red. |
