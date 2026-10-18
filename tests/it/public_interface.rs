@@ -14,9 +14,8 @@ const MODEL_ROOT: &str = include_str!("../../crates/quire-contract-model/src/lib
 const BRIDGE_ROOT: &str = include_str!("../../src/lib.rs");
 const FR_019: &str = include_str!("../../spec/model/functional/FR-019-rust-library-interface.md");
 
-/// Forbidden vocabulary, compared after case folding and separator removal so
-/// `file_path`, `filePath`, `FilePath` and `file-path` are one spelling.
-const FORBIDDEN_PUBLIC_NAME_PARTS: [&str; 16] = [
+/// Forbidden single terms, matched inside any one word of a name.
+const FORBIDDEN_PUBLIC_NAME_TERMS: [&str; 16] = [
     "rust",
     "gumbo",
     "aadl",
@@ -35,11 +34,42 @@ const FORBIDDEN_PUBLIC_NAME_PARTS: [&str; 16] = [
     "macos",
 ];
 
-fn normalized_name(name: &str) -> String {
-    name.chars()
-        .filter(char::is_ascii_alphanumeric)
-        .map(|character| character.to_ascii_lowercase())
-        .collect()
+/// Forbidden adjacent word pairs, so `file_path`, `filePath` and `FilePath`
+/// match while `profile_path` does not.
+const FORBIDDEN_PUBLIC_NAME_PAIRS: [[&str; 2]; 4] = [
+    ["file", "path"],
+    ["os", "path"],
+    ["file", "system"],
+    ["pointer", "width"],
+];
+
+/// Lowercase words of a name, split on separators and camelCase boundaries.
+fn name_words(name: &str) -> Vec<String> {
+    let characters = name.chars().collect::<Vec<_>>();
+    let mut words = Vec::<String>::new();
+    let mut current = String::new();
+    for (index, character) in characters.iter().copied().enumerate() {
+        if !character.is_ascii_alphanumeric() {
+            if !current.is_empty() {
+                words.push(std::mem::take(&mut current));
+            }
+            continue;
+        }
+        if character.is_ascii_uppercase() && !current.is_empty() {
+            let previous = characters[index - 1];
+            let next_is_lower = characters
+                .get(index + 1)
+                .is_some_and(char::is_ascii_lowercase);
+            if !previous.is_ascii_uppercase() || next_is_lower {
+                words.push(std::mem::take(&mut current));
+            }
+        }
+        current.push(character.to_ascii_lowercase());
+    }
+    if !current.is_empty() {
+        words.push(current);
+    }
+    words
 }
 
 fn portable_name_violations<I, S>(names: I) -> Vec<String>
@@ -47,39 +77,110 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-    names
-        .into_iter()
-        .flat_map(|name| {
-            let normalized = normalized_name(name.as_ref());
-            FORBIDDEN_PUBLIC_NAME_PARTS
-                .into_iter()
-                .filter(|part| normalized.contains(part))
-                .map(|part| format!("{}: {part}", name.as_ref()))
-                .collect::<Vec<_>>()
-        })
-        .collect()
-}
-
-/// Source text with line and block comments removed, so a commented-out
-/// declaration is neither inventoried nor accepted.
-fn strip_comments(source: &str) -> String {
-    let mut stripped = String::with_capacity(source.len());
-    let mut rest = source;
-    while let Some(start) = rest.find("/") {
-        stripped.push_str(&rest[..start]);
-        rest = &rest[start..];
-        if rest.starts_with("//") {
-            rest = rest.find('\n').map_or("", |end| &rest[end..]);
-        } else if rest.starts_with("/*") {
-            rest = rest.find("*/").map_or("", |end| &rest[end + 2..]);
-            stripped.push(' ');
-        } else {
-            stripped.push('/');
-            rest = &rest[1..];
+    let mut violations = Vec::new();
+    for name in names {
+        let name = name.as_ref();
+        let words = name_words(name);
+        for term in FORBIDDEN_PUBLIC_NAME_TERMS {
+            if words.iter().any(|word| word.contains(term)) {
+                violations.push(format!("{name}: {term}"));
+            }
+        }
+        for pair in FORBIDDEN_PUBLIC_NAME_PAIRS {
+            if words
+                .windows(2)
+                .any(|window| window[0] == pair[0] && window[1] == pair[1])
+            {
+                violations.push(format!("{name}: {}_{}", pair[0], pair[1]));
+            }
         }
     }
-    stripped.push_str(rest);
-    stripped
+    violations
+}
+
+/// Source text with comments removed, so a commented-out declaration is
+/// neither inventoried nor accepted. String, raw-string and character
+/// literals are copied through whole, so comment markers inside them hide
+/// nothing; lifetimes are told from character literals by the closing quote.
+fn strip_comments(source: &str) -> String {
+    let chars = source.chars().collect::<Vec<_>>();
+    let mut out = String::with_capacity(source.len());
+    let mut index = 0;
+    while index < chars.len() {
+        let character = chars[index];
+        let next = chars.get(index + 1).copied();
+        let previous_is_identifier =
+            index > 0 && (chars[index - 1].is_ascii_alphanumeric() || chars[index - 1] == '_');
+        if character == '/' && next == Some('/') {
+            while index < chars.len() && chars[index] != '\n' {
+                index += 1;
+            }
+        } else if character == '/' && next == Some('*') {
+            let mut depth = 0_usize;
+            while index < chars.len() {
+                if chars[index] == '/' && chars.get(index + 1) == Some(&'*') {
+                    depth += 1;
+                    index += 2;
+                } else if chars[index] == '*' && chars.get(index + 1) == Some(&'/') {
+                    depth -= 1;
+                    index += 2;
+                    if depth == 0 {
+                        break;
+                    }
+                } else {
+                    index += 1;
+                }
+            }
+            out.push(' ');
+        } else if character == 'r' && !previous_is_identifier && raw_string_len(&chars[index..]) > 0
+        {
+            let length = raw_string_len(&chars[index..]);
+            out.extend(&chars[index..index + length]);
+            index += length;
+        } else if character == '"' {
+            let start = index;
+            index += 1;
+            while index < chars.len() && chars[index] != '"' {
+                index += if chars[index] == '\\' { 2 } else { 1 };
+            }
+            index = (index + 1).min(chars.len());
+            out.extend(&chars[start..index]);
+        } else if character == '\'' {
+            let literal_end = match (next, chars.get(index + 2)) {
+                (Some('\\'), _) => chars[index + 3..]
+                    .iter()
+                    .position(|candidate| *candidate == '\'')
+                    .map(|offset| index + 3 + offset + 1),
+                (Some(_), Some('\'')) => Some(index + 3),
+                _ => None,
+            };
+            let end = literal_end.unwrap_or(index + 1);
+            out.extend(&chars[index..end]);
+            index = end;
+        } else {
+            out.push(character);
+            index += 1;
+        }
+    }
+    out
+}
+
+/// Length of a raw string literal (`r"..."`, `r#"..."#`) starting at `rest[0]`,
+/// or zero when `rest` does not start one.
+fn raw_string_len(rest: &[char]) -> usize {
+    let hashes = rest[1..].iter().take_while(|c| **c == '#').count();
+    if rest.get(1 + hashes) != Some(&'"') {
+        return 0;
+    }
+    let body = &rest[2 + hashes..];
+    for (offset, character) in body.iter().enumerate() {
+        if *character == '"'
+            && body[offset + 1..].iter().take_while(|c| **c == '#').count() >= hashes
+        {
+            return 2 + hashes + offset + 1 + hashes;
+        }
+    }
+    rest.len()
 }
 
 /// Every top-level `pub ...` statement of a comment-stripped module: a `pub
@@ -411,6 +512,7 @@ fn tc_456_public_schema_and_model_names_are_portable() {
     collect_schema_names(&forbidden_schema, &mut forbidden_names);
     assert_eq!(portable_name_violations(forbidden_names).len(), 3);
     assert!(portable_name_violations(["jsonpointer"]).is_empty());
+    assert!(portable_name_violations(["profile_path", "repos_path", "profile_system"]).is_empty());
     assert_eq!(
         portable_name_violations(["filePath", "FilePath", "osPath", "file_system"]).len(),
         4
