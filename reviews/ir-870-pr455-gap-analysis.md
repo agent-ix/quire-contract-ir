@@ -43,3 +43,9 @@ Plan completion: not assessed
 Before and after local IR coverage: 527/596 backed, strict 40 unbacked, 0 contradicted. The IR coverage report does not measure the external QSpec NFR-060/061 bindings implicated by FND-001.
 Computed matrix: 562 criterion rows, normalized status and binder identity identical to base.
 Diff and formatting: `git diff --check` and `make fmt-check` passed. Author reports full Cargo gates on pre-rebase doc-only tree.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | PR #455 head `256bdc80a43701c0a03b22394f8061b6070fc2ee` adds NFR-060 to five same-test `#[trace]` attributes and NFR-061 to one. Independent all-prefix audit: 199 removed trace lines, 415 ID occurrences, zero missing from the same-function attributes. |
