@@ -73,6 +73,58 @@ fn has_profile_parameter(signature: &syn::Signature) -> bool {
     })
 }
 
+fn semantic_expression_new(signature: &syn::Signature) -> bool {
+    let names: Vec<_> = signature
+        .inputs
+        .iter()
+        .filter_map(|argument| match argument {
+            FnArg::Typed(typed) => match typed.ty.as_ref() {
+                Type::Path(path) => path.path.segments.last().map(|part| part.ident.to_string()),
+                _ => None,
+            },
+            FnArg::Receiver(_) => None,
+        })
+        .collect();
+    names == ["ExpressionKind", "SourceSpan"] && signature.inputs.len() == 2
+}
+
+fn unchecked_public_constructors(file: &syn::File, owner: &str) -> Vec<String> {
+    let mut unchecked = Vec::new();
+    for item in &file.items {
+        let Item::Impl(implementation) = item else {
+            continue;
+        };
+        if !self_name(implementation).is_some_and(|name| name == owner) {
+            continue;
+        }
+        for member in &implementation.items {
+            let ImplItem::Fn(function) = member else {
+                continue;
+            };
+            if !matches!(function.vis, Visibility::Public(_))
+                || function
+                    .sig
+                    .inputs
+                    .iter()
+                    .any(|arg| matches!(arg, FnArg::Receiver(_)))
+            {
+                continue;
+            }
+            let returns_validated = matches!(&function.sig.output,
+                ReturnType::Type(_, output) if matches!(output.as_ref(), Type::Path(path)
+                    if path.path.segments.last().is_some_and(|part|
+                        part.ident == "Self" || part.ident == owner)));
+            let semantic_constructor = owner == "Expression"
+                && function.sig.ident == "new"
+                && semantic_expression_new(&function.sig);
+            if returns_validated && !semantic_constructor {
+                unchecked.push(format!("{owner}::{}", function.sig.ident));
+            }
+        }
+    }
+    unchecked
+}
+
 #[trace("TC-018", "FR-019-AC-8")]
 #[test]
 fn tc_018_wire_requests_do_not_construct_validated_values_unchecked() {
@@ -121,6 +173,29 @@ fn tc_018_wire_requests_do_not_construct_validated_values_unchecked() {
             );
         }
     }
+    for (file, owner) in [
+        (&identity, "ContractPackage"),
+        (&expression, "Expression"),
+        (&expression, "DeclarationEnvironment"),
+    ] {
+        assert!(
+            unchecked_public_constructors(file, owner).is_empty(),
+            "{owner} has an unchecked public constructor: {:?}",
+            unchecked_public_constructors(file, owner)
+        );
+    }
+    let injected = IDENTITY.replacen(
+        "impl<B: DependencySource> ContractPackage<B> {",
+        "impl<B: DependencySource> ContractPackage<B> { pub fn unchecked(_: &str) -> Self { panic!(\"mutant\") }",
+        1,
+    );
+    assert_ne!(injected, IDENTITY, "constructor mutation anchor must exist");
+    assert!(
+        unchecked_public_constructors(&parse(&injected), "ContractPackage")
+            .iter()
+            .any(|name| name == "ContractPackage::unchecked"),
+        "an unchecked constructor mutant must be detected"
+    );
     let mut exposed = named_struct(&identity, "ContractPackage").clone();
     let Fields::Named(fields) = &mut exposed.fields else {
         unreachable!("the actual ContractPackage has named fields")
@@ -139,12 +214,14 @@ fn tc_018_public_semantic_boundary_signatures_are_fallible() {
     let expression = parse(EXPRESSION);
     let canonical = parse(CANONICAL);
     let coverage = parse(COVERAGE);
+    let binding = parse(BINDING);
     for (file, owner, name) in [
         (&identity, "ContractPackage", "from_json_str"),
         (&identity, "ContractPackage", "from_json_bytes"),
         (&identity, "ContractPackage", "new"),
         (&expression, "DeclarationEnvironment", "new"),
         (&expression, "DeclarationEnvironment", "check_expression"),
+        (&binding, "BoundPackage", "from_json_bytes"),
     ] {
         assert!(
             returns_result(&method(file, owner, name).sig),
@@ -190,6 +267,14 @@ fn tc_018_public_semantic_boundary_signatures_are_fallible() {
     assert!(
         !returns_result(&nonfallible),
         "a nonfallible signature mutant must be detected"
+    );
+    let mut bound_nonfallible = method(&binding, "BoundPackage", "from_json_bytes")
+        .sig
+        .clone();
+    bound_nonfallible.output = syn::parse_quote!(-> Option<Self>);
+    assert!(
+        !returns_result(&bound_nonfallible),
+        "a nonfallible BoundPackage decoder mutant must be detected"
     );
 }
 
@@ -280,7 +365,7 @@ impl<'ast> Visit<'ast> for ForbiddenTypes {
     }
 }
 
-fn forbidden_public_signatures(source: &str) -> Vec<String> {
+fn forbidden_public_surface(source: &str) -> Vec<String> {
     let file = parse(source);
     let mut found = ForbiddenTypes::default();
     for item in &file.items {
@@ -304,6 +389,23 @@ fn forbidden_public_signatures(source: &str) -> Vec<String> {
                     }
                 }
             }
+            Item::Struct(item) if matches!(item.vis, Visibility::Public(_)) => {
+                for field in &item.fields {
+                    if matches!(field.vis, Visibility::Public(_)) {
+                        found.visit_type(&field.ty);
+                    }
+                }
+            }
+            Item::Enum(item) if matches!(item.vis, Visibility::Public(_)) => {
+                for variant in &item.variants {
+                    for field in &variant.fields {
+                        found.visit_type(&field.ty);
+                    }
+                }
+            }
+            Item::Type(item) if matches!(item.vis, Visibility::Public(_)) => {
+                found.visit_type(&item.ty);
+            }
             _ => {}
         }
     }
@@ -321,9 +423,9 @@ fn tc_018_semantic_signatures_exclude_host_and_owner_types() {
         ("binding", BINDING),
     ] {
         assert!(
-            forbidden_public_signatures(source).is_empty(),
+            forbidden_public_surface(source).is_empty(),
             "{name} exposes forbidden types: {:?}",
-            forbidden_public_signatures(source)
+            forbidden_public_surface(source)
         );
     }
     let mutated = IDENTITY.replacen(
@@ -333,10 +435,25 @@ fn tc_018_semantic_signatures_exclude_host_and_owner_types() {
     );
     assert_ne!(mutated, IDENTITY, "mutation anchor must exist");
     assert!(
-        forbidden_public_signatures(&mutated)
+        forbidden_public_surface(&mutated)
             .iter()
             .any(|path| path == "std::path::Path"),
         "a public Path parameter mutant must be detected"
+    );
+    let field_mutant = COVERAGE.replacen(
+        "pub struct CoverageResult {",
+        "pub struct CoverageResult { pub host: std::path::PathBuf,",
+        1,
+    );
+    assert_ne!(
+        field_mutant, COVERAGE,
+        "result-field mutation anchor must exist"
+    );
+    assert!(
+        forbidden_public_surface(&field_mutant)
+            .iter()
+            .any(|path| path == "std::path::PathBuf"),
+        "a forbidden public result field mutant must be detected"
     );
 }
 
