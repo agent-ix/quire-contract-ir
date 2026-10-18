@@ -50,3 +50,10 @@ FAIL for this head: AC-24 is newly unbacked and FR-051-AC-4 is absent relative t
 ## Coverage
 
 Plan completion: not assessed. Current main a69587f has 535/603 backed, 39 unbacked, 0 contradicted; PR head has 533/605 backed, 43 unbacked, 0 contradicted. AC-24 is the fourth newly unbacked row after AC-25 through AC-27; FR-051-AC-4 is absent altogether. Optional repository-wide semantic review was not requested; the three new criteria and TC-452 procedure were checked in this PR.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At 83ac5a4737cb7641d2c8c2e52089b26704340dcc, the traced AC-24 conflict test is present and computed matrix status is tagged. |
+| FND-002 | fixed | At 83ac5a4737cb7641d2c8c2e52089b26704340dcc, FR-051-AC-4 and its borrowed-projection test are present after integration with main. |

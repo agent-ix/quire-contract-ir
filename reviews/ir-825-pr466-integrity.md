@@ -43,3 +43,9 @@ CONDITIONAL. Integrate current main, retain AC-24 implementation, and update FR-
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | The edited TC-452 matrix row and companion prose still mark AC-24 Planned after current main implemented and traced it; the branch conflicts with main. | spec/model/matrix/tests.md:34 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At 83ac5a4737cb7641d2c8c2e52089b26704340dcc, FR-052, TC-452 and the matrix row mark AC-24 Implemented; GitHub reports the branch mergeable. |
