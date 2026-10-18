@@ -29,6 +29,11 @@ fn named_struct<'a>(file: &'a syn::File, name: &str) -> &'a syn::ItemStruct {
         .unwrap_or_else(|| panic!("missing struct {name}"))
 }
 
+fn fields_are_private(item: &syn::ItemStruct) -> bool {
+    matches!(&item.fields, Fields::Named(fields)
+        if fields.named.iter().all(|field| matches!(field.vis, Visibility::Inherited)))
+}
+
 fn self_name(item: &syn::ItemImpl) -> Option<&syn::Ident> {
     match item.self_ty.as_ref() {
         Type::Path(path) => path.path.segments.last().map(|segment| &segment.ident),
@@ -84,14 +89,8 @@ fn tc_018_wire_requests_do_not_construct_validated_values_unchecked() {
             matches!(item.vis, Visibility::Public(_)),
             "{name} is public"
         );
-        let Fields::Named(fields) = &item.fields else {
-            panic!("{name} must have named fields");
-        };
         assert!(
-            fields
-                .named
-                .iter()
-                .all(|field| matches!(field.vis, Visibility::Inherited)),
+            fields_are_private(item),
             "{name} exposes an unchecked field"
         );
     }
@@ -122,6 +121,15 @@ fn tc_018_wire_requests_do_not_construct_validated_values_unchecked() {
             );
         }
     }
+    let mut exposed = named_struct(&identity, "ContractPackage").clone();
+    let Fields::Named(fields) = &mut exposed.fields else {
+        unreachable!("the actual ContractPackage has named fields")
+    };
+    fields.named.first_mut().expect("package has fields").vis = syn::parse_quote!(pub);
+    assert!(
+        !fields_are_private(&exposed),
+        "a public-field mutant must be detected"
+    );
 }
 
 #[trace("TC-018", "FR-019-AC-10")]
@@ -175,6 +183,14 @@ fn tc_018_public_semantic_boundary_signatures_are_fallible() {
         })
         .expect("public classify_coverage exists");
     assert!(returns_result(&classify.sig));
+    let mut nonfallible = method(&identity, "ContractPackage", "from_json_str")
+        .sig
+        .clone();
+    nonfallible.output = syn::parse_quote!(-> Option<Self>);
+    assert!(
+        !returns_result(&nonfallible),
+        "a nonfallible signature mutant must be detected"
+    );
 }
 
 #[trace("TC-018", "FR-019-AC-11")]
@@ -217,6 +233,22 @@ fn tc_018_every_canonical_entrypoint_requires_the_closed_profile() {
     assert_eq!(
         quire_contract_model::CanonicalProfile::V1.as_str(),
         "quire.contract.canonical-json/v1"
+    );
+    let mut omitted = method(&canonical, "ContractPackage", "canonical_package")
+        .sig
+        .clone();
+    omitted.inputs = omitted
+        .inputs
+        .into_iter()
+        .filter(|argument| {
+            !matches!(argument, FnArg::Typed(typed)
+                if matches!(typed.ty.as_ref(), Type::Path(path)
+                    if path.path.segments.last().is_some_and(|segment| segment.ident == "CanonicalProfile")))
+        })
+        .collect();
+    assert!(
+        !has_profile_parameter(&omitted),
+        "an omitted-profile signature mutant must be detected"
     );
 }
 
@@ -294,9 +326,17 @@ fn tc_018_semantic_signatures_exclude_host_and_owner_types() {
             forbidden_public_signatures(source)
         );
     }
-    assert_eq!(
-        forbidden_public_signatures("pub fn injected(path: &std::path::Path) {}"),
-        ["std::path::Path"]
+    let mutated = IDENTITY.replacen(
+        "impl<B: DependencySource> ContractPackage<B> {",
+        "impl<B: DependencySource> ContractPackage<B> { pub fn host_path(&self, _: &std::path::Path) {}",
+        1,
+    );
+    assert_ne!(mutated, IDENTITY, "mutation anchor must exist");
+    assert!(
+        forbidden_public_signatures(&mutated)
+            .iter()
+            .any(|path| path == "std::path::Path"),
+        "a public Path parameter mutant must be detected"
     );
 }
 
@@ -315,13 +355,28 @@ fn tc_018_semantic_and_wire_limits_are_exact_public_u32_constants() {
 #[trace("TC-018", "FR-019-AC-9")]
 #[test]
 fn tc_018_an_unknown_package_member_refuses_before_validation() {
+    let schema = jsonschema::JSONSchema::compile(
+        &serde_json::from_str(include_str!(
+            "../../schemas/contract-package-reference-v1.schema.json"
+        ))
+        .expect("published package schema is JSON"),
+    )
+    .expect("published package schema compiles");
     let mut package: Value = serde_json::from_str(include_str!(
         "../../corpus/contract-v0.1/inputs/package-constructs.json"
     ))
     .expect("published package fixture is JSON");
+    assert!(
+        schema.is_valid(&package),
+        "fixture must satisfy the published schema"
+    );
     let original = package.to_string();
     assert!(ContractPackage::from_json_str(&original, ValidationOptions::strict()).is_ok());
     package["unexpected"] = json!(1);
+    assert!(
+        !schema.is_valid(&package),
+        "schema must reject the unknown member"
+    );
     let diagnostics =
         ContractPackage::from_json_str(&package.to_string(), ValidationOptions::strict())
             .expect_err("unknown package member must refuse");
