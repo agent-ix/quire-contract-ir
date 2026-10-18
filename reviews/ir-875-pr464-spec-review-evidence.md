@@ -36,3 +36,9 @@ IR-875 slice 2. QSL producer adoption remains separate.
 ## Verdict
 
 FAIL: address the findings above before merging.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | TC-451 and the matrix explicitly mark the changed borrowed-view clauses of AC-1/3 planned. |
