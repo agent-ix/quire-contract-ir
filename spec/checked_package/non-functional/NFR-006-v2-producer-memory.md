@@ -56,9 +56,10 @@ reduction target remains planned until the borrowed path has been measured.
 To remeasure, build a fresh external Cargo probe against the QSL checkout's
 public `qsl-cst`, `qsl-forms`, `qsl-foundation`, `qsl-semantics`, and
 `qsl-package` crates. Its input construction and RSS sampler are specified
-in TC-455. Use `rustc 1.98.1`, the release profile, the default system
-allocator, no custom `RUSTFLAGS` or `MALLOC_ARENA_MAX`, and the same host for
-the baseline and candidate. Run:
+in TC-455. Record the compiler version used and use that same compiler for
+the fresh baseline and candidate runs. Use the release profile, the default
+system allocator, no custom `RUSTFLAGS` or `MALLOC_ARENA_MAX`, and the same
+host for both sets of runs. Run:
 
 ```sh
 export CARGO_TARGET_DIR=/home/peter/dev/worktrees/ir875-qsl-readonly/target
