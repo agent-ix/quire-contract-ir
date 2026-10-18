@@ -140,7 +140,6 @@ fn sorted(members: &[&'static str]) -> Vec<&'static str> {
     members
 }
 
-/// Tracing: TC-048, FR-038-AC-46
 #[trace("TC-048", "FR-038-AC-46")]
 #[test]
 fn tc_048_definition_references_of_exactly_authority_and_identity_admit() {
@@ -158,7 +157,6 @@ fn tc_048_definition_references_of_exactly_authority_and_identity_admit() {
     admitted(&v2_nominal());
 }
 
-/// Tracing: TC-048, FR-038-AC-47
 #[trace("TC-048", "FR-038-AC-47")]
 #[test]
 fn tc_048_source_references_of_exactly_four_members_admit() {
@@ -172,7 +170,6 @@ fn tc_048_source_references_of_exactly_four_members_admit() {
     admitted(&with_locus(v2_nominal()));
 }
 
-/// Tracing: TC-048, FR-038-AC-48
 #[trace("TC-048", "FR-038-AC-48")]
 #[test]
 fn tc_048_a_definition_reference_with_a_digest_member_is_an_unknown_member() {
@@ -216,7 +213,6 @@ fn tc_048_a_definition_reference_with_a_digest_member_is_an_unknown_member() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-49
 #[trace("TC-048", "FR-038-AC-49")]
 #[test]
 fn tc_048_an_operation_law_definition_refuses_as_a_closed_graph_shape() {
@@ -269,7 +265,6 @@ fn tc_048_an_operation_law_definition_refuses_as_a_closed_graph_shape() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-50
 #[trace("TC-048", "FR-038-AC-50")]
 #[test]
 fn tc_048_a_source_reference_with_a_revision_or_export_is_an_unknown_member() {
@@ -293,7 +288,6 @@ fn tc_048_a_source_reference_with_a_revision_or_export_is_an_unknown_member() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-51
 #[trace("TC-048", "FR-038-AC-51")]
 #[test]
 fn tc_048_a_definition_reference_member_that_is_absent_empty_or_not_a_string_is_malformed() {
@@ -335,7 +329,6 @@ fn tc_048_a_definition_reference_member_that_is_absent_empty_or_not_a_string_is_
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-52
 #[trace("TC-048", "FR-038-AC-52")]
 #[test]
 fn tc_048_a_source_reference_member_that_is_absent_or_not_a_string_is_malformed() {
@@ -364,7 +357,6 @@ fn tc_048_a_source_reference_member_that_is_absent_or_not_a_string_is_malformed(
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-53
 #[trace("TC-048", "FR-038-AC-53")]
 #[test]
 fn tc_048_a_lock_source_of_another_domain_refuses_ahead_of_its_other_members() {
@@ -393,7 +385,6 @@ fn tc_048_a_lock_source_of_another_domain_refuses_ahead_of_its_other_members() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-54
 #[trace("TC-048", "FR-038-AC-54")]
 #[test]
 fn tc_048_a_lock_source_of_the_right_domain_refuses_an_empty_member_or_a_bad_digest() {
@@ -418,7 +409,6 @@ fn tc_048_a_lock_source_of_the_right_domain_refuses_an_empty_member_or_a_bad_dig
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-55
 #[trace("TC-048", "FR-038-AC-55")]
 #[test]
 fn tc_048_a_region_or_locus_source_equal_to_no_lock_row_is_an_invalid_source_map() {
@@ -447,7 +437,6 @@ fn tc_048_a_region_or_locus_source_equal_to_no_lock_row_is_an_invalid_source_map
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-57
 #[trace("TC-048", "FR-038-AC-57")]
 #[test]
 fn tc_048_a_profile_role_law_must_be_the_pair_of_the_locks_profile_selection() {
@@ -496,7 +485,6 @@ fn tc_048_a_profile_role_law_must_be_the_pair_of_the_locks_profile_selection() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-59
 #[trace("TC-048", "FR-038-AC-59")]
 #[test]
 fn tc_048_a_definition_row_that_differs_from_its_preimage_mirror_is_stale() {
@@ -513,7 +501,6 @@ fn tc_048_a_definition_row_that_differs_from_its_preimage_mirror_is_stale() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-60
 #[trace("TC-048", "FR-038-AC-60")]
 #[test]
 fn tc_048_a_rederived_definition_row_edit_admits_and_the_old_package_id_is_stale() {
@@ -548,7 +535,6 @@ fn tc_048_a_rederived_definition_row_edit_admits_and_the_old_package_id_is_stale
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-61
 #[trace("TC-048", "FR-038-AC-61")]
 #[test]
 fn tc_048_a_nominal_owner_naming_no_lock_row_is_an_invalid_semantic_graph() {
@@ -597,7 +583,6 @@ fn tc_048_a_nominal_owner_naming_no_lock_row_is_an_invalid_semantic_graph() {
 /// (`crates/quire-contract-model/src/lib.rs`), the form its fault-injection
 /// probes use.
 ///
-/// Tracing: TC-018, FR-019-AC-6
 ///
 /// Traced to TC-018, not TC-058: TC-058 verifies the planned FR-019-AC-5
 /// clauses, and tracing it here would make the strict gate count AC-5 backed.

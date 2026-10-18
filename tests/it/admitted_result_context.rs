@@ -131,7 +131,6 @@ pub(crate) fn fixture() -> Value {
     value
 }
 
-/// Trace: TC-048, FR-038-AC-247, FR-038-AC-250.
 #[trace("TC-048", "FR-038-AC-247", "FR-038-AC-250")]
 #[test]
 fn tc_048_numeric_narrow_result_equals_type_argument() {
@@ -253,7 +252,6 @@ fn by_operation(package: &CheckedPackageV2, identity: &str) -> ContractOccurrenc
     }
 }
 
-/// Trace: FR-049-AC-1, FR-049-AC-2, FR-049-AC-4, FR-049-AC-5, FR-049-AC-6
 #[trace(
     "TC-447",
     "FR-049-AC-1",
@@ -347,7 +345,6 @@ fn tc_447_context_root_selects_authored_result_interval_without_rewriting_forwar
     assert_eq!(contextual.identity(), &before_identity);
 }
 
-/// Trace: FR-049-AC-2, FR-049-AC-3, FR-049-AC-4
 #[trace("TC-447", "FR-049-AC-2", "FR-049-AC-3", "FR-049-AC-4")]
 #[test]
 fn tc_447_none_and_invalid_occurrences_have_distinct_typed_outcomes() {
@@ -487,7 +484,6 @@ fn tc_447_none_and_invalid_occurrences_have_distinct_typed_outcomes() {
     ));
 }
 
-/// Trace: FR-049-AC-3
 #[trace("TC-447", "FR-049-AC-3")]
 #[test]
 fn tc_447_represented_wrong_conversion_shapes_refuse_without_a_bound() {
@@ -669,7 +665,6 @@ fn tc_447_represented_wrong_conversion_shapes_refuse_without_a_bound() {
     }
 }
 
-/// Trace: FR-049-AC-4
 #[trace("TC-447", "FR-049-AC-4")]
 #[test]
 fn tc_447_exhausted_lowering_and_post_admission_edge_return_no_partial_context() {
@@ -723,7 +718,6 @@ fn tc_447_exhausted_lowering_and_post_admission_edge_return_no_partial_context()
     );
 }
 
-/// Trace: FR-049-AC-2
 #[trace("TC-447", "FR-049-AC-2")]
 #[test]
 fn tc_447_direct_bounded_expression_keeps_own_result_until_its_narrow_is_selected() {
@@ -860,7 +854,6 @@ fn tc_447_direct_bounded_expression_keeps_own_result_until_its_narrow_is_selecte
     assert_eq!(bound.node.body, bounds_body("0", "10"));
 }
 
-/// Trace: FR-049-AC-3, FR-049-AC-5, FR-049-AC-6
 #[trace("TC-447", "FR-049-AC-3", "FR-049-AC-5", "FR-049-AC-6")]
 #[test]
 fn tc_447_shared_expression_uses_each_supplied_occurrence_and_direct_narrow() {

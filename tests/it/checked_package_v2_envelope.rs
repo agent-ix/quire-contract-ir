@@ -50,7 +50,6 @@ fn refused(
     }
 }
 
-/// Trace: FR-051-AC-1, FR-051-AC-2, FR-051-AC-3
 #[trace("TC-451", "FR-051-AC-1", "FR-051-AC-2", "FR-051-AC-3")]
 #[test]
 fn tc_451_typed_envelope_has_exact_members_and_canonical_boundaries() {
@@ -95,7 +94,6 @@ fn tc_451_typed_envelope_has_exact_members_and_canonical_boundaries() {
     ));
 }
 
-/// Trace: FR-051-AC-3
 #[trace("TC-451", "FR-051-AC-3")]
 #[test]
 fn tc_451_reader_admits_matching_typed_envelope_and_refuses_mutations() {

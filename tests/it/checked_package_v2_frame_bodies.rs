@@ -72,7 +72,6 @@ fn frame_index(package: &Value) -> usize {
 /// `deletes` — by reassigning the same two already-declared dependencies to
 /// the other eligible member, so the whole package still admits.
 ///
-/// Tracing: TC-053, FR-038-AC-12
 #[trace("TC-053", "FR-038-AC-12")]
 #[test]
 fn tc_053_process_in_creates_and_object_type_in_deletes_are_admitted() {
@@ -111,7 +110,6 @@ fn tc_053_process_in_creates_and_object_type_in_deletes_are_admitted() {
 /// located at `object_type`, never `invalid_semantic_graph` at the frame
 /// node for the `deletes` misorder.
 ///
-/// Tracing: TC-053, FR-038-AC-14
 #[trace("TC-053", "FR-038-AC-14")]
 #[test]
 fn tc_053_meaning_join_defect_outranks_a_co_occurring_order_defect() {
@@ -160,7 +158,6 @@ fn tc_053_meaning_join_defect_outranks_a_co_occurring_order_defect() {
 /// membership in the frame's own `dependencies`, before it ever asks whether
 /// the digest resolves to a real node.
 ///
-/// Tracing: TC-053, FR-038-AC-13
 #[trace("TC-053", "FR-038-AC-13")]
 #[test]
 fn tc_053_frame_entry_outside_dependencies_refuses_as_missing_declaration() {
@@ -217,7 +214,6 @@ fn tc_053_frame_entry_outside_dependencies_refuses_as_missing_declaration() {
 /// requires the lower-keyed frame's own defect to be reported instead: the
 /// higher-keyed frame is never reached.
 ///
-/// Tracing: TC-053, FR-038-AC-15
 #[trace("TC-053", "FR-038-AC-15")]
 #[test]
 fn tc_053_two_defective_frames_refuse_at_the_lower_keyed_frame() {

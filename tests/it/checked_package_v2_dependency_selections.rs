@@ -64,7 +64,6 @@ fn expect_refusal(
     assert_eq!(refusal.cause, cause, "{refusal:?}");
 }
 
-/// Trace: TC-048, FR-038-AC-31, FR-038-AC-218
 #[trace("TC-048", "FR-038-AC-31", "FR-038-AC-218")]
 #[test]
 fn tc_048_ascending_dependency_selections_admit_and_enter_the_package_id() {
@@ -147,7 +146,6 @@ fn tc_048_ascending_dependency_selections_admit_and_enter_the_package_id() {
     );
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-32
 #[trace("TC-048", "FR-038-AC-32")]
 #[test]
@@ -209,7 +207,6 @@ fn tc_048_dependency_selection_shape_and_domain_refuse_at_the_entry() {
     );
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-32
 #[trace("TC-048", "FR-038-AC-32")]
 #[test]
@@ -229,7 +226,6 @@ fn tc_048_selection_and_definition_ref_shapes_are_malformed_at_the_entry() {
     }
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-32
 #[trace("TC-048", "FR-038-AC-32")]
 #[test]
@@ -250,7 +246,6 @@ fn tc_048_dependency_is_no_longer_a_selection_role() {
     }
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-31
 #[trace("TC-048", "FR-038-AC-31")]
 #[test]
@@ -290,7 +285,6 @@ fn tc_048_lock_and_identity_preimage_dependency_selections_must_match() {
     }
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-33
 #[trace("TC-048", "FR-038-AC-33")]
 #[test]
@@ -369,7 +363,6 @@ fn tc_048_repeated_or_misordered_dependency_identity_refuses() {
 /// `{identity, version}` entry with no `package_id` is `malformed_wire` at
 /// the entry. The reader never reads, drops or compares the `version`.
 ///
-/// Tracing: TC-048, FR-038-AC-63
 #[trace("TC-048", "FR-038-AC-63")]
 #[test]
 fn tc_048_a_dependency_entry_carrying_version_is_an_unknown_member() {
@@ -438,7 +431,6 @@ fn tc_048_a_dependency_entry_carrying_version_is_an_unknown_member() {
 /// under its `identity` when that package's `package_id` is the entry's, with
 /// no version supplied or compared.
 ///
-/// Trace: TC-048, FR-038-AC-64, FR-038-AC-217, FR-038-AC-218
 #[trace("TC-048", "FR-038-AC-64", "FR-038-AC-217", "FR-038-AC-218")]
 #[test]
 fn tc_048_a_dependency_entry_binds_by_identity_and_package_id() {

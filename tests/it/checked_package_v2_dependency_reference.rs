@@ -265,7 +265,6 @@ fn calling(dependency: &Dependency, callee_node: &str) -> Value {
     )
 }
 
-/// Trace: FR-035-AC-7, FR-049-AC-5
 #[trace("TC-047", "FR-035-AC-7", "TC-447", "FR-049-AC-5")]
 #[test]
 fn reached_view_retains_selected_dependency_pair_at_package_boundary() {
@@ -411,7 +410,6 @@ fn reached_view_retains_selected_dependency_pair_at_package_boundary() {
     ));
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-35
 #[trace("TC-048", "FR-038-AC-35")]
 #[test]
@@ -448,7 +446,6 @@ fn tc_048_a_dependency_callee_is_admitted_and_never_a_dependency() {
     );
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-35
 #[trace("TC-048", "FR-038-AC-35")]
 #[test]
@@ -491,7 +488,6 @@ fn tc_048_the_term_enters_the_application_node_identity() {
     assert_ne!(id(&node_rekeyed), id(&package_rekeyed));
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-36
 #[trace("TC-048", "FR-038-AC-36")]
 #[test]
@@ -581,7 +577,6 @@ fn tc_048_the_term_is_admitted_only_as_a_function_call_callee() {
     );
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-36
 #[trace("TC-048", "FR-038-AC-36")]
 #[test]
@@ -619,7 +614,6 @@ fn tc_048_a_malformed_term_refuses_at_the_member_at_fault() {
     }
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-37
 #[trace("TC-048", "FR-038-AC-37")]
 #[test]
@@ -657,7 +651,6 @@ fn tc_048_the_selected_dependency_is_supplied_and_binds_to_its_entry() {
     );
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-37
 #[trace("TC-048", "FR-038-AC-37")]
 #[test]
@@ -733,7 +726,6 @@ fn signature(signature: &[&str], result: &str, edit: impl FnOnce(&mut Vec<Value>
     })
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-38
 #[trace("TC-048", "FR-038-AC-38")]
 #[test]
@@ -860,7 +852,6 @@ fn parameter_dependency(listed: bool, referenced: bool) -> Dependency {
     })
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-38
 #[trace("TC-048", "FR-038-AC-38")]
 #[test]
@@ -885,7 +876,6 @@ fn tc_048_a_parameter_of_a_declared_type_refuses_however_the_function_reaches_it
     }
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-38
 #[trace("TC-048", "FR-038-AC-38")]
 #[test]
@@ -968,7 +958,6 @@ fn node_key(package: &Value, position: usize) -> String {
         .to_owned()
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-38
 #[trace("TC-048", "FR-038-AC-38")]
 #[test]
@@ -987,7 +976,6 @@ fn tc_048_a_quantity_over_a_declared_unit_refuses() {
     );
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-38
 #[trace("TC-048", "FR-038-AC-38")]
 #[test]
@@ -1042,7 +1030,6 @@ fn tc_048_a_type_owned_by_a_domain_package_refuses_without_a_declaration() {
 /// would have its own callee, is outside the body grammar: an application
 /// stands only at a body root (FR-038-AC-114).
 ///
-/// Tracing: TC-048
 /// ACs: FR-038-AC-36, FR-038-AC-114
 #[trace("TC-048", "FR-038-AC-36", "FR-038-AC-114")]
 #[test]

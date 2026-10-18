@@ -98,7 +98,6 @@ fn ineligible(
 /// at the nested application with no locus, at strict wire validation and so
 /// whatever the identities of the package are (FR-038-AC-114, FR-038-AC-115).
 ///
-/// Tracing: TC-048, FR-038-AC-100, FR-038-AC-114, FR-038-AC-115
 #[trace("TC-048", "FR-038-AC-100", "FR-038-AC-114", "FR-038-AC-115")]
 #[test]
 fn tc_048_a_nested_application_of_a_placed_class_refuses_at_the_nested_application() {
@@ -172,7 +171,6 @@ fn tc_048_a_nested_application_of_a_placed_class_refuses_at_the_nested_applicati
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-100
 #[trace("TC-048", "FR-038-AC-100")]
 #[test]
 fn tc_048_a_root_application_of_a_placed_class_in_another_form_refuses_in_a_package() {
@@ -200,7 +198,6 @@ fn tc_048_a_root_application_of_a_placed_class_in_another_form_refuses_in_a_pack
 /// node's body, so an application of a placed class as its root, or nested in
 /// it, refuses at its own `operator`.
 ///
-/// Tracing: TC-048, FR-038-AC-100
 #[trace("TC-048", "FR-038-AC-100")]
 #[test]
 fn tc_048_a_diagnostic_detail_of_a_placed_class_refuses_at_its_operator() {
@@ -242,7 +239,6 @@ fn tc_048_a_diagnostic_detail_of_a_placed_class_refuses_at_its_operator() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-65
 #[trace("TC-048", "FR-038-AC-65")]
 #[test]
 fn tc_048_an_operator_outside_the_closed_vocabulary_refuses_at_the_term() {
@@ -266,7 +262,6 @@ fn tc_048_an_operator_outside_the_closed_vocabulary_refuses_at_the_term() {
 /// outside the grammar whatever it names, an operator outside the closed
 /// vocabulary included (FR-038-AC-114).
 ///
-/// Tracing: TC-048, FR-038-AC-114
 #[trace("TC-048", "FR-038-AC-114")]
 #[test]
 fn tc_048_a_nested_application_with_an_unknown_operator_is_outside_the_grammar() {
