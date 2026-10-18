@@ -307,7 +307,16 @@ pub(super) fn validate_protocol_body(
     {
         return Err(D::MemberMismatch);
     }
-    let expected = layout(form, operator).ok_or(D::MemberMismatch)?;
+    let expected = layout(form, operator).ok_or_else(|| {
+        if ProtocolForm::ALL
+            .iter()
+            .any(|&candidate| layout(candidate, operator).is_some())
+        {
+            D::OperatorIneligible
+        } else {
+            D::MemberMismatch
+        }
+    })?;
     let arguments = body
         .get("arguments")
         .and_then(Value::as_array)
@@ -420,14 +429,14 @@ mod tests {
                 Ok(()),
                 "{operator}"
             );
+            let other_form = if form == ProtocolForm::ProtocolClause {
+                ProtocolForm::Role
+            } else {
+                ProtocolForm::ProtocolClause
+            };
             assert_eq!(
-                validate_protocol_body(
-                    ProtocolForm::ProtocolReference,
-                    &value,
-                    &boolean(),
-                    Some(&selected())
-                ),
-                Err(ProtocolBodyDefect::MemberMismatch),
+                validate_protocol_body(other_form, &value, &boolean(), Some(&selected())),
+                Err(ProtocolBodyDefect::OperatorIneligible),
                 "{operator}"
             );
         }
