@@ -228,7 +228,13 @@ fn exported_items() -> BTreeMap<String, BTreeSet<String>> {
                 .strip_prefix("struct ")
                 .or_else(|| declaration.strip_prefix("enum "))
                 .or_else(|| declaration.strip_prefix("trait "))
-                .or_else(|| declaration.strip_prefix("fn "))?;
+                .or_else(|| declaration.strip_prefix("fn "))
+                .or_else(|| declaration.strip_prefix("type "))
+                .or_else(|| declaration.strip_prefix("const "))
+                .or_else(|| declaration.strip_prefix("static "))
+                .unwrap_or_else(|| {
+                    panic!("unrecognized public source-obligation declaration: {declaration}")
+                });
             Some(
                 name.split(|character: char| {
                     !character.is_ascii_alphanumeric() && character != '_'
@@ -255,6 +261,12 @@ fn exported_items() -> BTreeMap<String, BTreeSet<String>> {
                 .join("crates/quire-contract-model/src/selected_population.rs"),
         )
         .expect("selected-population facade must be readable");
+        for declaration in source.lines().filter(|line| line.starts_with("pub ")) {
+            assert!(
+                declaration.starts_with("pub use "),
+                "unrecognized public selected-population declaration: {declaration}"
+            );
+        }
         let declaration = source
             .split_once("pub use crate::checked_package::{")
             .expect("selected-population facade must name its exports")
@@ -311,7 +323,33 @@ fn tc_456_public_schema_and_model_names_are_portable() {
     assert_eq!(portable_name_violations(forbidden_names).len(), 3);
     assert!(portable_name_violations(["jsonpointer"]).is_empty());
 
-    let model_names = exported_items()
+    let model_items = exported_items();
+    let public_modules = MODEL_ROOT
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("pub mod ")?.strip_suffix(';'))
+        .collect::<BTreeSet<_>>();
+    let inventoried_modules = model_items
+        .get("crate_root")
+        .expect("public modules must be inventoried")
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(public_modules, inventoried_modules);
+    for module in public_modules {
+        assert!(
+            model_items
+                .get(module)
+                .is_some_and(|items| !items.is_empty()),
+            "public module {module} must have an item inventory"
+        );
+    }
+    for declaration in MODEL_ROOT.lines().filter(|line| line.starts_with("pub ")) {
+        assert!(
+            declaration.starts_with("pub mod ") || declaration.starts_with("pub use "),
+            "unrecognized public model-root declaration: {declaration}"
+        );
+    }
+    let model_names = model_items
         .into_iter()
         .flat_map(|(module, items)| std::iter::once(module).chain(items));
     let schema_names = public_schema_names();
