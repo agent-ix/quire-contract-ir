@@ -491,8 +491,8 @@ census.
 
 FR-052-AC-24 holds the conflicting-inventory-facts clause split from AC-3; its
 obligation is unchanged. The inventory fact is the admitted node's
-`semantic_type: CheckedNodeId`. AC-24 stays Planned until the public type and
-conflict test implement this decision. No existing test is traced to AC-24.
+`semantic_type: CheckedNodeId`. AC-24 is Implemented by the public type and
+traced synthetic conflict test. Owner-native completeness remains Planned.
 
 AC-7, AC-9, AC-10 and AC-11 name owner scopes, owner-native enumerators or
 owner adapter tests, and they remain Planned/UNRUN pending owner-native

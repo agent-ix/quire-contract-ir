@@ -11,8 +11,8 @@ use quire_contract_model::source_obligation::{
     SourceObligationInput, SourceObligationRow, SourceSemanticOccurrenceId,
 };
 use quire_contract_model::{
-    CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, SourceDocumentId,
-    SourceIdentity, SourceRevision,
+    CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, SourceDocumentId, SourceIdentity,
+    SourceRevision,
 };
 
 struct Rows {

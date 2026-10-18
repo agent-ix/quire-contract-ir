@@ -15,7 +15,7 @@ through AC-6, AC-12 through AC-15, and AC-17 through AC-23 are Implemented
 with traced tests in `tests/it/source_obligation.rs` and the default-feature
 model-crate consumer. FR-052-AC-8 is retired (ADR-0056). Owner-native evidence
 is still required where a criterion says so. FR-052-AC-24, split from AC-3, is
-Planned until the `SemanticNode` type change and conflicting-facts test land. Owner-native completion, full-output comparison, and the
+Implemented by a traced synthetic conflicting-facts test. Owner-native completion, full-output comparison, and the
 full matched-source census remain Planned/UNRUN under AC-7, AC-9 through
 AC-11, and AC-16. Quire's selected-scope producer awaits PLAT-1165. Synthetic
 outcomes do not establish owner-native exhaustion.
@@ -137,7 +137,8 @@ boundary.
 The FR-052-AC-2 fixture and the FR-052-AC-3 dispositions are specified in
 that same section. Conflicting inventory facts (a `SemanticNode` repeated
 with one `CheckedNodeId` node key and differing `semantic_type: CheckedNodeId`
-facts) belong to FR-052-AC-24, which awaits its implementation and test.
+facts) belong to FR-052-AC-24; the synthetic test below verifies their
+disposition and the blocked occurrence relation.
 
 Separately, build the same fixture from four synthetic `Complete` outcomes
 and a valid binding. Its QSL outcome holds at least one `RequirementRecord` row
@@ -261,8 +262,12 @@ or a complete four-owner census.
     `absent_occurrence_and_same_id_provenance_conflict_never_enter_accepted_rows`.
     The existing two-ID provenance cases are FR-052-AC-22's case (step 4).
 
-  `orphan_or_conflicting_endpoints_do_not_resolve` is not traced to
-  FR-052-AC-24 before the type change and conflicting-facts test land.
+  `orphan_or_conflicting_endpoints_do_not_resolve` remains an AC-23 test.
+  `conflicting_semantic_type_facts_remain_visible_and_block_correspondence`
+  backs AC-24: two rows with one node key and different semantic type keys
+  remain inspectable with `ConflictingIdentity`, an exact repeated row
+  collapses, reversing input order changes nothing, and the occurrence's
+  assertion is rejected as `DanglingOccurrence`.
 
 ## Expected Results
 
@@ -287,8 +292,8 @@ refused by `SourceInventoryOutcomeError::ObservedCountMismatch` and a foreign
 row by `RowSourceMismatch`, each with no outcome. Rejected assertions retain their distinct typed
 reasons; `ConflictingRelation` and `ConflictingProvenance` are each directly
 observed and neither conflicting relation is accepted. Exact duplicates
-collapse, conflicting inventory entries remain inspectable (FR-052-AC-24,
-pending implementation), equivalent input
+collapse, conflicting inventory entries remain inspectable (FR-052-AC-24),
+equivalent input
 permutations produce equal ordered censuses, and removing one authoritative
 occurrence changes the census.
 
