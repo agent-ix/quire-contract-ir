@@ -8,7 +8,7 @@ use quire_contract_model::{
     RecordLiteralField, ReferenceBody, Requirement, RequirementId, RequirementRef,
     RequirementRevision, SchemaVersion, SourceDocumentId, SourceIdentity, SourceLocation,
     SourceRevision, SourceSpan, SymbolName, TypeDeclaration, ValidationOptions, ValueDeclaration,
-    ValueDeclarationKind, ValueType,
+    ValueDeclarationKind, ValueType, MAX_SEMANTIC_COLLECTION_ITEMS,
 };
 
 fn source(document: &str) -> SourceIdentity {
@@ -800,4 +800,62 @@ fn tc_017_coverage_classes_orphans_diagnostics_and_sorting_conform() {
     assert!(reasons.contains(&OrphanReason::MissingRequirement));
     assert!(reasons.contains(&OrphanReason::StaleRevision));
     assert!(reasons.contains(&OrphanReason::DuplicateArtifact));
+}
+
+#[trace("TC-017")]
+#[test]
+fn artifact_id_display_preserves_the_validated_id() {
+    let artifact_id = ArtifactId::new("art_1-x").unwrap();
+
+    assert_eq!(artifact_id.to_string(), "art_1-x");
+}
+
+fn traces_at_collection_limit(
+    package: &ContractPackage<ReferenceBody>,
+    count: usize,
+) -> Vec<ArtifactTrace> {
+    let source = source("coverage_limit");
+    let target = reference(package, "REQ_a", 1);
+    let trace_span = span(&source, 0, 1);
+    let target_span = span(&source, 1, 2);
+
+    (0..count)
+        .map(|index| {
+            ArtifactTrace::shallow(
+                ArtifactId::new(format!("art_{index}")).unwrap(),
+                trace_span.clone(),
+                target.clone(),
+                target_span.clone(),
+            )
+        })
+        .collect()
+}
+
+#[trace("TC-018", "FR-019-AC-2")]
+#[test]
+fn coverage_accepts_exactly_the_semantic_collection_limit() {
+    let package = package_fixture("coverage_at_limit", false, false);
+    let traces = traces_at_collection_limit(&package, MAX_SEMANTIC_COLLECTION_ITEMS as usize);
+
+    let result = classify_coverage(&package, &traces).unwrap();
+    assert_eq!(result.report().artifacts().len(), traces.len());
+    assert_eq!(
+        result.report().requirements()[0].class(),
+        CoverageClass::Shallow
+    );
+    assert!(result.diagnostics().is_empty());
+}
+
+#[trace("TC-018", "FR-019-AC-2")]
+#[test]
+fn coverage_rejects_one_trace_past_the_semantic_collection_limit() {
+    let package = package_fixture("coverage_over_limit", false, false);
+    let traces = traces_at_collection_limit(&package, MAX_SEMANTIC_COLLECTION_ITEMS as usize + 1);
+
+    assert_eq!(
+        classify_coverage(&package, &traces)
+            .err()
+            .map(|diagnostic| diagnostic.code),
+        Some(DiagnosticCode::SemanticInputTooLarge)
+    );
 }
