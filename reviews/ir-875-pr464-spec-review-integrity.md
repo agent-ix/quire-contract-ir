@@ -44,3 +44,4 @@ FAIL: address the findings above before merging.
 | --- | --- | --- |
 | FND-001 | still-open | FR-019 now lists the borrowed view as planned, but FR-019-AC-5 still requires the default-feature exports to equal the Public items table exactly and rejects missing items. The view is absent on this spec-only head, so the table and AC remain contradictory. |
 | FND-002 | fixed | TC-451 and both matrix rows now distinguish owned controls from planned borrowed-view obligations. |
+| FND-001 | fixed | FR-019-AC-5 and TC-058 now compare the exact implemented Public items table entries and explicitly exclude planned entries until code lands; the borrowed view remains visibly planned in the table. |
