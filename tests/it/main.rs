@@ -3,9 +3,11 @@
 
 //! Single integration-test binary (IR-236) for the root crate.
 //!
-//! Every file that used to be its own `tests/*.rs` binary is a module here,
-//! so this crate builds and links `quire-contract-model` exactly once for the whole integration-test suite,
-//! instead of once per file. `tests/support/` moved to `tests/it/support/` and
+//! The ordinary `tests/*.rs` files are modules here, so this crate builds and
+//! links `quire-contract-model` once for the default integration-test suite
+//! instead of once per file.
+//! The QSL-dependent selected-population test has an explicit conformance lane.
+//! `tests/support/` moved to `tests/it/support/` and
 //! is now a single shared module (`crate::support::*`) instead of a
 //! `#[path = "support/…"]` copy compiled into each of several binaries.
 
@@ -66,6 +68,5 @@ mod kani_shared;
 mod nfr003_invalid_input;
 mod output_mapping;
 mod public_interface;
-mod selected_population;
 mod source_obligation;
 mod std001_code;
