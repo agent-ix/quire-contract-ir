@@ -33,3 +33,10 @@ Reviewed PR 460 at b9ee487399b6e177f1604ae2972ee1f7938c1267. The old AC-1 clause
 ## Verdict
 
 FAIL pending the stated correction(s). The original AC-1 obligations remain represented and the six new rows are honestly planned; this verdict concerns the current wording and evidence attribution.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The revised criterion names the actual TC-018 integration test and no longer claims it ran with default model features; the registry imports and inventory assertion remain tagged. |
+| FND-002 | fixed | Behavior now defines the semantic entrypoint/type subset and expressly excludes FR-018/020 conformance runner and fixture APIs, including run_corpus path parameters; AC-13 points to that definition. |

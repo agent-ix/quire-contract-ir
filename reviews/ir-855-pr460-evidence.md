@@ -36,3 +36,9 @@ FAIL pending the stated correction(s). The original AC-1 obligations remain repr
 ## Advisor interpretation
 
 `quoin advise --mismatch-only --json` reports FR-019-AC-8, AC-10, AC-11 and AC-13 because its generic property-shape rules prefer Test methods. Here compile-fail probes plus inspection of the finite public signature surface can prove the stated interface properties; the authored Inspection method with planned TC-018 probes is appropriate. This is a reasoned override of those catalog suggestions, not evidence that the planned probes already exist.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The revised criterion names the actual TC-018 integration test and no longer claims it ran with default model features; the registry imports and inventory assertion remain tagged. |
