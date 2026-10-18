@@ -19,10 +19,14 @@ operating-system-path vocabulary.
 
 Enumerate every repository-owned public JSON schema's name-bearing property,
 definition, title and enum entries. Enumerate the model crate's public root
-exports, including their defining module names. Fail if any name contains a
-forbidden implementation-specific term. Include a positive control showing
-that a benign `jsonpointer` name is admitted and adverse controls for a
-runtime title, pointer-width property and architecture-language enum name.
+exports and every public item reachable through each public module, including
+re-exports and public declarations. The current public modules are
+`selected_population` and `source_obligation`; a newly declared public module
+or an unrecognized public declaration must fail the inventory until its names
+are checked. Fail if any enumerated name contains a forbidden
+implementation-specific term. Include a positive control showing that a
+benign `jsonpointer` name is admitted and adverse controls for a runtime title,
+pointer-width property and architecture-language enum name.
 
 ## Expected Results
 
