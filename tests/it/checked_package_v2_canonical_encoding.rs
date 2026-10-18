@@ -16,10 +16,11 @@ use quire_canonical::{Encode, Error, FixedShape, LimitKind, Limits};
 use quire_contract_model::{
     encode_checked_package_v2, CheckedCapability, CheckedCapabilityDisposition,
     CheckedDependencySelection, CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeId,
-    CheckedNodeProjectionV2, CheckedPackageIdentityPreimageV2, CheckedPackageLockV2,
-    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedSelectionRole,
-    CheckedSemanticGraphV2, CheckedSemanticId, CheckedSemanticNodeV2, CheckedSourceMapEntry,
+    CheckedNodeProjectionV2, CheckedPackageIdentityPreimageRefV2, CheckedPackageIdentityPreimageV2,
+    CheckedPackageLockV2, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedSelectionRole, CheckedSemanticGraphV2, CheckedSemanticId,
+    CheckedSemanticNodeV2, CheckedSourceMapEntry,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -597,8 +598,18 @@ fn tc_451_typed_envelope_encodes_deep_details_on_a_small_stack() {
     let mut diagnostics = CheckedDiagnosticsV2::shallow();
     diagnostics.place(nested(DEEP));
     let bytes = on_small_stack(move || {
+        let borrowed = CheckedPackageIdentityPreimageRefV2 {
+            version: &preimage.version,
+            edition: &preimage.edition,
+            profile_selections: &preimage.profile_selections,
+            definition_selections: &preimage.definition_selections,
+            model_selections: &preimage.model_selections,
+            required_features: &preimage.required_features,
+            dependency_selections: &preimage.dependency_selections,
+            identity_projection: &graph.nodes,
+        };
         let result = encode_checked_package_v2(
-            &preimage,
+            &borrowed,
             &package_id,
             &lock,
             &graph,
@@ -614,6 +625,62 @@ fn tc_451_typed_envelope_encodes_deep_details_on_a_small_stack() {
     .expect("deep envelope encodes");
     let text = String::from_utf8(bytes).expect("canonical UTF-8");
     assert!(text.contains(&format!("\"details\":[{}]", nested_text(DEEP))));
+}
+
+#[trace("TC-451", "FR-051-AC-4")]
+#[test]
+fn tc_451_deep_borrowed_projection_matches_owned_on_a_small_stack() {
+    let value = v2_all_families();
+    let mut preimage = preimage_of(&value);
+    let mut graph = graph_of(&value);
+    preimage.identity_projection[0].body = nested(DEEP);
+    graph.nodes[0].body = nested(DEEP);
+    let package_id: CheckedSemanticId = typed(&value["package_id"]);
+    let lock: CheckedPackageLockV2 = typed(&value["lock"]);
+    let source_map: Vec<CheckedSourceMapEntry> = typed_each(&value["source_map"]);
+    let capabilities: Vec<CheckedCapability> = typed_each(&value["capability_report"]);
+    let diagnostics: CheckedDiagnosticsV2 = typed(&value["diagnostics"]);
+    let (owned_bytes, borrowed_bytes, owned_id, borrowed_id, envelope) =
+        on_small_stack(move || -> Result<_, Error> {
+            let result = {
+                let borrowed = CheckedPackageIdentityPreimageRefV2 {
+                    version: &preimage.version,
+                    edition: &preimage.edition,
+                    profile_selections: &preimage.profile_selections,
+                    definition_selections: &preimage.definition_selections,
+                    model_selections: &preimage.model_selections,
+                    required_features: &preimage.required_features,
+                    dependency_selections: &preimage.dependency_selections,
+                    identity_projection: &graph.nodes,
+                };
+                let limits = Limits::new(u64::MAX);
+                Ok((
+                    quire_canonical::to_vec(&preimage, limits)?,
+                    quire_canonical::to_vec(&borrowed, limits)?,
+                    quire_canonical::sha256(&preimage, limits)?,
+                    quire_canonical::sha256(&borrowed, limits)?,
+                    encode_checked_package_v2(
+                        &borrowed,
+                        &package_id,
+                        &lock,
+                        &graph,
+                        &source_map,
+                        &capabilities,
+                        &diagnostics,
+                        limits,
+                    )?,
+                ))
+            };
+            dismantle(&mut preimage.identity_projection[0].body);
+            dismantle(&mut graph.nodes[0].body);
+            result
+        })
+        .expect("deep borrowed preimage and envelope encode");
+    assert_eq!(borrowed_bytes, owned_bytes);
+    assert_eq!(borrowed_id, owned_id);
+    assert!(String::from_utf8(envelope)
+        .expect("canonical UTF-8")
+        .contains(&format!("\"body\":{}", nested_text(DEEP))));
 }
 
 // ---------------------------------------------------------------------------
@@ -990,8 +1057,9 @@ const FIXED_DEPTH: [&str; 25] = [
 ];
 
 /// The types that hold a `Value`, directly or through another type.
-const HOLD_A_VALUE: [&str; 6] = [
+const HOLD_A_VALUE: [&str; 7] = [
     "CheckedPackageIdentityPreimageV2",
+    "CheckedPackageIdentityPreimageRefV2",
     "CheckedSemanticGraphV2",
     "CheckedDiagnosticsV2",
     "CheckedNodeProjectionV2",
@@ -999,8 +1067,9 @@ const HOLD_A_VALUE: [&str; 6] = [
     "CheckedDiagnosticV2",
 ];
 
-const ENCODED: [&str; 3] = [
+const ENCODED: [&str; 4] = [
     "CheckedPackageIdentityPreimageV2",
+    "CheckedPackageIdentityPreimageRefV2",
     "CheckedSemanticGraphV2",
     "CheckedDiagnosticsV2",
 ];
@@ -1128,12 +1197,16 @@ fn tc_048_the_wire_types_are_on_the_path_the_compiler_sees() {
     assert_fixed_shape::<CheckedDependencySelection>();
     assert_fixed_shape::<CheckedNodeId>();
     assert_encode::<CheckedPackageIdentityPreimageV2>();
+    assert_encode::<CheckedPackageIdentityPreimageRefV2<'static>>();
     assert_encode::<CheckedSemanticGraphV2>();
     assert_encode::<CheckedDiagnosticsV2>();
     const {
         assert!(is_fixed_shape!(CheckedPackageLockV2));
         assert!(is_fixed_shape!(CheckedSourceMapEntry));
         assert!(!is_fixed_shape!(CheckedPackageIdentityPreimageV2));
+        assert!(!is_fixed_shape!(
+            CheckedPackageIdentityPreimageRefV2<'static>
+        ));
         assert!(!is_fixed_shape!(CheckedSemanticGraphV2));
         assert!(!is_fixed_shape!(CheckedDiagnosticsV2));
         assert!(!is_fixed_shape!(CheckedNodeProjectionV2));

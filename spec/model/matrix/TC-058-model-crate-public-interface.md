@@ -16,7 +16,8 @@ relationships:
 
 Verify FR-019-AC-5: the `quire_contract_model` crate root re-exports its
 public items by name with no glob re-export, its default-feature public items
-equal FR-019's Public items table, and none of those items is reachable
+equal FR-019's implemented Public items table entries at the tested revision,
+and none of those items is reachable
 through a `quire_contract_ir` path.
 
 ## Test Procedure
@@ -24,7 +25,8 @@ through a `quire_contract_ir` path.
 Read `crates/quire-contract-model/src/lib.rs` and fail on any `pub use` whose
 path ends in `*`. Inventory every public item the `quire_contract_model` crate
 root exports in a default-feature build, grouped by defining module, and
-compare the set with FR-019's Public items table. Build the same inventory
+compare the set with FR-019's implemented Public items table entries, excluding
+entries explicitly marked planned until their owning code lands. Build the same inventory
 with the `fault-injection` feature and confirm the only added item is
 `MappingAllocationPoint`. Compile one probe that names a table item through
 `quire_contract_model` and expect it to build, and one that names the same
@@ -35,7 +37,8 @@ probe), not here.
 
 ## Expected Results
 
-`lib.rs` has no glob re-export. The default-feature inventory equals the table
+`lib.rs` has no glob re-export. The default-feature inventory equals the table's
+implemented entries
 with no extra or missing item, and the `fault-injection` inventory adds
 `MappingAllocationPoint` alone. The `quire_contract_model` probe builds and
 the `quire_contract_ir` probe fails to compile.

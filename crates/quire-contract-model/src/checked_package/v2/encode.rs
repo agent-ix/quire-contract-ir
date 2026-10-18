@@ -3,7 +3,8 @@
 //! The V2 wire types encode to RFC 8785 canonical bytes through
 //! `quire-canonical`, which owns the encoder. A type whose JSON nests to a depth
 //! fixed by the type derives `FixedShape` where it is declared and encodes
-//! through serde. The three types here cannot: a node `body` and a diagnostic's
+//! through serde. The three retained wire types and the borrowed preimage here
+//! cannot: a node `body` and a diagnostic's
 //! `details` nest as deep as their input. Each implements
 //! [`quire_canonical::Encode`] by pushing [`Writer`] events in its own field
 //! order, delegating every fixed-depth member to [`Writer::serialize`] and
@@ -22,8 +23,9 @@
 //! (FR-038 "Canonical encoding of the wire types").
 
 use super::{
-    CheckedDeclaration, CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeProjectionV2,
-    CheckedPackageIdentityPreimageV2, CheckedSemanticGraphV2, CheckedSemanticNodeV2,
+    CheckedDeclaration, CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeOwner,
+    CheckedNodeProjectionV2, CheckedPackageIdentityPreimageRefV2, CheckedPackageIdentityPreimageV2,
+    CheckedSemanticGraphV2, CheckedSemanticNodeV2, NominalIdentityPreimage,
 };
 use crate::checked_package::shared::CheckedNodeId;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
@@ -262,25 +264,106 @@ impl Encode for CheckedPackageIdentityPreimageV2 {
     }
 }
 
-impl Encode for CheckedNodeProjectionV2 {
+impl Encode for CheckedPackageIdentityPreimageRefV2<'_> {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_object()?;
-        member(writer, "node_id", &self.node_id)?;
-        member(writer, "schema_version", &self.schema_version)?;
-        member(writer, "node_tag", &self.node_tag)?;
-        member(writer, "semantic_form", &self.semantic_form)?;
-        member(writer, "semantic_type", &self.semantic_type)?;
-        member(writer, "dependencies", &self.dependencies)?;
-        present(writer, "recursion_group", &self.recursion_group)?;
-        present(
-            writer,
-            "nominal_identity_preimage",
-            &self.nominal_identity_preimage,
-        )?;
-        present(writer, "declaration", &self.declaration)?;
-        present(writer, "owner", &self.owner)?;
-        value(writer, "body", &self.body)?;
+        writer.name("version")?;
+        writer.string(self.version)?;
+        member(writer, "edition", self.edition)?;
+        member(writer, "profile_selections", self.profile_selections)?;
+        member(writer, "definition_selections", self.definition_selections)?;
+        member(writer, "model_selections", self.model_selections)?;
+        member(writer, "required_features", self.required_features)?;
+        member(writer, "dependency_selections", self.dependency_selections)?;
+        writer.name("identity_projection")?;
+        writer.begin_array()?;
+        for node in self.identity_projection {
+            ProjectionFields::from_node(node).encode_into(writer)?;
+        }
+        writer.end_array()?;
         writer.end_object()
+    }
+}
+
+/// The fields common to the retained reader projection and the producer's
+/// borrowed graph-node projection. Source occurrences are intentionally absent.
+struct ProjectionFields<'a> {
+    node_id: &'a CheckedNodeId,
+    schema_version: &'a str,
+    node_tag: &'a str,
+    semantic_form: &'a str,
+    semantic_type: &'a CheckedNodeId,
+    dependencies: &'a [CheckedNodeId],
+    recursion_group: Option<&'a str>,
+    nominal_identity_preimage: Option<&'a NominalIdentityPreimage>,
+    declaration: Option<&'a CheckedDeclaration>,
+    owner: Option<&'a CheckedNodeOwner>,
+    body: &'a Value,
+}
+
+impl<'a> ProjectionFields<'a> {
+    fn from_owned(node: &'a CheckedNodeProjectionV2) -> Self {
+        Self {
+            node_id: &node.node_id,
+            schema_version: &node.schema_version,
+            node_tag: &node.node_tag,
+            semantic_form: &node.semantic_form,
+            semantic_type: &node.semantic_type,
+            dependencies: &node.dependencies,
+            recursion_group: node.recursion_group.as_deref(),
+            nominal_identity_preimage: node.nominal_identity_preimage.as_ref(),
+            declaration: node.declaration.as_ref(),
+            owner: node.owner.as_ref(),
+            body: &node.body,
+        }
+    }
+
+    fn from_node(node: &'a CheckedSemanticNodeV2) -> Self {
+        Self {
+            node_id: &node.node_id,
+            schema_version: &node.schema_version,
+            node_tag: &node.node_tag,
+            semantic_form: &node.semantic_form,
+            semantic_type: &node.semantic_type,
+            dependencies: &node.dependencies,
+            recursion_group: node.recursion_group.as_deref(),
+            nominal_identity_preimage: node.nominal_identity_preimage.as_ref(),
+            declaration: node.declaration.as_ref(),
+            owner: node.owner.as_ref(),
+            body: &node.body,
+        }
+    }
+}
+
+impl Encode for ProjectionFields<'_> {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        member(writer, "node_id", self.node_id)?;
+        member(writer, "schema_version", self.schema_version)?;
+        member(writer, "node_tag", self.node_tag)?;
+        member(writer, "semantic_form", self.semantic_form)?;
+        member(writer, "semantic_type", self.semantic_type)?;
+        member(writer, "dependencies", self.dependencies)?;
+        if let Some(group) = self.recursion_group {
+            member(writer, "recursion_group", group)?;
+        }
+        if let Some(preimage) = self.nominal_identity_preimage {
+            member(writer, "nominal_identity_preimage", preimage)?;
+        }
+        if let Some(declaration) = self.declaration {
+            member(writer, "declaration", declaration)?;
+        }
+        if let Some(owner) = self.owner {
+            member(writer, "owner", owner)?;
+        }
+        value(writer, "body", self.body)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for CheckedNodeProjectionV2 {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        ProjectionFields::from_owned(self).encode_into(writer)
     }
 }
 

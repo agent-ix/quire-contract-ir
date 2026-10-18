@@ -156,15 +156,17 @@ The pre-read structural identity items in
 draft graph and return candidate structural keys and recursion-group labels
 under explicit byte and work ceilings. They do not admit the assembled wire.
 
-FR-051 specifies `encode_checked_package_v2`, which is implemented and
-exported by the default-feature model crate. FR-052 and FR-053 specify
+FR-051 specifies `CheckedPackageIdentityPreimageRefV2` and
+`encode_checked_package_v2`, which are implemented and exported by the
+default-feature model crate. FR-052 and FR-053 specify
 additional public model APIs that remain planned until they are implemented
 and exported; their owning requirements retain those API obligations.
 
 ### Public items
 
-These are the items the `quire_contract_model` crate root exports in a
-default-feature build, grouped by the module that defines them. An item's own
+These are the required items for the `quire_contract_model` crate root in a
+default-feature build, grouped by the module that defines them. Planned
+exceptions are marked in their row. An item's own
 public fields, variants, associated constants and inherent methods are part
 of the item and are not listed separately.
 
@@ -181,7 +183,7 @@ of the item and are not listed separately.
 | `output_mapping` | functions `assemble_output_package`, `map_admitted_request`, `map_admitted_request_controlled`; types `AdmittedMappingObligation`, `AdmittedMappingRequest`, `CompletedMappings`, `GeneratedOutputPackage`, `GeneratedOutputPackageId`, `MappingCancellation`, `MappingCancellationToken`, `MappingCandidate`, `MappingCause`, `MappingCondition`, `MappingDependencyKind`, `MappingDependencyRef`, `MappingDisposition`, `MappingExecutionControl`, `MappingLimits`, `MappingRecordId`, `MappingRecordSource`, `MappingRequestError`, `MappingRequestErrorCode`, `MappingRuleDigest`, `MappingSourcePackageRef`, `MappingWorkBudget`, `ModelSourceSelection`, `NativeSourceSelection`, `ObservationAdequacyRef`, `ObservationAdequacyState`, `OutputByteRegion`, `OutputCapability`, `OutputGeneratorIdentity`, `OutputMappingProfile`, `OutputMappingRecord`, `OutputTargetFamily`, `ProtocolAdequacyRef`, `ProtocolAdequacyState`, `RequestedMappingObligation`, `SemanticSourceSelection`, `SourceBytesDigest`, `SourceFactState`, `StructuralObservationOutcome`, `StructuralObservationRef`, `StructuralObserverIdentity`, `TargetBytesDigest`; trait `OutputMapper`; constants `GENERATED_OUTPUT_PACKAGE_IDENTITY_VERSION`, `OUTPUT_MAPPING_RECORD_IDENTITY_VERSION`, `OUTPUT_MAPPING_REQUEST_IDENTITY_VERSION`, `OUTPUT_MAPPING_REVISION` | FR-032 through FR-034, STD-003 |
 | `checked_package` | function `read_checked_package`; types `CheckedArtifactLocator`, `CheckedArtifactRef`, `CheckedCapability`, `CheckedNodeId`, `CheckedOccurrence`, `CheckedOccurrenceRole`, `CheckedPackageDispatchResult`, `CheckedPackageEvidence`, `CheckedPackageEvidenceInsertionError`, `CheckedPackageIncomplete`, `CheckedPackageLimit`, `CheckedPackageReadLimits`, `CheckedPackageRefusal`, `CheckedPackageRefusalCause`, `CheckedPackageRefusalCode`, `CheckedSelection`, `CheckedSemanticId`, `CheckedSourceMapEntry`, `CheckedSourceRef`, `CheckedSourceRegion`, `JsonPointer` | FR-038, FR-047 |
 | `checked_package` (V2 reader) | types `CheckedCollectionKind`, `CheckedDeclaration`, `CheckedDependencySelection`, `CheckedDiagnosticCause`, `CheckedDiagnosticCode`, `CheckedDiagnosticStage`, `CheckedDiagnosticV2`, `CheckedDiagnosticsV2`, `CheckedDomainPackageRef`, `CheckedMemberType`, `CheckedModelField`, `CheckedModelFieldsError`, `CheckedModelObjectFields`, `CheckedNodeOwner`, `CheckedNodeProjectionV2`, `CheckedPackageIdentityPreimageV2`, `CheckedPackageLockV2`, `CheckedPackageV2`, `CheckedPackageV2ReadResult`, `CheckedSemanticGraphV2`, `CheckedSemanticNodeV2`; constants `CHECKED_PACKAGE_V2`, `DOMAIN_PACKAGE_DIGEST`, `PACKAGE_DOMAIN_V2` | FR-038, FR-040 |
-| `checked_package` (V2 envelope encoder) | function `encode_checked_package_v2` | FR-051 |
+| `checked_package` (V2 envelope encoder) | type `CheckedPackageIdentityPreimageRefV2`; function `encode_checked_package_v2` | FR-051 |
 | `checked_package` (V2 candidate application identity) | function `derive_application_node_id`; types `ApplicationNodeDraft`, `ApplicationIdentityContext`, `CandidateApplicationNodeId`, `ApplicationIdentityError` | FR-046 |
 | `checked_package` (V2 candidate structural identity) | function `derive_structural_candidates`; types `StructuralCandidates`, `CandidateStructuralNodeId`, `CandidateRecursionGroupLabel`, `StructuralCandidateError` | FR-048 |
 | `checked_package` (V2 scalar operands) | types `CheckedScalarOperand`, `CheckedScalarOperandChild`, `CheckedScalarOperandError`, `CheckedScalarOperandRange` | FR-038 |
@@ -215,7 +217,7 @@ missing, foreign, and conflicting binding refusals under FR-052-AC-15.
 | FR-019-AC-1 | A TC-018 integration test imports `PUBLIC_CONSTRUCT_TAGS`, `CONFORMANCE_BOUNDARIES`, `DiagnosticCode::ALL`, `ConformanceOperation::ALL`, and `expected_inventory` from `quire_contract_model` and uses them to construct the published inventory. | Test (TC-018) |
 | FR-019-AC-3 | `expected_inventory` equals the five prefixed registries and nothing else, strictly ascending with no duplicate. | Test (TC-018) |
 | FR-019-AC-4 | A default-feature build of `quire-contract-model` exports neither `MappingAllocationPoint` nor `MappingExecutionControl::fail_allocation_at`: code naming either fails to compile without the `fault-injection` feature. | Test (TC-018) |
-| FR-019-AC-5 | The `quire_contract_model` crate root has no glob re-export, and its default-feature public items are exactly those the Public items table lists, checked by a public-item inventory that fails on an added or missing item; no item in the table is reachable through a `quire_contract_ir` path. | Test (TC-058) |
+| FR-019-AC-5 | The `quire_contract_model` crate root has no glob re-export, and its default-feature public items are exactly those the Public items table lists as implemented at the tested revision. Entries explicitly marked planned are excluded until their owning code lands. The public-item inventory fails on an added or missing implemented item; no implemented item in the table is reachable through a `quire_contract_ir` path. | Test (TC-058) |
 | FR-019-AC-6 | The table's `CheckedArtifactRef` has exactly the members `authority` and `identity`, `CheckedSourceRef` exactly `authority`, `identity`, `digest_domain` and `digest`, `CheckedArtifactLocator` exactly `authority`, `identity` and `domain`, and no `CheckedRevision` exists (FR-038 "Artifact references"). | Test (TC-018) |
 | FR-019-AC-2 | The complete negative corpus executes package/expression decode, validation, canonicalization, and coverage through `catch_unwind`; exact-at-limit and one-past-limit type depth, semantic node, and semantic collection cases return the specified result with no public panic, partial result, or message parsing. | Test (TC-018) |
 | FR-019-AC-7 | Public compile-time/API fixtures construct and read `IntegerType` bounds, `RationalType` numerator and denominator bounds, and integer/rational literal payloads at `i64::MAX + 1`, `u64::MAX` and the permitted i128 endpoints through signed 128-bit signatures without lossy casts; exact and one-past numeric wire boundary requests through `catch_unwind` return the specified result with no public panic or partial validated value. | Test (TC-018) |
