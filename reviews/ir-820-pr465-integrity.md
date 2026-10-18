@@ -39,3 +39,9 @@ CONDITIONAL. Extend the existing FR-019 source-obligation row criterion range to
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | The FR-019 source-obligation public-items row still attributes its API through FR-052-AC-23 although this PR implements AC-24; the criterion attribution is stale. | spec/model/functional/FR-019-rust-library-interface.md:199 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At 9ac75d9a889054ac61363bcd0a48711a7e31669c, the FR-019 source-obligation row attributes through AC-24; its public item list is unchanged. |
