@@ -111,8 +111,9 @@ These checks do not substitute for matched-source four-owner census tests.
 For FR-052-AC-25, supply an owner-issued IR V2 reader result to the model-owned adapter,
 including a graph with several nodes and multiple occurrences on one node.
 Compare each outcome row and its source, owner, scope and observed count with
-an independent traversal of the selected graph. Repeat with a valid graph
-that has no source occurrences; the V2 reader rejects an empty node set.
+an independent traversal of the selected graph. Remove all occurrences from
+one node and verify the V2 reader refuses it as `InvalidSourceMap` before an
+adapter can issue `Complete`.
 Remove one emitted occurrence or node row after obtaining the full output and
 adjust the count: the independent comparison must fail. Obtain a V2 reader
 `Incomplete` and compare the outcome's limit kind, limit, consumed count and
