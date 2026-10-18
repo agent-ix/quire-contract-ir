@@ -28,6 +28,7 @@ mod operation_catalog;
 mod operations;
 mod owner;
 mod parameter_declaration;
+mod protocol_body;
 mod reaches_population;
 mod relationship_end;
 mod rust_spelling;
