@@ -4030,7 +4030,6 @@ mod tests {
         })
     }
 
-    /// Trace: FR-038-AC-169, FR-038-AC-170, FR-038-AC-171, FR-038-AC-172
     #[trace(
         "TC-048",
         "FR-038-AC-169",
@@ -4553,7 +4552,6 @@ mod tests {
     /// of 2, its reference to member 0 becomes a `group_reference`, and its
     /// reference outside the group stays a reference.
     ///
-    /// Tracing: TC-048, FR-038-AC-88
     #[trace("TC-048", "FR-038-AC-88")]
     #[test]
     fn tc_048_application_preimage_matches_the_qsl_pinned_group_vector() {
@@ -4594,7 +4592,6 @@ mod tests {
     /// Group references are rewritten in every nested term position, as in
     /// quire-spec-language's `group_references_are_rewritten_in_every_nested_term`.
     ///
-    /// Tracing: TC-048, FR-038-AC-88
     #[trace("TC-048", "FR-038-AC-88")]
     #[test]
     fn tc_048_group_references_are_rewritten_in_every_nested_term() {
@@ -4629,7 +4626,6 @@ mod tests {
         );
     }
 
-    /// Trace: TC-048, FR-038-AC-227
     #[trace("TC-048", "FR-038-AC-227")]
     #[test]
     fn tc_048_grouped_union_value_key_respects_references_bytes_and_work() {
@@ -4757,7 +4753,6 @@ mod tests {
     /// ends at a node of no family name none; and a type outside the graph names
     /// none. The walk is iterative and follows each node once.
     ///
-    /// Tracing: TC-048, FR-038-AC-117
     #[trace("TC-048", "FR-038-AC-117")]
     #[test]
     fn tc_048_a_bounded_domain_chain_resolves_whatever_its_length() {
@@ -4842,7 +4837,6 @@ mod tests {
     /// argument naming it names a type. Pinned whole, so an edit to either
     /// exhaustive table that moves any one form is caught here.
     ///
-    /// Tracing: TC-048, FR-038-AC-87
     #[trace("TC-048", "FR-038-AC-87")]
     #[test]
     fn operand_classification_is_exactly_the_catalog_mapping() {
@@ -4914,7 +4908,6 @@ mod tests {
     /// lookup in `operation_defect` could be replaced by an always-`Some`
     /// admission and nothing in this crate's test suite would notice.
     ///
-    /// Tracing: TC-048, FR-038-AC-81
     #[trace("TC-048", "FR-038-AC-81")]
     #[test]
     fn operation_defect_refuses_uncatalogued_identity() {
@@ -4941,7 +4934,6 @@ mod tests {
     /// control, a reader that refused every node would satisfy the assertion
     /// above just as well as the real check does.
     ///
-    /// Tracing: TC-048, FR-038-AC-81
     #[trace("TC-048", "FR-038-AC-81")]
     #[test]
     fn operation_defect_admits_catalogued_identity_used_correctly() {
@@ -4971,7 +4963,6 @@ mod tests {
     /// of the graph cannot satisfy `reference_edge`: it refuses as
     /// `ill_typed`/`operator-ineligible` at the member's declaration.
     ///
-    /// Tracing: TC-048, FR-038-AC-84
     #[trace("TC-048", "FR-038-AC-84")]
     #[test]
     fn operation_defect_refuses_a_reference_edge_with_no_declaring_node() {
@@ -5003,7 +4994,6 @@ mod tests {
     /// catalogued for [`CATALOGUED_IDENTITY`]; supplying `unary` must be
     /// refused before arity or anything else is checked.
     ///
-    /// Tracing: TC-048, FR-038-AC-81
     #[trace("TC-048", "FR-038-AC-81")]
     #[test]
     fn operation_defect_refuses_wrong_operator_class() {
@@ -5028,7 +5018,6 @@ mod tests {
     /// [`INTEGER_DIV_IDENTITY`] requires one `integer_division` law;
     /// supplying zero must be refused.
     ///
-    /// Tracing: TC-048, FR-038-AC-82
     #[trace("TC-048", "FR-038-AC-82")]
     #[test]
     fn operation_defect_refuses_missing_laws() {
@@ -5060,7 +5049,6 @@ mod tests {
     /// [`CATALOGUED_IDENTITY`] requires zero laws; supplying one must be
     /// refused as a mismatch, not admitted as extra.
     ///
-    /// Tracing: TC-048, FR-038-AC-82
     #[trace("TC-048", "FR-038-AC-82")]
     #[test]
     fn operation_defect_refuses_too_many_laws() {
@@ -5103,7 +5091,6 @@ mod tests {
     /// test would not distinguish the role check being gone from it being
     /// present.
     ///
-    /// Tracing: TC-048, FR-038-AC-82
     #[trace("TC-048", "FR-038-AC-82")]
     #[test]
     fn operation_defect_refuses_wrong_law_role() {
@@ -5141,7 +5128,6 @@ mod tests {
     /// closed over the catalog's own definition list; a definition outside
     /// that list must be refused before the lock is even consulted.
     ///
-    /// Tracing: TC-048, FR-038-AC-56
     #[trace("TC-048", "FR-038-AC-56")]
     #[test]
     fn operation_defect_refuses_uncatalogued_law_definition() {
@@ -5179,7 +5165,6 @@ mod tests {
     /// check the previous test covers: `empty_lock` selects nothing, so it
     /// must still be refused.
     ///
-    /// Tracing: TC-048, FR-038-AC-56
     #[trace("TC-048", "FR-038-AC-56")]
     #[test]
     fn operation_defect_refuses_unselected_law_definition() {
@@ -5230,7 +5215,6 @@ mod tests {
     /// identity}` pair is catalogued for the role and is a
     /// `lock.definition_selections` row, compared by those two members alone.
     ///
-    /// Tracing: TC-048, FR-038-AC-56
     #[trace("TC-048", "FR-038-AC-56")]
     #[test]
     fn tc_048_a_value_role_law_joins_the_catalog_and_the_lock_by_authority_and_identity() {
@@ -5289,7 +5273,6 @@ mod tests {
     /// [`DECIMAL_ADD_IDENTITY`] requires a `rounding` mode; a missing mode
     /// must be refused.
     ///
-    /// Tracing: TC-048, FR-038-AC-83
     #[trace("TC-048", "FR-038-AC-83")]
     #[test]
     fn operation_defect_refuses_mode_mismatch() {
@@ -5322,7 +5305,6 @@ mod tests {
     /// mode is set to match so the member check, not the mode check, is what
     /// fails.
     ///
-    /// Tracing: TC-048, FR-038-AC-84
     #[trace("TC-048", "FR-038-AC-84")]
     #[test]
     fn operation_defect_refuses_member_mismatch() {
@@ -5353,7 +5335,6 @@ mod tests {
     /// [`CATALOGUED_IDENTITY`] takes exactly two operands and admits no
     /// `rest`; three arguments must be refused by `check_operands`.
     ///
-    /// Tracing: TC-048, FR-038-AC-85
     #[trace("TC-048", "FR-038-AC-85")]
     #[test]
     fn operation_defect_refuses_wrong_arity() {
@@ -5388,7 +5369,6 @@ mod tests {
     /// member-kind check above already passed) by naming a field its
     /// declared record type does not declare.
     ///
-    /// Tracing: TC-048, FR-038-AC-84
     #[trace("TC-048", "FR-038-AC-84")]
     #[test]
     fn operation_defect_refuses_undeclared_field_member() {
@@ -5449,7 +5429,6 @@ mod tests {
     /// `"nearest-even"`; the operation's own mode value disagrees, so
     /// `check_mode_type` must refuse it.
     ///
-    /// Tracing: TC-048, FR-038-AC-83
     #[trace("TC-048", "FR-038-AC-83")]
     #[test]
     fn operation_defect_refuses_mode_type_mismatch_on_operand() {
@@ -5509,7 +5488,6 @@ mod tests {
     /// (left absent here, so `check_mode_type` never fires first). The leaf
     /// carries its `text_profile` law, so the leaf shape settles first.
     ///
-    /// Tracing: TC-048, FR-038-AC-44
     #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn operation_defect_refuses_mode_type_mismatch_on_leaf() {
@@ -5775,7 +5753,6 @@ mod tests {
     /// type, so an all-integer record has none and `[]` is admitted for
     /// `structural.eq` and `structural.ne`.
     ///
-    /// Tracing: TC-048, FR-038-AC-43
     #[trace("TC-048", "FR-038-AC-43")]
     #[test]
     fn tc_048_leaf_source_admits_empty_leaves_over_a_type_without_text() {
@@ -5857,7 +5834,6 @@ mod tests {
     /// The `inner:0` leaf source (`collection.contains`) over a set of
     /// integers has no text leaf either.
     ///
-    /// Tracing: TC-048, FR-038-AC-43
     #[trace("TC-048", "FR-038-AC-43")]
     #[test]
     fn tc_048_inner_leaf_source_admits_empty_leaves_over_a_type_without_text() {
@@ -5881,7 +5857,6 @@ mod tests {
     /// record with a text field, nested one level down, with no leaves is
     /// `operation-law-missing`; so is a set of text.
     ///
-    /// Tracing: TC-048, FR-038-AC-43
     #[trace("TC-048", "FR-038-AC-43")]
     #[test]
     fn tc_048_leaf_source_refuses_empty_leaves_over_a_type_with_text() {
@@ -5915,7 +5890,6 @@ mod tests {
     /// Fewer leaves than text leaves is still law-missing: two text fields,
     /// one leaf supplied.
     ///
-    /// Tracing: TC-048, FR-038-AC-43
     #[trace("TC-048", "FR-038-AC-43")]
     #[test]
     fn tc_048_leaf_source_refuses_too_few_leaves() {
@@ -6012,7 +5986,6 @@ mod tests {
     /// type in declaration order, each at its derived path with one
     /// `text_profile` law, and nothing else, whatever the leaf source.
     ///
-    /// Tracing: TC-048, FR-038-AC-44
     #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_leaf_source_admits_exactly_the_derived_leaves() {
@@ -6070,7 +6043,6 @@ mod tests {
     /// admitted: two extra leaves over an all-integer record, one extra over
     /// the text record, and three unrelated entries over three text leaves.
     ///
-    /// Tracing: TC-048, FR-038-AC-44
     #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_leaf_source_refuses_extra_and_unrelated_leaves() {
@@ -6125,7 +6097,6 @@ mod tests {
     /// A leaf at the wrong path, or the right leaves in the wrong order, is
     /// `operation-law-mismatch` at the first leaf that differs.
     ///
-    /// Tracing: TC-048, FR-038-AC-44
     #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_leaf_source_refuses_a_wrong_path_and_a_wrong_order() {
@@ -6163,7 +6134,6 @@ mod tests {
     /// another role and an uncatalogued definition are all
     /// `operation-law-mismatch` at that leaf's `laws`.
     ///
-    /// Tracing: TC-048, FR-038-AC-44
     #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_leaf_source_refuses_a_wrong_or_missing_leaf_law() {
@@ -6203,7 +6173,6 @@ mod tests {
     /// A leaf law the lock does not select is `operation-law-unselected`, after
     /// the leaf shape is settled.
     ///
-    /// Tracing: TC-048, FR-038-AC-44
     #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_leaf_source_refuses_an_unselected_leaf_law() {
@@ -6234,7 +6203,6 @@ mod tests {
     /// orders it: a leaf with an unselected law and no mode is
     /// `operation-law-unselected`, not `operation-mode-mismatch`.
     ///
-    /// Tracing: TC-048, FR-038-AC-44
     #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_leaf_law_selection_is_settled_before_leaf_modes() {
@@ -6268,7 +6236,6 @@ mod tests {
     /// chain costs the chain once (about 600 work units, inside the 1 000 the
     /// test meter allows) rather than once per field, which would exhaust it.
     ///
-    /// Tracing: TC-048, FR-038-AC-44
     #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_text_profile_pin_of_an_alias_chain_is_memoised_and_charged() {
@@ -6829,7 +6796,6 @@ mod tests {
     /// An entry that names no leaf source admits no leaves: a supplied one is
     /// `operation-law-mismatch`, as the reference reader refuses it.
     ///
-    /// Tracing: TC-048, FR-038-AC-44
     #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_entry_without_a_leaf_source_refuses_a_supplied_leaf() {
@@ -6853,7 +6819,6 @@ mod tests {
     /// reference orders it: `integer.div` carries a law the empty lock does not
     /// select, and a supplied leaf is still `operation-law-mismatch`.
     ///
-    /// Tracing: TC-048, FR-038-AC-44
     #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_entry_without_a_leaf_source_refuses_a_leaf_before_law_selection() {
@@ -6881,7 +6846,6 @@ mod tests {
     /// expects no leaves: `collection.flatten` to a `sequence` of text refuses
     /// one supplied leaf and admits none.
     ///
-    /// Tracing: TC-048, FR-038-AC-44
     #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_result_inner_over_a_sequence_result_refuses_a_supplied_leaf() {
@@ -6912,7 +6876,6 @@ mod tests {
     /// even when the same `text` scalar is also reached through a pinning
     /// wrapper.
     ///
-    /// Tracing: TC-048, FR-038-AC-44
     #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_text_leaf_pinning_no_profile_is_ineligible() {
@@ -6939,7 +6902,6 @@ mod tests {
     /// at the member at fault; a catalogued value other than the type's pin is
     /// `operation-mode-type-mismatch`.
     ///
-    /// Tracing: TC-048, FR-038-AC-44
     #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_leaf_mode_must_be_the_pinned_text_profile() {
@@ -7052,7 +7014,6 @@ mod tests {
     /// position, an option and a collection inside a record, each with
     /// `leaves` empty; the same shapes over integers are admitted.
     ///
-    /// Tracing: TC-048, FR-038-AC-43
     #[trace("TC-048", "FR-038-AC-43")]
     #[test]
     fn tc_048_leaf_walk_reaches_text_through_every_type_form() {
@@ -7119,7 +7080,6 @@ mod tests {
     /// reference reader does, while `collection.set` of text and a flatten
     /// whose result is a set of text are law-missing.
     ///
-    /// Tracing: TC-048, FR-038-AC-43
     #[trace("TC-048", "FR-038-AC-43")]
     #[test]
     fn tc_048_result_inner_counts_leaves_only_for_set_like_results() {
@@ -7169,7 +7129,6 @@ mod tests {
     /// field whose type is not in the graph is the same refusal, and a type
     /// that reaches itself through a record is admitted (FR-038-AC-70).
     ///
-    /// Tracing: TC-048, FR-038-AC-43
     #[trace("TC-048", "FR-038-AC-43")]
     #[test]
     fn tc_048_leaf_walk_refuses_a_record_free_cycle_and_an_unresolved_node() {
@@ -7215,7 +7174,6 @@ mod tests {
     /// 40 options is still found, and 2000 options of integer exhaust the
     /// budget instead of being admitted or overflowing the stack.
     ///
-    /// Tracing: TC-048, FR-038-AC-43
     #[trace("TC-048", "FR-038-AC-43")]
     #[test]
     fn tc_048_leaf_walk_depth_is_bounded_by_the_work_budget() {
@@ -7252,7 +7210,6 @@ mod tests {
     /// `operation-law-missing` and a record-free cycle is
     /// `ill_typed`/`operator-ineligible`, not `operation-mode-type-mismatch`.
     ///
-    /// Tracing: TC-048, FR-038-AC-43
     #[trace("TC-048", "FR-038-AC-43")]
     #[test]
     fn tc_048_leaf_count_is_settled_before_leaf_modes() {
@@ -7304,7 +7261,6 @@ mod tests {
     /// of 4 fields all naming the next level (4^12 paths) finish inside the
     /// work budget instead of hanging.
     ///
-    /// Tracing: TC-048, FR-038-AC-43
     #[trace("TC-048", "FR-038-AC-43")]
     #[test]
     fn tc_048_leaf_walk_counts_each_shared_type_once() {
@@ -7327,7 +7283,6 @@ mod tests {
     /// leaf at a 16-segment path, which is compared exactly, and a wrong
     /// segment deep in it is refused.
     ///
-    /// Tracing: TC-048, FR-038-AC-44
     #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_leaf_paths_are_derived_lazily_over_a_shared_field_chain() {
@@ -7373,7 +7328,6 @@ mod tests {
 
     /// Text under 40 options is one leaf at a 40-segment `inner` path.
     ///
-    /// Tracing: TC-048, FR-038-AC-44
     #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_leaf_path_under_nested_options_is_exact() {
@@ -7472,7 +7426,6 @@ mod tests {
     /// alone, the recursion leaf alone, and a second text leaf after both are
     /// each refused where the spec places them.
     ///
-    /// Tracing: TC-048, FR-038-AC-70
     #[trace("TC-048", "FR-038-AC-70")]
     #[test]
     fn tc_048_equality_over_a_recursive_record_requires_its_recursion_leaf() {
@@ -7502,7 +7455,6 @@ mod tests {
     /// The recursion leaf's `d` is the number of path segments the reentered
     /// composite was entered at: `Option<Node>` enters `Node` one segment in.
     ///
-    /// Tracing: TC-048, FR-038-AC-70
     #[trace("TC-048", "FR-038-AC-70")]
     #[test]
     fn tc_048_recursion_leaf_depth_counts_the_segments_the_composite_was_entered_at() {
@@ -7536,7 +7488,6 @@ mod tests {
     /// each leaf carries the mode its own text type pins, and the recursion
     /// leaf is at the reentry into the composite compared.
     ///
-    /// Tracing: TC-048, FR-038-AC-70
     #[trace("TC-048", "FR-038-AC-70")]
     #[test]
     fn tc_048_mutually_recursive_records_derive_a_recursion_leaf_at_either_end() {
@@ -7578,7 +7529,6 @@ mod tests {
     /// recursion leaf included, are derived under each path, and a list
     /// lacking either recursion leaf is `operation-law-missing`.
     ///
-    /// Tracing: TC-048, FR-038-AC-70
     #[trace("TC-048", "FR-038-AC-70")]
     #[test]
     fn tc_048_a_record_named_by_two_fields_derives_its_leaves_under_each() {
@@ -7606,7 +7556,6 @@ mod tests {
 
     /// Recursion through a collection and through a tuple.
     ///
-    /// Tracing: TC-048, FR-038-AC-70
     #[trace("TC-048", "FR-038-AC-70")]
     #[test]
     fn tc_048_recursion_through_a_sequence_and_a_tuple_is_admitted() {
@@ -7650,7 +7599,6 @@ mod tests {
     /// memoised for `Y` once is not reused there. Four text leaves and two
     /// recursion leaves.
     ///
-    /// Tracing: TC-048, FR-038-AC-70
     #[trace("TC-048", "FR-038-AC-70")]
     #[test]
     fn tc_048_a_memoised_count_is_not_reused_where_a_reachable_composite_is_open() {
@@ -7716,7 +7664,6 @@ mod tests {
     /// Two optional text fields name one option node, which is no revisit:
     /// the note on it is dropped when the walk leaves it.
     ///
-    /// Tracing: TC-048, FR-038-AC-70
     #[trace("TC-048", "FR-038-AC-70")]
     #[test]
     fn tc_048_one_option_node_serving_two_fields_is_not_a_cycle() {
@@ -7765,7 +7712,6 @@ mod tests {
     /// even a recursion leaf: `structural.eq` and `collection.contains`
     /// admit with `leaves` empty.
     ///
-    /// Tracing: TC-048, FR-038-AC-70
     #[trace("TC-048", "FR-038-AC-70")]
     #[test]
     fn tc_048_a_recursive_record_without_text_expects_no_leaves() {
@@ -7792,7 +7738,6 @@ mod tests {
     /// type with no text, one carrying a law and one carrying a mode are each
     /// refused where the spec places them.
     ///
-    /// Tracing: TC-048, FR-038-AC-71
     #[trace("TC-048", "FR-038-AC-71")]
     #[test]
     fn tc_048_a_recursion_leaf_is_refused_wherever_it_is_not_derived() {
@@ -7861,7 +7806,6 @@ mod tests {
     /// still ineligible, with the leaves supplied or not; a leaf law the lock
     /// does not select is still `operation-law-unselected`.
     ///
-    /// Tracing: TC-048, FR-038-AC-71
     #[trace("TC-048", "FR-038-AC-71")]
     #[test]
     fn tc_048_a_recursive_record_keeps_the_text_leaf_refusals() {
@@ -7944,7 +7888,6 @@ mod tests {
     /// into the option and the edge from it back to the record, once in the
     /// count and once in the pass, and the budget is what bounds a cycle.
     ///
-    /// Tracing: TC-048, FR-038-AC-72
     #[trace("TC-048", "FR-038-AC-72")]
     #[test]
     fn tc_048_each_reentry_edge_is_one_unit_of_work() {
@@ -7978,7 +7921,6 @@ mod tests {
     /// record costs the node in the search, the edge in the count and the
     /// edge in the pass, three units, where two would mean the search is free.
     ///
-    /// Tracing: TC-048, FR-038-AC-72
     #[trace("TC-048", "FR-038-AC-72")]
     #[test]
     fn tc_048_the_component_search_costs_one_unit_per_reachable_type_node() {
@@ -8004,7 +7946,6 @@ mod tests {
     /// limit of 1000, never `incomplete` for `work`, while `R { x: Option<R> }`
     /// admits.
     ///
-    /// Tracing: TC-048, FR-038-AC-71
     #[trace("TC-048", "FR-038-AC-71")]
     #[test]
     fn tc_048_a_cycle_through_no_record_or_tuple_is_refused_not_exhausted() {
@@ -8049,7 +7990,6 @@ mod tests {
     /// parameters of one record type is admitted, and over parameters of two
     /// different record types is refused at the second operand.
     ///
-    /// Tracing: TC-048, FR-038-AC-86
     #[trace("TC-048", "FR-038-AC-86")]
     #[test]
     fn operation_defect_same_type_compares_operand_types_not_operand_nodes() {
@@ -8133,7 +8073,6 @@ mod tests {
     /// operand that resolves to no type leaves the constraint undecided, so
     /// it is admitted rather than guessed at.
     ///
-    /// Tracing: TC-048, FR-038-AC-86
     #[trace("TC-048", "FR-038-AC-86")]
     #[test]
     fn operation_defect_same_type_resolves_literal_and_application_operands() {
@@ -8202,7 +8141,6 @@ mod tests {
     /// `operation-mode-type-mismatch`, and a clause application has family
     /// `clause`, so it fits no `boolean` position.
     ///
-    /// Tracing: TC-048, FR-038-AC-83, FR-038-AC-85
     #[trace("TC-048", "FR-038-AC-83", "FR-038-AC-85")]
     #[test]
     fn operation_defect_checks_literal_and_application_operands() {
@@ -8322,7 +8260,6 @@ mod tests {
     /// the two are separate stages (see the module doc), and nothing above
     /// reaches this one.
     ///
-    /// Trace: TC-048, FR-038-AC-88, FR-038-AC-184
     #[trace("TC-048", "FR-038-AC-88", "FR-038-AC-184")]
     #[test]
     fn tc_048_validate_application_keys_refuses_a_stale_node_key() {
@@ -8379,7 +8316,6 @@ mod tests {
     /// refused every node would satisfy the assertion above just as well as
     /// the real re-derivation does.
     ///
-    /// Tracing: TC-048, FR-038-AC-88
     #[trace("TC-048", "FR-038-AC-88")]
     #[test]
     fn tc_048_validate_application_keys_admits_a_correctly_keyed_node() {
@@ -8400,7 +8336,6 @@ mod tests {
         );
     }
 
-    /// Trace: FR-046-AC-6
     #[trace("FR-046-AC-6")]
     #[test]
     fn application_identity_work_refusal_precedes_a_canonical_hash_refusal() {
@@ -8440,7 +8375,6 @@ mod tests {
     /// `operation` must deserialize as `OperationWire`; a bare string is not
     /// one, so this must be refused before any catalog lookup runs.
     ///
-    /// Tracing: TC-048, FR-038-AC-81
     #[trace("TC-048", "FR-038-AC-81")]
     #[test]
     fn operation_defect_refuses_malformed_operation_wire() {
@@ -8516,7 +8450,6 @@ mod tests {
     /// application. `quire.op.control.case` is held to the same rules; its
     /// `union_arms` constraint needs a union and is checked through a package.
     ///
-    /// Tracing: TC-048, FR-038-AC-96
     #[trace("TC-048", "FR-038-AC-96")]
     #[test]
     fn tc_048_the_temporal_entries_admit_by_their_catalogued_shape() {
@@ -8606,7 +8539,6 @@ mod tests {
     /// every other check of the entry, and of two defective root nodes the
     /// lower `node_id` digest is reported.
     ///
-    /// Tracing: TC-048, FR-038-AC-67
     #[trace("TC-048", "FR-038-AC-67")]
     #[test]
     fn tc_048_identity_and_class_refuse_first_and_the_lowest_node_is_reported() {
@@ -8783,7 +8715,6 @@ mod tests {
 
     /// FR-038-AC-68: the six fixed operands of `quire.op.temporal.clause`.
     ///
-    /// Tracing: TC-048, FR-038-AC-68
     #[trace("TC-048", "FR-038-AC-68")]
     #[test]
     fn tc_048_the_temporal_clause_is_checked_as_six_fixed_operands() {
@@ -8864,7 +8795,6 @@ mod tests {
     /// identity such as `holds`, is a member mismatch at the member, and
     /// FR-038-AC-98's `fairness` member on `quire.op.boolean.not`.
     ///
-    /// Tracing: TC-048, FR-038-AC-69, FR-038-AC-98
     #[trace("TC-048", "FR-038-AC-69", "FR-038-AC-98")]
     #[test]
     fn tc_048_a_temporal_member_on_another_entry_is_a_member_mismatch() {

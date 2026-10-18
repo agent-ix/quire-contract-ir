@@ -2482,7 +2482,6 @@ mod tests {
     use ix_trace_rs::trace;
     use serde_json::json;
 
-    /// Trace: FR-051-AC-1
     #[trace("TC-451", "FR-051-AC-1")]
     #[test]
     fn tc_451_borrowed_encoder_equals_private_owned_wire_bytes() {

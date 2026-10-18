@@ -190,7 +190,6 @@ mod tests {
     /// index of an element and none for a binding's one value; a leaf and a
     /// term whose member is absent or of the wrong kind hold none.
     ///
-    /// Tracing: TC-048, FR-038-AC-117
     #[trace("TC-048", "FR-038-AC-117")]
     #[test]
     fn tc_048_a_terms_subterms_are_its_arguments_members_or_value_in_order() {
@@ -220,7 +219,6 @@ mod tests {
     /// whole subtree before the next sibling, and stops at the first `Break`,
     /// entering nothing after it.
     ///
-    /// Tracing: TC-048, FR-038-AC-115
     #[trace("TC-048", "FR-038-AC-115")]
     #[test]
     fn tc_048_the_visit_is_pre_order_and_stops_at_the_first_break() {
@@ -260,7 +258,6 @@ mod tests {
     /// child adds its member and index to its parent's, and a sibling entered
     /// after a subtree cuts that subtree's steps back.
     ///
-    /// Tracing: TC-048, FR-038-AC-115
     #[trace("TC-048", "FR-038-AC-115")]
     #[test]
     fn tc_048_the_cursor_follows_the_walk_in_and_out_of_a_subtree() {
@@ -294,7 +291,6 @@ mod tests {
     /// term of 200000 nested aggregates is visited whole on a thread whose
     /// stack is 256 KiB.
     ///
-    /// Tracing: TC-048, FR-038-AC-117
     #[trace("TC-048", "FR-038-AC-117")]
     #[test]
     fn tc_048_a_deep_term_is_visited_on_a_small_stack() {

@@ -2916,7 +2916,6 @@ mod tests {
             .collect()
     }
 
-    /// Tracing: TC-043, FR-032-AC-6, FR-034-AC-6, FR-034-AC-7, FR-034-AC-8.
     #[trace("TC-043", "FR-032-AC-6", "FR-034-AC-6", "FR-034-AC-7", "FR-034-AC-8")]
     #[test]
     fn tc_043_request_identity_is_the_hand_written_text_under_its_ceiling() {
@@ -2932,7 +2931,6 @@ mod tests {
         assert_eq!(refusal.path(), "request");
     }
 
-    /// Tracing: TC-043, FR-034-AC-8, FR-034-AC-9.
     #[trace("TC-043", "FR-034-AC-8", "FR-034-AC-9")]
     #[test]
     fn tc_043_request_limits_at_two_to_the_64_enter_the_material_as_distinct_decimal_strings() {
@@ -3066,7 +3064,6 @@ mod tests {
         )
     }
 
-    /// Tracing: TC-043, FR-033-AC-6, FR-034-AC-6, FR-034-AC-7, FR-034-AC-8.
     #[trace("TC-043", "FR-033-AC-6", "FR-034-AC-6", "FR-034-AC-7", "FR-034-AC-8")]
     #[test]
     fn tc_043_record_identity_is_the_hand_written_text_under_its_ceiling() {
@@ -3089,7 +3086,6 @@ mod tests {
     /// unreachable. An offset of exactly 2^53 is the largest the material
     /// holds, and it encodes as a number.
     ///
-    /// Tracing: TC-043, FR-034-AC-6.
     #[trace("TC-043", "FR-034-AC-6")]
     #[test]
     fn tc_043_a_source_offset_past_two_to_the_53_cannot_reach_the_record_material() {
@@ -3110,7 +3106,6 @@ mod tests {
     /// encoder's fixed object-buffer bound and an integer past 2^53 are not
     /// the request byte limit.
     ///
-    /// Tracing: TC-043, FR-034-AC-6.
     #[trace("TC-043", "FR-034-AC-6")]
     #[test]
     fn tc_043_only_the_canonical_byte_limit_is_the_request_limit_refusal() {
@@ -3152,7 +3147,6 @@ mod tests {
     /// encoded without that ceiling and compared the length afterwards would
     /// record a different value here.
     ///
-    /// Tracing: TC-043, FR-032-AC-6, FR-033-AC-6, FR-034-AC-6.
     #[trace("TC-043", "FR-032-AC-6", "FR-033-AC-6", "FR-034-AC-6")]
     #[test]
     fn tc_043_each_identity_step_hands_the_encoder_the_request_byte_limit() {
@@ -3248,7 +3242,6 @@ mod tests {
         )
     }
 
-    /// Tracing: TC-043, FR-034-AC-6, FR-034-AC-7, FR-034-AC-8.
     #[trace("TC-043", "FR-034-AC-6", "FR-034-AC-7", "FR-034-AC-8")]
     #[test]
     fn tc_043_package_identity_is_the_hand_written_text_under_its_ceiling() {

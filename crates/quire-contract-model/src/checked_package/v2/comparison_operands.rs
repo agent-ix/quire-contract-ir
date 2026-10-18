@@ -711,7 +711,6 @@ mod tests {
         (package, clause, claim)
     }
 
-    /// Trace: FR-038-AC-207
     #[trace("FR-038-AC-207")]
     #[test]
     fn tc_445_first_refusal_and_locus_survive_post_admission_defects() {
@@ -856,7 +855,6 @@ mod tests {
         );
     }
 
-    /// Trace: FR-038-AC-205
     #[trace("FR-038-AC-205")]
     #[test]
     fn tc_445_integer_literal_endpoints_remain_exact_i128_singletons() {

@@ -632,7 +632,6 @@ mod tests {
     /// `MemberType::node_key` derives from the matching member type, and the
     /// node built from that preimage admits.
     ///
-    /// Tracing: TC-226, FR-038-AC-130
     #[trace("TC-226", "FR-038-AC-130")]
     #[test]
     fn tc_226_the_stage_derives_the_key_member_type_node_key_derives() {
@@ -691,7 +690,6 @@ mod tests {
         .is_err());
     }
 
-    /// Trace: FR-038-AC-145, FR-038-AC-148
     #[trace("FR-038-AC-145", "FR-038-AC-148")]
     #[test]
     fn genuine_self_option_group_authenticates_both_passes() {
@@ -734,7 +732,6 @@ mod tests {
         ));
     }
 
-    /// Trace: FR-038-AC-149, TC-226
     #[trace("FR-038-AC-149", "TC-226")]
     #[test]
     fn tree_group_stops_at_the_first_unpaid_local_preimage_charge() {

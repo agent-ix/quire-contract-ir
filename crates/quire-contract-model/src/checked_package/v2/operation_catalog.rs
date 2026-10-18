@@ -257,7 +257,6 @@ mod tests {
     /// exactly the enum's members (read from the catalog this build depends
     /// on, no copy); and the production catalog reads.
     ///
-    /// Tracing: TC-048, FR-038-AC-65
     #[trace("TC-048", "FR-038-AC-65")]
     #[test]
     fn tc_048_the_new_catalog_words_round_trip_and_the_catalog_reads() {
@@ -303,7 +302,6 @@ mod tests {
     /// a constraint kind outside its vocabulary return the typed error naming
     /// the word, with no panic.
     ///
-    /// Tracing: TC-048, FR-038-AC-65
     #[trace("TC-048", "FR-038-AC-65")]
     #[test]
     fn tc_048_a_catalog_word_outside_its_vocabulary_is_a_typed_error_naming_it() {
@@ -350,7 +348,6 @@ mod tests {
     /// `digest` returns an error naming the entry, without a panic. The
     /// supplied bytes are the production catalog's own, with one entry edited.
     ///
-    /// Tracing: TC-048, FR-038-AC-58
     #[trace("TC-048", "FR-038-AC-58")]
     #[test]
     fn tc_048_the_catalog_read_names_a_law_role_entry_that_is_not_authority_and_identity() {

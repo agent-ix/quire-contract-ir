@@ -12,7 +12,6 @@ use ix_trace_rs::trace;
 /// Ordinary workspace tests have no QSpec checkout; the explicit conformance
 /// target supplies one and runs this test alongside the public reader test.
 ///
-/// Trace: TC-048, FR-038-AC-176
 #[trace("TC-048", "FR-038-AC-176")]
 #[test]
 fn tc_048_qspec_model_declaration_keys_use_production_derivation() {
@@ -78,7 +77,6 @@ fn sha256_of(text: &str) -> String {
 /// preimage, written out here from the preimage's JSON text with members in
 /// RFC 8785 order, not produced by the code under test.
 ///
-/// Trace: FR-038-AC-89
 #[trace("TC-048", "FR-038-AC-89")]
 #[test]
 fn tc_048_structural_node_keys_hash_the_expected_canonical_bytes() {
@@ -143,7 +141,6 @@ fn tc_048_a_declaration_key_over_the_byte_limit_refuses_at_its_selection_row() {
 /// A record owner adds one selected-row indexing charge, and the next lower
 /// limit refuses at that row before a frame could read the owner.
 ///
-/// Trace: FR-040-AC-16
 #[trace("TC-056", "FR-040-AC-16")]
 #[test]
 fn tc_056_record_owner_index_uses_selected_row_work_budget() {
@@ -258,7 +255,6 @@ const WIDGET: &str = "ix://acme/orders/Widget";
 const GADGET: &str = "ix://acme/orders/Gadget";
 const LINK: &str = "ix://acme/orders/relationship/Widget-links-Gadget";
 
-/// Trace: FR-038-AC-103
 #[trace("TC-048", "FR-038-AC-103")]
 #[test]
 fn operation_redefinitions_select_the_most_derived_member() {
@@ -281,7 +277,6 @@ fn operation_redefinitions_select_the_most_derived_member() {
     assert_eq!(resolved.identity(), "ix://acme/orders/Child/act");
 }
 
-/// Trace: FR-038-AC-28
 #[trace("TC-048", "FR-038-AC-28")]
 #[test]
 fn operation_redefinitions_refuse_malformed_and_missing_targets() {
@@ -323,7 +318,6 @@ pub(in crate::checked_package::v2) fn relationship_document(relationships: Vec<V
     document(vec![widget, object_type(GADGET, &[], vec![])])
 }
 
-/// Trace: FR-038-AC-165, FR-038-AC-166, FR-038-AC-173
 #[trace("TC-048", "FR-038-AC-165", "FR-038-AC-166", "FR-038-AC-173")]
 #[test]
 fn tc_048_relationship_roles_and_metadata_are_read_from_the_authored_declaration() {
@@ -356,7 +350,6 @@ fn tc_048_relationship_roles_and_metadata_are_read_from_the_authored_declaration
     assert!(read(&relationship_document(vec![declaration])).is_ok());
 }
 
-/// Trace: FR-038-AC-165
 #[trace("TC-048", "FR-038-AC-165")]
 #[test]
 fn tc_048_relationship_slot_does_not_change_nested_field_operation_or_parameter_ids() {
@@ -382,7 +375,6 @@ fn tc_048_relationship_slot_does_not_change_nested_field_operation_or_parameter_
     }
 }
 
-/// Trace: FR-038-AC-165, FR-038-AC-166, FR-038-AC-167, FR-038-AC-168, FR-038-AC-173
 #[trace(
     "TC-048",
     "FR-038-AC-165",
@@ -487,7 +479,6 @@ fn tc_048_relationship_admission_refuses_bad_identity_shape_and_end_meaning() {
     );
 }
 
-/// Trace: FR-038-AC-168
 #[trace("TC-048", "FR-038-AC-168")]
 #[test]
 fn tc_048_relationship_duplicates_follow_declaration_and_failure_row_order() {
@@ -538,7 +529,6 @@ fn tc_048_relationship_duplicates_follow_declaration_and_failure_row_order() {
     );
 }
 
-/// Trace: FR-038-AC-170
 #[trace("TC-048", "FR-038-AC-170")]
 #[test]
 fn tc_048_relationship_destination_bounds_derive_the_canonical_navigation_type() {
@@ -594,7 +584,6 @@ fn tc_048_relationship_destination_bounds_derive_the_canonical_navigation_type()
     );
 }
 
-/// Trace: FR-038-AC-168
 #[trace("TC-048", "FR-038-AC-168")]
 #[test]
 fn tc_048_relationship_document_read_uses_the_exact_selected_row_work_budget() {
@@ -633,7 +622,6 @@ fn tc_048_relationship_document_read_uses_the_exact_selected_row_work_budget() {
 /// FR-154 over a Semantic IR document: an inherited field resolves on the
 /// subtype and a subtype conforms to its supertype, decided in either order.
 ///
-/// Trace: FR-038-AC-29
 #[trace("TC-048", "FR-038-AC-29")]
 #[test]
 fn tc_048_a_semantic_ir_document_reads_inherited_members_and_conformance() {
@@ -673,7 +661,6 @@ fn tc_048_a_semantic_ir_document_reads_inherited_members_and_conformance() {
 /// An FCD value type `scalar: integer` with `min` and `max` constraints is
 /// the element type `Int[lo, hi]`.
 ///
-/// Trace: FR-038-AC-29
 #[trace("TC-048", "FR-038-AC-29")]
 #[test]
 fn tc_048_a_semantic_ir_integer_value_type_is_an_integer_range() {
@@ -705,7 +692,6 @@ fn tc_048_a_semantic_ir_integer_value_type_is_an_integer_range() {
 
 /// FR-154's declaration refusals the reader draws, each for one defect.
 ///
-/// Trace: FR-038-AC-28
 #[trace("TC-048", "FR-038-AC-28")]
 #[test]
 fn tc_048_semantic_ir_declaration_defects_refuse_with_their_fr_154_cause() {
@@ -761,7 +747,6 @@ fn tc_048_semantic_ir_declaration_defects_refuse_with_their_fr_154_cause() {
 /// the bytes and the document's own `package` identity compared; no version
 /// is read.
 ///
-/// Trace: FR-038-AC-27
 #[trace("TC-048", "FR-038-AC-27")]
 #[test]
 fn tc_048_a_selection_admits_only_the_document_it_names() {
@@ -839,7 +824,6 @@ const BAD_ID: &str = "ix://acme/orders/bad-id";
 /// reported again as `missing-name`; the refused node's own refusal stands,
 /// whether the referencing node is read before or after it.
 ///
-/// Trace: FR-038-AC-28
 #[trace("TC-048", "FR-038-AC-28")]
 #[test]
 fn tc_048_a_reference_to_a_refused_node_leaves_that_nodes_own_refusal() {
@@ -877,7 +861,6 @@ fn tc_048_a_reference_to_a_refused_node_leaves_that_nodes_own_refusal() {
 /// multiplicity with `lower > upper` (`unpreserved-model-meaning`), and a
 /// malformed member before either, wherever each sits in the node.
 ///
-/// Trace: FR-038-AC-28
 #[trace("TC-048", "FR-038-AC-28")]
 #[test]
 fn tc_048_one_nodes_failures_report_in_table_order() {
@@ -931,7 +914,6 @@ fn tc_048_one_nodes_failures_report_in_table_order() {
 /// meaning, whether the object type declaring the relationship is read before
 /// or after the one naming it.
 ///
-/// Trace: FR-038-AC-28
 #[trace("TC-048", "FR-038-AC-28")]
 #[test]
 fn tc_048_a_type_ref_to_a_relationship_is_wrong_meaning_in_any_node_order() {
@@ -960,7 +942,6 @@ fn tc_048_a_type_ref_to_a_relationship_is_wrong_meaning_in_any_node_order() {
 /// QSpec FR-154: two nodes that carry no identity share none; each is
 /// malformed, not a `conflicting-binding`.
 ///
-/// Trace: FR-038-AC-28
 #[trace("TC-048", "FR-038-AC-28")]
 #[test]
 fn tc_048_nodes_with_no_identity_are_malformed_not_conflicting() {
@@ -982,7 +963,6 @@ fn tc_048_nodes_with_no_identity_are_malformed_not_conflicting() {
 /// the reader's `work` limit at the document's `model_selections` row; a
 /// limit one below what a read used is `incomplete` there.
 ///
-/// Trace: FR-038-AC-30
 #[trace("TC-048", "FR-038-AC-30")]
 #[test]
 fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
@@ -1231,7 +1211,6 @@ pub(in crate::checked_package::v2) const RECORDED: [&str; 31] = [
 /// `resolve` over the field tables answers as the pre-change `resolve` did,
 /// for supertype cycles, redefinitions, a diamond and an ambiguous name.
 ///
-/// Trace: FR-038-AC-144
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_resolve_answers_match_the_values_recorded_before_the_field_tables() {

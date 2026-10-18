@@ -1047,7 +1047,6 @@ mod tests {
     /// FR-038-AC-97: an interval bound is an integer string of unbounded size,
     /// ordered as the integer it spells and never as text.
     ///
-    /// Tracing: TC-048, FR-038-AC-97
     #[trace("TC-048", "FR-038-AC-97")]
     #[test]
     fn tc_048_interval_bounds_are_integer_strings_ordered_as_unbounded_integers() {
@@ -1185,7 +1184,6 @@ mod tests {
     /// that does admits. (A package read cannot reach this: the application
     /// dependency join makes every referenced node a dependency first.)
     ///
-    /// Tracing: TC-048, FR-038-AC-103
     #[trace("TC-048", "FR-038-AC-103")]
     #[test]
     fn tc_048_an_over_outside_the_clauses_dependencies_is_a_missing_name() {
