@@ -291,7 +291,8 @@ fn tc_043_request_admission_preserves_exact_ordered_inputs() {
     assert_eq!(admitted.limits(), &limits());
 }
 
-#[trace("TC-043", "FR-032-AC-2", "NFR-060")]
+/// Also exercises QSpec NFR-060.
+#[trace("TC-043", "FR-032-AC-2")]
 #[test]
 fn tc_043_request_admission_refuses_population_and_resource_mutations() {
     let package = bound_package();
@@ -724,7 +725,8 @@ fn tc_043_mapping_candidate_invariants_are_closed_and_non_boolean() {
     assert!(invalid.into_iter().all(|result| result.is_err()));
 }
 
-#[trace("TC-043", "FR-033-AC-2", "FR-033-AC-4", "NFR-060")]
+/// Also exercises QSpec NFR-060.
+#[trace("TC-043", "FR-033-AC-2", "FR-033-AC-4")]
 #[test]
 fn tc_043_candidate_regions_dependencies_and_work_fail_closed() {
     let package = bound_package();
@@ -1243,7 +1245,8 @@ fn tc_043_mapper_dispatch_is_ordered_complete_and_identity_bearing() {
     assert_eq!(mapped.records()[0].protocol_adequacy(), None);
 }
 
-#[trace("TC-043", "FR-033-AC-1", "FR-033-AC-4", "NFR-060")]
+/// Also exercises QSpec NFR-060.
+#[trace("TC-043", "FR-033-AC-1", "FR-033-AC-4")]
 #[test]
 fn tc_043_mapper_mismatch_cross_wiring_and_exhaustion_refuse_atomically() {
     let package = bound_package();
@@ -1357,7 +1360,8 @@ fn tc_043_mapper_mismatch_cross_wiring_and_exhaustion_refuse_atomically() {
     assert!(cancelled.seen.is_empty());
 }
 
-#[trace("TC-043", "FR-033-AC-4", "FR-034-AC-3", "NFR-060")]
+/// Also exercises QSpec NFR-060.
+#[trace("TC-043", "FR-033-AC-4", "FR-034-AC-3")]
 #[test]
 fn tc_043_mapping_aggregates_accept_exact_and_refuse_just_over_bounds() {
     let package = bound_package();
@@ -1632,7 +1636,8 @@ fn tc_043_package_identity_binds_target_generator_source_profile_records_and_lim
     );
 }
 
-#[trace("TC-043", "FR-034-AC-2", "FR-034-AC-3", "NFR-060")]
+/// Also exercises QSpec NFR-060.
+#[trace("TC-043", "FR-034-AC-2", "FR-034-AC-3")]
 #[test]
 fn tc_043_cancellation_and_allocation_failures_expose_no_package() {
     let package = bound_package();
@@ -1732,7 +1737,8 @@ fn observer() -> StructuralObserverIdentity {
     StructuralObserverIdentity::new("agent-ix/observer").expect("qualified observer")
 }
 
-#[trace("TC-043", "FR-034-AC-4", "FR-034-AC-5", "NFR-061")]
+/// Also exercises QSpec NFR-061.
+#[trace("TC-043", "FR-034-AC-4", "FR-034-AC-5")]
 #[test]
 fn tc_043_structural_observations_are_downstream_and_package_immutable() {
     let package = bound_package();
