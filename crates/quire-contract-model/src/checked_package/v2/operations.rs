@@ -5796,8 +5796,7 @@ mod tests {
         }
     }
 
-    /// Trace: FR-038-AC-229, FR-038-AC-230
-    #[trace("FR-038-AC-229", "FR-038-AC-230")]
+    #[trace("TC-048", "FR-038-AC-229", "FR-038-AC-230")]
     #[test]
     fn required_leaf_source_type_never_defaults_to_an_empty_list() {
         let cases = [
@@ -5835,8 +5834,7 @@ mod tests {
         }
     }
 
-    /// Trace: FR-038-AC-231
-    #[trace("FR-038-AC-231")]
+    #[trace("TC-048", "FR-038-AC-231")]
     #[test]
     fn compared_ieee_reachability_is_distinct_from_text_leaf_count() {
         for form in ["float32", "float64"] {
@@ -6355,8 +6353,7 @@ mod tests {
         (nodes, leaves)
     }
 
-    /// Trace: FR-038-AC-224
-    #[trace("FR-038-AC-224")]
+    #[trace("TC-048", "FR-038-AC-224")]
     #[test]
     fn structural_forwarding_is_paid_once_across_both_leaf_passes() {
         let (nodes, leaves) = structural_shared_chain();
@@ -6415,8 +6412,7 @@ mod tests {
         assert_eq!(walk.pins.len(), 300, "pin lookup has its own memo");
     }
 
-    /// Trace: FR-038-AC-224
-    #[trace("FR-038-AC-224")]
+    #[trace("TC-048", "FR-038-AC-224")]
     #[test]
     fn text_profile_pin_retains_its_independent_exact_boundary() {
         let (nodes, _) = structural_shared_chain();
@@ -6478,8 +6474,7 @@ mod tests {
         );
     }
 
-    /// Trace: FR-038-AC-224
-    #[trace("FR-038-AC-224")]
+    #[trace("TC-048", "FR-038-AC-224")]
     #[test]
     fn structural_shared_chain_has_measured_count_and_lawful_boundaries() {
         let (types, lawful) = structural_shared_chain();
@@ -6521,8 +6516,7 @@ mod tests {
         assert_work(short, lawful_work - 1, consumed);
     }
 
-    /// Trace: FR-038-AC-224
-    #[trace("FR-038-AC-224")]
+    #[trace("TC-048", "FR-038-AC-224")]
     #[test]
     fn structural_forwarding_charges_each_mixed_chain_suffix_once_per_application() {
         let nodes = vec![
@@ -6576,8 +6570,7 @@ mod tests {
         assert_eq!(incomplete.path, Some(at));
     }
 
-    /// Trace: FR-038-AC-224
-    #[trace("FR-038-AC-224")]
+    #[trace("TC-048", "FR-038-AC-224")]
     #[test]
     fn structural_forwarding_missing_target_and_cycle_remain_resolution_failures() {
         let cases = [
@@ -6619,8 +6612,7 @@ mod tests {
         }
     }
 
-    /// Trace: FR-038-AC-224
-    #[trace("FR-038-AC-224")]
+    #[trace("TC-048", "FR-038-AC-224")]
     #[test]
     fn union_arms_propagates_structural_work_before_testing_its_constraint() {
         let mut application =
@@ -6719,8 +6711,7 @@ mod tests {
         assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
     }
 
-    /// Trace: FR-038-AC-224
-    #[trace("FR-038-AC-224")]
+    #[trace("TC-048", "FR-038-AC-224")]
     #[test]
     fn inner_result_and_leaf_edges_propagate_structural_work() {
         let mut contains = custom_application_node(
