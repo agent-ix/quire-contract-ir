@@ -453,7 +453,6 @@ fn base_path_of(vectors: &Value) -> Result<&str, String> {
         .ok_or_else(|| format!("{SELECTION_VECTORS} has no string base"))
 }
 
-/// Tracing: TC-048, FR-038-AC-107
 #[trace("TC-048", "FR-038-AC-107")]
 #[test]
 fn tc_048_qspec_positive_fixtures_admit() {
@@ -503,7 +502,6 @@ fn rewrite_digest(value: &mut Value, old: &str, new: &str) {
     }
 }
 
-/// Trace: TC-048, FR-038-AC-225
 #[trace("TC-048", "FR-038-AC-225")]
 #[test]
 fn tc_048_qspec_union_values_admit_under_their_application_keys() {
@@ -561,7 +559,6 @@ fn tc_048_qspec_union_values_admit_under_their_application_keys() {
     );
 }
 
-/// Trace: TC-048, FR-038-AC-226
 #[trace("TC-048", "FR-038-AC-226")]
 #[test]
 fn tc_048_qspec_union_values_refuse_retained_structural_keys_and_body_changes() {
@@ -682,7 +679,6 @@ fn read_positive_package(
     }
 }
 
-/// Trace: TC-048, FR-038-AC-176
 #[trace("TC-048", "FR-038-AC-176")]
 #[test]
 fn tc_048_qspec_all_positive_packages_and_owner_identities() {
@@ -742,7 +738,6 @@ fn tc_048_qspec_all_positive_packages_and_owner_identities() {
     }
 }
 
-/// Trace: TC-048, FR-038-AC-176
 #[trace("TC-048", "FR-038-AC-176")]
 #[test]
 fn tc_048_qspec_positive_inputs_fail_closed() {
@@ -791,7 +786,6 @@ fn tc_048_qspec_positive_inputs_fail_closed() {
     assert!(refused.contains("did not admit"), "{refused}");
 }
 
-/// Trace: FR-038-AC-145
 #[trace("FR-038-AC-145")]
 #[test]
 fn tc_226_qspec_recursive_records_admit() {
@@ -932,7 +926,6 @@ fn projection_owner_mutation(dir: &Path, row: &Value) -> Result<(Value, usize), 
     Ok((package, *position))
 }
 
-/// Trace: TC-228, FR-038-AC-154
 #[trace("TC-228", "FR-038-AC-154")]
 #[test]
 fn tc_228_qspec_projection_owner_mutations_refuse_at_owner() {
@@ -974,7 +967,6 @@ fn tc_228_qspec_projection_owner_mutations_refuse_at_owner() {
 }
 
 /// QSpec's owner-free ungrouped tamper cases must reach the derived-key stage.
-/// Trace: FR-038-AC-123, FR-038-AC-133
 #[trace("FR-038-AC-123", "FR-038-AC-133")]
 #[test]
 fn tc_226_qspec_ungrouped_derived_shape_mutations_refuse() {
@@ -1003,7 +995,6 @@ fn tc_226_qspec_ungrouped_derived_shape_mutations_refuse() {
 }
 
 /// IR-630, after QSL-638 supplies the declared SourceOwner on the wire.
-/// Trace: FR-038-AC-150
 #[trace("FR-038-AC-150")]
 #[test]
 #[ignore = "IR-630: declared SourceOwner is absent from the v2 semantic node wire"]
@@ -1049,8 +1040,6 @@ fn assert_no_problems(problems: &[String]) {
 /// Every mutation refuses as recorded, with the expected-failure list empty
 /// (FR-038-AC-118): each of the five `body_grammar_mutations` refuses
 /// `malformed_wire`, with no identity refreshed.
-///
-/// Tracing: TC-048, FR-038-AC-112, FR-038-AC-118
 #[trace("TC-048", "FR-038-AC-112", "FR-038-AC-118")]
 #[test]
 fn tc_048_qspec_adverse_mutations_refuse_as_recorded() {
@@ -1092,8 +1081,6 @@ fn mentions(problems: &[String], text: &str) -> bool {
 
 /// A recorded outcome names the cause only where it gives one: a cause-less
 /// outcome is met by the code with any cause, and by no other code.
-///
-/// Tracing: TC-048, FR-038-AC-112
 #[trace("TC-048", "FR-038-AC-112")]
 #[test]
 fn tc_048_a_recorded_outcome_without_a_cause_is_met_by_its_code() {
@@ -1113,7 +1100,6 @@ fn tc_048_a_recorded_outcome_without_a_cause_is_met_by_its_code() {
     assert!(!refuses_as(code, caused));
 }
 
-/// Tracing: TC-048, FR-038-AC-112
 #[trace("TC-048", "FR-038-AC-112")]
 #[test]
 fn tc_048_qspec_adverse_run_fails_closed() {
@@ -1246,7 +1232,6 @@ fn selection_inputs() -> (Value, Value) {
     (base, vectors)
 }
 
-/// Tracing: TC-048, FR-038-AC-113
 #[trace("TC-048", "FR-038-AC-113")]
 #[test]
 fn tc_048_qspec_version_free_selections_derive_the_recorded_package_id() {
@@ -1254,7 +1239,6 @@ fn tc_048_qspec_version_free_selections_derive_the_recorded_package_id() {
     assert_no_problems(&selection_problems(&base, &vectors));
 }
 
-/// Tracing: TC-048, FR-038-AC-113
 #[trace("TC-048", "FR-038-AC-113")]
 #[test]
 fn tc_048_qspec_selection_run_fails_closed() {

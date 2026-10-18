@@ -279,7 +279,7 @@ const ORDERING: [&str; 4] = [
 const EQUALITY: [&str; 2] = ["quire.op.enum.eq", "quire.op.enum.ne"];
 const FORMS: [Operands; 2] = [Operands::Members, Operands::Parameters];
 
-/// Trace: FR-038-AC-238
+#[trace("FR-038-AC-238")]
 #[test]
 fn ordinary_scalar_enum_still_refuses_nonidentifier_cases() {
     let declaration = declaration_with("Status", false, ["Gold Plus", "READY"]);
@@ -296,7 +296,6 @@ fn ordinary_scalar_enum_still_refuses_nonidentifier_cases() {
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-42
 #[trace("TC-048", "FR-038-AC-42")]
 #[test]
 fn tc_048_ordering_over_an_ordered_enum_admits() {
@@ -316,7 +315,6 @@ fn tc_048_ordering_over_an_ordered_enum_admits() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-42
 #[trace("TC-048", "FR-038-AC-42")]
 #[test]
 fn tc_048_ordering_over_an_unordered_enum_refuses() {
@@ -329,7 +327,6 @@ fn tc_048_ordering_over_an_unordered_enum_refuses() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-42
 #[trace("TC-048", "FR-038-AC-42")]
 #[test]
 fn tc_048_equality_over_an_enum_admits_ordered_or_not() {
@@ -348,7 +345,6 @@ fn tc_048_equality_over_an_enum_admits_ordered_or_not() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-42
 #[trace("TC-048", "FR-038-AC-42")]
 #[test]
 fn tc_048_ordering_across_two_enums_refuses() {
