@@ -70,4 +70,5 @@ mod nfr003_invalid_input;
 mod output_mapping;
 mod public_interface;
 mod source_obligation;
+mod source_obligation_ir_v2;
 mod std001_code;
