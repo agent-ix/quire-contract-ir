@@ -302,6 +302,31 @@ pub struct CheckedPackageIdentityPreimageV2 {
     pub identity_projection: Vec<CheckedNodeProjectionV2>,
 }
 
+/// Borrowed producer view of the V2 package identity preimage.
+///
+/// Its projection selects identity fields from graph nodes without retaining
+/// another owned copy of any node body. The owned preimage remains the reader's
+/// admitted representation.
+#[derive(Clone, Copy, Debug)]
+pub struct CheckedPackageIdentityPreimageRefV2<'a> {
+    /// Must be `quire.checked-package-id/v2`.
+    pub version: &'a str,
+    /// Selected edition.
+    pub edition: &'a CheckedSelection,
+    /// Selected profiles.
+    pub profile_selections: &'a [CheckedSelection],
+    /// Selected definitions.
+    pub definition_selections: &'a [CheckedArtifactRef],
+    /// Selected domain packages.
+    pub model_selections: &'a [CheckedDomainPackageRef],
+    /// Required features.
+    pub required_features: &'a [Box<str>],
+    /// Dependency selections, sorted by library identity.
+    pub dependency_selections: &'a [CheckedDependencySelection],
+    /// Ordered nodes whose identity fields form the projection.
+    pub identity_projection: &'a [CheckedSemanticNodeV2],
+}
+
 /// A checked V2 graph.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -457,7 +482,7 @@ macro_rules! checked_package_envelope {
 
         impl quire_canonical::Encode for CheckedPackageEnvelope<
             &str,
-            &CheckedPackageIdentityPreimageV2,
+            &CheckedPackageIdentityPreimageRefV2<'_>,
             &CheckedSemanticId,
             &CheckedPackageLockV2,
             &CheckedSemanticGraphV2,
@@ -503,7 +528,7 @@ type CheckedPackageWireV2 = CheckedPackageEnvelope<
 /// caller's byte limits. Identity construction and admission belong to the
 /// producer and reader respectively.
 pub fn encode_checked_package_v2(
-    identity_preimage: &CheckedPackageIdentityPreimageV2,
+    identity_preimage: &CheckedPackageIdentityPreimageRefV2<'_>,
     package_id: &CheckedSemanticId,
     lock: &CheckedPackageLockV2,
     semantic_graph: &CheckedSemanticGraphV2,

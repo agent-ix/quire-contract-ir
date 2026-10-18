@@ -1057,8 +1057,9 @@ const FIXED_DEPTH: [&str; 25] = [
 ];
 
 /// The types that hold a `Value`, directly or through another type.
-const HOLD_A_VALUE: [&str; 6] = [
+const HOLD_A_VALUE: [&str; 7] = [
     "CheckedPackageIdentityPreimageV2",
+    "CheckedPackageIdentityPreimageRefV2",
     "CheckedSemanticGraphV2",
     "CheckedDiagnosticsV2",
     "CheckedNodeProjectionV2",
@@ -1066,8 +1067,9 @@ const HOLD_A_VALUE: [&str; 6] = [
     "CheckedDiagnosticV2",
 ];
 
-const ENCODED: [&str; 3] = [
+const ENCODED: [&str; 4] = [
     "CheckedPackageIdentityPreimageV2",
+    "CheckedPackageIdentityPreimageRefV2",
     "CheckedSemanticGraphV2",
     "CheckedDiagnosticsV2",
 ];
@@ -1195,12 +1197,16 @@ fn tc_048_the_wire_types_are_on_the_path_the_compiler_sees() {
     assert_fixed_shape::<CheckedDependencySelection>();
     assert_fixed_shape::<CheckedNodeId>();
     assert_encode::<CheckedPackageIdentityPreimageV2>();
+    assert_encode::<CheckedPackageIdentityPreimageRefV2<'static>>();
     assert_encode::<CheckedSemanticGraphV2>();
     assert_encode::<CheckedDiagnosticsV2>();
     const {
         assert!(is_fixed_shape!(CheckedPackageLockV2));
         assert!(is_fixed_shape!(CheckedSourceMapEntry));
         assert!(!is_fixed_shape!(CheckedPackageIdentityPreimageV2));
+        assert!(!is_fixed_shape!(
+            CheckedPackageIdentityPreimageRefV2<'static>
+        ));
         assert!(!is_fixed_shape!(CheckedSemanticGraphV2));
         assert!(!is_fixed_shape!(CheckedDiagnosticsV2));
         assert!(!is_fixed_shape!(CheckedNodeProjectionV2));
