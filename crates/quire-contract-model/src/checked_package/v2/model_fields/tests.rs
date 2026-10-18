@@ -98,7 +98,6 @@ fn record_type(short: &str, supertypes: &[&str], fields: Vec<Value>) -> Value {
 
 /// Selected records use the effective field table, with redefinitions and
 /// ambiguous exposed names decided the same way as object fields.
-///
 #[trace("TC-056", "FR-040-AC-15")]
 #[test]
 fn tc_056_record_fields_keep_value_types_and_effective_names() {
@@ -182,7 +181,6 @@ fn tc_056_record_fields_keep_value_types_and_effective_names() {
 
 /// Two record supertypes exposing the same field name stay ambiguous, and
 /// building their tables uses the selected row's exact work budget.
-///
 #[trace("TC-056", "FR-040-AC-15", "FR-040-AC-16")]
 #[test]
 fn tc_056_record_field_ambiguity_and_table_limit() {
@@ -223,7 +221,6 @@ fn tc_056_record_field_ambiguity_and_table_limit() {
 
 /// The table of each type, read for every field name, says what the
 /// pre-change `resolve` answered (FR-038 items 4 to 6).
-///
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_tables_hold_the_fields_the_recorded_resolve_answers_expose() {
@@ -256,7 +253,6 @@ fn tc_227_tables_hold_the_fields_the_recorded_resolve_answers_expose() {
 /// A table holds the hidden entries too, and a cycle's members share one
 /// table: a redefiner of a type that is its own ancestor hides itself and its
 /// target, so neither is exposed.
-///
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_a_redefiner_in_a_cycle_hides_itself_and_its_target() {
@@ -286,7 +282,6 @@ fn tc_227_a_redefiner_in_a_cycle_hides_itself_and_its_target() {
 /// The charge of a chain of N types with one field each is
 /// `N (N + 1) / 2 + N - 1`: 13 for four types and 43 for eight; a table is
 /// built once per type from its supertype's, with no ancestor walk.
-///
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_a_chain_charges_the_sum_of_its_tables() {
@@ -327,7 +322,6 @@ fn tc_227_a_chain_charges_the_sum_of_its_tables() {
 
 /// A chain of 1000 and a chain of 1500 types are charged the sums the cost
 /// paragraph states, measured over the built tables.
-///
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_the_long_chains_charge_what_the_cost_paragraph_states() {
@@ -339,7 +333,6 @@ fn tc_227_the_long_chains_charge_what_the_cost_paragraph_states() {
 /// field charges 2, two types that extend each other with one field each
 /// charge 4 and share one table holding both fields, and a type outside the
 /// cycle that extends it is charged the entries it copies.
-///
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_a_cycle_is_charged_and_built_once_per_component() {
@@ -381,7 +374,6 @@ fn tc_227_a_cycle_is_charged_and_built_once_per_component() {
 
 /// An ambiguous name is retained in the table, not refused, and is charged
 /// as any other table.
-///
 #[trace("TC-227", "FR-038-AC-139", "FR-038-AC-144")]
 #[test]
 fn tc_227_an_ambiguous_table_is_retained_and_charged_like_any_other() {
@@ -395,7 +387,6 @@ fn tc_227_an_ambiguous_table_is_retained_and_charged_like_any_other() {
 /// A field resolution charges one unit per exposed or hidden entry of the
 /// table it selects from, without the ancestor walk; an operation keeps the
 /// walk.
-///
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_a_field_read_charges_the_table_and_an_operation_keeps_the_walk() {
@@ -443,7 +434,6 @@ fn tc_227_a_field_read_charges_the_table_and_an_operation_keeps_the_walk() {
 /// resolve through `ModelOwners::resolve_member`, which charges the table of
 /// the owner's type: four units on the deepest type of a chain of four, one on
 /// the root, and no ancestor walk.
-///
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_a_field_entry_resolves_through_the_table_and_charges_its_entries() {
@@ -643,7 +633,6 @@ fn ledger() -> Value {
 /// no other node body: replacing the body bounds of the `Int[0, 1000]` node a
 /// read would name, after admission, changes nothing, and the accessor
 /// depends on no body of any other node.
-///
 #[trace("TC-227", "FR-038-AC-140")]
 #[test]
 fn tc_227_the_accessor_does_not_read_a_node_body_it_was_not_passed() {
@@ -695,7 +684,6 @@ fn tc_227_the_accessor_does_not_read_a_node_body_it_was_not_passed() {
 /// fixed members decide the second, by the one rule of step 2, so an unread
 /// model node whose body is not `aggregate{[]}` returns the error and not the
 /// fields.
-///
 #[trace("TC-227", "FR-038-AC-139", "FR-038-AC-143")]
 #[test]
 fn tc_227_the_accessor_names_what_is_wrong_with_the_node() {
@@ -783,7 +771,6 @@ fn tc_227_the_accessor_names_what_is_wrong_with_the_node() {
 /// name for the whole call; a clone and a second call return equal results; a
 /// chain of 200 types and 100 redefinitions of one field returns its fields
 /// without a panic and without resolving anything.
-///
 #[trace("TC-227", "FR-038-AC-139", "FR-038-AC-143")]
 #[test]
 fn tc_227_the_accessor_is_pure_total_and_does_not_resolve() {
@@ -848,7 +835,6 @@ fn tc_227_the_accessor_is_pure_total_and_does_not_resolve() {
 /// The retained tables and declaration index take no part in the package's
 /// equality: two packages of one admitted content, one with its tables and one
 /// without, are equal, though only one returns fields.
-///
 #[trace("TC-227", "FR-038-AC-143")]
 #[test]
 fn tc_227_the_retained_tables_take_no_part_in_equality() {
@@ -874,7 +860,6 @@ fn tc_227_the_retained_tables_take_no_part_in_equality() {
 /// The component search follows a chain of any length on the heap: a chain of
 /// 20,000 object types is searched on a thread of 256 KiB, which a recursion
 /// over the chain does not survive.
-///
 #[trace("TC-227", "FR-038-AC-143")]
 #[test]
 fn tc_227_the_component_search_needs_no_call_stack() {

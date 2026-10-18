@@ -3085,7 +3085,6 @@ mod tests {
     /// `allocation_failed` that refusal mapped to at `record.identity`, are
     /// unreachable. An offset of exactly 2^53 is the largest the material
     /// holds, and it encodes as a number.
-    ///
     #[trace("TC-043", "FR-034-AC-6")]
     #[test]
     fn tc_043_a_source_offset_past_two_to_the_53_cannot_reach_the_record_material() {
@@ -3105,7 +3104,6 @@ mod tests {
     /// Only the canonical byte limit is `request_limit_exceeded`; the
     /// encoder's fixed object-buffer bound and an integer past 2^53 are not
     /// the request byte limit.
-    ///
     #[trace("TC-043", "FR-034-AC-6")]
     #[test]
     fn tc_043_only_the_canonical_byte_limit_is_the_request_limit_refusal() {
@@ -3146,7 +3144,6 @@ mod tests {
     /// the limits it is given: not `u64::MAX`, not a fixed cap. A step that
     /// encoded without that ceiling and compared the length afterwards would
     /// record a different value here.
-    ///
     #[trace("TC-043", "FR-032-AC-6", "FR-033-AC-6", "FR-034-AC-6")]
     #[test]
     fn tc_043_each_identity_step_hands_the_encoder_the_request_byte_limit() {

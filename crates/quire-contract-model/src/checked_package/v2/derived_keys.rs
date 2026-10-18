@@ -631,7 +631,6 @@ mod tests {
     /// admission stage derives from a node's own body is the key
     /// `MemberType::node_key` derives from the matching member type, and the
     /// node built from that preimage admits.
-    ///
     #[trace("TC-226", "FR-038-AC-130")]
     #[test]
     fn tc_226_the_stage_derives_the_key_member_type_node_key_derives() {
