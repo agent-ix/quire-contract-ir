@@ -349,6 +349,8 @@ mod tests {
     use ix_trace_rs::trace;
     use serde_json::json;
 
+    type QSpecFrame = (ProtocolForm, &'static str, &'static [(&'static str, Shape)]);
+
     fn example(shape: Shape) -> Value {
         match shape {
             Shape::Reference => {
@@ -468,6 +470,119 @@ mod tests {
             ),
             Err(ProtocolBodyDefect::MemberMismatch)
         );
+    }
+
+    /// QSpec TC-946, TC-947 and TC-948 supply these independent representative frames.
+    #[trace("TC-048")]
+    #[test]
+    fn protocol_outer_layout_accepts_independent_qspec_frames() {
+        let cases: &[QSpecFrame] = &[
+            (
+                ProtocolForm::ProtocolClause,
+                "protocol",
+                &[
+                    ("over", Shape::Reference),
+                    ("activation", Shape::Group),
+                    ("captures", Shape::Records),
+                    ("roles", Shape::References),
+                    ("relationships", Shape::References),
+                    ("channels", Shape::References),
+                    ("queues", Shape::References),
+                    ("requirements", Shape::References),
+                    ("compensations", Shape::References),
+                    ("terminal", Shape::OptionalReference),
+                    ("scheduling", Shape::OptionalText),
+                    ("run", Shape::Reference),
+                    ("finish", Shape::Reference),
+                ],
+            ),
+            (
+                ProtocolForm::Role,
+                "role",
+                &[("model", Shape::Reference), ("replication", Shape::Group)],
+            ),
+            (
+                ProtocolForm::Channel,
+                "channel",
+                &[
+                    ("from", Shape::Reference),
+                    ("to", Shape::Reference),
+                    ("carries", Shape::Reference),
+                    ("ordering", Shape::Group),
+                    ("delivery", Shape::Text),
+                ],
+            ),
+            (
+                ProtocolForm::Queue,
+                "queue",
+                &[
+                    ("channel", Shape::Reference),
+                    ("capacity", Shape::Group),
+                    ("overflow", Shape::Text),
+                    ("loss", Shape::OptionalText),
+                ],
+            ),
+            (
+                ProtocolForm::Obligation,
+                "finish",
+                &[("binder", Shape::Reference), ("constraint", Shape::Boolean)],
+            ),
+            (
+                ProtocolForm::Obligation,
+                "terminal",
+                &[("mode", Shape::Text), ("condition", Shape::OptionalBoolean)],
+            ),
+            (
+                ProtocolForm::Control,
+                "choice",
+                &[
+                    ("owner", Shape::Reference),
+                    ("visible", Shape::References),
+                    ("cases", Shape::Records),
+                ],
+            ),
+            (
+                ProtocolForm::Compensation,
+                "compensate",
+                &[
+                    ("forward", Shape::Reference),
+                    ("forward_binder", Shape::Reference),
+                    ("role", Shape::Reference),
+                    ("operation", Shape::Reference),
+                    ("clock", Shape::Text),
+                    ("registration_captures", Shape::Records),
+                    ("trigger", Shape::Group),
+                    ("activation_captures", Shape::Records),
+                    ("within", Shape::Group),
+                    ("attempts", Shape::Group),
+                    ("retry", Shape::Group),
+                    ("commit", Shape::OptionalReference),
+                    ("recovery", Shape::Group),
+                ],
+            ),
+        ];
+        for &(form, operator, bindings) in cases {
+            let mut value = body(form, operator);
+            value["arguments"] = Value::Array(
+                bindings
+                    .iter()
+                    .map(|&(name, shape)| {
+                        json!({"term": "binding", "name": name, "value": example(shape)})
+                    })
+                    .collect(),
+            );
+            assert_eq!(
+                validate_protocol_body(form, &value, &boolean(), Some(&selected())),
+                Ok(()),
+                "QSpec frame for {operator}"
+            );
+            value["arguments"][0]["name"] = json!("not_a_protocol_binding");
+            assert_eq!(
+                validate_protocol_body(form, &value, &boolean(), Some(&selected())),
+                Err(ProtocolBodyDefect::MalformedLayout),
+                "mutated QSpec frame for {operator}"
+            );
+        }
     }
 
     /// The role, channel and queue cases exercise QSpec TC-947 outer shapes.
