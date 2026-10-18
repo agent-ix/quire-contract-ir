@@ -1344,4 +1344,17 @@ mod tests {
         assert_eq!(malformed["diagnostics"][0]["code"], "invalid_wire_format");
         assert_eq!(malformed["diagnostics"][0]["path"], "document");
     }
+
+    #[trace("TC-018", "FR-019-AC-9")]
+    #[test]
+    fn tc_018_an_unknown_expression_node_member_refuses_at_the_decoder() {
+        let base = request(integer_literal("0"), integer_type());
+        assert_eq!(execute_expression(base.clone())["valid"], true);
+        let mut unknown = base;
+        unknown["expression"]["unexpected"] = json!(1);
+        let result = execute_expression(unknown);
+        assert_eq!(result["valid"], false);
+        assert_eq!(result["diagnostics"][0]["code"], "invalid_wire_format");
+        assert_eq!(result["diagnostics"][0]["path"], "expression");
+    }
 }
