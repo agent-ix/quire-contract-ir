@@ -8,11 +8,104 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     derive_structural_candidates, CheckedSemanticNodeV2, StructuralCandidateError,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 
 const MODEL_ROOT: &str = include_str!("../../crates/quire-contract-model/src/lib.rs");
 const BRIDGE_ROOT: &str = include_str!("../../src/lib.rs");
 const FR_019: &str = include_str!("../../spec/model/functional/FR-019-rust-library-interface.md");
+
+const FORBIDDEN_PUBLIC_NAME_PARTS: [&str; 17] = [
+    "rust",
+    "gumbo",
+    "aadl",
+    "hamr",
+    "solver",
+    "runtime",
+    "usize",
+    "isize",
+    "pathbuf",
+    "filesystem",
+    "file_path",
+    "os_path",
+    "pointerwidth",
+    "pointer_width",
+    "linux",
+    "windows",
+    "macos",
+];
+
+fn portable_name_violations<I, S>(names: I) -> Vec<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    names
+        .into_iter()
+        .flat_map(|name| {
+            let name = name.as_ref().to_ascii_lowercase();
+            FORBIDDEN_PUBLIC_NAME_PARTS
+                .into_iter()
+                .filter(|part| name.contains(part))
+                .map(|part| format!("{name}: {part}"))
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn collect_schema_names(value: &Value, names: &mut Vec<String>) {
+    match value {
+        Value::Object(object) => {
+            for field in ["properties", "$defs", "definitions"] {
+                if let Some(entries) = object.get(field).and_then(Value::as_object) {
+                    names.extend(entries.keys().cloned());
+                }
+            }
+            if let Some(title) = object.get("title").and_then(Value::as_str) {
+                names.push(title.to_owned());
+            }
+            if let Some(variants) = object.get("enum").and_then(Value::as_array) {
+                names.extend(variants.iter().filter_map(Value::as_str).map(str::to_owned));
+            }
+            for child in object.values() {
+                collect_schema_names(child, names);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_schema_names(item, names);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn public_schema_names() -> Vec<Vec<String>> {
+    let schemas = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("schemas");
+    let mut paths = fs::read_dir(schemas)
+        .expect("schema directory must be readable")
+        .map(|entry| entry.expect("schema entry must be readable").path())
+        .filter(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().ends_with(".schema.json"))
+        })
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths
+        .into_iter()
+        .map(|path| {
+            let mut names = vec![path
+                .file_name()
+                .expect("schema path has a filename")
+                .to_string_lossy()
+                .into_owned()];
+            let schema: Value =
+                serde_json::from_slice(&fs::read(path).expect("schema must be readable"))
+                    .expect("public schema must be JSON");
+            collect_schema_names(&schema, &mut names);
+            names
+        })
+        .collect()
+}
 
 fn quoted_names(text: &str) -> impl Iterator<Item = &str> {
     text.split('`').skip(1).step_by(2)
@@ -204,6 +297,31 @@ fn tc_058_model_root_exports_exactly_the_documented_public_items() {
     assert!(MODEL_ROOT
         .lines()
         .any(|line| line == "pub mod selected_population;"));
+}
+
+#[trace("TC-456", "NFR-002-AC-1")]
+#[test]
+fn tc_456_public_schema_and_model_names_are_portable() {
+    let forbidden_schema = json!({
+        "title": "RuntimeHandle",
+        "properties": { "pointer_width": { "enum": ["GumboNode"] } }
+    });
+    let mut forbidden_names = Vec::new();
+    collect_schema_names(&forbidden_schema, &mut forbidden_names);
+    assert_eq!(portable_name_violations(forbidden_names).len(), 3);
+    assert!(portable_name_violations(["jsonpointer"]).is_empty());
+
+    let model_names = exported_items()
+        .into_iter()
+        .flat_map(|(module, items)| std::iter::once(module).chain(items));
+    let schema_names = public_schema_names();
+    assert!(!schema_names.is_empty(), "public schemas must be present");
+    let violations =
+        portable_name_violations(model_names.chain(schema_names.into_iter().flatten()));
+    assert!(
+        violations.is_empty(),
+        "forbidden public names: {violations:?}"
+    );
 }
 
 #[trace("TC-058", "FR-019-AC-5")]
