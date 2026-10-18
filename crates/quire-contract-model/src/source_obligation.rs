@@ -696,17 +696,18 @@ pub fn source_inventory_from_ir_v2(
     source: SourceIdentity,
     read: CheckedPackageV2ReadResult,
 ) -> Result<SourceInventoryOutcome, SourceIrV2InventoryError> {
-    let (package, stop) = match read {
-        CheckedPackageV2ReadResult::Admitted(package) => (Some(package), None),
-        CheckedPackageV2ReadResult::Incomplete(cause) => (None, Some(cause)),
+    let input = match read {
+        CheckedPackageV2ReadResult::Admitted(package) => IrV2InventoryInput::Admitted(package),
+        CheckedPackageV2ReadResult::Incomplete(cause) => {
+            IrV2InventoryInput::Incomplete(Some(cause))
+        }
         CheckedPackageV2ReadResult::Refused(refusal) => {
             return Err(SourceIrV2InventoryError::Refused(Box::new(refusal)))
         }
     };
     SourceInventoryOutcome::from_enumerator(IrV2InventoryEnumerator {
         source,
-        package,
-        stop,
+        input,
         node_index: 0,
         next_occurrence: None,
         observed_count: 0,
@@ -714,10 +715,14 @@ pub fn source_inventory_from_ir_v2(
     .map_err(Into::into)
 }
 
+enum IrV2InventoryInput {
+    Admitted(Box<CheckedPackageV2>),
+    Incomplete(Option<CheckedPackageIncomplete>),
+}
+
 struct IrV2InventoryEnumerator {
     source: SourceIdentity,
-    package: Option<Box<CheckedPackageV2>>,
-    stop: Option<CheckedPackageIncomplete>,
+    input: IrV2InventoryInput,
     node_index: usize,
     next_occurrence: Option<usize>,
     observed_count: usize,
@@ -737,11 +742,14 @@ impl SourceInventoryEnumerator for IrV2InventoryEnumerator {
     }
 
     fn next_row(&mut self) -> Result<Option<SourceInventoryRow>, SourceInventoryIncompleteReason> {
-        if let Some(cause) = self.stop.take() {
-            return Err(SourceInventoryIncompleteReason::IrV2ReadLimit(cause));
-        }
-        let Some(package) = &self.package else {
-            return Ok(None);
+        let package = match &mut self.input {
+            IrV2InventoryInput::Admitted(package) => package,
+            IrV2InventoryInput::Incomplete(cause) => {
+                return match cause.take() {
+                    Some(cause) => Err(SourceInventoryIncompleteReason::IrV2ReadLimit(cause)),
+                    None => Ok(None),
+                };
+            }
         };
         loop {
             let Some(node) = package.graph().nodes.get(self.node_index) else {
