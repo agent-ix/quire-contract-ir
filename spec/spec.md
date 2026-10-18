@@ -115,6 +115,11 @@ defines the typed V2 envelope encoder implemented in the model crate; its
 focused IR controls are
 [TC-451](checked_package/matrix/TC-451-typed-v2-envelope-encoding.md).
 QSL-766 owns the separate producer adoption.
+[NFR-006](checked_package/non-functional/NFR-006-v2-producer-memory.md) bounds
+the integrated checked-package V2 producer's emission memory while requiring
+byte-for-byte and `package_id` preservation;
+[TC-455](checked_package/matrix/TC-455-v2-producer-memory-and-identity.md)
+defines its fresh-process measurement and identity controls.
 [FR-052](model/functional/FR-052-source-obligation-correspondence.md)
 owns the typed source-obligation correspondence input in the cycle-free model;
 [TC-452](model/matrix/TC-452-source-obligation-correspondence.md) records its
