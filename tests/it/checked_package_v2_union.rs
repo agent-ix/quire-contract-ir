@@ -375,7 +375,6 @@ fn expect(case: &str, package: &Value, code: Code, cause: Cause, path: &str) {
 // AC-99
 // ---------------------------------------------------------------------------
 
-/// Tracing: TC-048, FR-038-AC-99
 #[trace("TC-048", "FR-038-AC-99")]
 #[test]
 fn tc_048_the_union_nodes_and_the_case_over_them_admit() {
@@ -396,7 +395,6 @@ fn tc_048_the_union_nodes_and_the_case_over_them_admit() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-99
 #[trace("TC-048", "FR-038-AC-99")]
 #[test]
 fn tc_048_a_case_whose_arms_do_not_follow_the_union_refuses_at_the_case_node() {
@@ -465,7 +463,6 @@ fn tc_048_a_case_whose_arms_do_not_follow_the_union_refuses_at_the_case_node() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-99
 #[trace("TC-048", "FR-038-AC-99")]
 #[test]
 fn tc_048_a_union_type_refuses_a_repeated_member_and_a_payload_that_is_no_type() {
@@ -517,7 +514,6 @@ fn tc_048_a_union_type_refuses_a_repeated_member_and_a_payload_that_is_no_type()
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-99
 #[trace("TC-048", "FR-038-AC-99")]
 #[test]
 fn tc_048_a_union_value_must_construct_a_member_of_its_union() {
@@ -560,7 +556,6 @@ fn tc_048_a_union_value_must_construct_a_member_of_its_union() {
     admitted("Shape::Empty", &package);
 }
 
-/// Trace: TC-048, FR-038-AC-227
 #[trace("TC-048", "FR-038-AC-227")]
 #[test]
 fn tc_048_a_grouped_union_value_uses_graph_ordinals_and_refuses_a_stale_key() {
@@ -624,7 +619,6 @@ fn grouped_union_value_package() -> Value {
     })
 }
 
-/// Trace: TC-048, FR-038-AC-227
 #[trace("TC-048", "FR-038-AC-227")]
 #[test]
 fn tc_048_a_grouped_union_key_has_public_reader_stage_precedence() {
@@ -906,7 +900,6 @@ fn leaves_at(package: &Value, tail: &str) -> String {
     )
 }
 
-/// Tracing: TC-048, FR-038-AC-106
 #[trace("TC-048", "FR-038-AC-106")]
 #[test]
 fn tc_048_equality_over_values_of_one_union_admits_and_of_two_unions_refuses() {
@@ -935,7 +928,6 @@ fn tc_048_equality_over_values_of_one_union_admits_and_of_two_unions_refuses() {
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-106
 #[trace("TC-048", "FR-038-AC-106")]
 #[test]
 fn tc_048_the_leaves_of_a_union_are_member_and_position_paths_in_member_order() {
@@ -1030,7 +1022,6 @@ fn recursion_leaf(path: &[&str]) -> Value {
 /// recursion leaf; a missing recursion leaf, `recursion:1` and a recursion leaf at
 /// an `IntList` reentry are refused as for a record.
 ///
-/// Tracing: TC-048, FR-038-AC-106
 #[trace("TC-048", "FR-038-AC-106")]
 #[test]
 fn tc_048_a_cycle_through_a_union_is_a_recursion_leaf() {
@@ -1116,7 +1107,6 @@ fn option_chain_package(leaves: Vec<Value>) -> Value {
 /// "position:1", "recursion:1"]` admit; the recursion leaf missing (the text
 /// leaf alone) and one reading `recursion:0` are refused.
 ///
-/// Tracing: TC-048, FR-038-AC-106
 #[trace("TC-048", "FR-038-AC-106")]
 #[test]
 fn tc_048_a_union_cycle_under_an_option_enters_at_recursion_one() {
@@ -1149,7 +1139,6 @@ fn tc_048_a_union_cycle_under_an_option_enters_at_recursion_one() {
 /// union, a union value with two bindings, a binding whose value is no
 /// `aggregate`) is `invalid_semantic_graph` at the node's `body`.
 ///
-/// Tracing: TC-048, FR-038-AC-99
 #[trace("TC-048", "FR-038-AC-99")]
 #[test]
 fn tc_048_a_malformed_union_body_refuses_at_the_node_body() {
@@ -1219,7 +1208,6 @@ fn with_details(mut package: Value, term: Value) -> Value {
 /// refused `ill_typed`/`operator-ineligible` at the entry
 /// (`/diagnostics/entries/{e}/details/{d}`), with no node key as locus.
 ///
-/// Tracing: TC-048, FR-038-AC-100
 #[trace("TC-048", "FR-038-AC-100")]
 #[test]
 fn tc_048_a_details_reference_to_a_union_node_admits_and_to_a_case_node_refuses() {
@@ -1358,7 +1346,6 @@ fn lowers_as_data(case: &str, package: &Value, node: &str, tag: CheckedNodeTag) 
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-101
 #[trace("TC-048", "FR-038-AC-101")]
 #[test]
 fn tc_048_an_admitted_case_node_lowers_as_data() {
@@ -1388,7 +1375,6 @@ fn tc_048_an_admitted_case_node_lowers_as_data() {
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-101
 #[trace("TC-048", "FR-038-AC-101")]
 #[test]
 fn tc_048_an_admitted_formula_node_lowers_as_data() {

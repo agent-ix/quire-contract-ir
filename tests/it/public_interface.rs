@@ -183,7 +183,6 @@ fn exported_items() -> BTreeMap<String, BTreeSet<String>> {
     items
 }
 
-/// Trace: TC-058, FR-019-AC-5, FR-052-AC-1
 #[trace("TC-058", "FR-019-AC-5", "FR-052-AC-1")]
 #[test]
 fn tc_058_model_root_exports_exactly_the_documented_public_items() {
@@ -234,7 +233,6 @@ fn tc_058_root_crate_exposes_only_its_kani_module() {
 
 /// The external consumer can call the borrowed graph API and distinguish
 /// every refusal by its variant, without reading error messages.
-/// Trace: FR-048-AC-1
 #[trace("TC-058", "FR-048-AC-1")]
 #[test]
 fn tc_058_structural_candidate_api_is_typed_and_closed() {

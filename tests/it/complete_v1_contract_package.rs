@@ -179,7 +179,6 @@ fn independent_closure(
     reached
 }
 
-/// Trace: FR-035-AC-6, FR-035-AC-7, FR-035-AC-8
 #[trace("TC-047", "FR-035-AC-6", "FR-035-AC-7", "FR-035-AC-8")]
 #[test]
 fn reached_view_uses_all_three_edges_and_preserves_sources_and_identity() {
@@ -263,7 +262,6 @@ fn reached_view_uses_all_three_edges_and_preserves_sources_and_identity() {
     assert_eq!(package.identity(), &before.identity);
 }
 
-/// Trace: FR-035-AC-7, FR-035-AC-8
 #[trace("TC-047", "FR-035-AC-7", "FR-035-AC-8")]
 #[test]
 fn reached_view_exposes_empty_subsets_and_absent_keys() {
@@ -294,7 +292,6 @@ fn reached_view_exposes_empty_subsets_and_absent_keys() {
     ));
 }
 
-/// Trace: FR-035-AC-5
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
 fn one_call_emits_one_six_field_package_with_total_accounting_and_source_map() {
@@ -353,7 +350,6 @@ fn one_call_emits_one_six_field_package_with_total_accounting_and_source_map() {
     );
 }
 
-/// Trace: FR-035-AC-5
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
 fn identity_covers_exact_semantic_projection_and_excludes_valid_source_coordinates() {
@@ -401,7 +397,6 @@ fn identity_covers_exact_semantic_projection_and_excludes_valid_source_coordinat
     assert_eq!(first.package.package_id(), changed.package.package_id());
 }
 
-/// Trace: FR-035-AC-5
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
 fn reader_refuses_malformed_outer_shape_and_stale_own_identity() {
@@ -462,7 +457,6 @@ fn reader_refuses_malformed_outer_shape_and_stale_own_identity() {
     );
 }
 
-/// Trace: FR-035-AC-5
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
 fn reader_keeps_lowering_profile_reference_closed() {
@@ -485,7 +479,6 @@ fn reader_keeps_lowering_profile_reference_closed() {
     );
 }
 
-/// Trace: FR-035-AC-5
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
 fn reader_locates_malformed_nested_source_value() {
@@ -508,7 +501,6 @@ fn reader_locates_malformed_nested_source_value() {
     );
 }
 
-/// Trace: FR-035-AC-5
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
 fn reader_distinguishes_unknown_occurrence_role_from_wrong_value_kind() {
@@ -537,7 +529,6 @@ fn reader_distinguishes_unknown_occurrence_role_from_wrong_value_kind() {
     }
 }
 
-/// Trace: FR-035-AC-5
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
 fn reader_requires_total_source_correspondence_and_request_order() {
@@ -590,7 +581,6 @@ fn reader_requires_total_source_correspondence_and_request_order() {
     );
 }
 
-/// Trace: FR-035-AC-5
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
 fn refused_request_appears_only_if_reached_by_a_lowered_root() {
@@ -628,7 +618,6 @@ fn failed_wire(limit: &str, consumed: &str) -> Value {
     wire
 }
 
-/// Trace: FR-035-AC-5
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
 fn canonical_decimal_counters_keep_the_full_u64_range() {
@@ -665,7 +654,6 @@ fn canonical_decimal_counters_keep_the_full_u64_range() {
     );
 }
 
-/// Trace: FR-035-AC-5
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
 fn defensive_body_payloads_are_closed_and_omitted_pointers_stay_omitted() {
@@ -764,7 +752,6 @@ fn defensive_body_payloads_are_closed_and_omitted_pointers_stay_omitted() {
     );
 }
 
-/// Trace: FR-035-AC-5
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
 fn duplicate_member_and_noncanonical_bytes_refuse_before_identity() {
@@ -787,7 +774,6 @@ fn duplicate_member_and_noncanonical_bytes_refuse_before_identity() {
     assert_eq!(refusal.code, CheckedPackageRefusalCode::NoncanonicalWire);
 }
 
-/// Trace: FR-035-AC-5
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
 fn selected_dependencies_are_bound_by_library_identity_before_graph_checks() {
@@ -876,7 +862,6 @@ fn selected_dependencies_are_bound_by_library_identity_before_graph_checks() {
     assert_eq!(wrong_package.actual.as_ref(), Some(dependency.package_id()));
 }
 
-/// Trace: FR-035-AC-4
 #[trace("TC-047", "FR-035-AC-4")]
 #[test]
 fn reader_refuses_reference_type_targeting_an_existing_scalar_node() {

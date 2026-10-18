@@ -42,7 +42,6 @@ fn refused(input: &str) -> Std001CodeError {
     }
 }
 
-/// Tracing: TC-442, FR-044-AC-1
 #[trace("TC-442", "FR-044-AC-1")]
 #[test]
 fn tc_442_new_accepts_the_form_and_refuses_everything_else() {
@@ -72,7 +71,6 @@ fn tc_442_new_accepts_the_form_and_refuses_everything_else() {
     }
 }
 
-/// Tracing: TC-442, FR-044-AC-2
 #[trace("TC-442", "FR-044-AC-2")]
 #[test]
 fn tc_442_serializes_as_the_bare_string_and_deserializes_through_new() {
@@ -88,7 +86,6 @@ fn tc_442_serializes_as_the_bare_string_and_deserializes_through_new() {
     }
 }
 
-/// Tracing: TC-442, FR-044-AC-3
 #[trace("TC-442", "FR-044-AC-3")]
 #[test]
 fn tc_442_registered_codes_are_spelled_once_and_diagnostic_codes_convert() {
@@ -142,7 +139,6 @@ fn tc_442_registered_codes_are_spelled_once_and_diagnostic_codes_convert() {
     assert!(!unregistered.is_registered());
 }
 
-/// Tracing: TC-442, FR-044-AC-4
 #[trace("TC-442", "FR-044-AC-4")]
 #[test]
 fn tc_442_the_macro_builds_a_const_code_from_a_literal() {
@@ -150,7 +146,6 @@ fn tc_442_the_macro_builds_a_const_code_from_a_literal() {
     assert!(!MACRO_CODE.is_registered());
 }
 
-/// Tracing: TC-442, FR-044-AC-5
 #[trace("TC-442", "FR-044-AC-5")]
 #[test]
 fn tc_442_from_static_is_a_const_new() {

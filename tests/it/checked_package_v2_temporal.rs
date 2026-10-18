@@ -465,7 +465,6 @@ fn profile_supporting(tags: &[CheckedNodeTag]) -> CompleteLoweringProfileV2 {
 // AC-96
 // ---------------------------------------------------------------------------
 
-/// Tracing: TC-048, FR-038-AC-96
 #[trace("TC-048", "FR-038-AC-96")]
 #[test]
 fn tc_048_every_temporal_identity_admits_at_its_node_and_lowers_as_data() {
@@ -558,7 +557,6 @@ fn tc_048_every_temporal_identity_admits_at_its_node_and_lowers_as_data() {
 /// referenced from the fairness argument of a clause selecting the
 /// infinite-trace profile; a bounded profile admits no fairness argument.
 ///
-/// Tracing: TC-048, FR-038-AC-96
 #[trace("TC-048", "FR-038-AC-96")]
 #[test]
 fn tc_048_a_fairness_node_admits_under_the_infinite_trace_profile() {
@@ -629,7 +627,6 @@ const INTERVAL_OPERATORS: [(&str, usize); 8] = [
     ("triggered", 2),
 ];
 
-/// Tracing: TC-048, FR-038-AC-97
 #[trace("TC-048", "FR-038-AC-97")]
 #[test]
 fn tc_048_an_interval_member_admits_and_refuses_on_each_interval_operator() {
@@ -741,7 +738,6 @@ fn tc_048_an_interval_member_admits_and_refuses_on_each_interval_operator() {
 
 /// A member on `holds`, `not` and the clause, none of which catalogues one.
 ///
-/// Tracing: TC-048, FR-038-AC-97
 #[trace("TC-048", "FR-038-AC-97")]
 #[test]
 fn tc_048_a_member_on_holds_not_and_the_clause_is_a_member_mismatch() {
@@ -784,7 +780,6 @@ fn tc_048_a_member_on_holds_not_and_the_clause_is_a_member_mismatch() {
 // AC-98
 // ---------------------------------------------------------------------------
 
-/// Tracing: TC-048, FR-038-AC-98
 #[trace("TC-048", "FR-038-AC-98")]
 #[test]
 fn tc_048_the_fairness_member_admits_when_closed_and_refuses_otherwise() {
@@ -841,7 +836,6 @@ fn misplaced(case: &str, package: &Value, position: usize) {
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-100
 #[trace("TC-048", "FR-038-AC-100")]
 #[test]
 fn tc_048_a_placed_application_in_another_form_refuses_at_its_node() {
@@ -884,7 +878,6 @@ fn tc_048_a_placed_application_in_another_form_refuses_at_its_node() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-100
 #[trace("TC-048", "FR-038-AC-100")]
 #[test]
 fn tc_048_a_formula_fairness_or_clause_node_needs_its_own_application() {
@@ -913,7 +906,6 @@ fn tc_048_a_formula_fairness_or_clause_node_needs_its_own_application() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-100
 #[trace("TC-048", "FR-038-AC-100")]
 #[test]
 fn tc_048_a_reference_to_a_formula_or_fairness_node_refuses_where_it_may_not_stand() {
@@ -989,7 +981,6 @@ fn tc_048_a_reference_to_a_formula_or_fairness_node_refuses_where_it_may_not_sta
 /// A `case` application stands only at the body root of an `expression`/`case`
 /// node, and an `expression`/`case` node has no other body.
 ///
-/// Tracing: TC-048, FR-038-AC-100
 #[trace("TC-048", "FR-038-AC-100")]
 #[test]
 fn tc_048_a_case_application_stands_only_at_the_root_of_a_case_node() {
@@ -1161,7 +1152,6 @@ fn cause_word(cause: Cause) -> &'static str {
     }
 }
 
-/// Trace: FR-038-AC-170
 #[trace("TC-048", "FR-038-AC-170")]
 #[test]
 fn tc_048_relationship_refusal_words_are_typed_and_diagnostics_stay_closed() {
@@ -1200,7 +1190,6 @@ fn tc_048_relationship_refusal_words_are_typed_and_diagnostics_stay_closed() {
 /// (`/diagnostics/entries/{e}/details/{d}`); the entry is no node, so the refusal
 /// carries no node key.
 ///
-/// Tracing: TC-048, FR-038-AC-100
 #[trace("TC-048", "FR-038-AC-100")]
 #[test]
 fn tc_048_a_details_reference_to_a_formula_or_fairness_node_refuses_at_the_entry() {
@@ -1242,7 +1231,6 @@ fn tc_048_a_details_reference_to_a_formula_or_fairness_node_refuses_at_the_entry
 /// Forbidden diagnostic references precede the clause's unknown profile,
 /// retaining the detail pointer and no node locus.
 ///
-/// Trace: FR-038-AC-100, FR-038-AC-102
 #[trace("TC-048", "FR-038-AC-100", "FR-038-AC-102")]
 #[test]
 fn forbidden_diagnostic_reference_precedes_unknown_temporal_profile() {
@@ -1273,7 +1261,6 @@ fn forbidden_diagnostic_reference_precedes_unknown_temporal_profile() {
 /// A diagnostics entry whose `code` is `unsupported_construct` reads, as QSpec's
 /// schema allows: the diagnostics wire vocabulary keeps the word.
 ///
-/// Tracing: TC-048, FR-038-AC-101
 #[trace("TC-048", "FR-038-AC-101")]
 #[test]
 fn tc_048_a_diagnostics_entry_may_carry_the_unsupported_construct_code() {
@@ -1347,7 +1334,6 @@ fn unknown_identity_call() -> Value {
 const LOWEST: &str = "0000000000000000000000000000000000000000000000000000000000000001";
 const HIGHEST: &str = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 
-/// Tracing: TC-048, FR-038-AC-102
 #[trace("TC-048", "FR-038-AC-102")]
 #[test]
 fn tc_048_a_placement_defect_is_reported_ahead_of_every_other_defect() {
@@ -1437,7 +1423,6 @@ fn operation_defects(salt: u32) -> [(&'static str, Value); 2] {
 /// root of a `function` node, beside each operation defect whose digest is
 /// lower and higher than its own, in both orders.
 ///
-/// Tracing: TC-048, FR-038-AC-102
 #[trace("TC-048", "FR-038-AC-102")]
 #[test]
 fn tc_048_a_formula_application_in_a_function_node_precedes_operation_defects() {
@@ -1486,7 +1471,6 @@ fn tc_048_a_formula_application_in_a_function_node_precedes_operation_defects() 
 /// resolution before profile fit (the bounded profile also refuses the
 /// non-empty fairness argument and the `null` interval, both fit defects).
 ///
-/// Tracing: TC-048, FR-038-AC-102
 #[trace("TC-048", "FR-038-AC-102")]
 #[test]
 fn tc_048_within_one_clause_the_stages_run_in_order() {
@@ -1531,7 +1515,6 @@ fn tc_048_within_one_clause_the_stages_run_in_order() {
 /// a clause whose profile fit also fails refuses the fit defect first, in both
 /// operand orders of the two operators.
 ///
-/// Tracing: TC-048, FR-038-AC-102
 #[trace("TC-048", "FR-038-AC-102")]
 #[test]
 fn tc_048_profile_fit_precedes_bounds_whichever_operator_comes_first() {
@@ -1576,7 +1559,6 @@ fn tc_048_profile_fit_precedes_bounds_whichever_operator_comes_first() {
 /// A formula node no clause reaches is checked for `lower > upper` too, in the
 /// sweep after every clause (an IR reading, AC-97); `{0, 3}` there admits.
 ///
-/// Tracing: TC-048, FR-038-AC-97
 #[trace("TC-048", "FR-038-AC-97")]
 #[test]
 fn tc_048_an_unreached_formula_node_with_lower_above_upper_is_refused() {
@@ -1633,7 +1615,6 @@ fn second_clause(package: &mut Value, name: &str, member: Value, over_defect: bo
 /// reported ahead of the higher-digest clause's earlier-stage defect (`over`),
 /// in both digest orders; found by varying the second clause's name.
 ///
-/// Tracing: TC-048, FR-038-AC-102
 #[trace("TC-048", "FR-038-AC-102")]
 #[test]
 fn tc_048_a_lower_digest_clause_is_taken_through_every_stage_before_the_next() {
@@ -1693,7 +1674,6 @@ fn tc_048_a_lower_digest_clause_is_taken_through_every_stage_before_the_next() {
 /// step, whatever the profile: `{1.5, 0}` and a wrong-kind member refuse
 /// `operation-member-mismatch`, never `invalid-value`.
 ///
-/// Tracing: TC-048, FR-038-AC-102
 #[trace("TC-048", "FR-038-AC-102")]
 #[test]
 fn tc_048_the_temporal_step_skips_a_member_the_operation_step_refuses() {
@@ -1735,7 +1715,6 @@ fn tc_048_the_temporal_step_skips_a_member_the_operation_step_refuses() {
 /// and every temporal step, so also beside a placement defect at a lower-digest
 /// node and under a profile whose fit it would also fail.
 ///
-/// Tracing: TC-048, FR-038-AC-102
 #[trace("TC-048", "FR-038-AC-102")]
 #[test]
 fn tc_048_a_negative_bound_is_refused_before_any_temporal_step() {
@@ -1769,7 +1748,6 @@ fn tc_048_a_negative_bound_is_refused_before_any_temporal_step() {
 
 /// `lower > upper` is the bounds stage, after profile fit.
 ///
-/// Tracing: TC-048, FR-038-AC-102
 #[trace("TC-048", "FR-038-AC-102")]
 #[test]
 fn tc_048_lower_above_upper_is_refused_at_the_application_after_profile_fit() {
@@ -1802,7 +1780,6 @@ fn tc_048_lower_above_upper_is_refused_at_the_application_after_profile_fit() {
 // AC-103
 // ---------------------------------------------------------------------------
 
-/// Tracing: TC-048, FR-038-AC-103
 #[trace("TC-048", "FR-038-AC-103", "FR-038-AC-155")]
 #[test]
 fn tc_048_a_clause_over_must_be_a_declared_parameter() {
@@ -1840,7 +1817,6 @@ fn tc_048_a_clause_over_must_be_a_declared_parameter() {
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-103
 #[trace("TC-048", "FR-038-AC-103")]
 #[test]
 fn tc_048_a_fairness_member_resolves_on_its_declaring_model_node() {
@@ -1986,7 +1962,6 @@ fn tc_048_a_fairness_member_resolves_on_its_declaring_model_node() {
 /// cannot declare the operation named by a temporal fairness member. A value
 /// node cannot declare one either (QSpec FR-370-AC-11, TC-303 step 9).
 ///
-/// Trace: TC-048, FR-038-AC-103
 #[trace("TC-048", "FR-038-AC-103")]
 #[test]
 fn tc_048_wrong_declaring_nodes_cannot_name_a_fairness_operation() {
@@ -2069,7 +2044,6 @@ fn tc_048_wrong_declaring_nodes_cannot_name_a_fairness_operation() {
     );
 }
 
-/// Trace: TC-048, FR-038-AC-103
 #[trace("TC-048", "FR-038-AC-103")]
 #[test]
 fn fairness_resolves_the_most_derived_operation_redefinition() {
@@ -2122,7 +2096,6 @@ fn fairness_resolves_the_most_derived_operation_redefinition() {
 // AC-104
 // ---------------------------------------------------------------------------
 
-/// Tracing: TC-048, FR-038-AC-104
 #[trace("TC-048", "FR-038-AC-104")]
 #[test]
 fn tc_048_the_profile_fit_admits_each_interval_shape_per_profile() {
@@ -2196,7 +2169,6 @@ fn tc_048_the_profile_fit_admits_each_interval_shape_per_profile() {
 /// second clause whose tree shares no node with the first is fitted against its
 /// own profile law and tree, not the first's.
 ///
-/// Tracing: TC-048, FR-038-AC-104
 #[trace("TC-048", "FR-038-AC-104")]
 #[test]
 fn tc_048_the_profile_fit_reads_only_the_formula_nodes_reachable_from_the_clause() {
@@ -2220,7 +2192,6 @@ fn tc_048_the_profile_fit_reads_only_the_formula_nodes_reachable_from_the_clause
 // AC-105
 // ---------------------------------------------------------------------------
 
-/// Tracing: TC-048, FR-038-AC-105
 #[trace("TC-048", "FR-038-AC-105")]
 #[test]
 fn tc_048_the_temporal_operands_are_checked_at_the_operation_step() {
@@ -2305,7 +2276,6 @@ fn tc_048_the_temporal_operands_are_checked_at_the_operation_step() {
 // AC-108
 // ---------------------------------------------------------------------------
 
-/// Tracing: TC-048, FR-038-AC-108
 #[trace("TC-048", "FR-038-AC-108")]
 #[test]
 fn tc_048_each_of_the_five_fr_250_profiles_admits_as_the_clause_profile() {
@@ -2342,7 +2312,6 @@ fn clause_law(identity: &str, lock_row: Option<(&str, &str)>) -> (Value, usize) 
     (package, clause_at)
 }
 
-/// Tracing: TC-048, FR-038-AC-108
 #[trace("TC-048", "FR-038-AC-108")]
 #[test]
 fn tc_048_an_identity_outside_the_five_is_an_unknown_profile() {
@@ -2401,7 +2370,6 @@ fn tc_048_an_identity_outside_the_five_is_an_unknown_profile() {
 /// lock's own `edition` definition is the wrong role, and the same identity
 /// under another authority, in the edition row or in a profile row, is not.
 ///
-/// Tracing: TC-048, FR-038-AC-108
 #[trace("TC-048", "FR-038-AC-108")]
 #[test]
 fn tc_048_the_cause_matches_the_edition_row_and_the_authority_of_a_definition() {
@@ -2458,7 +2426,6 @@ fn tc_048_the_cause_matches_the_edition_row_and_the_authority_of_a_definition() 
 /// as bounded: a `null` interval under it refuses `unknown_profile`, ahead of
 /// the clause's own `over` defect.
 ///
-/// Tracing: TC-048, FR-038-AC-108
 #[trace("TC-048", "FR-038-AC-108")]
 #[test]
 fn tc_048_an_unknown_profile_is_checked_first_and_is_not_read_as_bounded() {
@@ -2484,7 +2451,6 @@ fn tc_048_an_unknown_profile_is_checked_first_and_is_not_read_as_bounded() {
 /// step, at the first law past the catalogued one (`operation-law-mismatch`,
 /// `laws/1`) or at the list (`operation-law-missing`).
 ///
-/// Tracing: TC-048, FR-038-AC-108
 #[trace("TC-048", "FR-038-AC-108")]
 #[test]
 fn tc_048_a_clause_without_exactly_one_profile_law_skips_the_profile_check() {
@@ -2545,7 +2511,6 @@ fn tc_048_a_clause_without_exactly_one_profile_law_skips_the_profile_check() {
 /// Ahead of any defect of a higher-digest clause: the lower-digest clause is
 /// reported, whether it holds the unknown profile or an `over` defect.
 ///
-/// Tracing: TC-048, FR-038-AC-108
 #[trace("TC-048", "FR-038-AC-108", "FR-038-AC-102")]
 #[test]
 fn tc_048_the_lower_digest_clause_is_read_first_whatever_its_defect() {
@@ -2667,7 +2632,6 @@ fn expect_graph(case: &str, package: &Value, path: &str) {
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-119
 #[trace("TC-048", "FR-038-AC-119")]
 #[test]
 fn tc_048_the_timed_form_admits_under_the_timed_profile_on_each_interval_operator() {
@@ -2701,7 +2665,6 @@ fn tc_048_the_timed_form_admits_under_the_timed_profile_on_each_interval_operato
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-120
 #[trace("TC-048", "FR-038-AC-120")]
 #[test]
 fn tc_048_a_timed_bound_outside_the_rational_pattern_is_invalid_value_at_the_bound() {
@@ -2784,7 +2747,6 @@ fn tc_048_a_timed_bound_outside_the_rational_pattern_is_invalid_value_at_the_bou
 /// A pattern failure in any node is refused ahead of a non-reduced bound in any
 /// node, whichever comes first in node order.
 ///
-/// Tracing: TC-048, FR-038-AC-120
 #[trace("TC-048", "FR-038-AC-120")]
 #[test]
 fn tc_048_a_pattern_failure_in_a_later_node_precedes_a_non_reduced_bound() {
@@ -2863,7 +2825,6 @@ fn incomplete_work_path(package: &Value, work: u64) -> (u64, Option<String>) {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-121
 #[trace("TC-048", "FR-038-AC-121")]
 #[test]
 fn tc_048_a_bound_not_in_lowest_terms_is_refused_at_the_bound_before_the_temporal_step() {
@@ -2980,7 +2941,6 @@ fn tc_048_a_bound_not_in_lowest_terms_is_refused_at_the_bound_before_the_tempora
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-121
 #[trace("TC-048", "FR-038-AC-121")]
 #[test]
 fn tc_048_the_timed_bounds_compare_exactly_and_open_ends_refuse_equal_bounds() {
@@ -3044,7 +3004,6 @@ fn tc_048_the_timed_bounds_compare_exactly_and_open_ends_refuse_equal_bounds() {
 /// limit the work goes past is `incomplete` naming `work` at the node's body,
 /// and not a refusal of the interval.
 ///
-/// Tracing: TC-048, FR-038-AC-121
 #[trace("TC-048", "FR-038-AC-121")]
 #[test]
 fn tc_048_the_timed_bound_checks_are_charged_to_the_work_limit() {
@@ -3116,7 +3075,6 @@ fn tc_048_the_timed_bound_checks_are_charged_to_the_work_limit() {
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-122
 #[trace("TC-048", "FR-038-AC-122")]
 #[test]
 fn tc_048_the_timed_form_fits_only_the_timed_profile() {
@@ -3137,7 +3095,6 @@ fn tc_048_the_timed_form_fits_only_the_timed_profile() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-122
 #[trace("TC-048", "FR-038-AC-122")]
 #[test]
 fn tc_048_a_timed_form_member_set_defect_is_a_member_mismatch_at_the_member() {
@@ -3201,7 +3158,6 @@ fn tc_048_a_timed_form_member_set_defect_is_a_member_mismatch_at_the_member() {
 /// A member-set defect is the operation step's, after the whole temporal step:
 /// a profile-fit defect in a higher-digest clause is reported first.
 ///
-/// Tracing: TC-048, FR-038-AC-122
 #[trace("TC-048", "FR-038-AC-122")]
 #[test]
 fn tc_048_a_member_set_defect_is_reported_after_a_profile_fit_defect_of_a_later_clause() {
@@ -3253,7 +3209,6 @@ fn tc_048_a_member_set_defect_is_reported_after_a_profile_fit_defect_of_a_later_
 /// and not at an identity check; the same package with a good bound refuses at
 /// the identity check.
 ///
-/// Tracing: TC-048, FR-038-AC-97, FR-038-AC-120
 #[trace("TC-048", "FR-038-AC-97", "FR-038-AC-120")]
 #[test]
 fn tc_048_a_bound_outside_the_pattern_is_refused_ahead_of_every_identity_check() {
@@ -3331,7 +3286,6 @@ fn tc_048_a_bound_outside_the_pattern_is_refused_ahead_of_every_identity_check()
 /// position order: of two non-reduced nodes, the refusal is at the one with the
 /// lower digest, whichever is first in the package.
 ///
-/// Tracing: TC-048, FR-038-AC-121
 #[trace("TC-048", "FR-038-AC-121")]
 #[test]
 fn tc_048_the_first_non_reduced_bound_is_the_lower_digest_nodes() {

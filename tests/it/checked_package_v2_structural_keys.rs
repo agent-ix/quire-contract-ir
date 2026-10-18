@@ -326,7 +326,6 @@ fn base() -> Base {
 /// Owner-free structural forms beyond the original ten use their QSL FR-092
 /// preimage too. A changed parameter body and a changed text type body must
 /// fail at their own retained keys after package identity is refreshed.
-/// Trace: FR-038-AC-131
 #[trace("FR-038-AC-131")]
 #[test]
 fn tc_226_owner_free_parameter_and_text_keys_cover_their_bodies() {
@@ -345,7 +344,6 @@ fn tc_226_owner_free_parameter_and_text_keys_cover_their_bodies() {
 
 /// Each included owner-free form is checked from its own QSL preimage, not
 /// only the ten closed shapes handled by the specialized path.
-/// Trace: FR-038-AC-131, FR-038-AC-225
 #[trace("FR-038-AC-131", "FR-038-AC-225")]
 #[test]
 fn tc_226_each_owner_free_form_rejects_a_body_mutation_at_its_key() {
@@ -423,7 +421,6 @@ fn tc_226_each_owner_free_form_rejects_a_body_mutation_at_its_key() {
 
 /// The forms with stricter body grammars also reach key re-derivation with
 /// valid mutations of their own body values.
-/// Trace: FR-038-AC-131
 #[trace("FR-038-AC-131")]
 #[test]
 fn tc_226_compound_unit_and_union_forms_cover_their_bodies() {
@@ -676,7 +673,6 @@ fn tamper_rows() -> Vec<(&'static str, Edit)> {
     ]
 }
 
-/// Tracing: TC-226
 /// ACs: FR-038-AC-123
 #[trace("TC-226", "FR-038-AC-123")]
 #[test]
@@ -758,7 +754,6 @@ fn tc_226_a_tampered_range_is_refused_at_its_node_wherever_it_is_reached_from() 
     }
 }
 
-/// Tracing: TC-226
 /// ACs: FR-038-AC-124
 #[trace("TC-226", "FR-038-AC-124")]
 #[test]
@@ -883,7 +878,6 @@ fn tc_226_a_body_off_the_closed_form_has_no_derivable_key() {
     }
 }
 
-/// Tracing: TC-226
 /// ACs: FR-038-AC-125
 #[trace("TC-226", "FR-038-AC-125")]
 #[test]
@@ -948,7 +942,6 @@ fn tc_226_a_node_is_its_own_type_and_the_key_covers_semantic_type_and_literal_ty
     }
 }
 
-/// Tracing: TC-226
 /// ACs: FR-038-AC-126
 #[trace("TC-226", "FR-038-AC-126")]
 #[test]
@@ -1114,7 +1107,6 @@ fn edited_application(
     (package, fresh)
 }
 
-/// Tracing: TC-226
 /// ACs: FR-038-AC-127
 #[trace("TC-226", "FR-038-AC-127")]
 #[test]
@@ -1207,7 +1199,6 @@ fn tc_226_the_derived_key_stage_runs_after_the_application_keys_and_before_the_o
     );
 }
 
-/// Tracing: TC-226
 /// ACs: FR-038-AC-128
 #[trace("TC-226", "FR-038-AC-128")]
 #[test]
@@ -1280,7 +1271,6 @@ fn tc_226_bounds_are_compared_exactly_at_the_i128_extremes() {
     }
 }
 
-/// Tracing: TC-226
 /// ACs: FR-038-AC-129
 #[trace("TC-226", "FR-038-AC-129")]
 #[test]
@@ -1317,7 +1307,6 @@ fn tc_226_a_re_pointed_model_selection_is_decided_by_the_evidence_the_caller_hol
     }
 }
 
-/// Tracing: TC-226
 /// ACs: FR-038-AC-134
 #[trace("TC-226", "FR-038-AC-134")]
 #[test]
@@ -1382,7 +1371,6 @@ fn tc_226_the_in_repo_fixtures_carry_derived_keys_and_closed_bodies() {
 
 /// The scalar keys the fixtures record as literals are the derived ones.
 ///
-/// Tracing: TC-226
 /// ACs: FR-038-AC-134
 #[trace("TC-226", "FR-038-AC-134")]
 #[test]
@@ -1504,7 +1492,6 @@ fn recursive() -> Recursive {
 /// The public pre-read helper agrees with the admitted reader over the complete
 /// source-owned recursive graph, including both labelled groups and every
 /// owner-free structural shape already present in the fixture.
-/// Trace: FR-048-AC-1, FR-048-AC-2, FR-048-AC-3
 #[trace("TC-048", "FR-048-AC-1", "FR-048-AC-2", "FR-048-AC-3")]
 #[test]
 fn tc_048_structural_candidates_match_admitted_recursive_graph() {
@@ -1553,7 +1540,6 @@ fn tc_048_structural_candidates_match_admitted_recursive_graph() {
 
 /// Exact work and byte ceilings are measured through the public helper, and
 /// each first unpaid charge carries its position and consumed count.
-/// Trace: FR-048-AC-5
 #[trace("TC-048", "FR-048-AC-5")]
 #[test]
 fn tc_048_structural_candidate_resource_boundaries() {
@@ -1590,7 +1576,6 @@ fn tc_048_structural_candidate_resource_boundaries() {
 
 /// A retained label selects the off-cycle application as well as the cyclic
 /// structural members; its local digest participates in the candidate label.
-/// Trace: FR-048-AC-3
 #[trace("TC-048", "FR-048-AC-3")]
 #[test]
 fn tc_048_mixed_group_candidate_includes_off_cycle_application() {
@@ -1687,7 +1672,6 @@ fn tc_048_mixed_group_candidate_includes_off_cycle_application() {
 /// A draft group uses selectors that are deliberately not digest-shaped.
 /// Its mixed local digests must map in-group references to ordinals before
 /// final IDs exist, and the assembled result must pass the actual reader.
-/// Trace: FR-048-AC-3
 #[trace("TC-048", "FR-048-AC-3")]
 #[test]
 fn tc_048_provisional_mixed_group_candidates_assemble_and_admit() {
@@ -1802,7 +1786,6 @@ fn tc_048_provisional_mixed_group_candidates_assemble_and_admit() {
 
 /// Malformed drafts fail before a candidate is returned. Each assertion uses
 /// the public error variant and graph position, rather than error prose.
-/// Trace: FR-048-AC-4
 #[trace("TC-048", "FR-048-AC-4")]
 #[test]
 fn tc_048_structural_candidate_refusals_are_typed() {
@@ -1984,7 +1967,6 @@ fn tc_048_structural_candidate_refusals_are_typed() {
 
 /// The structural preimage binds the actual carried owner, declaration, type,
 /// body and outside reference, with no inferred owner or provisional-key hash.
-/// Trace: FR-048-AC-2
 #[trace("TC-048", "FR-048-AC-2")]
 #[test]
 fn tc_048_structural_candidate_binds_each_carried_field() {
@@ -2034,7 +2016,6 @@ fn tc_048_structural_candidate_binds_each_carried_field() {
 
 /// Deep caller-owned JSON and the grouped reference rewrite use iterative
 /// traversal and cleanup on a deliberately small native thread stack.
-/// Trace: FR-048-AC-5
 #[trace("TC-048", "FR-048-AC-5")]
 #[test]
 fn tc_048_structural_candidate_deep_group_is_stack_bounded() {
@@ -2124,7 +2105,6 @@ fn rekey_group_under_label(package: &mut Value, label: &str) {
 /// The source-owned, declared `List` and `Tree` groups admit. A changed ungrouped
 /// node and a Tree member whose label is removed both fail key authentication.
 ///
-/// Tracing: TC-226
 #[trace("TC-226", "FR-038-AC-145", "FR-038-AC-150")]
 #[test]
 fn tc_226_grouped_members_and_ungrouped_nodes_authenticate_their_keys() {
@@ -2148,7 +2128,6 @@ fn tc_226_grouped_members_and_ungrouped_nodes_authenticate_their_keys() {
 /// The node-key pass precedes the label pass. A retained wrong label with
 /// freshly derived member keys reaches only the second pass; a separate stale
 /// higher-key node wins over that lower-key label defect.
-/// Trace: FR-038-AC-150, TC-226
 #[trace("FR-038-AC-150", "TC-226")]
 #[test]
 fn tc_226_group_label_is_checked_after_every_structural_key() {
@@ -2197,7 +2176,6 @@ fn tc_226_group_label_is_checked_after_every_structural_key() {
 /// Wire ordinals are part of each grouped member's key and of the label.
 /// A retained-key permutation fails; a complete rekey/relabel permutation
 /// remains a valid, independently ordered package.
-/// Trace: FR-038-AC-150, TC-226
 #[trace("FR-038-AC-150", "TC-226")]
 #[test]
 fn tc_226_tree_wire_permutation_requires_new_member_keys_and_label() {
@@ -2222,7 +2200,6 @@ fn tc_226_tree_wire_permutation_requires_new_member_keys_and_label() {
     admitted("fully rekeyed Tree permutation", &permuted);
 }
 
-/// Trace: FR-038-AC-149, TC-226
 #[trace("FR-038-AC-149", "TC-226")]
 #[test]
 fn tc_226_tree_whole_read_work_boundary() {
@@ -2260,7 +2237,6 @@ fn tc_226_tree_whole_read_work_boundary() {
 
 /// A retained group key authenticates each member's bounds and body reference.
 ///
-/// Tracing: TC-226
 #[trace("TC-226", "FR-038-AC-148")]
 #[test]
 fn tc_226_an_in_group_tamper_refuses_at_its_member_key() {
@@ -2308,7 +2284,6 @@ fn tc_226_an_in_group_tamper_refuses_at_its_member_key() {
 /// Retagging a range as collection bounds and forging a names cycle cannot
 /// reuse its old key; the first structural-key pass refuses it.
 ///
-/// Tracing: TC-226
 #[trace("TC-226", "FR-038-AC-148")]
 #[test]
 fn tc_226_a_retagged_range_on_a_forged_cycle_refuses_at_its_key() {
@@ -2335,7 +2310,6 @@ fn tc_226_a_retagged_range_on_a_forged_cycle_refuses_at_its_key() {
 /// A lone label cannot authenticate a range or collection whose body changed
 /// while its old key was retained.
 ///
-/// Trace: FR-038-AC-146, TC-226
 #[trace("FR-038-AC-146", "TC-226")]
 #[test]
 fn tc_226_a_lone_group_label_does_not_exempt_an_old_key() {
@@ -2363,7 +2337,6 @@ fn tc_226_a_lone_group_label_does_not_exempt_an_old_key() {
 /// Dependencies do not exempt a labelled node from key authentication, and a
 /// labelled range is checked alongside correctly keyed List and Tree groups.
 ///
-/// Tracing: TC-226
 #[trace("TC-226", "FR-038-AC-147")]
 #[test]
 fn tc_226_dependencies_and_group_labels_do_not_exempt_a_stale_node() {
@@ -2401,7 +2374,6 @@ fn tc_226_dependencies_and_group_labels_do_not_exempt_a_stale_node() {
 /// An off-cycle collection participates in Tree's wire-order preimages when
 /// it carries Tree's label. Its ordinary key is stale; a completely rekeyed
 /// and relabelled group remains admissible.
-/// Trace: FR-038-AC-147, TC-226
 #[trace("FR-038-AC-147", "TC-226")]
 #[test]
 fn tc_226_an_off_cycle_member_uses_the_tree_group_key_contract() {
@@ -2433,7 +2405,6 @@ fn tc_226_an_off_cycle_member_uses_the_tree_group_key_contract() {
 /// A collection and bounds node cannot reuse their ordinary keys after a
 /// forged group label and changed body. The first stale member is refused.
 ///
-/// Tracing: TC-226
 #[trace("TC-226", "FR-038-AC-148", "FR-038-AC-150")]
 #[test]
 fn tc_226_a_forged_names_cycle_through_collection_bounds_refuses() {
@@ -2459,7 +2430,6 @@ fn tc_226_a_forged_names_cycle_through_collection_bounds_refuses() {
     assert_stale("a labelled integer_range", &range, &base.wide);
 }
 
-/// Trace: FR-038-AC-183, FR-038-AC-185, TC-048, TC-226
 #[trace("FR-038-AC-183", "FR-038-AC-185", "TC-048", "TC-226")]
 #[test]
 fn tc_048_derived_expected_keys_rekey_unreferenced_nodes_in_both_branches() {
@@ -2519,7 +2489,6 @@ fn tc_048_derived_expected_keys_rekey_unreferenced_nodes_in_both_branches() {
     admitted("second bound with returned key", &rekeyed_second);
 }
 
-/// Trace: FR-038-AC-184, FR-038-AC-185, TC-048
 #[trace("FR-038-AC-184", "FR-038-AC-185", "TC-048")]
 #[test]
 fn tc_048_application_expected_key_survives_reader_and_dispatch() {
@@ -2575,7 +2544,6 @@ fn tc_048_application_expected_key_survives_reader_and_dispatch() {
     admitted("second application with returned key", &rekeyed_another);
 }
 
-/// Trace: FR-038-AC-183, FR-038-AC-185, TC-048
 #[trace("FR-038-AC-183", "FR-038-AC-185", "TC-048")]
 #[test]
 fn tc_048_nonderivable_stale_keys_retain_absence() {
@@ -2627,7 +2595,6 @@ fn tc_048_nonderivable_stale_keys_retain_absence() {
     assert_eq!(refusal.expected_node_id(), None);
 }
 
-/// Trace: FR-038-AC-183, FR-038-AC-185, TC-048
 #[trace("FR-038-AC-183", "FR-038-AC-185", "TC-048")]
 #[test]
 fn tc_048_each_self_typed_shape_needs_its_id_and_type_changed_together() {
@@ -2680,7 +2647,6 @@ fn assert_self_type_control(form: &str, package: &Value, key: &str) {
     assert_eq!(expected, &typed_node_id(&expected.digest), "{form}");
 }
 
-/// Trace: FR-038-AC-145, FR-038-AC-148
 #[trace("FR-038-AC-145", "FR-038-AC-148")]
 #[test]
 fn genuine_g1_admits_and_retained_old_key_forged_self_option_refuses() {

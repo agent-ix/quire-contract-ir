@@ -369,7 +369,6 @@ fn a_proved_run_with_zero_success_checks_settles_inconclusive_as_vacuous() {
 /// outcome (an FR-030-AC-5 clause, not claimed): its registered code and the
 /// requested kind and cause.
 ///
-/// Tracing: TC-443, FR-030-AC-6
 #[trace("TC-443", "FR-030-AC-6")]
 #[test]
 fn tc_443_the_outcome_and_its_error_carry_a_typed_std001_code() {

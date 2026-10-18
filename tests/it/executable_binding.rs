@@ -39,7 +39,6 @@ fn decode(value: &Value) -> Result<BoundPackage, Vec<quire_contract_model::Diagn
     BoundPackage::from_json_bytes(&serde_json::to_vec(value).unwrap())
 }
 
-/// Tracing: TC-035, FR-023-AC-1, FR-023-AC-5
 #[trace("TC-035", "FR-023-AC-1", "FR-023-AC-5")]
 #[test]
 fn tc_035_public_consumer_preserves_complete_population() {
@@ -85,7 +84,6 @@ fn tc_035_public_consumer_preserves_complete_population() {
     }
 }
 
-/// Tracing: TC-035, FR-023-AC-2
 #[trace("TC-035", "FR-023-AC-2")]
 #[test]
 fn tc_035_refuses_invalid_binding_population_and_context() {
@@ -135,7 +133,6 @@ fn tc_035_refuses_invalid_binding_population_and_context() {
     }
 }
 
-/// Tracing: TC-035, FR-023-AC-6
 #[trace("TC-035", "FR-023-AC-6")]
 #[test]
 fn tc_035_projection_revisions_and_offsets_obey_the_schema_boundary() {
@@ -211,7 +208,6 @@ fn tc_035_projection_revisions_and_offsets_obey_the_schema_boundary() {
     }
 }
 
-/// Tracing: TC-035, FR-023-AC-3
 #[trace("TC-035", "FR-023-AC-3")]
 #[test]
 fn tc_035_identity_is_order_independent_and_semantically_sensitive() {
@@ -224,7 +220,6 @@ fn tc_035_identity_is_order_independent_and_semantically_sensitive() {
     assert_ne!(digest, decode(&reordered).unwrap().digest());
 }
 
-/// Tracing: TC-035, FR-023-AC-4, FR-023-AC-5
 #[trace("TC-035", "FR-023-AC-4", "FR-023-AC-5")]
 #[test]
 fn tc_035_strict_wire_boundary() {
@@ -321,7 +316,6 @@ fn duplicate_member_json(value: &Value, path: &[&str], member: &str) -> String {
     }
 }
 
-/// Tracing: TC-035, FR-023-AC-4, FR-023-AC-5
 #[trace("TC-035", "FR-023-AC-4", "FR-023-AC-5")]
 #[test]
 fn tc_035_recursive_duplicate_members_cannot_be_erased_by_value_decoding() {
@@ -410,7 +404,6 @@ fn declarations(value: &mut Value, count: usize, option_layers: usize) {
     }
 }
 
-/// Tracing: TC-035, FR-023-AC-2, FR-023-AC-3
 #[trace("TC-035", "FR-023-AC-2", "FR-023-AC-3")]
 #[test]
 fn tc_035_dependency_agreement_has_a_real_positive_and_independent_negatives() {
@@ -454,7 +447,6 @@ fn tc_035_dependency_agreement_has_a_real_positive_and_independent_negatives() {
     }
 }
 
-/// Tracing: TC-035, FR-023-AC-1, FR-023-AC-3
 #[trace("TC-035", "FR-023-AC-1", "FR-023-AC-3")]
 #[test]
 fn tc_035_declaration_semantics_change_identity_without_changing_expression() {
@@ -475,7 +467,6 @@ fn tc_035_declaration_semantics_change_identity_without_changing_expression() {
     assert_eq!(before.package(), after.package());
 }
 
-/// Tracing: TC-035, FR-023-AC-3
 #[trace("TC-035", "FR-023-AC-3")]
 #[test]
 fn tc_035_bound_digest_matches_an_independently_written_canonical_envelope() {
@@ -538,7 +529,6 @@ fn tc_035_bound_digest_matches_an_independently_written_canonical_envelope() {
     );
 }
 
-/// Tracing: TC-035, FR-023-AC-1, FR-023-AC-2
 #[trace("TC-035", "FR-023-AC-1", "FR-023-AC-2")]
 #[test]
 fn tc_035_informational_and_empty_packages_do_not_invent_executable_clauses() {
@@ -565,7 +555,6 @@ fn tc_035_informational_and_empty_packages_do_not_invent_executable_clauses() {
         .any(|error| error.code == DiagnosticCode::OrphanedClauseReference));
 }
 
-/// Tracing: TC-035, FR-023-AC-4
 #[trace("TC-035", "FR-023-AC-4")]
 #[test]
 fn tc_035_semantic_budget_is_aggregate_and_individual_nodes_are_bounded() {
@@ -598,7 +587,6 @@ fn tc_035_semantic_budget_is_aggregate_and_individual_nodes_are_bounded() {
         .any(|error| error.code == DiagnosticCode::SemanticInputTooLarge));
 }
 
-/// Tracing: TC-035, FR-023-AC-4
 #[trace("TC-035", "FR-023-AC-4")]
 #[test]
 fn tc_035_expression_node_limit_is_not_replaced_by_the_larger_semantic_budget() {
@@ -637,7 +625,6 @@ fn tc_035_expression_node_limit_is_not_replaced_by_the_larger_semantic_budget() 
     }
 }
 
-/// Tracing: TC-035, FR-023-AC-5
 #[trace("TC-035", "FR-023-AC-5")]
 #[test]
 fn tc_035_normative_schema_is_checked_independently_of_binder() {
@@ -691,7 +678,6 @@ fn tc_035_normative_schema_is_checked_independently_of_binder() {
     }
 }
 
-/// Tracing: TC-035, FR-023-AC-4
 #[trace("TC-035", "FR-023-AC-4")]
 #[test]
 fn tc_035_depth_limits_do_not_abort_the_process() {
