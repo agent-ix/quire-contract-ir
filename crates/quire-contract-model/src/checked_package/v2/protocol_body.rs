@@ -363,7 +363,6 @@ mod tests {
             Shape::Boolean => {
                 json!({"term": "literal", "value_kind": "boolean", "value": true, "type": Value::Null})
             }
-            Shape::Leaf => example(Shape::Reference),
             Shape::References
             | Shape::Texts
             | Shape::OptionalReference
