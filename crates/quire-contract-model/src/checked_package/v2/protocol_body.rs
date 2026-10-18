@@ -403,8 +403,8 @@ mod tests {
         json!({"domain": "quire.checked-semantic-node/v1", "digest": "b".repeat(64)})
     }
 
-    /// The twenty names and their seven forms are the QSpec FR-464 catalog.
-    #[trace("TC-946")]
+    /// QSpec TC-946 covers the twenty names and seven forms in FR-464.
+    #[trace("TC-048")]
     #[test]
     fn protocol_outer_catalog_recognizes_each_operator_only_for_its_form() {
         let cases = [
@@ -471,7 +471,7 @@ mod tests {
     }
 
     /// The role, channel and queue cases exercise QSpec TC-947 outer shapes.
-    #[trace("TC-947")]
+    #[trace("TC-048")]
     #[test]
     fn protocol_declaration_layout_refuses_missing_swapped_and_wrong_shaped_bindings() {
         let role = body(ProtocolForm::Role, "role");
@@ -527,8 +527,8 @@ mod tests {
         );
     }
 
-    /// TC-948 supplies the fixed control and compensation argument frames.
-    #[trace("TC-948")]
+    /// QSpec TC-948 supplies the fixed control and compensation argument frames.
+    #[trace("TC-048")]
     #[test]
     fn control_and_compensation_layouts_keep_their_order_and_term_families() {
         let mut compensate = body(ProtocolForm::Compensation, "compensate");
@@ -582,7 +582,8 @@ mod tests {
         );
     }
 
-    #[trace("TC-946")]
+    /// QSpec TC-946 also requires the selected profile law to be exact.
+    #[trace("TC-048")]
     #[test]
     fn protocol_body_distinguishes_profile_identity_and_law_defects() {
         let mut value = body(ProtocolForm::Control, "check");
@@ -616,7 +617,8 @@ mod tests {
         );
     }
 
-    #[trace("TC-946")]
+    /// QSpec TC-946 requires the shared application class and result type.
+    #[trace("TC-048")]
     #[test]
     fn protocol_application_requires_its_operator_class_and_result_type() {
         let mut wrong_class = body(ProtocolForm::Control, "send");
