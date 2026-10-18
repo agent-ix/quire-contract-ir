@@ -224,6 +224,17 @@ owner-issued `Incomplete`; it shall not be collapsed into `EarlyStop`,
 parse/request/module causes remain provisional owner reports, not proof of
 lossless projection for a new owner error type.
 
+Each owner adapter shall consume that owner's selected native object or
+owner-issued terminal report, rather than a caller-authored inventory row
+vector, count, or completion flag. IR V2's adapter belongs in
+`quire-contract-model`, which already owns the admitted V2 graph. The Quire,
+QSL, and `quire-code-rs` adapters belong with their respective owners; their
+typed outcomes cross the neutral model boundary without adding those owners
+as dependencies of `quire-contract-model`. FR-052-AC-16 tests Quire's owner
+portion, and FR-052-AC-25 through AC-27 test the other three portions
+separately. Passing one owner portion does not discharge the four-owner
+requirements in FR-052-AC-7 or AC-9 through AC-11.
+
 The model shall preserve the owner-issued terminal state, validate the owner,
 scope, source and observed row count against its retained rows, and reject a
 mismatch. The model cannot independently attest that an external owner
@@ -472,6 +483,9 @@ candidate denominator.
 | FR-052-AC-22 | Given synthetic `Complete` outcomes, two assertion IDs stating one relation with equal provenance yield exactly one accepted row, and two assertion IDs stating one relation with differing provenance are both rejected with `ConflictingProvenance` and yield no accepted row. | Test |
 | FR-052-AC-23 | Given synthetic `Complete` outcomes, an assertion whose occurrence lies under a `ConflictingIdentity` node, an assertion whose occurrence has no `SemanticNode` row, and an assertion whose production function has no `ProductionModule` row are rejected with `DanglingOccurrence`, `DanglingOccurrence` and `DanglingProductionSymbol` respectively; each orphan or conflicting row stays in the census. | Test |
 | FR-052-AC-24 | Conflicting inventory facts (two `SemanticNode` rows with one `CheckedNodeId` node key and differing `semantic_type: CheckedNodeId` facts) receive their named deterministic disposition, `ConflictingIdentity`; each conflicting entry remains inspectable, and no occurrence under a conflicting node enters an accepted relation. | Test |
+| FR-052-AC-25 | Given an owner-issued IR V2 reader result for a selected artifact, the model-owned adapter enumerates every node in an admitted package as its `node_id` plus native `semantic_type: CheckedNodeId` fact and every source occurrence under its node key, and issues `Complete` only after the graph reaches its normal end. Its selected source, IR V2 owner and scope, retained rows and observed count equal an independent traversal of that graph, including a valid graph with zero occurrences; deleting one emitted row fails that comparison even with an adjusted count. A reader `Incomplete` instead yields an incomplete outcome preserving the original `CheckedPackageIncomplete` limit kind, limit, consumed count and optional path; a reader refusal never yields `Complete`. No adapter completion path accepts a caller-authored row vector, count or flag in place of the selected reader result. | Test |
+| FR-052-AC-26 | Given a selected QSL checked request, the QSL-owned adapter enumerates every `CheckedGraph::requirements()` key and every native pending obligation, preserving each requirement's wire node bytes, occurrence role and ordinal and each obligation's declaration, unit, expression, byte span, kind and predicate target. Its `Complete` outcome matches an independent full-output traversal only after normal exhaustion, including a valid empty scope; an omitted row fails comparison even with an adjusted count. Native type-work exhaustion instead issues `Incomplete` with dimension, limit, prior, requested charge and site, and `TypeDisposition::Unfinished` issues a distinct `Incomplete` with the native declaration handle. No completion path accepts caller-authored rows, count or flag, or fabricates cancellation unsupported by the selected owner path. | Test |
+| FR-052-AC-27 | Given a `quire-code-rs` selected production module, the owner adapter retains that module and every function fact from its complete native parse, including a parsed module with zero functions, and issues `Complete` only after the selected module's normal terminal state. Its source, owner, scope, rows and count equal independent full output; deleting one emitted row fails comparison even with an adjusted count. A missing selected module or failed parse instead issues `Incomplete` with the native module or parse cause and retained partial rows; no completion path accepts caller-authored rows, count or flag or fabricates cancellation unsupported by the selected owner path. | Test |
 
 FR-052-AC-8 is retired and its ID is not reused (ADR-0056).
 FR-052-AC-17 succeeds it. FR-052-AC-4 and AC-12 through AC-15, and AC-17
@@ -496,8 +510,10 @@ traced synthetic conflict test. Owner-native completeness remains Planned.
 
 AC-7, AC-9, AC-10 and AC-11 name owner scopes, owner-native enumerators or
 owner adapter tests, and they remain Planned/UNRUN pending owner-native
-adapters. Quire's selected-scope producer awaits PLAT-1165; the IR V2
-adapter remains planned under IR-825. AC-11's first sentence is exercised at the
+adapters. AC-25 through AC-27 are independently testable owner portions and
+remain Planned until their respective adapters and traced tests land. Quire's
+selected-scope producer awaits PLAT-1165; the IR V2 adapter remains planned
+under IR-825 after the IR-820 type correction. AC-11's first sentence is exercised at the
 neutral boundary by the AC-13 tests, but its second sentence needs owner
 adapter tests, so AC-11 stays Planned as a whole. AC-16 remains Planned/UNRUN
 pending PLAT-1165. Synthetic completion does not establish the full
