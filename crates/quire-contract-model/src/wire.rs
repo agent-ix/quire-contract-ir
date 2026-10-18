@@ -258,7 +258,7 @@ struct WireRecordLiteralField {
 }
 
 #[derive(Deserialize)]
-#[serde(tag = "node", rename_all = "snake_case")]
+#[serde(tag = "node", rename_all = "snake_case", deny_unknown_fields)]
 enum WireExpressionKind {
     BooleanLiteral {
         value: bool,

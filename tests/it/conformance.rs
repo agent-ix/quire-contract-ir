@@ -1325,11 +1325,9 @@ fn tc_018_the_recorded_canonical_files_spell_the_eight_members_as_strings() {
     );
 }
 
-/// A successful expression input that arrives as `document_json` is checked
-/// against the fixture schema like a plain one is on load, as a successful
-/// package document is: the decoder ignores an unknown member of an
-/// expression node, the schema does not.
-#[trace("TC-018", "FR-020-AC-15")]
+/// An expression document with an unknown node member is refused by both the
+/// decoder and the published fixture schema.
+#[trace("TC-018", "FR-019-AC-9", "FR-020-AC-15")]
 #[test]
 fn tc_018_a_successful_expression_document_is_checked_against_the_schema() {
     let scratch = Scratch::corpus("expression-document");
@@ -1374,6 +1372,16 @@ fn tc_018_a_successful_expression_document_is_checked_against_the_schema() {
 
     let mut extra = request;
     extra["expression"]["extra"] = json!(1);
+    let mut schema: Value = serde_json::from_str(include_str!(
+        "../../schemas/contract-conformance-fixture-v1.schema.json"
+    ))
+    .expect("published fixture schema is JSON");
+    schema["$ref"] = json!("#/definitions/expressionInput");
+    let validator = jsonschema::JSONSchema::compile(&schema).expect("expression schema compiles");
+    assert!(
+        !validator.is_valid(&extra),
+        "schema must reject the extra member"
+    );
     write_json(
         &scratch.0.join("inputs/expression-document-extra.json"),
         &json!({"document_json": extra.to_string()}),
@@ -1382,7 +1390,30 @@ fn tc_018_a_successful_expression_document_is_checked_against_the_schema() {
         &scratch
             .0
             .join("expectations/expression-document-extra.json"),
-        &expectation,
+        &json!({
+            "valid": false,
+            "diagnostics": [{
+                "code": "invalid_wire_format",
+                "severity": "error",
+                "path": "expression"
+            }],
+            "canonical": [],
+            "dependencies": []
+        }),
     );
-    assert_eq!(error_code(&scratch.run()), "invalid_corpus");
+    let output = scratch.run();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let refused = rows(&output)
+        .into_iter()
+        .find(|row| row["fixture_id"] == "expression-document-extra")
+        .expect("the adverse expression fixture ran");
+    assert_eq!(refused["status"], "match");
+    assert_eq!(
+        refused["actual"]["diagnostics"][0]["code"],
+        "invalid_wire_format"
+    );
 }
