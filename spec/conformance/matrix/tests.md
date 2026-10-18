@@ -16,5 +16,5 @@ type: TestMatrix
 
 | Test ID | Title | Type | Priority | Traces To | Status |
 |---|---|---|---|---|---|
-| TC-018 | Schema, corpus, diagnostics, dependencies, and interfaces conform | Integration | P0 | FR-018..FR-020 | ✅ implemented |
+| TC-018 | Schema, corpus, diagnostics, dependencies, and interfaces conform | Integration | P0 | FR-018..FR-020 | 🚧 corpus and existing interface checks implemented; FR-019-AC-8 through AC-13 are planned independent boundary and signature checks |
 
