@@ -23,7 +23,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Lint
-        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+        run: make lint
 
       - name: Test
         run: make test
