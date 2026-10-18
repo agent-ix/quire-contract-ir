@@ -11,7 +11,7 @@ use quire_contract_model::source_obligation::{
     SourceObligationInput, SourceObligationRow, SourceSemanticOccurrenceId,
 };
 use quire_contract_model::{
-    CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, CheckedSemanticId, SourceDocumentId,
+    CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, SourceDocumentId,
     SourceIdentity, SourceRevision,
 };
 
@@ -99,9 +99,8 @@ fn default_feature_consumer_borrows_public_census_and_rows() {
         vec![
             row(SourceInventoryIdentity::SemanticNode {
                 identity: node,
-                semantic: CheckedSemanticId {
-                    domain: "semantic/v1".into(),
-                    algorithm: "sha256".into(),
+                semantic_type: CheckedNodeId {
+                    domain: "quire.checked-semantic-node/v1".into(),
                     digest: "b".repeat(64).into(),
                 },
             }),

@@ -506,10 +506,9 @@ fn census_outcome(
         .expect("synthetic outcome")
 }
 
-fn semantic(id: char) -> quire_contract_model::CheckedSemanticId {
-    quire_contract_model::CheckedSemanticId {
-        domain: "semantic/v1".into(),
-        algorithm: "sha256".into(),
+fn semantic_type(id: char) -> CheckedNodeId {
+    CheckedNodeId {
+        domain: "quire.checked-semantic-node/v1".into(),
         digest: id.to_string().repeat(64).into(),
     }
 }
@@ -547,7 +546,7 @@ fn census_input(assertions: Vec<SourceCorrespondenceAssertion>) -> SourceObligat
                     selected.clone(),
                     SourceInventoryIdentity::SemanticNode {
                         identity: occ.node().clone(),
-                        semantic: semantic('a'),
+                        semantic_type: semantic_type('a'),
                     },
                 ),
                 SourceInventoryRow::new(
@@ -690,7 +689,7 @@ fn synthetic_census_has_hand_written_rows_and_dispositions() {
             (
                 SourceInventoryIdentity::SemanticNode {
                     identity: occurrence().node().clone(),
-                    semantic: semantic('a')
+                    semantic_type: semantic_type('a')
                 },
                 Mapped
             ),
@@ -1055,7 +1054,7 @@ fn synthetic_many_to_many_and_unmapped_inventory_survive_permutation_and_row_rem
             SourceInventoryIdentity::Criterion(criterion("AC-2")),
             SourceInventoryIdentity::SemanticNode {
                 identity: occurrence().node().clone(),
-                semantic: semantic('a')
+                semantic_type: semantic_type('a')
             },
             SourceInventoryIdentity::SemanticOccurrence(occurrence_at(0)),
             SourceInventoryIdentity::SemanticOccurrence(occurrence_at(1)),
@@ -1589,14 +1588,14 @@ fn orphan_or_conflicting_endpoints_do_not_resolve() {
             source(),
             SourceInventoryIdentity::SemanticNode {
                 identity: occurrence().node().clone(),
-                semantic: semantic('a'),
+                semantic_type: semantic_type('a'),
             },
         ),
         SourceInventoryRow::new(
             source(),
             SourceInventoryIdentity::SemanticNode {
                 identity: occurrence().node().clone(),
-                semantic: semantic('b'),
+                semantic_type: semantic_type('b'),
             },
         ),
         SourceInventoryRow::new(
@@ -1669,6 +1668,78 @@ fn orphan_or_conflicting_endpoints_do_not_resolve() {
         r.row().identity(),
         SourceInventoryIdentity::ProductionFunction(_)
     )));
+}
+
+#[trace("TC-452", "FR-052-AC-24")]
+#[test]
+fn conflicting_semantic_type_facts_remain_visible_and_block_correspondence() {
+    let base = census_input(vec![]);
+    let node = occurrence().node().clone();
+    let semantic_node = |type_key| {
+        SourceInventoryRow::new(
+            source(),
+            SourceInventoryIdentity::SemanticNode {
+                identity: node.clone(),
+                semantic_type: type_key,
+            },
+        )
+    };
+    let first = semantic_node(semantic_type('a'));
+    let second = semantic_node(semantic_type('b'));
+    let rows = vec![
+        first.clone(),
+        second,
+        first,
+        SourceInventoryRow::new(
+            source(),
+            SourceInventoryIdentity::SemanticOccurrence(occurrence()),
+        ),
+    ];
+    let build = |rows| {
+        build_source_obligation_census(with_positions(
+            Some(binding(source())),
+            base.quire().cloned(),
+            Some(census_outcome(SourceInventoryOwner::IrV2, rows)),
+            base.qsl().cloned(),
+            base.quire_code_rs().cloned(),
+            vec![census_assertion("conflicting-node", "AC-1", None)],
+        ))
+        .expect("synthetic census")
+    };
+    let census = build(rows.clone());
+    assert_eq!(census, build(rows.into_iter().rev().collect()));
+    let facts = census
+        .inventory_rows()
+        .iter()
+        .filter_map(|row| match row.row().identity() {
+            SourceInventoryIdentity::SemanticNode {
+                identity,
+                semantic_type,
+            } => Some((identity.clone(), semantic_type.clone(), row.disposition())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        facts,
+        vec![
+            (
+                node.clone(),
+                semantic_type('a'),
+                SourceInventoryDisposition::ConflictingIdentity,
+            ),
+            (
+                node,
+                semantic_type('b'),
+                SourceInventoryDisposition::ConflictingIdentity,
+            ),
+        ]
+    );
+    assert_eq!(census.rejected_assertions().len(), 1);
+    assert_eq!(
+        census.rejected_assertions()[0].reason(),
+        SourceCorrespondenceRejectionReason::DanglingOccurrence
+    );
+    assert!(census.correspondence_rows().is_empty());
 }
 
 #[trace("TC-452", "FR-052-AC-3")]
