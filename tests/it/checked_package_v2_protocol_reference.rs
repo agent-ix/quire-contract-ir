@@ -82,7 +82,6 @@ fn role_target(package: &mut Value) -> Value {
     target
 }
 
-/// Trace: FR-038-AC-239, TC-048
 #[trace("FR-038-AC-239", "TC-048")]
 #[test]
 fn protocol_reference_reads_both_protocol_target_forms_and_rekeys_on_retarget() {
@@ -146,7 +145,6 @@ fn protocol_reference_reads_both_protocol_target_forms_and_rekeys_on_retarget() 
     }
 }
 
-/// Trace: FR-038-AC-240, TC-048
 #[trace("FR-038-AC-240", "TC-048")]
 #[test]
 fn protocol_reference_joins_only_the_local_typed_protocol_target() {
@@ -236,7 +234,6 @@ fn protocol_reference_joins_only_the_local_typed_protocol_target() {
     );
 }
 
-/// Trace: FR-038-AC-240, TC-048
 #[trace("FR-038-AC-240", "TC-048")]
 #[test]
 fn protocol_reference_target_refusal_precedes_an_operation_refusal() {
@@ -270,7 +267,6 @@ fn protocol_reference_target_refusal_precedes_an_operation_refusal() {
     );
 }
 
-/// Trace: FR-038-AC-240, TC-048
 #[trace("FR-038-AC-240", "TC-048")]
 #[test]
 fn protocol_reference_dependency_shape_precedes_key_and_local_join() {
@@ -316,7 +312,6 @@ fn protocol_reference_dependency_shape_precedes_key_and_local_join() {
     );
 }
 
-/// Trace: FR-038-AC-241, TC-048
 #[trace("FR-038-AC-241", "TC-048")]
 #[test]
 fn protocol_reference_requires_closed_body_and_single_expression_occurrence() {
@@ -361,7 +356,6 @@ fn protocol_reference_requires_closed_body_and_single_expression_occurrence() {
     );
 }
 
-/// Trace: FR-038-AC-241, TC-048
 #[trace("FR-038-AC-241", "TC-048")]
 #[test]
 fn protocol_reference_refuses_forbidden_carrier_members_before_target_join() {

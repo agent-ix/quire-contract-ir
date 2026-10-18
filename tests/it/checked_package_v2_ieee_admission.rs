@@ -84,7 +84,6 @@ fn with_ieee_literal(kind: &str, declared_family: &str) -> (Value, usize) {
     (package, position)
 }
 
-/// Trace: TC-048, FR-038-AC-222.
 #[trace("TC-048", "FR-038-AC-222")]
 #[test]
 fn tc_048_ieee_bits_literal_requires_its_own_declared_family() {
@@ -211,7 +210,6 @@ fn assert_literal_type_refusal(package: &Value, position: usize, suffix: &str) {
     );
 }
 
-/// Trace: TC-048, FR-038-AC-222. Every familyless node shape in the public
 /// all-families fixture is tried as a declared IEEE literal type.
 #[trace("TC-048", "FR-038-AC-222")]
 #[test]
@@ -277,7 +275,6 @@ fn ieee_type_digest(kind: &str) -> String {
     )
 }
 
-/// Trace: TC-048, FR-038-AC-222. `ieee_float` accepts either declared
 /// operand family, so only the literal's own width rule separates the pair.
 #[trace("TC-048", "FR-038-AC-222")]
 #[test]
@@ -313,7 +310,6 @@ fn tc_048_ieee_literal_width_refuses_before_an_accepting_operand_family() {
     }
 }
 
-/// Trace: TC-048, FR-038-AC-222. The second argument must be checked even
 /// when the first is valid; both wrong must still locate the first defect.
 #[trace("TC-048", "FR-038-AC-222")]
 #[test]
@@ -429,7 +425,6 @@ pub(crate) fn with_ieee_conversion_source(
     (package, position)
 }
 
-/// Trace: TC-048, FR-038-AC-223.
 #[trace("TC-048", "FR-038-AC-223")]
 #[test]
 fn tc_048_cross_width_ieee_result_is_the_type_argument_of_the_catalogued_family() {
@@ -522,7 +517,6 @@ fn assert_member_result_refusal(
     );
 }
 
-/// Trace: TC-048, FR-038-AC-247, FR-038-AC-248.
 #[trace("TC-048", "FR-038-AC-247", "FR-038-AC-248")]
 #[test]
 fn tc_048_to_rational_member_result_and_family_for_both_widths() {
@@ -551,7 +545,6 @@ fn tc_048_to_rational_member_result_and_family_for_both_widths() {
     }
 }
 
-/// Trace: TC-048, FR-038-AC-249.
 #[trace("TC-048", "FR-038-AC-249")]
 #[test]
 fn tc_048_type_argument_member_requires_closed_declaration() {

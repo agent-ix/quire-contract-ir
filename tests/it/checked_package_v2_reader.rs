@@ -86,7 +86,6 @@ fn assert_dispatch_refused(result: CheckedPackageDispatchResult, expected: Expec
 /// current contract; every other version, and every malformed document, is
 /// refused before any version-specific decoding.
 ///
-/// Tracing: TC-048, FR-038-AC-1, FR-038-AC-24, FR-038-AC-25
 #[trace("TC-048", "FR-038-AC-1", "FR-038-AC-24", "FR-038-AC-25")]
 #[test]
 fn tc_048_reader_refuses_unknown_absent_and_malformed_versions() {
@@ -168,7 +167,6 @@ fn tc_048_reader_refuses_unknown_absent_and_malformed_versions() {
 /// elements by index, so it resolves to the exact value in the document the
 /// reader was given — including a member the reader has never heard of.
 ///
-/// Tracing: TC-048, FR-038-AC-24
 #[trace("TC-048", "FR-038-AC-24")]
 #[test]
 fn tc_048_refusal_pointers_escape_member_names_and_resolve() {
@@ -276,7 +274,6 @@ fn structural_mutation_replacement(pointer: &str) -> Value {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-2, FR-038-AC-24
 #[trace("TC-048", "FR-038-AC-2", "FR-038-AC-24")]
 #[test]
 fn tc_048_v2_reader_refuses_every_structural_mutation() {
@@ -303,7 +300,6 @@ fn tc_048_v2_reader_refuses_every_structural_mutation() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-2, FR-038-AC-24
 #[trace("TC-048", "FR-038-AC-2", "FR-038-AC-24")]
 #[test]
 fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
@@ -674,7 +670,6 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     ));
 }
 
-/// Tracing: TC-048, FR-038-AC-3, FR-038-AC-26
 #[trace("TC-048", "FR-038-AC-3", "FR-038-AC-26")]
 #[test]
 fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
@@ -800,7 +795,6 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-4
 #[trace("TC-048", "FR-038-AC-4")]
 #[test]
 fn tc_048_package_id_covers_exactly_the_identity_preimage() {
@@ -970,7 +964,6 @@ fn tc_048_package_id_covers_exactly_the_identity_preimage() {
 // never the deleted oracle — so `NominalIdentityPreimage`'s serde impl and
 // `digest()` keep a real test rather than going untested.
 
-/// Tracing: TC-048, FR-038-AC-5
 #[trace("TC-048", "FR-038-AC-5")]
 #[test]
 fn tc_048_nominal_preimages_round_trip_and_digest_to_their_own_node_key() {
@@ -1011,7 +1004,6 @@ fn tc_048_nominal_preimages_round_trip_and_digest_to_their_own_node_key() {
 /// the nominal check and reaches only the later edge-resolution loop, if
 /// that loop is ever reached).
 ///
-/// Tracing: TC-048, FR-038-AC-5
 #[trace("TC-048", "FR-038-AC-5")]
 #[test]
 fn tc_048_declaration_defect_is_reported_before_a_dangling_dependency_reference() {
@@ -1039,7 +1031,6 @@ fn tc_048_declaration_defect_is_reported_before_a_dangling_dependency_reference(
 /// `invalid_semantic_graph` at the member at fault rather than as
 /// `malformed_wire`; an unknown member keeps its own code.
 ///
-/// Tracing: TC-048, FR-038-AC-5
 #[trace("TC-048", "FR-038-AC-5")]
 #[test]
 fn tc_048_nominal_preimage_schema_defects_refuse_as_invalid_semantic_graph() {
@@ -1081,7 +1072,6 @@ fn tc_048_nominal_preimage_schema_defects_refuse_as_invalid_semantic_graph() {
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-5
 #[trace("TC-048", "FR-038-AC-5")]
 #[test]
 fn tc_048_nominal_cross_field_contradictions_refuse() {
@@ -1252,7 +1242,6 @@ fn model_owner(identity: &str, node: &str) -> Value {
     json!({"kind": "model", "identity": identity, "node": node})
 }
 
-/// Tracing: TC-048, FR-038-AC-45
 #[trace("TC-048", "FR-038-AC-45")]
 #[test]
 fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_version() {
@@ -1309,7 +1298,6 @@ fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_ver
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-2, FR-038-AC-5, FR-038-AC-64
 #[trace("TC-048", "FR-038-AC-2", "FR-038-AC-5", "FR-038-AC-64")]
 #[test]
 fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
@@ -1455,7 +1443,6 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
 /// copies carry it) and returns no package; a row lacking a member or holding
 /// one of the wrong kind refuses as `malformed_wire`.
 ///
-/// Tracing: TC-048, FR-038-AC-2, FR-038-AC-62
 #[trace("TC-048", "FR-038-AC-2", "FR-038-AC-62")]
 #[test]
 fn tc_048_a_model_row_is_exactly_identity_digest_domain_and_digest() {
@@ -1528,7 +1515,6 @@ fn tc_048_a_model_row_is_exactly_identity_digest_domain_and_digest() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-2
 #[trace("TC-048", "FR-038-AC-2")]
 #[test]
 fn tc_048_domain_package_selection_with_no_supplied_document_refuses_as_missing_import() {
@@ -1547,7 +1533,6 @@ fn tc_048_domain_package_selection_with_no_supplied_document_refuses_as_missing_
     admitted(&base);
 }
 
-/// Tracing: TC-048, FR-038-AC-10
 #[trace("TC-048", "FR-038-AC-10")]
 #[test]
 fn tc_048_duplicate_model_selection_refuses_as_malformed_wire() {
@@ -1620,7 +1605,6 @@ fn tc_048_duplicate_model_selection_refuses_as_malformed_wire() {
 /// both a repeated entry and an entry the evidence does not attest refuses
 /// as `malformed_wire` regardless of which defect appears first.
 ///
-/// Tracing: TC-048, FR-038-AC-11
 #[trace("TC-048", "FR-038-AC-11")]
 #[test]
 fn tc_048_model_selection_duplicate_outranks_stale_digest_regardless_of_position() {
@@ -1697,7 +1681,6 @@ fn tc_048_model_selection_duplicate_outranks_stale_digest_regardless_of_position
 /// class. Pinned anyway as a stated invariant, not a reproduction of a bug
 /// that predates this fix.
 ///
-/// Tracing: TC-048, FR-038-AC-19
 #[trace("TC-048", "FR-038-AC-19")]
 #[test]
 fn tc_048_model_selection_refusal_is_decided_by_defect_class_not_array_position() {
@@ -1836,7 +1819,6 @@ fn evidence_of(identities: &[&str], extra: &[Value]) -> CheckedPackageEvidence {
 /// identity. This is class 4 of FR-038's four-class `model_selections` order,
 /// so a domain mismatch (class 2) in either entry of the pair outranks it.
 ///
-/// Tracing: TC-048, FR-038-AC-20
 #[trace("TC-048", "FR-038-AC-20")]
 #[test]
 fn tc_048_model_selection_same_identity_different_digest_refuses_as_stale_dependency() {
@@ -1941,7 +1923,6 @@ fn tc_048_model_selection_same_identity_different_digest_refuses_as_stale_depend
     admitted(&package(&[&first, &other_identity]));
 }
 
-/// Tracing: TC-048, FR-038-AC-2
 #[trace("TC-048", "FR-038-AC-2")]
 #[test]
 fn tc_048_model_export_is_not_a_v2_model_form() {
@@ -2025,7 +2006,6 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
 /// the structural preimage. The fixed self-typed shape still applies to an
 /// undeclared, model-owned object type.
 ///
-/// Trace: FR-038-AC-150
 #[trace("TC-226", "FR-038-AC-150")]
 #[test]
 fn tc_226_a_source_declared_interface_authenticates_but_a_model_owned_one_keeps_its_shape() {
@@ -2116,7 +2096,6 @@ fn tc_226_a_source_declared_interface_authenticates_but_a_model_owned_one_keeps_
     assert!(refusal.expected_node_id().is_none());
 }
 
-/// Tracing: TC-048, FR-038-AC-9, FR-038-AC-26
 #[trace("TC-048", "FR-038-AC-9", "FR-038-AC-26")]
 #[test]
 fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
@@ -2263,7 +2242,6 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
 /// before the conditional graph-stage body-root carve-out is reached. The
 /// graph-stage distinction is exercised at the private validation seam.
 ///
-/// Tracing: TC-048, FR-038-AC-18
 #[trace("TC-048", "FR-038-AC-18")]
 #[test]
 fn tc_048_self_typed_body_references_refuse_at_authenticated_keys() {
@@ -2418,7 +2396,6 @@ fn tc_048_self_typed_body_references_refuse_at_authenticated_keys() {
 /// is ever compared against the derived projection; mirroring the deletion
 /// into the preimage changes nothing about which check fires first.
 ///
-/// Tracing: TC-048, FR-038-AC-17
 #[trace("TC-048", "FR-038-AC-17")]
 #[test]
 fn tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare() {
@@ -2545,7 +2522,6 @@ fn tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare(
 /// cross-check this test used to also run was dropped along with the
 /// vendored schema it needed; see AGE-1961.)
 ///
-/// Tracing: TC-048, FR-038-AC-17
 #[trace("TC-048", "FR-038-AC-17")]
 #[test]
 fn tc_048_expression_forms_bound_admission() {
@@ -2611,7 +2587,6 @@ fn declared_name_at(package: &Value, digest: &str) -> String {
     format!("/semantic_graph/nodes/{position}/declaration/qualified_name")
 }
 
-/// Tracing: TC-048, FR-038-AC-21
 #[trace("TC-048", "FR-038-AC-21")]
 #[test]
 fn tc_048_declared_name_must_equal_its_nominal_preimage_name() {
@@ -2664,7 +2639,6 @@ fn with_shared_name() -> (Value, [String; 2]) {
     (value, digests)
 }
 
-/// Tracing: TC-048, FR-038-AC-21
 #[trace("TC-048", "FR-038-AC-21")]
 #[test]
 fn tc_048_two_nodes_declaring_one_name_refuse_as_ambiguous() {
@@ -2681,7 +2655,6 @@ fn tc_048_two_nodes_declaring_one_name_refuse_as_ambiguous() {
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-21
 #[trace("TC-048", "FR-038-AC-21")]
 #[test]
 fn tc_048_a_nominal_name_mismatch_is_reported_before_an_ambiguous_name() {
@@ -2750,7 +2723,6 @@ fn rekey_declared_all_families(package: &mut Value) {
     panic!("declared all-family fixture did not reach stable keys");
 }
 
-/// Tracing: TC-048, FR-038-AC-21
 #[trace("TC-048", "FR-038-AC-21")]
 #[test]
 fn tc_048_a_declaration_refusal_precedes_an_operation_refusal() {
@@ -2801,7 +2773,6 @@ fn tc_048_a_declaration_refusal_precedes_an_operation_refusal() {
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-21
 #[trace("TC-048", "FR-038-AC-21")]
 #[test]
 fn tc_048_a_declaration_refusal_precedes_a_frame_refusal() {
@@ -2856,7 +2827,6 @@ fn first_reference(term: &Value) -> Option<Value> {
         .find_map(first_reference)
 }
 
-/// Tracing: TC-048, FR-038-AC-17
 #[trace("TC-048", "FR-038-AC-17")]
 #[test]
 fn tc_048_an_application_node_in_a_recursion_group_keys_by_fr322_ordinals() {

@@ -334,7 +334,6 @@ fn invalid_at(package: &Value, position: usize, member: &str) -> ExpectedRefusal
     )
 }
 
-/// Tracing: TC-048, FR-038-AC-22, FR-038-AC-23
 #[trace("TC-048", "FR-038-AC-22", "FR-038-AC-23")]
 #[test]
 fn tc_048_a_function_with_parameters_reads_and_lowers() {
@@ -380,7 +379,6 @@ fn tc_048_a_function_with_parameters_reads_and_lowers() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-22
 #[trace("TC-048", "FR-038-AC-22")]
 #[test]
 fn tc_048_a_malformed_parameter_node_refuses() {
@@ -494,7 +492,6 @@ fn tc_048_a_malformed_parameter_node_refuses() {
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-22
 #[trace("TC-048", "FR-038-AC-22")]
 #[test]
 fn tc_048_a_malformed_compound_unit_node_refuses() {
@@ -597,7 +594,6 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     ));
 }
 
-/// Tracing: TC-048, FR-038-AC-23
 #[trace("TC-048", "FR-038-AC-23")]
 #[test]
 fn tc_048_an_application_node_dependency_list_is_its_exact_body_join() {

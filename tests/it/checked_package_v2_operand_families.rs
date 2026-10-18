@@ -226,7 +226,6 @@ fn native_refuses(
     );
 }
 
-/// Trace: TC-048, FR-038-AC-242, FR-038-AC-243
 #[trace("TC-048", "FR-038-AC-242", "FR-038-AC-243")]
 #[test]
 fn native_scalar_comparisons_keep_distinct_types_and_operands() {
@@ -360,7 +359,6 @@ fn change_native_literal_value(package: &mut Value, position: usize, value: Valu
     settle(package);
 }
 
-/// Trace: TC-048, FR-038-AC-245
 #[trace("TC-048", "FR-038-AC-245")]
 #[test]
 fn native_literal_payloads_are_canonical_after_type_validation() {
@@ -451,7 +449,6 @@ fn native_literal_payloads_are_canonical_after_type_validation() {
     }
 }
 
-/// Trace: TC-048, FR-038-AC-245
 #[trace("TC-048", "FR-038-AC-245")]
 #[test]
 fn native_literal_work_limit_precedes_later_payload_defect() {
@@ -526,7 +523,6 @@ fn native_literal_work_limit_precedes_later_payload_defect() {
     );
 }
 
-/// Trace: TC-048, FR-038-AC-244
 #[trace("TC-048", "FR-038-AC-244")]
 #[test]
 fn native_comparisons_reject_text_laws_and_modes() {
@@ -580,7 +576,6 @@ fn native_comparisons_reject_text_laws_and_modes() {
     }
 }
 
-/// Trace: TC-048, FR-038-AC-244
 #[trace("TC-048", "FR-038-AC-244")]
 #[test]
 fn text_comparison_rejects_string_at_its_mode_value() {
@@ -621,7 +616,6 @@ fn text_comparison_rejects_string_at_its_mode_value() {
     }
 }
 
-/// Trace: TC-048, FR-038-AC-244
 #[trace("TC-048", "FR-038-AC-244")]
 #[test]
 fn text_comparison_checks_arity_and_other_families_before_string_mode() {
@@ -673,7 +667,6 @@ fn text_comparison_checks_arity_and_other_families_before_string_mode() {
     );
 }
 
-/// Trace: TC-048, FR-038-AC-210
 #[trace("TC-048", "FR-038-AC-210")]
 #[test]
 fn quantity_family_checks_every_catalogued_quantity_operand() {
@@ -769,7 +762,6 @@ fn quantity_family_checks_every_catalogued_quantity_operand() {
     );
 }
 
-/// Trace: TC-048, FR-038-AC-211
 #[trace("TC-048", "FR-038-AC-211")]
 #[test]
 fn control_if_checks_quantity_branch_family() {
@@ -793,7 +785,6 @@ fn control_if_checks_quantity_branch_family() {
     );
 }
 
-/// Trace: TC-048, FR-038-AC-211
 #[trace("TC-048", "FR-038-AC-211")]
 #[test]
 fn aggregate_arguments_admit_at_clause_positions_and_refuse_at_boolean_position() {
@@ -857,7 +848,6 @@ fn aggregate_arguments_admit_at_clause_positions_and_refuse_at_boolean_position(
     );
 }
 
-/// Trace: TC-048, FR-038-AC-212
 #[trace("TC-048", "FR-038-AC-212")]
 #[test]
 fn literal_kind_is_checked_at_its_own_type_even_outside_family_operands() {
@@ -980,7 +970,6 @@ fn literal_kind_is_checked_at_its_own_type_even_outside_family_operands() {
     );
 }
 
-/// Trace: TC-048, FR-038-AC-213
 #[trace("TC-048", "FR-038-AC-213")]
 #[test]
 fn quantity_conversion_defaults_to_exact_rounding() {
@@ -1009,7 +998,6 @@ fn quantity_conversion_defaults_to_exact_rounding() {
     );
 }
 
-/// Trace: TC-048, FR-038-AC-247, FR-038-AC-248, FR-038-AC-250.
 #[trace("TC-048", "FR-038-AC-247", "FR-038-AC-248", "FR-038-AC-250")]
 #[test]
 fn quantity_convert_checks_member_result_before_rounding_type() {
@@ -1079,7 +1067,6 @@ fn quantity_convert_checks_member_result_before_rounding_type() {
     );
 }
 
-/// Trace: TC-048, FR-038-AC-250.
 #[trace("TC-048", "FR-038-AC-250")]
 #[test]
 fn position_and_element_member_results_do_not_require_declaration_equality() {
@@ -1137,7 +1124,6 @@ fn position_and_element_member_results_do_not_require_declaration_equality() {
     admits(&index_package);
 }
 
-/// Trace: TC-048, FR-038-AC-247, FR-038-AC-248.
 #[trace("TC-048", "FR-038-AC-247", "FR-038-AC-248")]
 #[test]
 fn quantity_convert_admits_equal_compound_unit_result() {
@@ -1185,7 +1171,6 @@ fn quantity_convert_admits_equal_compound_unit_result() {
     );
 }
 
-/// Trace: TC-048, FR-038-AC-247, FR-038-AC-248.
 #[trace("TC-048", "FR-038-AC-247", "FR-038-AC-248")]
 #[test]
 fn collection_size_admits_equal_model_population_result() {
@@ -1242,7 +1227,6 @@ fn collection_size_admits_equal_model_population_result() {
     );
 }
 
-/// Trace: TC-048, FR-038-AC-247, FR-038-AC-248.
 #[trace("TC-048", "FR-038-AC-247", "FR-038-AC-248")]
 #[test]
 fn fold_and_reduce_admit_without_member_family_and_refuse_unequal_result() {
@@ -1285,7 +1269,6 @@ fn fold_and_reduce_admit_without_member_family_and_refuse_unequal_result() {
     }
 }
 
-/// Trace: TC-048, FR-038-AC-247, FR-038-AC-248.
 #[trace("TC-048", "FR-038-AC-247", "FR-038-AC-248")]
 #[test]
 fn non_member_model_results_remain_admitted() {
@@ -1391,7 +1374,6 @@ pub(crate) fn quantity_sum_control() -> (Value, usize) {
     (package, at)
 }
 
-/// Trace: TC-048, FR-038-AC-213
 #[trace("TC-048", "FR-038-AC-213")]
 #[test]
 fn quantity_sum_uses_its_result_type_exact_rounding_pin() {

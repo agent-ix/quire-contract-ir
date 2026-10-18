@@ -175,7 +175,6 @@ fn refused(package: &Value, code: CheckedPackageRefusalCode, path: &str) {
     assert_eq!(refusal.path.expect("refusal path").as_str(), path);
 }
 
-/// Trace: FR-038-AC-153
 #[trace("TC-228", "FR-038-AC-153")]
 #[test]
 fn tc_228_declared_record_tuple_and_function_carry_their_source_owner() {
@@ -203,7 +202,6 @@ fn tc_228_declared_record_tuple_and_function_carry_their_source_owner() {
     }
 }
 
-/// Trace: FR-038-AC-153
 #[trace("TC-228", "FR-038-AC-153")]
 #[test]
 fn tc_228_anonymous_locus_nominal_and_application_nodes_are_owner_free() {
@@ -254,7 +252,6 @@ fn tc_228_anonymous_locus_nominal_and_application_nodes_are_owner_free() {
     ));
 }
 
-/// Trace: FR-038-AC-154
 #[trace("TC-228", "FR-038-AC-154")]
 #[test]
 fn tc_228_required_and_forbidden_owner_shapes_refuse_before_identity() {
@@ -348,7 +345,6 @@ fn refresh_package_id(package: &mut Value) {
     ));
 }
 
-/// Trace: FR-038-AC-154
 #[trace("TC-228", "FR-038-AC-154")]
 #[test]
 fn tc_228_projection_model_owner_difference_refuses_at_owner_before_join() {
@@ -377,7 +373,6 @@ fn tc_228_projection_model_owner_difference_refuses_at_owner_before_join() {
     );
 }
 
-/// Trace: FR-038-AC-155
 #[trace("TC-228", "FR-038-AC-155")]
 #[test]
 fn tc_228_source_owner_joins_selected_source_and_declaration_region() {
@@ -425,7 +420,6 @@ fn tc_228_source_owner_joins_selected_source_and_declaration_region() {
     );
 }
 
-/// Trace: FR-038-AC-153, FR-038-AC-155
 #[trace("TC-228", "FR-038-AC-153", "FR-038-AC-155")]
 #[test]
 fn tc_228_an_unreachable_model_node_joins_its_declaring_object_type() {
@@ -549,7 +543,6 @@ fn tc_228_an_unreachable_model_node_joins_its_declaring_object_type() {
     );
 }
 
-/// Trace: FR-038-AC-153, FR-038-AC-155
 #[trace("TC-228", "FR-038-AC-153", "FR-038-AC-155")]
 #[test]
 fn tc_228_operation_and_invariant_clause_owners_join_only_their_kind() {
@@ -625,7 +618,6 @@ fn tc_228_operation_and_invariant_clause_owners_join_only_their_kind() {
 
 /// An owner-bearing function's body participates in its FR-092 key.
 ///
-/// Trace: TC-228
 #[trace("TC-228", "FR-038-AC-148")]
 #[test]
 fn tc_228_owner_bearing_function_refuses_a_stale_body_key() {
@@ -674,7 +666,6 @@ fn tc_228_owner_bearing_function_refuses_a_stale_body_key() {
     );
 }
 
-/// Trace: FR-038-AC-155
 #[trace("TC-228", "FR-038-AC-155")]
 #[test]
 fn tc_228_one_model_owner_lookup_consumes_one_validation_visit() {
@@ -721,7 +712,6 @@ fn tc_228_one_model_owner_lookup_consumes_one_validation_visit() {
     panic!("the bounded reader did not expose the owner lookup charge");
 }
 
-/// Trace: FR-038-AC-155
 #[trace("TC-228", "FR-038-AC-155")]
 #[test]
 fn tc_228_owner_defects_use_digest_order_ahead_of_a_lower_stale_key() {
@@ -843,7 +833,6 @@ fn tc_228_owner_defects_use_digest_order_ahead_of_a_lower_stale_key() {
     );
 }
 
-/// Trace: FR-038-AC-154
 #[trace("TC-228", "FR-038-AC-154")]
 #[test]
 fn tc_228_model_owner_is_closed_and_required_in_both_wire_positions() {

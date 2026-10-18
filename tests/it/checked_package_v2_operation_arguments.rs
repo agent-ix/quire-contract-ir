@@ -840,7 +840,6 @@ const ARG_2: &str = "/body/arguments/2";
 
 // --- TC-448: operation-call arguments (FR-347-AC-1 to AC-7) ---------------------------
 
-/// Trace: FR-347-AC-1
 #[trace("TC-448", "FR-347-AC-1")]
 #[test]
 fn tc_448_a_child_and_a_grandchild_record_are_admitted_at_a_parent_parameter() {
@@ -855,14 +854,12 @@ fn tc_448_a_child_and_a_grandchild_record_are_admitted_at_a_parent_parameter() {
     }
 }
 
-/// Trace: FR-347-AC-2
 #[trace("TC-448", "FR-347-AC-2")]
 #[test]
 fn tc_448_an_unrelated_record_is_refused_at_its_argument() {
     call("charge", &[Ty::Rec("Voucher")]).ineligible("Voucher at Money", ARG_1);
 }
 
-/// Trace: FR-347-AC-3
 #[trace("TC-448", "FR-347-AC-3")]
 #[test]
 fn tc_448_an_ancestor_never_conforms_to_a_descendant() {
@@ -874,7 +871,6 @@ fn tc_448_an_ancestor_never_conforms_to_a_descendant() {
     call("grandsettle", &[Ty::Rec("GiftTaxedMoney")]).admits("Gift at Gift");
 }
 
-/// Trace: FR-347-AC-4
 #[trace("TC-448", "FR-347-AC-4")]
 #[test]
 fn tc_448_every_other_parameter_type_is_compared_exactly() {
@@ -904,7 +900,6 @@ fn tc_448_every_other_parameter_type_is_compared_exactly() {
     }
 }
 
-/// Trace: FR-347-AC-5
 #[trace("TC-448", "FR-347-AC-5")]
 #[test]
 fn tc_448_ancestry_is_read_from_the_selected_document_only() {
@@ -926,7 +921,6 @@ fn tc_448_ancestry_is_read_from_the_selected_document_only() {
         .ineligible("foreign TaxedMoney", ARG_1);
 }
 
-/// Trace: FR-347-AC-6
 #[trace("TC-448", "FR-347-AC-6")]
 #[test]
 fn tc_448_the_first_offending_argument_in_position_order_is_reported() {
@@ -942,7 +936,6 @@ fn tc_448_the_first_offending_argument_in_position_order_is_reported() {
     call("charge", &[]).ineligible("one too few", arguments);
 }
 
-/// Trace: FR-347-AC-7
 #[trace("TC-448", "FR-347-AC-7")]
 #[test]
 fn tc_448_the_receiver_and_the_result_type_stay_exact() {
@@ -964,7 +957,6 @@ fn tc_448_the_receiver_and_the_result_type_stay_exact() {
 
 // --- TC-448: work accounting (FR-347-AC-8) -------------------------------------------
 
-/// Trace: FR-347-AC-8
 #[trace("TC-448", "FR-347-AC-8")]
 #[test]
 fn tc_448_conformance_charges_every_reachable_supertype_edge_once() {
@@ -1045,7 +1037,6 @@ fn read_of(declaring: &Ty, field: &str, operand: &Ty) -> Case {
     scene.finish().at(&key)
 }
 
-/// Trace: FR-347-AC-9
 #[trace("TC-448", "FR-347-AC-9")]
 #[test]
 fn tc_448_a_record_field_is_read_over_a_conforming_operand() {
@@ -1114,7 +1105,6 @@ fn case_over(first: &Ty, second: &Ty, binder: &Ty, result: &Ty) -> Case {
     scene.finish().at(&key)
 }
 
-/// Trace: FR-347-AC-10
 #[trace("TC-448", "FR-347-AC-10")]
 #[test]
 fn tc_448_a_case_arm_body_conforms_to_the_result_record() {
@@ -1148,7 +1138,6 @@ fn payload_of(declared: &'static str, payload: &Ty) -> Case {
     scene.finish().at(&key)
 }
 
-/// Trace: FR-347-AC-11
 #[trace("TC-448", "FR-347-AC-11")]
 #[test]
 fn tc_448_a_union_payload_conforms_to_the_declared_record() {
@@ -1206,7 +1195,6 @@ fn application_root(tag: &str, declared: &'static str, root: &str) -> Case {
     scene.finish().at(&key)
 }
 
-/// Trace: FR-347-AC-12
 #[trace("TC-448", "FR-347-AC-12")]
 #[test]
 fn tc_448_a_body_root_conforms_to_the_declared_record() {
@@ -1287,7 +1275,6 @@ fn well_formed(_: &mut Scene, declared: &[String]) -> Vec<Value> {
     ]
 }
 
-/// Trace: FR-347-AC-13
 #[trace("TC-448", "FR-347-AC-13")]
 #[test]
 fn tc_448_function_call_arguments_follow_the_callee_parameters() {
@@ -1356,7 +1343,6 @@ fn parameters_binding(entries: Vec<Value>) -> Value {
     binding("parameters", aggregate(entries))
 }
 
-/// Trace: FR-347-AC-14
 #[trace("TC-448", "FR-347-AC-14")]
 #[test]
 fn tc_448_a_malformed_parameters_binding_is_refused_at_the_callee() {
@@ -1424,7 +1410,6 @@ fn tc_448_a_malformed_parameters_binding_is_refused_at_the_callee() {
 
 // --- the widening stops at record value types --------------------------------
 
-/// Trace: FR-347-AC-10, FR-347-AC-13
 #[trace("TC-448", "FR-347-AC-10", "FR-347-AC-13")]
 #[test]
 fn tc_448_a_parameter_typed_at_an_object_type_is_still_refused() {
@@ -1448,7 +1433,6 @@ fn tc_448_a_parameter_typed_at_an_object_type_is_still_refused() {
     );
 }
 
-/// Trace: FR-347-AC-11
 #[trace("TC-448", "FR-347-AC-11")]
 #[test]
 fn tc_448_a_union_payload_naming_an_object_type_is_still_refused() {

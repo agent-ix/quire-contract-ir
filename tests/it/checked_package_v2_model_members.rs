@@ -256,7 +256,6 @@ fn read(
     )
 }
 
-/// Trace: TC-048, FR-038-AC-242
 #[trace("TC-048", "FR-038-AC-242")]
 #[test]
 fn selected_native_parameters_and_results_keep_their_type_nodes() {
@@ -1159,7 +1158,6 @@ fn reaches_over(
     (package, evidence)
 }
 
-/// Trace: FR-038-AC-165, FR-038-AC-166, FR-038-AC-169, FR-038-AC-170, FR-038-AC-171
 #[trace(
     "TC-048",
     "FR-038-AC-165",
@@ -1224,7 +1222,6 @@ fn tc_048_a_selected_fcd_relationship_navigates_through_its_named_end() {
 
 /// The undeclared model-owned relationship is keyed by its actual typed owner
 /// in both the candidate API and the admitted reader.
-/// Trace: FR-048-AC-2
 #[trace("TC-048", "FR-048-AC-2")]
 #[test]
 fn tc_048_model_relationship_candidate_matches_reader_admission() {
@@ -1251,7 +1248,6 @@ fn tc_048_model_relationship_candidate_matches_reader_admission() {
     assert_eq!(relationship.candidate_node_id(), &nodes[position].node_id);
 }
 
-/// Trace: FR-038-AC-170
 #[trace("TC-048", "FR-038-AC-170")]
 #[test]
 fn tc_048_navigation_admits_canonical_finite_results_and_observes_destination_changes() {
@@ -1328,7 +1324,6 @@ fn tc_048_navigation_admits_canonical_finite_results_and_observes_destination_ch
     ));
 }
 
-/// Trace: FR-038-AC-169, FR-038-AC-172
 #[trace("TC-048", "FR-038-AC-169", "FR-038-AC-172")]
 #[test]
 fn tc_048_a_selected_self_relationship_reaches_through_either_named_end() {
@@ -1408,7 +1403,6 @@ fn admitted_reaches(
     )
 }
 
-/// Trace: FR-038-AC-252
 #[trace("TC-048", "FR-038-AC-252")]
 #[test]
 fn tc_048_reaches_finite_multivalued_ends_keep_the_single_valued_node_shape() {
@@ -1476,7 +1470,6 @@ fn tc_048_reaches_finite_multivalued_ends_keep_the_single_valued_node_shape() {
     }
 }
 
-/// Trace: FR-038-AC-253
 #[trace("TC-048", "FR-038-AC-253")]
 #[test]
 fn tc_048_reaches_checks_operand_one_against_receiver_before_edge_defects() {
@@ -1545,7 +1538,6 @@ fn tc_048_reaches_checks_operand_one_against_receiver_before_edge_defects() {
     }
 }
 
-/// Trace: FR-038-AC-254, FR-038-AC-255, FR-038-AC-256
 #[trace("TC-048", "FR-038-AC-254", "FR-038-AC-255", "FR-038-AC-256")]
 #[test]
 fn tc_048_reaches_refusal_order_is_direction_then_multiplicity_then_type() {
@@ -1632,7 +1624,6 @@ fn tc_048_reaches_refusal_order_is_direction_then_multiplicity_then_type() {
     }
 }
 
-/// Trace: FR-038-AC-257
 #[trace("TC-048", "FR-038-AC-257")]
 #[test]
 fn tc_048_reaches_multivalued_end_requires_boolean_result() {
@@ -1680,7 +1671,6 @@ fn tc_048_reaches_multivalued_end_requires_boolean_result() {
     }
 }
 
-/// Trace: FR-038-AC-171
 #[trace("TC-048", "FR-038-AC-171")]
 #[test]
 fn tc_048_relationship_navigation_total_work_limit_reports_its_first_unpayable_edge() {
@@ -1721,7 +1711,6 @@ fn tc_048_relationship_navigation_total_work_limit_reports_its_first_unpayable_e
     }
 }
 
-/// Trace: FR-038-AC-165, FR-038-AC-166, FR-038-AC-167, FR-038-AC-168, FR-038-AC-173
 #[trace(
     "TC-048",
     "FR-038-AC-165",
@@ -1807,7 +1796,6 @@ fn tc_048_selected_relationship_declaration_refusals_precede_navigation() {
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-29
 #[trace("TC-048", "FR-038-AC-29")]
 #[test]
 fn tc_048_a_model_owned_operation_admits_through_a_real_semantic_ir_document() {
@@ -1818,7 +1806,6 @@ fn tc_048_a_model_owned_operation_admits_through_a_real_semantic_ir_document() {
     }
 }
 
-/// Trace: FR-038-AC-150, FR-038-AC-185, TC-048
 #[trace("FR-038-AC-150", "FR-038-AC-185", "TC-048")]
 #[test]
 fn tc_048_selected_model_declaration_shape_refuses_at_its_node_before_the_call() {
@@ -1848,7 +1835,6 @@ fn tc_048_selected_model_declaration_shape_refuses_at_its_node_before_the_call()
     assert_eq!(refusal.expected_node_id(), None);
 }
 
-/// Tracing: TC-048, FR-038-AC-45
 #[trace("TC-048", "FR-038-AC-45")]
 #[test]
 fn tc_048_a_declaration_node_key_is_unchanged_when_the_selected_document_changes() {
@@ -1883,7 +1869,6 @@ fn tc_048_a_declaration_node_key_is_unchanged_when_the_selected_document_changes
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-45
 #[trace("TC-048", "FR-038-AC-45")]
 #[test]
 fn tc_048_a_declaration_node_keyed_under_another_domain_package_refuses() {
@@ -1934,7 +1919,6 @@ fn tc_048_a_declaration_node_keyed_under_another_domain_package_refuses() {
 /// `tc_048_a_declaration_node_key_is_unchanged_when_the_selected_document_changes`),
 /// so admission per version is the oracle here, not graph equality.
 ///
-/// Tracing: TC-048, FR-038-AC-27, FR-038-AC-45, FR-038-AC-64
 #[trace("TC-048", "FR-038-AC-27", "FR-038-AC-45", "FR-038-AC-64")]
 #[test]
 fn tc_048_a_selected_document_needs_no_package_version() {
@@ -1981,7 +1965,6 @@ fn tc_048_a_selected_document_needs_no_package_version() {
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-29
 #[trace("TC-048", "FR-038-AC-29")]
 #[test]
 fn tc_048_a_model_owned_operation_the_document_does_not_declare_refuses() {
@@ -1998,7 +1981,6 @@ fn tc_048_a_model_owned_operation_the_document_does_not_declare_refuses() {
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-27, FR-038-AC-28
 #[trace("TC-048", "FR-038-AC-27", "FR-038-AC-28")]
 #[test]
 fn tc_048_a_declaration_refusal_is_located_at_its_model_selection_row() {
@@ -2016,7 +1998,6 @@ fn tc_048_a_declaration_refusal_is_located_at_its_model_selection_row() {
     // document, named by its own digest, was supplied and admitted.
 }
 
-/// Tracing: TC-048, FR-038-AC-30
 #[trace("TC-048", "FR-038-AC-30")]
 #[test]
 fn tc_048_reading_a_domain_package_is_charged_to_the_work_limit() {
@@ -2075,7 +2056,6 @@ fn number_refusal(document_pointer: &str, cause: CheckedPackageRefusalCause) -> 
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-93
 #[trace("TC-048", "FR-038-AC-93")]
 #[test]
 fn tc_048_a_model_document_number_past_2_pow_53_refuses_with_its_document_pointer() {
@@ -2108,7 +2088,6 @@ fn tc_048_a_model_document_number_past_2_pow_53_refuses_with_its_document_pointe
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-93
 #[trace("TC-048", "FR-038-AC-93")]
 #[test]
 fn tc_048_a_model_document_number_at_or_under_2_pow_53_is_digested() {
@@ -2157,7 +2136,6 @@ fn document_with_count_bound(maximum: Value) -> Value {
     document
 }
 
-/// Tracing: TC-048, FR-038-AC-93
 #[trace("TC-048", "FR-038-AC-93")]
 #[test]
 fn tc_048_an_integer_value_type_bound_past_2_pow_53_is_refused_as_a_number() {
@@ -2194,7 +2172,6 @@ fn tc_048_an_integer_value_type_bound_past_2_pow_53_is_refused_as_a_number() {
     ));
 }
 
-/// Tracing: TC-048, FR-038-AC-93
 #[trace("TC-048", "FR-038-AC-93")]
 #[test]
 fn tc_048_the_first_number_in_document_order_past_2_pow_53_is_named() {
@@ -2227,7 +2204,6 @@ fn document_bytes_led_by(members: &str) -> Vec<u8> {
     format!("{{{members},{}", &text[1..]).into_bytes()
 }
 
-/// Tracing: TC-048, FR-038-AC-109
 #[trace("TC-048", "FR-038-AC-109")]
 #[test]
 fn tc_048_a_model_document_number_with_no_exact_rfc_8785_spelling_refuses_inexact_number() {
@@ -2258,7 +2234,6 @@ fn tc_048_a_model_document_number_with_no_exact_rfc_8785_spelling_refuses_inexac
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-109
 #[trace("TC-048", "FR-038-AC-109")]
 #[test]
 fn tc_048_a_model_document_number_whose_value_its_encoding_keeps_is_digested() {
@@ -2290,7 +2265,6 @@ fn tc_048_a_model_document_number_whose_value_its_encoding_keeps_is_digested() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-110
 #[trace("TC-048", "FR-038-AC-110")]
 #[test]
 fn tc_048_the_first_inexact_number_in_document_order_is_named_with_its_own_cause() {
@@ -2330,7 +2304,6 @@ fn tc_048_the_first_inexact_number_in_document_order_is_named_with_its_own_cause
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-110
 #[trace("TC-048", "FR-038-AC-110")]
 #[test]
 fn tc_048_a_number_past_the_double_range_refuses_inexact_integer_with_its_pointer() {
@@ -2382,7 +2355,6 @@ fn raw_digest_refusal() -> ExpectedRefusal {
     )
 }
 
-/// Trace: TC-048, FR-038-AC-215, FR-038-AC-218
 #[trace("TC-048", "FR-038-AC-215", "FR-038-AC-218")]
 #[test]
 fn tc_048_readable_selected_content_reports_typed_jcs_identities() {
@@ -2476,7 +2448,6 @@ fn tc_048_readable_selected_content_reports_typed_jcs_identities() {
     );
 }
 
-/// Trace: TC-048, FR-038-AC-216, FR-038-AC-218
 #[trace("TC-048", "FR-038-AC-216", "FR-038-AC-218")]
 #[test]
 fn tc_048_unreadable_model_bytes_report_raw_identity_or_wrong_selection() {
@@ -2532,7 +2503,6 @@ fn tc_048_unreadable_model_bytes_report_raw_identity_or_wrong_selection() {
     }
 }
 
-/// Trace: TC-048, FR-038-AC-218
 #[trace("TC-048", "FR-038-AC-218")]
 #[test]
 fn tc_048_mismatch_cause_keys_include_complete_typed_pair_but_not_path() {
@@ -2643,7 +2613,6 @@ fn tc_048_mismatch_cause_keys_include_complete_typed_pair_but_not_path() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-110
 #[trace("TC-048", "FR-038-AC-110")]
 #[test]
 fn tc_048_the_first_reader_fault_decides_when_faults_coexist() {
@@ -2754,7 +2723,6 @@ fn tc_048_the_first_reader_fault_decides_when_faults_coexist() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-110
 #[trace("TC-048", "FR-038-AC-110")]
 #[test]
 fn tc_048_a_non_whole_number_past_the_double_range_refuses_inexact_number() {
@@ -2773,7 +2741,6 @@ fn tc_048_a_non_whole_number_past_the_double_range_refuses_inexact_number() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-109
 #[trace("TC-048", "FR-038-AC-109")]
 #[test]
 fn tc_048_a_number_below_the_double_range_refuses_inexact_number_on_its_text() {
@@ -2795,7 +2762,6 @@ fn tc_048_a_number_below_the_double_range_refuses_inexact_number_on_its_text() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-93
 #[trace("TC-048", "FR-038-AC-93")]
 #[test]
 fn tc_048_a_package_stream_refusal_carries_no_document_pointer() {
@@ -2818,7 +2784,6 @@ fn tc_048_a_package_stream_refusal_carries_no_document_pointer() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-94
 #[trace("TC-048", "FR-038-AC-94")]
 #[test]
 fn tc_048_a_model_document_is_read_and_encoded_under_the_byte_limit() {
@@ -3158,7 +3123,6 @@ fn reaches(
 /// sequence reference to the owner are edges, including through a subtype
 /// declaring node, a subtype target and a target two levels down.
 ///
-/// Tracing: TC-056, FR-040-AC-13
 #[trace("TC-056", "FR-040-AC-13")]
 #[test]
 fn tc_056_reaches_field_admits_each_reference_edge_shape() {
@@ -3184,7 +3148,6 @@ fn tc_056_reaches_field_admits_each_reference_edge_shape() {
 /// declaring type. `Sub` inherits `Order`'s seven fields and declares `child`,
 /// so its field table has one more entry than `Order`'s table.
 ///
-/// Trace: FR-038-AC-144
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_a_relationship_edge_read_charges_its_effective_table_end_to_end() {
@@ -3224,7 +3187,6 @@ fn tc_227_a_relationship_edge_read_charges_its_effective_table_end_to_end() {
 /// unselected declaration each refuse with their own code at the operand or
 /// member at fault.
 ///
-/// Tracing: TC-056, FR-040-AC-13
 #[trace("TC-056", "FR-040-AC-13")]
 #[test]
 fn tc_056_reaches_field_refuses_an_invalid_edge_where_it_fails() {
