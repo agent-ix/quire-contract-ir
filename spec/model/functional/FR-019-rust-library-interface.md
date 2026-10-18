@@ -110,7 +110,12 @@ of the stable public surface; FR-038 owns which type takes which path and the
 bytes they produce. Coverage accepts immutable traces and returns a complete report
 plus ordered diagnostics. No mutable cache, global registry, filesystem path,
 process handle, host-width integer, downstream engine type, or schema-library
-type appears in the semantic API.
+type appears in the semantic API. Here the semantic API means the public
+construction, wire decoding, semantic validation, dependency derivation,
+canonicalization, and coverage-classification entrypoints and their semantic
+input and result types. The separately exported conformance runner and fixture
+interfaces of FR-018 and FR-020 are outside that subset; `run_corpus`
+deliberately accepts filesystem paths.
 
 The model crate root additionally exports `expected_inventory` as stable
 API; it returns the sorted published construct and boundary inventory as owned
@@ -207,7 +212,7 @@ missing, foreign, and conflicting binding refusals under FR-052-AC-15.
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-019-AC-1 | A default-feature external API test imports `PUBLIC_CONSTRUCT_TAGS`, `CONFORMANCE_BOUNDARIES`, `DiagnosticCode::ALL`, `ConformanceOperation::ALL`, and `expected_inventory` from `quire_contract_model` and uses them to construct the published inventory. | Test (TC-018) |
+| FR-019-AC-1 | A TC-018 integration test imports `PUBLIC_CONSTRUCT_TAGS`, `CONFORMANCE_BOUNDARIES`, `DiagnosticCode::ALL`, `ConformanceOperation::ALL`, and `expected_inventory` from `quire_contract_model` and uses them to construct the published inventory. | Test (TC-018) |
 | FR-019-AC-3 | `expected_inventory` equals the five prefixed registries and nothing else, strictly ascending with no duplicate. | Test (TC-018) |
 | FR-019-AC-4 | A default-feature build of `quire-contract-model` exports neither `MappingAllocationPoint` nor `MappingExecutionControl::fail_allocation_at`: code naming either fails to compile without the `fault-injection` feature. | Test (TC-018) |
 | FR-019-AC-5 | The `quire_contract_model` crate root has no glob re-export, and its default-feature public items are exactly those the Public items table lists, checked by a public-item inventory that fails on an added or missing item; no item in the table is reachable through a `quire_contract_ir` path. | Test (TC-058) |
@@ -219,7 +224,7 @@ missing, foreign, and conflicting binding refusals under FR-052-AC-15.
 | FR-019-AC-10 | Public package and expression decoding, semantic validation, canonicalization, and coverage classification signatures return typed fallible results; none silently converts an invalid request into a validated value. | Inspection (TC-018) |
 | FR-019-AC-11 | Each public canonicalization entrypoint requires an explicit `CanonicalProfile`, and the closed profile exposes only `quire.contract.canonical-json/v1`; omitting the profile does not compile. | Inspection (TC-018) |
 | FR-019-AC-12 | A default-feature external API test imports `MAX_SEMANTIC_NODES: u32 = 25000`, `MAX_SEMANTIC_DEPTH: u32 = 256`, `MAX_SEMANTIC_COLLECTION_ITEMS: u32 = 10000`, and `MAX_WIRE_JSON_DEPTH: u32 = 576` from `quire_contract_model` and checks their exact values. | Test (TC-018) |
-| FR-019-AC-13 | Public-source signature inspection finds no host handle, filesystem path, mutable cache, downstream engine type, or schema-library type in the default-feature semantic API; the check runs on stable Rust without nightly rustdoc JSON. | Inspection (TC-018) |
+| FR-019-AC-13 | Public-source signature inspection finds no host handle, filesystem path, mutable cache, downstream engine type, or schema-library type in the default-feature semantic API subset defined in Behavior; it excludes the conformance runner and fixture APIs and runs on stable Rust without nightly rustdoc JSON. | Inspection (TC-018) |
 
 ## Dependencies
 
