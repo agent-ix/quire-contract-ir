@@ -27,3 +27,9 @@ Ticket: IR-856. Diff-scoped review of PR 459 at b644efed1d4b648a74e4897fbbc7fa78
 ## Verdict
 
 FAIL. Public callers can supply B, implement its Encode and cause the allegedly unreachable branch. No new criterion is orphaned: the new paragraph has no AC, TC-017 remains TC-only, and the measured matrix statuses are unchanged. The existing matrix index says AC-1..8 although AC-9 is present and tagged; that pre-existing index omission was not introduced by this diff.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The revised FR-016 statement limits the guaranteed resource refusal to built-in bodies, acknowledges caller-owned Encode errors through the public generic API, and leaves non-resource fault-message wording noncontractual. TC-017 now names both built-in and caller-owned bodies; CanonicalBody remains public and unsealed. |

@@ -27,3 +27,9 @@ Ticket: IR-856. Diff-scoped review of PR 459 at b644efed1d4b648a74e4897fbbc7fa78
 ## Verdict
 
 FAIL. The public trait is re-exported at crates/quire-contract-model/src/lib.rs:100; external body types may implement it, enter the public ContractPackage<B>::new at identity.rs:1139 and canonical_package at canonical.rs:180. A caller-owned Encode can return Protocol/Internal after package validation. Narrow the statement to the built-in body types or state that the diagnostic wording is noncontractual for every Encode failure. Sealing CanonicalBody would be a separate public API change. No new AC was added; existing FR-016-AC-1..3 remain untagged and AC-4..9 are tagged, unchanged by this PR.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The revised FR-016 statement limits the guaranteed resource refusal to built-in bodies, acknowledges caller-owned Encode errors through the public generic API, and leaves non-resource fault-message wording noncontractual. TC-017 now names both built-in and caller-owned bodies; CanonicalBody remains public and unsealed. |

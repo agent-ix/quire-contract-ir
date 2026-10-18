@@ -27,3 +27,9 @@ Ticket: IR-856. Diff-scoped review of PR 459 at b644efed1d4b648a74e4897fbbc7fa78
 ## Verdict
 
 FAIL. A valid ContractPackage<B> can pass structural validation because DependencySource does not validate Encode behavior; canonicalization then calls B::encode_into and maps its Protocol/Internal error through encoder_refusal. The direct TC-017 helper test proves message distinction only, not reachability or unreachability. Public binding, wire and conformance paths use built-in types and simply propagate the Diagnostic.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The revised FR-016 statement limits the guaranteed resource refusal to built-in bodies, acknowledges caller-owned Encode errors through the public generic API, and leaves non-resource fault-message wording noncontractual. TC-017 now names both built-in and caller-owned bodies; CanonicalBody remains public and unsealed. |

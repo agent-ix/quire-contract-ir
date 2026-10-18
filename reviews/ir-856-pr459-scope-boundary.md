@@ -27,3 +27,9 @@ Ticket: IR-856. Diff-scoped review of PR 459 at b644efed1d4b648a74e4897fbbc7fa78
 ## Verdict
 
 FAIL. ReferenceBody and TypedExpression are model-owned, but CanonicalBody is a public unsealed trait and canonical_package/requirement/clause are generic over it. State the built-in-path limit explicitly and leave the diagnostic message noncontractual for caller-owned bodies as well, or change the public API in a separate code PR if model-only encoding is required.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The revised FR-016 statement limits the guaranteed resource refusal to built-in bodies, acknowledges caller-owned Encode errors through the public generic API, and leaves non-resource fault-message wording noncontractual. TC-017 now names both built-in and caller-owned bodies; CanonicalBody remains public and unsealed. |
