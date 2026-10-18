@@ -26,3 +26,9 @@ Ticket: IR-874. Diff-scoped code and Rust review of frozen head d1ec73c2802101d7
 ## Verdict
 
 CONDITIONAL. The validator's current table agrees with the authored QSpec tables, the focused tests pass, and Rust structure and error handling present no other diff-scoped issue. FND-001 leaves the fixed binding table without independent test evidence. This is a partial reader slice; FR-038-AC-281 through AC-292 are not claimed as complete.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At a5988f0f520d62673e7e8c09f30f9e9d2ee650a2, the new TC-048 test supplies fixed QSpec binding names and shapes independently of `layout` for eight operators across all seven forms, overwrites the helper's arguments, admits each frame, and refuses a mutated binding. The reviewer reran the focused protocol-body tests: 6 passed. |
