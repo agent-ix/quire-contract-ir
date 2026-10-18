@@ -17,8 +17,10 @@ model-crate consumer. FR-052-AC-8 is retired (ADR-0056). Owner-native evidence
 is still required where a criterion says so. FR-052-AC-24, split from AC-3, is
 Implemented by a traced synthetic conflicting-facts test. Owner-native completion, full-output comparison, and the
 full matched-source census remain Planned/UNRUN under AC-7, AC-9 through
-AC-11, and AC-16. Quire's selected-scope producer awaits PLAT-1165. Synthetic
-outcomes do not establish owner-native exhaustion.
+AC-11, and AC-16. The independently testable IR V2, QSL and `quire-code-rs`
+owner portions in AC-25 through AC-27 are also Planned. Quire's selected-scope
+producer awaits PLAT-1165. Synthetic outcomes do not establish owner-native
+exhaustion.
 
 ## Description
 
@@ -105,6 +107,39 @@ promotes an absent stop cause to `Complete`; `Complete` follows only from the
 enumerator's `Ok(None)`. Pass mismatched source, owner,
 scope and row count to the neutral retention boundary and verify typed refusal.
 These checks do not substitute for matched-source four-owner census tests.
+
+For FR-052-AC-25, supply an owner-issued IR V2 reader result to the model-owned adapter,
+including a graph with several nodes and multiple occurrences on one node.
+Compare each outcome row and its source, owner, scope and observed count with
+an independent traversal of the selected graph. Remove all occurrences from
+one node and verify the V2 reader refuses it as `InvalidSourceMap` before an
+adapter can issue `Complete`.
+Remove one emitted occurrence or node row after obtaining the full output and
+adjust the count: the independent comparison must fail. Obtain a V2 reader
+`Incomplete` and compare the outcome's limit kind, limit, consumed count and
+optional path with the reader's `CheckedPackageIncomplete`. Obtain a reader
+refusal and verify it cannot produce `Complete`. Verify that an arbitrary row
+vector, count or completion flag cannot reach the adapter's `Complete` branch
+in place of the selected reader result. These checks may
+back AC-25 alone while the four-owner AC-7 and AC-9 through AC-11 remain
+Planned.
+
+For FR-052-AC-26, supply a QSL selected checked request to its owner adapter.
+Compare all `CheckedGraph::requirements()` keys and native pending-obligation
+site/kind tuples against independent owner output, including each key and site
+field, an empty scope and one omitted-row mutation with an adjusted count.
+Trigger native type-work exhaustion and unfinished admission separately, and
+compare every retained typed cause field and partial row with the owner report.
+Verify that no caller-authored rows/count/completion flag or unsupported
+cancellation can produce `Complete` or a fabricated stop.
+
+For FR-052-AC-27, select a `quire-code-rs` production module and compare its
+module and every function fact against independent full parse output. Repeat
+with a fully parsed zero-function module, an omitted function with adjusted
+count, a missing selected module and a parse failure. Verify normal terminal
+completion, retained partial rows and the owner's actual typed stop cause;
+caller-authored rows/count/completion flags and unsupported cancellation must
+not produce a completed outcome.
 
 Separately, drive a synthetic `SourceInventoryEnumerator` with zero and
 multiple rows. Observe that only `Ok(None)` produces a neutral `Complete`
@@ -307,6 +342,12 @@ requested/deadline cancellation remains two typed causes. An absent stop cause
 is never promoted to `Complete`.
 The neutral model rejects mismatched source, owner, scope or count. No result
 from these checks alone is reported as a complete source-obligation census.
+
+Each owner-specific result in FR-052-AC-25 through AC-27 preserves its native
+full output or typed incomplete cause and independently rejects a shortened
+output with a self-consistent count. An owner-specific pass does not mark
+FR-052-AC-7 or AC-9 through AC-11 implemented; those criteria still require
+all four owner-native outcomes and the matched-source census.
 
 The synthetic boundary yields `Complete` only for `Ok(None)`, preserves the
 exact typed `Err` as `Incomplete`, and rejects each structural mismatch with
