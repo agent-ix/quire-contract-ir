@@ -14,7 +14,9 @@ const MODEL_ROOT: &str = include_str!("../../crates/quire-contract-model/src/lib
 const BRIDGE_ROOT: &str = include_str!("../../src/lib.rs");
 const FR_019: &str = include_str!("../../spec/model/functional/FR-019-rust-library-interface.md");
 
-const FORBIDDEN_PUBLIC_NAME_PARTS: [&str; 17] = [
+/// Forbidden vocabulary, compared after case folding and separator removal so
+/// `file_path`, `filePath`, `FilePath` and `file-path` are one spelling.
+const FORBIDDEN_PUBLIC_NAME_PARTS: [&str; 16] = [
     "rust",
     "gumbo",
     "aadl",
@@ -25,14 +27,20 @@ const FORBIDDEN_PUBLIC_NAME_PARTS: [&str; 17] = [
     "isize",
     "pathbuf",
     "filesystem",
-    "file_path",
-    "os_path",
+    "filepath",
+    "ospath",
     "pointerwidth",
-    "pointer_width",
     "linux",
     "windows",
     "macos",
 ];
+
+fn normalized_name(name: &str) -> String {
+    name.chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|character| character.to_ascii_lowercase())
+        .collect()
+}
 
 fn portable_name_violations<I, S>(names: I) -> Vec<String>
 where
@@ -42,14 +50,127 @@ where
     names
         .into_iter()
         .flat_map(|name| {
-            let name = name.as_ref().to_ascii_lowercase();
+            let normalized = normalized_name(name.as_ref());
             FORBIDDEN_PUBLIC_NAME_PARTS
                 .into_iter()
-                .filter(|part| name.contains(part))
-                .map(|part| format!("{name}: {part}"))
+                .filter(|part| normalized.contains(part))
+                .map(|part| format!("{}: {part}", name.as_ref()))
                 .collect::<Vec<_>>()
         })
         .collect()
+}
+
+/// Source text with line and block comments removed, so a commented-out
+/// declaration is neither inventoried nor accepted.
+fn strip_comments(source: &str) -> String {
+    let mut stripped = String::with_capacity(source.len());
+    let mut rest = source;
+    while let Some(start) = rest.find("/") {
+        stripped.push_str(&rest[..start]);
+        rest = &rest[start..];
+        if rest.starts_with("//") {
+            rest = rest.find('\n').map_or("", |end| &rest[end..]);
+        } else if rest.starts_with("/*") {
+            rest = rest.find("*/").map_or("", |end| &rest[end + 2..]);
+            stripped.push(' ');
+        } else {
+            stripped.push('/');
+            rest = &rest[1..];
+        }
+    }
+    stripped.push_str(rest);
+    stripped
+}
+
+/// Every top-level `pub ...` statement of a comment-stripped module: a `pub
+/// use` runs to its semicolon, any other declaration is its first line.
+fn public_statements(source: &str) -> Vec<String> {
+    let source = strip_comments(source);
+    let mut statements = Vec::new();
+    let mut lines = source.lines().peekable();
+    while let Some(line) = lines.next() {
+        if !line.starts_with("pub ") {
+            continue;
+        }
+        let mut statement = line.to_owned();
+        if line.starts_with("pub use ") {
+            while !statement.contains(';') {
+                statement.push(' ');
+                statement.push_str(lines.next().expect("pub use must end with a semicolon"));
+            }
+        }
+        statements.push(statement);
+    }
+    statements
+}
+
+/// Names a `pub use` statement exports; globs, nested groups and any path
+/// outside `crate::checked_package` are refused, an alias exports its alias.
+fn selected_population_export_names(statement: &str) -> Vec<String> {
+    let path = statement
+        .strip_prefix("pub use crate::checked_package::")
+        .and_then(|path| path.trim_end().strip_suffix(';'))
+        .unwrap_or_else(|| panic!("unrecognized selected-population re-export: {statement}"));
+    let list = path
+        .strip_prefix('{')
+        .map(|list| {
+            list.strip_suffix('}')
+                .unwrap_or_else(|| panic!("unclosed export list: {statement}"))
+        })
+        .unwrap_or(path);
+    list.split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| {
+            let exported = entry.rsplit(" as ").next().unwrap_or(entry).trim();
+            assert!(
+                !exported.is_empty()
+                    && exported
+                        .chars()
+                        .all(|character| character.is_ascii_alphanumeric() || character == '_'),
+                "unrecognized selected-population re-export form `{entry}`: {statement}"
+            );
+            exported.to_owned()
+        })
+        .collect()
+}
+
+/// The declared name of a `pub` item, skipping function and static qualifiers.
+fn public_item_name(declaration: &str) -> String {
+    let mut tokens = declaration.split_whitespace().skip(1).peekable();
+    while let Some(token) = tokens.peek().copied() {
+        let qualifier = matches!(token, "async" | "unsafe" | "extern")
+            || token.starts_with('"')
+            || (token == "const"
+                && matches!(
+                    tokens.clone().nth(1),
+                    Some("fn" | "unsafe" | "async" | "extern")
+                ));
+        if !qualifier {
+            break;
+        }
+        tokens.next();
+    }
+    let kind = tokens.next();
+    assert!(
+        matches!(
+            kind,
+            Some("struct" | "enum" | "trait" | "fn" | "type" | "const" | "static" | "union")
+        ),
+        "unrecognized public source-obligation declaration: {declaration}"
+    );
+    if kind == Some("static") && tokens.peek() == Some(&"mut") {
+        tokens.next();
+    }
+    tokens
+        .next()
+        .and_then(|name| {
+            name.split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+                .next()
+                .filter(|name| !name.is_empty())
+        })
+        .unwrap_or_else(|| panic!("public declaration has no name: {declaration}"))
+        .to_owned()
 }
 
 fn collect_schema_names(value: &Value, names: &mut Vec<String>) {
@@ -209,7 +330,8 @@ fn exported_items() -> BTreeMap<String, BTreeSet<String>> {
         .entry("code".into())
         .or_default()
         .extend(exported_macros);
-    if MODEL_ROOT
+    let root = strip_comments(MODEL_ROOT);
+    if root
         .lines()
         .any(|line| line.trim() == "pub mod source_obligation;")
     {
@@ -222,33 +344,15 @@ fn exported_items() -> BTreeMap<String, BTreeSet<String>> {
                 .join("crates/quire-contract-model/src/source_obligation.rs"),
         )
         .expect("source-obligation module must be readable");
-        let module_items = source.lines().filter_map(|line| {
-            let declaration = line.strip_prefix("pub ")?;
-            let name = declaration
-                .strip_prefix("struct ")
-                .or_else(|| declaration.strip_prefix("enum "))
-                .or_else(|| declaration.strip_prefix("trait "))
-                .or_else(|| declaration.strip_prefix("fn "))
-                .or_else(|| declaration.strip_prefix("type "))
-                .or_else(|| declaration.strip_prefix("const "))
-                .or_else(|| declaration.strip_prefix("static "))
-                .unwrap_or_else(|| {
-                    panic!("unrecognized public source-obligation declaration: {declaration}")
-                });
-            Some(
-                name.split(|character: char| {
-                    !character.is_ascii_alphanumeric() && character != '_'
-                })
-                .next()?
-                .to_owned(),
-            )
-        });
+        let module_items = public_statements(&source)
+            .into_iter()
+            .map(|declaration| public_item_name(&declaration));
         items
             .entry("source_obligation".into())
             .or_default()
             .extend(module_items);
     }
-    if MODEL_ROOT
+    if root
         .lines()
         .any(|line| line.trim() == "pub mod selected_population;")
     {
@@ -261,29 +365,14 @@ fn exported_items() -> BTreeMap<String, BTreeSet<String>> {
                 .join("crates/quire-contract-model/src/selected_population.rs"),
         )
         .expect("selected-population facade must be readable");
-        for declaration in source.lines().filter(|line| line.starts_with("pub ")) {
-            assert!(
-                declaration.starts_with("pub use "),
-                "unrecognized public selected-population declaration: {declaration}"
-            );
-        }
-        let declaration = source
-            .split_once("pub use crate::checked_package::{")
-            .expect("selected-population facade must name its exports")
-            .1
-            .split_once("};")
-            .expect("selected-population export list must close")
-            .0;
+        let names = public_statements(&source)
+            .iter()
+            .flat_map(|statement| selected_population_export_names(statement))
+            .collect::<Vec<_>>();
         items
             .entry("selected_population".into())
             .or_default()
-            .extend(
-                declaration
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|name| !name.is_empty())
-                    .map(str::to_owned),
-            );
+            .extend(names);
     }
     items
 }
@@ -322,9 +411,14 @@ fn tc_456_public_schema_and_model_names_are_portable() {
     collect_schema_names(&forbidden_schema, &mut forbidden_names);
     assert_eq!(portable_name_violations(forbidden_names).len(), 3);
     assert!(portable_name_violations(["jsonpointer"]).is_empty());
+    assert_eq!(
+        portable_name_violations(["filePath", "FilePath", "osPath", "file_system"]).len(),
+        4
+    );
 
     let model_items = exported_items();
-    let public_modules = MODEL_ROOT
+    let root = strip_comments(MODEL_ROOT);
+    let public_modules = root
         .lines()
         .filter_map(|line| line.trim().strip_prefix("pub mod ")?.strip_suffix(';'))
         .collect::<BTreeSet<_>>();
@@ -343,9 +437,10 @@ fn tc_456_public_schema_and_model_names_are_portable() {
             "public module {module} must have an item inventory"
         );
     }
-    for declaration in MODEL_ROOT.lines().filter(|line| line.starts_with("pub ")) {
+    for declaration in public_statements(MODEL_ROOT) {
         assert!(
-            declaration.starts_with("pub mod ") || declaration.starts_with("pub use "),
+            (declaration.starts_with("pub mod ") && declaration.trim_end().ends_with(';'))
+                || declaration.starts_with("pub use "),
             "unrecognized public model-root declaration: {declaration}"
         );
     }
