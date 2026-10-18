@@ -88,7 +88,6 @@ fn lowered(record: &CompleteLoweringRecordV2) -> &quire_contract_model::Complete
     }
 }
 
-/// Tracing: TC-050, FR-038-AC-6
 #[trace("TC-050", "FR-038-AC-6")]
 #[test]
 fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
@@ -222,7 +221,6 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
     }
 }
 
-/// Tracing: TC-050, FR-038-AC-6
 #[trace("TC-050", "FR-038-AC-6")]
 #[test]
 fn tc_050_non_lowered_records_are_terminal_and_independent() {
@@ -330,7 +328,6 @@ fn tc_050_non_lowered_records_are_terminal_and_independent() {
     );
 }
 
-/// Tracing: TC-050, FR-038-AC-6
 #[trace("TC-050", "FR-038-AC-6")]
 #[test]
 fn tc_050_unbounded_types_require_a_reachable_bounding_domain() {
@@ -423,7 +420,6 @@ fn graph_keys(value: &Value) -> Vec<CheckedNodeId> {
         .collect()
 }
 
-/// Tracing: TC-052, FR-038-AC-7
 #[trace("TC-052", "FR-038-AC-7")]
 #[test]
 fn tc_052_record_vocabulary_is_seven_and_defensive_kinds_are_unreachable() {
@@ -508,7 +504,6 @@ fn tc_052_record_vocabulary_is_seven_and_defensive_kinds_are_unreachable() {
     );
 }
 
-/// Tracing: TC-052, FR-038-AC-8
 #[trace("TC-052", "FR-038-AC-8")]
 #[test]
 fn tc_052_lowering_outcome_selection_is_a_total_order() {
@@ -693,7 +688,6 @@ fn forms_package(scalar_form: &str, composite_form: &str) -> Forms {
     }
 }
 
-/// Tracing: TC-052, FR-038-AC-8
 #[trace("TC-052", "FR-038-AC-8")]
 #[test]
 fn tc_052_unbounded_forms_are_exactly_the_eight_declared_forms() {
@@ -783,7 +777,6 @@ fn tc_052_unbounded_forms_are_exactly_the_eight_declared_forms() {
     }
 }
 
-/// Tracing: TC-052, FR-038-AC-8
 #[trace("TC-052", "FR-038-AC-8")]
 #[test]
 fn tc_052_dependencies_contain_every_bound_and_claim_key() {
