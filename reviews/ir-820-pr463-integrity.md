@@ -34,3 +34,9 @@ CONDITIONAL. Update the matrix status reason to say AC-24 awaits implementation 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | The TC-452 matrix row still says AC-24 waits for IR-820 to settle the SemanticNode fact; this PR settles it and leaves only the code and conflict test planned. | spec/model/matrix/tests.md:34 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At 5bbd8790dfda2caebd5acdef574f62c07694262a, the TC-452 matrix row says AC-24 awaits the `SemanticNode` type change and conflicting-facts test. The row no longer claims the spec decision is pending. |
