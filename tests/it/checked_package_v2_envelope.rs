@@ -216,6 +216,63 @@ fn tc_451_borrowed_and_owned_projection_refuse_the_same_invalid_body() {
     ));
 }
 
+#[trace("TC-451", "FR-051-AC-3", "FR-051-AC-4")]
+#[test]
+fn tc_451_borrowed_projection_can_differ_from_the_supplied_graph() {
+    let mut value = v2_all_families();
+    let original: CheckedPackageIdentityPreimageV2 = typed(&value["identity_preimage"]);
+    let graph: CheckedSemanticGraphV2 = typed(&value["semantic_graph"]);
+    let original_digest = quire_canonical::sha256(
+        &borrowed_preimage(&original, &graph.nodes),
+        Limits::new(u64::MAX),
+    )
+    .expect("original package identity")
+    .to_string();
+    value["package_id"] = json!({
+        "domain": PACKAGE_DOMAIN_V2, "algorithm": "sha256", "digest": original_digest,
+    });
+    let evidence = evidence_for(&value);
+
+    let mut independent_nodes = graph.nodes.clone();
+    let changed_body = json!({"independent_projection": true});
+    independent_nodes[0].body = changed_body.clone();
+    let mut owned = original;
+    owned.identity_projection[0].body = changed_body.clone();
+    let borrowed = borrowed_preimage(&owned, &independent_nodes);
+    assert_eq!(
+        quire_canonical::to_vec(&borrowed, Limits::new(u64::MAX))
+            .expect("independent borrowed preimage"),
+        quire_canonical::to_vec(&owned, Limits::new(u64::MAX)).expect("equivalent owned preimage")
+    );
+
+    let package_id: CheckedSemanticId = typed(&value["package_id"]);
+    let lock: CheckedPackageLockV2 = typed(&value["lock"]);
+    let source_map: Vec<CheckedSourceMapEntry> = typed(&value["source_map"]);
+    let capabilities: Vec<CheckedCapability> = typed(&value["capability_report"]);
+    let diagnostics: CheckedDiagnosticsV2 = typed(&value["diagnostics"]);
+    let bytes = encode_checked_package_v2(
+        &borrowed,
+        &package_id,
+        &lock,
+        &graph,
+        &source_map,
+        &capabilities,
+        &diagnostics,
+        Limits::new(u64::MAX),
+    )
+    .expect("independent projection encodes");
+    let mut expected = value.clone();
+    expected["identity_preimage"]["identity_projection"][0]["body"] = changed_body;
+    assert_eq!(bytes, canonical(&expected));
+    let encoded: Value = serde_json::from_slice(&bytes).expect("encoded envelope");
+    assert_eq!(encoded["semantic_graph"], value["semantic_graph"]);
+    assert_ne!(encoded["identity_preimage"], value["identity_preimage"]);
+    assert_eq!(
+        refused(&bytes, &evidence),
+        CheckedPackageRefusalCode::StaleDependency
+    );
+}
+
 #[trace("TC-451", "FR-051-AC-1", "FR-051-AC-2", "FR-051-AC-3", "FR-051-AC-4")]
 #[test]
 fn tc_451_typed_envelope_has_exact_members_and_canonical_boundaries() {

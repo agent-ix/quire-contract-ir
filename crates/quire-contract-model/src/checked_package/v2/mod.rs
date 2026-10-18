@@ -2520,12 +2520,10 @@ mod tests {
     use ix_trace_rs::trace;
     use serde_json::json;
 
-    #[trace("TC-451", "FR-051-AC-1", "FR-051-AC-4")]
-    #[test]
-    fn tc_451_borrowed_encoder_equals_private_owned_wire_bytes() {
+    fn tc_451_private_owned_wire() -> super::CheckedPackageWireV2 {
         let edition =
             json!({"role": "edition", "definition": {"authority": "test", "identity": "edition"}});
-        let wire: super::CheckedPackageWireV2 = serde_json::from_value(json!({
+        serde_json::from_value(json!({
             "contract_version": super::CHECKED_PACKAGE_V2,
             "identity_preimage": {
                 "version": "quire.checked-package-id/v2", "edition": edition,
@@ -2541,7 +2539,14 @@ mod tests {
             "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": []},
             "source_map": [], "capability_report": [],
             "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"}, "entries": []}
-        })).expect("private owned wire");
+        }))
+        .expect("private owned wire")
+    }
+
+    #[trace("TC-451", "FR-051-AC-1", "FR-051-AC-4")]
+    #[test]
+    fn tc_451_borrowed_encoder_equals_private_owned_wire_bytes() {
+        let wire = tc_451_private_owned_wire();
         let borrowed = super::CheckedPackageIdentityPreimageRefV2 {
             version: &wire.identity_preimage.version,
             edition: &wire.identity_preimage.edition,
@@ -2566,6 +2571,87 @@ mod tests {
         let owned_bytes = serde_json::to_vec(&serde_json::to_value(&wire).expect("wire value"))
             .expect("private wire bytes");
         assert_eq!(bytes, owned_bytes);
+    }
+
+    #[trace("TC-451", "FR-051-AC-4")]
+    #[test]
+    fn tc_451_deep_borrowed_envelope_equals_private_owned_wire_on_a_small_stack() {
+        fn nested(depth: usize) -> serde_json::Value {
+            let mut value = serde_json::Value::Null;
+            for _ in 0..depth {
+                value = serde_json::Value::Array(vec![value]);
+            }
+            value
+        }
+
+        let mut wire = tc_451_private_owned_wire();
+        let node_id = super::test_support::id('b');
+        let node: CheckedSemanticNodeV2 = serde_json::from_value(json!({
+            "node_id": node_id.clone(),
+            "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "test", "semantic_form": "test",
+            "semantic_type": node_id, "dependencies": [], "occurrences": [], "body": null
+        }))
+        .expect("shallow graph node");
+        wire.identity_preimage
+            .identity_projection
+            .push((&node).into());
+        wire.semantic_graph.nodes.push(node);
+
+        let (expected, actual) = std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(move || -> Result<_, quire_canonical::Error> {
+                const DEEP: usize = 100_000;
+                // The typed private wire supplies every envelope field. Build
+                // its JSON value while bodies are shallow, then place deep
+                // bodies without recursive serde serialization.
+                let mut private_wire_value =
+                    serde_json::to_value(&wire).expect("private owned wire value");
+                private_wire_value["identity_preimage"]["identity_projection"][0]["body"] =
+                    nested(DEEP);
+                private_wire_value["semantic_graph"]["nodes"][0]["body"] = nested(DEEP);
+                wire.identity_preimage.identity_projection[0].body = nested(DEEP);
+                wire.semantic_graph.nodes[0].body = nested(DEEP);
+
+                let result = (|| {
+                    let ceiling = 1_000_000;
+                    let limits = quire_canonical::Limits::new(ceiling);
+                    let expected = quire_canonical::to_vec(&private_wire_value, limits)?;
+                    let borrowed = super::CheckedPackageIdentityPreimageRefV2 {
+                        version: &wire.identity_preimage.version,
+                        edition: &wire.identity_preimage.edition,
+                        profile_selections: &wire.identity_preimage.profile_selections,
+                        definition_selections: &wire.identity_preimage.definition_selections,
+                        model_selections: &wire.identity_preimage.model_selections,
+                        required_features: &wire.identity_preimage.required_features,
+                        dependency_selections: &wire.identity_preimage.dependency_selections,
+                        identity_projection: &wire.semantic_graph.nodes,
+                    };
+                    let actual = super::encode_checked_package_v2(
+                        &borrowed,
+                        &wire.package_id,
+                        &wire.lock,
+                        &wire.semantic_graph,
+                        &wire.source_map,
+                        &wire.capability_report,
+                        &wire.diagnostics,
+                        limits,
+                    )?;
+                    Ok((expected, actual))
+                })();
+
+                quire_canonical::drop_value(std::mem::take(&mut private_wire_value));
+                quire_canonical::drop_value(std::mem::take(
+                    &mut wire.identity_preimage.identity_projection[0].body,
+                ));
+                quire_canonical::drop_value(std::mem::take(&mut wire.semantic_graph.nodes[0].body));
+                result
+            })
+            .expect("small-stack thread spawns")
+            .join()
+            .expect("small-stack thread completes")
+            .expect("deep private and borrowed envelopes encode");
+        assert_eq!(actual, expected);
     }
 
     /// The body-root literal exemption is a graph-stage rule after key
