@@ -36,9 +36,10 @@ RSS minus the starting RSS, the process high-water RSS, emitted byte length,
 elapsed emission time, complete emitted bytes, and typed `package_id`. Run the
 baseline and changed producer three times each as separate release-profile
 processes on the same host, allocator and Rust toolchain. Compare the medians
-of incremental peak RSS. Keep source generation and startup outside the
-measurement window. Use the baseline's exact bytes only as a temporary
-comparison oracle, not as a repository copy of another artifact.
+of incremental peak RSS and report the median emission time for each path;
+time is an observation, not a gated result. Keep source generation and startup
+outside the measurement window. Use the baseline's exact bytes only as a
+temporary comparison oracle, not as a repository copy of another artifact.
 
 For the candidate path, compare the complete canonical bytes byte-for-byte
 with baseline output and compare the typed `package_id`. Read both envelopes
@@ -51,13 +52,17 @@ retains the existing error and no-partial-bytes behavior.
 ## Expected Results
 
 All six fresh processes emit the same canonical bytes and `package_id`; both
-versions' bytes are reader-admitted. The changed producer's median incremental
-peak RSS does not exceed the freshly remeasured baseline median plus that
-baseline's three-run range. The current control's median is 337,700 KiB and
-range is 64 KiB, yielding a 337,764 KiB no-regression bound on this host.
-The reduction target remains **PLANNED** until the changed path is measured.
+versions' bytes are reader-admitted. Once QSL adopts the borrowed view, the
+changed producer's median incremental peak RSS is at least 65,536 KiB (64 MiB)
+below the freshly remeasured owned-projection baseline median on the same host.
+The fresh control's median is 339,124 KiB, giving this measurement a candidate
+ceiling of 273,588 KiB. The local uncommitted candidate's median is 254,692 KiB,
+an 84,432 KiB (24.90%) reduction; this demonstrates the target with the trial
+patch but does not complete QSL-owned adoption. The candidate's median emission
+time was 1,544 ms versus the baseline's 1,137 ms, a 35.8% slowdown disclosed
+without a time bound.
 The fixed source emits 40,631,408 bytes with typed `package_id`
 `ecc79a978fb59047c27e588cb17ccce1d0385eaa8427817cc4591fe1e0dc079a`.
 No second owned body is retained per projected node, and canonical refusal
-returns no bytes. The recorded baseline measurement is reproduced before the
-candidate's result is evaluated.
+returns no bytes. A fresh baseline measurement is made before the candidate's
+result is evaluated.
