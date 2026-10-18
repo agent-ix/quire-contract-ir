@@ -88,7 +88,6 @@ fn lowered(record: &CompleteLoweringRecordV2) -> &CompleteContractNodeV2 {
     }
 }
 
-/// Tracing: TC-044, FR-035-AC-1, FR-035-AC-3, FR-035-AC-4
 #[trace("TC-044", "FR-035-AC-1", "FR-035-AC-3", "FR-035-AC-4")]
 #[test]
 fn tc_044_reader_admits_and_lowers_every_public_node_family() {
@@ -193,7 +192,6 @@ fn tc_044_reader_admits_and_lowers_every_public_node_family() {
     );
 }
 
-/// Tracing: TC-044, FR-035-AC-2
 #[trace("TC-044", "FR-035-AC-2")]
 #[test]
 fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
@@ -322,7 +320,6 @@ fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
     // and none emits a backend artifact.
 }
 
-/// Tracing: TC-044, FR-035-AC-2
 #[trace("TC-044", "FR-035-AC-2")]
 #[test]
 fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {

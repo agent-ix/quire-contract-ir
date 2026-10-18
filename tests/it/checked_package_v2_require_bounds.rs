@@ -282,7 +282,6 @@ fn only_record(value: &Value, request: &CheckedNodeId) -> CompleteLoweringRecord
     result.records.into_iter().next().expect("one record")
 }
 
-/// Tracing: TC-050, FR-038-AC-39
 #[trace("TC-050", "FR-038-AC-39")]
 #[test]
 fn tc_050_x_plus_one_over_a_bounded_parameter_lowers_under_require_bounds() {
@@ -303,7 +302,6 @@ fn tc_050_x_plus_one_over_a_bounded_parameter_lowers_under_require_bounds() {
     }
 }
 
-/// Tracing: TC-050, FR-038-AC-39
 #[trace("TC-050", "FR-038-AC-39")]
 #[test]
 fn tc_050_a_value_typed_at_an_unbounded_type_still_requires_a_bound() {
@@ -322,7 +320,6 @@ fn tc_050_a_value_typed_at_an_unbounded_type_still_requires_a_bound() {
     );
 }
 
-/// Tracing: TC-050, FR-038-AC-39
 #[trace("TC-050", "FR-038-AC-39")]
 #[test]
 fn tc_050_a_literal_type_annotation_is_in_the_closure_but_never_refuses() {
@@ -356,7 +353,6 @@ fn tc_050_a_literal_type_annotation_is_in_the_closure_but_never_refuses() {
     );
 }
 
-/// Tracing: TC-050, FR-038-AC-39
 #[trace("TC-050", "FR-038-AC-39")]
 #[test]
 fn tc_050_a_type_named_only_through_dependencies_still_requires_a_bound() {
@@ -430,7 +426,6 @@ fn in_recursion_group((id, mut node): (String, Value)) -> (String, Value) {
     (id, node)
 }
 
-/// Tracing: TC-050, FR-038-AC-40
 #[trace("TC-050", "FR-038-AC-40")]
 #[test]
 fn tc_050_a_bound_over_the_shared_integer_does_not_cover_an_unbounded_field() {
@@ -451,7 +446,6 @@ fn tc_050_a_bound_over_the_shared_integer_does_not_cover_an_unbounded_field() {
     );
 }
 
-/// Tracing: TC-050, FR-038-AC-40
 #[trace("TC-050", "FR-038-AC-40")]
 #[test]
 fn tc_050_bounded_collections_and_ranged_fields_lower() {
@@ -488,7 +482,6 @@ fn tc_050_bounded_collections_and_ranged_fields_lower() {
     }
 }
 
-/// Tracing: TC-050, FR-038-AC-40
 #[trace("TC-050", "FR-038-AC-40")]
 #[test]
 fn tc_050_a_collection_of_unranged_integers_requires_a_bound() {
@@ -511,7 +504,6 @@ fn tc_050_a_collection_of_unranged_integers_requires_a_bound() {
     );
 }
 
-/// Tracing: TC-050, FR-038-AC-41
 #[trace("TC-050", "FR-038-AC-41")]
 #[test]
 fn tc_050_a_recursive_record_requires_a_bound() {
@@ -550,7 +542,6 @@ fn tc_050_a_recursive_record_requires_a_bound() {
     );
 }
 
-/// Tracing: TC-050, FR-038-AC-40
 #[trace("TC-050", "FR-038-AC-40")]
 #[test]
 fn tc_050_a_bound_over_one_parameter_does_not_cover_another_of_the_same_type() {
@@ -709,7 +700,6 @@ fn requires_bound_at(value: &Fixture, request: &str, unbounded: &str) -> Complet
     }
 }
 
-/// Tracing: TC-050, FR-038-AC-73
 #[trace("TC-050", "FR-038-AC-73")]
 #[test]
 fn tc_050_a_position_typed_at_a_quantity_requires_a_bound_naming_the_unit() {
@@ -737,7 +727,6 @@ fn tc_050_a_position_typed_at_a_quantity_requires_a_bound_naming_the_unit() {
     }
 }
 
-/// Tracing: TC-050, FR-038-AC-73
 #[trace("TC-050", "FR-038-AC-73")]
 #[test]
 fn tc_050_the_least_quantity_among_positions_is_named() {
@@ -752,7 +741,6 @@ fn tc_050_the_least_quantity_among_positions_is_named() {
     );
 }
 
-/// Tracing: TC-050, FR-038-AC-73
 #[trace("TC-050", "FR-038-AC-73")]
 #[test]
 fn tc_050_a_unit_is_not_a_quantity_position_merely_by_being_reached() {
@@ -800,7 +788,6 @@ fn tc_050_a_unit_is_not_a_quantity_position_merely_by_being_reached() {
     }
 }
 
-/// Tracing: TC-050, FR-038-AC-73
 #[trace("TC-050", "FR-038-AC-73")]
 #[test]
 fn tc_050_a_cyclic_domain_chain_ends_without_a_quantity() {
@@ -811,7 +798,6 @@ fn tc_050_a_cyclic_domain_chain_ends_without_a_quantity() {
     ));
 }
 
-/// Tracing: TC-050, FR-038-AC-73
 #[trace("TC-050", "FR-038-AC-73")]
 #[test]
 fn tc_050_without_require_bounds_every_quantity_position_lowers() {

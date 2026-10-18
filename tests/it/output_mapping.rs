@@ -168,7 +168,6 @@ fn admit(
     )
 }
 
-/// Tracing: TC-043, FR-032-AC-1, FR-032-AC-2, FR-032-AC-3.
 #[trace("TC-043", "FR-032-AC-1", "FR-032-AC-2", "FR-032-AC-3")]
 #[test]
 fn tc_043_profiles_admit_only_exact_fs06_values() {
@@ -264,7 +263,6 @@ fn tc_043_profiles_admit_only_exact_fs06_values() {
     assert!(SourceBytesDigest::parse(&"A".repeat(64)).is_err());
 }
 
-/// Tracing: TC-043, FR-032-AC-1, FR-032-AC-3, FR-032-AC-4.
 #[trace("TC-043", "FR-032-AC-1", "FR-032-AC-3", "FR-032-AC-4")]
 #[test]
 fn tc_043_request_admission_preserves_exact_ordered_inputs() {
@@ -293,8 +291,7 @@ fn tc_043_request_admission_preserves_exact_ordered_inputs() {
     assert_eq!(admitted.limits(), &limits());
 }
 
-/// Tracing: TC-043, FR-032-AC-2, NFR-060.
-#[trace("TC-043", "FR-032-AC-2")]
+#[trace("TC-043", "FR-032-AC-2", "NFR-060")]
 #[test]
 fn tc_043_request_admission_refuses_population_and_resource_mutations() {
     let package = bound_package();
@@ -499,7 +496,6 @@ fn tc_043_request_admission_refuses_population_and_resource_mutations() {
     );
 }
 
-/// Tracing: TC-043, FR-032-AC-3, FR-032-AC-4.
 #[trace("TC-043", "FR-032-AC-3", "FR-032-AC-4")]
 #[test]
 fn tc_043_request_equality_is_semantic_and_ambient_free() {
@@ -611,7 +607,6 @@ fn candidate(
     )
 }
 
-/// Tracing: TC-043, FR-033-AC-2, FR-033-AC-4, FR-033-AC-5.
 #[trace("TC-043", "FR-033-AC-2", "FR-033-AC-4", "FR-033-AC-5")]
 #[test]
 fn tc_043_mapping_candidate_invariants_are_closed_and_non_boolean() {
@@ -729,8 +724,7 @@ fn tc_043_mapping_candidate_invariants_are_closed_and_non_boolean() {
     assert!(invalid.into_iter().all(|result| result.is_err()));
 }
 
-/// Tracing: TC-043, FR-033-AC-2, FR-033-AC-4, NFR-060.
-#[trace("TC-043", "FR-033-AC-2", "FR-033-AC-4")]
+#[trace("TC-043", "FR-033-AC-2", "FR-033-AC-4", "NFR-060")]
 #[test]
 fn tc_043_candidate_regions_dependencies_and_work_fail_closed() {
     let package = bound_package();
@@ -881,7 +875,6 @@ fn one_request(
     .expect("single-obligation request")
 }
 
-/// Tracing: TC-043, FR-033-AC-3, FR-033-AC-5.
 #[trace("TC-043", "FR-033-AC-3", "FR-033-AC-5")]
 #[test]
 fn tc_043_record_identity_binds_each_semantic_axis() {
@@ -1215,7 +1208,6 @@ impl OutputMapper for DeterministicMapper {
     }
 }
 
-/// Tracing: TC-043, FR-033-AC-1, FR-033-AC-3, FR-033-AC-5.
 #[trace("TC-043", "FR-033-AC-1", "FR-033-AC-3", "FR-033-AC-5")]
 #[test]
 fn tc_043_mapper_dispatch_is_ordered_complete_and_identity_bearing() {
@@ -1251,8 +1243,7 @@ fn tc_043_mapper_dispatch_is_ordered_complete_and_identity_bearing() {
     assert_eq!(mapped.records()[0].protocol_adequacy(), None);
 }
 
-/// Tracing: TC-043, FR-033-AC-1, FR-033-AC-4, NFR-060.
-#[trace("TC-043", "FR-033-AC-1", "FR-033-AC-4")]
+#[trace("TC-043", "FR-033-AC-1", "FR-033-AC-4", "NFR-060")]
 #[test]
 fn tc_043_mapper_mismatch_cross_wiring_and_exhaustion_refuse_atomically() {
     let package = bound_package();
@@ -1366,8 +1357,7 @@ fn tc_043_mapper_mismatch_cross_wiring_and_exhaustion_refuse_atomically() {
     assert!(cancelled.seen.is_empty());
 }
 
-/// Tracing: TC-043, FR-033-AC-4, FR-034-AC-3, NFR-060.
-#[trace("TC-043", "FR-033-AC-4", "FR-034-AC-3")]
+#[trace("TC-043", "FR-033-AC-4", "FR-034-AC-3", "NFR-060")]
 #[test]
 fn tc_043_mapping_aggregates_accept_exact_and_refuse_just_over_bounds() {
     let package = bound_package();
@@ -1442,7 +1432,6 @@ fn mapped(
         .expect("complete mapped population")
 }
 
-/// Tracing: TC-043, FR-034-AC-1, FR-034-AC-2, FR-034-AC-3.
 #[trace("TC-043", "FR-034-AC-1", "FR-034-AC-2", "FR-034-AC-3")]
 #[test]
 fn tc_043_package_assembly_is_deterministic_complete_and_region_safe() {
@@ -1477,7 +1466,6 @@ fn tc_043_package_assembly_is_deterministic_complete_and_region_safe() {
     assert_eq!(generated.generator(), &generator());
 }
 
-/// Tracing: TC-043, FR-032-AC-1, FR-034-AC-1.
 #[trace("TC-043", "FR-032-AC-1", "FR-034-AC-1")]
 #[test]
 fn tc_043_common_assembly_accepts_each_exact_profile_without_claiming_target_semantics() {
@@ -1517,7 +1505,6 @@ fn tc_043_common_assembly_accepts_each_exact_profile_without_claiming_target_sem
     }
 }
 
-/// Tracing: TC-043, FR-034-AC-1, FR-034-AC-4.
 #[trace("TC-043", "FR-034-AC-1", "FR-034-AC-4")]
 #[test]
 fn tc_043_package_identity_binds_target_generator_source_profile_records_and_limits() {
@@ -1645,8 +1632,7 @@ fn tc_043_package_identity_binds_target_generator_source_profile_records_and_lim
     );
 }
 
-/// Tracing: TC-043, FR-034-AC-2, FR-034-AC-3, NFR-060.
-#[trace("TC-043", "FR-034-AC-2", "FR-034-AC-3")]
+#[trace("TC-043", "FR-034-AC-2", "FR-034-AC-3", "NFR-060")]
 #[test]
 fn tc_043_cancellation_and_allocation_failures_expose_no_package() {
     let package = bound_package();
@@ -1746,8 +1732,7 @@ fn observer() -> StructuralObserverIdentity {
     StructuralObserverIdentity::new("agent-ix/observer").expect("qualified observer")
 }
 
-/// Tracing: TC-043, FR-034-AC-4, FR-034-AC-5, NFR-061.
-#[trace("TC-043", "FR-034-AC-4", "FR-034-AC-5")]
+#[trace("TC-043", "FR-034-AC-4", "FR-034-AC-5", "NFR-061")]
 #[test]
 fn tc_043_structural_observations_are_downstream_and_package_immutable() {
     let package = bound_package();
@@ -1804,7 +1789,6 @@ fn tc_043_structural_observations_are_downstream_and_package_immutable() {
     }
 }
 
-/// Tracing: TC-051, STD-003, FR-032-AC-5.
 #[trace("TC-051", "STD-003", "FR-032-AC-5")]
 #[test]
 fn tc_051_mapping_refusal_catalog_is_closed_and_registered() {
@@ -1836,7 +1820,6 @@ fn tc_051_mapping_refusal_catalog_is_closed_and_registered() {
     }
 }
 
-/// Tracing: TC-043, FR-032-AC-5, STD-003.
 #[trace("TC-043", "FR-032-AC-5", "STD-003")]
 #[test]
 fn tc_043_unresolved_obligation_precedence_is_total() {
@@ -1969,7 +1952,6 @@ fn long_condition_record(
     map_admitted_request(&request, &mut mapper, MappingCancellation::Active)
 }
 
-/// Tracing: TC-043, FR-033-AC-6, FR-034-AC-6.
 #[trace("TC-043", "FR-033-AC-6", "FR-034-AC-6")]
 #[test]
 fn tc_043_record_identity_material_is_metered_by_the_request_byte_limit() {
@@ -2011,7 +1993,6 @@ fn long_generator_package(
     )
 }
 
-/// Tracing: TC-043, FR-034-AC-6.
 #[trace("TC-043", "FR-034-AC-6")]
 #[test]
 fn tc_043_package_identity_material_is_metered_by_the_request_byte_limit() {
@@ -2030,7 +2011,6 @@ fn tc_043_package_identity_material_is_metered_by_the_request_byte_limit() {
     );
 }
 
-/// Tracing: TC-043, FR-032-AC-6, FR-034-AC-6, FR-034-AC-9.
 #[trace("TC-043", "FR-032-AC-6", "FR-034-AC-6", "FR-034-AC-9")]
 #[test]
 fn tc_043_request_material_is_metered_and_admits_a_two_to_the_64_limit() {
@@ -2070,7 +2050,6 @@ fn tc_043_request_material_is_metered_and_admits_a_two_to_the_64_limit() {
     }
 }
 
-/// Tracing: TC-043, FR-034-AC-7.
 #[trace("TC-043", "FR-034-AC-7")]
 #[test]
 fn tc_043_admitted_request_bytes_are_the_length_of_the_hand_written_request_text() {
@@ -2185,7 +2164,6 @@ fn expected_ocl_profile() -> String {
     )
 }
 
-/// Tracing: TC-043, FR-034-AC-7, FR-034-AC-8.
 #[trace("TC-043", "FR-034-AC-7", "FR-034-AC-8")]
 #[test]
 fn tc_043_record_and_package_identities_are_the_digests_of_hand_written_text() {
