@@ -1260,7 +1260,6 @@ fn selected_native_fields_keep_distinct_member_types() {
 /// and a read of `balance` only: both fields come back, ascending by name,
 /// with `i128` bounds, although no read names `audit`; an absent field is
 /// `None`, not an error.
-///
 #[trace("TC-227", "FR-038-AC-136")]
 #[test]
 fn tc_227_the_fields_of_a_model_object_come_back_as_values() {
@@ -1353,7 +1352,6 @@ const INELIGIBLE: (
 
 /// An unknown field on a selected model record retains record.project's
 /// expression refusal, separate from frame name resolution.
-///
 #[trace("TC-056", "FR-040-AC-14")]
 #[test]
 fn tc_056_record_projection_unknown_field_remains_ineligible() {
@@ -1407,7 +1405,6 @@ fn tc_056_record_projection_unknown_field_remains_ineligible() {
 /// each exposed name comes back once, with the most-derived redefiner's type
 /// and no hidden field; a read keyed from the returned type admits and the
 /// same read keyed from the hidden base field's type refuses.
-///
 #[trace("TC-227", "FR-038-AC-137")]
 #[test]
 fn tc_227_the_effective_set_is_the_one_admission_resolves() {
@@ -1591,7 +1588,6 @@ fn kinds_package() -> CheckedPackageV2 {
 /// Each member kind returns the exact value the tables derive, the `i128`
 /// extremes without loss and one past each as `None`, and a field with no type
 /// is present beside the others and never refuses the call.
-///
 #[trace("TC-227", "FR-038-AC-138")]
 #[test]
 fn tc_227_every_member_kind_returns_its_derived_type_or_none() {
@@ -1653,7 +1649,6 @@ fn perturbed(ty: &Ty, other: &str) -> Ty {
 /// from the returned type admits, and the same read keyed from the perturbed
 /// type refuses `ill_typed`/`operator-ineligible` at the read: the accessor
 /// reports the type admission compares.
-///
 #[trace("TC-227", "FR-038-AC-141")]
 #[test]
 fn tc_227_the_returned_type_is_the_type_admission_compares() {
@@ -1709,7 +1704,6 @@ fn refusal_document() -> Value {
 /// a scalar node and a systems interface's declaration node each name what is
 /// wrong, and the call is `Ok` for an absent field name. An unselected model
 /// owner is checked separately at admission.
-///
 #[trace("TC-227", "FR-038-AC-139", "FR-038-AC-155")]
 #[test]
 fn tc_227_the_accessor_tells_an_unknown_node_from_a_node_that_is_no_object_type() {
@@ -1753,7 +1747,6 @@ fn tc_227_the_accessor_tells_an_unknown_node_from_a_node_that_is_no_object_type(
 
 /// A model declaration's closed body is authenticated before the accessor is
 /// available; an unselected model owner still refuses during owner joining.
-///
 #[trace("TC-227", "FR-038-AC-139", "FR-038-AC-150")]
 #[test]
 fn tc_227_a_changed_model_declaration_refuses_before_field_access() {
@@ -1838,7 +1831,6 @@ fn tc_227_a_changed_model_declaration_refuses_before_field_access() {
 /// name admits when no read names it and returns the error naming the name,
 /// for the whole call although the object also declares a valid field; the
 /// same document with a read of the name is refused at admission.
-///
 #[trace("TC-227", "FR-038-AC-139")]
 #[test]
 fn tc_227_an_ambiguous_name_refuses_the_call_not_the_admission() {
@@ -1887,7 +1879,6 @@ fn tc_227_an_ambiguous_name_refuses_the_call_not_the_admission() {
 /// The accessor takes `&self` and one node id and no evidence; the three
 /// enums match exhaustively with no wildcard arm from outside the crate,
 /// which compiles only while they are closed.
-///
 #[trace("TC-227", "FR-038-AC-142")]
 #[test]
 fn tc_227_the_public_shape_is_closed_and_takes_one_node_id() {
@@ -1938,7 +1929,6 @@ fn tc_227_the_public_shape_is_closed_and_takes_one_node_id() {
 /// limits agree, and the retained tables take no part in the package's
 /// equality; a chain of 200 object types and 100 redefinitions of one field
 /// is read without panic or stack overflow.
-///
 #[trace("TC-227", "FR-038-AC-143")]
 #[test]
 fn tc_227_the_accessor_is_pure_and_total() {
@@ -2074,7 +2064,6 @@ fn smallest_admitting_work(package: &Value, evidence: &CheckedPackageEvidence) -
 
 /// The last table charge precedes the graph stage. The selected-owner charge
 /// follows graph validation, so one below the whole-read minimum stops there.
-///
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_a_chain_admits_at_its_smallest_limit_and_is_incomplete_one_below() {
@@ -2101,7 +2090,6 @@ fn tc_227_a_chain_admits_at_its_smallest_limit_and_is_incomplete_one_below() {
 /// Under `CheckedPackageReadLimits::bounded()` a chain of 1000 types admits
 /// and a chain of 1500 is `incomplete` at the selection's row: the owner
 /// decision's numbers.
-///
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_the_long_chains_are_decided_by_the_bounded_work_limit() {
@@ -2145,7 +2133,6 @@ fn stale_chain_package() -> (Value, Value, CheckedPackageEvidence, usize) {
 /// table charge that exhausts the limit together with a graph-stage refusal
 /// (a stale node key) is `incomplete`, and a step 1 refusal at row 1 together
 /// with a table charge that exhausts the limit at row 0 is the step 1 refusal.
-///
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_the_tables_follow_every_step_one_and_precede_the_graph_stage() {
@@ -2255,7 +2242,6 @@ fn tc_227_the_tables_follow_every_step_one_and_precede_the_graph_stage() {
 /// the member identities `<owner>/<name>`: an inherited `zeta` of `Base`
 /// identifies before an own `alpha` of `Order`, and still comes after it. The
 /// name lookup finds both, so it searches the order the list is in.
-///
 #[trace("TC-227", "FR-038-AC-136")]
 #[test]
 fn tc_227_the_order_is_by_name_where_identity_order_differs() {
@@ -2279,7 +2265,6 @@ fn tc_227_the_order_is_by_name_where_identity_order_differs() {
 
 /// With two ambiguous names, the error names the smallest, so the answer does
 /// not depend on the order of the declarations.
-///
 #[trace("TC-227", "FR-038-AC-139")]
 #[test]
 fn tc_227_the_ambiguous_name_the_error_carries_is_the_smallest() {
@@ -2305,7 +2290,6 @@ fn tc_227_the_ambiguous_name_the_error_carries_is_the_smallest() {
 /// the list. That no member is public is decided by the `compile_fail`
 /// doctests of `CheckedModelField` and `CheckedModelObjectFields`, one probe
 /// per member, which `make test` runs in its `--doc` lane.
-///
 #[trace("TC-227", "FR-038-AC-142")]
 #[test]
 fn tc_227_the_struct_members_are_reached_through_accessors() {

@@ -1918,7 +1918,6 @@ fn tc_048_a_declaration_node_keyed_under_another_domain_package_refuses() {
 /// by construction (the owner is `{kind, identity, node}`, pinned by
 /// `tc_048_a_declaration_node_key_is_unchanged_when_the_selected_document_changes`),
 /// so admission per version is the oracle here, not graph equality.
-///
 #[trace("TC-048", "FR-038-AC-27", "FR-038-AC-45", "FR-038-AC-64")]
 #[test]
 fn tc_048_a_selected_document_needs_no_package_version() {
@@ -3122,7 +3121,6 @@ fn reaches(
 /// FR-322 "Reaches over a field": an optional, a required and a bounded
 /// sequence reference to the owner are edges, including through a subtype
 /// declaring node, a subtype target and a target two levels down.
-///
 #[trace("TC-056", "FR-040-AC-13")]
 #[test]
 fn tc_056_reaches_field_admits_each_reference_edge_shape() {
@@ -3147,7 +3145,6 @@ fn tc_056_reaches_field_admits_each_reference_edge_shape() {
 /// The package reader's relationship-edge check resolves `parent` on each
 /// declaring type. `Sub` inherits `Order`'s seven fields and declares `child`,
 /// so its field table has one more entry than `Order`'s table.
-///
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_a_relationship_edge_read_charges_its_effective_table_end_to_end() {
@@ -3186,7 +3183,6 @@ fn tc_227_a_relationship_edge_read_charges_its_effective_table_end_to_end() {
 /// object operand, an undeclared field, an ambiguous field name and an
 /// unselected declaration each refuse with their own code at the operand or
 /// member at fault.
-///
 #[trace("TC-056", "FR-040-AC-13")]
 #[test]
 fn tc_056_reaches_field_refuses_an_invalid_edge_where_it_fails() {

@@ -617,7 +617,6 @@ fn tc_228_operation_and_invariant_clause_owners_join_only_their_kind() {
 }
 
 /// An owner-bearing function's body participates in its FR-092 key.
-///
 #[trace("TC-228", "FR-038-AC-148")]
 #[test]
 fn tc_228_owner_bearing_function_refuses_a_stale_body_key() {

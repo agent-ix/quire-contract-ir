@@ -85,7 +85,6 @@ fn assert_dispatch_refused(result: CheckedPackageDispatchResult, expected: Expec
 /// The reader parses `contract_version` exactly once and admits only the
 /// current contract; every other version, and every malformed document, is
 /// refused before any version-specific decoding.
-///
 #[trace("TC-048", "FR-038-AC-1", "FR-038-AC-24", "FR-038-AC-25")]
 #[test]
 fn tc_048_reader_refuses_unknown_absent_and_malformed_versions() {
@@ -166,7 +165,6 @@ fn tc_048_reader_refuses_unknown_absent_and_malformed_versions() {
 /// `~` as `~0` and `/` as `~1` in every member name and naming array
 /// elements by index, so it resolves to the exact value in the document the
 /// reader was given — including a member the reader has never heard of.
-///
 #[trace("TC-048", "FR-038-AC-24")]
 #[test]
 fn tc_048_refusal_pointers_escape_member_names_and_resolve() {
@@ -1003,7 +1001,6 @@ fn tc_048_nominal_preimages_round_trip_and_digest_to_their_own_node_key() {
 /// the enum-member/dimension/unit preimages, so this entry is invisible to
 /// the nominal check and reaches only the later edge-resolution loop, if
 /// that loop is ever reached).
-///
 #[trace("TC-048", "FR-038-AC-5")]
 #[test]
 fn tc_048_declaration_defect_is_reported_before_a_dangling_dependency_reference() {
@@ -1030,7 +1027,6 @@ fn tc_048_declaration_defect_is_reported_before_a_dangling_dependency_reference(
 /// member or a value of the wrong kind is an invalid graph node, refused as
 /// `invalid_semantic_graph` at the member at fault rather than as
 /// `malformed_wire`; an unknown member keeps its own code.
-///
 #[trace("TC-048", "FR-038-AC-5")]
 #[test]
 fn tc_048_nominal_preimage_schema_defects_refuse_as_invalid_semantic_graph() {
@@ -1442,7 +1438,6 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
 /// (the first in document order, which is the identity preimage's when both
 /// copies carry it) and returns no package; a row lacking a member or holding
 /// one of the wrong kind refuses as `malformed_wire`.
-///
 #[trace("TC-048", "FR-038-AC-2", "FR-038-AC-62")]
 #[test]
 fn tc_048_a_model_row_is_exactly_identity_digest_domain_and_digest() {
@@ -1604,7 +1599,6 @@ fn tc_048_duplicate_model_selection_refuses_as_malformed_wire() {
 /// any entry's digest is evaluated against evidence, so an array carrying
 /// both a repeated entry and an entry the evidence does not attest refuses
 /// as `malformed_wire` regardless of which defect appears first.
-///
 #[trace("TC-048", "FR-038-AC-11")]
 #[test]
 fn tc_048_model_selection_duplicate_outranks_stale_digest_regardless_of_position() {
@@ -1680,7 +1674,6 @@ fn tc_048_model_selection_duplicate_outranks_stale_digest_regardless_of_position
 /// class check, so it was already position-independent against every other
 /// class. Pinned anyway as a stated invariant, not a reproduction of a bug
 /// that predates this fix.
-///
 #[trace("TC-048", "FR-038-AC-19")]
 #[test]
 fn tc_048_model_selection_refusal_is_decided_by_defect_class_not_array_position() {
@@ -1818,7 +1811,6 @@ fn evidence_of(identities: &[&str], extra: &[Value]) -> CheckedPackageEvidence {
 /// same refusal stands when a document is missing, forged or names another
 /// identity. This is class 4 of FR-038's four-class `model_selections` order,
 /// so a domain mismatch (class 2) in either entry of the pair outranks it.
-///
 #[trace("TC-048", "FR-038-AC-20")]
 #[test]
 fn tc_048_model_selection_same_identity_different_digest_refuses_as_stale_dependency() {
@@ -2005,7 +1997,6 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
 /// A source-declared interface carries its external type and SourceOwner in
 /// the structural preimage. The fixed self-typed shape still applies to an
 /// undeclared, model-owned object type.
-///
 #[trace("TC-226", "FR-038-AC-150")]
 #[test]
 fn tc_226_a_source_declared_interface_authenticates_but_a_model_owned_one_keeps_its_shape() {
@@ -2241,7 +2232,6 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
 /// Public self-reference mutations are refused by authenticated node keys
 /// before the conditional graph-stage body-root carve-out is reached. The
 /// graph-stage distinction is exercised at the private validation seam.
-///
 #[trace("TC-048", "FR-038-AC-18")]
 #[test]
 fn tc_048_self_typed_body_references_refuse_at_authenticated_keys() {
@@ -2395,7 +2385,6 @@ fn tc_048_self_typed_body_references_refuse_at_authenticated_keys() {
 /// inside the per-node walk, before `identity_preimage.identity_projection`
 /// is ever compared against the derived projection; mirroring the deletion
 /// into the preimage changes nothing about which check fires first.
-///
 #[trace("TC-048", "FR-038-AC-17")]
 #[test]
 fn tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare() {
@@ -2521,7 +2510,6 @@ fn tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare(
 /// counterpart, not a repeat of it. (The schema-vs-`CheckedNodeTag::forms`
 /// cross-check this test used to also run was dropped along with the
 /// vendored schema it needed; see AGE-1961.)
-///
 #[trace("TC-048", "FR-038-AC-17")]
 #[test]
 fn tc_048_expression_forms_bound_admission() {
