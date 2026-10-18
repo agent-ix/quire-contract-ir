@@ -8,6 +8,28 @@
 //! The fault-injection surface is test-only: a default build does not export
 //! it (FR-019-AC-4).
 //!
+//! Untrusted JSON cannot deserialize directly into a validated package or
+//! expression (FR-019-AC-8). Callers use the checked request decoders.
+//!
+//! ```compile_fail
+//! let _: quire_contract_model::ContractPackage<quire_contract_model::ReferenceBody> =
+//!     serde_json::from_str("{}").unwrap();
+//! ```
+//!
+//! ```compile_fail
+//! let _: quire_contract_model::Expression = serde_json::from_str("{}").unwrap();
+//! ```
+//!
+//! Canonicalization requires an explicit profile (FR-019-AC-11).
+//!
+//! ```compile_fail
+//! fn omit_profile<B: quire_contract_model::CanonicalBody>(
+//!     package: &quire_contract_model::ContractPackage<B>,
+//! ) {
+//!     let _ = package.canonical_package();
+//! }
+//! ```
+//!
 #![cfg_attr(
     not(feature = "fault-injection"),
     doc = "```compile_fail,E0432\nuse quire_contract_model::MappingAllocationPoint;\n```"

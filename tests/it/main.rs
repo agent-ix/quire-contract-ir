@@ -59,6 +59,7 @@ mod cycle_free_model;
 mod executable_binding;
 mod expression;
 mod fr014_recheck;
+mod fr019_api;
 mod identity;
 mod integration;
 mod kani_arithmetic;
