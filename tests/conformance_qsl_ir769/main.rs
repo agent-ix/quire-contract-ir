@@ -130,7 +130,6 @@ fn endpoints(node: &quire_contract_model::CheckedSemanticNodeV2) -> (&str, &str)
     )
 }
 
-/// Trace: FR-049-AC-1, FR-049-AC-5, FR-049-AC-6
 #[trace("TC-447", "FR-049-AC-1", "FR-049-AC-5", "FR-049-AC-6")]
 #[test]
 fn tc_447_fresh_qsl_source_admits_exact_application_and_narrow_context() {
