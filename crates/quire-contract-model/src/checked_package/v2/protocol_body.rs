@@ -16,7 +16,7 @@ pub(super) enum ProtocolBodyDefect {
     MemberMismatch,
     /// The required protocol profile law is absent.
     LawMissing,
-    /// The law has another role or there is more than one law.
+    /// The law has another role.
     LawMismatch,
     /// The law definition differs from the selected profile.
     LawUnselected,
@@ -280,7 +280,10 @@ pub(super) fn validate_protocol_body(
         .and_then(Value::as_array)
         .ok_or(D::LawMissing)?;
     let law = laws.first().ok_or(D::LawMissing)?;
-    if laws.len() != 1 || law.get("role").and_then(Value::as_str) != Some("protocol_profile") {
+    if laws.len() != 1 {
+        return Err(D::MalformedLayout);
+    }
+    if law.get("role").and_then(Value::as_str) != Some("protocol_profile") {
         return Err(D::LawMismatch);
     }
     if selected_profile.is_none() || selected_profile != law.get("definition") {
@@ -387,7 +390,7 @@ mod tests {
     /// The twenty names and their seven forms are the QSpec FR-464 catalog.
     #[trace("TC-946")]
     #[test]
-    fn protocol_catalog_admits_each_operator_only_for_its_form() {
+    fn protocol_outer_catalog_recognizes_each_operator_only_for_its_form() {
         let cases = [
             (ProtocolForm::ProtocolClause, "protocol"),
             (ProtocolForm::Role, "role"),
@@ -552,6 +555,14 @@ mod tests {
         assert_eq!(
             validate_protocol_body(ProtocolForm::Control, &value, &boolean(), Some(&selected())),
             Err(ProtocolBodyDefect::LawMismatch)
+        );
+        value["operation"]["laws"] = json!([
+            {"role": "protocol_profile", "definition": selected()},
+            {"role": "protocol_profile", "definition": selected()}
+        ]);
+        assert_eq!(
+            validate_protocol_body(ProtocolForm::Control, &value, &boolean(), Some(&selected())),
+            Err(ProtocolBodyDefect::MalformedLayout)
         );
     }
 }
