@@ -26,3 +26,9 @@ Checked whether the specified independent oracle and test inputs exist. The mach
 ## Verdict
 
 Checked whether the specified independent oracle and test inputs exist. The machine vectors and regenerated protocol fixtures are not yet published.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Verified at PR #451 head bd0f2fdef5793d005952505b0e456a629eb76f70 against QSpec FR-464/466 and TC-946/948; the corresponding TC-048 control was updated. |

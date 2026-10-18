@@ -29,3 +29,10 @@ Checked identity and causal clauses for internal consistency and correspondence 
 ## Verdict
 
 Checked identity and causal clauses for internal consistency and correspondence to QSpec. Two criteria overstate accepted invariants.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Verified at PR #451 head bd0f2fdef5793d005952505b0e456a629eb76f70 against QSpec FR-464/466 and TC-946/948; the corresponding TC-048 control was updated. |
+| FND-002 | fixed | Verified at PR #451 head bd0f2fdef5793d005952505b0e456a629eb76f70 against QSpec FR-464/466 and TC-946/948; the corresponding TC-048 control was updated. |
