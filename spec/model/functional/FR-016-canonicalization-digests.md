@@ -133,12 +133,13 @@ as its byte limit and the limit refusal it returns is that code. The budget is a
 caller policy: it bounds output size and never changes the bytes a successful
 call produces.
 
-The public refusal contract covers byte-limit and allocation failures of
-validated model values. An encoder protocol or internal error would indicate a
-bug in a model-owned `Encode` implementation, not an outcome of a supported
-input. The diagnostic message used by the internal `encoder_refusal` guard to
-distinguish that fault from resource exhaustion is troubleshooting detail; its
-wording is not a canonicalization API guarantee.
+The public resource-refusal contract covers byte-limit and allocation failures
+for built-in model bodies. `CanonicalBody` is public, so a caller-owned body
+can return other `quire_canonical::Error` kinds from its `Encode`
+implementation through a canonicalization API. The diagnostic message that
+`encoder_refusal` uses to distinguish such encoder faults from resource
+exhaustion is troubleshooting detail; its wording and the distinction among
+non-resource encoder faults are not canonicalization API guarantees.
 
 ## Acceptance Criteria
 
