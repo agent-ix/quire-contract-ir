@@ -12,9 +12,7 @@ use std::{
     fmt,
 };
 
-use crate::{
-    CheckedNodeId, CheckedOccurrence, CheckedPackageIncomplete, CheckedSemanticId, SourceIdentity,
-};
+use crate::{CheckedNodeId, CheckedOccurrence, CheckedPackageIncomplete, SourceIdentity};
 
 /// The owner whose inventory rows an outcome carries.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -403,8 +401,8 @@ pub enum SourceInventoryIdentity {
     SemanticNode {
         /// Native checked-node identity.
         identity: CheckedNodeId,
-        /// Native semantic identity carried by the node.
-        semantic: CheckedSemanticId,
+        /// Checked semantic type key carried by the node.
+        semantic_type: CheckedNodeId,
     },
     /// A source occurrence from the selected IR V2 graph.
     SemanticOccurrence(SourceSemanticOccurrenceId),
@@ -1207,10 +1205,17 @@ fn census_endpoints(
     BTreeSet<SourceSemanticOccurrenceId>,
     BTreeSet<SourceProductionFunctionId>,
 ) {
-    let mut node_facts: BTreeMap<&CheckedNodeId, BTreeSet<&CheckedSemanticId>> = BTreeMap::new();
+    let mut node_facts: BTreeMap<&CheckedNodeId, BTreeSet<&CheckedNodeId>> = BTreeMap::new();
     for row in rows {
-        if let SourceInventoryIdentity::SemanticNode { identity, semantic } = &row.identity {
-            node_facts.entry(identity).or_default().insert(semantic);
+        if let SourceInventoryIdentity::SemanticNode {
+            identity,
+            semantic_type,
+        } = &row.identity
+        {
+            node_facts
+                .entry(identity)
+                .or_default()
+                .insert(semantic_type);
         }
     }
     let conflicting_nodes: BTreeSet<_> = node_facts
