@@ -2482,7 +2482,6 @@ mod tests {
     use ix_trace_rs::trace;
     use serde_json::json;
 
-    /// Trace: FR-051-AC-1
     #[trace("TC-451", "FR-051-AC-1")]
     #[test]
     fn tc_451_borrowed_encoder_equals_private_owned_wire_bytes() {
@@ -2524,7 +2523,6 @@ mod tests {
     /// The body-root literal exemption is a graph-stage rule after key
     /// authentication; nested literal, reference and result-type sites keep
     /// their cycle edges even on a self-typed node.
-    ///
     #[trace("TC-048", "FR-038-AC-18")]
     #[test]
     fn tc_048_only_a_self_typed_body_root_literal_omits_its_cycle_edge() {

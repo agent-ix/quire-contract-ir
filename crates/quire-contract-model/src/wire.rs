@@ -967,8 +967,6 @@ mod tests {
     /// owner or in any span member reaches the expression operation as the
     /// constructor's registered code and path, not `invalid_wire_format`;
     /// 2^53 itself is admitted.
-    ///
-    /// Tracing: TC-015, FR-011-AC-3, FR-012-AC-6.
     #[trace("TC-015", "FR-011-AC-3", "FR-012-AC-6")]
     #[test]
     fn tc_015_the_expression_operation_refuses_a_revision_or_offset_above_two_to_the_53_with_its_registered_code(
@@ -1055,8 +1053,6 @@ mod tests {
     /// field, value, function, function parameter, quantifier local and
     /// expression) goes through the registered mapping: a byte offset of 2^53
     /// is admitted and one above it is `invalid_source_span`.
-    ///
-    /// Tracing: TC-015, FR-012-AC-6.
     #[trace("TC-015", "FR-012-AC-6")]
     #[test]
     fn tc_015_every_span_member_of_an_expression_request_maps_the_offset_bound() {
@@ -1099,8 +1095,6 @@ mod tests {
     /// The other refusals the expression operation now maps to registered
     /// codes: span structure, a zero source revision, a malformed owner
     /// identity; and the closed members of `owner` and a span.
-    ///
-    /// Tracing: TC-015, FR-011-AC-3, FR-012-AC-6.
     #[trace("TC-015", "FR-011-AC-3", "FR-012-AC-6")]
     #[test]
     fn tc_015_the_expression_operation_maps_span_structure_and_owner_identity_codes() {
@@ -1152,8 +1146,6 @@ mod tests {
     /// The binding path of the expression decoder (an executable projection's
     /// binding) maps the same registered codes, ahead of the owner and anchor
     /// comparisons; 2^53 is admitted.
-    ///
-    /// Tracing: TC-015, FR-011-AC-3, FR-012-AC-6.
     #[trace("TC-015", "FR-011-AC-3", "FR-012-AC-6")]
     #[test]
     fn tc_015_a_binding_expression_refuses_a_revision_or_offset_above_two_to_the_53_with_its_registered_code(
@@ -1196,7 +1188,6 @@ mod tests {
         );
     }
 
-    /// Tracing: TC-016, FR-013-AC-5.
     #[trace("TC-016", "FR-013-AC-5")]
     #[test]
     fn tc_016_the_widest_strings_decode_and_serialize_back_to_the_same_strings() {
@@ -1220,7 +1211,6 @@ mod tests {
         assert_eq!(tree["kind"]["denominator"], "4");
     }
 
-    /// Tracing: TC-016, FR-013-AC-5.
     #[trace("TC-016", "FR-013-AC-5")]
     #[test]
     fn tc_016_each_member_refuses_a_number_or_an_out_of_grammar_string_as_invalid_wire_format() {
@@ -1247,7 +1237,6 @@ mod tests {
         }
     }
 
-    /// Tracing: TC-016, FR-013-AC-5.
     #[trace("TC-016", "FR-013-AC-5")]
     #[test]
     fn tc_016_a_grammar_valid_string_out_of_range_is_invalid_numeric_bounds() {
@@ -1278,7 +1267,6 @@ mod tests {
         }
     }
 
-    /// Trace: FR-013-AC-5, FR-013-AC-6, FR-019-AC-7.
     #[trace("TC-016", "TC-018", "FR-013-AC-5", "FR-013-AC-6", "FR-019-AC-7")]
     #[test]
     fn wide_member_values_round_trip_through_expression_requests() {
@@ -1340,7 +1328,6 @@ mod tests {
         rational("1", &i128::MAX.to_string());
     }
 
-    /// Tracing: TC-016, FR-013-AC-5.
     #[trace("TC-016", "FR-013-AC-5")]
     #[test]
     fn tc_016_a_document_input_reaches_the_decoder_as_the_text_it_is() {

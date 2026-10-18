@@ -50,8 +50,6 @@ const LOWERED_NODE_TEXT: &str = concat!(
 );
 
 /// The lowered node preimage encodes to expected bytes written out above.
-///
-/// Tracing: TC-048, FR-038-AC-89
 #[trace("TC-048", "FR-038-AC-89")]
 #[test]
 fn tc_048_lowered_preimages_encode_to_the_expected_canonical_bytes() {
@@ -75,8 +73,6 @@ fn tc_048_lowered_preimages_encode_to_the_expected_canonical_bytes() {
 /// the preimage's canonical bytes identifies the node, one byte lower does
 /// not and reports the byte count the encoder needed, which is above the
 /// ceiling.
-///
-/// Tracing: TC-048, FR-038-AC-95
 #[trace("TC-048", "FR-038-AC-95")]
 #[test]
 fn tc_048_a_lowered_node_is_identified_at_the_ceiling_and_not_one_byte_under_it() {
@@ -116,8 +112,6 @@ fn required_of<T: Encode>(value: &T, limit: u64) -> u64 {
 /// A ceiling roughly mid-way through the encoding that lies two or more bytes
 /// inside a string value, not at a byte the encoder writes alone and not inside
 /// an escape run: the middle of the dependency's 64-character digest.
-///
-/// Tracing: TC-048, FR-038-AC-95
 #[trace("TC-048", "FR-038-AC-95")]
 #[test]
 fn tc_048_a_refusal_inside_a_string_value_records_the_encoders_required_count() {
@@ -157,8 +151,6 @@ fn tc_048_a_refusal_inside_a_string_value_records_the_encoders_required_count() 
 /// package holds, so it skips the reader) is refused with a refusal that is not
 /// the canonical-bytes limit: `consumed` is `limit + 1`, saturating at
 /// `u64::MAX`.
-///
-/// Tracing: TC-048, FR-038-AC-95
 #[trace("TC-048", "FR-038-AC-95")]
 #[test]
 fn tc_048_a_refusal_that_is_not_the_byte_limit_records_one_above_the_limit() {
@@ -291,8 +283,6 @@ fn lowered_ids(records: &[CompleteLoweringRecordV2]) -> Vec<&CheckedNodeId> {
 /// The emitter's graph input order is not part of semantic identity: keyed
 /// nodes are ordered by their identities before the four-member projection is
 /// hashed. Request order remains fixed in the accounting records.
-///
-/// Trace: TC-047, FR-035-AC-5
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
 fn tc_047_equivalent_graph_construction_orders_have_one_package_identity() {
@@ -327,8 +317,6 @@ fn tc_047_equivalent_graph_construction_orders_have_one_package_identity() {
 /// and a `consumed` above it, no lowered node, no dependency node, no bytes and
 /// no id; at the ceiling it lowers. The retained limit is the ceiling `lower`
 /// encodes under.
-///
-/// Tracing: TC-048, FR-038-AC-95
 #[trace("TC-048", "FR-038-AC-95")]
 #[test]
 fn tc_048_a_package_over_the_ceiling_fails_every_record_and_returns_no_package() {
@@ -374,8 +362,6 @@ fn tc_048_a_package_over_the_ceiling_fails_every_record_and_returns_no_package()
 
 /// A node over the ceiling fails only its own record, for `bytes`, and its
 /// siblings are the records the same call returns with its request removed.
-///
-/// Tracing: TC-048, FR-038-AC-95
 #[trace("TC-048", "FR-038-AC-95")]
 #[test]
 fn tc_048_a_node_over_the_ceiling_fails_alone_and_leaves_its_siblings_unchanged() {
@@ -438,8 +424,6 @@ fn tc_048_a_node_over_the_ceiling_fails_alone_and_leaves_its_siblings_unchanged(
 }
 
 /// A work-budget failure still names the `work` limit.
-///
-/// Tracing: TC-048, FR-038-AC-95
 #[trace("TC-048", "FR-038-AC-95")]
 #[test]
 fn tc_048_a_work_failure_still_names_the_work_limit() {

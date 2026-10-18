@@ -286,7 +286,6 @@ mod tests {
         }
     }
 
-    /// Tracing: TC-048, FR-038-AC-162, FR-038-AC-163
     #[trace("TC-048", "FR-038-AC-162", "FR-038-AC-163")]
     #[test]
     fn tc_048_post_admission_graph_mutations_return_distinct_errors() {
