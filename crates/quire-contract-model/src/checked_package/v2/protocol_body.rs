@@ -385,7 +385,7 @@ mod tests {
     }
 
     /// The twenty names and their seven forms are the QSpec FR-464 catalog.
-    #[trace("FR-038-AC-281", "TC-048", "TC-946")]
+    #[trace("TC-946")]
     #[test]
     fn protocol_catalog_admits_each_operator_only_for_its_form() {
         let cases = [
@@ -442,7 +442,7 @@ mod tests {
     }
 
     /// The role, channel and queue cases exercise QSpec TC-947 outer shapes.
-    #[trace("FR-038-AC-282", "TC-048", "TC-947")]
+    #[trace("TC-947")]
     #[test]
     fn protocol_declaration_layout_refuses_missing_swapped_and_wrong_shaped_bindings() {
         let role = body(ProtocolForm::Role, "role");
@@ -487,7 +487,7 @@ mod tests {
     }
 
     /// TC-948 supplies the fixed control and compensation argument frames.
-    #[trace("FR-038-AC-282", "TC-048", "TC-948")]
+    #[trace("TC-948")]
     #[test]
     fn control_and_compensation_layouts_keep_their_order_and_term_families() {
         let mut compensate = body(ProtocolForm::Compensation, "compensate");
@@ -529,7 +529,7 @@ mod tests {
         );
     }
 
-    #[trace("FR-038-AC-281", "TC-048", "TC-946")]
+    #[trace("TC-946")]
     #[test]
     fn protocol_body_distinguishes_profile_identity_and_law_defects() {
         let mut value = body(ProtocolForm::Control, "check");
