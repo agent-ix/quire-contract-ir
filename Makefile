@@ -131,7 +131,7 @@ conformance-qsl-ir779:
 conformance-qsl-ir760:
 	@test -n "$(QUIRE_SPEC_LANGUAGE_DIR)" || { echo 'QUIRE_SPEC_LANGUAGE_DIR is required' >&2; exit 1; }
 	@QUIRE_SPEC_LANGUAGE_DIR="$(QUIRE_SPEC_LANGUAGE_DIR)" QUIRE_SPEC_LANGUAGE_TARGET_DIR="$(CURDIR)/target/qsl-producer" CARGO_TARGET_DIR="$(CURDIR)/target" $(CARGO) test $(LOCKED) --manifest-path crates/quire-contract-model/Cargo.toml --test selected_population_public -- --nocapture
-	@QUIRE_SPEC_LANGUAGE_DIR="$(QUIRE_SPEC_LANGUAGE_DIR)" QUIRE_SPEC_LANGUAGE_TARGET_DIR="$(CURDIR)/target/qsl-producer" CARGO_TARGET_DIR="$(CURDIR)/target" $(CARGO) test $(LOCKED) --test it selected_population::duplicate_max_on_reader_admitted_population_is_not_population -- --exact --nocapture
+	@QUIRE_SPEC_LANGUAGE_DIR="$(QUIRE_SPEC_LANGUAGE_DIR)" QUIRE_SPEC_LANGUAGE_TARGET_DIR="$(CURDIR)/target/qsl-producer" CARGO_TARGET_DIR="$(CURDIR)/target" $(CARGO) test $(LOCKED) --test conformance_qsl_ir760 -- --nocapture
 
 .PHONY: build
 build:

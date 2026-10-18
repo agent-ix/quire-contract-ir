@@ -40,6 +40,13 @@ name = "conformance_qsl_ir779"
 path = "tests/conformance_qsl_ir779/main.rs"
 test = false
 
+# FR-053/TC-453: the selected-population fixture is emitted by the owning
+# QSL checkout, so its test runs only in the named conformance lane.
+[[test]]
+name = "conformance_qsl_ir760"
+path = "tests/conformance_qsl_ir760/main.rs"
+test = false
+
 # FR-038-AC-214: 177 MB fixture and three isolated reader processes.
 # Explicitly invoked for the memory gate, excluded from ordinary `make test`.
 [[test]]
