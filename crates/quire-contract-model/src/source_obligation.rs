@@ -5,14 +5,18 @@
 //!
 //! Owner outcomes retain enumerator state, while the census deterministically
 //! evaluates four synthetic or owner-issued inventories and authored assertions.
-//! External owner traversal remains the responsibility of each owner adapter.
+//! The IR V2 adapter traverses an admitted graph here; external owner traversal
+//! remains the responsibility of each external owner's adapter.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
 };
 
-use crate::{CheckedNodeId, CheckedOccurrence, CheckedPackageIncomplete, SourceIdentity};
+use crate::{
+    CheckedNodeId, CheckedOccurrence, CheckedPackageIncomplete, CheckedPackageRefusal,
+    CheckedPackageV2, CheckedPackageV2ReadResult, SourceIdentity,
+};
 
 /// The owner whose inventory rows an outcome carries.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -668,6 +672,121 @@ impl SourceInventoryOutcome {
     /// Borrow the owner-issued terminal state.
     pub fn completeness(&self) -> &SourceInventoryCompleteness {
         &self.completeness
+    }
+}
+
+/// A selected IR V2 reader result could not become a structurally valid inventory.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum SourceIrV2InventoryError {
+    /// The IR V2 reader refused the selected artifact; no inventory was issued.
+    #[error("selected IR V2 package was refused")]
+    Refused(Box<CheckedPackageRefusal>),
+    /// The owner's emitted rows were structurally inconsistent or could not be retained.
+    #[error(transparent)]
+    Outcome(#[from] SourceInventoryOutcomeError),
+}
+
+/// Enumerate the complete selected IR V2 graph from the owner's reader result.
+///
+/// An admitted package yields one row for every node and every source occurrence.
+/// A reader limit yields a typed `Incomplete` outcome with no invented rows, and
+/// a refusal returns a typed error without an outcome. The caller supplies the
+/// selected source identity; its cross-owner binding is checked by the census.
+pub fn source_inventory_from_ir_v2(
+    source: SourceIdentity,
+    read: CheckedPackageV2ReadResult,
+) -> Result<SourceInventoryOutcome, SourceIrV2InventoryError> {
+    let input = match read {
+        CheckedPackageV2ReadResult::Admitted(package) => IrV2InventoryInput::Admitted(package),
+        CheckedPackageV2ReadResult::Incomplete(cause) => {
+            IrV2InventoryInput::Incomplete(Some(cause))
+        }
+        CheckedPackageV2ReadResult::Refused(refusal) => {
+            return Err(SourceIrV2InventoryError::Refused(Box::new(refusal)))
+        }
+    };
+    SourceInventoryOutcome::from_enumerator(IrV2InventoryEnumerator {
+        source,
+        input,
+        node_index: 0,
+        next_occurrence: None,
+        observed_count: 0,
+    })
+    .map_err(Into::into)
+}
+
+enum IrV2InventoryInput {
+    Admitted(Box<CheckedPackageV2>),
+    Incomplete(Option<CheckedPackageIncomplete>),
+}
+
+struct IrV2InventoryEnumerator {
+    source: SourceIdentity,
+    input: IrV2InventoryInput,
+    node_index: usize,
+    next_occurrence: Option<usize>,
+    observed_count: usize,
+}
+
+impl SourceInventoryEnumerator for IrV2InventoryEnumerator {
+    fn source(&self) -> &SourceIdentity {
+        &self.source
+    }
+
+    fn owner(&self) -> SourceInventoryOwner {
+        SourceInventoryOwner::IrV2
+    }
+
+    fn scope(&self) -> SourceInventoryScope {
+        SourceInventoryScope::IrV2SemanticGraphAndOccurrences
+    }
+
+    fn next_row(&mut self) -> Result<Option<SourceInventoryRow>, SourceInventoryIncompleteReason> {
+        let package = match &mut self.input {
+            IrV2InventoryInput::Admitted(package) => package,
+            IrV2InventoryInput::Incomplete(cause) => {
+                return match cause.take() {
+                    Some(cause) => Err(SourceInventoryIncompleteReason::IrV2ReadLimit(cause)),
+                    None => Ok(None),
+                };
+            }
+        };
+        loop {
+            let Some(node) = package.graph().nodes.get(self.node_index) else {
+                return Ok(None);
+            };
+            let identity = match self.next_occurrence {
+                None => {
+                    self.next_occurrence = Some(0);
+                    SourceInventoryIdentity::SemanticNode {
+                        identity: node.node_id.clone(),
+                        semantic_type: node.semantic_type.clone(),
+                    }
+                }
+                Some(position) => match node.occurrences.get(position) {
+                    Some(occurrence) => {
+                        self.next_occurrence = Some(position + 1);
+                        SourceInventoryIdentity::SemanticOccurrence(
+                            SourceSemanticOccurrenceId::new(
+                                node.node_id.clone(),
+                                occurrence.clone(),
+                            ),
+                        )
+                    }
+                    None => {
+                        self.node_index += 1;
+                        self.next_occurrence = None;
+                        continue;
+                    }
+                },
+            };
+            self.observed_count += 1;
+            return Ok(Some(SourceInventoryRow::new(self.source.clone(), identity)));
+        }
+    }
+
+    fn observed_count(&self) -> usize {
+        self.observed_count
     }
 }
 

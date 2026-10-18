@@ -15,10 +15,11 @@ through AC-6, AC-12 through AC-15, and AC-17 through AC-23 are Implemented
 with traced tests in `tests/it/source_obligation.rs` and the default-feature
 model-crate consumer. FR-052-AC-8 is retired (ADR-0056). Owner-native evidence
 is still required where a criterion says so. FR-052-AC-24, split from AC-3, is
-Implemented by a traced synthetic conflicting-facts test. Owner-native completion, full-output comparison, and the
-full matched-source census remain Planned/UNRUN under AC-7, AC-9 through
-AC-11, and AC-16. The independently testable IR V2, QSL and `quire-code-rs`
-owner portions in AC-25 through AC-27 are also Planned. Quire's selected-scope
+Implemented by a traced synthetic conflicting-facts test. Four-owner completion,
+full-output comparison, and the matched-source census remain Planned/UNRUN under AC-7, AC-9 through
+AC-11, and AC-16. The independently testable IR V2 owner portion in AC-25 is
+Implemented by traced native reader-result adapter tests; QSL and `quire-code-rs`
+owner portions in AC-26 and AC-27 remain Planned. Quire's selected-scope
 producer awaits PLAT-1165. Synthetic outcomes do not establish owner-native
 exhaustion.
 
