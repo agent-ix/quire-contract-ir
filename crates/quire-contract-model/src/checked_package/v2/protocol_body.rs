@@ -216,6 +216,7 @@ fn shape_fits(value: &Value, shape: Shape) -> bool {
         Shape::Text => {
             term == Some("literal")
                 && value.get("value_kind").and_then(Value::as_str) == Some("text")
+                && value.get("value").and_then(Value::as_str).is_some()
         }
         Shape::Integer => {
             term == Some("literal")
@@ -225,6 +226,7 @@ fn shape_fits(value: &Value, shape: Shape) -> bool {
             term == Some("reference")
                 || term == Some("literal")
                     && value.get("value_kind").and_then(Value::as_str) == Some("boolean")
+                    && value.get("value").and_then(Value::as_bool).is_some()
         }
         Shape::References => members(value)
             .is_some_and(|items| items.iter().all(|item| shape_fits(item, Shape::Reference))),
@@ -247,9 +249,15 @@ fn shape_fits(value: &Value, shape: Shape) -> bool {
                 .iter()
                 .all(|item| item.get("term").and_then(Value::as_str) == Some("binding"))
         }),
-        Shape::Records => {
-            members(value).is_some_and(|items| items.iter().all(|item| members(item).is_some()))
-        }
+        Shape::Records => members(value).is_some_and(|items| {
+            items.iter().all(|item| {
+                members(item).is_some_and(|record| {
+                    record
+                        .iter()
+                        .all(|entry| entry.get("term").and_then(Value::as_str) == Some("binding"))
+                })
+            })
+        }),
     }
 }
 
@@ -496,6 +504,18 @@ mod tests {
             ),
             Err(ProtocolBodyDefect::MalformedLayout)
         );
+        let mut repeated_optional = body(ProtocolForm::Queue, "queue");
+        repeated_optional["arguments"][3]["value"]["members"] =
+            json!([example(Shape::Text), example(Shape::Text)]);
+        assert_eq!(
+            validate_protocol_body(
+                ProtocolForm::Queue,
+                &repeated_optional,
+                &boolean(),
+                Some(&selected())
+            ),
+            Err(ProtocolBodyDefect::MalformedLayout)
+        );
     }
 
     /// TC-948 supplies the fixed control and compensation argument frames.
@@ -534,6 +554,18 @@ mod tests {
             validate_protocol_body(
                 ProtocolForm::Control,
                 &sequence,
+                &boolean(),
+                Some(&selected())
+            ),
+            Err(ProtocolBodyDefect::MalformedLayout)
+        );
+        let mut choice = body(ProtocolForm::Control, "choice");
+        choice["arguments"][2]["value"]["members"] =
+            json!([{"term": "aggregate", "members": [example(Shape::Reference)]}]);
+        assert_eq!(
+            validate_protocol_body(
+                ProtocolForm::Control,
+                &choice,
                 &boolean(),
                 Some(&selected())
             ),
