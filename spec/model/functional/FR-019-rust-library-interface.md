@@ -110,7 +110,12 @@ of the stable public surface; FR-038 owns which type takes which path and the
 bytes they produce. Coverage accepts immutable traces and returns a complete report
 plus ordered diagnostics. No mutable cache, global registry, filesystem path,
 process handle, host-width integer, downstream engine type, or schema-library
-type appears in the semantic API.
+type appears in the semantic API. Here the semantic API means the public
+construction, wire decoding, semantic validation, dependency derivation,
+canonicalization, and coverage-classification entrypoints and their semantic
+input and result types. The separately exported conformance runner and fixture
+interfaces of FR-018 and FR-020 are outside that subset; `run_corpus`
+deliberately accepts filesystem paths.
 
 The model crate root additionally exports `expected_inventory` as stable
 API; it returns the sorted published construct and boundary inventory as owned
@@ -207,13 +212,19 @@ missing, foreign, and conflicting binding refusals under FR-052-AC-15.
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-019-AC-1 | Compile-time/API fixtures plus public-source signature inspection show wire/request values are distinct from private-field validated values, unknown members are rejected consistently with the published schema, every conversion is fallible, canonical profiles are explicit, the fixed conformance registries, three semantic-limit constants, and wire-depth constant are stable public exports, and forbidden host/downstream/schema-library vocabulary is absent without requiring nightly rustdoc JSON. | Inspection (TC-018) |
+| FR-019-AC-1 | A TC-018 integration test imports `PUBLIC_CONSTRUCT_TAGS`, `CONFORMANCE_BOUNDARIES`, `DiagnosticCode::ALL`, `ConformanceOperation::ALL`, and `expected_inventory` from `quire_contract_model` and uses them to construct the published inventory. | Test (TC-018) |
 | FR-019-AC-3 | `expected_inventory` equals the five prefixed registries and nothing else, strictly ascending with no duplicate. | Test (TC-018) |
 | FR-019-AC-4 | A default-feature build of `quire-contract-model` exports neither `MappingAllocationPoint` nor `MappingExecutionControl::fail_allocation_at`: code naming either fails to compile without the `fault-injection` feature. | Test (TC-018) |
 | FR-019-AC-5 | The `quire_contract_model` crate root has no glob re-export, and its default-feature public items are exactly those the Public items table lists, checked by a public-item inventory that fails on an added or missing item; no item in the table is reachable through a `quire_contract_ir` path. | Test (TC-058) |
 | FR-019-AC-6 | The table's `CheckedArtifactRef` has exactly the members `authority` and `identity`, `CheckedSourceRef` exactly `authority`, `identity`, `digest_domain` and `digest`, `CheckedArtifactLocator` exactly `authority`, `identity` and `domain`, and no `CheckedRevision` exists (FR-038 "Artifact references"). | Test (TC-018) |
 | FR-019-AC-2 | The complete negative corpus executes package/expression decode, validation, canonicalization, and coverage through `catch_unwind`; exact-at-limit and one-past-limit type depth, semantic node, and semantic collection cases return the specified result with no public panic, partial result, or message parsing. | Test (TC-018) |
 | FR-019-AC-7 | Public compile-time/API fixtures construct and read `IntegerType` bounds, `RationalType` numerator and denominator bounds, and integer/rational literal payloads at `i64::MAX + 1`, `u64::MAX` and the permitted i128 endpoints through signed 128-bit signatures without lossy casts; exact and one-past numeric wire boundary requests through `catch_unwind` return the specified result with no public panic or partial validated value. | Test (TC-018) |
+| FR-019-AC-8 | Compile-time fixtures and public-source inspection show package and expression wire/request values are distinct from validated semantic values, validated fields are private, and no unchecked constructor or `From` conversion crosses that boundary. | Inspection (TC-018) |
+| FR-019-AC-9 | An otherwise valid package or expression request with one unknown object member is refused as `invalid_wire_format`, consistently with its published schema, before it yields a validated value. | Test (TC-018) |
+| FR-019-AC-10 | Public package and expression decoding, semantic validation, canonicalization, and coverage classification signatures return typed fallible results; none silently converts an invalid request into a validated value. | Inspection (TC-018) |
+| FR-019-AC-11 | Each public canonicalization entrypoint requires an explicit `CanonicalProfile`, and the closed profile exposes only `quire.contract.canonical-json/v1`; omitting the profile does not compile. | Inspection (TC-018) |
+| FR-019-AC-12 | A default-feature external API test imports `MAX_SEMANTIC_NODES: u32 = 25000`, `MAX_SEMANTIC_DEPTH: u32 = 256`, `MAX_SEMANTIC_COLLECTION_ITEMS: u32 = 10000`, and `MAX_WIRE_JSON_DEPTH: u32 = 576` from `quire_contract_model` and checks their exact values. | Test (TC-018) |
+| FR-019-AC-13 | Public-source signature inspection finds no host handle, filesystem path, mutable cache, downstream engine type, or schema-library type in the default-feature semantic API subset defined in Behavior; it excludes the conformance runner and fixture APIs and runs on stable Rust without nightly rustdoc JSON. | Inspection (TC-018) |
 
 ## Dependencies
 
