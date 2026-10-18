@@ -34,3 +34,9 @@ I reviewed `tests/conformance_qsl_ir769/main.rs`, `tests/conformance_qspec/main.
 - Independent `quire coverage --scope . --format json` runs at exact base `1f176aec` and head `37e23c3` both report 527/584 backed, 40 unbacked and 0 status lies. All 550 obligations match exactly. The computed matrix and unmatched tags match after line and column locations are removed.
 - The six empty doc lines are at `tests/ir575_reader_memory.rs:35,63,127,153` and `tests/conformance_qspec/main.rs:1043,1085`. Each sits directly above a migrated or retained trace attribute.
 - The author reports the pre-PR gates; this read-only review ran focused checks and independent Quire measurements without repeating the full Cargo suite.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Head `18c5ab5` deletes exactly the six cited empty `///` lines. The remaining substantive prose and trace attributes are unchanged; a scan of both files finds no empty `///` directly above `#[trace]`. |
