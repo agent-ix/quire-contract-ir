@@ -24,7 +24,8 @@ downstream consumers before any generation or proof attempt.
 
 The neutral census builder accepts four owner-issued outcomes and an explicit
 source-author binding. Synthetic outcomes test its construction and refusal
-rules; owner-native completeness and full-output comparison remain Planned/UNRUN.
+rules. The IR V2 owner portion has native completeness and full-output tests;
+the other owner portions and matched-source four-owner comparison remain Planned/UNRUN.
 IR-794 defines the narrower owner-issued enumeration outcome that the neutral
 model retains. It does not make a caller-supplied
 row vector, count, or absent stop reason into evidence of exhaustion.
@@ -73,8 +74,9 @@ The public `quire_contract_model::source_obligation` module exports
 `SourceInventoryOutcome`, `SourceInventoryOutcomeError`,
 `SourceInventoryEnumerator`, `SourceInventoryDisposition`,
 `SourceInventoryCompleteness`, `SourceInventoryIncompleteReason`, `SourceInventoryOwner`,
-`SourceInventoryScope`, `SourceCorrespondenceError`, and
-`build_source_obligation_census`. These types shall be listed in FR-019's
+`SourceInventoryScope`, `SourceCorrespondenceError`,
+`SourceIrV2InventoryError`, `build_source_obligation_census`, and
+`source_inventory_from_ir_v2`. These public items shall be listed in FR-019's
 public-items inventory. FR-019 lists the compiled public surface exactly. The owner-issued outcome
 boundary supplies `SourceInventoryOutcome` and `SourceInventoryEnumerator`;
 `SourceObligationInput` consumes four optional outcomes, and the census
@@ -506,14 +508,13 @@ census.
 FR-052-AC-24 holds the conflicting-inventory-facts clause split from AC-3; its
 obligation is unchanged. The inventory fact is the admitted node's
 `semantic_type: CheckedNodeId`. AC-24 is Implemented by the public type and
-traced synthetic conflict test. Owner-native completeness remains Planned.
+traced synthetic conflict test. Four-owner completeness remains Planned.
 
 AC-7, AC-9, AC-10 and AC-11 name owner scopes, owner-native enumerators or
 owner adapter tests, and they remain Planned/UNRUN pending owner-native
-adapters. AC-25 through AC-27 are independently testable owner portions and
-remain Planned until their respective adapters and traced tests land. Quire's
-selected-scope producer awaits PLAT-1165; the IR V2 adapter remains planned
-under IR-825 after the IR-820 type correction. AC-11's first sentence is exercised at the
+adapters. AC-25 is Implemented by the IR V2 reader-result adapter and traced
+tests. AC-26 and AC-27 remain Planned until their owner adapters and traced
+tests land. Quire's selected-scope producer awaits PLAT-1165. AC-11's first sentence is exercised at the
 neutral boundary by the AC-13 tests, but its second sentence needs owner
 adapter tests, so AC-11 stays Planned as a whole. AC-16 remains Planned/UNRUN
 pending PLAT-1165. Synthetic completion does not establish the full
