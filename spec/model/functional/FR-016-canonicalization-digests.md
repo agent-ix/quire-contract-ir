@@ -133,6 +133,13 @@ as its byte limit and the limit refusal it returns is that code. The budget is a
 caller policy: it bounds output size and never changes the bytes a successful
 call produces.
 
+The public refusal contract covers byte-limit and allocation failures of
+validated model values. An encoder protocol or internal error would indicate a
+bug in a model-owned `Encode` implementation, not an outcome of a supported
+input. The diagnostic message used by the internal `encoder_refusal` guard to
+distinguish that fault from resource exhaustion is troubleshooting detail; its
+wording is not a canonicalization API guarantee.
+
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
