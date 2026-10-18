@@ -27,7 +27,18 @@ fn source() -> SourceIdentity {
 #[trace("TC-452", "FR-052-AC-25")]
 #[test]
 fn ir_v2_inventory_matches_every_admitted_graph_node_and_occurrence() {
-    let value = v2_all_families();
+    let mut value = v2_all_families();
+    value["semantic_graph"]["nodes"][0]["occurrences"]
+        .as_array_mut()
+        .expect("occurrences")
+        .push(json!({"role": "expression", "ordinal": 1}));
+    let mut second_source = value["source_map"][0].clone();
+    second_source["role"] = json!("expression");
+    second_source["ordinal"] = json!(1);
+    value["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(second_source);
     let read = CheckedPackageV2::read(
         &canonical(&value),
         CheckedPackageReadLimits::bounded(),
@@ -38,6 +49,11 @@ fn ir_v2_inventory_matches_every_admitted_graph_node_and_occurrence() {
         other => panic!("fixture must admit: {other:?}"),
     };
     let selected = source();
+    assert_eq!(graph.nodes[0].occurrences.len(), 2);
+    assert!(graph
+        .nodes
+        .iter()
+        .any(|node| node.semantic_type != node.node_id));
     let expected: Vec<_> = graph
         .nodes
         .iter()
@@ -77,15 +93,6 @@ fn ir_v2_inventory_matches_every_admitted_graph_node_and_occurrence() {
     assert_eq!(
         outcome.completeness(),
         &SourceInventoryCompleteness::Complete
-    );
-
-    let mut shortened = outcome.items().to_vec();
-    shortened.remove(1);
-    let shortened_count = shortened.len();
-    assert_eq!(shortened_count, expected.len() - 1);
-    assert_ne!(
-        shortened, expected,
-        "a missing row cannot match full owner output"
     );
 }
 
