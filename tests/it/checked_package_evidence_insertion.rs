@@ -8,6 +8,7 @@ use crate::support::checked_package::{
     pointer, refresh_identity, rekey_application_node, v2_all_families, v2_nominal,
     COMPLETE_VALUE_FEATURE,
 };
+use ix_trace_rs::trace;
 use quire_contract_model::{
     read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
     CheckedPackageEvidenceInsertionError, CheckedPackageReadLimits, CheckedPackageRefusalCause,
@@ -115,7 +116,7 @@ fn expect_stale(result: CheckedPackageV2ReadResult, path: &str, cause: CheckedPa
     );
 }
 
-/// Trace: FR-047-AC-1, FR-047-AC-2, FR-047-AC-6
+#[trace("FR-047-AC-1", "FR-047-AC-2", "FR-047-AC-6")]
 #[test]
 fn domain_repeats_preserve_first_only_public_read_in_both_orders() {
     let document = domain_package_document("test/evidence", "1", Vec::new());
@@ -178,7 +179,7 @@ fn domain_repeats_preserve_first_only_public_read_in_both_orders() {
     }
 }
 
-/// Trace: FR-047-AC-1, FR-047-AC-2, FR-047-AC-6
+#[trace("FR-047-AC-1", "FR-047-AC-2", "FR-047-AC-6")]
 #[test]
 fn domain_equality_is_raw_bytes_and_exact_keys_are_independent() {
     let keys = [
@@ -247,7 +248,7 @@ fn dependency_parent(dependency: &CheckedPackageV2, identity: &str) -> Value {
     parent
 }
 
-/// Trace: FR-047-AC-3, FR-047-AC-6
+#[trace("FR-047-AC-3", "FR-047-AC-6")]
 #[test]
 fn equal_independent_admissions_retain_the_first_arc_and_ceiling_in_both_orders() {
     let document = v2_all_families();
@@ -303,7 +304,7 @@ fn equal_independent_admissions_retain_the_first_arc_and_ceiling_in_both_orders(
     }
 }
 
-/// Trace: FR-047-AC-4, FR-047-AC-6
+#[trace("FR-047-AC-4", "FR-047-AC-6")]
 #[test]
 fn dependency_conflicts_preserve_first_only_public_read_in_both_orders() {
     let document = v2_all_families();
@@ -355,7 +356,7 @@ fn dependency_conflicts_preserve_first_only_public_read_in_both_orders() {
     }
 }
 
-/// Trace: FR-047-AC-4, FR-047-AC-6
+#[trace("FR-047-AC-4", "FR-047-AC-6")]
 #[test]
 fn equal_package_ids_do_not_hide_independently_admitted_metadata_conflicts() {
     let original = v2_nominal();
@@ -418,7 +419,7 @@ fn raw_source_reference(original: &Value) -> Value {
     reference
 }
 
-/// Trace: FR-047-AC-5
+#[trace("FR-047-AC-5")]
 #[test]
 fn exact_feature_repeats_are_idempotent_and_variants_do_not_imply_support() {
     for (required, distinct) in [
