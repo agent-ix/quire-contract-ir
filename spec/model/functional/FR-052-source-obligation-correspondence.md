@@ -303,11 +303,13 @@ criterion identity for `Criterion`; the `SourceRequirementOccurrenceId` for
 `RequirementRecord`; the `CheckedNodeId` for `SemanticNode`; and the whole
 identity for `SemanticOccurrence`, `PendingObligation`, `ProductionModule` and
 `ProductionFunction`. Rows with equal keys and equal facts are exact
-duplicates. The only inventory fact beyond the key is the `CheckedSemanticId` of
-a `SemanticNode`; rows with one `CheckedNodeId` and differing
-`CheckedSemanticId` values conflict, so each conflicting entry shall remain
+duplicates. The only inventory fact beyond the key is the `semantic_type:
+CheckedNodeId` of a `SemanticNode`, copied from the admitted
+`CheckedSemanticNodeV2` alongside its `node_id` key. Rows with one node key and
+differing semantic type keys conflict, so each conflicting entry shall remain
 inspectable with `ConflictingIdentity`; none shall be selected by first-wins
-order. Collapsing exact duplicates happens in the census and does not alter the
+order. The package-level `CheckedSemanticId` is not a per-node fact. Collapsing
+exact duplicates happens in the census and does not alter the
 outcome's retained rows or observed count, so a census may hold fewer inventory
 rows than the outcome's observed count. Repeated assertion identity with
 conflicting relation facts or provenance shall remain inspectable with
@@ -431,13 +433,6 @@ candidate denominator.
 
 ### Open questions
 
-- IR V2 semantic-node identity, owned by FR-052-AC-9's IR V2 adapter. The
-  `SemanticNode` inventory identity carries a `CheckedSemanticId`, but a
-  checked V2 graph node carries `semantic_type` as a `CheckedNodeId`, so an
-  owner-native adapter cannot fill the identity as specified. Linear IR-820
-  tracks the decision. The synthetic census (FR-052-AC-17 through AC-23) does
-  not depend on the answer; FR-052-AC-24, the conflicting-inventory-facts case
-  that names `CheckedSemanticId`, waits on it.
 - Conflicting binding. The census construction rules read a binding's
   `obligation_scope()` as one obligation declaration that every Quire
   `Criterion` row must carry. FR-052-AC-7 names the bound corpus's "declared
@@ -476,7 +471,7 @@ candidate denominator.
 | FR-052-AC-21 | Given synthetic outcomes, an outcome in one owner position that is both in the wrong position and incomplete yields `InventoryScopeMismatch`, and one that names the wrong source and is incomplete yields `InventorySourceMismatch`. | Test |
 | FR-052-AC-22 | Given synthetic `Complete` outcomes, two assertion IDs stating one relation with equal provenance yield exactly one accepted row, and two assertion IDs stating one relation with differing provenance are both rejected with `ConflictingProvenance` and yield no accepted row. | Test |
 | FR-052-AC-23 | Given synthetic `Complete` outcomes, an assertion whose occurrence lies under a `ConflictingIdentity` node, an assertion whose occurrence has no `SemanticNode` row, and an assertion whose production function has no `ProductionModule` row are rejected with `DanglingOccurrence`, `DanglingOccurrence` and `DanglingProductionSymbol` respectively; each orphan or conflicting row stays in the census. | Test |
-| FR-052-AC-24 | Conflicting inventory facts (two `SemanticNode` rows with one `CheckedNodeId` and differing `CheckedSemanticId`) receive their named deterministic disposition, `ConflictingIdentity`; each conflicting entry remains inspectable, and no occurrence under a conflicting node enters an accepted relation. | Test |
+| FR-052-AC-24 | Conflicting inventory facts (two `SemanticNode` rows with one `CheckedNodeId` node key and differing `semantic_type: CheckedNodeId` facts) receive their named deterministic disposition, `ConflictingIdentity`; each conflicting entry remains inspectable, and no occurrence under a conflicting node enters an accepted relation. | Test |
 
 FR-052-AC-8 is retired and its ID is not reused (ADR-0056).
 FR-052-AC-17 succeeds it. FR-052-AC-4 and AC-12 through AC-15, and AC-17
@@ -495,15 +490,14 @@ owner-issued completeness, owner full-output comparison, or complete four-owner
 census.
 
 FR-052-AC-24 holds the conflicting-inventory-facts clause split from AC-3; its
-obligation is unchanged. It stays Planned until Linear IR-820 decides whether
-the `SemanticNode` inventory fact is a `CheckedSemanticId` or a
-`CheckedNodeId`, and IR-825 then backs it. No existing test is traced to AC-24
-before that decision.
+obligation is unchanged. The inventory fact is the admitted node's
+`semantic_type: CheckedNodeId`. AC-24 stays Planned until the public type and
+conflict test implement this decision. No existing test is traced to AC-24.
 
 AC-7, AC-9, AC-10 and AC-11 name owner scopes, owner-native enumerators or
 owner adapter tests, and they remain Planned/UNRUN pending owner-native
-adapters. Quire's selected-scope producer awaits PLAT-1165, and the IR V2
-adapter also waits on IR-820. AC-11's first sentence is exercised at the
+adapters. Quire's selected-scope producer awaits PLAT-1165; the IR V2
+adapter remains planned under IR-825. AC-11's first sentence is exercised at the
 neutral boundary by the AC-13 tests, but its second sentence needs owner
 adapter tests, so AC-11 stays Planned as a whole. AC-16 remains Planned/UNRUN
 pending PLAT-1165. Synthetic completion does not establish the full

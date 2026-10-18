@@ -15,7 +15,7 @@ through AC-6, AC-12 through AC-15, and AC-17 through AC-23 are Implemented
 with traced tests in `tests/it/source_obligation.rs` and the default-feature
 model-crate consumer. FR-052-AC-8 is retired (ADR-0056). Owner-native evidence
 is still required where a criterion says so. FR-052-AC-24, split from AC-3, is
-Planned until Linear IR-820 settles the `SemanticNode` fact. Owner-native completion, full-output comparison, and the
+Planned until the `SemanticNode` type change and conflicting-facts test land. Owner-native completion, full-output comparison, and the
 full matched-source census remain Planned/UNRUN under AC-7, AC-9 through
 AC-11, and AC-16. Quire's selected-scope producer awaits PLAT-1165. Synthetic
 outcomes do not establish owner-native exhaustion.
@@ -136,8 +136,8 @@ differs from the retained rows, and a foreign-source row, to the outcome
 boundary.
 The FR-052-AC-2 fixture and the FR-052-AC-3 dispositions are specified in
 that same section. Conflicting inventory facts (a `SemanticNode` repeated
-with one `CheckedNodeId` and differing `CheckedSemanticId`) belong to
-FR-052-AC-24, which waits on Linear IR-820.
+with one `CheckedNodeId` node key and differing `semantic_type: CheckedNodeId`
+facts) belong to FR-052-AC-24, which awaits its implementation and test.
 
 Separately, build the same fixture from four synthetic `Complete` outcomes
 and a valid binding. Its QSL outcome holds at least one `RequirementRecord` row
@@ -262,7 +262,7 @@ or a complete four-owner census.
     The existing two-ID provenance cases are FR-052-AC-22's case (step 4).
 
   `orphan_or_conflicting_endpoints_do_not_resolve` is not traced to
-  FR-052-AC-24 before IR-820 is decided.
+  FR-052-AC-24 before the type change and conflicting-facts test land.
 
 ## Expected Results
 
@@ -288,7 +288,7 @@ row by `RowSourceMismatch`, each with no outcome. Rejected assertions retain the
 reasons; `ConflictingRelation` and `ConflictingProvenance` are each directly
 observed and neither conflicting relation is accepted. Exact duplicates
 collapse, conflicting inventory entries remain inspectable (FR-052-AC-24,
-pending IR-820), equivalent input
+pending implementation), equivalent input
 permutations produce equal ordered censuses, and removing one authoritative
 occurrence changes the census.
 
