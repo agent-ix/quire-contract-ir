@@ -13,6 +13,12 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/TC-931
     type: references
+  - target: ix://agent-ix/quire-specification/TC-946
+    type: references
+  - target: ix://agent-ix/quire-specification/TC-947
+    type: references
+  - target: ix://agent-ix/quire-specification/TC-948
+    type: references
 ---
 # TC-048: CheckedPackage V2 strict reader re-derives package and nominal identities
 
@@ -1492,6 +1498,59 @@ reader's general rules: an absent `owner` refuses `malformed_wire` at the
 node, and `enum.lt` and `structural.eq` over the variant refuse
 `ill_typed`/`operator-ineligible` at the first argument. Those two are extra
 test controls and are not required by the criterion text.
+
+## Protocol node forms (FR-038-AC-281 through FR-038-AC-292)
+
+Use QSpec FR-464, FR-465 and FR-466 and the authored tables in TC-946, TC-947
+and TC-948 as the current independent expected outcomes. Build each case into
+a V2 package with fresh content-derived node keys and package identity unless
+the vector explicitly tests a stale key. Once QSpec publishes machine-readable
+protocol vectors and regenerated fixtures, run them from a
+`quire-specification` checkout named by `QUIRE_SPECIFICATION_DIR`. No fixture,
+vector or schema is copied into this repository.
+
+1. Admit the seven non-carrier protocol forms and each of the twenty
+   `profile_operator` names under the selected
+   `quire.protocol.finite-global/v1` row. Refuse an unknown operator, a missing
+   or wrong law, a member whose kind is not `profile_operator`, a misplaced
+   application and a node with another operator's form. Select
+   `quire.protocol.complete/v1` in a separate lock and verify it does not
+   satisfy a law naming `finite-global/v1`, or the reverse. Omit the
+   `temporal_profile` selection for `await` and `compensate` and require
+   `missing_declaration`/`missing-selection` at each node.
+2. For each form, admit its fixed named arguments in order, including empty
+   sets and absent optionals where allowed. Refuse a missing, extra,
+   reordered, misspelled or wrongly shaped binding, a repeated or misordered
+   set or sorted record, and a nested protocol application. Reorder an
+   authored `sequence` and an ordered capture list and require changed keys;
+   reformat source and reorder role or other set-backed declarations and
+   require unchanged keys.
+3. Admit valid declaration paths and one-clause membership. Refuse a wrong
+   prefix, duplicate or unattached member, double-held control, missing or
+   duplicate queue and wrong-clause queue. Exercise absent dependencies and
+   wrong-form targets separately, comparing code, cause, pointer and node
+   locus.
+4. Exercise static and replicated roles, channels with each delivery and
+   ordering premise, literal and symbolic queues, finish and terminal,
+   thirteen control operators and compensation with `commit` present and
+   absent. For each, pair an admitted case with the local adverse forms,
+   bounds, type and label cases of TC-947 and TC-948. For compensation, admit
+   a commit in one choice case or a non-all parallel branch before the forward
+   effect, and refuse a commit that dominates that effect; compare the
+   `commit-precedes-effect` reason only for the dominating case.
+5. Exercise a causal cycle, independent parallel controls, zero-progress and
+   progressing repeats; then a binder at each stage, forbidden model-state
+   read, inaccessible branch binder and decision fact of another role or not
+   individually visible. Assert the specified first refusal and retained
+   stage, owner and reason details rather than only a refusal code.
+6. Combine defects in state and protocol, temporal and protocol,
+   abstraction and protocol, protocol and operation, and multiple protocol
+   nodes. Require the FR-464 step order and ascending digest order. Keep the
+   existing `protocol_reference` carrier cases green.
+
+Expected: the positive packages admit with their authored keys, every adverse
+vector refuses with the QSpec code, cause and locus, and no runtime workflow
+instance, delivery or clock observation is required to read the package.
 
 ## Refusal and limit locations (FR-038-AC-24 through FR-038-AC-26)
 

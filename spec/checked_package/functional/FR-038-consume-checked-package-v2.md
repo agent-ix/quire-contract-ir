@@ -43,6 +43,12 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-440
     type: references
+  - target: ix://agent-ix/quire-specification/FR-464
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-465
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-466
+    type: references
   - target: ix://agent-ix/quire-specification/FR-271
     type: references
   - target: ix://agent-ix/quire-specification/FR-272
@@ -1500,6 +1506,47 @@ that key. A present target whose node tag is not `protocol`, or whose
 same pointer. The locus is the carrier's typed node key under this reader's
 ordinary node-refusal convention. Generic unresolved-reference validation
 SHALL NOT precede this carrier join.
+
+### Protocol node bodies and reader step
+
+When a V2 package contains a `protocol` node other than the
+`protocol_reference` carrier, the reader SHALL apply the exact body, key,
+declaration and dependency rules of QSpec FR-464, FR-465 and FR-466 to its
+`protocol_clause`, `role`, `channel`, `queue`, `obligation`, `control` or
+`compensation` form. Each body root is a `quire.op.protocol.control`
+application with one `protocol_profile` law equal to the selected lock row,
+`null` mode, empty leaves, Boolean result and semantic types, and a
+`profile_operator` member. The selected finite global protocol profile
+defines exactly `protocol`, `role`, `channel`, `queue`, `finish`, `terminal`,
+`sequence`, `choice`, `parallel`, `repeat`, `await`, `check`, `send`, `receive`,
+`attempt`, `effect`, `event`, `commit`, `fence` and `compensate`. The reader
+SHALL compare profile identities exactly: `quire.protocol.finite-global/v1`
+and `quire.protocol.complete/v1` are distinct values, never aliases.
+
+The reader SHALL preserve the QSpec layouts as fixed, named argument lists,
+including the thirteen clause and thirteen compensation bindings, the
+role/channel/queue/finish/terminal declarations and the thirteen control
+operators. It SHALL distinguish ordered lists from sets sorted by node-id
+digest, sorted case and branch records from ordered captures, optional Groups
+of zero or one member from required Groups, and enumerated text and interval
+terms from unrestricted terms. A member kind other than `profile_operator`,
+or an operator outside the selected profile, refuses `invalid_package`/
+`operation-member-mismatch`. A wrong binding name, shape, position or
+enumerated spelling refuses `malformed_wire`; a repeated or misordered set or sorted
+record refuses `invalid_semantic_graph`. Node keys SHALL continue to derive
+from the authored application preimage, including exact declaration paths and
+reference targets, rather than from source order or occurrences.
+
+After the state, temporal and abstraction steps and before the operation
+step, the reader SHALL run the protocol step in QSpec FR-464 order: placement;
+operator and law; declarations; member nodes; membership; then clauses.
+Within a clause it SHALL check references, activation and captures, the
+derived causal relation and progress, then slots. Within a slot it SHALL
+check forbidden `over` and model-state reads before binder scope and
+decision facts. The step SHALL use the typed refusal code, cause, pointer
+and node locus that QSpec FR-464 through FR-466 state; an earlier state,
+temporal or abstraction defect SHALL win over a protocol defect, and a
+protocol defect SHALL win over an operation-step defect.
 
 ### Dependency references
 
@@ -4835,6 +4882,18 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-278 | Implemented (IR-852). An external Rust API fixture calls `reaches_population` with `&CheckedNodeId`, binds the result as `Result<Option<CheckedSelectedPopulationSelector>, CheckedReachesPopulationError>` and exhaustively matches `CheckedReachesPopulationError` without a wildcard arm, so a fourth variant fails to compile; no `selected_population` item is `pub use`d at the model crate root or re-exported from the `quire-contract-ir` root (FR-053-AC-5). The FR-019 Public items row for the new error type is added by the code change that exports it, not by this specification change. | Test (TC-048) |
 | FR-038-AC-279 | Implemented (IR-852). A reaches application whose `operation.member.population` names a `model_population` node over the receiver end's declared type with a missing `max`, two `max` members, a `max` that is not an integer `literal`, a negative `max` and a `max` above `u64` spelled as the decimal string `"18446744073709551616"` (a JSON number that large is refused earlier as `noncanonical_wire`) is refused by the reader with `ill_typed`/`operator-ineligible` at the member's `population` pointer, for each of the five (the missing, non-literal and negative cases differ from the code FR-322 gives them at the node, as the reader check states); a population node whose `max` member is not a `binding` is refused earlier by the graph reader as `invalid_semantic_graph` at `/semantic_graph/nodes/N/body/members/M` and never reaches the population check; a `max` of 0 and a `max` given as a decimal string are admitted and yield `Finite` from `select_population` with that maximum. | Test (TC-048) |
 | FR-038-AC-280 | Implemented (IR-852). A reaches application with an invalid `population` (a node id absent from the graph, listed in its `dependencies`) and an earlier defect in `check_relationship_member` (an operand 1 that does not conform to the receiver end) is refused for the operand at its `arguments` pointer, not at `population`; a reaches application that carries a mode or a leaf is refused by the identity stage (`operation-mode-mismatch` for the mode, a law mismatch for the leaf) whatever its `population` when the `population` is a node id listed in the application's `dependencies`, because the catalog gives `quire.op.model.reaches` neither; an invalid `population` id missing from `dependencies` is refused earlier by the dependency join (`invalid_semantic_graph`, no cause), which runs before the identity stage. | Test (TC-048) |
+| FR-038-AC-281 | A reader-admitted protocol member has a `quire.op.protocol.control` body root, exactly one `protocol_profile` law matching the selected lock row, `null` mode, no leaves, Boolean result and semantic types, and a `profile_operator` member. Under the published `quire.protocol.finite-global/v1` selection the admitted operators are exactly `protocol`, `role`, `channel`, `queue`, `finish`, `terminal`, `sequence`, `choice`, `parallel`, `repeat`, `await`, `check`, `send`, `receive`, `attempt`, `effect`, `event`, `commit`, `fence` and `compensate`; an unknown operator refuses `operation-member-mismatch`. A law selected as `quire.protocol.complete/v1` does not satisfy a `finite-global/v1` row, nor the reverse. A missing or mismatched law refuses with its catalogued law cause; a member whose kind is not `profile_operator` refuses `invalid_package`/`operation-member-mismatch` at the application, before any member-body check. An `await` or `compensate` without a selected `temporal_profile` refuses `missing_declaration`/`missing-selection` because it reads a clock role. | Test (TC-048) |
+| FR-038-AC-282 | Each of the seven protocol member forms admits only the FR-464, FR-465 or FR-466 fixed argument names, order and term shapes for its selected operator: thirteen clause bindings, the role, channel, queue, finish and terminal layouts, thirteen control layouts and thirteen compensation bindings. A missing, extra, reordered, wrongly shaped or misspelled binding refuses `malformed_wire`; an optional Group admits zero or one member only, an interval has non-negative integer bounds with lower no greater than upper, and a set or sorted-record list repeated or out of its specified ascending order refuses `invalid_semantic_graph`. An ordered `sequence` or capture list retains its authored order. | Test (TC-048) |
+| FR-038-AC-283 | A protocol node derives its `quire.application-node/v1` key from its exact tag, form, Boolean type, declaration path, `null` recursion and body, with occurrences excluded; a second reference, source reformatting or declaring roles and other set-backed members in another source order preserves the key and package id, while a changed name, referenced target, literal, ordered capture or `sequence` child changes both. Role, channel, finish, terminal, control and compensation declarations use the fixed qualified-name segments of QSpec FR-464; queues have no declaration and generated occurrences, while other protocol members have declaration occurrences. A wrong path or occurrence role refuses at the node. | Test (TC-048) |
+| FR-038-AC-284 | The reader runs a protocol step after state, temporal and abstraction and before operations. That step reports the first defect by QSpec FR-464 order: placement of applications and member references, operator and law, declarations, member nodes in role/channel/queue/obligation/control/compensation order, membership, then clauses; nodes within a stage are visited by ascending node-id digest. A package with both a state-step and protocol defect reports the state defect; one with both a protocol and operation defect reports the protocol defect. A nested protocol application refuses `malformed_wire` at strict wire validation before this step. | Test (TC-048) |
+| FR-038-AC-285 | Every role, channel, queue, obligation and compensation is listed by exactly one owning protocol clause, and every control is held once in its root control tree with the declaration path of its holder followed by its own name. A member listed twice or unattached, a control held twice or by nothing, a channel without exactly one queue, or a queue attached to another clause refuses `invalid_semantic_graph` at that member. A target not listed in its referencing node's `dependencies` refuses `missing_declaration`/`missing-name`; a target of the wrong tag or form refuses `invalid_model_binding`/`malformed-declaration`, except a relationship target of the wrong export refuses `wrong-export`. | Test (TC-048) |
+| FR-038-AC-286 | A role admits the FR-465 static and replicated shapes only, including a model of an eligible form, replication maximum at least one, a reference-typed binder and an `until` term exactly for an `until` lifetime; a channel admits only same-clause role endpoints, an eligible message type, explicit delivery and ordering, and a FIFO key with equality-stable type; a queue admits one channel, literal or symbolic capacity, explicit overflow and a loss selector exactly for `loss`. The reader admits the positive variants and refuses the wrong form, missing premise, wrong binder type, non-Boolean lifetime, noncanonical capacity or key and ineligible equality with the FR-465 code, cause and locus. | Test (TC-048) |
+| FR-038-AC-287 | A clause names exactly one `finish` obligation whose closing-record binder and Boolean constraint read only the binders available after the root control; its optional `terminal` obligation admits `when` with one Boolean condition or `any` with none. A missing or extra condition refuses `malformed_wire`, a non-Boolean condition or constraint refuses `ill_typed`/`non-boolean-root`, an unjoined branch binder read by finish refuses `missing_declaration`/`missing-name`, and a terminal target in the finish position or an unattached finish refuses by the FR-464 membership rules. | Test (TC-048) |
+| FR-038-AC-288 | Each of the thirteen control operators admits its FR-466 ordered arguments and local reference, type, bounds, label and ordering checks: `sequence`, `choice`, `parallel`, `repeat`, `await`, `check`, `send`, `receive`, `attempt`, `effect`, `event`, `commit` and `fence`. A choice or parallel branch list with fewer than two entries, repeated labels, a receive naming a non-send, an effect naming a non-attempt, an await naming an ineligible event, a non-Boolean guard or constraint, an invalid join count or an ineligible memory or ordering spelling refuses with the FR-466 code, cause and locus, without changing the accepted meaning of another operator. | Test (TC-048) |
+| FR-038-AC-289 | A `compensate` body admits the thirteen FR-466 bindings in order, including distinct registration and activation captures, a trigger, interval, at-least-one attempt, retry relation, optional commit and recovery predicate. `commit never` is an absent optional Group, not a fabricated commit. The reader refuses a forward target that is not an `effect`, a commit target that is not a `commit`, an inverted interval or zero attempts, a commit that dominates its forward effect, and a read outside any of the five compensation stages with the corresponding FR-466 code, cause and locus; a commit in one case of a `choice` or in a non-all parallel branch before the effect is admitted when it does not dominate that effect, and the package creates no runtime compensation instance. | Test (TC-048) |
+| FR-038-AC-290 | For each clause the reader constructs the QSpec FR-464 derived causal relation from control containment, sequencing, receive/send, effect/attempt and await edges, not source order or timestamps. A receive before its send or an await anchored at a later control refuses `invalid_package`/`definition-cycle` naming the cycle; a same pair on independent parallel branches admits. A repeat whose body can complete with no progress on a path refuses `unsupported_construct`/`declaration-form`, while a repeat with a real step admits with or without a maximum and loop proof. | Test (TC-048) |
+| FR-038-AC-291 | Binder levels start at the introducing construct's entry count; protocol `over` is level 0, an `each` trigger follows, captures advance in their authored order, and a control binder is at the size of its readable input set. The reader admits reads within the FR-464/466 stage tables and refuses a wrong level, duplicate readable name, forward or foreign binder, or read after a branch, choice, repeat or await path where the binder is unavailable with the specified code, cause, stage and owner. In a binders-only slot, a read of `over` or model state refuses `ill_typed`/`operator-ineligible` before binder-scope checks. | Test (TC-048) |
+| FR-038-AC-292 | At a `choice` or `repeat` decision the reader admits only QSpec FR-466 visible facts owned by the deciding role and listed individually in `visible`; a fact from another role, an ineligible send/effect/commit/finish or protocol-input binder, a fact reachable only inside a composite entry, or a readable fact omitted from `visible` refuses `wrong_snapshot`/`wrong-observation` with the specified reason. A binder unavailable at that decision refuses `missing_declaration`/`missing-name` first. | Test (TC-048) |
 | FR-038-AC-246 | Implemented (IR-803). For a reader-admitted `quire.op.structural.eq` application, `composite_application_operands` returns `CheckedCompositeOperator::Eq` together with its operands; for an otherwise equivalent reader-admitted `quire.op.structural.ne` application it returns `CheckedCompositeOperator::Ne` together with its operands. Between those cases, only the returned operator and the selected application's identity and occurrence may differ; operands (including order, child identities, semantic types and domains), ordinals and `consumed_work` are equal. The AC-182 public-fields inspection in `tests/it/checked_package_v2_composite_operands.rs` (`inspect_public_fields`) must exhaustively match both `CheckedCompositeOperator` variants, without a wildcard arm or `#[non_exhaustive]`. The consumer needs no separate operation lookup. TC-048 composite operand tests verify both cases. | Test (TC-048) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
@@ -4851,6 +4910,15 @@ The typed composite operand projection supplies package-authored positions to
 [QSL FR-358](ix://agent-ix/quire-spec-language/FR-358) owns replay domain
 admission and [QSL ADR-013](ix://agent-ix/quire-spec-language/ADR-013) owns
 parity encoding; their drawn proof-bound values are not IR accessor outputs.
+
+[QSpec FR-464](ix://agent-ix/quire-specification/FR-464) owns the twenty
+protocol operators, the clause body, keys, membership, binder rules and
+protocol reader order. [QSpec FR-465](ix://agent-ix/quire-specification/FR-465)
+owns role, channel, queue, finish and terminal bodies;
+[QSpec FR-466](ix://agent-ix/quire-specification/FR-466) owns control and
+compensation bodies. QSpec owns both checked-package V2 schemas, the
+TC-946 through TC-948 vectors and their fixtures. IR consumes those artifacts
+by checkout path and does not publish copies of them.
 
 QSpec FR-370 (temporal clause body and temporal operation identities) and FR-440
 (union, union value and case nodes) own the encodings that FR-038-AC-96 through
