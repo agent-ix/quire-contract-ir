@@ -536,7 +536,7 @@ type CheckedPackageWireV2 = CheckedPackageEnvelope<
 /// let owned: &CheckedPackageIdentityPreimageV2 = todo!();
 /// let _ = encode_checked_package_v2(
 ///     owned, todo!(), todo!(), todo!(), todo!(), todo!(), todo!(),
-///     quire_canonical::Limits::new(1),
+///     todo!(),
 /// );
 /// ```
 pub fn encode_checked_package_v2(
