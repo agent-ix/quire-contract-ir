@@ -1370,7 +1370,6 @@ fn tc_226_the_in_repo_fixtures_carry_derived_keys_and_closed_bodies() {
 }
 
 /// The scalar keys the fixtures record as literals are the derived ones.
-///
 /// ACs: FR-038-AC-134
 #[trace("TC-226", "FR-038-AC-134")]
 #[test]
@@ -2104,7 +2103,6 @@ fn rekey_group_under_label(package: &mut Value, label: &str) {
 
 /// The source-owned, declared `List` and `Tree` groups admit. A changed ungrouped
 /// node and a Tree member whose label is removed both fail key authentication.
-///
 #[trace("TC-226", "FR-038-AC-145", "FR-038-AC-150")]
 #[test]
 fn tc_226_grouped_members_and_ungrouped_nodes_authenticate_their_keys() {
@@ -2236,7 +2234,6 @@ fn tc_226_tree_whole_read_work_boundary() {
 }
 
 /// A retained group key authenticates each member's bounds and body reference.
-///
 #[trace("TC-226", "FR-038-AC-148")]
 #[test]
 fn tc_226_an_in_group_tamper_refuses_at_its_member_key() {
@@ -2283,7 +2280,6 @@ fn tc_226_an_in_group_tamper_refuses_at_its_member_key() {
 
 /// Retagging a range as collection bounds and forging a names cycle cannot
 /// reuse its old key; the first structural-key pass refuses it.
-///
 #[trace("TC-226", "FR-038-AC-148")]
 #[test]
 fn tc_226_a_retagged_range_on_a_forged_cycle_refuses_at_its_key() {
@@ -2309,7 +2305,6 @@ fn tc_226_a_retagged_range_on_a_forged_cycle_refuses_at_its_key() {
 
 /// A lone label cannot authenticate a range or collection whose body changed
 /// while its old key was retained.
-///
 #[trace("FR-038-AC-146", "TC-226")]
 #[test]
 fn tc_226_a_lone_group_label_does_not_exempt_an_old_key() {
@@ -2336,7 +2331,6 @@ fn tc_226_a_lone_group_label_does_not_exempt_an_old_key() {
 
 /// Dependencies do not exempt a labelled node from key authentication, and a
 /// labelled range is checked alongside correctly keyed List and Tree groups.
-///
 #[trace("TC-226", "FR-038-AC-147")]
 #[test]
 fn tc_226_dependencies_and_group_labels_do_not_exempt_a_stale_node() {
@@ -2404,7 +2398,6 @@ fn tc_226_an_off_cycle_member_uses_the_tree_group_key_contract() {
 
 /// A collection and bounds node cannot reuse their ordinary keys after a
 /// forged group label and changed body. The first stale member is refused.
-///
 #[trace("TC-226", "FR-038-AC-148", "FR-038-AC-150")]
 #[test]
 fn tc_226_a_forged_names_cycle_through_collection_bounds_refuses() {

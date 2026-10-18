@@ -1596,7 +1596,6 @@ fn field(name: &str) -> String {
 /// recursion leaf; the text leaf alone refuses `operation-law-missing` at
 /// `operation.leaves`, and a further text leaf refuses
 /// `operation-law-mismatch` at that entry.
-///
 #[trace("TC-048", "FR-038-AC-70")]
 #[test]
 fn tc_048_the_reader_admits_equality_over_a_recursive_record() {
@@ -1657,7 +1656,6 @@ fn tuple_of(name: &str, positions: &[&str]) -> Typed {
 /// so its recursion leaf reads `recursion:0` (QSpec FR-322 "Structural leaf
 /// walk"). The text leaf alone and a recursion leaf reading `recursion:1` are
 /// refused.
-///
 #[trace("TC-048", "FR-038-AC-70")]
 #[test]
 fn tc_048_the_reader_admits_equality_over_a_record_cycling_through_a_tuple() {
@@ -1892,7 +1890,6 @@ fn structural_forwarding_reader_routes_have_exact_and_one_less_work_boundaries()
 /// A ring of 12 records with its 12 text leaves and its recursion leaf
 /// admits at the exact work a read used, and one below that returns
 /// `incomplete` for `work`.
-///
 #[trace("TC-048", "FR-038-AC-72")]
 #[test]
 fn tc_048_a_ring_of_twelve_records_is_decided_at_its_exact_work() {
@@ -1921,7 +1918,6 @@ fn tc_048_a_ring_of_twelve_records_is_decided_at_its_exact_work() {
 /// other record, compared at the first with `leaves` empty, return
 /// `incomplete` for `work` at `operation.leaves` under the default read
 /// limits: the `(n - 1)!` leaves they unfold to are never listed.
-///
 #[trace("TC-048", "FR-038-AC-72")]
 #[test]
 fn tc_048_ten_records_naming_each_other_exhaust_the_work_budget() {
@@ -1960,7 +1956,6 @@ fn tc_048_ten_records_naming_each_other_exhaust_the_work_budget() {
 /// thread whose stack is 256 KiB, under byte, node, edge and work limits
 /// raised to admit it; the default limits read it as `incomplete` for
 /// `bytes`, since the package is larger than the default 1 MiB.
-///
 #[trace("TC-048", "FR-038-AC-72")]
 #[test]
 fn tc_048_a_cycle_of_twenty_thousand_records_is_decided_on_a_small_stack() {

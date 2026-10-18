@@ -1021,7 +1021,6 @@ fn recursion_leaf(path: &[&str]) -> Value {
 /// `IntList` admits with no leaf, and over `TextList` with its text leaf and one
 /// recursion leaf; a missing recursion leaf, `recursion:1` and a recursion leaf at
 /// an `IntList` reentry are refused as for a record.
-///
 #[trace("TC-048", "FR-038-AC-106")]
 #[test]
 fn tc_048_a_cycle_through_a_union_is_a_recursion_leaf() {
@@ -1106,7 +1105,6 @@ fn option_chain_package(leaves: Vec<Value>) -> Value {
 /// `["inner", "member:Link", "position:0"]` and `["inner", "member:Link",
 /// "position:1", "recursion:1"]` admit; the recursion leaf missing (the text
 /// leaf alone) and one reading `recursion:0` are refused.
-///
 #[trace("TC-048", "FR-038-AC-106")]
 #[test]
 fn tc_048_a_union_cycle_under_an_option_enters_at_recursion_one() {
@@ -1138,7 +1136,6 @@ fn tc_048_a_union_cycle_under_an_option_enters_at_recursion_one() {
 /// A union type or union value body that is not its closed shape (an empty
 /// union, a union value with two bindings, a binding whose value is no
 /// `aggregate`) is `invalid_semantic_graph` at the node's `body`.
-///
 #[trace("TC-048", "FR-038-AC-99")]
 #[test]
 fn tc_048_a_malformed_union_body_refuses_at_the_node_body() {
@@ -1207,7 +1204,6 @@ fn with_details(mut package: Value, term: Value) -> Value {
 /// reference and admits; one that references an `expression`/`case` node is
 /// refused `ill_typed`/`operator-ineligible` at the entry
 /// (`/diagnostics/entries/{e}/details/{d}`), with no node key as locus.
-///
 #[trace("TC-048", "FR-038-AC-100")]
 #[test]
 fn tc_048_a_details_reference_to_a_union_node_admits_and_to_a_case_node_refuses() {
