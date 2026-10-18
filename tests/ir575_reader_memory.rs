@@ -32,7 +32,6 @@ fn generous_limits(nodes: usize) -> CheckedPackageReadLimits {
 /// Generate the AC-214 fixture in a process separate from every measured read.
 /// Set `IR575_FIXTURE_PATH` to the owned temporary output path. Ignored so a
 /// routine suite never generates a 177 MB document.
-///
 #[trace("TC-048", "FR-038-AC-214")]
 #[test]
 #[ignore]
@@ -60,7 +59,6 @@ fn proc_memory_kib() -> (u64, u64) {
 /// The AC-214 oracle: a fresh process, with the fixture and evidence prepared
 /// before its baseline, measures only the reader. Ignored so ordinary CI does
 /// not spend memory and minutes on the 100000-node performance case.
-///
 #[trace("TC-048", "FR-038-AC-214")]
 #[test]
 #[ignore]
@@ -124,7 +122,6 @@ fn tc_048_ir575_reader_only_peak() {
 /// It reaches the closed lossless comparison before the duplicate capability
 /// is refused, so a document-wide or single-field `Value` conversion appears
 /// in the reader-only peak. Generation is outside the measured process.
-///
 #[trace("TC-048", "FR-038-AC-214")]
 #[test]
 #[ignore]
@@ -150,7 +147,6 @@ fn tc_048_ir575_generate_metadata_peak_fixture() {
 /// It uses a fresh process and measures only the reader, as the AC-214 oracle
 /// does. The refusal is expected only after the complete closed wire was
 /// decoded and losslessly compared.
-///
 #[trace("TC-048", "FR-038-AC-214")]
 #[test]
 #[ignore]

@@ -1040,7 +1040,6 @@ fn assert_no_problems(problems: &[String]) {
 /// Every mutation refuses as recorded, with the expected-failure list empty
 /// (FR-038-AC-118): each of the five `body_grammar_mutations` refuses
 /// `malformed_wire`, with no identity refreshed.
-///
 #[trace("TC-048", "FR-038-AC-112", "FR-038-AC-118")]
 #[test]
 fn tc_048_qspec_adverse_mutations_refuse_as_recorded() {
@@ -1082,7 +1081,6 @@ fn mentions(problems: &[String], text: &str) -> bool {
 
 /// A recorded outcome names the cause only where it gives one: a cause-less
 /// outcome is met by the code with any cause, and by no other code.
-///
 #[trace("TC-048", "FR-038-AC-112")]
 #[test]
 fn tc_048_a_recorded_outcome_without_a_cause_is_met_by_its_code() {
