@@ -606,4 +606,30 @@ mod tests {
             Err(ProtocolBodyDefect::MalformedLayout)
         );
     }
+
+    #[trace("TC-946")]
+    #[test]
+    fn protocol_application_requires_its_operator_class_and_result_type() {
+        let mut wrong_class = body(ProtocolForm::Control, "send");
+        wrong_class["operator"] = json!("state_clause");
+        assert_eq!(
+            validate_protocol_body(
+                ProtocolForm::Control,
+                &wrong_class,
+                &boolean(),
+                Some(&selected())
+            ),
+            Err(ProtocolBodyDefect::OperatorIneligible)
+        );
+        let wrong_type = body(ProtocolForm::Control, "send");
+        assert_eq!(
+            validate_protocol_body(
+                ProtocolForm::Control,
+                &wrong_type,
+                &json!({"domain": "quire.checked-semantic-node/v1", "digest": "c".repeat(64)}),
+                Some(&selected())
+            ),
+            Err(ProtocolBodyDefect::OperatorIneligible)
+        );
+    }
 }
