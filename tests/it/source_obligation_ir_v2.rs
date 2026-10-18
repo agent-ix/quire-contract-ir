@@ -91,7 +91,7 @@ fn ir_v2_inventory_matches_every_admitted_graph_node_and_occurrence() {
 
 #[trace("TC-452", "FR-052-AC-25")]
 #[test]
-fn ir_v2_inventory_completes_a_valid_graph_without_source_occurrences() {
+fn ir_v2_inventory_never_completes_a_node_without_source_occurrences() {
     let mut value = v2_all_families();
     for node in value["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -106,20 +106,16 @@ fn ir_v2_inventory_completes_a_valid_graph_without_source_occurrences() {
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&value),
     );
-    let node_count = match &read {
-        CheckedPackageV2ReadResult::Admitted(package) => package.graph().nodes.len(),
-        other => panic!("zero-occurrence graph must admit: {other:?}"),
-    };
-    let outcome = source_inventory_from_ir_v2(source(), read).expect("native inventory");
-    assert_eq!(outcome.items().len(), node_count);
-    assert!(outcome
-        .items()
-        .iter()
-        .all(|row| matches!(row.identity(), SourceInventoryIdentity::SemanticNode { .. })));
-    assert_eq!(
-        outcome.completeness(),
-        &SourceInventoryCompleteness::Complete
-    );
+    assert!(matches!(
+        &read,
+        CheckedPackageV2ReadResult::Refused(refusal)
+            if refusal.code == CheckedPackageRefusalCode::InvalidSourceMap
+    ));
+    assert!(matches!(
+        source_inventory_from_ir_v2(source(), read),
+        Err(SourceIrV2InventoryError::Refused(refusal))
+            if refusal.code == CheckedPackageRefusalCode::InvalidSourceMap
+    ));
 }
 
 #[trace("TC-452", "FR-052-AC-25")]
