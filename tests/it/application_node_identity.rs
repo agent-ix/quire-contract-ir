@@ -82,7 +82,6 @@ fn oracle(node: &CheckedSemanticNodeV2, recursion: Value, body: Value) -> Value 
     Value::Object(preimage)
 }
 
-/// Trace: FR-046-AC-1, FR-046-AC-2
 #[trace("FR-046-AC-1", "FR-046-AC-2")]
 #[test]
 fn ordinary_candidates_bind_the_preimage_fields_before_any_read() {
@@ -117,7 +116,6 @@ fn ordinary_candidates_bind_the_preimage_fields_before_any_read() {
     assert_ne!(candidate(&renamed), candidate(&declared));
 }
 
-/// Trace: FR-046-AC-3
 #[trace("FR-046-AC-3")]
 #[test]
 fn grouped_candidates_use_all_members_in_order_and_preserve_external_references() {
@@ -191,7 +189,6 @@ fn grouped_candidates_use_all_members_in_order_and_preserve_external_references(
     assert_ne!(changed, actual);
 }
 
-/// Trace: FR-046-AC-1, FR-046-AC-4
 #[trace("FR-046-AC-1", "FR-046-AC-4")]
 #[test]
 fn draft_context_refusals_have_exact_payloads_and_deterministic_precedence() {
@@ -258,7 +255,6 @@ fn draft_context_refusals_have_exact_payloads_and_deterministic_precedence() {
     );
 }
 
-/// Trace: FR-046-AC-5
 #[trace("FR-046-AC-5")]
 #[test]
 fn canonical_byte_boundaries_and_number_refusals_preserve_encoder_errors() {
@@ -328,7 +324,6 @@ impl Drop for DeepDrafts {
     }
 }
 
-/// Trace: FR-046-AC-4
 #[trace("FR-046-AC-4")]
 #[test]
 fn deep_borrowed_drafts_copy_compare_hash_and_refuse_on_a_small_stack() {
@@ -357,7 +352,6 @@ fn deep_borrowed_drafts_copy_compare_hash_and_refuse_on_a_small_stack() {
     }).unwrap().join().expect("deep candidate controls complete without recursive helper operations");
 }
 
-/// Trace: FR-046-AC-6
 #[trace("FR-046-AC-6")]
 #[test]
 fn caller_substitution_admits_and_a_retained_candidate_refuses_a_changed_body() {

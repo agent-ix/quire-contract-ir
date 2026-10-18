@@ -150,7 +150,6 @@ fn with_projection_body(
 // FR-038-AC-74: the identity preimage and the package id.
 // ---------------------------------------------------------------------------
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-74
 #[trace("TC-048", "FR-038-AC-74")]
 #[test]
@@ -187,7 +186,6 @@ fn tc_048_preimage_bytes_equal_serde_json_and_hash_to_the_package_id() {
     }
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-74
 #[trace("TC-048", "FR-038-AC-74")]
 #[test]
@@ -286,7 +284,6 @@ fn crafted_graph() -> CheckedSemanticGraphV2 {
     typed(&graph)
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-75
 #[trace("TC-048", "FR-038-AC-75")]
 #[test]
@@ -330,7 +327,6 @@ fn crafted_lock(package: &Value) -> CheckedPackageLockV2 {
     typed(&lock)
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-76
 #[trace("TC-048", "FR-038-AC-76")]
 #[test]
@@ -567,7 +563,6 @@ fn deep_encodes_and_stays_under_a_byte_ceiling<T: Carrier>() {
     assert!(edge == expected_text::<T>("[9007199254740992]").into_bytes());
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-77, FR-038-AC-78
 #[trace("TC-048", "FR-038-AC-77", "FR-038-AC-78")]
 #[test]
@@ -575,7 +570,6 @@ fn tc_048_a_graph_body_nested_100000_deep_encodes_on_a_256_kib_stack() {
     deep_encodes_and_stays_under_a_byte_ceiling::<CheckedSemanticGraphV2>();
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-77, FR-038-AC-78
 #[trace("TC-048", "FR-038-AC-77", "FR-038-AC-78")]
 #[test]
@@ -583,7 +577,6 @@ fn tc_048_a_preimage_projection_nested_100000_deep_encodes_on_a_256_kib_stack() 
     deep_encodes_and_stays_under_a_byte_ceiling::<CheckedPackageIdentityPreimageV2>();
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-77, FR-038-AC-78
 #[trace("TC-048", "FR-038-AC-77", "FR-038-AC-78")]
 #[test]
@@ -591,7 +584,6 @@ fn tc_048_diagnostic_details_nested_100000_deep_encode_on_a_256_kib_stack() {
     deep_encodes_and_stays_under_a_byte_ceiling::<CheckedDiagnosticsV2>();
 }
 
-/// Trace: FR-051-AC-1, FR-038-AC-77
 #[trace("TC-451", "FR-051-AC-1", "FR-038-AC-77")]
 #[test]
 fn tc_451_typed_envelope_encodes_deep_details_on_a_small_stack() {
@@ -661,7 +653,6 @@ fn stale() -> ExpectedRefusal {
     )
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-79
 #[trace("TC-048", "FR-038-AC-79")]
 #[test]
@@ -686,7 +677,6 @@ fn tc_048_an_integer_past_2_pow_53_a_whole_float_and_a_utf8_ordered_name_are_non
     }
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-79
 #[trace("TC-048", "FR-038-AC-79")]
 #[test]
@@ -726,7 +716,6 @@ fn package_bytes_with_number(spelled: &str) -> (Vec<u8>, Value) {
     (bytes.into_bytes(), package)
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-111
 #[trace("TC-048", "FR-038-AC-111")]
 #[test]
@@ -764,7 +753,6 @@ fn tc_048_a_package_document_number_is_read_exactly_or_refused_without_a_pointer
     assert!(line.contains("\"float_roundtrip\""), "{line}");
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-79
 #[trace("TC-048", "FR-038-AC-79")]
 #[test]
@@ -821,7 +809,6 @@ fn tc_048_the_canonical_bytes_of_those_values_are_not_refused_as_noncanonical() 
     }
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-79
 #[trace("TC-048", "FR-038-AC-79")]
 #[test]
@@ -858,7 +845,6 @@ fn tc_048_members_in_utf16_code_unit_order_pass_the_canonical_bytes_check() {
 
 /// The direct typed reader compares scalar tokens with the same canonical
 /// writer used for identity bytes, including escaping and numeric spelling.
-/// Trace: FR-038-AC-214
 #[trace("TC-048", "FR-038-AC-214")]
 #[test]
 fn tc_048_direct_reader_refuses_noncanonical_scalar_spellings_before_a_stale_id() {
@@ -1044,7 +1030,6 @@ macro_rules! is_fixed_shape {
     };
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-80
 #[trace("TC-048", "FR-038-AC-80")]
 #[test]
@@ -1081,7 +1066,6 @@ fn tc_048_quire_canonical_is_a_branch_main_git_dependency_with_its_source_allowe
     );
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-80
 #[trace("TC-048", "FR-038-AC-80")]
 #[test]
@@ -1131,7 +1115,6 @@ fn tc_048_fixed_depth_types_derive_and_value_holding_types_implement_encode() {
     assert!(vocabulary.contains("::quire_canonical::FixedShape"));
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-80
 #[trace("TC-048", "FR-038-AC-80")]
 #[test]
@@ -1159,7 +1142,6 @@ fn tc_048_the_wire_types_are_on_the_path_the_compiler_sees() {
     }
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-80
 #[trace("TC-048", "FR-038-AC-80")]
 #[test]

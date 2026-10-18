@@ -115,7 +115,6 @@ fn field(declaration: &str, name: &str) -> Value {
         "scope": "every-object"})
 }
 
-/// Tracing: TC-056
 /// ACs: FR-040-AC-18, FR-040-AC-19, FR-040-AC-20
 #[trace("TC-056", "FR-040-AC-18", "FR-040-AC-19", "FR-040-AC-20")]
 #[test]
@@ -191,7 +190,6 @@ fn tc_056_scoped_frame_shape_refusals_precede_frame_semantics() {
     );
 }
 
-/// Tracing: TC-056
 /// ACs: FR-040-AC-17, FR-040-AC-21, FR-040-AC-22, FR-040-AC-23, FR-040-AC-24, FR-040-AC-25,
 /// FR-040-AC-26
 #[trace(
@@ -446,7 +444,6 @@ fn namespace_key() -> &'static str {
     &KEY
 }
 
-/// Tracing: TC-056
 /// ACs: FR-040-AC-1
 #[trace("TC-056", "FR-040-AC-1")]
 #[test]
@@ -506,7 +503,6 @@ fn tc_056_modifies_entries_admit_in_their_closed_shape_only() {
     }
 }
 
-/// Tracing: TC-056
 /// ACs: FR-040-AC-2, FR-040-AC-5
 #[trace("TC-056", "FR-040-AC-2", "FR-040-AC-5")]
 #[test]
@@ -634,7 +630,6 @@ fn tc_056_frame_entries_and_semantic_type_join_declared_dependencies() {
     );
 }
 
-/// Tracing: TC-056
 /// ACs: FR-040-AC-3, FR-040-AC-4
 #[trace("TC-056", "FR-040-AC-3", "FR-040-AC-4")]
 #[test]
@@ -690,8 +685,6 @@ fn tc_056_field_entries_order_by_declaration_then_name() {
 
 /// A source-declared record keeps unresolved frame names after selected
 /// record field resolution is enabled.
-///
-/// Trace: FR-040-AC-3, FR-040-AC-16
 #[trace("TC-056", "FR-040-AC-3", "FR-040-AC-16")]
 #[test]
 fn tc_056_record_source_declared_field_entries_admit_unresolved() {
@@ -750,7 +743,6 @@ fn tc_056_record_source_declared_field_entries_admit_unresolved() {
     admits(&with_record(true));
 }
 
-/// Tracing: TC-056
 /// ACs: FR-040-AC-6
 #[trace("TC-056", "FR-040-AC-6")]
 #[test]
@@ -1046,7 +1038,6 @@ pub(crate) fn state_operand_fixture() -> (Value, usize) {
     (package.value, clause)
 }
 
-/// Tracing: TC-056
 /// ACs: FR-040-AC-7, FR-040-AC-28
 #[trace("TC-056", "FR-040-AC-7", "FR-040-AC-28")]
 #[test]
@@ -1220,7 +1211,6 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
     }
 }
 
-/// Tracing: TC-056
 /// ACs: FR-040-AC-28
 #[trace("TC-056", "FR-040-AC-28")]
 #[test]
@@ -1324,7 +1314,6 @@ fn tc_056_shared_frame_checks_scoped_deletes_for_each_anchor() {
     }
 }
 
-/// Tracing: TC-056
 /// ACs: FR-040-AC-8, FR-040-AC-9
 #[trace("TC-056", "FR-040-AC-8", "FR-040-AC-9")]
 #[test]
@@ -1515,7 +1504,6 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
     );
 }
 
-/// Tracing: TC-056
 /// ACs: FR-040-AC-10, FR-038-AC-114
 #[trace("TC-056", "FR-040-AC-10", "FR-038-AC-114")]
 #[test]
@@ -1592,7 +1580,6 @@ fn tc_056_a_state_clause_application_stands_only_as_a_clause_body_root() {
     );
 }
 
-/// Tracing: TC-056
 /// ACs: FR-040-AC-11
 #[trace("TC-056", "FR-040-AC-11")]
 #[test]
@@ -1651,7 +1638,6 @@ fn tc_056_parameter_bodies_admit_name_then_level_only() {
     );
 }
 
-/// Tracing: TC-056
 /// ACs: FR-040-AC-12
 #[trace("TC-056", "FR-040-AC-12")]
 #[test]
@@ -1906,8 +1892,6 @@ fn read_record_package(package: &Value, document: &Value, work: u64) -> CheckedP
 
 /// The object field and the record's own field resolve against separate
 /// selected owners. Replacing only the record name reaches the frame step.
-///
-/// Trace: FR-040-AC-14
 #[trace("TC-056", "FR-040-AC-14")]
 #[test]
 fn tc_056_selected_record_frame_fields_resolve_their_own_names() {
@@ -1984,8 +1968,6 @@ fn tc_056_selected_record_frame_fields_resolve_their_own_names() {
 
 /// An inherited collision remains ambiguous when the declaring frame owner
 /// is a selected record; an unrelated object field cannot resolve it.
-///
-/// Trace: FR-040-AC-14, FR-040-AC-15
 #[trace("TC-056", "FR-040-AC-14", "FR-040-AC-15")]
 #[test]
 fn tc_056_selected_record_frame_field_keeps_inherited_ambiguity() {
@@ -2066,8 +2048,6 @@ fn tc_056_selected_record_frame_field_keeps_inherited_ambiguity() {
 /// The whole reader admits at its exact work budget and returns typed
 /// incomplete at the next lower budget. Its last charge is a later state
 /// clause target; the selected-row charges are asserted beside the tables.
-///
-/// Trace: FR-040-AC-16
 #[trace("TC-056", "FR-040-AC-16")]
 #[test]
 fn tc_056_selected_record_fields_obey_exact_work_limit() {
@@ -2105,8 +2085,6 @@ fn tc_056_selected_record_fields_obey_exact_work_limit() {
 
 /// A record name defect is a frame meaning defect, before frame ordering;
 /// a broken selected owner is decided before any frame entry.
-///
-/// Trace: FR-040-AC-16
 #[trace("TC-056", "FR-040-AC-16")]
 #[test]
 fn tc_056_record_field_defects_keep_reader_precedence() {
@@ -2197,8 +2175,6 @@ fn tc_056_record_field_defects_keep_reader_precedence() {
 
 /// A name defect in each of two frames is reported from the lower-key frame,
 /// even when the other frame occurs first in the graph array.
-///
-/// Trace: FR-040-AC-16
 #[trace("TC-056", "FR-040-AC-16")]
 #[test]
 fn tc_056_record_name_defects_follow_frame_node_key_order() {
@@ -2522,7 +2498,6 @@ impl ModelPackage {
     }
 }
 
-/// Tracing: TC-056
 /// ACs: FR-040-AC-27, FR-040-AC-29, FR-040-AC-30
 #[trace("TC-056", "FR-040-AC-27", "FR-040-AC-29", "FR-040-AC-30")]
 #[test]
@@ -2573,7 +2548,6 @@ fn tc_056_scoped_deletes_check_resolved_operation_after_frame_step() {
     admits(&package.value);
 }
 
-/// Trace: FR-040-AC-27
 #[trace("TC-056", "FR-040-AC-27")]
 #[test]
 fn tc_056_scoped_delete_parameter_scan_charges_validation_work() {
@@ -2641,7 +2615,6 @@ impl ModelPackage {
     }
 }
 
-/// Tracing: TC-056
 /// ACs: FR-040-AC-3
 #[trace("TC-056", "FR-040-AC-3")]
 #[test]
@@ -2711,8 +2684,6 @@ fn tc_056_a_field_entry_resolves_among_the_selected_object_types_fields() {
 /// fields here and `Order` has one. The subtype variant adds one graph
 /// dependency edge as well; after that edge's unit is subtracted, its
 /// admission budget differs by one field-table entry.
-///
-/// Trace: FR-038-AC-144
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_a_frame_field_entry_charges_its_effective_table_end_to_end() {
@@ -2762,7 +2733,6 @@ fn tc_227_a_frame_field_entry_charges_its_effective_table_end_to_end() {
     assert_eq!(sub_work - order_work - 1, 1, "one extra table entry");
 }
 
-/// Tracing: TC-056
 /// ACs: FR-040-AC-7
 #[trace("TC-056", "FR-040-AC-7")]
 #[test]
@@ -2821,7 +2791,6 @@ fn tc_056_an_anchor_operation_resolves_to_one_its_context_declares() {
     );
 }
 
-/// Tracing: TC-056
 /// ACs: FR-040-AC-8, FR-040-AC-9
 #[trace("TC-056", "FR-040-AC-8", "FR-040-AC-9")]
 #[test]
@@ -2865,7 +2834,6 @@ fn tc_056_a_clause_binds_self_the_result_and_the_operation_parameters() {
     }
 }
 
-/// Trace: FR-038-AC-203, FR-038-AC-205, FR-038-AC-207
 #[trace("FR-038-AC-203", "FR-038-AC-205", "FR-038-AC-207")]
 #[test]
 fn tc_445_source_declared_operation_input_has_no_selected_model_range() {
@@ -2942,7 +2910,6 @@ fn tc_445_source_declared_operation_input_has_no_selected_model_range() {
     assert_eq!(&refusal.claim, claim);
 }
 
-/// Tracing: TC-050, FR-038-AC-6
 #[trace("TC-050", "FR-038-AC-6")]
 #[test]
 fn tc_050_admitted_frame_and_state_clause_nodes_lower_under_a_state_profile() {

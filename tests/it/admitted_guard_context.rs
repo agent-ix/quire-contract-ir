@@ -295,7 +295,6 @@ fn path_guard(occurrence: ContractOccurrenceKeyV1, holds: bool) -> ContractPathG
     ContractPathGuardV1 { occurrence, holds }
 }
 
-/// Trace: FR-050-AC-1, FR-050-AC-2, FR-050-AC-5
 #[trace("TC-450", "FR-050-AC-1", "FR-050-AC-2", "FR-050-AC-5")]
 #[test]
 fn tc_450_guard_context_preserves_order_polarity_identity_and_root_accounting() {
@@ -525,7 +524,6 @@ fn tc_450_guard_context_preserves_order_polarity_identity_and_root_accounting() 
     );
 }
 
-/// Trace: FR-050-AC-3, FR-050-AC-4
 #[trace("TC-450", "FR-050-AC-3", "FR-050-AC-4")]
 #[test]
 fn tc_450_guard_context_refuses_first_bad_occurrence_without_a_prefix() {
@@ -685,7 +683,6 @@ fn tc_450_guard_context_refuses_first_bad_occurrence_without_a_prefix() {
     );
 }
 
-/// Trace: FR-050-AC-3, FR-050-AC-4
 #[trace("TC-450", "FR-050-AC-3", "FR-050-AC-4")]
 #[test]
 fn tc_450_unrepresented_guard_key_cannot_gain_authority_from_its_body_position() {
@@ -736,7 +733,6 @@ fn tc_450_unrepresented_guard_key_cannot_gain_authority_from_its_body_position()
     ));
 }
 
-/// Trace: FR-050-AC-3
 #[trace("TC-450", "FR-050-AC-3")]
 #[test]
 fn tc_450_reader_refuses_a_lowered_guard_root_without_its_node() {

@@ -67,7 +67,6 @@ fn population_body() -> Value {
     })
 }
 
-/// Tracing: TC-222
 /// ACs: FR-344-AC-1
 #[trace("TC-222", "FR-344-AC-1")]
 #[test]
@@ -92,7 +91,6 @@ fn tc_222_an_unrecognized_tag_or_form_refuses_at_the_graph_gate() {
     );
 }
 
-/// Tracing: TC-222
 /// ACs: FR-344-AC-2
 #[trace("TC-222", "FR-344-AC-2")]
 #[test]
@@ -124,7 +122,6 @@ fn tc_222_a_population_body_outside_the_closed_term_grammar_refuses_at_the_body(
     );
 }
 
-/// Tracing: TC-222
 /// ACs: FR-344-AC-3
 #[trace("TC-222", "FR-344-AC-3")]
 #[test]

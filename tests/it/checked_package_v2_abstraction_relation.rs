@@ -548,7 +548,6 @@ fn at_node(position: usize, suffix: &str) -> String {
 
 // AC-1.
 
-/// Tracing: TC-225
 /// ACs: FR-346-AC-1
 #[trace("TC-225", "FR-346-AC-1")]
 #[test]
@@ -576,8 +575,6 @@ fn tc_225_the_minimal_abstraction_relation_body_admits_with_its_computed_key() {
 /// `Draft` inherits `ConfigVersion`'s two fields and declares `extra`, so a
 /// full read of the same selected document costs one more unit when the entry
 /// names `Draft`.
-///
-/// Trace: FR-038-AC-144
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_an_abstraction_field_entry_charges_its_effective_table_end_to_end() {
@@ -625,7 +622,6 @@ fn tc_227_an_abstraction_field_entry_charges_its_effective_table_end_to_end() {
     assert_eq!(smallest(&key(DRAFT)), smallest(&config_version()) + 1);
 }
 
-/// Tracing: TC-225
 /// ACs: FR-346-AC-1
 #[trace("TC-225", "FR-346-AC-1")]
 #[test]
@@ -670,7 +666,6 @@ fn tc_225_empty_tuple_field_and_raw_identifier_bodies_admit() {
     }
 }
 
-/// Tracing: TC-225
 /// ACs: FR-346-AC-1
 #[trace("TC-225", "FR-346-AC-1")]
 #[test]
@@ -702,7 +697,6 @@ fn application(operator: &str, identity: &str) -> Value {
     })
 }
 
-/// Tracing: TC-225
 /// ACs: FR-346-AC-2
 #[trace("TC-225", "FR-346-AC-2")]
 #[test]
@@ -828,7 +822,6 @@ fn tc_225_a_body_off_its_closed_shape_refuses_without_a_cause() {
     }
 }
 
-/// Tracing: TC-225
 /// ACs: FR-346-AC-2
 #[trace("TC-225", "FR-346-AC-2")]
 #[test]
@@ -880,7 +873,6 @@ fn rooted_in(root: Value) -> (Value, usize) {
     (value, n)
 }
 
-/// Tracing: TC-225
 /// ACs: FR-346-AC-2
 #[trace("TC-225", "FR-346-AC-2")]
 #[test]
@@ -924,7 +916,6 @@ fn tc_225_an_application_at_the_body_root_refuses_as_operator_ineligible() {
     }
 }
 
-/// Tracing: TC-225
 /// ACs: FR-346-AC-2
 #[trace("TC-225", "FR-346-AC-2")]
 #[test]
@@ -972,8 +963,6 @@ fn tc_225_an_application_as_a_member_value_refuses_at_strict_wire_validation() {
 /// (110 arrays, 117 JSON levels of the 127 the parse reads), far past the nesting
 /// of any in-grammar body, is scanned and refused as a body of the wrong shape on
 /// a 256 KiB stack, in a debug build too.
-///
-/// Tracing: TC-225
 /// ACs: FR-346-AC-2
 #[trace("TC-225", "FR-346-AC-2")]
 #[test]
@@ -1030,8 +1019,6 @@ fn member_defect_keyed(than: &str, lower: bool) -> Value {
 /// temporal-class root is reported ahead of a member defect of a lower node
 /// key; an ordinary-class root is the abstraction step's own, and is reported
 /// in node-key order with that defect.
-///
-/// Tracing: TC-225
 /// ACs: FR-346-AC-2
 #[trace("TC-225", "FR-346-AC-2")]
 #[test]
@@ -1090,8 +1077,6 @@ fn tc_225_a_root_application_is_refused_by_the_step_that_places_it() {
 /// lowercase hex, is `digest_domain_mismatch` at the key, as every other node
 /// reference the reader reads; a value that is no node key is an entry of the
 /// wrong shape.
-///
-/// Tracing: TC-225
 /// ACs: FR-346-AC-2
 #[trace("TC-225", "FR-346-AC-2")]
 #[test]
@@ -1187,7 +1172,6 @@ fn operation_anchor(context: &str, operation: &str, frame_context: &str) -> Valu
     )
 }
 
-/// Tracing: TC-225
 /// ACs: FR-346-AC-3
 #[trace("TC-225", "FR-346-AC-3")]
 #[test]
@@ -1251,7 +1235,6 @@ fn tc_225_a_frame_entry_binds_its_pair_with_or_without_a_frame_node() {
 
 // AC-4.
 
-/// Tracing: TC-225
 /// ACs: FR-346-AC-4
 #[trace("TC-225", "FR-346-AC-4")]
 #[test]
@@ -1307,7 +1290,6 @@ fn tc_225_identity_members_that_do_not_hold_refuse_at_the_node() {
     assert_ne!(own, "9".repeat(64));
 }
 
-/// Tracing: TC-225
 /// ACs: FR-346-AC-4
 #[trace("TC-225", "FR-346-AC-4")]
 #[test]
@@ -1402,7 +1384,6 @@ fn tc_225_an_array_out_of_its_canonical_order_refuses_at_the_array() {
 
 // AC-5.
 
-/// Tracing: TC-225
 /// ACs: FR-346-AC-5, FR-038-AC-155
 #[trace("TC-225", "FR-346-AC-5", "FR-038-AC-155")]
 #[test]
@@ -1499,7 +1480,6 @@ fn tc_225_a_target_of_the_wrong_kind_or_unselected_owner_refuses_at_the_target()
 
 // AC-6.
 
-/// Tracing: TC-225
 /// ACs: FR-346-AC-6
 #[trace("TC-225", "FR-346-AC-6")]
 #[test]
@@ -1625,7 +1605,6 @@ fn tc_225_a_field_binding_or_rust_spelling_off_its_syntax_refuses_at_the_entry()
 
 // AC-7.
 
-/// Tracing: TC-225
 /// ACs: FR-346-AC-7
 #[trace("TC-225", "FR-346-AC-7")]
 #[test]
@@ -1721,8 +1700,6 @@ fn tc_225_a_frame_operation_resolves_as_an_anchor_does_and_binds_its_parameters(
 /// parameter names are not all present and unique cannot match, and refuses
 /// `invalid_model_binding`/`malformed-declaration` at the entry. The domain
 /// document is admitted as it is.
-///
-/// Tracing: TC-225
 /// ACs: FR-346-AC-7
 #[trace("TC-225", "FR-346-AC-7")]
 #[test]
@@ -1792,7 +1769,6 @@ fn tc_225_an_operation_without_distinct_parameter_names_cannot_be_bound() {
 
 // AC-8.
 
-/// Tracing: TC-225
 /// ACs: FR-346-AC-8
 #[trace("TC-225", "FR-346-AC-8")]
 #[test]
@@ -1964,7 +1940,6 @@ fn target_defect() -> Value {
     body(vec![], vec![population(&config_version(), &["p"])], vec![])
 }
 
-/// Tracing: TC-225
 /// ACs: FR-346-AC-9
 #[trace("TC-225", "FR-346-AC-9")]
 #[test]
@@ -2039,7 +2014,6 @@ fn tc_225_a_defect_of_an_earlier_step_is_reported_before_the_abstraction_step() 
     );
 }
 
-/// Tracing: TC-225
 /// ACs: FR-346-AC-9
 #[trace("TC-225", "FR-346-AC-9")]
 #[test]
@@ -2074,7 +2048,6 @@ fn tc_225_an_abstraction_defect_is_reported_before_the_operation_step() {
     );
 }
 
-/// Tracing: TC-225
 /// ACs: FR-346-AC-9
 #[trace("TC-225", "FR-346-AC-9")]
 #[test]
@@ -2134,7 +2107,6 @@ fn tc_225_the_checks_of_one_node_run_in_identity_order_target_member_order() {
     );
 }
 
-/// Tracing: TC-225
 /// ACs: FR-346-AC-9
 #[trace("TC-225", "FR-346-AC-9")]
 #[test]
@@ -2180,7 +2152,6 @@ fn tc_225_nodes_report_in_node_id_order_and_collisions_only_after_every_node() {
 
 // AC-10.
 
-/// Tracing: TC-225
 /// ACs: FR-346-AC-10
 #[trace("TC-225", "FR-346-AC-10")]
 #[test]
@@ -2231,8 +2202,6 @@ fn tc_225_a_changed_binding_changes_the_node_key_and_the_package_id() {
 /// An admitted relation node reaches lowering as any admitted node does: the
 /// lowering outcome for abstraction relations beyond that is an open question
 /// of FR-346.
-///
-/// Tracing: TC-225
 #[trace("TC-225")]
 #[test]
 fn tc_225_an_admitted_relation_node_lowers_like_any_admitted_node() {

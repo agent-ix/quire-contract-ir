@@ -198,7 +198,6 @@ fn expression_fixture() -> TypedExpression {
 type Budgeted<'a> =
     Box<dyn Fn(u64) -> Result<CanonicalOutput, quire_contract_model::Diagnostic> + 'a>;
 
-/// Tracing: TC-017.
 /// ACs: FR-016-AC-5, FR-016-AC-6
 #[trace("TC-017", "FR-016-AC-5", "FR-016-AC-6")]
 #[test]
@@ -270,7 +269,6 @@ fn tc_017_the_five_kinds_equal_their_written_out_bytes_digests_and_limits() {
     }
 }
 
-/// Tracing: TC-017.
 /// ACs: FR-016-AC-5
 #[trace("TC-017", "FR-016-AC-5")]
 #[test]
@@ -402,7 +400,6 @@ fn tc_017_the_eight_integer_members_are_strings_and_the_rest_stay_numbers() {
     assert!(holding > 0, "the scan found the members it is looking for");
 }
 
-/// Tracing: TC-017.
 /// ACs: FR-016-AC-6
 #[trace("TC-017", "FR-016-AC-6")]
 #[test]
@@ -464,7 +461,6 @@ fn definition(source: &str, name: &str) -> String {
     block
 }
 
-/// Tracing: TC-017.
 /// ACs: FR-016-AC-7, FR-011-AC-3
 #[trace("TC-017", "FR-016-AC-7", "FR-011-AC-3")]
 #[test]
@@ -544,7 +540,6 @@ fn tc_017_no_canonical_type_can_hold_a_null_a_float_or_a_value() {
     );
 }
 
-/// Tracing: TC-017.
 /// ACs: FR-016-AC-8
 #[trace("TC-017", "FR-016-AC-8")]
 #[test]
@@ -569,7 +564,6 @@ fn tc_017_the_digest_is_the_explicit_domain_prefix_not_the_encoder_domain_framin
     assert_ne!(output.digest().to_string(), bare.to_string());
 }
 
-/// Trace: FR-016-AC-9.
 #[trace("TC-017", "FR-016-AC-9")]
 #[test]
 fn wide_numeric_values_keep_decimal_string_canonical_spelling() {

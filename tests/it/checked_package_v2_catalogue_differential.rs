@@ -569,7 +569,6 @@ pub(super) fn admitted_fixture(identity: &str) -> Option<Value> {
     Some(f.package)
 }
 
-/// Tracing: TC-048, FR-038-AC-251
 #[trace("TC-048", "FR-038-AC-251")]
 #[test]
 fn tc_048_every_catalogue_entry_retains_its_constructible_admission() {
@@ -724,7 +723,6 @@ fn assert_result_refusal(package: &Value, position: usize, identity: &str) {
     );
 }
 
-/// Trace: TC-048, FR-038-AC-69, FR-038-AC-251.
 #[trace("TC-048", "FR-038-AC-69", "FR-038-AC-251")]
 #[test]
 fn tc_048_member_kind_mismatch_precedes_member_result_check() {

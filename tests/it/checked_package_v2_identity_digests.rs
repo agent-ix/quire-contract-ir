@@ -176,7 +176,6 @@ fn closure_oracle(
 
 type IdentityFixture = (&'static str, Value, Option<&'static str>);
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-89
 #[trace("TC-048", "FR-038-AC-89")]
 #[test]
@@ -320,7 +319,6 @@ const NOMINAL_TEXT: [(&str, &str); 4] = [
     ),
 ];
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-89, FR-038-AC-90
 #[trace("TC-048", "FR-038-AC-89", "FR-038-AC-90")]
 #[test]
@@ -531,7 +529,6 @@ fn checked_package_sources() -> Vec<(PathBuf, String)> {
         .collect()
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-91
 #[trace("TC-048", "FR-038-AC-91")]
 #[test]
@@ -627,8 +624,6 @@ fn tc_048_the_checked_package_source_holds_no_encoder_of_its_own() {
 /// `output_mapping.rs` holds no encoder of its own, no `serde_json` value or
 /// call (so no `to_vec` or `to_value` reaches identity material), no
 /// `u64::MAX` ceiling, and its three identity materials derive `FixedShape`.
-///
-/// Tracing: TC-048
 /// ACs: FR-038-AC-91
 #[trace("TC-048", "FR-038-AC-91")]
 #[test]
@@ -706,8 +701,6 @@ fn tc_048_the_output_mapping_source_holds_no_encoder_and_no_unmetered_ceiling() 
 /// `quire_canonical::to_vec` or `quire_canonical::sha256` under its own
 /// ceiling, `canonical_envelope_bytes` exists nowhere in the crate, and the
 /// bound identity envelope derives `FixedShape` and holds no `Value`.
-///
-/// Tracing: TC-048
 /// ACs: FR-038-AC-91, FR-038-AC-92
 #[trace("TC-048", "FR-038-AC-91", "FR-038-AC-92")]
 #[test]
@@ -794,7 +787,6 @@ fn tc_048_the_v1_canonical_and_binding_source_hold_no_encoder_of_their_own() {
     }
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-90
 #[trace("TC-048", "FR-038-AC-90")]
 #[test]
@@ -834,7 +826,6 @@ fn tc_048_no_encode_in_the_checked_package_source_passes_u64_max_or_a_literal_ca
     assert!(identity.contains(".digest(bytes)"));
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-95
 #[trace("TC-048", "FR-038-AC-95")]
 #[test]
@@ -851,7 +842,6 @@ fn tc_048_the_lowering_makes_no_expect_or_unwrap_on_an_encode() {
     }
 }
 
-/// Tracing: TC-048
 /// ACs: FR-038-AC-92
 #[trace("TC-048", "FR-038-AC-92")]
 #[test]

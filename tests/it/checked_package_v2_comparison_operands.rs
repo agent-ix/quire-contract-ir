@@ -235,7 +235,6 @@ fn external_consumer_matches_closed_refusal(error: &quire_contract_model::Checke
     }
 }
 
-/// Trace: FR-038-AC-202, FR-038-AC-203, FR-038-AC-204, FR-038-AC-205, FR-038-AC-206, FR-038-AC-208, FR-038-AC-209
 #[trace(
     "FR-038-AC-202",
     "FR-038-AC-203",

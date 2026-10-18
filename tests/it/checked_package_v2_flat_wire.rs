@@ -159,8 +159,6 @@ fn call_with_second_argument(second: Value) -> (Value, usize) {
 /// FR-038-AC-114: an application of any class other than `case`, as an element
 /// of another application's arguments, as a member of an aggregate and as the
 /// value of a binding, refuses `malformed_wire` at the nested application.
-///
-/// Tracing: TC-048, FR-038-AC-114
 #[trace("TC-048", "FR-038-AC-114")]
 #[test]
 fn tc_048_an_application_nested_in_any_position_refuses_malformed_wire_at_it() {
@@ -205,8 +203,6 @@ fn tc_048_an_application_nested_in_any_position_refuses_malformed_wire_at_it() {
 /// as the value of a Group's binding, a binding whose value is a binding, a
 /// binding inside a Tuple's members, an aggregate inside the Group that a
 /// Tuple's member is, and a binding as a body root.
-///
-/// Tracing: TC-048, FR-038-AC-114
 #[trace("TC-048", "FR-038-AC-114")]
 #[test]
 fn tc_048_a_body_outside_the_strata_refuses_malformed_wire_at_the_value() {
@@ -256,8 +252,6 @@ fn tc_048_a_body_outside_the_strata_refuses_malformed_wire_at_the_value() {
 /// FR-038-AC-114: no application stands in a `state`/`frame` body, a closed
 /// shape of its own: one in an entry refuses `malformed_wire` at the
 /// application, a `case` one `ill_typed`/`operator-ineligible` at its operator.
-///
-/// Tracing: TC-048, FR-038-AC-114, FR-038-AC-115
 #[trace("TC-048", "FR-038-AC-114", "FR-038-AC-115")]
 #[test]
 fn tc_048_an_application_in_a_frame_body_refuses_at_the_application() {
@@ -285,8 +279,6 @@ fn tc_048_an_application_in_a_frame_body_refuses_at_the_application() {
 /// body aggregate, and a Tuple, a Group and a Leaf as the value of a Member's
 /// binding; and the same meaning with each composite subterm as its own node
 /// reached by `reference` is admitted.
-///
-/// Tracing: TC-048, FR-038-AC-114
 #[trace("TC-048", "FR-038-AC-114")]
 #[test]
 fn tc_048_a_body_inside_the_strata_is_admitted() {
@@ -342,8 +334,6 @@ fn tc_048_a_body_inside_the_strata_is_admitted() {
 /// application in each position and each body outside the strata above, the
 /// flattened form (the subterm's place held by a `reference` to a node that holds
 /// it) is admitted.
-///
-/// Tracing: TC-048, FR-038-AC-114
 #[trace("TC-048", "FR-038-AC-114")]
 #[test]
 fn tc_048_the_flattened_form_of_each_refused_body_is_admitted() {
@@ -405,8 +395,6 @@ fn with_detail(detail: Value) -> Value {
 /// `ill_typed`/`operator-ineligible` at its own `operator`, and where one term
 /// holds several offending constructs the refusal is the first in document
 /// pre-order, outermost first.
-///
-/// Tracing: TC-048, FR-038-AC-115
 #[trace("TC-048", "FR-038-AC-115")]
 #[test]
 fn tc_048_the_first_offending_construct_in_pre_order_is_refused() {
@@ -484,8 +472,6 @@ fn tc_048_the_first_offending_construct_in_pre_order_is_refused() {
 /// FR-038-AC-115: a non-`case` application at the body root of a node its class
 /// does not place it in refuses `ill_typed`/`operator-ineligible` at that node,
 /// and not `malformed_wire`.
-///
-/// Tracing: TC-048, FR-038-AC-115
 #[trace("TC-048", "FR-038-AC-115")]
 #[test]
 fn tc_048_a_misplaced_body_root_application_refuses_at_the_node() {
@@ -504,8 +490,6 @@ fn tc_048_a_misplaced_body_root_application_refuses_at_the_node() {
 /// keys, `identity_preimage` and `package_id` are all stale refuses at the
 /// nested application, not at an identity; the same package flattened refuses at
 /// an identity.
-///
-/// Tracing: TC-048, FR-038-AC-116
 #[trace("TC-048", "FR-038-AC-116")]
 #[test]
 fn tc_048_the_body_grammar_is_checked_ahead_of_every_identity() {
@@ -596,8 +580,6 @@ fn generous_limits(nodes: usize) -> CheckedPackageReadLimits {
 /// the previous, read under limits that decide nothing on a 256 KiB stack, is
 /// admitted and lowered from its last node, with no outcome naming a depth, and
 /// has the same JSON nesting depth as a package of one level.
-///
-/// Tracing: TC-048, FR-038-AC-117
 #[trace("TC-048", "FR-038-AC-117")]
 #[test]
 fn tc_048_a_hundred_thousand_node_chain_is_admitted_and_lowered_on_a_small_stack() {
@@ -682,8 +664,6 @@ fn typed(digest: &str) -> CheckedNodeId {
 /// FR-038-AC-117: no read limit, and no outcome of a read, names a depth. A
 /// constructor of the limits and a match on the limit kinds that list every
 /// member and every kind fail to compile if one is added back.
-///
-/// Tracing: TC-048, FR-038-AC-117
 #[trace("TC-048", "FR-038-AC-117")]
 #[test]
 fn tc_048_no_read_limit_and_no_limit_kind_names_a_depth() {
@@ -722,8 +702,6 @@ fn tc_048_no_read_limit_and_no_limit_kind_names_a_depth() {
 /// `MAX_*DEPTH` constant, `stacker`, `serde_stacker` and `on_stack_for` are
 /// absent from `crates/quire-contract-model/src/checked_package/`. The crate's
 /// v1 modules and its manifest are outside the scan (FR-019, FR-023).
-///
-/// Tracing: TC-048, FR-038-AC-117
 #[trace("TC-048", "FR-038-AC-117")]
 #[test]
 fn tc_048_the_v2_reader_sources_hold_no_depth_ceiling_or_growing_stack() {
@@ -807,8 +785,6 @@ fn read_on_small_stack(
 /// canonical-bytes check and the body grammar, never `incomplete`, on a
 /// 256 KiB stack; the same document nested 20 levels deep refuses
 /// `malformed_wire` at the first value outside the body grammar.
-///
-/// Tracing: TC-048, FR-038-AC-117
 #[trace("TC-048", "FR-038-AC-117")]
 #[test]
 fn tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse() {
@@ -882,8 +858,6 @@ fn tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse() {
 /// (126 JSON levels) and one at the parse's limit of 127 levels, is compared with
 /// its node's body and refused `stale_dependency` at the first member that
 /// differs, on a 256 KiB debug stack, with no abort.
-///
-/// Tracing: TC-048, FR-038-AC-117
 #[trace("TC-048", "FR-038-AC-117")]
 #[test]
 fn tc_048_a_deep_stale_projection_body_is_refused_on_a_small_stack() {
@@ -924,8 +898,6 @@ fn tc_048_a_deep_stale_projection_body_is_refused_on_a_small_stack() {
 /// FR-038-AC-117: a `details` term in the window between the grammar and the
 /// parse limit refuses at the first value outside the grammar too, on a 256 KiB
 /// stack.
-///
-/// Tracing: TC-048, FR-038-AC-117
 #[trace("TC-048", "FR-038-AC-117")]
 #[test]
 fn tc_048_a_deep_details_term_within_the_parse_limit_refuses_at_the_grammar() {
@@ -955,8 +927,6 @@ fn tc_048_a_deep_details_term_within_the_parse_limit_refuses_at_the_grammar() {
 /// refused by the closed-schema decode, not stopped for its depth, and a syntax
 /// error or a duplicate member anywhere in a document nested past the parse
 /// limit is refused first.
-///
-/// Tracing: TC-048, FR-038-AC-3, FR-038-AC-117
 #[trace("TC-048", "FR-038-AC-3", "FR-038-AC-117")]
 #[test]
 fn tc_048_a_syntax_or_duplicate_defect_is_refused_before_the_parse_limit() {
