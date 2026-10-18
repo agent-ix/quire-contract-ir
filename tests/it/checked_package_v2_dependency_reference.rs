@@ -1029,7 +1029,6 @@ fn tc_048_a_type_owned_by_a_domain_package_refuses_without_a_declaration() {
 /// A binding's value is no callee, and a call nested in another term, which
 /// would have its own callee, is outside the body grammar: an application
 /// stands only at a body root (FR-038-AC-114).
-///
 /// ACs: FR-038-AC-36, FR-038-AC-114
 #[trace("TC-048", "FR-038-AC-36", "FR-038-AC-114")]
 #[test]

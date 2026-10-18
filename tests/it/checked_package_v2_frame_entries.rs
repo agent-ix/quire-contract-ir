@@ -685,7 +685,6 @@ fn tc_056_field_entries_order_by_declaration_then_name() {
 
 /// A source-declared record keeps unresolved frame names after selected
 /// record field resolution is enabled.
-///
 #[trace("TC-056", "FR-040-AC-3", "FR-040-AC-16")]
 #[test]
 fn tc_056_record_source_declared_field_entries_admit_unresolved() {
@@ -1893,7 +1892,6 @@ fn read_record_package(package: &Value, document: &Value, work: u64) -> CheckedP
 
 /// The object field and the record's own field resolve against separate
 /// selected owners. Replacing only the record name reaches the frame step.
-///
 #[trace("TC-056", "FR-040-AC-14")]
 #[test]
 fn tc_056_selected_record_frame_fields_resolve_their_own_names() {
@@ -1970,7 +1968,6 @@ fn tc_056_selected_record_frame_fields_resolve_their_own_names() {
 
 /// An inherited collision remains ambiguous when the declaring frame owner
 /// is a selected record; an unrelated object field cannot resolve it.
-///
 #[trace("TC-056", "FR-040-AC-14", "FR-040-AC-15")]
 #[test]
 fn tc_056_selected_record_frame_field_keeps_inherited_ambiguity() {
@@ -2051,7 +2048,6 @@ fn tc_056_selected_record_frame_field_keeps_inherited_ambiguity() {
 /// The whole reader admits at its exact work budget and returns typed
 /// incomplete at the next lower budget. Its last charge is a later state
 /// clause target; the selected-row charges are asserted beside the tables.
-///
 #[trace("TC-056", "FR-040-AC-16")]
 #[test]
 fn tc_056_selected_record_fields_obey_exact_work_limit() {
@@ -2089,7 +2085,6 @@ fn tc_056_selected_record_fields_obey_exact_work_limit() {
 
 /// A record name defect is a frame meaning defect, before frame ordering;
 /// a broken selected owner is decided before any frame entry.
-///
 #[trace("TC-056", "FR-040-AC-16")]
 #[test]
 fn tc_056_record_field_defects_keep_reader_precedence() {
@@ -2180,7 +2175,6 @@ fn tc_056_record_field_defects_keep_reader_precedence() {
 
 /// A name defect in each of two frames is reported from the lower-key frame,
 /// even when the other frame occurs first in the graph array.
-///
 #[trace("TC-056", "FR-040-AC-16")]
 #[test]
 fn tc_056_record_name_defects_follow_frame_node_key_order() {
@@ -2690,7 +2684,6 @@ fn tc_056_a_field_entry_resolves_among_the_selected_object_types_fields() {
 /// fields here and `Order` has one. The subtype variant adds one graph
 /// dependency edge as well; after that edge's unit is subtracted, its
 /// admission budget differs by one field-table entry.
-///
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_a_frame_field_entry_charges_its_effective_table_end_to_end() {

@@ -624,7 +624,6 @@ fn tc_048_the_checked_package_source_holds_no_encoder_of_its_own() {
 /// `output_mapping.rs` holds no encoder of its own, no `serde_json` value or
 /// call (so no `to_vec` or `to_value` reaches identity material), no
 /// `u64::MAX` ceiling, and its three identity materials derive `FixedShape`.
-///
 /// ACs: FR-038-AC-91
 #[trace("TC-048", "FR-038-AC-91")]
 #[test]
@@ -702,7 +701,6 @@ fn tc_048_the_output_mapping_source_holds_no_encoder_and_no_unmetered_ceiling() 
 /// `quire_canonical::to_vec` or `quire_canonical::sha256` under its own
 /// ceiling, `canonical_envelope_bytes` exists nowhere in the crate, and the
 /// bound identity envelope derives `FixedShape` and holds no `Value`.
-///
 /// ACs: FR-038-AC-91, FR-038-AC-92
 #[trace("TC-048", "FR-038-AC-91", "FR-038-AC-92")]
 #[test]

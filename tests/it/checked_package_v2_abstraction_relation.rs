@@ -575,7 +575,6 @@ fn tc_225_the_minimal_abstraction_relation_body_admits_with_its_computed_key() {
 /// `Draft` inherits `ConfigVersion`'s two fields and declares `extra`, so a
 /// full read of the same selected document costs one more unit when the entry
 /// names `Draft`.
-///
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_an_abstraction_field_entry_charges_its_effective_table_end_to_end() {
@@ -964,7 +963,6 @@ fn tc_225_an_application_as_a_member_value_refuses_at_strict_wire_validation() {
 /// (110 arrays, 117 JSON levels of the 127 the parse reads), far past the nesting
 /// of any in-grammar body, is scanned and refused as a body of the wrong shape on
 /// a 256 KiB stack, in a debug build too.
-///
 /// ACs: FR-346-AC-2
 #[trace("TC-225", "FR-346-AC-2")]
 #[test]
@@ -1021,7 +1019,6 @@ fn member_defect_keyed(than: &str, lower: bool) -> Value {
 /// temporal-class root is reported ahead of a member defect of a lower node
 /// key; an ordinary-class root is the abstraction step's own, and is reported
 /// in node-key order with that defect.
-///
 /// ACs: FR-346-AC-2
 #[trace("TC-225", "FR-346-AC-2")]
 #[test]
@@ -1080,7 +1077,6 @@ fn tc_225_a_root_application_is_refused_by_the_step_that_places_it() {
 /// lowercase hex, is `digest_domain_mismatch` at the key, as every other node
 /// reference the reader reads; a value that is no node key is an entry of the
 /// wrong shape.
-///
 /// ACs: FR-346-AC-2
 #[trace("TC-225", "FR-346-AC-2")]
 #[test]
@@ -1704,7 +1700,6 @@ fn tc_225_a_frame_operation_resolves_as_an_anchor_does_and_binds_its_parameters(
 /// parameter names are not all present and unique cannot match, and refuses
 /// `invalid_model_binding`/`malformed-declaration` at the entry. The domain
 /// document is admitted as it is.
-///
 /// ACs: FR-346-AC-7
 #[trace("TC-225", "FR-346-AC-7")]
 #[test]
@@ -2207,7 +2202,6 @@ fn tc_225_a_changed_binding_changes_the_node_key_and_the_package_id() {
 /// An admitted relation node reaches lowering as any admitted node does: the
 /// lowering outcome for abstraction relations beyond that is an open question
 /// of FR-346.
-///
 #[trace("TC-225")]
 #[test]
 fn tc_225_an_admitted_relation_node_lowers_like_any_admitted_node() {

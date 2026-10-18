@@ -583,7 +583,6 @@ fn tc_048_a_nominal_owner_naming_no_lock_row_is_an_invalid_semantic_graph() {
 /// (`crates/quire-contract-model/src/lib.rs`), the form its fault-injection
 /// probes use.
 ///
-///
 /// Traced to TC-018, not TC-058: TC-058 verifies the planned FR-019-AC-5
 /// clauses, and tracing it here would make the strict gate count AC-5 backed.
 #[trace("TC-018", "FR-019-AC-6")]

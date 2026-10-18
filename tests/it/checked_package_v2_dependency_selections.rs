@@ -362,7 +362,6 @@ fn tc_048_repeated_or_misordered_dependency_identity_refuses() {
 /// wherever it sits and whatever the other entries are, and an old-shape
 /// `{identity, version}` entry with no `package_id` is `malformed_wire` at
 /// the entry. The reader never reads, drops or compares the `version`.
-///
 #[trace("TC-048", "FR-038-AC-63")]
 #[test]
 fn tc_048_a_dependency_entry_carrying_version_is_an_unknown_member() {
@@ -430,7 +429,6 @@ fn tc_048_a_dependency_entry_carrying_version_is_an_unknown_member() {
 /// A `dependency_selections` entry binds the package the evidence supplies
 /// under its `identity` when that package's `package_id` is the entry's, with
 /// no version supplied or compared.
-///
 #[trace("TC-048", "FR-038-AC-64", "FR-038-AC-217", "FR-038-AC-218")]
 #[test]
 fn tc_048_a_dependency_entry_binds_by_identity_and_package_id() {
