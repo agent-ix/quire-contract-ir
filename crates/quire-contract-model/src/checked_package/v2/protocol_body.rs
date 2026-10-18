@@ -283,7 +283,7 @@ pub(super) fn validate_protocol_body(
     if laws.len() != 1 || law.get("role").and_then(Value::as_str) != Some("protocol_profile") {
         return Err(D::LawMismatch);
     }
-    if selected_profile != law.get("definition") {
+    if selected_profile.is_none() || selected_profile != law.get("definition") {
         return Err(D::LawUnselected);
     }
     if !operation.get("mode").is_some_and(Value::is_null)
@@ -536,6 +536,10 @@ mod tests {
         let complete = json!({"authority": "quire", "identity": "quire.protocol.complete/v1"});
         assert_eq!(
             validate_protocol_body(ProtocolForm::Control, &value, &boolean(), Some(&complete)),
+            Err(ProtocolBodyDefect::LawUnselected)
+        );
+        assert_eq!(
+            validate_protocol_body(ProtocolForm::Control, &value, &boolean(), None),
             Err(ProtocolBodyDefect::LawUnselected)
         );
         value["operation"]["laws"] = json!([]);
