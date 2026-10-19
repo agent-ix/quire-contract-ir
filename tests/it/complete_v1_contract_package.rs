@@ -74,6 +74,23 @@ fn mixed_fixture() -> Value {
     value
 }
 
+fn mixed_fixture_with_two_dependencies() -> Value {
+    let mut value = mixed_fixture();
+    let node = value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .iter_mut()
+        .find(|node| node["node_tag"] == "value")
+        .expect("value node");
+    node["dependencies"] = json!([
+        node["dependencies"][0],
+        checked_package::node_id(&checked_package::family_key("a3a3"))
+    ]);
+    mint_ungrouped_structural_keys(&mut value);
+    settle(&mut value);
+    value
+}
+
 fn profile() -> CompleteLoweringProfileV2 {
     CompleteLoweringProfileV2 {
         reference: quire_contract_model::LoweringProfileRef {
@@ -203,15 +220,15 @@ fn reader_incomplete_reports_each_exhausted_meter_and_pointer() {
     assert_eq!(wire.len(), 9864);
     assert!(matches!(read(wire), ContractPackageReadResult::Admitted(_)));
     let cases = [
-        (CheckedPackageLimit::Bytes, 9863, 9864, None),
+        (CheckedPackageLimit::Bytes, 100, 9864, None),
         (
             CheckedPackageLimit::Nodes,
             2,
             3,
             Some("/semantic_graph/nodes"),
         ),
-        // The second edge is held by node 2 in the fixture's canonical node array;
-        // <i> is the index of the node whose dependencies list fails the charge.
+        // Each node has at most one dependency here, so this case cannot distinguish
+        // the actual consumed count from limit + 1. The two-dependency case below does.
         (
             CheckedPackageLimit::Edges,
             1,
@@ -221,9 +238,9 @@ fn reader_incomplete_reports_each_exhausted_meter_and_pointer() {
         (CheckedPackageLimit::Occurrences, 0, 2, Some("/source_map")),
         (
             CheckedPackageLimit::Work,
-            0,
-            1,
-            Some("/semantic_graph/nodes/0/body"),
+            2,
+            7,
+            Some("/semantic_graph/nodes/2/body"),
         ),
     ];
     for (kind, limit, consumed, path) in cases {
@@ -249,6 +266,35 @@ fn reader_incomplete_reports_each_exhausted_meter_and_pointer() {
             "{kind:?}"
         );
     }
+
+    let two_edge_output = lower(&mixed_fixture_with_two_dependencies(), &request());
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.edges = 0;
+    let ContractPackageReadResult::Incomplete(incomplete) =
+        read_with_limits(bytes(&two_edge_output), limits)
+    else {
+        panic!("two dependencies on one node must exhaust the edge limit");
+    };
+    assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Edges);
+    assert_eq!(incomplete.limit, 0);
+    assert_eq!(incomplete.consumed, 2);
+    assert_eq!(
+        incomplete.path.as_ref().map(|path| path.as_str()),
+        Some("/semantic_graph/nodes/1/dependencies")
+    );
+
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = 7;
+    let ContractPackageReadResult::Incomplete(incomplete) = read_with_limits(wire, limits) else {
+        panic!("reference validation must exhaust the work limit");
+    };
+    assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+    assert_eq!(incomplete.limit, 7);
+    assert_eq!(incomplete.consumed, 8);
+    assert_eq!(
+        incomplete.path.as_ref().map(|path| path.as_str()),
+        Some("/semantic_graph/nodes/2/node_id")
+    );
 }
 
 fn body_keys(value: &Value, keys: &mut Vec<CheckedNodeId>) {
