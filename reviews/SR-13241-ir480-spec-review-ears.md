@@ -1,6 +1,6 @@
 ---
 id: "SR-13241"
-title: "IR PR 480 EARS conformance: FR-035 read-limit statement and AC-11 to AC-13"
+title: "IR PR 480 EARS conformance: FR-035 read-limit statement and AC-11 to AC-16"
 type: SpecReview
 analysis: ears-conformance
 review_set: subset
@@ -17,10 +17,10 @@ relationships:
 Ticket: IR-889. PR: agent-ix/quire-contract-ir#480 at the reviewed PR head.
 
 Examined: the five sentences added to the FR-035 statement, the amended FR-035-AC-11, and the new
-FR-035-AC-12 and AC-13.
+FR-035-AC-15 and AC-16.
 
 - AC-11 keeps its state-driven "Given ..., `read` returns ..." shape.
-- AC-12 and AC-13 are condition-and-response criteria. Each has one named reader, a stated
+- AC-15 and AC-16 are condition-and-response criteria. Each has one named reader, a stated
   precondition ("otherwise valid canonical package"), and paired boundary outcomes (admit at the
   total, `Incomplete` one below). Those are a single boundary obligation, not a compound one.
 - None of the three uses a vague term.
@@ -36,3 +36,9 @@ mix normative SHALLs with rationale and change history, and some name no system 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | low | Three of the new FR-035 statement sentences do not name the system as the SHALL subject: "The counter SHALL continue", "The occurrence limit SHALL likewise report", and "A package previously admitted ... SHALL now return `Incomplete`". The statement also embeds rationale ("as the limit's documented meaning and the V2 reader's single-meter practice require") and transition history ("previously admitted", "now", "These decisions change ..."). That history describes the change, not the requirement, and goes stale once the code lands. The fix is to restate each with Contract IR (or the V1 reader) as subject and move the rationale and history to a note or the PR. | spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:145-157 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fix commit 36d5036 rewrites the statement as six "The V1 reader SHALL ..." sentences and removes the rationale and the previously/now transition history. |

@@ -19,7 +19,7 @@ Ticket: IR-889. PR: agent-ix/quire-contract-ir#480 at the reviewed PR head. Plan
 Computed matrix delta, from `quire matrix --format tsv` (quire 0.36.2) at the reviewed merge base
 and at the PR head:
 
-- Exactly two rows were added: FR-035-AC-12 and AC-13, each `untagged`.
+- Exactly two rows were added: FR-035-AC-15 and AC-16, each `untagged`.
 - FR-035-AC-11 stays `tagged` by `reader_incomplete_reports_each_exhausted_meter_and_pointer`
   (tests/it/complete_v1_contract_package.rs:215-298).
 - No other row changed, and 0 are contradicted.
@@ -47,3 +47,9 @@ tagged by a test of its superseded behaviour.
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | low | After the amendment, `quire matrix` and `quire coverage` still count FR-035-AC-11 as tagged and backed by `reader_incomplete_reports_each_exhausted_meter_and_pointer`. That test asserts the occurrence path `/source_map` and the work limit-7 stop at `/semantic_graph/nodes/2/node_id`, which the amended text contradicts. Only the status prose says the amended clauses are PLANNED/UNRUN, so the machine-readable coverage overstates AC-11 until the IR-889 code PR rewrites the test. The fix is to land the code PR promptly, or to state the stale assertions explicitly in the TC-047 Status so a matrix reader is not misled. | tests/it/complete_v1_contract_package.rs:215-298; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:175 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fix commit 36d5036 names the stale assertions in the TC-047 Status and both tests.md rows: occurrence limit 0 expects `/source_map` and consumed 2, and work limit 7 expects `/semantic_graph/nodes/2/node_id`. It says they do not back amended AC-11, and it marks AC-11 and AC-15 through AC-16 PLANNED/UNRUN until the code PR rewrites the test. |

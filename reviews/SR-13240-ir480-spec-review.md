@@ -19,7 +19,7 @@ Ticket: IR-889. PR: agent-ix/quire-contract-ir#480 at the reviewed PR head. Spec
 The PR records decision (a): one cumulative `CheckedPackageReadLimits.work` bound across the V1
 reader's value validation and reference validation. It also moves the occurrence-limit stop
 pointer from `/source_map` to the charged occurrence or region. It amends the FR-035 statement,
-FR-035-AC-11 and TC-047, and adds FR-035-AC-12 and FR-035-AC-13.
+FR-035-AC-11 and TC-047, and adds FR-035-AC-15 and FR-035-AC-16.
 
 Evidence for (a) over per-pass (b), read from the code:
 
@@ -60,24 +60,24 @@ to one unit each, in order. Results:
 - Occurrence limit 17: consumed 18 at `/source_map/refusals/1/occurrences/0/regions/0`.
 - Occurrence limit 0: consumed 1 at `/source_map/nodes/0/occurrences/0`.
 
-AC-12 and AC-13 hold under that prototype. Limits 20..26 fit each pass separately but not their
-sum, so the fixture can exercise AC-12's "fits each pass" clause. The spec states no concrete
+AC-15 and AC-16 hold under that prototype. Limits 20..26 fit each pass separately but not their
+sum, so the fixture can exercise AC-15's "fits each pass" clause. The spec states no concrete
 example numbers, so there are no wrong example numbers. The PR body states the behaviour change
 honestly: cumulative `consumed`, new stop points, packages that used to be admitted now return
 `Incomplete`, and bytes and admitted values are unchanged. It adds no compatibility layer.
 FR-035-AC-11's amendment does not weaken it.
 
-Examined: the FR-035 statement paragraph on read limits, FR-035-AC-11, AC-12 and AC-13, the
+Examined: the FR-035 statement paragraph on read limits, FR-035-AC-11, AC-15 and AC-16, the
 TC-047 Description, Test Procedure, Expected Results and Status, and the tests.md FR-035 and
 TC-047 rows. FR-035-AC-9 and AC-10 were read for context.
 
 Skipped: spec-criterion-strength-analysis, because no Jev client is available. The ability of
-AC-12 and AC-13 to fail was judged by hand. A per-pass meter admits at limit 20, and a
-container pointer fails AC-13, so both can fail.
+AC-15 and AC-16 to fail was judged by hand. A per-pass meter admits at limit 20, and a
+container pointer fails AC-16, so both can fail.
 
 Informational, not a finding: the concurrent IR PR #479 (IR-893) also adds FR-035-AC-12 and
 FR-035-AC-13, with different text, so the ids collide. The lead merges #479 first and then
-renumbers this PR. Once renumbered, AC-11's "follow AC-12 and AC-13" cross-reference and the
+renumbers this PR. Once renumbered, AC-11's "follow AC-15 and AC-16" cross-reference and the
 TC-047 and tests.md ranges must move with it.
 
 ## Verdict
@@ -87,11 +87,18 @@ correct under a prototype of the rule. The remaining gaps are under-specificatio
 
 - The spec does not fix the occurrence charge unit or order. That decides `consumed` and the
   pointer at any limit other than total-1.
-- AC-12 asks for an "independently counted" reference-pass total that no spec text defines.
+- AC-15 asks for an "independently counted" reference-pass total that no spec text defines.
 
 ## Findings
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | The amended FR-035-AC-11 requires "the failing source-map value" and the "consumed amount at the failed charge" for any occurrence limit. Neither AC-11, AC-13 nor the statement fixes the charge unit or order. They do not say whether each occurrence and each region is one unit, or whether an occurrence is charged before its regions. They also do not give the part order (nodes, requested_items, refusals). The V2 precedent charges an entry, then all its regions in bulk, and reports the post-bulk count with the first region over (common.rs:767-782). A V1 port of that rule reports a different `consumed` than per-region charging for multi-region occurrences. AC-13 at total-1 is determinate, because it always names the last region. TC-047's extra "cases under nodes and requested_items or refusals" have no derivable expected pointer or count. The fix is to state the unit and order. | spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:148-151,175,177; crates/quire-contract-model/src/checked_package/common.rs:745-782 |
-| FND-002 | medium | FR-035-AC-12, and TC-047 after it, takes as its oracle "the independently counted total visits across both passes". The spec never defines a reference-validation visit. Those charges come from `walk_body`, `validate_application_keys`, `validate_derived_keys`, `validate_nominal_nodes` and `validate_recursion` (contract_package.rs:2134-2227). A test cannot count them independently of the implementation, and a total read from the reader's own admission threshold makes the "equals" clause tautological. The fix is to pin measured `mixed_fixture` values in TC-047: value 7, reference 20, total 27. Limit 26 gives consumed 27 at `/semantic_graph/nodes/2/body/members/1/value/type`. Limit 20 gives consumed 21 at `/semantic_graph/nodes/2/node_id`, and limit 7 gives consumed 8 at `/semantic_graph/nodes/0/node_id`. Alternatively, define the visit. | spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:176; spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md:51-55; crates/quire-contract-model/src/checked_package/v2/contract_package.rs:2134-2227 |
+| FND-001 | medium | The amended FR-035-AC-11 requires "the failing source-map value" and the "consumed amount at the failed charge" for any occurrence limit. Neither AC-11, AC-16 nor the statement fixes the charge unit or order. They do not say whether each occurrence and each region is one unit, or whether an occurrence is charged before its regions. They also do not give the part order (nodes, requested_items, refusals). The V2 precedent charges an entry, then all its regions in bulk, and reports the post-bulk count with the first region over (common.rs:767-782). A V1 port of that rule reports a different `consumed` than per-region charging for multi-region occurrences. AC-16 at total-1 is determinate, because it always names the last region. TC-047's extra "cases under nodes and requested_items or refusals" have no derivable expected pointer or count. The fix is to state the unit and order. | spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:148-151,175,177; crates/quire-contract-model/src/checked_package/common.rs:745-782 |
+| FND-002 | medium | FR-035-AC-15, and TC-047 after it, takes as its oracle "the independently counted total visits across both passes". The spec never defines a reference-validation visit. Those charges come from `walk_body`, `validate_application_keys`, `validate_derived_keys`, `validate_nominal_nodes` and `validate_recursion` (contract_package.rs:2134-2227). A test cannot count them independently of the implementation, and a total read from the reader's own admission threshold makes the "equals" clause tautological. The fix is to pin measured `mixed_fixture` values in TC-047: value 7, reference 20, total 27. Limit 26 gives consumed 27 at `/semantic_graph/nodes/2/body/members/1/value/type`. Limit 20 gives consumed 21 at `/semantic_graph/nodes/2/node_id`, and limit 7 gives consumed 8 at `/semantic_graph/nodes/0/node_id`. Alternatively, define the visit. | spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:176; spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md:51-55; crates/quire-contract-model/src/checked_package/v2/contract_package.rs:2134-2227 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fix commit 36d5036 adds statement SHALLs that fix the unit and order: one unit per occurrence before one unit per region, array order, `nodes` then `requested_items` then `refusals`; the stop reports the pointer of the crossing occurrence or region and the count including that failed charge. The TC-047 limits 0, 17 and 18 and the `requested_items` first-occurrence case match the reviewer prototype. |
+| FND-002 | fixed | TC-047 now pins the measured `mixed_fixture()` oracle: value 7, reference 20, total 27. Limit 27 admits. Limits 7, 20 and 26 stop at consumed 8, 21 and 27 with pointers that match the reviewer prototype exactly. |
