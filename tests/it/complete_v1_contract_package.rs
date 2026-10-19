@@ -230,6 +230,29 @@ fn reader_refuses_first_accounting_record_for_later_requested_items() {
             "requested item {index}"
         );
     }
+
+    // Both roots are lowered and represented. This isolates the ordered
+    // correspondence check from the lowered-node membership check.
+    let two_roots = lower(&mixed_fixture(), &[id("cccc"), id("dddd")]);
+    let mut changed: Value = serde_json::from_slice(bytes(&two_roots)).expect("wire json");
+    assert_eq!(changed["feature_accounting"][0]["disposition"], "lowered");
+    assert_eq!(changed["feature_accounting"][1]["disposition"], "lowered");
+    let other_root = changed["source_map"]["requested_items"][1]["requested_item"].clone();
+    assert!(changed["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .any(|node| node["node_id"] == other_root));
+    changed["feature_accounting"][0]["node_id"] = other_root;
+    let ContractPackageReadResult::Refused(refusal) = read(&rehashed(changed)) else {
+        panic!("first accounting record for another represented root must refuse");
+    };
+    assert_eq!(refusal.code, Code::InvalidPackage);
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some("/feature_accounting")
+    );
+    assert_eq!(refusal.cause, Some(Cause::InvalidValue));
 }
 
 #[trace("TC-047", "FR-035-AC-10")]
@@ -1009,12 +1032,7 @@ fn selected_dependencies_are_bound_by_library_identity_before_graph_checks() {
     use quire_contract_model::{
         CheckedPackageRefusalCause, CheckedPackageRefusalCode, ContractDependencyInput,
     };
-    let dependency = admit(&mixed_fixture());
-    let output = lower(&mixed_fixture(), &request());
-    let mut wire: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
-    wire["package"]["source"]["lock"]["dependency_selections"] = json!([{
-        "identity": "lib/a", "package_id": dependency.package_id(),
-    }]);
+    let (dependency, wire) = wire_selecting_lib_a();
     let bytes = rehashed(wire.clone());
     let mut supplied = ContractDependencies::new();
     supplied.insert(
@@ -1058,18 +1076,23 @@ fn selected_dependencies_are_bound_by_library_identity_before_graph_checks() {
     );
 }
 
-#[trace("TC-047", "FR-035-AC-2")]
-#[test]
-fn reader_refuses_stale_selected_dependency_at_selection() {
-    use quire_contract_model::{
-        CheckedPackageRefusalCause, CheckedPackageRefusalCode, ContractDependencyInput,
-    };
+fn wire_selecting_lib_a() -> (CheckedPackageV2, Value) {
     let dependency = admit(&mixed_fixture());
     let output = lower(&mixed_fixture(), &request());
     let mut wire: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
     wire["package"]["source"]["lock"]["dependency_selections"] = json!([{
         "identity": "lib/a", "package_id": dependency.package_id(),
     }]);
+    (dependency, wire)
+}
+
+#[trace("TC-047", "FR-035-AC-2")]
+#[test]
+fn reader_refuses_stale_selected_dependency_at_selection() {
+    use quire_contract_model::{
+        CheckedPackageRefusalCause, CheckedPackageRefusalCode, ContractDependencyInput,
+    };
+    let (dependency, mut wire) = wire_selecting_lib_a();
     let mut supplied = ContractDependencies::new();
     supplied.insert(
         "lib/a",
