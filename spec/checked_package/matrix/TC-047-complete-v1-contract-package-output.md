@@ -12,7 +12,7 @@ relationships:
 
 ## Description
 
-Verify FR-035-AC-5 through FR-035-AC-8, FR-035-AC-10 and FR-035-AC-11,
+Verify FR-035-AC-2, FR-035-AC-5 through FR-035-AC-8, and FR-035-AC-10 through FR-035-AC-14,
 and the aggregate FR-330 package separately from TC-044's per-item semantic
 and refusal tests. Focused FR-330
 emitter and strict-reader controls run in
@@ -49,6 +49,27 @@ validation stops or the failed-charge pointer reported by reference validation,
 which may name another node member. Assert neither outcome admits a package.
 The work meter's scope is open under IR-889.
 
+For FR-035-AC-12, remove `source_map` from an otherwise valid canonical
+package and assert `Refused(invalid_package)` at root path `""` with cause
+`missing_member`. For FR-035-AC-13, prepend one space to otherwise valid
+canonical bytes and assert `Refused(noncanonical_wire)` with no path or cause.
+For FR-035-AC-14, change the first `feature_accounting.node_id` to a different
+valid requested node, recompute the package identity, and assert
+`Refused(invalid_package)` at `/feature_accounting` with cause `invalid_value`.
+Each case admits no `ContractPackageV1`.
+
+For FR-035-AC-2, change only the package's own identity digest and assert
+`Refused(invalid_package)` at `/identity/digest` with cause `invalid_value`.
+Select a dependency under `package.source.lock.dependency_selections`, then
+change its selected package digest, recompute the contract package identity,
+and supply the original dependency. Assert `Refused(stale_dependency)` at
+`/package/source/lock/dependency_selections/0` with cause `content_mismatch`.
+These two cases admit no package. The later tests-first PR shall retag
+`reader_refuses_malformed_outer_shape_and_stale_own_identity` and
+`selected_dependencies_are_bound_by_library_identity_before_graph_checks`
+from FR-035-AC-5 to FR-035-AC-2 for these assertions, splitting their mixed
+assertions where needed so AC-5 still owns its unrelated checks.
+
 From a genuinely admitted mixed graph, query the typed view for a lowered root
 whose local closure uses `semantic_type`, declared `dependencies`, and body
 references, including a shared node and an explicit recursion group. Independently
@@ -80,6 +101,9 @@ wrong contract versions refuse before consumption.
 The wrong-version reader refusal retains its exact typed code, path and supplied
 version. Every exhausted read limit returns the typed incomplete fields and
 admits no package.
+The malformed, noncanonical and bad-accounting fixtures return the exact
+FR-035-AC-12 through FR-035-AC-14 refusal fields. Stale own identity and stale
+selected dependency return the exact FR-035-AC-2 refusal fields.
 The lowered-root view contains exactly the key-ordered local reached closure,
 with exact nodes and sources, and exposes selected external references at their
 package boundary. Every lowered-root view exposes both bound and claim subsets,
@@ -98,3 +122,6 @@ FR-035-AC-10 and FR-035-AC-11 are backed by the tagged TC-047 reader tests
 `reader_refuses_wrong_string_version_before_shape_identity_and_nodes` and
 `reader_incomplete_reports_each_exhausted_meter_and_pointer`. AC-11 work-limit
 scope remains open under IR-889.
+FR-035-AC-12 through FR-035-AC-14 and the FR-035-AC-2 TC-047 retags are
+PLANNED/UNRUN until the later tests-first PR adds the trace evidence. TC-044's
+FR-330 status remains PLANNED/UNRUN.
