@@ -33,10 +33,16 @@ public modules are `selected_population` and `source_obligation`; a newly
 declared public module, feature-gated export or unrecognized public declaration
 must fail the inventory until its names are checked. Read each public associated
 constant's value as well as its name, including every string element of an
-array value, and check both for forbidden terms. Run the real STD-001 `Code`-row
-extractor on STD-001 and require `Std001Code::REGISTERED` to equal the extracted
-code strings element by element in ASCII-sorted order, with no extra, missing or
-duplicate entries. Require each registered code string to have a `Std001Code`
+array value, and check both for forbidden terms. Add a `Code`-row extractor over
+all seven tables in STD-001: Identity and Reference Codes, Type and Expression
+Codes, Version, Canonicalization and Coverage Codes, Semantic Limit Codes,
+Typed Code Form, Bounded Kani Cause Codes, and Bounded Kani Outcome Error Code.
+The existing `std001_declared_codes` in `tests/it/nfr003_invalid_input.rs`
+extracts only the first four tables, so it cannot serve this check unchanged.
+Subtract the exact strings spelled by `DiagnosticCode::ALL` from the extracted
+STD-001 code strings. Require `Std001Code::REGISTERED` to equal that difference
+element by element in ASCII-sorted order, with no extra, missing or duplicate
+entries. Require each code string in that difference to have a `Std001Code`
 associated constant whose name is the code string converted to uppercase ASCII
 with underscores unchanged and whose string value equals that code string.
 `REGISTERED` itself and every array element remain subject to the forbidden-term
@@ -47,7 +53,8 @@ check except the exact element named below. The only temporary allowlist entry i
 | `Std001Code::KANI_SOLVER_ABSENT` | `kani_solver_absent` | IR-881 (rename of the registered code in the Kani lane, with no compatibility alias); removed when IR-881 merges |
 
 Apply this entry only when the exact name and exact string value match each
-other and a `kani_solver_absent` row is extracted from STD-001. It permits that
+other and a `kani_solver_absent` row is extracted from STD-001's Bounded Kani
+Cause Codes table and survives the `DiagnosticCode::ALL` subtraction. It permits that
 constant's name and value and the matching `Std001Code::REGISTERED` element;
 it permits no other item, schema name or value. Do not infer an exception from
 registration, a constant's presence in source, or `Std001Code::REGISTERED`.
@@ -68,13 +75,14 @@ Remove the sole allowlist entry in a mutation while leaving STD-001 and the Rust
 source fixture unchanged; the inventory must then reject the
 `Std001Code::KANI_SOLVER_ABSENT` name, its `kani_solver_absent` value and the
 matching `Std001Code::REGISTERED` element. Any STD-001 registry fixture used by
-a mutation must pass through the same real `Code`-row extractor as the
+a mutation must pass through the same seven-table `Code`-row extractor as the
 unmodified STD-001 document; a hand-built code set does not count. The new
 unregistered `solver` constant must fail with the allowlist entry present.
 The eventual TC-456 test must run without `NFR-002-AC-1` or `NFR-002-AC-3`
-trace tags until IR-881 merges. Its test PR must reconcile the already-merged
-`#[trace("TC-456", "NFR-002-AC-1")]` tag in
-`tests/it/public_interface.rs` with that withheld credit.
+trace tags until IR-881 merges. The TC-456 test PR removes or withholds the
+existing `NFR-002-AC-1` tag in `tests/it/public_interface.rs` and the existing
+`NFR-002-AC-3` tag in `tests/it/identity.rs`. IR-881 acceptance restores both
+tags when the registered-code rename lands and the allowlist entry is removed.
 
 ## Expected Results
 
@@ -88,6 +96,6 @@ allowlisted constant and value, and the checked `REGISTERED` array are admitted.
 
 Planned. TC-456 guards every other public name while the temporary entry exists,
 but NFR-002-AC-1 and NFR-002-AC-3 credit is withheld, blocked by IR-881. The
-already-merged `NFR-002-AC-1` trace tag does not establish that credit and must
-be reconciled in the TC-456 test PR. TC-019 remains planned for NFR-001's
+already-merged NFR-002 trace tags do not establish that credit and must be
+reconciled as assigned above. TC-019 remains planned for NFR-001's
 separate determinism measurements.

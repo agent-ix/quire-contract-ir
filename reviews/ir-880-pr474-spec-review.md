@@ -58,3 +58,17 @@ scope:
 ## Verdict
 
 CHANGES REQUESTED, three medium findings. The amendment otherwise meets the planner's intent. The exemption is derived from STD-001's `Code` rows. It is not inferred from `Std001Code::REGISTERED` or source. It forbids prefix, glob, regex and separately kept lists. It is limited to `Std001Code` constants, by name and value, and does not cover same-spelled items or schema names. A row with no constant exempts nothing. Forbidden terms outside the set still fail. Both required mutations are present: an unregistered `solver` const, and a removed `kani_solver_absent` row. The derivation is feasible on the tree, because every constant name is its STD-001 code in uppercase. The NFR-002-AC-1 text is unchanged. FND-002 and FND-003 can be fixed in the TC-456 text. FND-001 needs a planner decision: either record the exemption at the requirement or decision level without weakening AC-1, or accept it with a stated reason. The pre-existing tension with NFR-002-AC-3 (`kani_solver_absent` is a registered diagnostic code, and AC-3 forbids `solver` in diagnostic codes) is outside this diff and is noted as context only.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | high | The fix requires `Std001Code::REGISTERED` to equal every code the STD-001 `Code`-row extractor returns, with no extra or missing entries, and requires a `Std001Code` constant for each such code. STD-001 has 59 `Code` rows. 44 are `DiagnosticCode` codes, defined as variants in `identity.rs`, and only 15 are `REGISTERED` constants in `code.rs`. FR-044 defines `REGISTERED` as the codes outside `DiagnosticCode`, which have no `Std001Code` constant. So the test cannot pass on the real tree. "The real STD-001 `Code`-row extractor" is also unnamed. The only existing one, `std001_declared_codes` in `tests/it/nfr003_invalid_input.rs`, reads just the four `DiagnosticCode` tables, a set disjoint from `REGISTERED`. Fix: name the tables or the subtraction, for example extracted codes minus the `DiagnosticCode::ALL` spellings. | spec/core/matrix/TC-456-public-name-portability.md:36-41, 70-72 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Per the planner's superseding direction: NFR-002 is untouched (AC-1/AC-3 text unchanged). TC-456 carries one named entry with ticket and expiry at the entry (IR-881, exists, blocks IR-880). AC-1/AC-3 credit is withheld in the TC-456 Description and Status and in the TC-456, NFR-002, StR-002 and TC-015 rows. The residual computed-matrix tag for AC-3 is tracked as SR-12991 FND-002. |
+| FND-002 | fixed | Lines 34-36 require each constant's value, including every array string element, to be read and checked. Lines 42-43 and 54-56 say `REGISTERED` and every element stay checked except the one allowlisted element. |
+| FND-003 | fixed | Lines 70-72 require any STD-001 registry fixture used by a mutation to pass through the same real `Code`-row extractor, and say a hand-built code set does not count. Which extractor and tables is open under FND-004. |
