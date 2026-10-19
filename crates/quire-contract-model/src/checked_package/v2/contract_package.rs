@@ -1718,6 +1718,18 @@ impl ContractPackageWireV1 {
     ) -> Result<(), ValidationFailure> {
         let source_map = &self.source_map;
         let mut count = 0_u64;
+        let charge = |count: &mut u64, at: JsonPointer| -> Result<(), ValidationFailure> {
+            *count = count.saturating_add(1);
+            if *count > limits.occurrences {
+                return Err(ValidationFailure::incomplete(
+                    CheckedPackageLimit::Occurrences,
+                    limits.occurrences,
+                    *count,
+                    Some(at),
+                ));
+            }
+            Ok(())
+        };
         for (entries, at) in source_map
             .nodes
             .iter()
@@ -1764,25 +1776,12 @@ impl ContractPackageWireV1 {
         {
             for (index, entry) in entries.iter().enumerate() {
                 let occurrence_at = at.clone().key("occurrences").index(index);
-                count = count.saturating_add(1);
-                if count > limits.occurrences {
-                    return Err(ValidationFailure::incomplete(
-                        CheckedPackageLimit::Occurrences,
-                        limits.occurrences,
-                        count,
-                        Some(occurrence_at),
-                    ));
-                }
+                charge(&mut count, occurrence_at.clone())?;
                 for region_index in 0..entry.regions.len() {
-                    count = count.saturating_add(1);
-                    if count > limits.occurrences {
-                        return Err(ValidationFailure::incomplete(
-                            CheckedPackageLimit::Occurrences,
-                            limits.occurrences,
-                            count,
-                            Some(occurrence_at.clone().key("regions").index(region_index)),
-                        ));
-                    }
+                    charge(
+                        &mut count,
+                        occurrence_at.clone().key("regions").index(region_index),
+                    )?;
                 }
             }
         }
