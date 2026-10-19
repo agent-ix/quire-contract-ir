@@ -68,3 +68,32 @@ scope:
 ## Verdict
 
 CHANGES REQUESTED. The PR is not mergeable as-is because of FND-001. The structure is sound. The schema walker now reads `const` (36 string consts across the three schemas). The seven-table STD-001 extractor asserts that every table exists and is non-empty, rejects duplicate rows, and subtracts `DiagnosticCode::ALL`. `REGISTERED` is compared element by element against the sorted difference and against its source rows. Each registered constant's name and value are checked exactly once. The single allowlist entry carries its IR-881 expiry comment. Both mutations run through the real extractor. Tags use `ix_trace_rs::trace`, there are no `/// Trace:` lines, and the NFR-002-AC-1 and AC-3 tags are withheld (`quire matrix` lists both as `untagged`). Gates the reviewer ran on the head: `cargo fmt --all -- --check` clean; `cargo clippy --workspace --all-targets -- -D warnings` clean; `cargo test --test it -- identity:: public_interface::` 14 passed. Every macro_rules definition is invoked in the file that defines it, so the same-file `definitions` lookup holds today.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-009 | medium | The fix adds a branch for inherent impls in a non-public inline scope: they are inventoried only when their type is re-exported. No control tests that branch. Mutant N5, which skips every inherent impl in a non-public scope, survives all eight TC-456 tests. Together with N5, a real-source mutant that adds `pub fn solver_probe(self) {}` to `impl MappingAllocationPoint` passes TC-456. So the public associated items of the feature-gated export, the FND-001 class, are guarded by nothing. Without N5 the real-source mutant is caught. | tests/it/public_interface.rs:473-500, 1202-1214 |
+| FND-010 | low | The fix's re-export resolution branches have no controls, and four mutants survive. N4 does not walk an inline `pub mod` in a public scope. N6 ignores a glob re-export. N7 resolves a renamed re-export by its alias, not its source name. N9 drops the alias names of `pub use` in non-root files. None of these shapes occurs in the model tree today. | tests/it/public_interface.rs:319-361, 410-433 |
+
+Re-measured at head f6e5cda, from a throwaway worktree on origin's PR head. All 14 earlier mutants are now killed: M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M13, M16, and the real-source `SolverRuntimeBuffer` variant on `MappingAllocationPoint`. New mutants on the fix's code:
+
+- Killed: N1 (do not recurse into inline modules), N2 (ignore exports in `visible`), N3 (fail-closed item panic made silent), N8 (fail-closed trait-member panic made silent), and the real-source `pub fn solver_probe` on the gated type's impl.
+- Survived: N4, N5, N6, N7 and N9.
+
+The test build has `fault-injection` on: the root dev-dependency enables it, and `let _: Option<quire_contract_model::MappingAllocationPoint> = None;` compiles. The inventory itself is parsed from source, so it does not depend on the feature. Gates: `cargo fmt --all -- --check` clean; `cargo clippy --workspace --all-targets -- -D warnings` clean; `cargo test --test it -- identity:: public_interface::` 21 passed. Tags are `#[trace("TC-456")]` only, there are no `/// Trace:` lines, and NFR-002-AC-1 and AC-3 are still `untagged` in `quire matrix`.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1, head f6e5cda. `source_items_in_scope` recurses into inline modules and admits items re-exported by `pub use`. Unknown item kinds hit `_ => panic!("unrecognized declaration kind in source inventory")`. The real-source variant `SolverRuntimeBuffer` on `MappingAllocationPoint` now fails TC-456 with `MappingAllocationPoint::SolverRuntimeBuffer: ... solver`. |
+| FND-002 | fixed | Round 1, head f6e5cda. The control is now `mod allocation { pub enum Point { Safe, SolverRuntimeBuffer } } #[cfg(feature = "fault-injection")] pub use allocation::Point;`, and `tc_456_gated_reexport_checks_inline_enum_variants` asserts that the variant is extracted. N1 and N2 are killed. |
+| FND-003 | fixed | Round 1, head f6e5cda. `tc_456_name_matcher_covers_case_boundaries_and_near_misses` restores the matcher cases and the false-positive guards, and adds `name_words("filePath") == ["file", "path"]`. M8 and M9 are killed. |
+| FND-004 | fixed | Round 1, head f6e5cda. `tc_456_solver_allowlist_requires_exact_name_value_and_std001_row` checks two near misses and an STD-001 copy without the row, fed through `std001_code_rows`. M6, M7 and M16 are killed. |
+| FND-005 | fixed | Round 1, head f6e5cda. `tc_456_constant_values_and_trait_functions_reach_the_inventory` uses a benign-name const with value `"solver"` and a trait whose only member is `fn runtime`. M5 and M11 are killed. |
+| FND-006 | fixed | Round 1, head f6e5cda. `tc_456_macro_body_cannot_add_an_uninventoried_public_member` puts `pub fn solver_escape` in an `identifier_type!` body. M10 is killed. |
+| FND-007 | fixed | Round 1, head f6e5cda. The assertion now requires a violation starting with `Std001Code::KANI_SOLVER_ABSENT: kani_solver_absent:`. |
+| FND-008 | fixed | Round 1, head f6e5cda. The redundant `TraitItem::Macro(_) \| TraitItem::Verbatim(_)` arm is removed, and `tc_456_unrecognized_exported_trait_member_fails_closed` covers the remaining panic (N8 killed). |
+| FND-009 | fixed | Round 2. `tc_456_reexported_private_type_impl_is_inventoried` requires a private inline module's re-exported type and public `solver_probe` method to pass through `source_items` and the portability check. Skipping its impl makes the control fail. |
+| FND-010 | fixed | Round 2. `tc_456_public_inline_module_is_inventoried`, `tc_456_glob_reexport_is_inventoried`, `tc_456_renamed_reexport_checks_source_name`, and `tc_456_non_root_reexport_alias_is_inventoried` each require a forbidden name from the source enumerator and portability check. |

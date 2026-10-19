@@ -1214,6 +1214,72 @@ fn tc_456_gated_reexport_checks_inline_enum_variants() {
 
 #[trace("TC-456")]
 #[test]
+fn tc_456_reexported_private_type_impl_is_inventoried() {
+    let source = parse_model_source(
+        "mod allocation { pub struct Point; impl Point { pub fn solver_probe(self) {} } } pub use allocation::Point;",
+        "re-exported impl control",
+    );
+    let names = source_items(&source);
+    assert!(names
+        .iter()
+        .any(|name| name.owner == "Point" && name.name == "solver_probe"));
+    assert!(!inventory_violations(&names, &std001_code_rows(STD_001), true).is_empty());
+}
+
+#[trace("TC-456")]
+#[test]
+fn tc_456_public_inline_module_is_inventoried() {
+    let source = parse_model_source(
+        "pub mod api { pub fn solver_probe() {} }",
+        "public inline module control",
+    );
+    let names = source_items(&source);
+    assert!(names.iter().any(|name| name.name == "solver_probe"));
+    assert!(!inventory_violations(&names, &std001_code_rows(STD_001), true).is_empty());
+}
+
+#[trace("TC-456")]
+#[test]
+fn tc_456_glob_reexport_is_inventoried() {
+    let source = parse_model_source(
+        "mod api { pub fn solver_probe() {} } pub use api::*;",
+        "glob re-export control",
+    );
+    let names = source_items(&source);
+    assert!(names.iter().any(|name| name.name == "solver_probe"));
+    assert!(!inventory_violations(&names, &std001_code_rows(STD_001), true).is_empty());
+}
+
+#[trace("TC-456")]
+#[test]
+fn tc_456_renamed_reexport_checks_source_name() {
+    let source = parse_model_source(
+        "mod api { pub fn solver_probe() {} } pub use api::solver_probe as probe;",
+        "renamed re-export control",
+    );
+    let names = source_items(&source);
+    assert!(names.iter().any(|name| name.name == "solver_probe"));
+    assert!(!inventory_violations(&names, &std001_code_rows(STD_001), true).is_empty());
+}
+
+#[trace("TC-456")]
+#[test]
+fn tc_456_non_root_reexport_alias_is_inventoried() {
+    let directory = std::env::temp_dir().join(format!("tc456-alias-{}", std::process::id()));
+    fs::create_dir(&directory).expect("create non-root source fixture directory");
+    fs::write(
+        directory.join("api.rs"),
+        "mod api { pub fn probe() {} } pub use api::probe as solver_probe;",
+    )
+    .expect("write non-root source fixture");
+    let names = model_source_inventory(&directory);
+    fs::remove_dir_all(&directory).expect("remove non-root source fixture directory");
+    assert!(names.iter().any(|name| name.name == "solver_probe"));
+    assert!(!inventory_violations(&names, &std001_code_rows(STD_001), true).is_empty());
+}
+
+#[trace("TC-456")]
+#[test]
 fn tc_456_unrecognized_public_declaration_fails_closed() {
     let source = parse_model_source(
         "extern \"C\" { pub fn runtime(); }",

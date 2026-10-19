@@ -71,3 +71,10 @@ CHANGES REQUESTED. Met obligations, verified against the tree:
 - Tests use `#[trace]` only.
 
 The strict count of 40 is unchanged, as the author reports, but one new status-vocabulary diagnostic appears (FND-002).
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1, head f6e5cda. The source enumerator walks inline modules and admits gated `pub use` re-exports. Unknown item kinds panic, and two tests cover that. The real-source forbidden variant on `MappingAllocationPoint` now fails TC-456. The residual impl-branch control gap recorded as SR-12995 FND-009 was closed in round 2 by `tc_456_reexported_private_type_impl_is_inventoried`. |
+| FND-002 | fixed | Round 1, head f6e5cda. The TC-456 row reads `🚧 partial: ...`, the TC-456 Status reads `🚧 Partial: ...`, and the Core rollup says the inventory "is partial". `quire coverage --scope . --strict` again reports 40 unbacked rows and 0 contradicted statuses, with no TC-456 status-vocabulary line. NFR-002 stays at 1/3 and AC-1 and AC-3 stay untagged. |
