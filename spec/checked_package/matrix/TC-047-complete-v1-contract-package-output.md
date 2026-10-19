@@ -12,7 +12,7 @@ relationships:
 
 ## Description
 
-Verify FR-035-AC-2, FR-035-AC-5 through FR-035-AC-8, and FR-035-AC-10 through FR-035-AC-14,
+Verify FR-035-AC-2, FR-035-AC-5 through FR-035-AC-8, and FR-035-AC-10 through FR-035-AC-16,
 and the aggregate FR-330 package separately from TC-044's per-item semantic
 and refusal tests. Focused FR-330
 emitter and strict-reader controls run in
@@ -41,13 +41,34 @@ an otherwise valid canonical package. Assert `Refused` with
 version. For a valid package, select each byte, node, work, edge and
 occurrence limit separately at a value that exhausts that reader charge. Assert
 `Incomplete` with the exhausted limit kind, selected ceiling and `consumed`
-amount of the meter that stopped; assert no path for bytes,
+amount at the failed charge; assert no path for bytes,
 `/semantic_graph/nodes` for nodes,
-`/semantic_graph/nodes/<i>/dependencies` for edges, and `/source_map` for
-occurrences. For work, assert `/semantic_graph/nodes/<i>/body` when value
+`/semantic_graph/nodes/<i>/dependencies` for edges, and the exact occurrence
+or region value under `/source_map` whose charge failed for occurrences.
+For work, assert `/semantic_graph/nodes/<i>/body` when value
 validation stops or the failed-charge pointer reported by reference validation,
 which may name another node member. Assert neither outcome admits a package.
-The work meter's scope is open under IR-889.
+For FR-035-AC-15, use `mixed_fixture()` and `request()` for the work
+boundary: value validation
+charges 7 visits, reference validation charges 20, and the combined count is
+27. A work limit of 27 admits. Limits 7, 20, and 26 return `Incomplete` with
+`consumed` 8 at `/semantic_graph/nodes/0/node_id`, 21 at
+`/semantic_graph/nodes/2/node_id`, and 27 at
+`/semantic_graph/nodes/2/body/members/1/value/type`, respectively. Assert
+`limit_kind = Work` and the selected limit in each case. A lower limit that
+stops in value validation reports its body pointer.
+For FR-035-AC-16, use the same fixture and charge one unit for each
+occurrence before one unit for
+each of its regions, in array order within `nodes`, `requested_items`, then
+`refusals`. The 9 occurrences and 9 regions give 18 charges. An occurrence
+limit of 18 admits. Limit 0 returns `Incomplete` with `consumed` 1 at
+`/source_map/nodes/0/occurrences/0`; limit 17 returns `Incomplete` with
+`consumed` 18 at `/source_map/refusals/1/occurrences/0/regions/0`.
+Also stop at the first charged occurrence under `requested_items`: select the
+number of charges before it as the limit, and assert `consumed` is that limit
+plus one and `path` names that occurrence. Assert `limit_kind = Occurrences`
+and the selected limit at each stop; `/source_map` alone is never the stop
+pointer when a value was charged.
 
 For FR-035-AC-12, remove each of the six required top-level members
 (`contract_version`, `package`, `semantic_graph`, `source_map`,
@@ -104,7 +125,11 @@ Missing properties, duplicate or disordered keys, extra graph partitions and
 wrong contract versions refuse before consumption.
 The wrong-version reader refusal retains its exact typed code, path and supplied
 version. Every exhausted read limit returns the typed incomplete fields and
-admits no package.
+admits no package. The mixed fixture admits at work limit 27 and occurrence
+limit 18 under FR-035-AC-15 and FR-035-AC-16; its work stops at limits 7, 20
+and 26 and occurrence stops at limits
+0 and 17 have the exact counts and pointers specified above. The
+`requested_items` occurrence stop names its first charged occurrence.
 The malformed, noncanonical and bad-accounting fixtures return the exact
 FR-035-AC-12 through FR-035-AC-14 refusal fields. Stale own identity and stale
 selected dependency return the exact FR-035-AC-2 refusal fields.
@@ -122,10 +147,14 @@ Implemented with focused tests in `tests/it/complete_v1_contract_package.rs`
 for the six-field FR-330 emitter, strict reader, canonical semantic identity,
 closed accounting and source-map correspondence. Aggregate gates remain pending.
 Tagged TC-047 tests cover FR-035-AC-6 through FR-035-AC-8.
-FR-035-AC-10 and FR-035-AC-11 are backed by the tagged TC-047 reader tests
-`reader_refuses_wrong_string_version_before_shape_identity_and_nodes` and
-`reader_incomplete_reports_each_exhausted_meter_and_pointer`. AC-11 work-limit
-scope remains open under IR-889.
+FR-035-AC-10 is backed by the tagged TC-047 test
+`reader_refuses_wrong_string_version_before_shape_identity_and_nodes`.
+`reader_incomplete_reports_each_exhausted_meter_and_pointer` remains tagged
+FR-035-AC-11 in the computed matrix, but its assertions are stale: it expects
+`/source_map` and `consumed = 2` at occurrence limit 0, and
+`/semantic_graph/nodes/2/node_id` at work limit 7. Those assertions do not
+back amended AC-11. AC-11 and AC-15 through AC-16 are PLANNED/UNRUN until the IR-889
+code change rewrites the tagged test and adds their boundary cases.
 FR-035-AC-12 through FR-035-AC-14 and the FR-035-AC-2 TC-047 retags are
 PLANNED/UNRUN until the later tests-first PR adds the trace evidence. TC-044's
 FR-330 status remains PLANNED/UNRUN.
