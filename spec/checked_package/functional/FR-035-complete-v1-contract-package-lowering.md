@@ -139,10 +139,11 @@ identity unchanged.
 When reading a canonical `ContractPackageWireV1`, Contract IR SHALL refuse an
 unrecognized string `contract_version` with `unknown_contract_version` located
 at `/contract_version`, retaining the supplied version in the diagnostic.
-When a caller-selected read limit is exhausted, the reader SHALL return
+When a caller-selected read limit is exhausted, Contract IR SHALL return
 `Incomplete` with the exhausted limit kind, ceiling, consumed count and the
-pointer of the failed charge where one exists; neither outcome admits a
-`ContractPackageV1`.
+pointer of the failed charge where one exists.
+When the reader returns `Refused` or `Incomplete`, Contract IR SHALL
+admit no `ContractPackageV1`.
 
 ## Acceptance Criteria
 
@@ -158,7 +159,7 @@ pointer of the failed charge where one exists; neither outcome admits a
 | FR-035-AC-8 | Querying a non-`lowered` requested key returns its exact typed disposition, while an unrequested or absent key returns typed absence even if its node occurs only as another root's reached meaning; neither returns a fabricated closure, and querying the view changes none of the six FR-330 wire properties or identity. | Test |
 | FR-035-AC-9 | The typed profile exposes `required_source_selections: Vec<CheckedSelection>` and the IR adapter conforms to QSpec FR-330-AC-10 and TC-935: input refusals use `InvalidInput { node_id }`/`invalid_input`, work stops use existing `Failed`/`Work` with unchanged key/limit/consumed counters, and successful checks continue the existing FR-038 meter without reset. The adapter preserves exact source provenance and emits only `profile.reference`, with no duplicated requirement wire field or new refusal payload. | Test |
 | FR-035-AC-10 | Given an otherwise valid canonical `ContractPackageWireV1` whose string `contract_version` differs from `quire.contract-package/v1`, `ContractPackageWireV1::read` returns `Refused` with code `unknown_contract_version`, path `/contract_version`, and `contract_version` equal to the supplied string; it returns no admitted package. | Test |
-| FR-035-AC-11 | Given otherwise valid canonical package bytes and caller-selected read limits exhausted at the byte count or during node, work, edge or source-map occurrence validation, `ContractPackageWireV1::read` returns `Incomplete(CheckedPackageIncomplete)` rather than `Admitted`, carrying the first exhausted `limit_kind`, selected `limit`, and measured `consumed`; `path` is absent for the preparse byte ceiling and is the failed-charge pointer for the other limits. No `ContractPackageV1` is admitted. | Test |
+| FR-035-AC-11 | Given otherwise valid canonical package bytes and a caller-selected byte, node, work, edge or source-map occurrence limit exhausted by the reader, `ContractPackageWireV1::read` returns `Incomplete(CheckedPackageIncomplete)` rather than `Admitted`, carrying the exhausted `limit_kind`, selected `limit`, and `consumed` amount of the meter that stopped. `path` is absent for bytes, `/semantic_graph/nodes` for nodes, `/semantic_graph/nodes/<i>/dependencies` for edges, and `/source_map` for occurrences. For work it is `/semantic_graph/nodes/<i>/body` when value validation stops, or the failed-charge pointer reported by reference validation, which may name another node member. No `ContractPackageV1` is admitted. The work meter's scope is open under IR-889. | Test |
 
 ## Dependencies
 
