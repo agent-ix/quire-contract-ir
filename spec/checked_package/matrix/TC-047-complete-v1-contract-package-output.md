@@ -149,12 +149,10 @@ closed accounting and source-map correspondence. Aggregate gates remain pending.
 Tagged TC-047 tests cover FR-035-AC-6 through FR-035-AC-8.
 FR-035-AC-10 is backed by the tagged TC-047 test
 `reader_refuses_wrong_string_version_before_shape_identity_and_nodes`.
-`reader_incomplete_reports_each_exhausted_meter_and_pointer` remains tagged
-FR-035-AC-11 in the computed matrix, but its assertions are stale: it expects
-`/source_map` and `consumed = 2` at occurrence limit 0, and
-`/semantic_graph/nodes/2/node_id` at work limit 7. Those assertions do not
-back amended AC-11. AC-11 and AC-15 through AC-16 are PLANNED/UNRUN until the IR-889
-code change rewrites the tagged test and adds their boundary cases.
+The tagged `reader_incomplete_reports_each_exhausted_meter_and_pointer` test
+backs amended FR-035-AC-11 with exact failed-charge counts and pointers.
+Tagged boundary tests back FR-035-AC-15 and FR-035-AC-16, including cumulative
+work across both validation passes and occurrence and region charges in order.
 FR-035-AC-12 through FR-035-AC-14 and the FR-035-AC-2 TC-047 retags are
 PLANNED/UNRUN until the later tests-first PR adds the trace evidence. TC-044's
 FR-330 status remains PLANNED/UNRUN.

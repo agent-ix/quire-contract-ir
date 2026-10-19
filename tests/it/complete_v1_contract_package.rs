@@ -347,7 +347,8 @@ fn reader_charges_each_occurrence_and_region_at_its_own_pointer() {
         .iter()
         .flat_map(|node| node["occurrences"].as_array().expect("occurrences"))
         .map(|entry| 1 + entry["regions"].as_array().expect("regions").len())
-        .sum::<usize>() as u64;
+        .sum::<usize>();
+    let preceding = u64::try_from(preceding).expect("fixture charge count fits u64");
     for (limit, consumed, path) in [
         (0, 1, "/source_map/nodes/0/occurrences/0"),
         (

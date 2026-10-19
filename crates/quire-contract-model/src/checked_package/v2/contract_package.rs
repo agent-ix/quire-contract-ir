@@ -961,12 +961,13 @@ impl ContractPackageWireV1 {
                 CheckedPackageRefusalCause::WrongValueKind,
             )
         })?;
-        wire.validate_values(limits)?;
+        let mut work_meter = super::WorkMeter::new(limits.work);
+        wire.validate_values(limits, &mut work_meter)?;
         wire.validate_correspondence(limits)?;
         wire.validate_accounting()?;
         wire.validate_identity(limits.bytes)?;
         wire.validate_dependencies(dependencies)?;
-        wire.validate_references(dependencies, limits)?;
+        wire.validate_references(dependencies, limits, &mut work_meter)?;
         Ok(wire)
     }
 }
@@ -1463,7 +1464,11 @@ fn valid_node_id(id: &CheckedNodeId) -> bool {
 }
 
 impl ContractPackageWireV1 {
-    fn validate_values(&self, limits: CheckedPackageReadLimits) -> Result<(), ValidationFailure> {
+    fn validate_values(
+        &self,
+        limits: CheckedPackageReadLimits,
+        work_meter: &mut super::WorkMeter,
+    ) -> Result<(), ValidationFailure> {
         let source = &self.package.source;
         let package_id = &source.package_id;
         if package_id.domain.as_ref() != super::PACKAGE_DOMAIN_V2
@@ -1627,7 +1632,6 @@ impl ContractPackageWireV1 {
         let canonical = canonical_node_order(nodes.iter());
         let mut seen = BTreeSet::new();
         let mut edges = 0_u64;
-        let mut work = 0_u64;
         for (index, node) in nodes.iter().enumerate() {
             let at = JsonPointer::root()
                 .key("semantic_graph")
@@ -1657,20 +1661,9 @@ impl ContractPackageWireV1 {
                 Step::Index(index),
                 Step::Key("body"),
             ];
-            work = work.saturating_add(super::validate_body(
-                kind,
-                &node.body,
-                &Trail::Base(&steps),
-                &mut |_, _, _| {},
-            )?);
-            if work > limits.work {
-                return Err(ValidationFailure::incomplete(
-                    CheckedPackageLimit::Work,
-                    limits.work,
-                    work,
-                    Some(at.clone().key("body")),
-                ));
-            }
+            let work =
+                super::validate_body(kind, &node.body, &Trail::Base(&steps), &mut |_, _, _| {})?;
+            work_meter.charge(work, || at.clone().key("body"))?;
             edges =
                 edges.saturating_add(u64::try_from(node.dependencies.len()).unwrap_or(u64::MAX));
             if edges > limits.edges {
@@ -1725,30 +1718,72 @@ impl ContractPackageWireV1 {
     ) -> Result<(), ValidationFailure> {
         let source_map = &self.source_map;
         let mut count = 0_u64;
-        for entries in source_map
+        for (entries, at) in source_map
             .nodes
             .iter()
-            .map(|entry| &entry.occurrences)
+            .enumerate()
+            .map(|(index, entry)| {
+                (
+                    &entry.occurrences,
+                    JsonPointer::root()
+                        .key("source_map")
+                        .key("nodes")
+                        .index(index),
+                )
+            })
             .chain(
                 source_map
                     .requested_items
                     .iter()
-                    .map(|entry| &entry.occurrences),
+                    .enumerate()
+                    .map(|(index, entry)| {
+                        (
+                            &entry.occurrences,
+                            JsonPointer::root()
+                                .key("source_map")
+                                .key("requested_items")
+                                .index(index),
+                        )
+                    }),
             )
-            .chain(source_map.refusals.iter().map(|entry| &entry.occurrences))
+            .chain(
+                source_map
+                    .refusals
+                    .iter()
+                    .enumerate()
+                    .map(|(index, entry)| {
+                        (
+                            &entry.occurrences,
+                            JsonPointer::root()
+                                .key("source_map")
+                                .key("refusals")
+                                .index(index),
+                        )
+                    }),
+            )
         {
-            count = count.saturating_add(u64::try_from(entries.len()).unwrap_or(u64::MAX));
-            for entry in entries {
-                count =
-                    count.saturating_add(u64::try_from(entry.regions.len()).unwrap_or(u64::MAX));
-            }
-            if count > limits.occurrences {
-                return Err(ValidationFailure::incomplete(
-                    CheckedPackageLimit::Occurrences,
-                    limits.occurrences,
-                    count,
-                    Some(JsonPointer::root().key("source_map")),
-                ));
+            for (index, entry) in entries.iter().enumerate() {
+                let occurrence_at = at.clone().key("occurrences").index(index);
+                count = count.saturating_add(1);
+                if count > limits.occurrences {
+                    return Err(ValidationFailure::incomplete(
+                        CheckedPackageLimit::Occurrences,
+                        limits.occurrences,
+                        count,
+                        Some(occurrence_at),
+                    ));
+                }
+                for region_index in 0..entry.regions.len() {
+                    count = count.saturating_add(1);
+                    if count > limits.occurrences {
+                        return Err(ValidationFailure::incomplete(
+                            CheckedPackageLimit::Occurrences,
+                            limits.occurrences,
+                            count,
+                            Some(occurrence_at.clone().key("regions").index(region_index)),
+                        ));
+                    }
+                }
             }
         }
         if source_map.nodes.len() != self.semantic_graph.nodes.len() {
@@ -2021,6 +2056,7 @@ impl ContractPackageWireV1 {
         &self,
         dependencies: &ContractDependencies<'_>,
         limits: CheckedPackageReadLimits,
+        meter: &mut super::WorkMeter,
     ) -> Result<(), ValidationFailure> {
         let admitted: BTreeMap<&str, &CheckedPackageV2> = dependencies
             .iter()
@@ -2042,7 +2078,6 @@ impl ContractPackageWireV1 {
                 CheckedPackageRefusalCause::MissingSelection,
             )
         })?;
-        let mut meter = super::WorkMeter::new(limits.work);
         let nodes: BTreeMap<&CheckedNodeId, &CheckedSemanticNodeV2> = self
             .semantic_graph
             .nodes
@@ -2136,7 +2171,7 @@ impl ContractPackageWireV1 {
                     node,
                     position: index,
                 },
-                &mut meter,
+                &mut *meter,
             )?;
         }
         // FR-322's graph-only checks apply to the retained nodes even though
@@ -2172,7 +2207,7 @@ impl ContractPackageWireV1 {
             &self.semantic_graph.nodes,
             &kinds,
             &positions,
-            &mut meter,
+            &mut *meter,
             limits.bytes,
         )?;
         super::derived_keys::validate_derived_keys(
@@ -2180,7 +2215,7 @@ impl ContractPackageWireV1 {
             &kinds,
             &positions,
             &[],
-            &mut meter,
+            &mut *meter,
             limits.bytes,
         )?;
         super::identity::validate_nominal_nodes(
@@ -2189,7 +2224,7 @@ impl ContractPackageWireV1 {
             &positions,
             &self.package.source.lock,
             &[],
-            &mut meter,
+            &mut *meter,
             limits.bytes,
         )?;
         let reference_pointer = |position: usize, reference: usize| match (
@@ -2222,7 +2257,7 @@ impl ContractPackageWireV1 {
         super::validate_recursion(
             &self.semantic_graph.nodes,
             &adjacency,
-            &mut meter,
+            &mut *meter,
             &edge_pointer,
         )?;
         let mut reached = BTreeSet::new();
