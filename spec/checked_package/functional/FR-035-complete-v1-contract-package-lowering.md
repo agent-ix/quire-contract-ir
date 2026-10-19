@@ -143,18 +143,17 @@ When a caller-selected read limit is exhausted, Contract IR SHALL return
 `Incomplete` with the exhausted limit kind, ceiling, consumed count and the
 pointer of the failed charge where one exists.
 The V1 reader SHALL apply `CheckedPackageReadLimits.work` once to the total
-semantic-term validation visits across value and reference validation, as the
-limit's documented meaning and the V2 reader's single-meter practice require.
-The counter SHALL continue into reference validation without a reset; a work
-stop reports the cumulative counter and the value whose charge failed.
-The occurrence limit SHALL likewise report the particular source-map
-occurrence or region whose charge crossed its ceiling, rather than the
-`/source_map` container. These decisions change `Incomplete.consumed` and
-`path` for affected stops and the work limits at which a stop occurs. A package
-previously admitted when each pass separately fit `limits.work`, but their
-combined work exceeded it, SHALL now return `Incomplete`; callers using tight
-limits therefore observe a changed admission outcome. The canonical package
-bytes and admitted package value do not change.
+semantic-term validation visits across value and reference validation.
+The V1 reader SHALL carry the work counter into reference validation without
+reset and report the cumulative count and failed-charge pointer at a work stop.
+The V1 reader SHALL charge one unit for each source-map occurrence before
+charging one unit for each of its regions in array order, visiting occurrences
+in array order within `nodes`, then `requested_items`, then `refusals`.
+The V1 reader SHALL report the pointer of the occurrence or region whose charge
+crosses the occurrence limit and the count including that failed charge.
+The V1 reader SHALL return `Incomplete` when the combined value and reference
+validation charges exceed `limits.work`, even if each pass fits separately.
+The V1 reader SHALL preserve canonical package bytes and admitted package values.
 When the reader returns `Refused` or `Incomplete`, Contract IR SHALL
 admit no `ContractPackageV1`.
 

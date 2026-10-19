@@ -48,17 +48,25 @@ or region value under `/source_map` whose charge failed for occurrences.
 For work, assert `/semantic_graph/nodes/<i>/body` when value
 validation stops or the failed-charge pointer reported by reference validation,
 which may name another node member. Assert neither outcome admits a package.
-Independently count value-validation and reference-validation visits on a
-canonical package exercising both. At a work ceiling equal to their combined
-count, assert admission; at one below, assert `Incomplete` with cumulative
-`consumed` and the failing charge's pointer. Select a ceiling that covers each
-pass separately but not their sum and assert `Incomplete`, including the exact
-selected limit and cumulative count. Select a lower ceiling to fail in value
-validation and check its body pointer. Independently count source-map
-occurrence and region charges; at the exact total assert admission and at one
-below assert `Incomplete` with the particular occurrence or region pointer,
-including cases under `nodes` and `requested_items` or `refusals`. Assert
-`/source_map` alone is never the stop pointer when a value was charged.
+Use `mixed_fixture()` and `request()` for the work boundary: value validation
+charges 7 visits, reference validation charges 20, and the combined count is
+27. A work limit of 27 admits. Limits 7, 20, and 26 return `Incomplete` with
+`consumed` 8 at `/semantic_graph/nodes/0/node_id`, 21 at
+`/semantic_graph/nodes/2/node_id`, and 27 at
+`/semantic_graph/nodes/2/body/members/1/value/type`, respectively. Assert
+`limit_kind = Work` and the selected limit in each case. A lower limit that
+stops in value validation reports its body pointer.
+For the same fixture, charge one unit for each occurrence before one unit for
+each of its regions, in array order within `nodes`, `requested_items`, then
+`refusals`. The 9 occurrences and 9 regions give 18 charges. An occurrence
+limit of 18 admits. Limit 0 returns `Incomplete` with `consumed` 1 at
+`/source_map/nodes/0/occurrences/0`; limit 17 returns `Incomplete` with
+`consumed` 18 at `/source_map/refusals/1/occurrences/0/regions/0`.
+Also stop at the first charged occurrence under `requested_items`: select the
+number of charges before it as the limit, and assert `consumed` is that limit
+plus one and `path` names that occurrence. Assert `limit_kind = Occurrences`
+and the selected limit at each stop; `/source_map` alone is never the stop
+pointer when a value was charged.
 
 From a genuinely admitted mixed graph, query the typed view for a lowered root
 whose local closure uses `semantic_type`, declared `dependencies`, and body
@@ -90,8 +98,10 @@ Missing properties, duplicate or disordered keys, extra graph partitions and
 wrong contract versions refuse before consumption.
 The wrong-version reader refusal retains its exact typed code, path and supplied
 version. Every exhausted read limit returns the typed incomplete fields and
-admits no package. Work has one cumulative bound across the two reader passes;
-the occurrence stop locates the value that crossed its bound.
+admits no package. The mixed fixture admits at work limit 27 and occurrence
+limit 18; its work stops at limits 7, 20 and 26 and occurrence stops at limits
+0 and 17 have the exact counts and pointers specified above. The
+`requested_items` occurrence stop names its first charged occurrence.
 The lowered-root view contains exactly the key-ordered local reached closure,
 with exact nodes and sources, and exposes selected external references at their
 package boundary. Every lowered-root view exposes both bound and claim subsets,
@@ -106,8 +116,11 @@ Implemented with focused tests in `tests/it/complete_v1_contract_package.rs`
 for the six-field FR-330 emitter, strict reader, canonical semantic identity,
 closed accounting and source-map correspondence. Aggregate gates remain pending.
 Tagged TC-047 tests cover FR-035-AC-6 through FR-035-AC-8.
-FR-035-AC-10 and the original FR-035-AC-11 behavior are backed by the tagged TC-047 reader tests
-`reader_refuses_wrong_string_version_before_shape_identity_and_nodes` and
-`reader_incomplete_reports_each_exhausted_meter_and_pointer`. AC-11's amended
-work count and occurrence pointer, and AC-12 and AC-13, are planned until the
-IR-889 code change lands.
+FR-035-AC-10 is backed by the tagged TC-047 test
+`reader_refuses_wrong_string_version_before_shape_identity_and_nodes`.
+`reader_incomplete_reports_each_exhausted_meter_and_pointer` remains tagged
+FR-035-AC-11 in the computed matrix, but its assertions are stale: it expects
+`/source_map` and `consumed = 2` at occurrence limit 0, and
+`/semantic_graph/nodes/2/node_id` at work limit 7. Those assertions do not
+back amended AC-11. AC-11 through AC-13 are PLANNED/UNRUN until the IR-889
+code change rewrites the tagged test and adds their boundary cases.
