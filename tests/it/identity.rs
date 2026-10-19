@@ -125,7 +125,6 @@ fn diagnostic_code<T: std::fmt::Debug>(
     "FR-012-AC-3",
     "FR-012-AC-4",
     "FR-012-AC-6",
-    "NFR-002-AC-3",
     "StR-001-VC-1",
     "StR-001-VC-2"
 )]
@@ -465,7 +464,7 @@ fn tc_015_identity_anchor_dependency_and_reference_contract_conforms() {
         Some(&source_span)
     );
 
-    // NFR-002-AC-3: exact codes are serialized and neutral.
+    // Exact codes are serialized and neutral.
     for code in DiagnosticCode::ALL {
         let encoded = serde_json::to_string(code).unwrap();
         assert_eq!(encoded, format!("{:?}", code.as_str()));

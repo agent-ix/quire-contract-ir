@@ -94,8 +94,8 @@ allowlisted constant and value, and the checked `REGISTERED` array are admitted.
 
 ## Status
 
-Planned. TC-456 guards every other public name while the temporary entry exists,
-but NFR-002-AC-1 and NFR-002-AC-3 credit is withheld, blocked by IR-881. The
-already-merged NFR-002 trace tags do not establish that credit and must be
-reconciled as assigned above. TC-019 remains planned for NFR-001's
-separate determinism measurements.
+Implemented for the schema and model-name inventory, registered-code reconciliation,
+and adverse and mutation controls. The temporary entry remains, so NFR-002-AC-1
+and NFR-002-AC-3 credit is withheld, blocked by IR-881; their trace tags are
+withheld until the rename and allowlist removal. TC-019 remains planned for
+NFR-001's separate determinism measurements.
