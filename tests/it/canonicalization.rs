@@ -74,7 +74,7 @@ fn reference(package: &ContractPackage<ReferenceBody>, id: &str, revision: u64) 
     RequirementRef::parse(package.id().as_str(), id, revision).unwrap()
 }
 
-#[trace("TC-017", "FR-016-AC-4")]
+#[trace("TC-017", "FR-016-AC-2", "FR-016-AC-4")]
 #[test]
 fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
     let package = package_fixture("canonical_a", false, false);
@@ -86,6 +86,7 @@ fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
     assert_eq!(output, repeated);
     assert_eq!(output.kind(), CanonicalKind::Package);
     assert_eq!(output, permuted_output);
+    assert_eq!(output.bytes(), permuted_output.bytes());
     assert_eq!(output.bytes().len(), output.bytes().as_slice().len() as u64);
     let text = std::str::from_utf8(output.bytes().as_slice()).unwrap();
     assert_eq!(
@@ -126,6 +127,24 @@ fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
             .unwrap()
             .digest()
     );
+    assert_ne!(
+        package
+            .canonical_clause(
+                &package.requirements()[0],
+                &package.requirements()[0].clauses()[0],
+                CanonicalProfile::V1
+            )
+            .unwrap()
+            .digest(),
+        changed
+            .canonical_clause(
+                &changed.requirements()[0],
+                &changed.requirements()[0].clauses()[0],
+                CanonicalProfile::V1
+            )
+            .unwrap()
+            .digest()
+    );
     assert_eq!(
         package
             .canonical_requirement(&package.requirements()[1], CanonicalProfile::V1)
@@ -133,6 +152,24 @@ fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
             .digest(),
         changed
             .canonical_requirement(&changed.requirements()[1], CanonicalProfile::V1)
+            .unwrap()
+            .digest()
+    );
+    assert_eq!(
+        package
+            .canonical_clause(
+                &package.requirements()[1],
+                &package.requirements()[1].clauses()[0],
+                CanonicalProfile::V1
+            )
+            .unwrap()
+            .digest(),
+        changed
+            .canonical_clause(
+                &changed.requirements()[1],
+                &changed.requirements()[1].clauses()[0],
+                CanonicalProfile::V1
+            )
             .unwrap()
             .digest()
     );
@@ -693,7 +730,7 @@ fn tc_017_version_preflight_supports_only_schema_1_1() {
     );
 }
 
-#[trace("TC-017", "FR-017-AC-5")]
+#[trace("TC-017", "FR-017-AC-5", "NFR-003-AC-3")]
 #[test]
 fn tc_017_coverage_classes_orphans_diagnostics_and_sorting_conform() {
     let package = package_fixture("coverage", false, false);
@@ -790,6 +827,9 @@ fn tc_017_coverage_classes_orphans_diagnostics_and_sorting_conform() {
         result.diagnostics()[3].span.as_deref(),
         Some(&make_span(16))
     );
+    for (diagnostic, target_at) in result.diagnostics()[..3].iter().zip([6, 8, 10]) {
+        assert_eq!(diagnostic.span.as_deref(), Some(&make_span(target_at)));
+    }
     let reasons = result
         .report()
         .artifacts()
@@ -800,6 +840,147 @@ fn tc_017_coverage_classes_orphans_diagnostics_and_sorting_conform() {
     assert!(reasons.contains(&OrphanReason::MissingRequirement));
     assert!(reasons.contains(&OrphanReason::StaleRevision));
     assert!(reasons.contains(&OrphanReason::DuplicateArtifact));
+}
+
+#[trace("TC-017", "FR-017-AC-3", "FR-017-AC-4")]
+#[test]
+fn coverage_sorts_out_of_order_inputs_and_deep_wins_in_both_orders() {
+    let package_id = PackageId::new("agent-ix/pkg").unwrap();
+    let package_source = source("out_of_order_requirements");
+    let package = ContractPackage::new(
+        package_id.clone(),
+        SchemaVersion::V1_1,
+        package_source.clone(),
+        vec![
+            requirement(
+                &package_id,
+                &package_source,
+                "REQ_a",
+                1,
+                ReferenceBody::Literal,
+            ),
+            requirement(
+                &package_id,
+                &package_source,
+                "REQ_B",
+                1,
+                ReferenceBody::Literal,
+            ),
+        ],
+    )
+    .unwrap();
+    let trace_source = source("out_of_order_traces");
+    let target = reference(&package, "REQ_B", 1);
+    let make_trace = |id: &str, deep: bool, at| {
+        let id = ArtifactId::new(id).unwrap();
+        if deep {
+            ArtifactTrace::deep(
+                id,
+                span(&trace_source, at, at + 1),
+                target.clone(),
+                span(&trace_source, at + 1, at + 2),
+            )
+        } else {
+            ArtifactTrace::shallow(
+                id,
+                span(&trace_source, at, at + 1),
+                target.clone(),
+                span(&trace_source, at + 1, at + 2),
+            )
+        }
+    };
+    let shallow = make_trace("art_a", false, 0);
+    let deep = make_trace("art_Z", true, 2);
+    for traces in [
+        vec![shallow.clone(), deep.clone()],
+        vec![deep.clone(), shallow.clone()],
+    ] {
+        let result = classify_coverage(&package, &traces).unwrap();
+        assert_eq!(
+            result
+                .report()
+                .requirements()
+                .iter()
+                .map(|row| row.reference().requirement().as_str())
+                .collect::<Vec<_>>(),
+            vec!["REQ_B", "REQ_a"]
+        );
+        assert_eq!(
+            result.report().requirements()[0].class(),
+            CoverageClass::Deep
+        );
+        assert_eq!(
+            result
+                .report()
+                .artifacts()
+                .iter()
+                .map(|row| row.artifact_id().as_str())
+                .collect::<Vec<_>>(),
+            vec!["art_Z", "art_a"]
+        );
+    }
+}
+
+#[trace("TC-017", "FR-017-AC-6")]
+#[test]
+fn duplicate_diagnostics_count_later_occurrences_in_authored_order() {
+    let package = package_fixture("duplicate_order", false, false);
+    let trace_source = source("duplicate_order_traces");
+    let target = reference(&package, "REQ_a", 1);
+    let trace = |id: &str, target: RequirementRef, at| {
+        ArtifactTrace::shallow(
+            ArtifactId::new(id).unwrap(),
+            span(&trace_source, at, at + 1),
+            target,
+            span(&trace_source, at + 1, at + 2),
+        )
+    };
+    let traces = vec![
+        trace("duplicate_a", target.clone(), 0),
+        trace(
+            "cross",
+            RequirementRef::parse("agent-ix/other", "REQ_a", 1).unwrap(),
+            20,
+        ),
+        trace("duplicate_a", target.clone(), 4),
+        trace("missing", reference(&package, "REQ_missing", 1), 6),
+        trace("duplicate_b", target.clone(), 8),
+        trace("duplicate_a", target.clone(), 10),
+        trace("duplicate_b", target, 12),
+    ];
+    let result = classify_coverage(&package, &traces).unwrap();
+    assert_eq!(
+        result
+            .diagnostics()
+            .iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect::<Vec<_>>(),
+        vec![
+            DiagnosticCode::CrossPackageReference,
+            DiagnosticCode::DuplicateArtifactTrace,
+            DiagnosticCode::OrphanedRequirementReference,
+            DiagnosticCode::DuplicateArtifactTrace,
+            DiagnosticCode::DuplicateArtifactTrace,
+        ]
+    );
+    assert_eq!(
+        result
+            .diagnostics()
+            .iter()
+            .map(|diagnostic| diagnostic.span.as_deref())
+            .collect::<Vec<_>>(),
+        vec![
+            Some(&span(&trace_source, 21, 22)),
+            Some(&span(&trace_source, 4, 5)),
+            Some(&span(&trace_source, 7, 8)),
+            Some(&span(&trace_source, 10, 11)),
+            Some(&span(&trace_source, 12, 13))
+        ]
+    );
+    assert_eq!(
+        result.report().requirements()[0].class(),
+        CoverageClass::Uncovered
+    );
 }
 
 #[trace("TC-017")]

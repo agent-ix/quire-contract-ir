@@ -10,8 +10,8 @@ type: TestMatrix
 | Stakeholder Req | Trace to US/FR | Test/Validation | Status |
 |---|---|---|---|
 | StR-001 | FR-011 through FR-015, FR-019, FR-023, FR-028 through FR-040, FR-044, FR-344, FR-346 | TC-015 through TC-018, TC-035, TC-041 through TC-045, TC-047, TC-048, TC-050 through TC-053, TC-055, TC-056, TC-058, TC-222, TC-223, TC-225, TC-226, TC-227, TC-442, TC-443 | 🚧 bounded-Kani profile, firewall and dispatch, the target-neutral output-mapping foundation, complete-V1 ContractPackage lowering, the V2 reader and its frame entries, operation anchors and state clauses are implemented; the typed `Std001Code` (FR-044) is implemented and its use as `KaniOutcome.code` (FR-030-AC-6, TC-443) is partly implemented, its `proved`-with-count-zero error clause being planned with FR-030-AC-4; the proof check count, the `Unavailable` cause split, provider negotiation, the root and model crate interfaces with no root re-export of the model and the FR-344 refusals are planned |
-| StR-002 | FR-016 through FR-018, FR-020 | TC-017, TC-018, TC-019, TC-456 | 🚧 existing canonicalization and coverage behavior implemented; FR-017-AC-3 through AC-6 and cross-platform NFR-001 criteria await direct evidence; NFR-002-AC-1 credit is withheld, blocked by IR-881 |
-| StR-003 | FR-012, FR-014, FR-015, FR-017 through FR-020 | TC-015, TC-016, TC-017, TC-018, TC-058 | 🚧 existing behavior implemented; FR-017-AC-3 through AC-6 and NFR-003-AC-3 await exact test evidence |
+| StR-002 | FR-016 through FR-018, FR-020 | TC-017, TC-018, TC-019, TC-456 | 🚧 existing canonicalization and coverage behavior implemented; FR-016-AC-2 and FR-017-AC-3, AC-4 and AC-6 have direct test evidence; FR-016-AC-1, AC-3, FR-017-AC-2 and cross-platform NFR-001 criteria await direct evidence; NFR-002-AC-1 credit is withheld, blocked by IR-881 |
+| StR-003 | FR-012, FR-014, FR-015, FR-017 through FR-020 | TC-015, TC-016, TC-017, TC-018, TC-058 | 🚧 existing behavior implemented; FR-017-AC-3 through AC-6 and NFR-003-AC-3 have exact test evidence; FR-017-AC-2 remains unbacked |
 | StR-004 | FR-045 | TC-446 | 🚧 planned; no derived proof-coverage baseline exists |
 
 ## Functional Requirement Coverage
@@ -29,7 +29,7 @@ type: TestMatrix
 |---|---|---|---|
 | NFR-001 | repeated corpus runs, direct canonical byte comparison for admitted inputs, and ordered diagnostic tuple comparison for rejected inputs | TC-017, TC-019 | 🚧 same-process canonical fixtures exist (TC-017); cross-platform canonical byte equality (AC-2) and ordered diagnostic `(code, path)` equality (AC-3) await direct TC-019 evidence |
 | NFR-002 | vocabulary, schema and API inspection | TC-015, TC-016, TC-456 | AC-4 implemented; AC-1 and AC-3 credit withheld, blocked by IR-881 while the sole temporary `Std001Code::KANI_SOLVER_ABSENT` / `kani_solver_absent` allowlist entry exists; TC-456 still guards every other public name and value |
-| NFR-003 | negative corpus, mutation, panic-free, orphan, and exact-span checks | TC-017, TC-018, TC-454 | 🚧 version and orphan fail-closed checks implemented (TC-017, TC-018); AC-1 and AC-2 implemented (TC-454, `tests/it/nfr003_invalid_input.rs`): every STD-001 semantic code class driven through `run_corpus` and package decoding with a stable code and no panic, and every rejected corpus fixture without canonical identity or covered status; exact source/target span checks (AC-3) planned |
+| NFR-003 | negative corpus, mutation, panic-free, orphan, and exact-span checks | TC-017, TC-018, TC-454 | ✅ AC-1 and AC-2 implemented (TC-454, `tests/it/nfr003_invalid_input.rs`): every STD-001 semantic code class driven through `run_corpus` and package decoding with a stable code and no panic, and every rejected corpus fixture without canonical identity or covered status; AC-3 exact source/target span checks are tagged in TC-017 |
 
 ## Diagnostic Registry Coverage
 
