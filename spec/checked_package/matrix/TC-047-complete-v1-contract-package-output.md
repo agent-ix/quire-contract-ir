@@ -94,5 +94,7 @@ Implemented with focused tests in `tests/it/complete_v1_contract_package.rs`
 for the six-field FR-330 emitter, strict reader, canonical semantic identity,
 closed accounting and source-map correspondence. Aggregate gates remain pending.
 Tagged TC-047 tests cover FR-035-AC-6 through FR-035-AC-8.
-FR-035-AC-10 and FR-035-AC-11 are planned and unrun; their tagged TC-047
-reader tests follow spec review.
+FR-035-AC-10 and FR-035-AC-11 are backed by the tagged TC-047 reader tests
+`reader_refuses_wrong_string_version_before_shape_identity_and_nodes` and
+`reader_incomplete_reports_each_exhausted_meter_and_pointer`. AC-11 work-limit
+scope remains open under IR-889.
