@@ -235,7 +235,12 @@ fn reader_incomplete_reports_each_exhausted_meter_and_pointer() {
             2,
             Some("/semantic_graph/nodes/2/dependencies"),
         ),
-        (CheckedPackageLimit::Occurrences, 0, 2, Some("/source_map")),
+        (
+            CheckedPackageLimit::Occurrences,
+            0,
+            1,
+            Some("/source_map/nodes/0/occurrences/0"),
+        ),
         (
             CheckedPackageLimit::Work,
             2,
@@ -293,8 +298,85 @@ fn reader_incomplete_reports_each_exhausted_meter_and_pointer() {
     assert_eq!(incomplete.consumed, 8);
     assert_eq!(
         incomplete.path.as_ref().map(|path| path.as_str()),
-        Some("/semantic_graph/nodes/2/node_id")
+        Some("/semantic_graph/nodes/0/node_id")
     );
+}
+
+#[trace("TC-047", "FR-035-AC-15")]
+#[test]
+fn reader_uses_one_work_ceiling_across_value_and_reference_validation() {
+    let output = lower(&mixed_fixture(), &request());
+    let wire = bytes(&output);
+    for (limit, consumed, path) in [
+        (2, 7, "/semantic_graph/nodes/2/body"),
+        (7, 8, "/semantic_graph/nodes/0/node_id"),
+        (20, 21, "/semantic_graph/nodes/2/node_id"),
+        (26, 27, "/semantic_graph/nodes/2/body/members/1/value/type"),
+    ] {
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = limit;
+        let ContractPackageReadResult::Incomplete(incomplete) = read_with_limits(wire, limits)
+        else {
+            panic!("work limit {limit} must stop validation");
+        };
+        assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+        assert_eq!(incomplete.limit, limit);
+        assert_eq!(incomplete.consumed, consumed);
+        assert_eq!(
+            incomplete.path.as_ref().map(|path| path.as_str()),
+            Some(path)
+        );
+    }
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = 27;
+    assert!(matches!(
+        read_with_limits(wire, limits),
+        ContractPackageReadResult::Admitted(_)
+    ));
+}
+
+#[trace("TC-047", "FR-035-AC-16")]
+#[test]
+fn reader_charges_each_occurrence_and_region_at_its_own_pointer() {
+    let output = lower(&mixed_fixture(), &request());
+    let wire = bytes(&output);
+    let source: Value = serde_json::from_slice(wire).expect("canonical package");
+    let preceding = source["source_map"]["nodes"]
+        .as_array()
+        .expect("mapped nodes")
+        .iter()
+        .flat_map(|node| node["occurrences"].as_array().expect("occurrences"))
+        .map(|entry| 1 + entry["regions"].as_array().expect("regions").len())
+        .sum::<usize>() as u64;
+    for (limit, consumed, path) in [
+        (0, 1, "/source_map/nodes/0/occurrences/0"),
+        (
+            preceding,
+            preceding + 1,
+            "/source_map/requested_items/0/occurrences/0",
+        ),
+        (17, 18, "/source_map/refusals/1/occurrences/0/regions/0"),
+    ] {
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.occurrences = limit;
+        let ContractPackageReadResult::Incomplete(incomplete) = read_with_limits(wire, limits)
+        else {
+            panic!("occurrence limit {limit} must stop validation");
+        };
+        assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Occurrences);
+        assert_eq!(incomplete.limit, limit);
+        assert_eq!(incomplete.consumed, consumed);
+        assert_eq!(
+            incomplete.path.as_ref().map(|path| path.as_str()),
+            Some(path)
+        );
+    }
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.occurrences = 18;
+    assert!(matches!(
+        read_with_limits(wire, limits),
+        ContractPackageReadResult::Admitted(_)
+    ));
 }
 
 fn body_keys(value: &Value, keys: &mut Vec<CheckedNodeId>) {
