@@ -855,14 +855,14 @@ fn coverage_sorts_out_of_order_inputs_and_deep_wins_in_both_orders() {
             requirement(
                 &package_id,
                 &package_source,
-                "REQ_z",
+                "REQ_a",
                 1,
                 ReferenceBody::Literal,
             ),
             requirement(
                 &package_id,
                 &package_source,
-                "REQ_a",
+                "REQ_B",
                 1,
                 ReferenceBody::Literal,
             ),
@@ -870,7 +870,7 @@ fn coverage_sorts_out_of_order_inputs_and_deep_wins_in_both_orders() {
     )
     .unwrap();
     let trace_source = source("out_of_order_traces");
-    let target = reference(&package, "REQ_a", 1);
+    let target = reference(&package, "REQ_B", 1);
     let make_trace = |id: &str, deep: bool, at| {
         let id = ArtifactId::new(id).unwrap();
         if deep {
@@ -889,8 +889,8 @@ fn coverage_sorts_out_of_order_inputs_and_deep_wins_in_both_orders() {
             )
         }
     };
-    let shallow = make_trace("art_z", false, 0);
-    let deep = make_trace("art_a", true, 2);
+    let shallow = make_trace("art_a", false, 0);
+    let deep = make_trace("art_Z", true, 2);
     for traces in [
         vec![shallow.clone(), deep.clone()],
         vec![deep.clone(), shallow.clone()],
@@ -903,7 +903,7 @@ fn coverage_sorts_out_of_order_inputs_and_deep_wins_in_both_orders() {
                 .iter()
                 .map(|row| row.reference().requirement().as_str())
                 .collect::<Vec<_>>(),
-            vec!["REQ_a", "REQ_z"]
+            vec!["REQ_B", "REQ_a"]
         );
         assert_eq!(
             result.report().requirements()[0].class(),
@@ -916,7 +916,7 @@ fn coverage_sorts_out_of_order_inputs_and_deep_wins_in_both_orders() {
                 .iter()
                 .map(|row| row.artifact_id().as_str())
                 .collect::<Vec<_>>(),
-            vec!["art_a", "art_z"]
+            vec!["art_Z", "art_a"]
         );
     }
 }
@@ -940,7 +940,7 @@ fn duplicate_diagnostics_count_later_occurrences_in_authored_order() {
         trace(
             "cross",
             RequirementRef::parse("agent-ix/other", "REQ_a", 1).unwrap(),
-            2,
+            20,
         ),
         trace("duplicate_a", target.clone(), 4),
         trace("missing", reference(&package, "REQ_missing", 1), 6),
@@ -970,7 +970,7 @@ fn duplicate_diagnostics_count_later_occurrences_in_authored_order() {
             .map(|diagnostic| diagnostic.span.as_deref())
             .collect::<Vec<_>>(),
         vec![
-            Some(&span(&trace_source, 3, 4)),
+            Some(&span(&trace_source, 21, 22)),
             Some(&span(&trace_source, 4, 5)),
             Some(&span(&trace_source, 7, 8)),
             Some(&span(&trace_source, 10, 11)),
