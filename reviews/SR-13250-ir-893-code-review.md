@@ -45,3 +45,12 @@ The removed cases are all subsumed. The deleted `wrong_request` case put `missin
 ## Verdict
 
 **PASS with findings.** The AC-12, AC-13 and both AC-2 tests assert code, path and cause exactly as the spec says, and production mutants fail them. FND-001 means AC-14's ordered-correspondence rule is not discriminated by any test. Fix it in this PR. FND-002 is a style nit.
+
+## Dispositions
+
+Disposition pass 1, against head 4b36c0c08a154c5632f79c680a49b40d7a28f5bf (origin/main da8f51f merged in).
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The AC-14 test adds a case that lowers two represented roots (`cccc`, `dddd`). It asserts that both records are `lowered` and that the second root is in `semantic_graph.nodes`, points the first record at it, and recomputes the identity. It then asserts `InvalidPackage`, `/feature_accounting` and `InvalidValue`. The reviewer mutant that deletes the order check at contract_package.rs:1917 now fails this test (panic at line 248: the package is admitted) |
+| FND-002 | fixed | A new helper, `wire_selecting_lib_a()`, returns the admitted dependency and the `lib/a`-selecting wire. Both dependency tests call it |

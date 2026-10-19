@@ -47,3 +47,11 @@ The PR conflicts with origin/main. PR #480 (IR-889, merged as da8f51f) changed t
 ## Verdict
 
 **FAIL until rebased.** The coverage delta is exactly +3 backed rows, with none lost and none contradicted. All five bindings are correct. FND-001 blocks the merge, because the branch conflicts with main and its status prose contradicts #480. AC-14's backing is mutation-weak; see SR-13250 FND-001.
+
+## Dispositions
+
+Disposition pass 1, against head 4b36c0c08a154c5632f79c680a49b40d7a28f5bf (origin/main da8f51f merged in).
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | GitHub now reports MERGEABLE, and the only block is the required review. The TC-047 Status and tests.md rows keep #480's AC-10, AC-11, AC-15 and AC-16 text and its AC-1 through AC-16 range. Only the IR-893 sentences changed. `quire coverage` gives 543/614 on origin/main da8f51f and 546/614 at the head. Only FR-035-AC-12 to AC-14 moved, none were lost, and none are contradicted |
