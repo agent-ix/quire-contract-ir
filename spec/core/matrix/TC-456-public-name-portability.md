@@ -94,8 +94,8 @@ allowlisted constant and value, and the checked `REGISTERED` array are admitted.
 
 ## Status
 
-Implemented for the schema and model-name inventory, registered-code reconciliation,
-and adverse and mutation controls. The temporary entry remains, so NFR-002-AC-1
+🚧 Partial: the schema and model-name inventory, registered-code reconciliation,
+and adverse and mutation controls are implemented. The temporary entry remains, so NFR-002-AC-1
 and NFR-002-AC-3 credit is withheld, blocked by IR-881; their trace tags are
 withheld until the rename and allowlist removal. TC-019 remains planned for
 NFR-001's separate determinism measurements.
