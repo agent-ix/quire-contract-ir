@@ -12,8 +12,9 @@ relationships:
 
 ## Description
 
-Verify FR-035-AC-5 through FR-035-AC-8 and the aggregate FR-330 package
-separately from TC-044's per-item semantic and refusal tests. Focused FR-330
+Verify FR-035-AC-5 through FR-035-AC-8, FR-035-AC-10 and FR-035-AC-11,
+and the aggregate FR-330 package separately from TC-044's per-item semantic
+and refusal tests. Focused FR-330
 emitter and strict-reader controls run in
 `tests/it/complete_v1_contract_package.rs`.
 
@@ -34,6 +35,19 @@ digest after each change. Corrupt or omit source-map correspondence and check
 admission. Remove one required property, add an independent
 type/expression/clause graph, duplicate or disorder a key, or substitute an
 out-of-domain contract version and test consumer refusal before artifact generation.
+For the wire reader itself, change only `contract_version` to another string in
+an otherwise valid canonical package. Assert `Refused` with
+`unknown_contract_version`, path `/contract_version` and the exact supplied
+version. For a valid package, select each byte, node, work, edge and
+occurrence limit separately at a value that exhausts that reader charge. Assert
+`Incomplete` with the exhausted limit kind, selected ceiling and `consumed`
+amount of the meter that stopped; assert no path for bytes,
+`/semantic_graph/nodes` for nodes,
+`/semantic_graph/nodes/<i>/dependencies` for edges, and `/source_map` for
+occurrences. For work, assert `/semantic_graph/nodes/<i>/body` when value
+validation stops or the failed-charge pointer reported by reference validation,
+which may name another node member. Assert neither outcome admits a package.
+The work meter's scope is open under IR-889.
 
 From a genuinely admitted mixed graph, query the typed view for a lowered root
 whose local closure uses `semantic_type`, declared `dependencies`, and body
@@ -63,6 +77,9 @@ changing only a valid source-map location preserves it. Corrupt or incomplete
 source correspondence refuses admission despite its exclusion from the digest.
 Missing properties, duplicate or disordered keys, extra graph partitions and
 wrong contract versions refuse before consumption.
+The wrong-version reader refusal retains its exact typed code, path and supplied
+version. Every exhausted read limit returns the typed incomplete fields and
+admits no package.
 The lowered-root view contains exactly the key-ordered local reached closure,
 with exact nodes and sources, and exposes selected external references at their
 package boundary. Every lowered-root view exposes both bound and claim subsets,
@@ -76,5 +93,6 @@ the six-field wire or identity.
 Implemented with focused tests in `tests/it/complete_v1_contract_package.rs`
 for the six-field FR-330 emitter, strict reader, canonical semantic identity,
 closed accounting and source-map correspondence. Aggregate gates remain pending.
-The admitted reached-closure traversal controls for FR-035-AC-6 through
-FR-035-AC-8 are planned and unrun.
+Tagged TC-047 tests cover FR-035-AC-6 through FR-035-AC-8.
+FR-035-AC-10 and FR-035-AC-11 are planned and unrun; their tagged TC-047
+reader tests follow spec review.
