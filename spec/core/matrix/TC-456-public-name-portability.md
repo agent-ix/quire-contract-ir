@@ -18,22 +18,28 @@ operating-system-path vocabulary.
 ## Test Procedure
 
 Enumerate every repository-owned public JSON schema's name-bearing property,
-definition, title and enum entries. Enumerate the model crate's public root
-exports and every public item reachable through each public module, including
-re-exports and public declarations. The current public modules are
-`selected_population` and `source_obligation`; a newly declared public module
-or an unrecognized public declaration must fail the inventory until its names
-are checked. Fail if any enumerated name contains a forbidden
-implementation-specific term. Include a positive control showing that a
-benign `jsonpointer` name is admitted and adverse controls for a runtime title,
-pointer-width property and architecture-language enum name.
+definition, title, enum entry and string `const` value. A forbidden name used
+as a schema `const` must fail the check. Enumerate every exported item of the
+model crate, including feature-gated exports, re-exports and public items
+reachable through public modules. For each exported type, also enumerate its
+public fields, enum variants and public associated functions. The current
+public modules are `selected_population` and `source_obligation`; a newly
+declared public module, feature-gated export or unrecognized public declaration
+must fail the inventory until its names are checked. Fail if any enumerated
+name contains a forbidden implementation-specific term. Include a positive
+control showing that a benign `jsonpointer` name is admitted and adverse
+controls for a runtime title, pointer-width property, architecture-language
+enum name, forbidden schema `const`, feature-gated export, public field, enum
+variant and public associated function.
 
 ## Expected Results
 
-The complete public schema and model-name inventory has zero forbidden names.
-The adverse controls are detected and the benign control is not.
+The complete public schema and model-name inventory, including string `const`
+values and all exported item kinds under their applicable features, has zero
+forbidden names. Every adverse control is detected and the benign control is not.
 
 ## Status
 
-Planned until the inventory test is tagged NFR-002-AC-1. TC-019 remains
+Planned until the NFR-002-AC-1 inventory test covers the amended scope. Its
+existing trace tag alone does not establish that coverage. TC-019 remains
 planned for NFR-001's separate determinism measurements.

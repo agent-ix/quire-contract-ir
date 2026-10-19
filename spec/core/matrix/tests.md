@@ -45,5 +45,5 @@ type: TestMatrix
 | TC-442 | `Std001Code` is built only by validation, a checked literal, a registered constant or a `DiagnosticCode`, serializes as the bare string and spells every registered code once | Unit | P0 | FR-044 | ✅ implemented |
 | TC-446 | Proof-coverage baseline retains the population and qualifies evidence | Integration | P0 | FR-045 | 🚧 planned; no executable test |
 | TC-019 | Determinism metrics meet thresholds | Analysis | P0 | NFR-001 | 🚧 planned: direct admitted-input canonical byte comparison and rejected-input ordered diagnostic tuple comparison have no executable test; NFR-002-AC-1 is TC-456's |
-| TC-456 | Public schema and model names exclude implementation-specific vocabulary | Unit | P0 | NFR-002-AC-1 | 🚧 planned: source/schema inventory test has not landed |
+| TC-456 | Public schema and model names exclude implementation-specific vocabulary | Unit | P0 | NFR-002-AC-1 | 🚧 planned: the tagged source/schema inventory test exists, but does not yet cover schema `const` values, feature-gated exports, or public fields, enum variants and associated functions of exported types |
 | TC-454 | Every declared invalid-input class fails closed with a stable code, no public panic, no canonical identity and no covered status | Integration | P0 | NFR-003 | 🚧 AC-1 and AC-2 implemented in `tests/it/nfr003_invalid_input.rs`; AC-3 is TC-017's |
