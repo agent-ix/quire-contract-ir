@@ -31,3 +31,9 @@ Ticket: IR-888 (under IR-878). Plan completion: not assessed. This is a planless
 ## Verdict
 
 **CHANGES REQUESTED (medium).** The coverage delta is exact and honest: +2 backed, -2 unbacked, 0 contradicted, and nothing else moved. The test-to-AC bindings are correct. The hand-written status prose in TC-047 and tests.md was not updated and now understates the PR's own evidence (FND-001).
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | TC-047 Status, the tests.md FR-035 row and the TC-047 row now state that AC-10 and AC-11 are backed by the two named tagged tests, with the AC-11 work-limit scope open under IR-889; strict coverage at 8551c3c is 543/609 backed, 40 unbacked, 0 contradicted |

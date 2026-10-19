@@ -66,3 +66,17 @@ Run in a throwaway worktree. Each mutation was applied alone and tested with `ca
 ## Verdict
 
 **CHANGES REQUESTED (medium).** AC-10 is fully and strongly backed. AC-11's kind, pointer and no-admit clauses are backed for all five limits, but two gaps remain. The work reference-validation branch is unasserted (FND-001), and three `consumed` values cannot be told from `limit + 1` (FND-002). Both can be fixed in this test file with limits measured on the existing fixture. Rust-review lane: idiomatic test code; `let ... else { panic! }` gives clear failure messages; no tautologies or stubs; the `unreachable!()` for `Diagnostics` is sound because that arm is not in `cases`.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | medium | The AC-11 nodes case (limit 2, consumed 3) cannot tell the real `consumed` from `limit + 1`, the same defect class as FND-002, which the round-0 review missed for nodes. Mutation M10b (nodes `consumed = limits.nodes + 1`) survives at 8551c3c. Use nodes limit 1: consumed is `nodes.len()` = 3, so the case separates the two | tests/it/complete_v1_contract_package.rs:224-229, crates/quire-contract-model/src/checked_package/v2/contract_package.rs:1619-1625 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Head 8551c3c adds a work=7 case asserting Work, limit 7, consumed 8, path /semantic_graph/nodes/2/node_id, which is the reader's reference-validation stop; M26 is now killed; no cumulative bound asserted (IR-889 open) |
+| FND-002 | fixed | Bytes limit 100 to consumed 9864 and work limit 2 to consumed 7 at /semantic_graph/nodes/2/body; edges uses an admitted two-dependency fixture (9984 bytes, verified admitted) at limit 0 to consumed 2 at /semantic_graph/nodes/1/dependencies; M11, M13 and M20 now killed |
+| FND-003 | fixed | reviews/26-10-19-ir-888-reader-tests-code-review.md deleted; the only reviews/ files the PR adds are byte-identical to the reviewer's SR-13160 and SR-13161 |
