@@ -139,6 +139,17 @@ identity unchanged.
 When reading a canonical `ContractPackageWireV1`, Contract IR SHALL refuse an
 unrecognized string `contract_version` with `unknown_contract_version` located
 at `/contract_version`, retaining the supplied version in the diagnostic.
+When an otherwise valid canonical `ContractPackageWireV1` omits any of its six
+required top-level members (`contract_version`, `package`, `semantic_graph`,
+`source_map`, `feature_accounting`, or `identity`), Contract IR SHALL refuse with
+`invalid_package` at the root path `""` and cause `missing_member`.
+When the reader receives otherwise valid `ContractPackageWireV1` bytes with
+leading whitespace before the canonical JSON value, Contract IR SHALL refuse with
+`noncanonical_wire`, absent path, and absent cause.
+When an otherwise valid canonical `ContractPackageWireV1` has a first
+`feature_accounting` record naming a requested node other than the first
+`source_map.requested_items` entry, Contract IR SHALL refuse with
+`invalid_package` at `/feature_accounting` and cause `invalid_value`.
 When a caller-selected read limit is exhausted, Contract IR SHALL return
 `Incomplete` with the exhausted limit kind, ceiling, consumed count and the
 pointer of the failed charge where one exists.
@@ -160,6 +171,11 @@ admit no `ContractPackageV1`.
 | FR-035-AC-9 | The typed profile exposes `required_source_selections: Vec<CheckedSelection>` and the IR adapter conforms to QSpec FR-330-AC-10 and TC-935: input refusals use `InvalidInput { node_id }`/`invalid_input`, work stops use existing `Failed`/`Work` with unchanged key/limit/consumed counters, and successful checks continue the existing FR-038 meter without reset. The adapter preserves exact source provenance and emits only `profile.reference`, with no duplicated requirement wire field or new refusal payload. | Test |
 | FR-035-AC-10 | Given an otherwise valid canonical `ContractPackageWireV1` whose string `contract_version` differs from `quire.contract-package/v1`, `ContractPackageWireV1::read` returns `Refused` with code `unknown_contract_version`, path `/contract_version`, and `contract_version` equal to the supplied string; it returns no admitted package. | Test |
 | FR-035-AC-11 | Given otherwise valid canonical package bytes and a caller-selected byte, node, work, edge or source-map occurrence limit exhausted by the reader, `ContractPackageWireV1::read` returns `Incomplete(CheckedPackageIncomplete)` rather than `Admitted`, carrying the exhausted `limit_kind`, selected `limit`, and `consumed` amount of the meter that stopped. `path` is absent for bytes, `/semantic_graph/nodes` for nodes, `/semantic_graph/nodes/<i>/dependencies` for edges, and `/source_map` for occurrences. For work it is `/semantic_graph/nodes/<i>/body` when value validation stops, or the failed-charge pointer reported by reference validation, which may name another node member. No `ContractPackageV1` is admitted. The work meter's scope is open under IR-889. | Test |
+| FR-035-AC-12 | Given an otherwise valid canonical `ContractPackageWireV1` that omits any of its six required top-level members (`contract_version`, `package`, `semantic_graph`, `source_map`, `feature_accounting`, or `identity`), `ContractPackageWireV1::read` returns `Refused` with code `invalid_package`, root path `""`, and cause `missing_member`; it returns no admitted package. | Test |
+| FR-035-AC-13 | Given otherwise valid `ContractPackageWireV1` bytes with leading whitespace before the canonical JSON value, `ContractPackageWireV1::read` returns `Refused` with code `noncanonical_wire`, absent path, and absent cause; it returns no admitted package. | Test |
+| FR-035-AC-14 | Given an otherwise valid canonical `ContractPackageWireV1` except that its first `feature_accounting` record names a requested node other than the first `source_map.requested_items` entry, `ContractPackageWireV1::read` returns `Refused` with code `invalid_package`, path `/feature_accounting`, and cause `invalid_value`; it returns no admitted package. | Test |
+
+FR-035-AC-12 through FR-035-AC-14 are planned until TC-047 tests carry their trace tags.
 
 ## Dependencies
 
