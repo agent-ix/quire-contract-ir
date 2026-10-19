@@ -223,7 +223,7 @@ fn reader_incomplete_reports_each_exhausted_meter_and_pointer() {
         (CheckedPackageLimit::Bytes, 100, 9864, None),
         (
             CheckedPackageLimit::Nodes,
-            2,
+            1,
             3,
             Some("/semantic_graph/nodes"),
         ),
