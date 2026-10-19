@@ -15,8 +15,9 @@ const BRIDGE_ROOT: &str = include_str!("../../src/lib.rs");
 const FR_019: &str = include_str!("../../spec/model/functional/FR-019-rust-library-interface.md");
 
 /// Forbidden terms. A term matches inside any one word of a name, or as the
-/// exact concatenation of a run of adjacent words, so `PathBuf`, `path_buf`,
-/// `macOS`, `file_path` and `filePath` match while `profile_path` does not.
+/// concatenation of adjacent words that starts with the term and reaches into
+/// the last word, so `PathBuf`, `path_bufs`, `macOS`, `PointerWidth64`,
+/// `file_path` and `filePath` match while `profile_path` does not.
 const FORBIDDEN_PUBLIC_NAME_TERMS: [&str; 16] = [
     "rust",
     "gumbo",
@@ -77,7 +78,10 @@ where
         for term in FORBIDDEN_PUBLIC_NAME_TERMS {
             let in_word = words.iter().any(|word| word.contains(term));
             let across_words = (0..words.len()).any(|start| {
-                (start + 1..=words.len()).any(|end| words[start..end].concat() == term)
+                (start + 2..=words.len()).any(|end| {
+                    let before_last = words[start..end - 1].concat();
+                    before_last.len() < term.len() && words[start..end].concat().starts_with(term)
+                })
             });
             if in_word || across_words {
                 violations.push(format!("{name}: {term}"));
@@ -154,6 +158,11 @@ fn public_declarations(file: &syn::File) -> Vec<PublicDeclaration> {
             }
             Item::Mod(item) => {
                 if matches!(item.vis, Visibility::Public(_)) {
+                    assert!(
+                        !item.attrs.iter().any(|attr| attr.path().is_ident("path")),
+                        "public module {} redirected by #[path]",
+                        item.ident
+                    );
                     assert!(
                         item.content.is_none(),
                         "inline public module: {}",
@@ -407,6 +416,18 @@ fn tc_456_public_schema_and_model_names_are_portable() {
     assert_eq!(
         portable_name_violations(["RunTime", "run_time", "USize"]).len(),
         3
+    );
+    assert_eq!(
+        portable_name_violations([
+            "PointerWidth64",
+            "PathBufs",
+            "path_bufs",
+            "RunTimes",
+            "run_times",
+            "MacOSX"
+        ])
+        .len(),
+        6
     );
     assert!(portable_name_violations(["profile_path", "repos_path", "profile_system"]).is_empty());
     assert_eq!(
