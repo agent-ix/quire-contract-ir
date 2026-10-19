@@ -14,7 +14,9 @@ const MODEL_ROOT: &str = include_str!("../../crates/quire-contract-model/src/lib
 const BRIDGE_ROOT: &str = include_str!("../../src/lib.rs");
 const FR_019: &str = include_str!("../../spec/model/functional/FR-019-rust-library-interface.md");
 
-/// Forbidden single terms, matched inside any one word of a name.
+/// Forbidden terms. A term matches inside any one word of a name, or as the
+/// exact concatenation of a run of adjacent words, so `PathBuf`, `path_buf`,
+/// `macOS`, `file_path` and `filePath` match while `profile_path` does not.
 const FORBIDDEN_PUBLIC_NAME_TERMS: [&str; 16] = [
     "rust",
     "gumbo",
@@ -32,15 +34,6 @@ const FORBIDDEN_PUBLIC_NAME_TERMS: [&str; 16] = [
     "linux",
     "windows",
     "macos",
-];
-
-/// Forbidden adjacent word pairs, so `file_path`, `filePath` and `FilePath`
-/// match while `profile_path` does not.
-const FORBIDDEN_PUBLIC_NAME_PAIRS: [[&str; 2]; 4] = [
-    ["file", "path"],
-    ["os", "path"],
-    ["file", "system"],
-    ["pointer", "width"],
 ];
 
 /// Lowercase words of a name, split on separators and camelCase boundaries.
@@ -82,196 +75,119 @@ where
         let name = name.as_ref();
         let words = name_words(name);
         for term in FORBIDDEN_PUBLIC_NAME_TERMS {
-            if words.iter().any(|word| word.contains(term)) {
+            let in_word = words.iter().any(|word| word.contains(term));
+            let across_words = (0..words.len()).any(|start| {
+                (start + 1..=words.len()).any(|end| words[start..end].concat() == term)
+            });
+            if in_word || across_words {
                 violations.push(format!("{name}: {term}"));
-            }
-        }
-        for pair in FORBIDDEN_PUBLIC_NAME_PAIRS {
-            if words
-                .windows(2)
-                .any(|window| window[0] == pair[0] && window[1] == pair[1])
-            {
-                violations.push(format!("{name}: {}_{}", pair[0], pair[1]));
             }
         }
     }
     violations
 }
 
-/// Source text with comments removed, so a commented-out declaration is
-/// neither inventoried nor accepted. String, raw-string and character
-/// literals are copied through whole, so comment markers inside them hide
-/// nothing; lifetimes are told from character literals by the closing quote.
-fn strip_comments(source: &str) -> String {
-    let chars = source.chars().collect::<Vec<_>>();
-    let mut out = String::with_capacity(source.len());
-    let mut index = 0;
-    while index < chars.len() {
-        let character = chars[index];
-        let next = chars.get(index + 1).copied();
-        let previous_is_identifier =
-            index > 0 && (chars[index - 1].is_ascii_alphanumeric() || chars[index - 1] == '_');
-        if character == '/' && next == Some('/') {
-            while index < chars.len() && chars[index] != '\n' {
-                index += 1;
+/// Public modules of the model crate named by the merged TC-456 procedure; a
+/// newly declared public module fails the inventory until it is added here and
+/// its names are checked.
+const CURRENT_PUBLIC_MODULES: [&str; 2] = ["selected_population", "source_obligation"];
+
+/// Parses one model source file; a file that does not parse fails the test.
+fn parse_model_source(source: &str, what: &str) -> syn::File {
+    syn::parse_file(source).unwrap_or_else(|error| panic!("{what} must parse: {error}"))
+}
+
+fn parse_model_module(module: &str) -> syn::File {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("crates/quire-contract-model/src")
+        .join(format!("{module}.rs"));
+    let source = fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("public module {module} must be readable: {error}"));
+    parse_model_source(&source, module)
+}
+
+/// `(module path, exported name)` for every leaf of a `use` tree; an alias
+/// exports its alias and a glob is refused.
+fn use_tree_exports(tree: &syn::UseTree, prefix: &[String], out: &mut Vec<(String, String)>) {
+    match tree {
+        syn::UseTree::Path(path) => {
+            let mut next = prefix.to_vec();
+            next.push(path.ident.to_string());
+            use_tree_exports(&path.tree, &next, out);
+        }
+        syn::UseTree::Name(name) => out.push((prefix.join("::"), name.ident.to_string())),
+        syn::UseTree::Rename(rename) => out.push((prefix.join("::"), rename.rename.to_string())),
+        syn::UseTree::Glob(_) => panic!("public glob re-export: {}::*", prefix.join("::")),
+        syn::UseTree::Group(group) => {
+            for item in &group.items {
+                use_tree_exports(item, prefix, out);
             }
-        } else if character == '/' && next == Some('*') {
-            let mut depth = 0_usize;
-            while index < chars.len() {
-                if chars[index] == '/' && chars.get(index + 1) == Some(&'*') {
-                    depth += 1;
-                    index += 2;
-                } else if chars[index] == '*' && chars.get(index + 1) == Some(&'/') {
-                    depth -= 1;
-                    index += 2;
-                    if depth == 0 {
-                        break;
-                    }
-                } else {
-                    index += 1;
+        }
+    }
+}
+
+/// The public declarations of a source file. Items that are not `pub` (inherited
+/// or `pub(...)` restricted) are not public API. A public declaration of an
+/// unrecognized kind, an inline module, or a macro invocation fails.
+enum PublicDeclaration {
+    Module(String),
+    Export { module: String, name: String },
+    Item(String),
+}
+
+fn public_declarations(file: &syn::File) -> Vec<PublicDeclaration> {
+    use syn::{Item, Visibility};
+    let mut out = Vec::new();
+    for item in &file.items {
+        let (visibility, name) = match item {
+            Item::Use(item) => {
+                if matches!(item.vis, Visibility::Public(_)) {
+                    let mut exports = Vec::new();
+                    use_tree_exports(&item.tree, &[], &mut exports);
+                    out.extend(
+                        exports
+                            .into_iter()
+                            .map(|(module, name)| PublicDeclaration::Export { module, name }),
+                    );
                 }
+                continue;
             }
-            out.push(' ');
-        } else if character == 'r' && !previous_is_identifier && raw_string_len(&chars[index..]) > 0
-        {
-            let length = raw_string_len(&chars[index..]);
-            out.extend(&chars[index..index + length]);
-            index += length;
-        } else if character == '"' {
-            let start = index;
-            index += 1;
-            while index < chars.len() && chars[index] != '"' {
-                index += if chars[index] == '\\' { 2 } else { 1 };
+            Item::Mod(item) => {
+                if matches!(item.vis, Visibility::Public(_)) {
+                    assert!(
+                        item.content.is_none(),
+                        "inline public module: {}",
+                        item.ident
+                    );
+                    out.push(PublicDeclaration::Module(item.ident.to_string()));
+                }
+                continue;
             }
-            index = (index + 1).min(chars.len());
-            out.extend(&chars[start..index]);
-        } else if character == '\'' {
-            let literal_end = match (next, chars.get(index + 2)) {
-                (Some('\\'), _) => chars[index + 3..]
-                    .iter()
-                    .position(|candidate| *candidate == '\'')
-                    .map(|offset| index + 3 + offset + 1),
-                (Some(_), Some('\'')) => Some(index + 3),
-                _ => None,
-            };
-            let end = literal_end.unwrap_or(index + 1);
-            out.extend(&chars[index..end]);
-            index = end;
-        } else {
-            out.push(character);
-            index += 1;
+            Item::Fn(item) => (&item.vis, item.sig.ident.to_string()),
+            Item::Struct(item) => (&item.vis, item.ident.to_string()),
+            Item::Enum(item) => (&item.vis, item.ident.to_string()),
+            Item::Union(item) => (&item.vis, item.ident.to_string()),
+            Item::Const(item) => (&item.vis, item.ident.to_string()),
+            Item::Static(item) => (&item.vis, item.ident.to_string()),
+            Item::Trait(item) => (&item.vis, item.ident.to_string()),
+            Item::TraitAlias(item) => (&item.vis, item.ident.to_string()),
+            Item::Type(item) => (&item.vis, item.ident.to_string()),
+            Item::ExternCrate(item) => (&item.vis, item.ident.to_string()),
+            Item::Impl(_) => continue,
+            Item::Macro(item) => {
+                assert!(
+                    item.mac.path.is_ident("macro_rules"),
+                    "macro invocation can declare unreviewed public items"
+                );
+                continue;
+            }
+            _ => panic!("unrecognized item kind in a public-name inventory"),
+        };
+        if matches!(visibility, Visibility::Public(_)) {
+            out.push(PublicDeclaration::Item(name));
         }
     }
     out
-}
-
-/// Length of a raw string literal (`r"..."`, `r#"..."#`) starting at `rest[0]`,
-/// or zero when `rest` does not start one.
-fn raw_string_len(rest: &[char]) -> usize {
-    let hashes = rest[1..].iter().take_while(|c| **c == '#').count();
-    if rest.get(1 + hashes) != Some(&'"') {
-        return 0;
-    }
-    let body = &rest[2 + hashes..];
-    for (offset, character) in body.iter().enumerate() {
-        if *character == '"'
-            && body[offset + 1..].iter().take_while(|c| **c == '#').count() >= hashes
-        {
-            return 2 + hashes + offset + 1 + hashes;
-        }
-    }
-    rest.len()
-}
-
-/// Every top-level `pub ...` statement of a comment-stripped module: a `pub
-/// use` runs to its semicolon, any other declaration is its first line.
-fn public_statements(source: &str) -> Vec<String> {
-    let source = strip_comments(source);
-    let mut statements = Vec::new();
-    let mut lines = source.lines().peekable();
-    while let Some(line) = lines.next() {
-        if !line.starts_with("pub ") {
-            continue;
-        }
-        let mut statement = line.to_owned();
-        if line.starts_with("pub use ") {
-            while !statement.contains(';') {
-                statement.push(' ');
-                statement.push_str(lines.next().expect("pub use must end with a semicolon"));
-            }
-        }
-        statements.push(statement);
-    }
-    statements
-}
-
-/// Names a `pub use` statement exports; globs, nested groups and any path
-/// outside `crate::checked_package` are refused, an alias exports its alias.
-fn selected_population_export_names(statement: &str) -> Vec<String> {
-    let path = statement
-        .strip_prefix("pub use crate::checked_package::")
-        .and_then(|path| path.trim_end().strip_suffix(';'))
-        .unwrap_or_else(|| panic!("unrecognized selected-population re-export: {statement}"));
-    let list = path
-        .strip_prefix('{')
-        .map(|list| {
-            list.strip_suffix('}')
-                .unwrap_or_else(|| panic!("unclosed export list: {statement}"))
-        })
-        .unwrap_or(path);
-    list.split(',')
-        .map(str::trim)
-        .filter(|entry| !entry.is_empty())
-        .map(|entry| {
-            let exported = entry.rsplit(" as ").next().unwrap_or(entry).trim();
-            assert!(
-                !exported.is_empty()
-                    && exported
-                        .chars()
-                        .all(|character| character.is_ascii_alphanumeric() || character == '_'),
-                "unrecognized selected-population re-export form `{entry}`: {statement}"
-            );
-            exported.to_owned()
-        })
-        .collect()
-}
-
-/// The declared name of a `pub` item, skipping function and static qualifiers.
-fn public_item_name(declaration: &str) -> String {
-    let mut tokens = declaration.split_whitespace().skip(1).peekable();
-    while let Some(token) = tokens.peek().copied() {
-        let qualifier = matches!(token, "async" | "unsafe" | "extern")
-            || token.starts_with('"')
-            || (token == "const"
-                && matches!(
-                    tokens.clone().nth(1),
-                    Some("fn" | "unsafe" | "async" | "extern")
-                ));
-        if !qualifier {
-            break;
-        }
-        tokens.next();
-    }
-    let kind = tokens.next();
-    assert!(
-        matches!(
-            kind,
-            Some("struct" | "enum" | "trait" | "fn" | "type" | "const" | "static" | "union")
-        ),
-        "unrecognized public source-obligation declaration: {declaration}"
-    );
-    if kind == Some("static") && tokens.peek() == Some(&"mut") {
-        tokens.next();
-    }
-    tokens
-        .next()
-        .and_then(|name| {
-            name.split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
-                .next()
-                .filter(|name| !name.is_empty())
-        })
-        .unwrap_or_else(|| panic!("public declaration has no name: {declaration}"))
-        .to_owned()
 }
 
 fn collect_schema_names(value: &Value, names: &mut Vec<String>) {
@@ -363,32 +279,32 @@ fn expected_items() -> BTreeMap<String, BTreeSet<String>> {
 
 fn exported_items() -> BTreeMap<String, BTreeSet<String>> {
     let mut items = BTreeMap::<String, BTreeSet<String>>::new();
-    let mut exports = MODEL_ROOT.split("pub use ").skip(1);
-    for export in exports.by_ref() {
-        let statement = export
-            .split(';')
-            .next()
-            .expect("export must end with semicolon");
-        assert!(
-            !statement.contains('*'),
-            "model root must not glob-export: {statement}"
-        );
-        if statement.starts_with("output_mapping::MappingAllocationPoint") {
-            continue;
-        }
-        let (module, names) = statement
-            .split_once("::{")
-            .expect("default-feature model exports must name items in braces");
-        let names = names.strip_suffix('}').expect("item list must close");
-        for name in names
-            .split(',')
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-        {
-            assert!(
-                items.entry(module.into()).or_default().insert(name.into()),
-                "duplicate export: {module}::{name}"
-            );
+    let root = parse_model_source(MODEL_ROOT, "model crate root");
+    let mut public_modules = BTreeSet::new();
+    for declaration in public_declarations(&root) {
+        match declaration {
+            PublicDeclaration::Module(module) => {
+                assert!(
+                    CURRENT_PUBLIC_MODULES.contains(&module.as_str()),
+                    "unrecognized public model module: {module}"
+                );
+                public_modules.insert(module);
+            }
+            PublicDeclaration::Export { module, name } => {
+                if module == "output_mapping" && name == "MappingAllocationPoint" {
+                    continue;
+                }
+                assert!(
+                    items
+                        .entry(module.clone())
+                        .or_default()
+                        .insert(name.clone()),
+                    "duplicate export: {module}::{name}"
+                );
+            }
+            PublicDeclaration::Item(name) => {
+                panic!("unrecognized public model-root declaration: {name}")
+            }
         }
     }
     let mut sources =
@@ -431,49 +347,21 @@ fn exported_items() -> BTreeMap<String, BTreeSet<String>> {
         .entry("code".into())
         .or_default()
         .extend(exported_macros);
-    let root = strip_comments(MODEL_ROOT);
-    if root
-        .lines()
-        .any(|line| line.trim() == "pub mod source_obligation;")
-    {
-        items
-            .entry("crate_root".into())
-            .or_default()
-            .insert("source_obligation".into());
-        let source = fs::read_to_string(
-            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("crates/quire-contract-model/src/source_obligation.rs"),
-        )
-        .expect("source-obligation module must be readable");
-        let module_items = public_statements(&source)
+    for module in public_modules {
+        let names = public_declarations(&parse_model_module(&module))
             .into_iter()
-            .map(|declaration| public_item_name(&declaration));
-        items
-            .entry("source_obligation".into())
-            .or_default()
-            .extend(module_items);
-    }
-    if root
-        .lines()
-        .any(|line| line.trim() == "pub mod selected_population;")
-    {
-        items
-            .entry("crate_root".into())
-            .or_default()
-            .insert("selected_population".into());
-        let source = fs::read_to_string(
-            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("crates/quire-contract-model/src/selected_population.rs"),
-        )
-        .expect("selected-population facade must be readable");
-        let names = public_statements(&source)
-            .iter()
-            .flat_map(|statement| selected_population_export_names(statement))
+            .map(|declaration| match declaration {
+                PublicDeclaration::Item(name) | PublicDeclaration::Export { name, .. } => name,
+                PublicDeclaration::Module(nested) => {
+                    panic!("nested public module in {module}: {nested}")
+                }
+            })
             .collect::<Vec<_>>();
         items
-            .entry("selected_population".into())
+            .entry("crate_root".into())
             .or_default()
-            .extend(names);
+            .insert(module.clone());
+        items.entry(module).or_default().extend(names);
     }
     items
 }
@@ -512,6 +400,14 @@ fn tc_456_public_schema_and_model_names_are_portable() {
     collect_schema_names(&forbidden_schema, &mut forbidden_names);
     assert_eq!(portable_name_violations(forbidden_names).len(), 3);
     assert!(portable_name_violations(["jsonpointer"]).is_empty());
+    assert_eq!(
+        portable_name_violations(["PathBuf", "path_buf", "MacOS", "macOS", "mac_os"]).len(),
+        5
+    );
+    assert_eq!(
+        portable_name_violations(["RunTime", "run_time", "USize"]).len(),
+        3
+    );
     assert!(portable_name_violations(["profile_path", "repos_path", "profile_system"]).is_empty());
     assert_eq!(
         portable_name_violations(["filePath", "FilePath", "osPath", "file_system"]).len(),
@@ -519,31 +415,22 @@ fn tc_456_public_schema_and_model_names_are_portable() {
     );
 
     let model_items = exported_items();
-    let root = strip_comments(MODEL_ROOT);
-    let public_modules = root
-        .lines()
-        .filter_map(|line| line.trim().strip_prefix("pub mod ")?.strip_suffix(';'))
-        .collect::<BTreeSet<_>>();
     let inventoried_modules = model_items
         .get("crate_root")
         .expect("public modules must be inventoried")
         .iter()
         .map(String::as_str)
         .collect::<BTreeSet<_>>();
-    assert_eq!(public_modules, inventoried_modules);
-    for module in public_modules {
+    assert_eq!(
+        inventoried_modules,
+        CURRENT_PUBLIC_MODULES.into_iter().collect::<BTreeSet<_>>()
+    );
+    for module in inventoried_modules {
         assert!(
             model_items
                 .get(module)
                 .is_some_and(|items| !items.is_empty()),
             "public module {module} must have an item inventory"
-        );
-    }
-    for declaration in public_statements(MODEL_ROOT) {
-        assert!(
-            (declaration.starts_with("pub mod ") && declaration.trim_end().ends_with(';'))
-                || declaration.starts_with("pub use "),
-            "unrecognized public model-root declaration: {declaration}"
         );
     }
     let model_names = model_items
