@@ -12,7 +12,7 @@ relationships:
 
 ## Description
 
-Verify FR-035-AC-5 through FR-035-AC-8, FR-035-AC-10 and FR-035-AC-11,
+Verify FR-035-AC-5 through FR-035-AC-8 and FR-035-AC-10 through FR-035-AC-13,
 and the aggregate FR-330 package separately from TC-044's per-item semantic
 and refusal tests. Focused FR-330
 emitter and strict-reader controls run in
@@ -41,13 +41,24 @@ an otherwise valid canonical package. Assert `Refused` with
 version. For a valid package, select each byte, node, work, edge and
 occurrence limit separately at a value that exhausts that reader charge. Assert
 `Incomplete` with the exhausted limit kind, selected ceiling and `consumed`
-amount of the meter that stopped; assert no path for bytes,
+amount at the failed charge; assert no path for bytes,
 `/semantic_graph/nodes` for nodes,
-`/semantic_graph/nodes/<i>/dependencies` for edges, and `/source_map` for
-occurrences. For work, assert `/semantic_graph/nodes/<i>/body` when value
+`/semantic_graph/nodes/<i>/dependencies` for edges, and the exact occurrence
+or region value under `/source_map` whose charge failed for occurrences.
+For work, assert `/semantic_graph/nodes/<i>/body` when value
 validation stops or the failed-charge pointer reported by reference validation,
 which may name another node member. Assert neither outcome admits a package.
-The work meter's scope is open under IR-889.
+Independently count value-validation and reference-validation visits on a
+canonical package exercising both. At a work ceiling equal to their combined
+count, assert admission; at one below, assert `Incomplete` with cumulative
+`consumed` and the failing charge's pointer. Select a ceiling that covers each
+pass separately but not their sum and assert `Incomplete`, including the exact
+selected limit and cumulative count. Select a lower ceiling to fail in value
+validation and check its body pointer. Independently count source-map
+occurrence and region charges; at the exact total assert admission and at one
+below assert `Incomplete` with the particular occurrence or region pointer,
+including cases under `nodes` and `requested_items` or `refusals`. Assert
+`/source_map` alone is never the stop pointer when a value was charged.
 
 From a genuinely admitted mixed graph, query the typed view for a lowered root
 whose local closure uses `semantic_type`, declared `dependencies`, and body
@@ -79,7 +90,8 @@ Missing properties, duplicate or disordered keys, extra graph partitions and
 wrong contract versions refuse before consumption.
 The wrong-version reader refusal retains its exact typed code, path and supplied
 version. Every exhausted read limit returns the typed incomplete fields and
-admits no package.
+admits no package. Work has one cumulative bound across the two reader passes;
+the occurrence stop locates the value that crossed its bound.
 The lowered-root view contains exactly the key-ordered local reached closure,
 with exact nodes and sources, and exposes selected external references at their
 package boundary. Every lowered-root view exposes both bound and claim subsets,
@@ -94,7 +106,8 @@ Implemented with focused tests in `tests/it/complete_v1_contract_package.rs`
 for the six-field FR-330 emitter, strict reader, canonical semantic identity,
 closed accounting and source-map correspondence. Aggregate gates remain pending.
 Tagged TC-047 tests cover FR-035-AC-6 through FR-035-AC-8.
-FR-035-AC-10 and FR-035-AC-11 are backed by the tagged TC-047 reader tests
+FR-035-AC-10 and the original FR-035-AC-11 behavior are backed by the tagged TC-047 reader tests
 `reader_refuses_wrong_string_version_before_shape_identity_and_nodes` and
-`reader_incomplete_reports_each_exhausted_meter_and_pointer`. AC-11 work-limit
-scope remains open under IR-889.
+`reader_incomplete_reports_each_exhausted_meter_and_pointer`. AC-11's amended
+work count and occurrence pointer, and AC-12 and AC-13, are planned until the
+IR-889 code change lands.
