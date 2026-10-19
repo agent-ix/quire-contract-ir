@@ -6,13 +6,16 @@ use std::{
 
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    derive_structural_candidates, CheckedSemanticNodeV2, StructuralCandidateError,
+    derive_structural_candidates, CheckedSemanticNodeV2, DiagnosticCode, Std001Code,
+    StructuralCandidateError,
 };
 use serde_json::{json, Value};
+use syn::{parse::Parser, punctuated::Punctuated, Token};
 
 const MODEL_ROOT: &str = include_str!("../../crates/quire-contract-model/src/lib.rs");
 const BRIDGE_ROOT: &str = include_str!("../../src/lib.rs");
 const FR_019: &str = include_str!("../../spec/model/functional/FR-019-rust-library-interface.md");
+const STD_001: &str = include_str!("../../spec/core/functional/STD-001-diagnostic-registry.md");
 
 /// Forbidden terms. A term matches inside any one word of a name, or as the
 /// concatenation of adjacent words that starts with the term and reaches into
@@ -210,6 +213,9 @@ fn collect_schema_names(value: &Value, names: &mut Vec<String>) {
             if let Some(title) = object.get("title").and_then(Value::as_str) {
                 names.push(title.to_owned());
             }
+            if let Some(constant) = object.get("const").and_then(Value::as_str) {
+                names.push(constant.to_owned());
+            }
             if let Some(variants) = object.get("enum").and_then(Value::as_array) {
                 names.extend(variants.iter().filter_map(Value::as_str).map(str::to_owned));
             }
@@ -252,6 +258,638 @@ fn public_schema_names() -> Vec<Vec<String>> {
             names
         })
         .collect()
+}
+
+#[derive(Clone, Debug)]
+struct PublicName {
+    owner: String,
+    name: String,
+    value: Option<String>,
+}
+
+impl PublicName {
+    fn item(owner: &str, name: impl Into<String>) -> Self {
+        Self {
+            owner: owner.into(),
+            name: name.into(),
+            value: None,
+        }
+    }
+
+    fn value(owner: &str, name: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            owner: owner.into(),
+            name: name.into(),
+            value: Some(value.into()),
+        }
+    }
+}
+
+struct StringLiterals(Vec<String>);
+
+impl<'ast> syn::visit::Visit<'ast> for StringLiterals {
+    fn visit_lit_str(&mut self, literal: &'ast syn::LitStr) {
+        self.0.push(literal.value());
+    }
+}
+
+fn constant_names(owner: &str, name: &str, expression: &syn::Expr, out: &mut Vec<PublicName>) {
+    use syn::visit::Visit;
+    out.push(PublicName::item(owner, name));
+    let mut strings = StringLiterals(Vec::new());
+    strings.visit_expr(expression);
+    out.extend(
+        strings
+            .0
+            .into_iter()
+            .map(|value| PublicName::value(owner, name, value)),
+    );
+}
+
+fn fields(owner: &str, fields: &syn::Fields, out: &mut Vec<PublicName>) {
+    for field in fields {
+        if matches!(field.vis, syn::Visibility::Public(_)) {
+            if let Some(name) = &field.ident {
+                out.push(PublicName::item(owner, name.to_string()));
+            }
+        }
+    }
+}
+
+fn exported_paths(tree: &syn::UseTree, prefix: Vec<String>, out: &mut Vec<Vec<String>>) {
+    match tree {
+        syn::UseTree::Path(path) => {
+            let mut prefix = prefix;
+            prefix.push(path.ident.to_string());
+            exported_paths(&path.tree, prefix, out);
+        }
+        syn::UseTree::Name(name) => {
+            let mut path = prefix;
+            path.push(name.ident.to_string());
+            out.push(path);
+        }
+        syn::UseTree::Rename(rename) => {
+            let mut path = prefix;
+            path.push(rename.ident.to_string());
+            out.push(path);
+        }
+        syn::UseTree::Group(group) => {
+            for tree in &group.items {
+                exported_paths(tree, prefix.clone(), out);
+            }
+        }
+        syn::UseTree::Glob(_) => {
+            let mut path = prefix;
+            path.push("*".into());
+            out.push(path);
+        }
+    }
+}
+
+fn source_use_aliases(tree: &syn::UseTree, out: &mut Vec<String>) {
+    match tree {
+        syn::UseTree::Path(path) => source_use_aliases(&path.tree, out),
+        syn::UseTree::Name(name) => out.push(name.ident.to_string()),
+        syn::UseTree::Rename(rename) => out.push(rename.rename.to_string()),
+        syn::UseTree::Group(group) => {
+            for tree in &group.items {
+                source_use_aliases(tree, out);
+            }
+        }
+        syn::UseTree::Glob(_) => {}
+    }
+}
+
+fn source_items(file: &syn::File) -> Vec<PublicName> {
+    let mut out = Vec::new();
+    source_items_in_scope(&file.items, true, &[], &mut out);
+    out
+}
+
+fn source_items_in_scope(
+    items: &[syn::Item],
+    public_scope: bool,
+    inherited_exports: &[Vec<String>],
+    out: &mut Vec<PublicName>,
+) {
+    use syn::{ImplItem, Item, TraitItem, Visibility};
+    let definitions = items
+        .iter()
+        .filter_map(|item| {
+            let Item::Macro(item) = item else { return None };
+            item.mac.path.is_ident("macro_rules").then(|| {
+                (
+                    item.ident.as_ref().expect("macro_rules name").to_string(),
+                    item.mac.tokens.to_string(),
+                )
+            })
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut exports = inherited_exports.to_vec();
+    if public_scope {
+        for item in items {
+            if let Item::Use(item) = item {
+                if matches!(item.vis, Visibility::Public(_)) {
+                    exported_paths(&item.tree, Vec::new(), &mut exports);
+                    let mut aliases = Vec::new();
+                    source_use_aliases(&item.tree, &mut aliases);
+                    out.extend(aliases.into_iter().map(|alias| PublicName::item("", alias)));
+                }
+            }
+        }
+    }
+    let visible = |name: &str, visibility: &Visibility| {
+        (public_scope && matches!(visibility, Visibility::Public(_)))
+            || exports
+                .iter()
+                .any(|path| path.len() == 1 && (path[0] == name || path[0] == "*"))
+    };
+    for item in items {
+        match item {
+            Item::Mod(item) => {
+                let name = item.ident.to_string();
+                let nested_exports = exports
+                    .iter()
+                    .filter(|path| path.first() == Some(&name) && path.len() > 1)
+                    .map(|path| path[1..].to_vec())
+                    .collect::<Vec<_>>();
+                if let Some((_, nested)) = &item.content {
+                    source_items_in_scope(
+                        nested,
+                        (public_scope && matches!(item.vis, Visibility::Public(_)))
+                            || nested_exports.iter().any(|path| path == &["*"]),
+                        &nested_exports,
+                        out,
+                    );
+                }
+            }
+            Item::Struct(item) if visible(&item.ident.to_string(), &item.vis) => {
+                let owner = item.ident.to_string();
+                out.push(PublicName::item("", &owner));
+                fields(&owner, &item.fields, out);
+            }
+            Item::Union(item) if visible(&item.ident.to_string(), &item.vis) => {
+                let owner = item.ident.to_string();
+                out.push(PublicName::item("", &owner));
+                for field in &item.fields.named {
+                    if matches!(field.vis, Visibility::Public(_)) {
+                        out.push(PublicName::item(
+                            &owner,
+                            field.ident.as_ref().unwrap().to_string(),
+                        ));
+                    }
+                }
+            }
+            Item::Enum(item) if visible(&item.ident.to_string(), &item.vis) => {
+                let owner = item.ident.to_string();
+                out.push(PublicName::item("", &owner));
+                for variant in &item.variants {
+                    out.push(PublicName::item(&owner, variant.ident.to_string()));
+                    fields(&owner, &variant.fields, out);
+                }
+            }
+            Item::Trait(item) if visible(&item.ident.to_string(), &item.vis) => {
+                let owner = item.ident.to_string();
+                out.push(PublicName::item("", &owner));
+                for member in &item.items {
+                    match member {
+                        TraitItem::Fn(member) => {
+                            out.push(PublicName::item(&owner, member.sig.ident.to_string()))
+                        }
+                        TraitItem::Const(member) => {
+                            if let Some((_, expression)) = &member.default {
+                                constant_names(&owner, &member.ident.to_string(), expression, out);
+                            } else {
+                                out.push(PublicName::item(&owner, member.ident.to_string()));
+                            }
+                        }
+                        TraitItem::Type(member) => {
+                            out.push(PublicName::item(&owner, member.ident.to_string()))
+                        }
+                        _ => panic!("unrecognized exported trait member in {owner}"),
+                    }
+                }
+            }
+            Item::Impl(item) if item.trait_.is_none() => {
+                let owner = match item.self_ty.as_ref() {
+                    syn::Type::Path(path) => path.path.segments.last().unwrap().ident.to_string(),
+                    _ => continue,
+                };
+                if !public_scope
+                    && !exports
+                        .iter()
+                        .any(|path| path.len() == 1 && path[0] == owner)
+                {
+                    continue;
+                }
+                for member in &item.items {
+                    match member {
+                        ImplItem::Fn(member) if matches!(member.vis, Visibility::Public(_)) => {
+                            out.push(PublicName::item(&owner, member.sig.ident.to_string()))
+                        }
+                        ImplItem::Const(member) if matches!(member.vis, Visibility::Public(_)) => {
+                            constant_names(&owner, &member.ident.to_string(), &member.expr, out)
+                        }
+                        ImplItem::Type(member) if matches!(member.vis, Visibility::Public(_)) => {
+                            out.push(PublicName::item(&owner, member.ident.to_string()))
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Item::Const(item) if visible(&item.ident.to_string(), &item.vis) => {
+                constant_names("", &item.ident.to_string(), &item.expr, out)
+            }
+            Item::Static(item) if visible(&item.ident.to_string(), &item.vis) => {
+                constant_names("", &item.ident.to_string(), &item.expr, out)
+            }
+            Item::Fn(item) if visible(&item.sig.ident.to_string(), &item.vis) => {
+                out.push(PublicName::item("", item.sig.ident.to_string()))
+            }
+            Item::Type(item) if visible(&item.ident.to_string(), &item.vis) => {
+                out.push(PublicName::item("", item.ident.to_string()))
+            }
+            Item::TraitAlias(item) if visible(&item.ident.to_string(), &item.vis) => {
+                out.push(PublicName::item("", item.ident.to_string()))
+            }
+            Item::Macro(item) => macro_items(item, &definitions, out),
+            Item::Use(_)
+            | Item::Impl(_)
+            | Item::Fn(_)
+            | Item::Struct(_)
+            | Item::Enum(_)
+            | Item::Union(_)
+            | Item::Const(_)
+            | Item::Static(_)
+            | Item::Type(_)
+            | Item::Trait(_)
+            | Item::TraitAlias(_) => {}
+            Item::ExternCrate(item) if visible(&item.ident.to_string(), &item.vis) => {
+                out.push(PublicName::item("", item.ident.to_string()));
+            }
+            Item::ExternCrate(_) => {}
+            _ => panic!("unrecognized declaration kind in source inventory"),
+        }
+    }
+}
+
+struct CodeRow {
+    name: syn::Ident,
+    value: syn::LitStr,
+}
+
+struct ClosedVocabulary {
+    visibility: syn::Visibility,
+    name: syn::Ident,
+    rows: Punctuated<CodeRow, Token![,]>,
+}
+
+impl syn::parse::Parse for ClosedVocabulary {
+    fn parse(input: syn::parse::ParseStream<'_>) -> syn::Result<Self> {
+        let _attributes = input.call(syn::Attribute::parse_outer)?;
+        let visibility = input.parse()?;
+        let name = input.parse()?;
+        let content;
+        syn::braced!(content in input);
+        let rows = content.parse_terminated(CodeRow::parse, Token![,])?;
+        Ok(Self {
+            visibility,
+            name,
+            rows,
+        })
+    }
+}
+
+impl syn::parse::Parse for CodeRow {
+    fn parse(input: syn::parse::ParseStream<'_>) -> syn::Result<Self> {
+        let name = input.parse()?;
+        input.parse::<Token![=>]>()?;
+        let value = input.parse()?;
+        Ok(Self { name, value })
+    }
+}
+
+fn code_rows(item: &syn::ItemMacro) -> Vec<CodeRow> {
+    Punctuated::<CodeRow, Token![,]>::parse_terminated
+        .parse2(item.mac.tokens.clone())
+        .unwrap_or_else(|error| {
+            panic!(
+                "{} rows must parse: {error}",
+                item.mac.path.segments.last().unwrap().ident
+            )
+        })
+        .into_iter()
+        .collect()
+}
+
+fn macro_static_public_names(definition: &str) -> BTreeSet<String> {
+    let tokens = definition.split_whitespace().collect::<Vec<_>>();
+    let mut names = BTreeSet::new();
+    for (index, token) in tokens.iter().enumerate() {
+        if *token != "pub" {
+            continue;
+        }
+        let mut next = index + 1;
+        while matches!(
+            tokens.get(next),
+            Some(&"const" | &"fn" | &"struct" | &"enum" | &"type" | &"trait" | &"static" | &"mut")
+        ) {
+            next += 1;
+        }
+        if let Some(name) = tokens.get(next) {
+            if *name != "$"
+                && name
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || character == '_')
+            {
+                names.insert((*name).to_owned());
+            }
+        }
+    }
+    names
+}
+
+fn macro_items(
+    item: &syn::ItemMacro,
+    definitions: &BTreeMap<String, String>,
+    out: &mut Vec<PublicName>,
+) {
+    let name = item.mac.path.segments.last().unwrap().ident.to_string();
+    let first = out.len();
+    match name.as_str() {
+        "diagnostic_codes" | "mapping_error_codes" => {
+            let owner = if name == "diagnostic_codes" {
+                "DiagnosticCode"
+            } else {
+                "MappingRequestErrorCode"
+            };
+            out.push(PublicName::item("", owner));
+            out.extend(
+                ["ALL", "as_str"]
+                    .into_iter()
+                    .map(|name| PublicName::item(owner, name)),
+            );
+            if owner == "MappingRequestErrorCode" {
+                out.push(PublicName::item(owner, "from_code"));
+            }
+            for row in code_rows(item) {
+                out.push(PublicName::item(owner, row.name.to_string()));
+                out.push(PublicName::value(owner, "as_str", row.value.value()));
+                out.push(PublicName::value(owner, "ALL", row.value.value()));
+            }
+        }
+        "registered_codes" => {
+            out.push(PublicName::item("Std001Code", "REGISTERED"));
+            for row in code_rows(item) {
+                let name = row.name.to_string();
+                let value = row.value.value();
+                out.push(PublicName::value("Std001Code", name, value.clone()));
+                out.push(PublicName::value("Std001Code", "REGISTERED", value));
+            }
+        }
+        "identifier_type"
+        | "positive_revision"
+        | "raw_digest_type"
+        | "source_selection_type"
+        | "qualified_code_type" => {
+            let owner = item
+                .mac
+                .tokens
+                .to_string()
+                .split([',', ' '])
+                .find(|token| !token.is_empty())
+                .expect("generated type name")
+                .to_owned();
+            out.push(PublicName::item("", &owner));
+            let members: &[&str] = match name.as_str() {
+                "identifier_type" => &["new", "as_str"],
+                "positive_revision" => &["new", "get"],
+                "raw_digest_type" => &["from_bytes", "digest", "as_bytes", "parse"],
+                "source_selection_type" => &["new", "identity", "revision", "digest"],
+                "qualified_code_type" => {
+                    &["new", "owner", "contract", "revision", "digest", "code"]
+                }
+                _ => unreachable!(),
+            };
+            out.extend(
+                members
+                    .iter()
+                    .map(|member| PublicName::item(&owner, *member)),
+            );
+        }
+        "closed_vocabulary" => {
+            let vocabulary: ClosedVocabulary =
+                syn::parse2(item.mac.tokens.clone()).expect("closed vocabulary must parse");
+            if matches!(vocabulary.visibility, syn::Visibility::Public(_)) {
+                let owner = vocabulary.name.to_string();
+                out.push(PublicName::item("", &owner));
+                out.extend(
+                    ["ALL", "as_wire", "from_wire"]
+                        .into_iter()
+                        .map(|name| PublicName::item(&owner, name)),
+                );
+                for row in vocabulary.rows {
+                    out.push(PublicName::item(&owner, row.name.to_string()));
+                    out.push(PublicName::value(&owner, "as_wire", row.value.value()));
+                }
+            }
+        }
+        "macro_rules" => {
+            let definition = item.mac.tokens.to_string();
+            if definition.contains("pub ") {
+                let known = [
+                    "diagnostic_codes",
+                    "mapping_error_codes",
+                    "registered_codes",
+                    "identifier_type",
+                    "positive_revision",
+                    "raw_digest_type",
+                    "source_selection_type",
+                    "qualified_code_type",
+                    "closed_vocabulary",
+                ];
+                let defined = item.ident.as_ref().expect("macro_rules name").to_string();
+                assert!(
+                    known.contains(&defined.as_str()),
+                    "macro_rules! {defined} can generate unreviewed public API"
+                );
+            }
+        }
+        _ => {}
+    }
+    if name != "macro_rules" {
+        if let Some(definition) = definitions.get(&name).filter(|_| out.len() > first) {
+            let extracted = out[first..]
+                .iter()
+                .map(|item| item.name.as_str())
+                .collect::<BTreeSet<_>>();
+            for public_name in macro_static_public_names(definition) {
+                assert!(
+                    extracted.contains(public_name.as_str()),
+                    "macro-expanded public item {name}::{public_name} escaped inventory"
+                );
+            }
+        }
+    }
+}
+
+const CODE_TABLES: [&str; 7] = [
+    "Identity and Reference Codes",
+    "Type and Expression Codes",
+    "Version, Canonicalization and Coverage Codes",
+    "Semantic Limit Codes",
+    "Typed Code Form",
+    "Bounded Kani Cause Codes",
+    "Bounded Kani Outcome Error Code",
+];
+
+fn std001_code_rows(document: &str) -> BTreeMap<String, BTreeSet<String>> {
+    let mut tables = BTreeMap::<String, BTreeSet<String>>::new();
+    let mut active: Option<&str> = None;
+    for line in document.lines() {
+        if let Some(heading) = line.strip_prefix("## ") {
+            active = CODE_TABLES.contains(&heading).then_some(heading);
+            if let Some(heading) = active {
+                assert!(
+                    tables.insert(heading.to_owned(), BTreeSet::new()).is_none(),
+                    "duplicate STD-001 code table: {heading}"
+                );
+            }
+        } else if let (Some(heading), Some(rest)) = (active, line.strip_prefix("| `")) {
+            let (code, _) = rest
+                .split_once('`')
+                .expect("Code row must close its code literal");
+            assert!(
+                tables.get_mut(heading).unwrap().insert(code.to_owned()),
+                "duplicate STD-001 code row: {code}"
+            );
+        }
+    }
+    assert_eq!(
+        tables.len(),
+        CODE_TABLES.len(),
+        "all seven STD-001 code tables must exist"
+    );
+    assert!(
+        tables.values().all(|codes| !codes.is_empty()),
+        "STD-001 code table is empty"
+    );
+    tables
+}
+
+fn registry_difference(tables: &BTreeMap<String, BTreeSet<String>>) -> Vec<String> {
+    let diagnostic = DiagnosticCode::ALL
+        .iter()
+        .map(|code| code.as_str().to_owned())
+        .collect::<BTreeSet<_>>();
+    let all = tables
+        .values()
+        .flat_map(|table| table.iter().cloned())
+        .collect::<BTreeSet<_>>();
+    assert!(
+        diagnostic.is_subset(&all),
+        "DiagnosticCode::ALL must appear in STD-001"
+    );
+    all.difference(&diagnostic).cloned().collect()
+}
+
+fn registered_code_violations(
+    names: &[PublicName],
+    tables: &BTreeMap<String, BTreeSet<String>>,
+) -> Vec<String> {
+    let expected = registry_difference(tables);
+    let source_values = names
+        .iter()
+        .filter(|name| name.owner == "Std001Code" && name.name == "REGISTERED")
+        .filter_map(|name| name.value.as_deref())
+        .collect::<Vec<_>>();
+    let actual = Std001Code::REGISTERED;
+    let mut violations = Vec::new();
+    if actual
+        .iter()
+        .map(|value| (*value).to_owned())
+        .collect::<Vec<_>>()
+        != expected
+    {
+        violations.push(format!(
+            "Std001Code::REGISTERED differs from STD-001: {expected:?}"
+        ));
+    }
+    if source_values != actual {
+        violations.push("Std001Code::REGISTERED source differs from compiled array".into());
+    }
+    for code in &expected {
+        let constant = code.to_ascii_uppercase();
+        let matches = names
+            .iter()
+            .filter(|name| {
+                name.owner == "Std001Code"
+                    && name.name == constant
+                    && name.value.as_deref() == Some(code)
+            })
+            .count();
+        if matches != 1 {
+            violations.push(format!(
+                "Std001Code::{constant} must equal {code} exactly once"
+            ));
+        }
+    }
+    violations
+}
+
+fn inventory_violations(
+    names: &[PublicName],
+    tables: &BTreeMap<String, BTreeSet<String>>,
+    allow_solver: bool,
+) -> Vec<String> {
+    let registered = registry_difference(tables);
+    let solver_registered = tables["Bounded Kani Cause Codes"].contains("kani_solver_absent")
+        && registered.iter().any(|code| code == "kani_solver_absent");
+    let mut violations = Vec::new();
+    for entry in names {
+        // IR-881: removed when IR-881 merges.
+        let allowed_constant = allow_solver
+            && solver_registered
+            && entry.owner == "Std001Code"
+            && entry.name == "KANI_SOLVER_ABSENT"
+            && entry.value.as_deref() == Some("kani_solver_absent");
+        let allowed_registered_element = allow_solver
+            && solver_registered
+            && entry.owner == "Std001Code"
+            && entry.name == "REGISTERED"
+            && entry.value.as_deref() == Some("kani_solver_absent");
+        if allowed_constant || allowed_registered_element {
+            continue;
+        }
+        for name in std::iter::once(entry.name.as_str()).chain(entry.value.as_deref()) {
+            violations.extend(
+                portable_name_violations([name])
+                    .into_iter()
+                    .map(|violation| format!("{}::{}: {violation}", entry.owner, entry.name)),
+            );
+        }
+    }
+    violations
+}
+
+fn model_source_inventory(root: &std::path::Path) -> Vec<PublicName> {
+    let mut pending = vec![root.to_path_buf()];
+    let mut names = Vec::new();
+    while let Some(path) = pending.pop() {
+        for entry in fs::read_dir(path).expect("model source directory") {
+            let path = entry.expect("model source entry").path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                let source = fs::read_to_string(&path).expect("model source file");
+                names.extend(source_items(&parse_model_source(
+                    &source,
+                    &path.display().to_string(),
+                )));
+            }
+        }
+    }
+    names
 }
 
 fn quoted_names(text: &str) -> impl Iterator<Item = &str> {
@@ -398,43 +1036,14 @@ fn tc_058_model_root_exports_exactly_the_documented_public_items() {
         .any(|line| line == "pub mod selected_population;"));
 }
 
-#[trace("TC-456", "NFR-002-AC-1")]
+#[trace("TC-456")]
 #[test]
 fn tc_456_public_schema_and_model_names_are_portable() {
-    let forbidden_schema = json!({
-        "title": "RuntimeHandle",
-        "properties": { "pointer_width": { "enum": ["GumboNode"] } }
-    });
-    let mut forbidden_names = Vec::new();
-    collect_schema_names(&forbidden_schema, &mut forbidden_names);
-    assert_eq!(portable_name_violations(forbidden_names).len(), 3);
-    assert!(portable_name_violations(["jsonpointer"]).is_empty());
-    assert_eq!(
-        portable_name_violations(["PathBuf", "path_buf", "MacOS", "macOS", "mac_os"]).len(),
-        5
-    );
-    assert_eq!(
-        portable_name_violations(["RunTime", "run_time", "USize"]).len(),
-        3
-    );
-    assert_eq!(
-        portable_name_violations([
-            "PointerWidth64",
-            "PathBufs",
-            "path_bufs",
-            "RunTimes",
-            "run_times",
-            "MacOSX"
-        ])
-        .len(),
-        6
-    );
-    assert!(portable_name_violations(["profile_path", "repos_path", "profile_system"]).is_empty());
-    assert_eq!(
-        portable_name_violations(["filePath", "FilePath", "osPath", "file_system"]).len(),
-        4
-    );
-
+    let _: Option<quire_contract_model::MappingAllocationPoint> = None;
+    let tables = std001_code_rows(STD_001);
+    let source_root =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("crates/quire-contract-model/src");
+    let mut names = model_source_inventory(&source_root);
     let model_items = exported_items();
     let inventoried_modules = model_items
         .get("crate_root")
@@ -454,16 +1063,306 @@ fn tc_456_public_schema_and_model_names_are_portable() {
             "public module {module} must have an item inventory"
         );
     }
-    let model_names = model_items
-        .into_iter()
-        .flat_map(|(module, items)| std::iter::once(module).chain(items));
+    names.extend(model_items.into_iter().flat_map(|(module, items)| {
+        std::iter::once(module)
+            .chain(items)
+            .map(|name| PublicName::item("", name))
+    }));
+    for declaration in public_declarations(&parse_model_source(MODEL_ROOT, "model root")) {
+        if let PublicDeclaration::Export { name, .. } = declaration {
+            names.push(PublicName::item("", name));
+        }
+    }
     let schema_names = public_schema_names();
     assert!(!schema_names.is_empty(), "public schemas must be present");
-    let violations =
-        portable_name_violations(model_names.chain(schema_names.into_iter().flatten()));
+    names.extend(
+        schema_names
+            .into_iter()
+            .flatten()
+            .map(|name| PublicName::item("schema", name)),
+    );
+    let violations = inventory_violations(&names, &tables, true);
     assert!(
         violations.is_empty(),
-        "forbidden public names: {violations:?}"
+        "forbidden public names or values: {violations:?}"
+    );
+    assert!(
+        registered_code_violations(&names, &tables).is_empty(),
+        "Std001Code constants and REGISTERED must match all STD-001 non-diagnostic rows"
+    );
+
+    let mut benign = Vec::new();
+    collect_schema_names(&json!({"properties": {"jsonpointer": {}}}), &mut benign);
+    assert!(inventory_violations(
+        &benign
+            .into_iter()
+            .map(|name| PublicName::item("schema", name))
+            .collect::<Vec<_>>(),
+        &tables,
+        true
+    )
+    .is_empty());
+
+    for schema in [
+        json!({"title": "RuntimeHandle"}),
+        json!({"properties": {"pointer_width": {}}}),
+        json!({"enum": ["GumboNode"]}),
+        json!({"const": "solver_runtime"}),
+    ] {
+        let mut extracted = Vec::new();
+        collect_schema_names(&schema, &mut extracted);
+        assert!(
+            !inventory_violations(
+                &extracted
+                    .into_iter()
+                    .map(|name| PublicName::item("schema", name))
+                    .collect::<Vec<_>>(),
+                &tables,
+                true
+            )
+            .is_empty(),
+            "schema adverse control escaped: {schema}"
+        );
+    }
+
+    for source in [
+        "pub struct FeatureExport; impl FeatureExport { pub fn solver_runtime(&self) {} }",
+        "pub struct Model { pub pointer_width: u8 }",
+        "pub enum Kind { GumboNode }",
+        "pub struct Model; impl Model { pub fn runtime(&self) {} }",
+        "pub struct Model; impl Model { pub const SOLVER: &'static str = \"solver\"; }",
+        "pub trait CanonicalBody { fn runtime(&self); const SOLVER: &'static str = \"solver\"; }",
+        "diagnostic_codes! { SolverLeak => \"solver_leak\" }",
+        "mod allocation { pub enum Point { Safe, SolverRuntimeBuffer } } #[cfg(feature = \"fault-injection\")] pub use allocation::Point;",
+        "pub struct Std001Code; impl Std001Code { pub const EXTRA_SOLVER: &'static str = \"solver\"; }",
+    ] {
+        let extracted = source_items(&parse_model_source(source, "Rust adverse control"));
+        assert!(!inventory_violations(&extracted, &tables, true).is_empty(),
+            "Rust adverse control escaped: {source}");
+    }
+
+    let without_allowlist = inventory_violations(&names, &tables, false);
+    for forbidden in ["KANI_SOLVER_ABSENT", "REGISTERED"] {
+        assert!(
+            without_allowlist
+                .iter()
+                .any(|violation| violation.contains(forbidden)),
+            "removing the allowlist must expose {forbidden}"
+        );
+    }
+    assert!(without_allowlist.iter().any(|violation| {
+        violation.starts_with("Std001Code::KANI_SOLVER_ABSENT: kani_solver_absent:")
+    }));
+}
+
+#[trace("TC-456")]
+#[test]
+fn tc_456_name_matcher_covers_case_boundaries_and_near_misses() {
+    for name in [
+        "PathBuf",
+        "PathBufs",
+        "path_buf",
+        "path_bufs",
+        "MacOS",
+        "macOS",
+        "mac_os",
+        "RunTime",
+        "RunTimes",
+        "run_time",
+        "run_times",
+        "USize",
+        "PointerWidth64",
+        "pointer_widths",
+        "MacOSX",
+        "filePath",
+        "FilePath",
+        "osPath",
+        "file_system",
+    ] {
+        assert!(
+            !portable_name_violations([name]).is_empty(),
+            "missed {name}"
+        );
+    }
+    assert!(portable_name_violations([
+        "profile_path",
+        "profilePath",
+        "repos_path",
+        "reposPath",
+        "profile_system",
+        "profileSystem",
+        "jsonpointer"
+    ])
+    .is_empty());
+    assert_eq!(name_words("filePath"), ["file", "path"]);
+}
+
+#[trace("TC-456")]
+#[test]
+fn tc_456_gated_reexport_checks_inline_enum_variants() {
+    let _: Option<quire_contract_model::MappingAllocationPoint> = None;
+    let source = parse_model_source(
+        "mod allocation { pub enum Point { Safe, SolverRuntimeBuffer } } #[cfg(feature = \"fault-injection\")] pub use allocation::Point;",
+        "gated re-export control",
+    );
+    let names = source_items(&source);
+    assert!(names
+        .iter()
+        .any(|name| name.owner == "Point" && name.name == "SolverRuntimeBuffer"));
+    assert!(!inventory_violations(&names, &std001_code_rows(STD_001), true).is_empty());
+}
+
+#[trace("TC-456")]
+#[test]
+fn tc_456_reexported_private_type_impl_is_inventoried() {
+    let source = parse_model_source(
+        "mod allocation { pub struct Point; impl Point { pub fn solver_probe(self) {} } } pub use allocation::Point;",
+        "re-exported impl control",
+    );
+    let names = source_items(&source);
+    assert!(names
+        .iter()
+        .any(|name| name.owner == "Point" && name.name == "solver_probe"));
+    assert!(!inventory_violations(&names, &std001_code_rows(STD_001), true).is_empty());
+}
+
+#[trace("TC-456")]
+#[test]
+fn tc_456_public_inline_module_is_inventoried() {
+    let source = parse_model_source(
+        "pub mod api { pub fn solver_probe() {} }",
+        "public inline module control",
+    );
+    let names = source_items(&source);
+    assert!(names.iter().any(|name| name.name == "solver_probe"));
+    assert!(!inventory_violations(&names, &std001_code_rows(STD_001), true).is_empty());
+}
+
+#[trace("TC-456")]
+#[test]
+fn tc_456_glob_reexport_is_inventoried() {
+    let source = parse_model_source(
+        "mod api { pub fn solver_probe() {} } pub use api::*;",
+        "glob re-export control",
+    );
+    let names = source_items(&source);
+    assert!(names.iter().any(|name| name.name == "solver_probe"));
+    assert!(!inventory_violations(&names, &std001_code_rows(STD_001), true).is_empty());
+}
+
+#[trace("TC-456")]
+#[test]
+fn tc_456_renamed_reexport_checks_source_name() {
+    let source = parse_model_source(
+        "mod api { pub fn solver_probe() {} } pub use api::solver_probe as probe;",
+        "renamed re-export control",
+    );
+    let names = source_items(&source);
+    assert!(names.iter().any(|name| name.name == "solver_probe"));
+    assert!(!inventory_violations(&names, &std001_code_rows(STD_001), true).is_empty());
+}
+
+#[trace("TC-456")]
+#[test]
+fn tc_456_non_root_reexport_alias_is_inventoried() {
+    let directory = std::env::temp_dir().join(format!("tc456-alias-{}", std::process::id()));
+    fs::create_dir(&directory).expect("create non-root source fixture directory");
+    fs::write(
+        directory.join("api.rs"),
+        "mod api { pub fn probe() {} } pub use api::probe as solver_probe;",
+    )
+    .expect("write non-root source fixture");
+    let names = model_source_inventory(&directory);
+    fs::remove_dir_all(&directory).expect("remove non-root source fixture directory");
+    assert!(names.iter().any(|name| name.name == "solver_probe"));
+    assert!(!inventory_violations(&names, &std001_code_rows(STD_001), true).is_empty());
+}
+
+#[trace("TC-456")]
+#[test]
+fn tc_456_unrecognized_public_declaration_fails_closed() {
+    let source = parse_model_source(
+        "extern \"C\" { pub fn runtime(); }",
+        "foreign declaration control",
+    );
+    assert!(std::panic::catch_unwind(|| source_items(&source)).is_err());
+}
+
+#[trace("TC-456")]
+#[test]
+fn tc_456_unrecognized_exported_trait_member_fails_closed() {
+    let source = parse_model_source(
+        "pub trait CanonicalBody { unknown_member!(); }",
+        "trait member control",
+    );
+    assert!(std::panic::catch_unwind(|| source_items(&source)).is_err());
+}
+
+#[trace("TC-456")]
+#[test]
+fn tc_456_constant_values_and_trait_functions_reach_the_inventory() {
+    let tables = std001_code_rows(STD_001);
+    for (source, owner, name) in [
+        (
+            "pub struct Model; impl Model { pub const LABEL: &'static str = \"solver\"; }",
+            "Model",
+            "LABEL",
+        ),
+        (
+            "pub trait CanonicalBody { fn runtime(&self); }",
+            "CanonicalBody",
+            "runtime",
+        ),
+    ] {
+        let names = source_items(&parse_model_source(source, "member control"));
+        assert!(names
+            .iter()
+            .any(|item| item.owner == owner && item.name == name));
+        assert!(
+            !inventory_violations(&names, &tables, true).is_empty(),
+            "member escaped: {source}"
+        );
+    }
+}
+
+#[trace("TC-456")]
+#[test]
+fn tc_456_solver_allowlist_requires_exact_name_value_and_std001_row() {
+    let tables = std001_code_rows(STD_001);
+    for (name, value) in [
+        ("KANI_SOLVER_OTHER", "kani_solver_absent"),
+        ("KANI_SOLVER_ABSENT", "kani_solver_other"),
+    ] {
+        let names = [PublicName::value("Std001Code", name, value)];
+        assert!(
+            !inventory_violations(&names, &tables, true).is_empty(),
+            "near miss admitted: {name}={value}"
+        );
+    }
+    let no_row = STD_001.replace("| `kani_solver_absent`", "| `kani_cause_absent`");
+    let no_row_tables = std001_code_rows(&no_row);
+    let names = [PublicName::value(
+        "Std001Code",
+        "KANI_SOLVER_ABSENT",
+        "kani_solver_absent",
+    )];
+    assert!(
+        !inventory_violations(&names, &no_row_tables, true).is_empty(),
+        "missing STD-001 row admitted"
+    );
+}
+
+#[trace("TC-456")]
+#[test]
+fn tc_456_macro_body_cannot_add_an_uninventoried_public_member() {
+    let source = parse_model_source(
+        "macro_rules! identifier_type { ($name:ident) => { pub struct $name; impl $name { pub fn solver_escape() {} } } } identifier_type!(Safe);",
+        "macro escape control",
+    );
+    let result = std::panic::catch_unwind(|| source_items(&source));
+    assert!(
+        result.is_err(),
+        "macro body public member escaped inventory"
     );
 }
 
