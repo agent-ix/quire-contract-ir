@@ -1,6 +1,6 @@
 ---
 id: "SR-13241"
-title: "IR PR 480 EARS conformance: FR-035 read-limit statement and AC-11 to AC-16"
+title: "IR PR 480 EARS conformance: FR-035 read-limit statement and AC-11 to AC-13"
 type: SpecReview
 analysis: ears-conformance
 review_set: subset
@@ -16,11 +16,16 @@ relationships:
 
 Ticket: IR-889. PR: agent-ix/quire-contract-ir#480 at the reviewed PR head.
 
+Renumbering note: after IR PR #479 (IR-893) merged with its own FR-035-AC-12 to AC-14, this
+PR's criteria were renumbered. The AC-12 and AC-13 named in this review, including its findings
+and dispositions, are now FR-035-AC-15 and FR-035-AC-16. This review records the ids as they
+stood when it was written.
+
 Examined: the five sentences added to the FR-035 statement, the amended FR-035-AC-11, and the new
-FR-035-AC-15 and AC-16.
+FR-035-AC-12 and AC-13.
 
 - AC-11 keeps its state-driven "Given ..., `read` returns ..." shape.
-- AC-15 and AC-16 are condition-and-response criteria. Each has one named reader, a stated
+- AC-12 and AC-13 are condition-and-response criteria. Each has one named reader, a stated
   precondition ("otherwise valid canonical package"), and paired boundary outcomes (admit at the
   total, `Incomplete` one below). Those are a single boundary obligation, not a compound one.
 - None of the three uses a vague term.

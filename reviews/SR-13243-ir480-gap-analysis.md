@@ -16,10 +16,15 @@ relationships:
 
 Ticket: IR-889. PR: agent-ix/quire-contract-ir#480 at the reviewed PR head. Plan completion: not assessed.
 
+Renumbering note: after IR PR #479 (IR-893) merged with its own FR-035-AC-12 to AC-14, this
+PR's criteria were renumbered. The AC-12 and AC-13 named in this review, including its findings
+and dispositions, are now FR-035-AC-15 and FR-035-AC-16. This review records the ids as they
+stood when it was written.
+
 Computed matrix delta, from `quire matrix --format tsv` (quire 0.36.2) at the reviewed merge base
 and at the PR head:
 
-- Exactly two rows were added: FR-035-AC-15 and AC-16, each `untagged`.
+- Exactly two rows were added: FR-035-AC-12 and AC-13, each `untagged`.
 - FR-035-AC-11 stays `tagged` by `reader_incomplete_reports_each_exhausted_meter_and_pointer`
   (tests/it/complete_v1_contract_package.rs:215-298).
 - No other row changed, and 0 are contradicted.
@@ -52,4 +57,4 @@ tagged by a test of its superseded behaviour.
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Fix commit 36d5036 names the stale assertions in the TC-047 Status and both tests.md rows: occurrence limit 0 expects `/source_map` and consumed 2, and work limit 7 expects `/semantic_graph/nodes/2/node_id`. It says they do not back amended AC-11, and it marks AC-11 and AC-15 through AC-16 PLANNED/UNRUN until the code PR rewrites the test. |
+| FND-001 | fixed | Fix commit 36d5036 names the stale assertions in the TC-047 Status and both tests.md rows: occurrence limit 0 expects `/source_map` and consumed 2, and work limit 7 expects `/semantic_graph/nodes/2/node_id`. It says they do not back amended AC-11, and it marks AC-11 through AC-13 PLANNED/UNRUN until the code PR rewrites the test. |
