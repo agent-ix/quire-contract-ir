@@ -175,7 +175,8 @@ admit no `ContractPackageV1`.
 | FR-035-AC-13 | Given otherwise valid `ContractPackageWireV1` bytes with leading whitespace before the canonical JSON value, `ContractPackageWireV1::read` returns `Refused` with code `noncanonical_wire`, absent path, and absent cause; it returns no admitted package. | Test |
 | FR-035-AC-14 | Given an otherwise valid canonical `ContractPackageWireV1` except that its first `feature_accounting` record names a requested node other than the first `source_map.requested_items` entry, `ContractPackageWireV1::read` returns `Refused` with code `invalid_package`, path `/feature_accounting`, and cause `invalid_value`; it returns no admitted package. | Test |
 
-FR-035-AC-12 through FR-035-AC-14 are planned until TC-047 tests carry their trace tags.
+FR-035-AC-12 through FR-035-AC-14 are backed by tagged TC-047 reader tests in
+`tests/it/complete_v1_contract_package.rs`; the specified workspace test gate, lint, and grammar validation pass.
 
 ## Dependencies
 
