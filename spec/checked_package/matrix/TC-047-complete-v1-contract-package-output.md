@@ -49,12 +49,16 @@ validation stops or the failed-charge pointer reported by reference validation,
 which may name another node member. Assert neither outcome admits a package.
 The work meter's scope is open under IR-889.
 
-For FR-035-AC-12, remove `source_map` from an otherwise valid canonical
-package and assert `Refused(invalid_package)` at root path `""` with cause
-`missing_member`. For FR-035-AC-13, prepend one space to otherwise valid
+For FR-035-AC-12, remove each of the six required top-level members
+(`contract_version`, `package`, `semantic_graph`, `source_map`,
+`feature_accounting`, and `identity`) separately from otherwise valid canonical
+packages and assert `Refused(invalid_package)` at root path `""` with cause
+`missing_member` for every omission. Include the separate `contract_version`
+reader branch. For FR-035-AC-13, prepend one space to otherwise valid
 canonical bytes and assert `Refused(noncanonical_wire)` with no path or cause.
-For FR-035-AC-14, change the first `feature_accounting.node_id` to a different
-valid requested node, recompute the package identity, and assert
+For FR-035-AC-14, change only the first `feature_accounting.node_id` in an
+otherwise valid canonical package to a different valid requested node,
+recompute the package identity, and assert
 `Refused(invalid_package)` at `/feature_accounting` with cause `invalid_value`.
 Each case admits no `ContractPackageV1`.
 
