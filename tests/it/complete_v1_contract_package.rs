@@ -9,7 +9,8 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageV2,
+    CheckedNodeId, CheckedNodeTag, CheckedPackageLimit, CheckedPackageReadLimits,
+    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, CheckedPackageV2,
     CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
     ContractDependencies, ContractDispositionV1, ContractPackageReadResult, ContractPackageWireV1,
     ContractRootViewV1, CONTRACT_IR_SEMANTIC_DOMAIN, CONTRACT_PACKAGE_VERSION,
@@ -130,6 +131,124 @@ fn read(bytes: &[u8]) -> ContractPackageReadResult {
         CheckedPackageReadLimits::bounded(),
         &ContractDependencies::new(),
     )
+}
+
+fn read_with_limits(bytes: &[u8], limits: CheckedPackageReadLimits) -> ContractPackageReadResult {
+    ContractPackageWireV1::read(bytes, limits, &ContractDependencies::new())
+}
+
+#[trace("TC-047", "FR-035-AC-10")]
+#[test]
+fn reader_refuses_wrong_string_version_before_shape_identity_and_nodes() {
+    let output = lower(&mixed_fixture(), &request());
+    let mut wire: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
+    let wrong = "quire.contract-package/v9";
+    wire["contract_version"] = json!(wrong);
+    let canonical_wrong = canonical(&wire);
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical_wrong) else {
+        panic!("wrong string version must refuse");
+    };
+    assert_eq!(refusal.code, Code::UnknownContractVersion);
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some("/contract_version")
+    );
+    assert_eq!(refusal.contract_version.as_deref(), Some(wrong));
+    assert_eq!(refusal.cause, None);
+    assert_eq!(refusal.locus, None);
+
+    // Canonical shape, identity, and node defects cannot mask the version refusal.
+    let mut no_source_map = wire.clone();
+    no_source_map
+        .as_object_mut()
+        .expect("object")
+        .remove("source_map");
+    let mut bad_identity = wire.clone();
+    bad_identity["identity"]["digest"] = json!("0".repeat(64));
+    let mut no_nodes = wire.clone();
+    no_nodes["semantic_graph"]["nodes"] = json!(0);
+    for defective in [no_source_map, bad_identity, no_nodes] {
+        let ContractPackageReadResult::Refused(refusal) = read(&canonical(&defective)) else {
+            panic!("version must win over shape, identity, and node checks");
+        };
+        assert_eq!(refusal.code, Code::UnknownContractVersion);
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some("/contract_version")
+        );
+        assert_eq!(refusal.contract_version.as_deref(), Some(wrong));
+        assert_eq!(refusal.cause, None);
+        assert_eq!(refusal.locus, None);
+    }
+
+    let mut numeric: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
+    numeric["contract_version"] = json!(4);
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&numeric)) else {
+        panic!("numeric version must refuse as wrong value kind");
+    };
+    assert_eq!(refusal.code, Code::InvalidPackage);
+    assert_eq!(refusal.cause, Some(Cause::WrongValueKind));
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some("/contract_version")
+    );
+    assert_eq!(refusal.contract_version, None);
+}
+
+#[trace("TC-047", "FR-035-AC-11")]
+#[test]
+fn reader_incomplete_reports_each_exhausted_meter_and_pointer() {
+    let output = lower(&mixed_fixture(), &request());
+    let wire = bytes(&output);
+    assert_eq!(wire.len(), 9864);
+    assert!(matches!(read(wire), ContractPackageReadResult::Admitted(_)));
+    let cases = [
+        (CheckedPackageLimit::Bytes, 9863, 9864, None),
+        (
+            CheckedPackageLimit::Nodes,
+            2,
+            3,
+            Some("/semantic_graph/nodes"),
+        ),
+        // The second edge is held by node 2 in the fixture's canonical node array;
+        // <i> is the index of the node whose dependencies list fails the charge.
+        (
+            CheckedPackageLimit::Edges,
+            1,
+            2,
+            Some("/semantic_graph/nodes/2/dependencies"),
+        ),
+        (CheckedPackageLimit::Occurrences, 0, 2, Some("/source_map")),
+        (
+            CheckedPackageLimit::Work,
+            0,
+            1,
+            Some("/semantic_graph/nodes/0/body"),
+        ),
+    ];
+    for (kind, limit, consumed, path) in cases {
+        let mut limits = CheckedPackageReadLimits::bounded();
+        match kind {
+            CheckedPackageLimit::Bytes => limits.bytes = limit,
+            CheckedPackageLimit::Nodes => limits.nodes = limit,
+            CheckedPackageLimit::Edges => limits.edges = limit,
+            CheckedPackageLimit::Occurrences => limits.occurrences = limit,
+            CheckedPackageLimit::Work => limits.work = limit,
+            CheckedPackageLimit::Diagnostics => unreachable!(),
+        }
+        let ContractPackageReadResult::Incomplete(incomplete) = read_with_limits(wire, limits)
+        else {
+            panic!("{kind:?} limit must return Incomplete");
+        };
+        assert_eq!(incomplete.limit_kind, kind);
+        assert_eq!(incomplete.limit, limit);
+        assert_eq!(incomplete.consumed, consumed, "{kind:?}");
+        assert_eq!(
+            incomplete.path.as_ref().map(|path| path.as_str()),
+            path,
+            "{kind:?}"
+        );
+    }
 }
 
 fn body_keys(value: &Value, keys: &mut Vec<CheckedNodeId>) {
