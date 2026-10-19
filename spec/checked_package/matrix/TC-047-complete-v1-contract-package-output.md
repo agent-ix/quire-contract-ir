@@ -75,8 +75,9 @@ For FR-035-AC-12, remove each of the six required top-level members
 `feature_accounting`, and `identity`) separately from otherwise valid canonical
 packages and assert `Refused(invalid_package)` at root path `""` with cause
 `missing_member` for every omission. Include the separate `contract_version`
-reader branch. For FR-035-AC-13, prepend one space to otherwise valid
-canonical bytes and assert `Refused(noncanonical_wire)` with no path or cause.
+reader branch. For FR-035-AC-13, prepend a space, tab, LF, or CR separately to
+otherwise valid canonical bytes and assert `Refused(noncanonical_wire)` with no
+path or cause.
 For FR-035-AC-14, change only the first `feature_accounting.node_id` in an
 otherwise valid canonical package to a different valid requested node,
 recompute the package identity, and assert
@@ -89,11 +90,11 @@ Select a dependency under `package.source.lock.dependency_selections`, then
 change its selected package digest, recompute the contract package identity,
 and supply the original dependency. Assert `Refused(stale_dependency)` at
 `/package/source/lock/dependency_selections/0` with cause `content_mismatch`.
-These two cases admit no package. The later tests-first PR shall retag
-`reader_refuses_malformed_outer_shape_and_stale_own_identity` and
-`selected_dependencies_are_bound_by_library_identity_before_graph_checks`
-from FR-035-AC-5 to FR-035-AC-2 for these assertions, splitting their mixed
-assertions where needed so AC-5 still owns its unrelated checks.
+These two cases admit no package. The tests
+`reader_refuses_stale_own_identity_at_digest` and
+`reader_refuses_stale_selected_dependency_at_selection` carry FR-035-AC-2;
+the separate malformed-shape and dependency-selection tests retain FR-035-AC-5
+for their unrelated checks.
 
 From a genuinely admitted mixed graph, query the typed view for a lowered root
 whose local closure uses `semantic_type`, declared `dependencies`, and body
@@ -153,6 +154,9 @@ The tagged `reader_incomplete_reports_each_exhausted_meter_and_pointer` test
 backs amended FR-035-AC-11 with exact failed-charge counts and pointers.
 Tagged boundary tests back FR-035-AC-15 and FR-035-AC-16, including cumulative
 work across both validation passes and occurrence and region charges in order.
-FR-035-AC-12 through FR-035-AC-14 and the FR-035-AC-2 TC-047 retags are
-PLANNED/UNRUN until the later tests-first PR adds the trace evidence. TC-044's
-FR-330 status remains PLANNED/UNRUN.
+FR-035-AC-12 through FR-035-AC-14 are backed by tagged TC-047 reader tests
+covering all six missing top-level members, four leading whitespace bytes, and
+a later represented requested root in the first accounting record. The stale
+own-identity and selected-dependency refusals carry FR-035-AC-2 tags and
+assert the specified cause and path. TC-044's FR-330 status remains
+PLANNED/UNRUN.

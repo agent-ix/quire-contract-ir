@@ -189,7 +189,8 @@ admit no `ContractPackageV1`.
 | FR-035-AC-15 | For an otherwise valid canonical package on which both value and reference validation charge work, the reader admits when `limits.work` equals the independently counted total visits across both passes and returns `Incomplete` when it is one less, with `limit_kind = Work`, the selected limit, `consumed` equal to the cumulative count at the first failed charge, and `path` naming that charge in either pass. A limit that fits each pass separately but is below their combined count also returns `Incomplete`, never `Admitted`; no second meter restarts at zero. | Test |
 | FR-035-AC-16 | For an otherwise valid canonical package with source-map occurrences and regions, a limit one below the independently counted combined occurrence and region charges returns `Incomplete` with `limit_kind = Occurrences`, the selected limit, `consumed` equal to the count at the first failed charge, and `path` naming the particular occurrence value under `/source_map/nodes/<i>/occurrences/<j>`, `/source_map/requested_items/<i>/occurrences/<j>` or `/source_map/refusals/<i>/occurrences/<j>`, or its `/regions/<k>` member, whose charge crossed the limit. A limit equal to that total admits; a stop does not report only `/source_map`. | Test |
 
-FR-035-AC-12 through FR-035-AC-14 are planned until TC-047 tests carry their trace tags.
+FR-035-AC-12 through FR-035-AC-14 are backed by tagged TC-047 reader tests in
+`tests/it/complete_v1_contract_package.rs`; the specified workspace test gate, lint, and grammar validation pass.
 
 ## Dependencies
 
