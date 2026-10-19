@@ -8,11 +8,251 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     derive_structural_candidates, CheckedSemanticNodeV2, StructuralCandidateError,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 
 const MODEL_ROOT: &str = include_str!("../../crates/quire-contract-model/src/lib.rs");
 const BRIDGE_ROOT: &str = include_str!("../../src/lib.rs");
 const FR_019: &str = include_str!("../../spec/model/functional/FR-019-rust-library-interface.md");
+
+/// Forbidden terms. A term matches inside any one word of a name, or as the
+/// concatenation of adjacent words that starts with the term and reaches into
+/// the last word, so `PathBuf`, `path_bufs`, `macOS`, `PointerWidth64`,
+/// `file_path` and `filePath` match while `profile_path` does not.
+const FORBIDDEN_PUBLIC_NAME_TERMS: [&str; 16] = [
+    "rust",
+    "gumbo",
+    "aadl",
+    "hamr",
+    "solver",
+    "runtime",
+    "usize",
+    "isize",
+    "pathbuf",
+    "filesystem",
+    "filepath",
+    "ospath",
+    "pointerwidth",
+    "linux",
+    "windows",
+    "macos",
+];
+
+/// Lowercase words of a name, split on separators and camelCase boundaries.
+fn name_words(name: &str) -> Vec<String> {
+    let characters = name.chars().collect::<Vec<_>>();
+    let mut words = Vec::<String>::new();
+    let mut current = String::new();
+    for (index, character) in characters.iter().copied().enumerate() {
+        if !character.is_ascii_alphanumeric() {
+            if !current.is_empty() {
+                words.push(std::mem::take(&mut current));
+            }
+            continue;
+        }
+        if character.is_ascii_uppercase() && !current.is_empty() {
+            let previous = characters[index - 1];
+            let next_is_lower = characters
+                .get(index + 1)
+                .is_some_and(char::is_ascii_lowercase);
+            if !previous.is_ascii_uppercase() || next_is_lower {
+                words.push(std::mem::take(&mut current));
+            }
+        }
+        current.push(character.to_ascii_lowercase());
+    }
+    if !current.is_empty() {
+        words.push(current);
+    }
+    words
+}
+
+fn portable_name_violations<I, S>(names: I) -> Vec<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut violations = Vec::new();
+    for name in names {
+        let name = name.as_ref();
+        let words = name_words(name);
+        for term in FORBIDDEN_PUBLIC_NAME_TERMS {
+            let in_word = words.iter().any(|word| word.contains(term));
+            let across_words = (0..words.len()).any(|start| {
+                (start + 2..=words.len()).any(|end| {
+                    let before_last = words[start..end - 1].concat();
+                    before_last.len() < term.len() && words[start..end].concat().starts_with(term)
+                })
+            });
+            if in_word || across_words {
+                violations.push(format!("{name}: {term}"));
+            }
+        }
+    }
+    violations
+}
+
+/// Public modules of the model crate named by the merged TC-456 procedure; a
+/// newly declared public module fails the inventory until it is added here and
+/// its names are checked.
+const CURRENT_PUBLIC_MODULES: [&str; 2] = ["selected_population", "source_obligation"];
+
+/// Parses one model source file; a file that does not parse fails the test.
+fn parse_model_source(source: &str, what: &str) -> syn::File {
+    syn::parse_file(source).unwrap_or_else(|error| panic!("{what} must parse: {error}"))
+}
+
+fn parse_model_module(module: &str) -> syn::File {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("crates/quire-contract-model/src")
+        .join(format!("{module}.rs"));
+    let source = fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("public module {module} must be readable: {error}"));
+    parse_model_source(&source, module)
+}
+
+/// `(module path, exported name)` for every leaf of a `use` tree; an alias
+/// exports its alias and a glob is refused.
+fn use_tree_exports(tree: &syn::UseTree, prefix: &[String], out: &mut Vec<(String, String)>) {
+    match tree {
+        syn::UseTree::Path(path) => {
+            let mut next = prefix.to_vec();
+            next.push(path.ident.to_string());
+            use_tree_exports(&path.tree, &next, out);
+        }
+        syn::UseTree::Name(name) => out.push((prefix.join("::"), name.ident.to_string())),
+        syn::UseTree::Rename(rename) => out.push((prefix.join("::"), rename.rename.to_string())),
+        syn::UseTree::Glob(_) => panic!("public glob re-export: {}::*", prefix.join("::")),
+        syn::UseTree::Group(group) => {
+            for item in &group.items {
+                use_tree_exports(item, prefix, out);
+            }
+        }
+    }
+}
+
+/// The public declarations of a source file. Items that are not `pub` (inherited
+/// or `pub(...)` restricted) are not public API. A public declaration of an
+/// unrecognized kind, an inline module, or a macro invocation fails.
+enum PublicDeclaration {
+    Module(String),
+    Export { module: String, name: String },
+    Item(String),
+}
+
+fn public_declarations(file: &syn::File) -> Vec<PublicDeclaration> {
+    use syn::{Item, Visibility};
+    let mut out = Vec::new();
+    for item in &file.items {
+        let (visibility, name) = match item {
+            Item::Use(item) => {
+                if matches!(item.vis, Visibility::Public(_)) {
+                    let mut exports = Vec::new();
+                    use_tree_exports(&item.tree, &[], &mut exports);
+                    out.extend(
+                        exports
+                            .into_iter()
+                            .map(|(module, name)| PublicDeclaration::Export { module, name }),
+                    );
+                }
+                continue;
+            }
+            Item::Mod(item) => {
+                if matches!(item.vis, Visibility::Public(_)) {
+                    assert!(
+                        !item.attrs.iter().any(|attr| attr.path().is_ident("path")),
+                        "public module {} redirected by #[path]",
+                        item.ident
+                    );
+                    assert!(
+                        item.content.is_none(),
+                        "inline public module: {}",
+                        item.ident
+                    );
+                    out.push(PublicDeclaration::Module(item.ident.to_string()));
+                }
+                continue;
+            }
+            Item::Fn(item) => (&item.vis, item.sig.ident.to_string()),
+            Item::Struct(item) => (&item.vis, item.ident.to_string()),
+            Item::Enum(item) => (&item.vis, item.ident.to_string()),
+            Item::Union(item) => (&item.vis, item.ident.to_string()),
+            Item::Const(item) => (&item.vis, item.ident.to_string()),
+            Item::Static(item) => (&item.vis, item.ident.to_string()),
+            Item::Trait(item) => (&item.vis, item.ident.to_string()),
+            Item::TraitAlias(item) => (&item.vis, item.ident.to_string()),
+            Item::Type(item) => (&item.vis, item.ident.to_string()),
+            Item::ExternCrate(item) => (&item.vis, item.ident.to_string()),
+            Item::Impl(_) => continue,
+            Item::Macro(item) => {
+                assert!(
+                    item.mac.path.is_ident("macro_rules"),
+                    "macro invocation can declare unreviewed public items"
+                );
+                continue;
+            }
+            _ => panic!("unrecognized item kind in a public-name inventory"),
+        };
+        if matches!(visibility, Visibility::Public(_)) {
+            out.push(PublicDeclaration::Item(name));
+        }
+    }
+    out
+}
+
+fn collect_schema_names(value: &Value, names: &mut Vec<String>) {
+    match value {
+        Value::Object(object) => {
+            for field in ["properties", "$defs", "definitions"] {
+                if let Some(entries) = object.get(field).and_then(Value::as_object) {
+                    names.extend(entries.keys().cloned());
+                }
+            }
+            if let Some(title) = object.get("title").and_then(Value::as_str) {
+                names.push(title.to_owned());
+            }
+            if let Some(variants) = object.get("enum").and_then(Value::as_array) {
+                names.extend(variants.iter().filter_map(Value::as_str).map(str::to_owned));
+            }
+            for child in object.values() {
+                collect_schema_names(child, names);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_schema_names(item, names);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn public_schema_names() -> Vec<Vec<String>> {
+    let schemas = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("schemas");
+    let mut paths = fs::read_dir(schemas)
+        .expect("schema directory must be readable")
+        .map(|entry| entry.expect("schema entry must be readable").path())
+        .filter(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().ends_with(".schema.json"))
+        })
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths
+        .into_iter()
+        .map(|path| {
+            let mut names = vec![path
+                .file_name()
+                .expect("schema path has a filename")
+                .to_string_lossy()
+                .into_owned()];
+            let schema: Value =
+                serde_json::from_slice(&fs::read(path).expect("schema must be readable"))
+                    .expect("public schema must be JSON");
+            collect_schema_names(&schema, &mut names);
+            names
+        })
+        .collect()
+}
 
 fn quoted_names(text: &str) -> impl Iterator<Item = &str> {
     text.split('`').skip(1).step_by(2)
@@ -48,32 +288,32 @@ fn expected_items() -> BTreeMap<String, BTreeSet<String>> {
 
 fn exported_items() -> BTreeMap<String, BTreeSet<String>> {
     let mut items = BTreeMap::<String, BTreeSet<String>>::new();
-    let mut exports = MODEL_ROOT.split("pub use ").skip(1);
-    for export in exports.by_ref() {
-        let statement = export
-            .split(';')
-            .next()
-            .expect("export must end with semicolon");
-        assert!(
-            !statement.contains('*'),
-            "model root must not glob-export: {statement}"
-        );
-        if statement.starts_with("output_mapping::MappingAllocationPoint") {
-            continue;
-        }
-        let (module, names) = statement
-            .split_once("::{")
-            .expect("default-feature model exports must name items in braces");
-        let names = names.strip_suffix('}').expect("item list must close");
-        for name in names
-            .split(',')
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-        {
-            assert!(
-                items.entry(module.into()).or_default().insert(name.into()),
-                "duplicate export: {module}::{name}"
-            );
+    let root = parse_model_source(MODEL_ROOT, "model crate root");
+    let mut public_modules = BTreeSet::new();
+    for declaration in public_declarations(&root) {
+        match declaration {
+            PublicDeclaration::Module(module) => {
+                assert!(
+                    CURRENT_PUBLIC_MODULES.contains(&module.as_str()),
+                    "unrecognized public model module: {module}"
+                );
+                public_modules.insert(module);
+            }
+            PublicDeclaration::Export { module, name } => {
+                if module == "output_mapping" && name == "MappingAllocationPoint" {
+                    continue;
+                }
+                assert!(
+                    items
+                        .entry(module.clone())
+                        .or_default()
+                        .insert(name.clone()),
+                    "duplicate export: {module}::{name}"
+                );
+            }
+            PublicDeclaration::Item(name) => {
+                panic!("unrecognized public model-root declaration: {name}")
+            }
         }
     }
     let mut sources =
@@ -116,69 +356,21 @@ fn exported_items() -> BTreeMap<String, BTreeSet<String>> {
         .entry("code".into())
         .or_default()
         .extend(exported_macros);
-    if MODEL_ROOT
-        .lines()
-        .any(|line| line.trim() == "pub mod source_obligation;")
-    {
+    for module in public_modules {
+        let names = public_declarations(&parse_model_module(&module))
+            .into_iter()
+            .map(|declaration| match declaration {
+                PublicDeclaration::Item(name) | PublicDeclaration::Export { name, .. } => name,
+                PublicDeclaration::Module(nested) => {
+                    panic!("nested public module in {module}: {nested}")
+                }
+            })
+            .collect::<Vec<_>>();
         items
             .entry("crate_root".into())
             .or_default()
-            .insert("source_obligation".into());
-        let source = fs::read_to_string(
-            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("crates/quire-contract-model/src/source_obligation.rs"),
-        )
-        .expect("source-obligation module must be readable");
-        let module_items = source.lines().filter_map(|line| {
-            let declaration = line.strip_prefix("pub ")?;
-            let name = declaration
-                .strip_prefix("struct ")
-                .or_else(|| declaration.strip_prefix("enum "))
-                .or_else(|| declaration.strip_prefix("trait "))
-                .or_else(|| declaration.strip_prefix("fn "))?;
-            Some(
-                name.split(|character: char| {
-                    !character.is_ascii_alphanumeric() && character != '_'
-                })
-                .next()?
-                .to_owned(),
-            )
-        });
-        items
-            .entry("source_obligation".into())
-            .or_default()
-            .extend(module_items);
-    }
-    if MODEL_ROOT
-        .lines()
-        .any(|line| line.trim() == "pub mod selected_population;")
-    {
-        items
-            .entry("crate_root".into())
-            .or_default()
-            .insert("selected_population".into());
-        let source = fs::read_to_string(
-            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("crates/quire-contract-model/src/selected_population.rs"),
-        )
-        .expect("selected-population facade must be readable");
-        let declaration = source
-            .split_once("pub use crate::checked_package::{")
-            .expect("selected-population facade must name its exports")
-            .1
-            .split_once("};")
-            .expect("selected-population export list must close")
-            .0;
-        items
-            .entry("selected_population".into())
-            .or_default()
-            .extend(
-                declaration
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|name| !name.is_empty())
-                    .map(str::to_owned),
-            );
+            .insert(module.clone());
+        items.entry(module).or_default().extend(names);
     }
     items
 }
@@ -204,6 +396,75 @@ fn tc_058_model_root_exports_exactly_the_documented_public_items() {
     assert!(MODEL_ROOT
         .lines()
         .any(|line| line == "pub mod selected_population;"));
+}
+
+#[trace("TC-456", "NFR-002-AC-1")]
+#[test]
+fn tc_456_public_schema_and_model_names_are_portable() {
+    let forbidden_schema = json!({
+        "title": "RuntimeHandle",
+        "properties": { "pointer_width": { "enum": ["GumboNode"] } }
+    });
+    let mut forbidden_names = Vec::new();
+    collect_schema_names(&forbidden_schema, &mut forbidden_names);
+    assert_eq!(portable_name_violations(forbidden_names).len(), 3);
+    assert!(portable_name_violations(["jsonpointer"]).is_empty());
+    assert_eq!(
+        portable_name_violations(["PathBuf", "path_buf", "MacOS", "macOS", "mac_os"]).len(),
+        5
+    );
+    assert_eq!(
+        portable_name_violations(["RunTime", "run_time", "USize"]).len(),
+        3
+    );
+    assert_eq!(
+        portable_name_violations([
+            "PointerWidth64",
+            "PathBufs",
+            "path_bufs",
+            "RunTimes",
+            "run_times",
+            "MacOSX"
+        ])
+        .len(),
+        6
+    );
+    assert!(portable_name_violations(["profile_path", "repos_path", "profile_system"]).is_empty());
+    assert_eq!(
+        portable_name_violations(["filePath", "FilePath", "osPath", "file_system"]).len(),
+        4
+    );
+
+    let model_items = exported_items();
+    let inventoried_modules = model_items
+        .get("crate_root")
+        .expect("public modules must be inventoried")
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        inventoried_modules,
+        CURRENT_PUBLIC_MODULES.into_iter().collect::<BTreeSet<_>>()
+    );
+    for module in inventoried_modules {
+        assert!(
+            model_items
+                .get(module)
+                .is_some_and(|items| !items.is_empty()),
+            "public module {module} must have an item inventory"
+        );
+    }
+    let model_names = model_items
+        .into_iter()
+        .flat_map(|(module, items)| std::iter::once(module).chain(items));
+    let schema_names = public_schema_names();
+    assert!(!schema_names.is_empty(), "public schemas must be present");
+    let violations =
+        portable_name_violations(model_names.chain(schema_names.into_iter().flatten()));
+    assert!(
+        violations.is_empty(),
+        "forbidden public names: {violations:?}"
+    );
 }
 
 #[trace("TC-058", "FR-019-AC-5")]
