@@ -108,6 +108,15 @@ type: TestMatrix
 | FR-038 | FR-038-AC-305, FR-038-AC-306 | TC-229 | Implemented; focused tests pass | Both model operations over declared references and typed parameter bindings; dependency and identity distinctions, result bound placement, and forbidden position refusals. |
 | FR-038 | FR-038-AC-307 | TC-229 | Implemented; QSpec conformance passes | Direct selected-checkout QSpec vectors and adverse recipes; no fixture copy. |
 
+## Quantity literal and unit type-reference reader coverage (IR-938)
+
+| Functional Req | Acceptance Criteria | Test Case | Status | Required cases |
+|---|---|---|---|---|
+| FR-038 | FR-038-AC-299 | TC-230 | 🚧 PLANNED/UNRUN; spec-first | Canonical and rejected quantity magnitudes, unit family, and wrong literal type. |
+| FR-038 | FR-038-AC-300 | TC-230 | 🚧 PLANNED/UNRUN; spec-first | Checked-unit typeRef for fields, parameters and results; missing name and argument mismatches. |
+| FR-038 | FR-038-AC-301 | TC-230 | 🚧 PLANNED/UNRUN; spec-first | Separate type, dimension and unit name namespaces; duplicate refusal order. |
+| FR-038 | FR-038-AC-302 | TC-230 | 🚧 PLANNED/UNRUN; spec-first | Selected-checkout QSpec cases and strict-coverage comparison. |
+
 ## Pending structural type work coverage (IR-490)
 
 | Functional Req | Acceptance Criteria | Test Case | Status | Required cases |

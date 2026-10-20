@@ -4623,6 +4623,33 @@ identity, declaration, frame and resource refusals retain their existing
 precedence; the native literal and operation checks run in the existing
 operation step under the same bounded work accounting.
 
+### Quantity literals and checked-unit type references
+
+The V2 reader SHALL admit a `literal` with `value_kind: "quantity"` only when
+its `type` names a `scalar_type`/`unit` node. That node supplies the `quantity`
+operand family. The literal `value` is a canonical exact rational magnitude:
+an integer `n` or a reduced fraction `n/d` with a positive denominator,
+following QSpec FR-322's scalar-literal rule. A literal of another kind typed
+by a unit, or a quantity literal typed by another family, SHALL refuse
+`ill_typed`/`operator-ineligible` at the literal type. A quantity magnitude
+outside that canonical grammar SHALL refuse `invalid_package`/`invalid-value`
+at the value. No conversion, rounding or normalization repairs the wire.
+
+A selected model document's field, operation parameter or operation result
+`typeRef` may name `ix://quire/unit/<name>`, where `<name>` is the checked
+package unit declaration's qualified-name segments joined with `/`. The
+reader SHALL resolve it to that unit's existing `scalar_type`/`unit` node,
+through the same multiplicity and presence tables as other member types; it
+introduces no new type node. An unresolved unit name SHALL refuse
+`missing_declaration`/`missing-name`, and an argument typed by another unit or
+family SHALL refuse `ill_typed`/`operator-ineligible`.
+
+Declaration names SHALL be unique within each of the `types`, `dimensions`
+and `units` namespaces. The same qualified name may occur once in each
+namespace. Two nodes of one namespace with that name SHALL refuse
+`ambiguous_declaration`/`ambiguous-name` at the later node in node-id order.
+The reader SHALL decide this before operation admission.
+
 ### Retain a production-derived expected node key
 
 When the reader refuses a graph node as `invalid_package` with cause
@@ -4971,6 +4998,10 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-305 | `quire.op.model.all_instances` and `quire.op.model.lookup` each admit a reference to a declared population as operand 0 and list it in dependencies; the same declared population is one reference node across both reads, while the two named populations yield distinct reference, application and package identities. A `value`/`parameter` typed `Population<O>[N]` remains an admitted operand 0. A unit maximum is represented only in the application's result-type collection bounds, not in the declared population node. | Test (TC-229) |
 | FR-038-AC-306 | A declared population reference used as a `collection_kind` operand, as the `population` link of a reaches `relationship_end`, or as the declaring node of a `field`, `operation` or `relationship_end` member refuses `ill_typed`/`operator-ineligible` at that operand or member. An otherwise identical binding typed by `bounded_domain`/`model_population` keeps its existing outcome. | Test (TC-229) |
 | FR-038-AC-307 | The reader consumes QSpec's selected-checkout published population-reference vectors and operation fixture directly, without copying them into this repository: it admits the amended positive package and checks its package, application and operand identities; it refuses the retired ownerless relation/population operand as `malformed_wire`; and it matches the `population_reference_cases` adverse outcomes by code, cause and locus. | Test (TC-229) |
+| FR-038-AC-299 | A `quantity` literal typed by a `scalar_type`/`unit` node admits with family `quantity` for the canonical magnitudes `3`, `0`, `-5`, `1/1000` and `-7/2`. Each of `03`, `+3`, `2/4`, `4/2`, `1/0`, `0/5`, `3/1`, `1/-2`, ` 3`, `2.5` and the empty value refuses `invalid_package`/`invalid-value` at `value`. A quantity literal typed by an integer, string or Boolean node, and an integer literal typed by a unit node, refuse `ill_typed`/`operator-ineligible` at `type`; the V2 schemas enumerate `quantity`. | Test (TC-230) |
+| FR-038-AC-300 | A field, operation parameter and operation result `typeRef` `ix://quire/unit/ms` resolve to the checked package's existing `ms` unit node and retain `Quantity<ms>` under scalar, optional and set multiplicities. A missing `ix://quire/unit/ghost` refuses `missing_declaration`/`missing-name`; a `Quantity<s>` or integer argument to a parameter requiring `Quantity<ms>` refuses `ill_typed`/`operator-ineligible`. No unit type node is synthesized from the model document. | Test (TC-230) |
+| FR-038-AC-301 | A unit, dimension and record with the same qualified declaration name admit as three namespaces; two units or two types with that name refuse `ambiguous_declaration`/`ambiguous-name` at the later node in node-id order before operation checks. | Test (TC-230) |
+| FR-038-AC-302 | TC-230 consumes QSpec's selected-checkout QL-01..04, MU-01..06 and NS-01..03 cases directly or constructs their recorded wire shapes through the public reader, checks accepted and refused outcomes by code, cause and locus, and compares strict coverage with the main-branch baseline. | Test (TC-230) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
