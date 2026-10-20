@@ -1169,7 +1169,7 @@ fn wire_selecting_lib_a() -> (CheckedPackageV2, Value) {
     (dependency, wire)
 }
 
-#[trace("TC-937", "FR-330-AC-11")]
+#[trace("TC-047", "FR-035-AC-17")]
 #[test]
 fn contract_reader_refuses_different_ids_in_derived_dependency_diamond() {
     use crate::support::checked_package::{

@@ -474,7 +474,7 @@ fn tc_048_a_dependency_entry_binds_by_identity_and_package_id() {
     assert_eq!(missing.actual, None);
 }
 
-#[trace("TC-233", "FR-322-AC-75")]
+#[trace("TC-048", "FR-038-AC-293")]
 #[test]
 fn diamond_with_different_transitive_package_ids_refuses() {
     let base = v2_all_families();
@@ -525,7 +525,7 @@ fn diamond_with_different_transitive_package_ids_refuses() {
     );
 }
 
-#[trace("TC-233", "FR-322-AC-35")]
+#[trace("TC-048", "FR-038-AC-31")]
 #[test]
 fn reader_admits_an_overlisted_transitive_selection_as_a_direct_claim() {
     let base = v2_all_families();
@@ -549,7 +549,7 @@ fn reader_admits_an_overlisted_transitive_selection_as_a_direct_claim() {
     ));
 }
 
-#[trace("TC-233", "FR-322-AC-75")]
+#[trace("TC-048", "FR-038-AC-293")]
 #[test]
 fn one_direct_edge_still_refuses_a_conflicting_identity_below_it() {
     let base = v2_all_families();

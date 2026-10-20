@@ -446,7 +446,7 @@ fn tc_048_a_dependency_callee_is_admitted_and_never_a_dependency() {
     );
 }
 
-#[trace("TC-233", "FR-322-AC-75")]
+#[trace("TC-048", "FR-038-AC-37")]
 #[test]
 fn transitive_only_dependency_reference_refuses_missing_selection() {
     let leaf = build_dependency(|_| {});
