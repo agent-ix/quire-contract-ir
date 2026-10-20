@@ -6,13 +6,10 @@ Contract IR is the target-neutral intermediate representation of a Quire
 contract. This repository contains the reader for QSL checked packages and the
 lowering that produces a canonical contract package.
 
-The Quire Specification Language compiler (QSL) checks a rule and writes a
-*checked package*, a canonical JSON file. Contract IR reads those bytes
-strictly, validates them, and lowers the parts a backend asks for into one
-versioned, canonical contract package. Code-generation and proof backends use
-it as their shared reader, with one set of node identities and one canonical
-encoding. When it cannot read or lower something, it returns "refused",
-"unsupported" or "incomplete".
+It reads the `quire.checked-package/v2` JSON that QSL writes, validates it, and
+lowers the parts a backend requests into one versioned contract package.
+Code-generation and proof backends read that package. Input it cannot read or
+lower ends as refused, unsupported or incomplete.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.svg">
