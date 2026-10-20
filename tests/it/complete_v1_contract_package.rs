@@ -1126,6 +1126,31 @@ fn reader_refuses_causes_on_causeless_nested_reader_codes() {
             "/feature_accounting/1/refusal/cause"
         );
     }
+
+    for (code, cause, contract_version) in [
+        ("unknown_contract_version", "unsupported-wire", Some("unknown/v1")),
+        ("unknown_required_capability", "unsupported-feature", None),
+    ] {
+        let mut wire = failed_wire("0", "0");
+        let mut nested = json!({"code": code, "path": "", "cause": cause});
+        if let Some(version) = contract_version {
+            nested["contract_version"] = json!(version);
+        }
+        wire["feature_accounting"][1] = json!({
+            "node_id": id("1010"), "disposition": "invalid_body", "body_node_id": id("1010"),
+            "refusal": nested,
+        });
+        wire["source_map"]["refusals"][0]["disposition"] = json!("invalid_body");
+        let ContractPackageReadResult::Refused(refusal) = read(&canonical(&wire)) else {
+            panic!("{code} with {cause} must refuse");
+        };
+        assert_eq!(refusal.code, Code::InvalidPackage);
+        assert_eq!(refusal.cause, Some(Cause::InvalidValue));
+        assert_eq!(
+            refusal.path.expect("cause pointer").as_str(),
+            "/feature_accounting/1/refusal/cause"
+        );
+    }
 }
 
 #[trace("TC-047", "FR-035-AC-5")]
