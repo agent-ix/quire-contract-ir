@@ -118,6 +118,72 @@ fn append_literal(package: &mut Value, ty: &str, kind: &str, value: Value) -> us
     position
 }
 
+fn same_named_unit_and_dimension() -> Vec<(Value, String)> {
+    let mut members = nominal_fixture_members();
+    let dimension = members
+        .iter_mut()
+        .find(|(preimage, _)| preimage["version"] == "quire.dimension-node/v1")
+        .expect("dimension");
+    dimension.0["qualified_declaration"] = json!(["Example", "Metre"]);
+    dimension.1 = sha256_hex(&canonical(&dimension.0));
+    let dimension_id = node_id(&dimension.1);
+    let unit = members
+        .iter_mut()
+        .find(|(preimage, _)| preimage["version"] == "quire.unit-node/v1")
+        .expect("unit");
+    unit.0["dimension_node_id"] = dimension_id;
+    unit.1 = sha256_hex(&canonical(&unit.0));
+    members
+}
+
+#[trace("TC-230", "FR-038-AC-301")]
+#[test]
+fn tc_230_declaration_names_are_scoped_to_unit_dimension_and_type() {
+    let package = nominal_package(&same_named_unit_and_dimension());
+    admits(&package);
+}
+
+#[trace("TC-230", "FR-038-AC-301")]
+#[test]
+fn tc_230_repeated_unit_name_refuses_at_later_node() {
+    let mut members = same_named_unit_and_dimension();
+    let mut repeated = members
+        .iter()
+        .find(|(preimage, _)| preimage["version"] == "quire.unit-node/v1")
+        .expect("unit")
+        .0
+        .clone();
+    repeated["target_unit_node_id"] = node_id(&members
+        .iter()
+        .find(|(preimage, _)| preimage["version"] == "quire.unit-node/v1")
+        .expect("unit")
+        .1);
+    repeated["scale"]["numerator"] = json!("2");
+    let key = sha256_hex(&canonical(&repeated));
+    members.push((repeated, key));
+    let package = nominal_package(&members);
+    let nodes = package["semantic_graph"]["nodes"].as_array().unwrap();
+    let unit_positions: Vec<_> = nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| node["semantic_form"] == "unit")
+        .collect();
+    let (position, later) = unit_positions
+        .into_iter()
+        .max_by_key(|(_, node)| node["node_id"]["digest"].as_str().unwrap())
+        .unwrap();
+    refuses(
+        &package,
+        CheckedPackageRefusalCode::AmbiguousDeclaration,
+        CheckedPackageRefusalCause::AmbiguousName,
+        &format!("/semantic_graph/nodes/{position}/declaration/qualified_name"),
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("duplicate unit must refuse");
+    };
+    assert_eq!(refusal.locus.as_ref(), Some(&serde_json::from_value(later["node_id"].clone()).unwrap()));
+}
+
 #[trace("TC-230", "FR-038-AC-299")]
 #[test]
 fn tc_230_quantity_literal_in_checked_unit_admits() {
