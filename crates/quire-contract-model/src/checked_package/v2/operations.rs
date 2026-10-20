@@ -81,6 +81,9 @@ use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
 use crate::checked_package::terms::subterms;
+use num_bigint::BigInt;
+use num_integer::Integer;
+use num_traits::One;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -367,6 +370,7 @@ fn literal_defect(
                 LiteralKind::Boolean => family == Some("boolean"),
                 LiteralKind::Integer => family == Some("integer"),
                 LiteralKind::Rational => family == Some("rational"),
+                LiteralKind::Quantity => family == Some("quantity"),
                 LiteralKind::Decimal => family == Some("decimal"),
                 LiteralKind::Float32Bits => family == Some("float32"),
                 LiteralKind::Float64Bits => family == Some("float64"),
@@ -399,6 +403,11 @@ fn literal_defect(
                             text.parse::<i128>()
                                 .is_ok_and(|parsed| parsed.to_string() == text)
                         }),
+                ),
+                LiteralKind::Quantity => Some(
+                    term.get("value")
+                        .and_then(Value::as_str)
+                        .is_some_and(canonical_quantity_magnitude),
                 ),
                 LiteralKind::Boolean
                 | LiteralKind::Integer
@@ -445,6 +454,23 @@ fn canonical_uuid(value: &str) -> bool {
                 byte.is_ascii_digit() || (b'a'..=b'f').contains(byte)
             }
         })
+}
+
+/// QSpec FR-322's exact quantity magnitude: a canonical integer or a
+/// reduced fraction whose denominator is greater than one.
+fn canonical_quantity_magnitude(value: &str) -> bool {
+    let integer = |text: &str| {
+        text.parse::<BigInt>()
+            .ok()
+            .filter(|parsed| parsed.to_string() == text)
+    };
+    let Some((numerator, denominator)) = value.split_once('/') else {
+        return integer(value).is_some();
+    };
+    let (Some(numerator), Some(denominator)) = (integer(numerator), integer(denominator)) else {
+        return false;
+    };
+    denominator > BigInt::one() && numerator.gcd(&denominator).is_one()
 }
 
 /// The admitted graph an application's checks read.

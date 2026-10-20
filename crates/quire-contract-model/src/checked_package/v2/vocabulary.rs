@@ -343,6 +343,7 @@ closed_vocabulary! {
         Boolean => "boolean",
         Integer => "integer",
         Rational => "rational",
+        Quantity => "quantity",
         Decimal => "decimal",
         Float32Bits => "float32_bits",
         Float64Bits => "float64_bits",
