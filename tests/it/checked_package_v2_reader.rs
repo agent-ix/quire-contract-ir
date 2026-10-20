@@ -2709,7 +2709,7 @@ fn rekey_declared_all_families(package: &mut Value) {
     panic!("declared all-family fixture did not reach stable keys");
 }
 
-#[trace("TC-048", "FR-038-AC-21")]
+#[trace("TC-048", "TC-230", "FR-038-AC-21", "FR-038-AC-301")]
 #[test]
 fn tc_048_a_declaration_refusal_precedes_an_operation_refusal() {
     // Nodes: 0 root, 1 declaring namespace ("Example::Widget"), 2 literal,
@@ -2759,7 +2759,7 @@ fn tc_048_a_declaration_refusal_precedes_an_operation_refusal() {
     );
 }
 
-#[trace("TC-048", "FR-038-AC-21")]
+#[trace("TC-048", "TC-230", "FR-038-AC-21", "FR-038-AC-301")]
 #[test]
 fn tc_048_a_declaration_refusal_precedes_a_frame_refusal() {
     let with_frame_defect = || {
