@@ -446,6 +446,30 @@ fn tc_048_a_dependency_callee_is_admitted_and_never_a_dependency() {
     );
 }
 
+#[trace("TC-048", "FR-038-AC-37")]
+#[test]
+fn transitive_only_dependency_reference_refuses_missing_selection() {
+    let leaf = build_dependency(|_| {});
+    let mut direct_wire = dependency_document(|_| {});
+    direct_wire["lock"]["dependency_selections"] = json!([selection(&leaf.digest)]);
+    refresh_identity(&mut direct_wire);
+    let CheckedPackageV2ReadResult::Admitted(direct) =
+        read_with_dependencies(&direct_wire, &[(LIBRARY, &leaf.package)])
+    else {
+        panic!("direct library with a leaf dependency admits");
+    };
+    let root = importing(
+        vec![json!({"identity": "test/direct", "package_id": direct.package_id()})],
+        dependency_term(&leaf.digest, &leaf.function_key),
+    );
+    let refusal = refused(read_with_dependencies(&root, &[("test/direct", &direct)]));
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
+    );
+}
+
 /// ACs: FR-038-AC-35
 #[trace("TC-048", "FR-038-AC-35")]
 #[test]

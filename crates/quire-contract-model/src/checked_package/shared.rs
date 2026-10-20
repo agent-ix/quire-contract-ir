@@ -346,6 +346,8 @@ pub struct CheckedPackageRefusal {
     /// the refusal concerns the byte stream rather than a value (malformed
     /// JSON, non-canonical bytes).
     pub path: Option<JsonPointer>,
+    /// The other importer-rooted selection path in a dependency diamond conflict.
+    pub related_path: Option<JsonPointer>,
     /// The cause tag paired with `code` under FR-322's `DiagnosticCausePairing`,
     /// present exactly when this reader determined one.
     pub cause: Option<CheckedPackageRefusalCause>,
@@ -387,6 +389,7 @@ impl CheckedPackageRefusal {
         Self {
             code: fields.code,
             path: fields.path,
+            related_path: None,
             cause: fields.cause,
             locus: fields.locus,
             contract_version: fields.contract_version,

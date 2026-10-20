@@ -126,6 +126,10 @@ impl CheckedPackageEvidence {
         self.dependency_packages.get(identity).map(AsRef::as_ref)
     }
 
+    pub(super) fn retained_dependency(&self, identity: &str) -> Option<Arc<CheckedPackageV2>> {
+        self.dependency_packages.get(identity).cloned()
+    }
+
     pub(super) fn domain_package_document(&self, digest: &str) -> Option<&[u8]> {
         self.domain_packages.get(digest).map(AsRef::as_ref)
     }

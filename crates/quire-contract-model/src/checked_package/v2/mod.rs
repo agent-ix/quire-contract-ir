@@ -9,6 +9,7 @@
 
 mod abstraction;
 mod application_identity;
+mod closure_index;
 mod comparison_operands;
 mod composite_operands;
 mod contract_package;
@@ -86,7 +87,8 @@ pub use structural_candidates::{
 };
 pub use vocabulary::*;
 
-use dependency_references::{admit_dependencies, SuppliedDependencies};
+use closure_index::ClosureIndex;
+use dependency_references::{admit_dependencies, check_derived_closure, SuppliedDependencies};
 use derived_keys::validate_derived_keys;
 use operations::{validate_application_keys, validate_operations};
 use owner::{validate_owner_joins, validate_owner_schema};
@@ -579,7 +581,7 @@ pub enum CheckedPackageV2ReadResult {
 /// grammar fixes, whatever the package's node count, so its clone,
 /// comparison, `Debug` rendering, lowering and drop need no stack that follows
 /// the package's size.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct CheckedPackageV2 {
     wire: CheckedPackageWireV2,
     kinds: Vec<CheckedNodeKind>,
@@ -592,6 +594,35 @@ pub struct CheckedPackageV2 {
     /// keeps: the declaration index, the field tables, the operation parameter
     /// types and the relationship records.
     models: RetainedModels,
+    /// Direct admitted edges; their recursively derived closure is not copied.
+    direct_dependencies: Vec<std::sync::Arc<CheckedPackageV2>>,
+    /// Exact identities reachable through the direct edges, shared with children.
+    closure_index: ClosureIndex,
+}
+
+impl std::fmt::Debug for CheckedPackageV2 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CheckedPackageV2")
+            .field("wire", &self.wire)
+            .field("kinds", &self.kinds)
+            .field("node_index", &self.node_index)
+            .field("bytes", &self.bytes)
+            .field("models", &self.models)
+            .field("direct_dependency_count", &self.direct_dependencies.len())
+            .finish()
+    }
+}
+
+impl Drop for CheckedPackageV2 {
+    fn drop(&mut self) {
+        let mut pending = std::mem::take(&mut self.direct_dependencies);
+        while let Some(dependency) = pending.pop() {
+            if let Ok(mut unique) = std::sync::Arc::try_unwrap(dependency) {
+                pending.extend(std::mem::take(&mut unique.direct_dependencies));
+            }
+        }
+    }
 }
 
 /// Equality is the equality of the admitted content. The read limit a package
@@ -882,6 +913,25 @@ impl CheckedPackageV2 {
         intake::check_lossless_source(bytes, &wire)?;
         validate_owner_schema(&wire)?;
         let (kinds, models) = validate(&wire, limits, evidence)?;
+        let direct_dependencies = wire
+            .lock
+            .dependency_selections
+            .iter()
+            .enumerate()
+            .map(|(index, selection)| {
+                evidence
+                    .retained_dependency(&selection.identity)
+                    .ok_or_else(|| {
+                        ValidationFailure::refused_because(
+                            CheckedPackageRefusalCode::MissingImport,
+                            member_pointer(&["lock", "dependency_selections"]).index(index),
+                            CheckedPackageRefusalCause::MissingSelection,
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let closure_index =
+            ClosureIndex::from_direct(&wire.lock.dependency_selections, &direct_dependencies);
         let node_index = retained_node_index(&wire);
         Ok(Self {
             wire,
@@ -889,6 +939,8 @@ impl CheckedPackageV2 {
             node_index,
             bytes: limits.bytes,
             models,
+            direct_dependencies,
+            closure_index,
         })
     }
 
@@ -1165,6 +1217,12 @@ fn validate_lock<'a>(
     // Implements: FR-322. Every selected dependency's admitted package is supplied and
     // binds to its entry, before any `dependency_reference` is read.
     let dependencies = admit_dependencies(&lock.dependency_selections, evidence, meter)?;
+    check_derived_closure(
+        &lock.dependency_selections,
+        &dependencies.packages(),
+        JsonPointer::root(),
+        meter,
+    )?;
     let mut features = BTreeSet::new();
     if let Some(index) = lock
         .required_features

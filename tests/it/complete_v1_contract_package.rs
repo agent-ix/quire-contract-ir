@@ -1234,6 +1234,75 @@ fn wire_selecting_lib_a() -> (CheckedPackageV2, Value) {
     (dependency, wire)
 }
 
+#[trace("TC-047", "FR-035-AC-18")]
+#[test]
+fn contract_reader_refuses_different_ids_in_derived_dependency_diamond() {
+    use crate::support::checked_package::{
+        admitted_dependency, positive_operation_identities, read_with_dependencies,
+        refresh_identity,
+    };
+    use quire_contract_model::ContractDependencyInput;
+
+    let base = mixed_fixture();
+    let (first_id, first_leaf) = admitted_dependency(&base);
+    let (second_id, second_leaf) = admitted_dependency(&positive_operation_identities());
+    let mut direct_wire = base.clone();
+    direct_wire["lock"]["dependency_selections"] =
+        json!([{"identity": "lib/leaf", "package_id": first_leaf.package_id()}]);
+    refresh_identity(&mut direct_wire);
+    let CheckedPackageV2ReadResult::Admitted(left) =
+        read_with_dependencies(&direct_wire, &[("lib/leaf", &first_leaf)])
+    else {
+        panic!("left dependency admits");
+    };
+    direct_wire["lock"]["dependency_selections"][0]["package_id"]["digest"] = json!(second_id);
+    refresh_identity(&mut direct_wire);
+    let CheckedPackageV2ReadResult::Admitted(right) =
+        read_with_dependencies(&direct_wire, &[("lib/leaf", &second_leaf)])
+    else {
+        panic!("right dependency admits");
+    };
+    assert_ne!(first_id, second_id);
+
+    let output = lower(&base, &request());
+    let mut wire: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
+    wire["package"]["source"]["lock"]["dependency_selections"] = json!([
+        {"identity": "lib/left", "package_id": left.package_id()},
+        {"identity": "lib/right", "package_id": right.package_id()}
+    ]);
+    let bytes = rehashed(wire);
+    let mut supplied = ContractDependencies::new();
+    supplied.insert(
+        "lib/left",
+        ContractDependencyInput {
+            identity: "lib/left",
+            package: &left,
+        },
+    );
+    supplied.insert(
+        "lib/right",
+        ContractDependencyInput {
+            identity: "lib/right",
+            package: &right,
+        },
+    );
+    let ContractPackageReadResult::Refused(refusal) =
+        ContractPackageWireV1::read(&bytes, CheckedPackageReadLimits::bounded(), &supplied)
+    else {
+        panic!("ContractPackage must refuse the transitive diamond");
+    };
+    assert_eq!(refusal.code, Code::InvalidPackage);
+    assert_eq!(refusal.cause, Some(Cause::ConflictingDefinition));
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some("/package/source/lock/dependency_selections/0/lock/dependency_selections/0")
+    );
+    assert_eq!(
+        refusal.related_path.as_ref().map(|path| path.as_str()),
+        Some("/package/source/lock/dependency_selections/1/lock/dependency_selections/0")
+    );
+}
+
 #[trace("TC-047", "FR-035-AC-2")]
 #[test]
 fn reader_refuses_stale_selected_dependency_at_selection() {

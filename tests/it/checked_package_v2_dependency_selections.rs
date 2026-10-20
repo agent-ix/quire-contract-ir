@@ -473,3 +473,121 @@ fn tc_048_a_dependency_entry_binds_by_identity_and_package_id() {
     assert_eq!(missing.expected, None);
     assert_eq!(missing.actual, None);
 }
+
+#[trace("TC-048", "FR-038-AC-293")]
+#[test]
+fn diamond_with_different_transitive_package_ids_refuses() {
+    let base = v2_all_families();
+    let (first_leaf_id, first_leaf) = admitted_dependency(&base);
+    let (second_leaf_id, second_leaf) = admitted_dependency(&positive_operation_identities());
+
+    let left_wire = with_selections(base.clone(), vec![entry("test/leaf", &first_leaf_id)]);
+    let CheckedPackageV2ReadResult::Admitted(left) =
+        read_with(&left_wire, &[("test/leaf", &first_leaf)])
+    else {
+        panic!("left direct dependency admits");
+    };
+    let right_wire = with_selections(base.clone(), vec![entry("test/leaf", &second_leaf_id)]);
+    let CheckedPackageV2ReadResult::Admitted(right) =
+        read_with(&right_wire, &[("test/leaf", &second_leaf)])
+    else {
+        panic!("right direct dependency admits");
+    };
+
+    let root = with_selections(
+        base,
+        vec![
+            entry("test/left", &left.package_id().digest),
+            entry("test/right", &right.package_id().digest),
+        ],
+    );
+    let CheckedPackageV2ReadResult::Refused(conflict) =
+        read_with(&root, &[("test/left", &left), ("test/right", &right)])
+    else {
+        panic!("different transitive package IDs for one library must refuse");
+    };
+    assert_eq!(conflict.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        conflict.cause,
+        Some(CheckedPackageRefusalCause::ConflictingDefinition)
+    );
+    assert_eq!(
+        conflict.path,
+        Some(pointer(
+            "/lock/dependency_selections/0/lock/dependency_selections/0"
+        ))
+    );
+    assert_eq!(
+        conflict.related_path,
+        Some(pointer(
+            "/lock/dependency_selections/1/lock/dependency_selections/0"
+        ))
+    );
+}
+
+#[trace("TC-048", "FR-038-AC-31")]
+#[test]
+fn reader_admits_an_overlisted_transitive_selection_as_a_direct_claim() {
+    let base = v2_all_families();
+    let (leaf_id, leaf) = admitted_dependency(&base);
+    let direct_wire = with_selections(base.clone(), vec![entry("test/leaf", &leaf_id)]);
+    let CheckedPackageV2ReadResult::Admitted(direct) =
+        read_with(&direct_wire, &[("test/leaf", &leaf)])
+    else {
+        panic!("direct library admits");
+    };
+    let root = with_selections(
+        base,
+        vec![
+            entry("test/direct", &direct.package_id().digest),
+            entry("test/leaf", &leaf_id),
+        ],
+    );
+    assert!(matches!(
+        read_with(&root, &[("test/direct", &direct), ("test/leaf", &leaf)]),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
+#[trace("TC-048", "FR-038-AC-293")]
+#[test]
+fn one_direct_edge_still_refuses_a_conflicting_identity_below_it() {
+    let base = v2_all_families();
+    let (leaf_id, leaf) = admitted_dependency(&base);
+    let middle_wire = with_selections(base.clone(), vec![entry("test/repeated", &leaf_id)]);
+    let CheckedPackageV2ReadResult::Admitted(middle) =
+        read_with(&middle_wire, &[("test/repeated", &leaf)])
+    else {
+        panic!("middle dependency admits");
+    };
+    let child_wire = with_selections(
+        base.clone(),
+        vec![entry("test/middle", &middle.package_id().digest)],
+    );
+    let CheckedPackageV2ReadResult::Admitted(child) =
+        read_with(&child_wire, &[("test/middle", &middle)])
+    else {
+        panic!("child admits before its importer's identity is known");
+    };
+    let root = with_selections(
+        base,
+        vec![entry("test/repeated", &child.package_id().digest)],
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with(&root, &[("test/repeated", &child)])
+    else {
+        panic!("repeated identity with different package IDs must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::ConflictingDefinition)
+    );
+    assert_eq!(refusal.path, Some(pointer("/lock/dependency_selections/0")));
+    assert_eq!(
+        refusal.related_path,
+        Some(pointer(
+            "/lock/dependency_selections/0/lock/dependency_selections/0/lock/dependency_selections/0"
+        ))
+    );
+}

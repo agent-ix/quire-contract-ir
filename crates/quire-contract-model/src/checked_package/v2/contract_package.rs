@@ -13,7 +13,9 @@ pub use result_context::{
     ContractResultContextV1, ContractResultViewV1,
 };
 
-use super::dependency_references::{DependencyReferences, Referrer, SuppliedDependencies};
+use super::dependency_references::{
+    check_derived_closure, DependencyReferences, Referrer, SuppliedDependencies,
+};
 use super::encode::{elements, encoded, member as encode_member};
 use super::lower::{
     CompleteContractNodeV2, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
@@ -966,7 +968,7 @@ impl ContractPackageWireV1 {
         wire.validate_correspondence(limits)?;
         wire.validate_accounting()?;
         wire.validate_identity(limits.bytes)?;
-        wire.validate_dependencies(dependencies)?;
+        wire.validate_dependencies(dependencies, &mut work_meter)?;
         wire.validate_references(dependencies, limits, &mut work_meter)?;
         Ok(wire)
     }
@@ -2012,8 +2014,10 @@ impl ContractPackageWireV1 {
     fn validate_dependencies(
         &self,
         dependencies: &ContractDependencies<'_>,
+        meter: &mut super::WorkMeter,
     ) -> Result<(), ValidationFailure> {
         let selected = &self.package.source.lock.dependency_selections;
+        let mut packages = Vec::with_capacity(selected.len());
         for (index, selection) in selected.iter().enumerate() {
             let at = JsonPointer::root()
                 .key("package")
@@ -2045,8 +2049,14 @@ impl ContractPackageWireV1 {
                     ),
                 )));
             }
+            packages.push(input.package);
         }
-        Ok(())
+        check_derived_closure(
+            selected,
+            &packages,
+            JsonPointer::root().key("package").key("source"),
+            meter,
+        )
     }
 
     fn validate_references(

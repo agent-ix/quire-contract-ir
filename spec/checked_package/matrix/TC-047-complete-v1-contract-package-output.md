@@ -12,7 +12,7 @@ relationships:
 
 ## Description
 
-Verify FR-035-AC-2, FR-035-AC-5 through FR-035-AC-8, and FR-035-AC-10 through FR-035-AC-17,
+Verify FR-035-AC-2, FR-035-AC-5 through FR-035-AC-8, and FR-035-AC-10 through FR-035-AC-18,
 and the aggregate FR-330 package separately from TC-044's per-item semantic
 and refusal tests. Focused FR-330
 emitter and strict-reader controls run in
@@ -90,6 +90,11 @@ For FR-035-AC-17, construct an otherwise valid package with one nested
 `unsupported-wire` or `unsupported-feature` respectively. Require
 `Refused(invalid_package)` with cause `invalid-value` at that record's
 `/refusal/cause` pointer; no package is admitted.
+
+For FR-035-AC-18, supply two admitted direct dependencies whose own locks
+select one library identity at different package ids. Require
+`Refused(invalid_package)` with cause `conflicting-definition` before graph
+references, and assert both importer-rooted selection pointers exactly.
 
 For FR-035-AC-2, change only the package's own identity digest and assert
 `Refused(invalid_package)` at `/identity/digest` with cause `invalid_value`.
@@ -170,3 +175,4 @@ own-identity and selected-dependency refusals carry FR-035-AC-2 tags and
 assert the specified cause and path. TC-044's FR-330 status remains
 PLANNED/UNRUN.
 The tagged nested-refusal test backs FR-035-AC-17 for both reader codes.
+The tagged dependency-diamond test backs FR-035-AC-18 with both typed paths.

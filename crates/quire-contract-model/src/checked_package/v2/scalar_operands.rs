@@ -283,6 +283,8 @@ mod tests {
             kinds: Vec::new(),
             bytes: 1 << 20,
             models: RetainedModels::default(),
+            direct_dependencies: Vec::new(),
+            closure_index: Default::default(),
         }
     }
 
