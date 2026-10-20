@@ -1808,9 +1808,13 @@ fn tc_048_a_model_owned_operation_admits_through_a_real_semantic_ir_document() {
 
 fn unit_dispatch_call(
     argument_family: &str,
+    result_unit: bool,
 ) -> (Value, quire_contract_model::CheckedPackageEvidence) {
     let mut document = domain_document(json!({}));
     document["types"][0]["operations"][0]["params"] = json!([slot(None, "ix://quire/unit/ms")]);
+    if result_unit {
+        document["types"][0]["operations"][0]["returns"] = slot(None, "ix://quire/unit/ms");
+    }
     let digest = sha256_hex(&canonical(&document));
     let mut package = package_selecting("total", &digest);
     let mut members = nominal_fixture_members();
@@ -1850,6 +1854,11 @@ fn unit_dispatch_call(
         package["semantic_graph"]["nodes"][CALL]["body"]["arguments"][1] = reference(&argument);
         settle(&mut package);
     }
+    if result_unit {
+        package["semantic_graph"]["nodes"][CALL]["semantic_type"] = node_id(&ms);
+        package["semantic_graph"]["nodes"][CALL]["body"]["result_type"] = node_id(&ms);
+        settle(&mut package);
+    }
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
     let mut evidence = evidence_for(&package);
@@ -1862,13 +1871,15 @@ fn unit_dispatch_call(
 #[trace("TC-230", "FR-038-AC-300", "FR-038-AC-302")]
 #[test]
 fn tc_230_dispatch_call_requires_the_selected_checked_unit() {
-    let (package, evidence) = unit_dispatch_call("ms");
-    assert!(matches!(
-        read(&package, &evidence),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ));
+    for result_unit in [false, true] {
+        let (package, evidence) = unit_dispatch_call("ms", result_unit);
+        assert!(matches!(
+            read(&package, &evidence),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ));
+    }
     for argument_family in ["integer", "s"] {
-        let (package, evidence) = unit_dispatch_call(argument_family);
+        let (package, evidence) = unit_dispatch_call(argument_family, false);
         let refusal = refused(&package, &evidence);
         assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
         assert_eq!(
