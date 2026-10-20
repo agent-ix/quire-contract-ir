@@ -223,6 +223,38 @@ fn tc_229_population_reference_requires_owner_and_selected_population() {
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
 
+    let mut ownerless_projection = base.clone();
+    ownerless_projection["identity_preimage"]["identity_projection"][position]
+        .as_object_mut()
+        .unwrap()
+        .remove("owner");
+    ownerless_projection["package_id"]["digest"] = json!(sha256_hex(&canonical(
+        &ownerless_projection["identity_preimage"]
+    )));
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with_model(&ownerless_projection, &document)
+    else {
+        panic!("ownerless population projection must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+
+    let mut wrong_shape = base.clone();
+    wrong_shape["semantic_graph"]["nodes"][position]["body"] = json!({
+        "term":"aggregate","members":[{"term":"binding","name":"max",
+            "value":{"term":"literal","type":base["semantic_graph"]["nodes"][0]["node_id"],
+                "value_kind":"integer","value":"2"}}]
+    });
+    refresh_identity(&mut wrong_shape);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&wrong_shape, &document)
+    else {
+        panic!("population reference with a maximum in its body must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::StaleNodeKey)
+    );
+
     for (name, node_tag, form, declared) in [
         (
             "missing population",
