@@ -39,7 +39,7 @@ only through its validated constructors, so no struct literal outside the
 rules:
 
 - An `unavailable` outcome carries exactly one of two cause codes:
-  `kani_solver_absent`, when the run finds no solver satisfying the selected
+  `kani_checker_absent`, when the run finds no checker satisfying the selected
   profile's capability negotiation, or `kani_backend_absent`, when the run
   finds no Kani backend satisfying it.
 - An `inconclusive` outcome carries exactly the cause code
@@ -83,7 +83,7 @@ A `KaniOutcome`'s code, and a `KaniOutcomeError`'s, is a `Std001Code`
 non-success constructor takes a `Std001Code`, and a `proved` or `counterexample`
 outcome carries `kani_proved` or `kani_counterexample`. The codes IR raises are
 registered in STD-001 ("Bounded Kani Cause Codes") and spelled by `Std001Code`
-constants, so a consumer matches `Std001Code::KANI_SOLVER_ABSENT` and not a
+constants, so a consumer matches `Std001Code::KANI_CHECKER_ABSENT` and not a
 literal. The outcome serializes its code as the same JSON string it serialized
 before. A consumer that builds an outcome with a code of its own, as
 codegen's corpus refusals do, builds that code with `std001_code!`; the type
@@ -110,7 +110,7 @@ The harness constrains only values after the ABI has established that the finite
 | FR-030-AC-2 | Invalid and incomplete populations, unavailable observations, and resource limits retain distinct typed outcomes and are never removed by an assumption. | Test (TC-042) |
 | FR-030-AC-3 | No invalid, refused, incomplete, unavailable, timed-out, exhausted, cancelled, or inconclusive outcome carries Boolean success; earliest failures emit no partial artifact. | Test (TC-042) |
 | FR-030-AC-4 | A `proved` outcome built from a run with three SUCCESS checks carries the count three; a run with zero SUCCESS checks yields `inconclusive` with cause `kani_vacuous_proof`, carries no count and no Boolean claim; and a request for a `proved` outcome with a count of zero returns `KaniOutcomeError` with code `kani_outcome_invalid` and no outcome. | Test (TC-223) |
-| FR-030-AC-5 | An `unavailable` outcome built for an absent solver carries cause `kani_solver_absent` and one built for an absent backend carries `kani_backend_absent`, each with no Boolean claim; a request for an `unavailable` outcome with any other cause code, an `inconclusive` outcome with a cause other than `kani_vacuous_proof`, or a `proved` or `counterexample` outcome through the non-success constructor returns `KaniOutcomeError` with code `kani_outcome_invalid` and no outcome; and a struct-literal `KaniOutcome` outside the `kani` module fails to compile. | Test (TC-223) |
+| FR-030-AC-5 | An `unavailable` outcome built for an absent checker carries cause `kani_checker_absent` and one built for an absent backend carries `kani_backend_absent`, each with no Boolean claim; a request for an `unavailable` outcome with any other cause code, an `inconclusive` outcome with a cause other than `kani_vacuous_proof`, or a `proved` or `counterexample` outcome through the non-success constructor returns `KaniOutcomeError` with code `kani_outcome_invalid` and no outcome; and a struct-literal `KaniOutcome` outside the `kani` module fails to compile. | Test (TC-223) |
 | FR-030-AC-6 | The `code` of the outcome built for a zero-check proof equals `Std001Code::KANI_VACUOUS_PROOF` and its serialization holds the member `"code":"kani_vacuous_proof"`; the `code` of the `KaniOutcomeError` for a `proved` outcome with a count of zero equals `Std001Code::KANI_OUTCOME_INVALID`; a call that passes a `&str` or a `String` as the code of the non-success constructor fails to compile; and a serialized `KaniOutcome` whose `code` is `"Bad-Code"` fails to deserialize. | Test (TC-443) |
 | FR-030-AC-7 | The IR outcome constructor accepts the observed caller-request or timer-owner deadline source as `Cancelled { source: Requested }` or `Cancelled { source: Deadline }`; each serializes and deserializes with that exact `kind` source and no Boolean claim. Construction without a source fails to compile. Deserialization refuses a unit `"cancelled"` kind, a missing or unknown source, and an origin on a non-cancelled kind. Every existing non-cancelled kind retains its former wire spelling. The future CG Kani producer reads the event that actually stopped the run; an execution timeout without that event remains `TimedOut`, and reversing the recorded event reverses the constructed cancellation source. | Test (TC-449) |
 

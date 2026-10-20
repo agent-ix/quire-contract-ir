@@ -837,30 +837,9 @@ fn registered_code_violations(
     violations
 }
 
-fn inventory_violations(
-    names: &[PublicName],
-    tables: &BTreeMap<String, BTreeSet<String>>,
-    allow_solver: bool,
-) -> Vec<String> {
-    let registered = registry_difference(tables);
-    let solver_registered = tables["Bounded Kani Cause Codes"].contains("kani_solver_absent")
-        && registered.iter().any(|code| code == "kani_solver_absent");
+fn inventory_violations(names: &[PublicName]) -> Vec<String> {
     let mut violations = Vec::new();
     for entry in names {
-        // IR-881: removed when IR-881 merges.
-        let allowed_constant = allow_solver
-            && solver_registered
-            && entry.owner == "Std001Code"
-            && entry.name == "KANI_SOLVER_ABSENT"
-            && entry.value.as_deref() == Some("kani_solver_absent");
-        let allowed_registered_element = allow_solver
-            && solver_registered
-            && entry.owner == "Std001Code"
-            && entry.name == "REGISTERED"
-            && entry.value.as_deref() == Some("kani_solver_absent");
-        if allowed_constant || allowed_registered_element {
-            continue;
-        }
         for name in std::iter::once(entry.name.as_str()).chain(entry.value.as_deref()) {
             violations.extend(
                 portable_name_violations([name])
@@ -1036,7 +1015,7 @@ fn tc_058_model_root_exports_exactly_the_documented_public_items() {
         .any(|line| line == "pub mod selected_population;"));
 }
 
-#[trace("TC-456")]
+#[trace("TC-456", "NFR-002-AC-1")]
 #[test]
 fn tc_456_public_schema_and_model_names_are_portable() {
     let _: Option<quire_contract_model::MappingAllocationPoint> = None;
@@ -1081,7 +1060,7 @@ fn tc_456_public_schema_and_model_names_are_portable() {
             .flatten()
             .map(|name| PublicName::item("schema", name)),
     );
-    let violations = inventory_violations(&names, &tables, true);
+    let violations = inventory_violations(&names);
     assert!(
         violations.is_empty(),
         "forbidden public names or values: {violations:?}"
@@ -1098,8 +1077,6 @@ fn tc_456_public_schema_and_model_names_are_portable() {
             .into_iter()
             .map(|name| PublicName::item("schema", name))
             .collect::<Vec<_>>(),
-        &tables,
-        true
     )
     .is_empty());
 
@@ -1117,8 +1094,6 @@ fn tc_456_public_schema_and_model_names_are_portable() {
                     .into_iter()
                     .map(|name| PublicName::item("schema", name))
                     .collect::<Vec<_>>(),
-                &tables,
-                true
             )
             .is_empty(),
             "schema adverse control escaped: {schema}"
@@ -1137,22 +1112,9 @@ fn tc_456_public_schema_and_model_names_are_portable() {
         "pub struct Std001Code; impl Std001Code { pub const EXTRA_SOLVER: &'static str = \"solver\"; }",
     ] {
         let extracted = source_items(&parse_model_source(source, "Rust adverse control"));
-        assert!(!inventory_violations(&extracted, &tables, true).is_empty(),
+        assert!(!inventory_violations(&extracted).is_empty(),
             "Rust adverse control escaped: {source}");
     }
-
-    let without_allowlist = inventory_violations(&names, &tables, false);
-    for forbidden in ["KANI_SOLVER_ABSENT", "REGISTERED"] {
-        assert!(
-            without_allowlist
-                .iter()
-                .any(|violation| violation.contains(forbidden)),
-            "removing the allowlist must expose {forbidden}"
-        );
-    }
-    assert!(without_allowlist.iter().any(|violation| {
-        violation.starts_with("Std001Code::KANI_SOLVER_ABSENT: kani_solver_absent:")
-    }));
 }
 
 #[trace("TC-456")]
@@ -1209,7 +1171,7 @@ fn tc_456_gated_reexport_checks_inline_enum_variants() {
     assert!(names
         .iter()
         .any(|name| name.owner == "Point" && name.name == "SolverRuntimeBuffer"));
-    assert!(!inventory_violations(&names, &std001_code_rows(STD_001), true).is_empty());
+    assert!(!inventory_violations(&names).is_empty());
 }
 
 #[trace("TC-456")]
@@ -1223,7 +1185,7 @@ fn tc_456_reexported_private_type_impl_is_inventoried() {
     assert!(names
         .iter()
         .any(|name| name.owner == "Point" && name.name == "solver_probe"));
-    assert!(!inventory_violations(&names, &std001_code_rows(STD_001), true).is_empty());
+    assert!(!inventory_violations(&names).is_empty());
 }
 
 #[trace("TC-456")]
@@ -1235,7 +1197,7 @@ fn tc_456_public_inline_module_is_inventoried() {
     );
     let names = source_items(&source);
     assert!(names.iter().any(|name| name.name == "solver_probe"));
-    assert!(!inventory_violations(&names, &std001_code_rows(STD_001), true).is_empty());
+    assert!(!inventory_violations(&names).is_empty());
 }
 
 #[trace("TC-456")]
@@ -1247,7 +1209,7 @@ fn tc_456_glob_reexport_is_inventoried() {
     );
     let names = source_items(&source);
     assert!(names.iter().any(|name| name.name == "solver_probe"));
-    assert!(!inventory_violations(&names, &std001_code_rows(STD_001), true).is_empty());
+    assert!(!inventory_violations(&names).is_empty());
 }
 
 #[trace("TC-456")]
@@ -1259,7 +1221,7 @@ fn tc_456_renamed_reexport_checks_source_name() {
     );
     let names = source_items(&source);
     assert!(names.iter().any(|name| name.name == "solver_probe"));
-    assert!(!inventory_violations(&names, &std001_code_rows(STD_001), true).is_empty());
+    assert!(!inventory_violations(&names).is_empty());
 }
 
 #[trace("TC-456")]
@@ -1275,7 +1237,7 @@ fn tc_456_non_root_reexport_alias_is_inventoried() {
     let names = model_source_inventory(&directory);
     fs::remove_dir_all(&directory).expect("remove non-root source fixture directory");
     assert!(names.iter().any(|name| name.name == "solver_probe"));
-    assert!(!inventory_violations(&names, &std001_code_rows(STD_001), true).is_empty());
+    assert!(!inventory_violations(&names).is_empty());
 }
 
 #[trace("TC-456")]
@@ -1301,7 +1263,6 @@ fn tc_456_unrecognized_exported_trait_member_fails_closed() {
 #[trace("TC-456")]
 #[test]
 fn tc_456_constant_values_and_trait_functions_reach_the_inventory() {
-    let tables = std001_code_rows(STD_001);
     for (source, owner, name) in [
         (
             "pub struct Model; impl Model { pub const LABEL: &'static str = \"solver\"; }",
@@ -1319,7 +1280,7 @@ fn tc_456_constant_values_and_trait_functions_reach_the_inventory() {
             .iter()
             .any(|item| item.owner == owner && item.name == name));
         assert!(
-            !inventory_violations(&names, &tables, true).is_empty(),
+            !inventory_violations(&names).is_empty(),
             "member escaped: {source}"
         );
     }
@@ -1327,29 +1288,23 @@ fn tc_456_constant_values_and_trait_functions_reach_the_inventory() {
 
 #[trace("TC-456")]
 #[test]
-fn tc_456_solver_allowlist_requires_exact_name_value_and_std001_row() {
-    let tables = std001_code_rows(STD_001);
-    for (name, value) in [
-        ("KANI_SOLVER_OTHER", "kani_solver_absent"),
-        ("KANI_SOLVER_ABSENT", "kani_solver_other"),
+fn tc_456_retired_solver_code_is_rejected_without_an_allowlist() {
+    for (name, source) in [
+        (
+            "KANI_SOLVER_ABSENT",
+            "pub struct Std001Code; impl Std001Code { pub const KANI_SOLVER_ABSENT: &'static str = \"kani_solver_absent\"; }",
+        ),
+        (
+            "REGISTERED",
+            "pub struct Std001Code; impl Std001Code { pub const REGISTERED: &'static [&'static str] = &[\"kani_solver_absent\"]; }",
+        ),
     ] {
-        let names = [PublicName::value("Std001Code", name, value)];
+        let names = source_items(&parse_model_source(source, "retired code control"));
         assert!(
-            !inventory_violations(&names, &tables, true).is_empty(),
-            "near miss admitted: {name}={value}"
+            !inventory_violations(&names).is_empty(),
+            "retired code admitted through {name}"
         );
     }
-    let no_row = STD_001.replace("| `kani_solver_absent`", "| `kani_cause_absent`");
-    let no_row_tables = std001_code_rows(&no_row);
-    let names = [PublicName::value(
-        "Std001Code",
-        "KANI_SOLVER_ABSENT",
-        "kani_solver_absent",
-    )];
-    assert!(
-        !inventory_violations(&names, &no_row_tables, true).is_empty(),
-        "missing STD-001 row admitted"
-    );
 }
 
 #[trace("TC-456")]

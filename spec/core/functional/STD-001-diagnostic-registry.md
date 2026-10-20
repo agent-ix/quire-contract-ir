@@ -125,7 +125,7 @@ requirement says so, and no code becomes a QSL `TerminalValue`.
 | `kani_reference_invalid` | A finite input holds a reference with an empty field, a dangling or foreign endpoint, or a duplicate reference (`invalid_input`) | outcome source identity |
 | `kani_capability_request_invalid` | A capability request names an empty or repeated construct (`refused`) | outcome source identity |
 | `kani_capability_missing` | A capability request names a construct the profile's matrix does not hold (`refused`) | the requested construct |
-| `kani_solver_absent` | An `unavailable` outcome: the run finds no solver satisfying the selected profile's capability negotiation | outcome source identity |
+| `kani_checker_absent` | An `unavailable` outcome: the run finds no checker satisfying the selected profile's capability negotiation | outcome source identity |
 | `kani_backend_absent` | An `unavailable` outcome: the run finds no Kani backend satisfying it | outcome source identity |
 | `kani_vacuous_proof` | An `inconclusive` outcome: a proof whose obligation completed with zero SUCCESS checks | outcome source identity |
 
@@ -146,7 +146,7 @@ module returns. It is raised only by the validated `KaniOutcome` constructors
 
 | Code | Condition | Required location |
 | --- | --- | --- |
-| `kani_outcome_invalid` | A `KaniOutcome` constructor is asked for an outcome that breaks FR-030's kind and cause rules: an `unavailable` cause other than `kani_solver_absent` or `kani_backend_absent`, an `inconclusive` cause other than `kani_vacuous_proof`, a `proved` SUCCESS check count of zero, or a `proved` or `counterexample` kind through the non-success constructor; no outcome is built | requested kind and cause code, or the rejected count |
+| `kani_outcome_invalid` | A `KaniOutcome` constructor is asked for an outcome that breaks FR-030's kind and cause rules: an `unavailable` cause other than `kani_checker_absent` or `kani_backend_absent`, an `inconclusive` cause other than `kani_vacuous_proof`, a `proved` SUCCESS check count of zero, or a `proved` or `counterexample` kind through the non-success constructor; no outcome is built | requested kind and cause code, or the rejected count |
 
 ## Application Guidance
 

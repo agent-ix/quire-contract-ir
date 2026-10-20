@@ -24,6 +24,7 @@ const REGISTERED: [&str; 15] = [
     "kani_bound_invalid",
     "kani_capability_missing",
     "kani_capability_request_invalid",
+    "kani_checker_absent",
     "kani_counterexample",
     "kani_identity_invalid",
     "kani_outcome_invalid",
@@ -31,7 +32,6 @@ const REGISTERED: [&str; 15] = [
     "kani_population_invalid",
     "kani_proved",
     "kani_reference_invalid",
-    "kani_solver_absent",
     "kani_vacuous_proof",
 ];
 
@@ -103,6 +103,7 @@ fn tc_442_registered_codes_are_spelled_once_and_diagnostic_codes_convert() {
             "KANI_CAPABILITY_REQUEST_INVALID",
             Std001Code::KANI_CAPABILITY_REQUEST_INVALID,
         ),
+        ("KANI_CHECKER_ABSENT", Std001Code::KANI_CHECKER_ABSENT),
         ("KANI_COUNTEREXAMPLE", Std001Code::KANI_COUNTEREXAMPLE),
         ("KANI_IDENTITY_INVALID", Std001Code::KANI_IDENTITY_INVALID),
         ("KANI_OUTCOME_INVALID", Std001Code::KANI_OUTCOME_INVALID),
@@ -116,7 +117,6 @@ fn tc_442_registered_codes_are_spelled_once_and_diagnostic_codes_convert() {
         ),
         ("KANI_PROVED", Std001Code::KANI_PROVED),
         ("KANI_REFERENCE_INVALID", Std001Code::KANI_REFERENCE_INVALID),
-        ("KANI_SOLVER_ABSENT", Std001Code::KANI_SOLVER_ABSENT),
         ("KANI_VACUOUS_PROOF", Std001Code::KANI_VACUOUS_PROOF),
     ];
     assert_eq!(constants.len(), Std001Code::REGISTERED.len());

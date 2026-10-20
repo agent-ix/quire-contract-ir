@@ -37,7 +37,7 @@ from outside the `kani` module. Enumerate `KaniOutcomeKind` in an exhaustive
 
 The three-check proof is `proved` with count three. The zero-check run is
 `inconclusive` with cause `kani_vacuous_proof`, no count and no Boolean claim.
-The two `Unavailable` outcomes carry `kani_solver_absent` and
+The two `Unavailable` outcomes carry `kani_checker_absent` and
 `kani_backend_absent`. The five invalid requests each return `KaniOutcomeError`
 with code `kani_outcome_invalid` and no outcome, and the struct-literal probe
 fails to compile. A new outcome kind fails to compile in the test's exhaustive

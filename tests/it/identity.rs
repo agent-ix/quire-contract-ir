@@ -125,6 +125,7 @@ fn diagnostic_code<T: std::fmt::Debug>(
     "FR-012-AC-3",
     "FR-012-AC-4",
     "FR-012-AC-6",
+    "NFR-002-AC-3",
     "StR-001-VC-1",
     "StR-001-VC-2"
 )]
