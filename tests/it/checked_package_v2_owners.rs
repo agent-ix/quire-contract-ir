@@ -191,6 +191,11 @@ fn tc_230_selected_model_field_refuses_unknown_unit_type_ref() {
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
     assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        Some("/lock/model_selections/0"),
+    );
+    assert!(refusal.locus.is_none());
 }
 
 #[trace("TC-230", "FR-038-AC-300")]
