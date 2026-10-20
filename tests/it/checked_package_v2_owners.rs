@@ -131,6 +131,49 @@ fn read_with_model(package: &Value, document: &Value) -> CheckedPackageV2ReadRes
     )
 }
 
+fn declared_population_package() -> (Value, Value) {
+    let (mut package, mut document) = model_package();
+    let population = "ix://acme/owners/counters";
+    document["populations"] = json!([{"node": population}]);
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+
+    let node = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .last_mut()
+        .expect("declaration node");
+    node["node_tag"] = json!("relation");
+    node["semantic_form"] = json!("population");
+    node["owner"]["node"] = json!(population);
+    let preimage = json!({
+        "version": "quire.structural-node/v1",
+        "node_tag": "relation", "semantic_form": "population",
+        "semantic_type": null, "declaration": null, "recursion": null,
+        "owner": node["owner"],
+        "body": {"term": "aggregate", "members": []},
+    });
+    let id = node_id(&sha256_hex(&canonical(&preimage)));
+    node["node_id"] = id.clone();
+    node["semantic_type"] = id.clone();
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .last_mut()
+        .expect("population occurrence")["node_id"] = id;
+    refresh_identity(&mut package);
+    (package, document)
+}
+
+#[trace("TC-229", "FR-038-AC-294", "FR-038-AC-295")]
+#[test]
+fn tc_229_selected_declared_population_reference_admits() {
+    let (package, document) = declared_population_package();
+    assert!(matches!(
+        read_with_model(&package, &document),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
 fn owned_clause(mut package: Value, document: &Value, declared: &str, clause: &str) -> Value {
     package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(document)));
     let position = package["semantic_graph"]["nodes"]
