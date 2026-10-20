@@ -129,10 +129,6 @@ pub enum CheckedPackageRefusalCause {
     UnknownMember,
     /// A member has the wrong JSON kind.
     WrongValueKind,
-    /// Unsupported wire selection.
-    UnsupportedWire,
-    /// Unsupported required feature.
-    UnsupportedFeature,
     /// Selected definitions form a cycle.
     DefinitionCycle,
     /// Selected definitions disagree.

@@ -141,6 +141,8 @@ and 26 and occurrence stops at limits
 The malformed, noncanonical and bad-accounting fixtures return the exact
 FR-035-AC-12 through FR-035-AC-14 refusal fields. Stale own identity and stale
 selected dependency return the exact FR-035-AC-2 refusal fields.
+The two causeless nested reader codes admit with no cause and refuse a present
+cause as `invalid_package`/`invalid-value` at their own `/refusal/cause` pointer.
 The lowered-root view contains exactly the key-ordered local reached closure,
 with exact nodes and sources, and exposes selected external references at their
 package boundary. Every lowered-root view exposes both bound and claim subsets,
@@ -167,3 +169,4 @@ a later represented requested root in the first accounting record. The stale
 own-identity and selected-dependency refusals carry FR-035-AC-2 tags and
 assert the specified cause and path. TC-044's FR-330 status remains
 PLANNED/UNRUN.
+The tagged nested-refusal test backs FR-035-AC-17 for both reader codes.

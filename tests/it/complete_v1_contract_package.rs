@@ -1096,7 +1096,11 @@ fn defensive_body_payloads_are_closed_and_omitted_pointers_stay_omitted() {
 #[test]
 fn reader_refuses_causes_on_causeless_nested_reader_codes() {
     for (code, cause, contract_version) in [
-        ("unknown_contract_version", "unsupported-wire", Some("unknown/v1")),
+        (
+            "unknown_contract_version",
+            "unsupported-wire",
+            Some("unknown/v1"),
+        ),
         ("unknown_required_capability", "unsupported-feature", None),
     ] {
         let mut wire = failed_wire("0", "0");
