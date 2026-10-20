@@ -203,6 +203,10 @@ pub(super) fn valid_derived_shape(
         && model_owned
         && (node.semantic_type != node.node_id
             || node.recursion_group.is_some()
+            || (matches!(
+                kind,
+                CheckedNodeKind::Relation(super::RelationForm::Population)
+            ) && !node.dependencies.is_empty())
             || aggregate_members(&node.body).is_none_or(|members| !members.is_empty())))
 }
 

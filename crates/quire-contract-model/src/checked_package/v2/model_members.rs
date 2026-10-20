@@ -1327,6 +1327,7 @@ pub(super) fn check_declaration_node(
     let fixed = node.semantic_type == node.node_id
         && node.declaration.is_none()
         && node.recursion_group.is_none()
+        && (form != DeclarationForm::Population || node.dependencies.is_empty())
         && node.body == json!({"term": "aggregate", "members": []});
     if fixed {
         Ok(())

@@ -255,6 +255,21 @@ fn tc_229_population_reference_requires_owner_and_selected_population() {
         Some(CheckedPackageRefusalCause::StaleNodeKey)
     );
 
+    let mut wrong_dependencies = base.clone();
+    wrong_dependencies["semantic_graph"]["nodes"][position]["dependencies"] =
+        json!([base["semantic_graph"]["nodes"][0]["node_id"]]);
+    refresh_identity(&mut wrong_dependencies);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with_model(&wrong_dependencies, &document)
+    else {
+        panic!("population reference with a dependency must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::StaleNodeKey)
+    );
+
     for (name, node_tag, form, declared) in [
         (
             "missing population",
