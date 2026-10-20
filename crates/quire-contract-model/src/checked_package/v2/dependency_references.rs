@@ -141,6 +141,23 @@ pub(super) fn check_derived_closure<'a>(
     root: JsonPointer,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
+    if let ([selection], [package]) = (selections, packages) {
+        if package
+            .closure_index
+            .get(&selection.identity)
+            .is_none_or(|id| id == &selection.package_id)
+        {
+            // The admitted child already checked its closure. One new identity
+            // cannot conflict when it is absent there or has the same ID.
+            meter.charge(1, || {
+                root.clone()
+                    .key("lock")
+                    .key("dependency_selections")
+                    .index(0)
+            })?;
+            return Ok(());
+        }
+    }
     let mut paths = Vec::new();
     let mut pending = Vec::new();
     for (index, (selection, package)) in selections.iter().zip(packages).enumerate().rev() {

@@ -9,6 +9,7 @@
 
 mod abstraction;
 mod application_identity;
+mod closure_index;
 mod comparison_operands;
 mod composite_operands;
 mod contract_package;
@@ -86,6 +87,7 @@ pub use structural_candidates::{
 };
 pub use vocabulary::*;
 
+use closure_index::ClosureIndex;
 use dependency_references::{admit_dependencies, check_derived_closure, SuppliedDependencies};
 use derived_keys::validate_derived_keys;
 use operations::{validate_application_keys, validate_operations};
@@ -594,6 +596,8 @@ pub struct CheckedPackageV2 {
     models: RetainedModels,
     /// Direct admitted edges; their recursively derived closure is not copied.
     direct_dependencies: Vec<std::sync::Arc<CheckedPackageV2>>,
+    /// Exact identities reachable through the direct edges, shared with children.
+    closure_index: ClosureIndex,
 }
 
 impl std::fmt::Debug for CheckedPackageV2 {
@@ -926,6 +930,8 @@ impl CheckedPackageV2 {
                     })
             })
             .collect::<Result<Vec<_>, _>>()?;
+        let closure_index =
+            ClosureIndex::from_direct(&wire.lock.dependency_selections, &direct_dependencies);
         let node_index = retained_node_index(&wire);
         Ok(Self {
             wire,
@@ -934,6 +940,7 @@ impl CheckedPackageV2 {
             bytes: limits.bytes,
             models,
             direct_dependencies,
+            closure_index,
         })
     }
 

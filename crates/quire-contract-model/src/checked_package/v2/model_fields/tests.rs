@@ -569,6 +569,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
             bytes: BYTES,
             models: RetainedModels::new(index, vec![model]),
             direct_dependencies: Vec::new(),
+            closure_index: Default::default(),
         },
         range,
     }

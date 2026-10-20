@@ -284,6 +284,7 @@ mod tests {
             bytes: 1 << 20,
             models: RetainedModels::default(),
             direct_dependencies: Vec::new(),
+            closure_index: Default::default(),
         }
     }
 

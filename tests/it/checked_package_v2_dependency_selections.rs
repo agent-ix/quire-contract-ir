@@ -548,3 +548,46 @@ fn reader_admits_an_overlisted_transitive_selection_as_a_direct_claim() {
         CheckedPackageV2ReadResult::Admitted(_)
     ));
 }
+
+#[trace("TC-233", "FR-322-AC-75")]
+#[test]
+fn one_direct_edge_still_refuses_a_conflicting_identity_below_it() {
+    let base = v2_all_families();
+    let (leaf_id, leaf) = admitted_dependency(&base);
+    let middle_wire = with_selections(base.clone(), vec![entry("test/repeated", &leaf_id)]);
+    let CheckedPackageV2ReadResult::Admitted(middle) =
+        read_with(&middle_wire, &[("test/repeated", &leaf)])
+    else {
+        panic!("middle dependency admits");
+    };
+    let child_wire = with_selections(
+        base.clone(),
+        vec![entry("test/middle", &middle.package_id().digest)],
+    );
+    let CheckedPackageV2ReadResult::Admitted(child) =
+        read_with(&child_wire, &[("test/middle", &middle)])
+    else {
+        panic!("child admits before its importer's identity is known");
+    };
+    let root = with_selections(
+        base,
+        vec![entry("test/repeated", &child.package_id().digest)],
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with(&root, &[("test/repeated", &child)])
+    else {
+        panic!("repeated identity with different package IDs must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::ConflictingDefinition)
+    );
+    assert_eq!(refusal.path, Some(pointer("/lock/dependency_selections/0")));
+    assert_eq!(
+        refusal.related_path,
+        Some(pointer(
+            "/lock/dependency_selections/0/lock/dependency_selections/0/lock/dependency_selections/0"
+        ))
+    );
+}

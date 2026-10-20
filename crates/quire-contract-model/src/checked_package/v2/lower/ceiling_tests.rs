@@ -250,6 +250,7 @@ fn package(bytes: u64) -> CheckedPackageV2 {
         bytes,
         models: Default::default(),
         direct_dependencies: Vec::new(),
+        closure_index: Default::default(),
     }
 }
 
