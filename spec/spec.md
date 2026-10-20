@@ -61,8 +61,8 @@ tools emit native structured results.
 StR-001 through StR-003, FR-011 through FR-020, FR-023 and FR-028, alongside
 NFR-001 through NFR-003, define the semantic substrate.
 [TC-456](core/matrix/TC-456-public-name-portability.md) guards the public-name
-inventory separately from TC-019's determinism analysis; NFR-002-AC-1 credit
-is withheld until IR-881 removes the temporary registered-code allowance.
+inventory separately from TC-019's determinism analysis. The registered-code
+allowance is removed, and TC-456 backs NFR-002-AC-1 and NFR-002-AC-3.
 FR-029 through FR-031 define the bounded-Kani extension boundary: the
 profile, finite input ABI, dispatch index and typed outcome. The
 family lowerings behind the dispatch index are the codegen backend adapter's.
