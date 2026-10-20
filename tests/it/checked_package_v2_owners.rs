@@ -562,7 +562,9 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
     let mut admitted = std::collections::BTreeMap::new();
     for case in rows {
         let id = case["id"].as_str().expect("case id");
+        assert_eq!(case["base"], "positive-operation-identities", "{id}");
         if case["operation"] == "published" {
+            assert_eq!(id, "parameter-operand-admitted");
             continue;
         }
         let mut package = read("fixtures/positive-operation-identities.json");
