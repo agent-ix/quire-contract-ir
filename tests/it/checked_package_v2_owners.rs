@@ -135,6 +135,40 @@ fn read_with_model(package: &Value, document: &Value) -> CheckedPackageV2ReadRes
     )
 }
 
+fn unit_field_document(type_ref: &str) -> (Value, Value) {
+    let (mut package, mut document) = model_package();
+    document["types"][0]["fields"] = json!([{
+        "identity": "ix://acme/owners/Point/duration", "name": "duration",
+        "typeRef": type_ref, "presence": "required", "nullable": false,
+        "defaultKind": "none",
+        "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true},
+    }]);
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+    refresh_identity(&mut package);
+    (package, document)
+}
+
+#[trace("TC-230", "FR-038-AC-300")]
+#[test]
+fn tc_230_selected_model_field_resolves_checked_unit_type_ref() {
+    let (package, document) = unit_field_document("ix://quire/unit/Example/Metre");
+    assert!(matches!(
+        read_with_model(&package, &document),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
+#[trace("TC-230", "FR-038-AC-300")]
+#[test]
+fn tc_230_selected_model_field_refuses_unknown_unit_type_ref() {
+    let (package, document) = unit_field_document("ix://quire/unit/Example/ghost");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&package, &document) else {
+        panic!("unknown unit must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+}
+
 fn declared_population_package_for(population: &str) -> (Value, Value) {
     declared_population_package_for_owner(population, "acme/owners")
 }
