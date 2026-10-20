@@ -1156,6 +1156,29 @@ struct LockAdmission<'a> {
     dependencies: SuppliedDependencies<'a>,
 }
 
+/// Candidate unit references for model selection admission. The graph stage
+/// subsequently validates each node, name and key before the package admits.
+fn checked_unit_refs(nodes: &[CheckedSemanticNodeV2]) -> BTreeMap<Box<str>, Box<str>> {
+    let mut refs = BTreeMap::new();
+    for node in nodes {
+        if node.node_tag.as_ref() != "scalar_type" || node.semantic_form.as_ref() != "unit" {
+            continue;
+        }
+        let Some(declaration) = &node.declaration else {
+            continue;
+        };
+        let name = declaration
+            .qualified_name
+            .iter()
+            .map(AsRef::as_ref)
+            .collect::<Vec<&str>>()
+            .join("/");
+        refs.entry(format!("ix://quire/unit/{name}").into())
+            .or_insert_with(|| node.node_id.digest.clone());
+    }
+    refs
+}
+
 /// Checks the lock and returns what it admits.
 fn validate_lock<'a>(
     wire: &'a CheckedPackageWireV2,
@@ -1224,7 +1247,9 @@ fn validate_lock<'a>(
             models_pointer().index(repeat),
         ));
     }
-    let mut models = validate_domain_packages(&lock.model_selections, evidence, meter, bytes)?;
+    let unit_refs = checked_unit_refs(&wire.semantic_graph.nodes);
+    let mut models =
+        validate_domain_packages(&lock.model_selections, evidence, meter, bytes, &unit_refs)?;
     // Implements: FR-322. Every selected dependency's admitted package is supplied and
     // binds to its entry, before any `dependency_reference` is read.
     let dependencies = admit_dependencies(&lock.dependency_selections, evidence, meter)?;
@@ -1347,6 +1372,7 @@ fn validate_domain_packages(
     evidence: &CheckedPackageEvidence,
     meter: &mut WorkMeter,
     bytes: u64,
+    unit_refs: &BTreeMap<Box<str>, Box<str>>,
 ) -> Result<Vec<DomainModel>, ValidationFailure> {
     let row = |index: usize| member_pointer(&["lock", "model_selections"]).index(index);
     let at = |index: usize, member: &str| row(index).key(member);
@@ -1388,40 +1414,42 @@ fn validate_domain_packages(
         .enumerate()
         .map(|(index, model)| {
             let mut budget = Budget::new(meter, index, bytes);
-            admit_selection(model, evidence, &mut budget).map_err(|failure| match failure {
-                SelectionFailure::Limit(failure) => failure,
-                SelectionFailure::InexactNumber {
-                    document_pointer,
-                    cause,
-                } => ValidationFailure::refused_number_in_document(
-                    at(index, "digest"),
-                    document_pointer,
-                    cause,
-                ),
-                SelectionFailure::Refused(refused) => {
-                    let model_members::SelectionRefusal {
-                        refusal,
-                        member,
-                        declaration_identity,
-                        declaration_origin,
-                        mismatch,
-                    } = *refused;
-                    // Intake metadata is private. Its owning lifetime ends at
-                    // this projection; none is attached to the public refusal.
-                    drop((declaration_identity, declaration_origin));
-                    let path = member.map_or_else(|| row(index), |member| at(index, member));
-                    if let Some((expected, actual)) = mismatch {
-                        ValidationFailure::Refused(Box::new(CheckedPackageRefusal::mismatch(
-                            path,
-                            refusal.cause,
-                            expected,
-                            actual,
-                        )))
-                    } else {
-                        ValidationFailure::refused_because(refusal.code, path, refusal.cause)
+            admit_selection(model, evidence, &mut budget, unit_refs).map_err(
+                |failure| match failure {
+                    SelectionFailure::Limit(failure) => failure,
+                    SelectionFailure::InexactNumber {
+                        document_pointer,
+                        cause,
+                    } => ValidationFailure::refused_number_in_document(
+                        at(index, "digest"),
+                        document_pointer,
+                        cause,
+                    ),
+                    SelectionFailure::Refused(refused) => {
+                        let model_members::SelectionRefusal {
+                            refusal,
+                            member,
+                            declaration_identity,
+                            declaration_origin,
+                            mismatch,
+                        } = *refused;
+                        // Intake metadata is private. Its owning lifetime ends at
+                        // this projection; none is attached to the public refusal.
+                        drop((declaration_identity, declaration_origin));
+                        let path = member.map_or_else(|| row(index), |member| at(index, member));
+                        if let Some((expected, actual)) = mismatch {
+                            ValidationFailure::Refused(Box::new(CheckedPackageRefusal::mismatch(
+                                path,
+                                refusal.cause,
+                                expected,
+                                actual,
+                            )))
+                        } else {
+                            ValidationFailure::refused_because(refusal.code, path, refusal.cause)
+                        }
                     }
-                }
-            })
+                },
+            )
         })
         .collect()
 }

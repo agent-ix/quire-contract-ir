@@ -212,7 +212,11 @@ fn tc_056_record_owner_index_uses_selected_row_work_budget() {
 /// tables the lock stage builds.
 pub(in crate::checked_package::v2) fn read(document: &Value) -> Result<DomainModel, ModelRefusal> {
     let mut meter = WorkMeter::new(u64::MAX);
-    match read_semantic_ir(document, &mut Budget::new(&mut meter, 0, BYTES)) {
+    match read_semantic_ir(
+        document,
+        &mut Budget::new(&mut meter, 0, BYTES),
+        &BTreeMap::new(),
+    ) {
         Ok(model) => {
             let mut models = [model];
             build_field_tables(&mut models, &mut meter).expect("no limit is reached");
@@ -625,7 +629,11 @@ fn tc_048_relationship_document_read_uses_the_exact_selected_row_work_budget() {
     let document = relationship_document(vec![relationship()]);
     let read_at = |work| {
         let mut meter = WorkMeter::new(work);
-        read_semantic_ir(&document, &mut Budget::new(&mut meter, 0, BYTES))
+        read_semantic_ir(
+            &document,
+            &mut Budget::new(&mut meter, 0, BYTES),
+            &BTreeMap::new(),
+        )
     };
     let mut below = 0;
     let mut enough = 100;
@@ -797,7 +805,12 @@ fn tc_048_a_selection_admits_only_the_document_it_names() {
         .expect("first domain evidence insertion succeeds");
     let admit = |selection: &CheckedDomainPackageRef, evidence: &CheckedPackageEvidence| {
         let mut meter = WorkMeter::new(u64::MAX);
-        admit_selection(selection, evidence, &mut Budget::new(&mut meter, 0, BYTES))
+        admit_selection(
+            selection,
+            evidence,
+            &mut Budget::new(&mut meter, 0, BYTES),
+            &BTreeMap::new(),
+        )
     };
     let admitted = admit(&selection("acme/orders", &digest), &evidence).expect("admitted");
     assert!(admitted.object_types.contains_key(WIDGET));
@@ -1009,15 +1022,27 @@ fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
     // The read: exact work admits, one less is incomplete at the row.
     let document = document(types());
     let mut unlimited = WorkMeter::new(u64::MAX);
-    read_semantic_ir(&document, &mut Budget::new(&mut unlimited, 2, BYTES)).expect("reads");
+    read_semantic_ir(
+        &document,
+        &mut Budget::new(&mut unlimited, 2, BYTES),
+        &BTreeMap::new(),
+    )
+    .expect("reads");
     let used = unlimited.consumed();
     assert!(used > 0, "a read is charged");
     let mut exact = WorkMeter::new(used);
-    read_semantic_ir(&document, &mut Budget::new(&mut exact, 2, BYTES)).expect("exact work admits");
+    read_semantic_ir(
+        &document,
+        &mut Budget::new(&mut exact, 2, BYTES),
+        &BTreeMap::new(),
+    )
+    .expect("exact work admits");
     let mut tight = WorkMeter::new(used - 1);
-    let Err(SelectionFailure::Limit(failure)) =
-        read_semantic_ir(&document, &mut Budget::new(&mut tight, 2, BYTES))
-    else {
+    let Err(SelectionFailure::Limit(failure)) = read_semantic_ir(
+        &document,
+        &mut Budget::new(&mut tight, 2, BYTES),
+        &BTreeMap::new(),
+    ) else {
         panic!("one unit less than the read used is a limit");
     };
     assert_eq!(

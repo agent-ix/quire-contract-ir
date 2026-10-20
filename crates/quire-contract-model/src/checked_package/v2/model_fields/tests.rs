@@ -16,7 +16,11 @@ use serde_json::{json, Value};
 /// [`read_semantic_ir`] without the field tables, which the lock stage builds.
 fn unbuilt(document: &Value) -> DomainModel {
     let mut meter = WorkMeter::new(u64::MAX);
-    match read_semantic_ir(document, &mut Budget::new(&mut meter, 0, BYTES)) {
+    match read_semantic_ir(
+        document,
+        &mut Budget::new(&mut meter, 0, BYTES),
+        &BTreeMap::new(),
+    ) {
         Ok(model) => model,
         Err(_) => panic!("the document reads"),
     }
