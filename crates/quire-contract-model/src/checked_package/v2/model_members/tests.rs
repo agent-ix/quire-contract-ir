@@ -215,7 +215,7 @@ pub(in crate::checked_package::v2) fn read(document: &Value) -> Result<DomainMod
     match read_semantic_ir(
         document,
         &mut Budget::new(&mut meter, 0, BYTES),
-        &BTreeMap::new(),
+        &Arc::new(BTreeMap::new()),
     ) {
         Ok(model) => {
             let mut models = [model];
@@ -632,7 +632,7 @@ fn tc_048_relationship_document_read_uses_the_exact_selected_row_work_budget() {
         read_semantic_ir(
             &document,
             &mut Budget::new(&mut meter, 0, BYTES),
-            &BTreeMap::new(),
+            &Arc::new(BTreeMap::new()),
         )
     };
     let mut below = 0;
@@ -809,7 +809,7 @@ fn tc_048_a_selection_admits_only_the_document_it_names() {
             selection,
             evidence,
             &mut Budget::new(&mut meter, 0, BYTES),
-            &BTreeMap::new(),
+            &Arc::new(BTreeMap::new()),
         )
     };
     let admitted = admit(&selection("acme/orders", &digest), &evidence).expect("admitted");
@@ -1025,7 +1025,7 @@ fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
     read_semantic_ir(
         &document,
         &mut Budget::new(&mut unlimited, 2, BYTES),
-        &BTreeMap::new(),
+        &Arc::new(BTreeMap::new()),
     )
     .expect("reads");
     let used = unlimited.consumed();
@@ -1034,14 +1034,14 @@ fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
     read_semantic_ir(
         &document,
         &mut Budget::new(&mut exact, 2, BYTES),
-        &BTreeMap::new(),
+        &Arc::new(BTreeMap::new()),
     )
     .expect("exact work admits");
     let mut tight = WorkMeter::new(used - 1);
     let Err(SelectionFailure::Limit(failure)) = read_semantic_ir(
         &document,
         &mut Budget::new(&mut tight, 2, BYTES),
-        &BTreeMap::new(),
+        &Arc::new(BTreeMap::new()),
     ) else {
         panic!("one unit less than the read used is a limit");
     };

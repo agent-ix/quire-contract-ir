@@ -136,10 +136,35 @@ fn same_named_unit_and_dimension() -> Vec<(Value, String)> {
     members
 }
 
-#[trace("TC-230", "FR-038-AC-301")]
+#[trace("TC-230", "FR-038-AC-301", "FR-038-AC-302")]
 #[test]
 fn tc_230_declaration_names_are_scoped_to_unit_dimension_and_type() {
-    let package = nominal_package(&same_named_unit_and_dimension());
+    let mut package = nominal_package(&same_named_unit_and_dimension());
+    let source = &package["lock"]["sources"][0];
+    let owner = json!({
+        "kind": "source", "authority": source["authority"], "identity": source["identity"],
+    });
+    let body = json!({"term": "aggregate", "members": []});
+    let preimage = json!({
+        "version": "quire.structural-node/v1", "node_tag": "composite_type",
+        "semantic_form": "record", "semantic_type": null,
+        "declaration": {"qualified_name": ["Example", "Metre"]},
+        "recursion": null, "owner": owner, "body": body,
+    });
+    let key = sha256_hex(&canonical(&preimage));
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "node_id": node_id(&key), "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "composite_type", "semantic_form": "record",
+            "semantic_type": node_id(&key), "dependencies": [],
+            "occurrences": [{"role": "declaration", "ordinal": 0}],
+            "declaration": {"qualified_name": ["Example", "Metre"]},
+            "owner": owner, "body": body,
+        }));
+    rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
     admits(&package);
 }
 
@@ -189,7 +214,7 @@ fn tc_230_repeated_unit_name_refuses_at_later_node() {
     );
 }
 
-#[trace("TC-230", "FR-038-AC-299")]
+#[trace("TC-230", "FR-038-AC-299", "FR-038-AC-302")]
 #[test]
 fn tc_230_quantity_literal_in_checked_unit_admits() {
     for magnitude in ["3", "0", "-5", "1/1000", "-7/2"] {
@@ -217,13 +242,32 @@ fn tc_230_quantity_literal_refuses_noncanonical_magnitude_and_other_family() {
     for (kind, family) in [
         ("quantity", "integer"),
         ("quantity", "boolean"),
+        ("quantity", "string"),
         ("integer", "unit"),
     ] {
         let (mut package, unit, boolean, integer, _, _) = fixture();
+        let string = structural_key(
+            "scalar_type",
+            "string",
+            None,
+            &json!({"term": "aggregate", "members": []}),
+        );
+        if family == "string" {
+            add_node(
+                &mut package,
+                &string,
+                "scalar_type",
+                "string",
+                &string,
+                json!({"term": "aggregate", "members": []}),
+            );
+            settle(&mut package);
+        }
         let ty = match family {
             "unit" => unit,
             "integer" => integer,
             "boolean" => boolean,
+            "string" => string,
             _ => unreachable!(),
         };
         let at = append_literal(&mut package, &ty, kind, json!("3"));

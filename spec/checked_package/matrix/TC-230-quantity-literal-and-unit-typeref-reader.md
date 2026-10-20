@@ -47,4 +47,5 @@ model-owned unit type node. Noncanonical magnitudes refuse `invalid_package`/
 
 ## Status
 
-Planned for IR-938. Tests and implementation follow this spec change.
+Implemented in IR-938. The full gate and selected-checkout conformance run
+provide the release evidence.

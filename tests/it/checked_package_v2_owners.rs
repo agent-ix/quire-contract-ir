@@ -233,6 +233,41 @@ fn tc_230_checked_unit_field_obeys_collection_multiplicity() {
 
 #[trace("TC-230", "FR-038-AC-300")]
 #[test]
+fn tc_230_checked_unit_field_obeys_optional_presence() {
+    let (mut package, mut document) = unit_field_document("ix://quire/unit/Example/Metre");
+    document["types"][0]["fields"][0]["presence"] = json!("optional");
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+    refresh_identity(&mut package);
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read_with_model(&package, &document)
+    else {
+        panic!("optional unit field must admit");
+    };
+    let nodes = package["semantic_graph"]["nodes"].as_array().unwrap();
+    let id = |form| {
+        serde_json::from_value::<quire_contract_model::CheckedNodeId>(
+            nodes
+                .iter()
+                .find(|node| node["semantic_form"] == form)
+                .unwrap()["node_id"]
+                .clone(),
+        )
+        .unwrap()
+    };
+    let fields = admitted
+        .model_object_fields(&id("object_type"))
+        .expect("model fields");
+    assert_eq!(
+        fields
+            .field("duration")
+            .and_then(|field| field.member_type()),
+        Some(&CheckedMemberType::Option(Box::new(
+            CheckedMemberType::Quantity(id("unit")),
+        ))),
+    );
+}
+
+#[trace("TC-230", "FR-038-AC-300")]
+#[test]
 fn tc_230_selected_model_operation_parameter_and_result_resolve_checked_unit() {
     let (mut package, mut document) = model_package();
     let slot = json!({

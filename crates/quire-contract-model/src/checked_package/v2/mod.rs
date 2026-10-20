@@ -111,7 +111,9 @@ use super::shared::{
     CheckedSourceMapEntry, CheckedSourceRef, CheckedSourceRegion, JsonPointer,
 };
 use model_fields::{build_field_tables, DeclarationIndex, RetainedModels};
-use model_members::{admit_selection, Budget, DomainModel, ModelOwners, SelectionFailure};
+use model_members::{
+    admit_selection, Budget, DomainModel, ModelOwners, SelectionFailure, UnitRefs,
+};
 use quire_canonical::FixedShape;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -1158,7 +1160,7 @@ struct LockAdmission<'a> {
 
 /// Candidate unit references for model selection admission. The graph stage
 /// subsequently validates each node, name and key before the package admits.
-fn checked_unit_refs(nodes: &[CheckedSemanticNodeV2]) -> BTreeMap<Box<str>, Box<str>> {
+fn checked_unit_refs(nodes: &[CheckedSemanticNodeV2]) -> UnitRefs {
     let mut refs = BTreeMap::new();
     for node in nodes {
         if node.node_tag.as_ref() != "scalar_type" || node.semantic_form.as_ref() != "unit" {
@@ -1176,7 +1178,7 @@ fn checked_unit_refs(nodes: &[CheckedSemanticNodeV2]) -> BTreeMap<Box<str>, Box<
         refs.entry(format!("ix://quire/unit/{name}").into())
             .or_insert_with(|| node.node_id.digest.clone());
     }
-    refs
+    std::sync::Arc::new(refs)
 }
 
 /// Checks the lock and returns what it admits.
@@ -1247,7 +1249,11 @@ fn validate_lock<'a>(
             models_pointer().index(repeat),
         ));
     }
-    let unit_refs = checked_unit_refs(&wire.semantic_graph.nodes);
+    let unit_refs = if lock.model_selections.is_empty() {
+        std::sync::Arc::new(BTreeMap::new())
+    } else {
+        checked_unit_refs(&wire.semantic_graph.nodes)
+    };
     let mut models =
         validate_domain_packages(&lock.model_selections, evidence, meter, bytes, &unit_refs)?;
     // Implements: FR-322. Every selected dependency's admitted package is supplied and
@@ -1372,7 +1378,7 @@ fn validate_domain_packages(
     evidence: &CheckedPackageEvidence,
     meter: &mut WorkMeter,
     bytes: u64,
-    unit_refs: &BTreeMap<Box<str>, Box<str>>,
+    unit_refs: &UnitRefs,
 ) -> Result<Vec<DomainModel>, ValidationFailure> {
     let row = |index: usize| member_pointer(&["lock", "model_selections"]).index(index);
     let at = |index: usize, member: &str| row(index).key(member);

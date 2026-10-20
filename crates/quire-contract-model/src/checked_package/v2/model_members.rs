@@ -55,6 +55,9 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+
+pub(super) type UnitRefs = Arc<BTreeMap<Box<str>, Box<str>>>;
 
 mod intake_origin;
 use intake_origin::{retained_origin, IntakeDeclarationOrigin, OriginView};
@@ -356,7 +359,7 @@ pub(super) struct DomainModel {
     /// Exact semantic case names of selected variant types, by declaration identity.
     pub(super) variant_types: BTreeMap<Box<str>, BTreeSet<Box<str>>>,
     /// Checked-package unit `typeRef` to the unit node digest.
-    pub(super) unit_refs: BTreeMap<Box<str>, Box<str>>,
+    pub(super) unit_refs: UnitRefs,
     /// Relationship declarations, by IR node identity.
     pub(super) relationships: BTreeMap<Box<str>, RelationshipDecl>,
     /// Declared populations, by IR node identity in the selected document.
@@ -1929,7 +1932,7 @@ pub(super) fn admit_selection(
     selection: &CheckedDomainPackageRef,
     evidence: &CheckedPackageEvidence,
     budget: &mut Budget<'_>,
-    unit_refs: &BTreeMap<Box<str>, Box<str>>,
+    unit_refs: &UnitRefs,
 ) -> Result<DomainModel, SelectionFailure> {
     let document = admit_document(
         selection,
@@ -2200,7 +2203,7 @@ fn node_size(value: &Value) -> u64 {
 pub(super) fn read_semantic_ir(
     document: &Value,
     budget: &mut Budget<'_>,
-    unit_refs: &BTreeMap<Box<str>, Box<str>>,
+    unit_refs: &UnitRefs,
 ) -> Result<DomainModel, SelectionFailure> {
     let identity = semantic_ir_identity(document).ok_or_else(ModelRefusal::malformed)?;
     let mut meanings: BTreeMap<(&str, &str), &str> = BTreeMap::new();

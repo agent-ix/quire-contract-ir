@@ -19,7 +19,7 @@ fn unbuilt(document: &Value) -> DomainModel {
     match read_semantic_ir(
         document,
         &mut Budget::new(&mut meter, 0, BYTES),
-        &BTreeMap::new(),
+        &Arc::new(BTreeMap::new()),
     ) {
         Ok(model) => model,
         Err(_) => panic!("the document reads"),
