@@ -1158,8 +1158,10 @@ struct LockAdmission<'a> {
     dependencies: SuppliedDependencies<'a>,
 }
 
-/// Candidate unit references for model selection admission. The graph stage
-/// subsequently validates each node, name and key before the package admits.
+/// Candidate unit references for model selection admission. The input byte
+/// limit bounds this one graph walk and its index before graph work is charged.
+/// The graph stage subsequently validates each node, name and key before the
+/// package admits.
 fn checked_unit_refs(nodes: &[CheckedSemanticNodeV2]) -> UnitRefs {
     let mut refs = BTreeMap::new();
     for node in nodes {
