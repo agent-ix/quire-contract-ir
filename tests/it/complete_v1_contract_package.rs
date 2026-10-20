@@ -1095,13 +1095,9 @@ fn defensive_body_payloads_are_closed_and_omitted_pointers_stay_omitted() {
 #[trace("TC-047", "FR-035-AC-17")]
 #[test]
 fn reader_refuses_causes_on_causeless_nested_reader_codes() {
-    for (code, cause, contract_version) in [
-        (
-            "unknown_contract_version",
-            "unsupported-wire",
-            Some("unknown/v1"),
-        ),
-        ("unknown_required_capability", "unsupported-feature", None),
+    for (code, contract_version) in [
+        ("unknown_contract_version", Some("unknown/v1")),
+        ("unknown_required_capability", None),
     ] {
         let mut wire = failed_wire("0", "0");
         let mut nested = json!({"code": code, "path": ""});
@@ -1118,7 +1114,8 @@ fn reader_refuses_causes_on_causeless_nested_reader_codes() {
             ContractPackageReadResult::Admitted(_)
         ));
 
-        wire["feature_accounting"][1]["refusal"]["cause"] = json!(cause);
+        // A recognized cause reaches code/cause pairing before digest checking.
+        wire["feature_accounting"][1]["refusal"]["cause"] = json!("invalid-value");
         let ContractPackageReadResult::Refused(refusal) = read(&canonical(&wire)) else {
             panic!("{code} with a cause must refuse");
         };
