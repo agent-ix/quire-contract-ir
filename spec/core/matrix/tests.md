@@ -28,7 +28,7 @@ type: TestMatrix
 | Non-Functional Req | Verification Method | Evidence/Test Cases | Status |
 |---|---|---|---|
 | NFR-001 | repeated corpus runs, direct canonical byte comparison for admitted inputs, and ordered diagnostic tuple comparison for rejected inputs | TC-017, TC-019 | 🚧 same-process canonical fixtures exist (TC-017); cross-platform canonical byte equality (AC-2) and ordered diagnostic `(code, path)` equality (AC-3) await direct TC-019 evidence |
-| NFR-002 | vocabulary, schema and API inspection | TC-015, TC-016, TC-456 | AC-4 implemented; AC-1 and AC-3 credit withheld, blocked by IR-881 while the sole temporary `Std001Code::KANI_SOLVER_ABSENT` / `kani_solver_absent` allowlist entry exists; TC-456 still guards every other public name and value |
+| NFR-002 | vocabulary, schema and API inspection | TC-015, TC-016, TC-456 | ✅ AC-1, AC-3 and AC-4 implemented: the registered Kani absence code is `kani_checker_absent`; TC-456 has no forbidden-name allowance, and TC-015 checks diagnostic wire vocabulary. |
 | NFR-003 | negative corpus, mutation, panic-free, orphan, and exact-span checks | TC-017, TC-018, TC-454 | ✅ AC-1 and AC-2 implemented (TC-454, `tests/it/nfr003_invalid_input.rs`): every STD-001 semantic code class driven through `run_corpus` and package decoding with a stable code and no panic, and every rejected corpus fixture without canonical identity or covered status; AC-3 exact source/target span checks are tagged in TC-017 |
 
 ## Diagnostic Registry Coverage
@@ -41,9 +41,9 @@ type: TestMatrix
 
 | Test ID | Title | Type | Priority | Traces To | Status |
 |---|---|---|---|---|---|
-| TC-015 | Package, revision, anchor, clause, dependency, and diagnostic identities conform | Integration | P0 | FR-011, FR-012, NFR-002, STD-001 | 🚧 test implemented for its other claims; NFR-002-AC-3 credit and its tag in `tests/it/identity.rs` are withheld, blocked by IR-881; IR-881 acceptance restores the tag when the rename lands |
+| TC-015 | Package, revision, anchor, clause, dependency, and diagnostic identities conform | Integration | P0 | FR-011, FR-012, NFR-002, STD-001 | ✅ `tests/it/identity.rs` checks diagnostic wire vocabulary and carries NFR-002-AC-3 after the registered-code rename. |
 | TC-442 | `Std001Code` is built only by validation, a checked literal, a registered constant or a `DiagnosticCode`, serializes as the bare string and spells every registered code once | Unit | P0 | FR-044 | ✅ implemented |
 | TC-446 | Proof-coverage baseline retains the population and qualifies evidence | Integration | P0 | FR-045 | 🚧 planned; no executable test |
 | TC-019 | Determinism metrics meet thresholds | Analysis | P0 | NFR-001 | 🚧 planned: direct admitted-input canonical byte comparison and rejected-input ordered diagnostic tuple comparison have no executable test; NFR-002-AC-1 is TC-456's |
-| TC-456 | Public schema and model names exclude implementation-specific vocabulary | Unit | P0 | NFR-002-AC-1, NFR-002-AC-3 | 🚧 partial: source/schema inventory, schema `const` values, public associated items, seven-table STD-001 registry reconciliation, and extractor-fed adverse and mutation controls are implemented. The temporary `Std001Code::KANI_SOLVER_ABSENT` / `kani_solver_absent` entry remains; AC-1 and AC-3 credit and trace tags are withheld, blocked by IR-881, until the registered-code rename and allowlist removal |
+| TC-456 | Public schema and model names exclude implementation-specific vocabulary | Unit | P0 | NFR-002-AC-1 | ✅ source/schema inventory, schema `const` values, public associated items, seven-table STD-001 registry reconciliation, and extractor-fed adverse controls run with no allowance; the retired Kani solver code is rejected. |
 | TC-454 | Every declared invalid-input class fails closed with a stable code, no public panic, no canonical identity and no covered status | Integration | P0 | NFR-003 | 🚧 AC-1 and AC-2 implemented in `tests/it/nfr003_invalid_input.rs`; AC-3 is TC-017's |

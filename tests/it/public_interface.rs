@@ -1263,7 +1263,6 @@ fn tc_456_unrecognized_exported_trait_member_fails_closed() {
 #[trace("TC-456")]
 #[test]
 fn tc_456_constant_values_and_trait_functions_reach_the_inventory() {
-    let tables = std001_code_rows(STD_001);
     for (source, owner, name) in [
         (
             "pub struct Model; impl Model { pub const LABEL: &'static str = \"solver\"; }",
@@ -1290,8 +1289,17 @@ fn tc_456_constant_values_and_trait_functions_reach_the_inventory() {
 #[trace("TC-456")]
 #[test]
 fn tc_456_retired_solver_code_is_rejected_without_an_allowlist() {
-    for name in ["KANI_SOLVER_ABSENT", "REGISTERED"] {
-        let names = [PublicName::value("Std001Code", name, "kani_solver_absent")];
+    for (name, source) in [
+        (
+            "KANI_SOLVER_ABSENT",
+            "pub struct Std001Code; impl Std001Code { pub const KANI_SOLVER_ABSENT: &'static str = \"kani_solver_absent\"; }",
+        ),
+        (
+            "REGISTERED",
+            "pub struct Std001Code; impl Std001Code { pub const REGISTERED: &'static [&'static str] = &[\"kani_solver_absent\"]; }",
+        ),
+    ] {
+        let names = source_items(&parse_model_source(source, "retired code control"));
         assert!(
             !inventory_violations(&names).is_empty(),
             "retired code admitted through {name}"

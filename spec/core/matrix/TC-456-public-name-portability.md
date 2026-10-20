@@ -13,8 +13,8 @@ relationships:
 Inspect the public schema and model-name inventory, independently of TC-019's
 cross-run and cross-platform determinism analysis, for
 Rust-layout, architecture-language, solver, runtime, pointer-width and
-operating-system-path vocabulary. NFR-002-AC-1 and NFR-002-AC-3 verification
-credit is withheld, blocked by IR-881.
+operating-system-path vocabulary. The registered Kani checker-absence code
+uses `kani_checker_absent` and has no exception to this rule.
 
 ## Test Procedure
 
@@ -46,19 +46,7 @@ entries. Require each code string in that difference to have a `Std001Code`
 associated constant whose name is the code string converted to uppercase ASCII
 with underscores unchanged and whose string value equals that code string.
 `REGISTERED` itself and every array element remain subject to the forbidden-term
-check except the exact element named below. The only temporary allowlist entry is:
-
-| Associated constant name | String value | Ticket and expiry |
-| --- | --- | --- |
-| `Std001Code::KANI_SOLVER_ABSENT` | `kani_solver_absent` | IR-881 (rename of the registered code in the Kani lane, with no compatibility alias); removed when IR-881 merges |
-
-Apply this entry only when the exact name and exact string value match each
-other and a `kani_solver_absent` row is extracted from STD-001's Bounded Kani
-Cause Codes table and survives the `DiagnosticCode::ALL` subtraction. It permits that
-constant's name and value and the matching `Std001Code::REGISTERED` element;
-it permits no other item, schema name or value. Do not infer an exception from
-registration, a constant's presence in source, or `Std001Code::REGISTERED`.
-Do not use a glob, prefix or regular expression. Fail if any other enumerated
+check, with no allowlist. Fail if any enumerated
 name or string value contains a forbidden implementation-specific term,
 including an unregistered `solver` constant next to `Std001Code`. Include a positive
 control showing that a benign `jsonpointer` name is admitted and adverse
@@ -71,31 +59,23 @@ walker or Rust source enumerator, respectively. Passing a control directly to
 `portable_name_violations` without extraction does not count. Also mutate the
 Rust source fixture to add an unregistered public `Std001Code` associated
 constant with `solver` in its name and value; the inventory must reject it.
-Remove the sole allowlist entry in a mutation while leaving STD-001 and the Rust
-source fixture unchanged; the inventory must then reject the
-`Std001Code::KANI_SOLVER_ABSENT` name, its `kani_solver_absent` value and the
-matching `Std001Code::REGISTERED` element. Any STD-001 registry fixture used by
-a mutation must pass through the same seven-table `Code`-row extractor as the
-unmodified STD-001 document; a hand-built code set does not count. The new
-unregistered `solver` constant must fail with the allowlist entry present.
-The eventual TC-456 test must run without `NFR-002-AC-1` or `NFR-002-AC-3`
-trace tags until IR-881 merges. The TC-456 test PR removes or withholds the
-existing `NFR-002-AC-1` tag in `tests/it/public_interface.rs` and the existing
-`NFR-002-AC-3` tag in `tests/it/identity.rs`. IR-881 acceptance restores both
-tags when the registered-code rename lands and the allowlist entry is removed.
+Inject the retired `KANI_SOLVER_ABSENT` name and `kani_solver_absent` value as
+both a public `Std001Code` constant and a `REGISTERED` element; the inventory
+must reject each. The new unregistered `solver` constant must also fail.
+The TC-456 public-name test carries `NFR-002-AC-1`, and TC-015's diagnostic
+wire-vocabulary test carries `NFR-002-AC-3` after the registered-code rename.
 
 ## Expected Results
 
 The complete public schema and model-name inventory, including string `const`
 values and all exported item kinds under their applicable features, has no
-forbidden names or values outside the single temporary allowlist entry. Every
-adverse control and both mutations are detected; the benign control, the exact
-allowlisted constant and value, and the checked `REGISTERED` array are admitted.
+forbidden names or values. Every adverse control is detected; the benign control
+and the checked `REGISTERED` array are admitted. The retired Kani solver code
+fails the same public-name check as any other forbidden term.
 
 ## Status
 
-🚧 Partial: the schema and model-name inventory, registered-code reconciliation,
-and adverse and mutation controls are implemented. The temporary entry remains, so NFR-002-AC-1
-and NFR-002-AC-3 credit is withheld, blocked by IR-881; their trace tags are
-withheld until the rename and allowlist removal. TC-019 remains planned for
-NFR-001's separate determinism measurements.
+Implemented for NFR-002-AC-1 and NFR-002-AC-3: the schema and model-name
+inventory, registered-code reconciliation, adverse controls, and retired-code
+rejection run without an allowance. TC-019 remains planned for NFR-001's
+separate determinism measurements.

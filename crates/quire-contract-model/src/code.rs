@@ -212,6 +212,7 @@ registered_codes! {
     KANI_BOUND_INVALID => "kani_bound_invalid",
     KANI_CAPABILITY_MISSING => "kani_capability_missing",
     KANI_CAPABILITY_REQUEST_INVALID => "kani_capability_request_invalid",
+    KANI_CHECKER_ABSENT => "kani_checker_absent",
     KANI_COUNTEREXAMPLE => "kani_counterexample",
     KANI_IDENTITY_INVALID => "kani_identity_invalid",
     KANI_OUTCOME_INVALID => "kani_outcome_invalid",
@@ -219,7 +220,6 @@ registered_codes! {
     KANI_POPULATION_INVALID => "kani_population_invalid",
     KANI_PROVED => "kani_proved",
     KANI_REFERENCE_INVALID => "kani_reference_invalid",
-    KANI_SOLVER_ABSENT => "kani_solver_absent",
     KANI_VACUOUS_PROOF => "kani_vacuous_proof",
 }
 
