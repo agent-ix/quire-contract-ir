@@ -31,6 +31,8 @@ FR-038-AC-27 through FR-038-AC-30 (QSpec FR-322-AC-29 through FR-322-AC-34
 "Model-owned members") against a self-built domain package document, and
 FR-038-AC-31 through FR-038-AC-33 (QSpec FR-322-AC-35) against the
 `DependencySelection` entries of a self-built package, and
+FR-038-AC-293 against recursively derived dependency closures with conflicting
+package ids, and
 FR-038-AC-35 through FR-038-AC-38 (QSpec FR-322-AC-36 and FR-322-AC-37)
 against a self-built dependency package and a package that calls it, and
 FR-038-AC-45 (QSpec FR-322-AC-28) against a model-owned nominal declaration and
@@ -774,6 +776,34 @@ entry at a time to a wrong-domain, empty-identity, short-digest, bare-digest or
 adjacent and not, and reverse two entries, and read. Order two identities
 whose UTF-8 and UTF-16 orders differ and read. Compare the whole refusal code,
 cause and pointer with the expected one.
+
+## Derived dependency conflicts (FR-038-AC-293)
+
+Admit two leaf packages with different `package_id`s. Admit a `test/left`
+package that directly selects the first leaf under `test/leaf`, and a
+`test/right` package that directly selects the second under that same identity.
+Re-derive each importer's identity from its direct lock entries. Read a root
+whose two direct selections name `test/left` and `test/right`, supplying both
+admitted packages. Require `Refused` with code `invalid_package`, cause
+`conflicting-definition`, `path` exactly
+`/lock/dependency_selections/0/lock/dependency_selections/0`, and typed
+`related_path` exactly
+`/lock/dependency_selections/1/lock/dependency_selections/0`. Both pointers
+begin at the root's lock and traverse the admitted package selected by the
+preceding entry; they are separate fields, not prose.
+
+For the single-direct case, admit a leaf under `test/repeated`, then a middle
+package that directly selects that leaf, then a child that directly selects the
+middle package under `test/middle`. Read a root that directly selects the child
+under `test/repeated`, with a `package_id` different from the leaf's. Require
+`Refused(invalid_package, conflicting-definition)` with `path` exactly
+`/lock/dependency_selections/0` and typed `related_path` exactly
+`/lock/dependency_selections/0/lock/dependency_selections/0/lock/dependency_selections/0`.
+The already admitted child is internally consistent; the conflict arises only
+when the root's direct identity is joined with the child's transitive closure.
+The tagged tests `diamond_with_different_transitive_package_ids_refuses` and
+`one_direct_edge_still_refuses_a_conflicting_identity_below_it` assert these
+code, cause and pointer oracles through the public V2 reader.
 
 ## Operation identity, laws, mode, member and operands (FR-038-AC-81 through FR-038-AC-88)
 
