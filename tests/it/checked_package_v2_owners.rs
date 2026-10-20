@@ -131,9 +131,8 @@ fn read_with_model(package: &Value, document: &Value) -> CheckedPackageV2ReadRes
     )
 }
 
-fn declared_population_package() -> (Value, Value) {
+fn declared_population_package_for(population: &str) -> (Value, Value) {
     let (mut package, mut document) = model_package();
-    let population = "ix://acme/owners/counters";
     document["populations"] = json!([{"node": population}]);
     package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
 
@@ -164,6 +163,10 @@ fn declared_population_package() -> (Value, Value) {
     (package, document)
 }
 
+fn declared_population_package() -> (Value, Value) {
+    declared_population_package_for("ix://acme/owners/counters")
+}
+
 #[trace("TC-229", "FR-038-AC-294", "FR-038-AC-295")]
 #[test]
 fn tc_229_selected_declared_population_reference_admits() {
@@ -172,6 +175,105 @@ fn tc_229_selected_declared_population_reference_admits() {
         read_with_model(&package, &document),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
+}
+
+#[trace("TC-229", "FR-038-AC-294", "FR-038-AC-295")]
+#[test]
+fn tc_229_distinct_population_declarations_have_distinct_keys() {
+    let (counters, counters_document) = declared_population_package();
+    let (archive, archive_document) = declared_population_package_for("ix://acme/owners/archive");
+    assert_ne!(
+        counters["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["node_id"],
+        archive["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["node_id"]
+    );
+    for (package, document) in [
+        (&counters, &counters_document),
+        (&archive, &archive_document),
+    ] {
+        assert!(matches!(
+            read_with_model(package, document),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ));
+    }
+}
+
+#[trace("TC-229", "FR-038-AC-294", "FR-038-AC-295")]
+#[test]
+fn tc_229_population_reference_requires_owner_and_selected_population() {
+    let (base, document) = declared_population_package();
+    let position = base["semantic_graph"]["nodes"].as_array().unwrap().len() - 1;
+    let mut ownerless = base.clone();
+    ownerless["semantic_graph"]["nodes"][position]
+        .as_object_mut()
+        .unwrap()
+        .remove("owner");
+    refresh_identity(&mut ownerless);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&ownerless, &document)
+    else {
+        panic!("ownerless population reference must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+
+    for (name, node_tag, form, declared) in [
+        (
+            "missing population",
+            "relation",
+            "population",
+            "ix://acme/owners/missing",
+        ),
+        (
+            "object claimed as population",
+            "relation",
+            "population",
+            "ix://acme/owners/Point",
+        ),
+        (
+            "population claimed as object",
+            "model",
+            "object_type",
+            "ix://acme/owners/counters",
+        ),
+        (
+            "population claimed as relationship",
+            "relation",
+            "relationship",
+            "ix://acme/owners/counters",
+        ),
+    ] {
+        let mut changed = base.clone();
+        let node = &mut changed["semantic_graph"]["nodes"][position];
+        node["node_tag"] = json!(node_tag);
+        node["semantic_form"] = json!(form);
+        node["owner"]["node"] = json!(declared);
+        refresh_identity(&mut changed);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&changed, &document)
+        else {
+            panic!("{name} must refuse");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::MissingDeclaration,
+            "{name}"
+        );
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::MissingSelection),
+            "{name}"
+        );
+        assert_eq!(
+            refusal.path.expect("path").as_str(),
+            format!("/semantic_graph/nodes/{position}/node_id"),
+            "{name}"
+        );
+    }
 }
 
 fn owned_clause(mut package: Value, document: &Value, declared: &str, clause: &str) -> Value {

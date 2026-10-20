@@ -189,7 +189,9 @@ pub(super) fn valid_derived_shape(
     let model_owned = matches!(
         kind,
         CheckedNodeKind::Model(super::ModelForm::ObjectType | super::ModelForm::SystemsInterface)
-            | CheckedNodeKind::Relation(super::RelationForm::Relationship)
+            | CheckedNodeKind::Relation(
+                super::RelationForm::Relationship | super::RelationForm::Population
+            )
     ) || (matches!(
         kind,
         CheckedNodeKind::Model(super::ModelForm::RecordValueType | super::ModelForm::VariantType)
