@@ -541,7 +541,13 @@ fn tc_229_qspec_published_population_binding_fixture_admits() {
     }
 }
 
-#[trace("TC-229", "FR-038-AC-295", "FR-038-AC-296", "FR-038-AC-298")]
+#[trace(
+    "TC-229",
+    "FR-038-AC-295",
+    "FR-038-AC-296",
+    "FR-038-AC-297",
+    "FR-038-AC-298"
+)]
 #[test]
 fn tc_229_qspec_population_reference_cases_match_reader() {
     let root = match std::env::var("QUIRE_SPECIFICATION_DIR") {
