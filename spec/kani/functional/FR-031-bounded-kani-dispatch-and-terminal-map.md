@@ -64,7 +64,7 @@ Contract IR states no row of that map. It exposes the outcome kinds and
 causes the map reads, as FR-030 defines them: `Proved` with its SUCCESS check
 count, `Inconclusive` with cause `kani_vacuous_proof`, `Counterexample`, the
 three refusal kinds, the three limit kinds, and `Unavailable` with cause
-`kani_solver_absent` or `kani_backend_absent`.
+`kani_checker_absent` or `kani_backend_absent`.
 
 A construct the profile has no qualified interpretation for never becomes
 an outcome: FR-029 settles its item `unsupported` at negotiation, with a
