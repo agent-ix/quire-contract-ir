@@ -1819,11 +1819,12 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
 /// FR-322's declaration-name refusals, after the nominal checks and before
 /// frame and operation checks. First, a node carrying both a `declaration` and
 /// a nominal preimage that fixes a name must declare exactly that name, else
-/// `invalid_package` / `declaration-nominal-mismatch`. Then no two nodes may
-/// declare the same `qualified_name`, else `ambiguous_declaration` /
-/// `ambiguous-name`. Each sweep reports at the first offending node in
-/// ascending node-id digest order, the iteration order of `index`; for an
-/// ambiguous name that is the lowest-digest node sharing it. FR-322 orders
+/// `invalid_package` / `declaration-nominal-mismatch`. Then no two nodes in
+/// one namespace may declare the same `qualified_name`, else
+/// `ambiguous_declaration` / `ambiguous-name`. The namespaces are units,
+/// dimensions and all other types. Each sweep reports at the first offending
+/// node in ascending node-id digest order, the iteration order of `index`;
+/// for an ambiguous name that is the later node sharing it. FR-322 orders
 /// both before any operation refusal but not against each other: this reader
 /// checks the nominal join first. Takes no work meter: every name compared
 /// here was already charged when `validate_graph`'s per-node loop admitted it.
@@ -1855,27 +1856,24 @@ fn validate_declaration_names(
             ));
         }
     }
-    let mut holders: BTreeMap<&[Box<str>], Vec<(&CheckedNodeId, usize)>> = BTreeMap::new();
+    let mut holders = BTreeSet::new();
     for (&node_id, &position) in index {
-        if let Some(declaration) = &nodes[position].declaration {
-            holders
-                .entry(declaration.qualified_name.as_slice())
-                .or_default()
-                .push((node_id, position));
+        let node = &nodes[position];
+        if let Some(declaration) = &node.declaration {
+            let namespace = match (node.node_tag.as_ref(), node.semantic_form.as_ref()) {
+                ("scalar_type", "dimension") => 0_u8,
+                ("scalar_type", "unit") => 1,
+                _ => 2,
+            };
+            if !holders.insert((namespace, declaration.qualified_name.as_slice())) {
+                return Err(refuse_at(
+                    CheckedPackageRefusalCode::AmbiguousDeclaration,
+                    name_pointer(position),
+                    Some(CheckedPackageRefusalCause::AmbiguousName),
+                    node_id.clone(),
+                ));
+            }
         }
-    }
-    if let Some((first, position)) = holders
-        .values()
-        .filter(|ids| ids.len() > 1)
-        .filter_map(|ids| ids.first())
-        .min()
-    {
-        return Err(refuse_at(
-            CheckedPackageRefusalCode::AmbiguousDeclaration,
-            name_pointer(*position),
-            Some(CheckedPackageRefusalCause::AmbiguousName),
-            (*first).clone(),
-        ));
     }
     Ok(())
 }

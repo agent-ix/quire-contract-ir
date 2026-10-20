@@ -153,11 +153,13 @@ fn tc_230_repeated_unit_name_refuses_at_later_node() {
         .expect("unit")
         .0
         .clone();
-    repeated["target_unit_node_id"] = node_id(&members
-        .iter()
-        .find(|(preimage, _)| preimage["version"] == "quire.unit-node/v1")
-        .expect("unit")
-        .1);
+    repeated["target_unit_node_id"] = node_id(
+        &members
+            .iter()
+            .find(|(preimage, _)| preimage["version"] == "quire.unit-node/v1")
+            .expect("unit")
+            .1,
+    );
     repeated["scale"]["numerator"] = json!("2");
     let key = sha256_hex(&canonical(&repeated));
     members.push((repeated, key));
@@ -181,7 +183,10 @@ fn tc_230_repeated_unit_name_refuses_at_later_node() {
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
         panic!("duplicate unit must refuse");
     };
-    assert_eq!(refusal.locus.as_ref(), Some(&serde_json::from_value(later["node_id"].clone()).unwrap()));
+    assert_eq!(
+        refusal.locus.as_ref(),
+        Some(&serde_json::from_value(later["node_id"].clone()).unwrap())
+    );
 }
 
 #[trace("TC-230", "FR-038-AC-299")]
