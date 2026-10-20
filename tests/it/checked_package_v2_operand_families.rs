@@ -118,6 +118,53 @@ fn append_literal(package: &mut Value, ty: &str, kind: &str, value: Value) -> us
     position
 }
 
+#[trace("TC-230", "FR-038-AC-299")]
+#[test]
+fn tc_230_quantity_literal_in_checked_unit_admits() {
+    for magnitude in ["3", "0", "-5", "1/1000", "-7/2"] {
+        let (mut package, unit, _, _, _, _) = fixture();
+        append_literal(&mut package, &unit, "quantity", json!(magnitude));
+        admits(&package);
+    }
+}
+
+#[trace("TC-230", "FR-038-AC-299")]
+#[test]
+fn tc_230_quantity_literal_refuses_noncanonical_magnitude_and_other_family() {
+    for magnitude in [
+        "03", "+3", "2/4", "4/2", "1/0", "0/5", "3/1", "1/-2", " 3", "2.5", "",
+    ] {
+        let (mut package, unit, _, _, _, _) = fixture();
+        let at = append_literal(&mut package, &unit, "quantity", json!(magnitude));
+        refuses(
+            &package,
+            CheckedPackageRefusalCode::InvalidPackage,
+            CheckedPackageRefusalCause::InvalidValue,
+            &format!("/semantic_graph/nodes/{at}/body/value"),
+        );
+    }
+    for (kind, family) in [
+        ("quantity", "integer"),
+        ("quantity", "boolean"),
+        ("integer", "unit"),
+    ] {
+        let (mut package, unit, boolean, integer, _, _) = fixture();
+        let ty = match family {
+            "unit" => unit,
+            "integer" => integer,
+            "boolean" => boolean,
+            _ => unreachable!(),
+        };
+        let at = append_literal(&mut package, &ty, kind, json!("3"));
+        refuses(
+            &package,
+            CheckedPackageRefusalCode::IllTyped,
+            CheckedPackageRefusalCause::OperatorIneligible,
+            &format!("/semantic_graph/nodes/{at}/body/type"),
+        );
+    }
+}
+
 fn change_literal_type(package: &mut Value, position: usize, ty: &str) {
     let node = &mut package["semantic_graph"]["nodes"][position];
     node["body"]["type"] = node_id(ty);
