@@ -4,7 +4,8 @@
 //! Owner-wire admission and refusal cases built from this crate's public wire vocabulary.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, refresh_identity, sha256_hex, v2_all_families, v2_nominal,
+    application_node_key, canonical, evidence_for, node_id, refresh_identity, settle, sha256_hex,
+    structural_key, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -272,6 +273,119 @@ fn tc_229_population_reference_requires_owner_and_selected_population() {
             refusal.path.expect("path").as_str(),
             format!("/semantic_graph/nodes/{position}/node_id"),
             "{name}"
+        );
+    }
+}
+
+#[trace("TC-229", "FR-038-AC-296")]
+#[test]
+fn tc_229_declared_population_is_query_operand() {
+    for lookup in [false, true] {
+        let (mut package, document) = declared_population_package();
+        let population = package["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["node_id"]
+            .clone();
+        let (object_package, _) = model_package();
+        let object_node = object_package["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()
+            .clone();
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(object_node);
+        let point = package["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|node| node["semantic_form"] == "object_type")
+            .unwrap()["node_id"]
+            .clone();
+        let reference_body = json!({"term":"aggregate","members":[
+        {"term":"reference","target":point.clone()}]});
+        let reference = structural_key("composite_type", "reference", None, &reference_body);
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "node_id":node_id(&reference), "schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"composite_type", "semantic_form":"reference",
+                "semantic_type":node_id(&reference), "dependencies":[],
+                "occurrences":[{"role":"type","ordinal":0}], "body":reference_body
+            }));
+        let set_body = json!({"term":"aggregate","members":[
+        {"term":"reference","target":node_id(&reference)}]});
+        let set = structural_key("composite_type", "set", None, &set_body);
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "node_id":node_id(&set), "schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"composite_type", "semantic_form":"set",
+                "semantic_type":node_id(&set), "dependencies":[],
+                "occurrences":[{"role":"type","ordinal":0}], "body":set_body
+            }));
+        let (result, mode, arguments) =
+            if lookup {
+                let option_body = json!({"term":"aggregate","members":[
+            {"term":"reference","target":node_id(&reference)}]});
+                let option = structural_key("composite_type", "option", None, &option_body);
+                package["semantic_graph"]["nodes"].as_array_mut().unwrap().push(json!({
+            "node_id":node_id(&option), "schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"composite_type", "semantic_form":"option",
+            "semantic_type":node_id(&option), "dependencies":[],
+            "occurrences":[{"role":"type","ordinal":0}], "body":option_body
+        }));
+                let identity_body = json!({"term":"reference","target":point.clone()});
+                let identity =
+                    structural_key("expression", "reference", Some(&reference), &identity_body);
+                package["semantic_graph"]["nodes"].as_array_mut().unwrap().push(json!({
+            "node_id":node_id(&identity), "schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"expression", "semantic_form":"reference",
+            "semantic_type":node_id(&reference), "dependencies":[],
+            "occurrences":[{"role":"expression","ordinal":0}], "body":identity_body
+        }));
+                (
+                    option,
+                    json!({"kind":"absence","value":"option"}),
+                    json!([{"term":"reference","target":population},
+                {"term":"reference","target":node_id(&identity)}]),
+                )
+            } else {
+                (
+                    set,
+                    Value::Null,
+                    json!([{"term":"reference","target":population}]),
+                )
+            };
+        let body = json!({"term":"application","operator":"query",
+        "operation":{"identity":if lookup {"quire.op.model.lookup"} else {"quire.op.model.all_instances"},
+            "laws":[],"mode":mode,
+            "member":{"kind":"type_argument","declaration":point},"leaves":[]},
+        "result_type":node_id(&result),"arguments":arguments});
+        let application = application_node_key("expression", "query", &result, &body);
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "node_id":node_id(&application), "schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"expression", "semantic_form":"query",
+                "semantic_type":node_id(&result), "dependencies":[],
+                "occurrences":[{"role":"expression","ordinal":0}], "body":body
+            }));
+        settle(&mut package);
+        assert!(
+            matches!(
+                read_with_model(&package, &document),
+                CheckedPackageV2ReadResult::Admitted(_)
+            ),
+            "lookup={lookup}: {:?}",
+            read_with_model(&package, &document)
         );
     }
 }

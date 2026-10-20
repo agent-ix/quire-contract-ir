@@ -558,9 +558,9 @@ fn check_type_argument_member_result(
     if result != member {
         return Some(refuse());
     }
-    // FR-322 leaves model_population's family unresolved even though the
-    // generic bounded-domain walk can reach its Set base.
-    let unresolved = graph
+    // A model population can be the exact member result even when a
+    // catalog family constraint describes the operation's ordinary result.
+    let population_result = graph
         .index
         .get(&member)
         .and_then(|position| graph.kinds.get(*position))
@@ -568,7 +568,7 @@ fn check_type_argument_member_result(
             BoundedDomainForm::ModelPopulation,
         ));
     if let Some(expected_family) = expected_family {
-        if !unresolved
+        if !population_result
             && resolve_family(&member, graph.nodes, graph.kinds, graph.index)
                 .is_some_and(|family| !catalog.family_fits(family, expected_family))
         {
@@ -1029,9 +1029,9 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | BoundedDomainForm::DecimalRange
             | BoundedDomainForm::FloatRounding
             | BoundedDomainForm::TextBounds
-            | BoundedDomainForm::CollectionBounds
-            | BoundedDomainForm::ModelPopulation,
+            | BoundedDomainForm::CollectionBounds,
         ) => None,
+        K::BoundedDomain(BoundedDomainForm::ModelPopulation) => Some("population"),
         K::Value(
             ValueForm::Literal
             | ValueForm::EnumValue

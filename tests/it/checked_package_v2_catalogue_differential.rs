@@ -95,12 +95,35 @@ fn composite(package: &mut Value, form: &str, member: &str) -> String {
     node(package, &key, "composite_type", form, &key, body);
     key
 }
-fn population(package: &mut Value, text: &str) -> String {
-    let body = json!({"term": "aggregate", "members": [{"term": "binding", "name": "identity",
-        "value": {"term": "literal", "type": node_id(text), "value_kind": "text", "value": "population-a"}}]});
-    let key = structural_key("relation", "population", None, &body);
-    node(package, &key, "relation", "population", &key, body);
-    key
+fn population(f: &mut Fixture, reference_type: &str) -> String {
+    let set_body = json!({"term": "aggregate", "members": [reference(reference_type)]});
+    let set = structural_key("composite_type", "set", None, &set_body);
+    if !f.package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .any(|node| node["node_id"] == node_id(&set))
+    {
+        node(
+            &mut f.package,
+            &set,
+            "composite_type",
+            "set",
+            &set,
+            set_body,
+        );
+    }
+    let body = json!({"term": "aggregate", "members": []});
+    let ty = structural_key("bounded_domain", "model_population", Some(&set), &body);
+    node(
+        &mut f.package,
+        &ty,
+        "bounded_domain",
+        "model_population",
+        &set,
+        body,
+    );
+    parameter(f, &ty, "population_a")
 }
 fn expression_reference(package: &mut Value, target: &str, ty: &str) -> String {
     let body = reference(target);
@@ -506,7 +529,7 @@ pub(super) fn admitted_fixture(identity: &str) -> Option<Value> {
         "quire.op.model.all_instances" => {
             let reference_type = composite(&mut f.package, "reference", &u);
             let set = composite(&mut f.package, "set", &reference_type);
-            let pop = population(&mut f.package, &f.text.clone());
+            let pop = population(&mut f, &reference_type);
             application(
                 &mut f,
                 "query",
@@ -521,7 +544,7 @@ pub(super) fn admitted_fixture(identity: &str) -> Option<Value> {
         "quire.op.model.lookup" => {
             let reference_type = composite(&mut f.package, "reference", &u);
             let option = composite(&mut f.package, "option", &u);
-            let pop = population(&mut f.package, &f.text.clone());
+            let pop = population(&mut f, &reference_type);
             let expression = expression_reference(&mut f.package, &f.left.clone(), &reference_type);
             application(
                 &mut f,
