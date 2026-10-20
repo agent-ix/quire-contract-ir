@@ -2,18 +2,14 @@
 
 [![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/k8DVhuYBR2)
 
-Contract IR is the target-neutral model of a Quire contract. The Quire
-Specification Language compiler (QSL) checks a rule and writes a *checked
-package*, a canonical JSON file. This repository reads those bytes strictly,
-decides whether they can be trusted, and turns the parts a backend asks for
-into one versioned, canonical contract package.
+Contract IR is the target-neutral intermediate representation of a Quire
+contract. This repository contains the reader for QSL checked packages and the
+lowering that produces a canonical contract package.
 
-It exists so that the tools that generate code or run proofs do not each parse
-the checked package their own way. If every backend decoded the file itself,
-two of them could disagree about what a rule means, or about which node is which.
-Contract IR gives them one reader, one set of node identities and one canonical
-encoding, and it says "refused", "unsupported" or "incomplete" instead of
-guessing when it cannot read or lower something.
+It reads the `quire.checked-package/v2` JSON that QSL writes, validates it, and
+lowers the parts a backend requests into one versioned contract package.
+Code-generation and proof backends read that package. Input it cannot read or
+lower ends as refused, unsupported or incomplete.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.svg">
@@ -24,21 +20,21 @@ guessing when it cannot read or lower something.
 > versioned `0.1.0` and are not published to a registry (`publish = false`), and
 > the repository is developed spec-first.
 
-## What it reads
+## Reading
 
 A `quire.checked-package/v2` has eight members. The reader checks every one: it
 refuses a package whose `contract_version` is not `v2`, whose bytes are not
 canonical JSON, whose `package_id` does not match the content it names, or whose
 required capabilities are missing. Evidence the package names (the domain
 package documents and any library packages it depends on) is handed in by the
-caller; the reader recomputes digests itself and never fetches anything.
+caller; the reader recomputes digests itself and does not fetch anything.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/inside-package-dark.svg">
   <img alt="A quire.checked-package/v2 holds eight members. The reader checks each one, and lowering works on the semantic graph, whose nodes come in thirteen families: scalar_type, composite_type, bounded_domain, value, expression, function, model, relation, state, temporal, protocol, claim and correspondence." src="docs/images/inside-package-light.svg">
 </picture>
 
-Reading has three outcomes, and none of them is a guess:
+Reading has three outcomes:
 
 | Outcome | Meaning |
 | --- | --- |
@@ -46,7 +42,7 @@ Reading has three outcomes, and none of them is a guess:
 | `Refused` | The input is invalid, with a typed code (`malformed_wire`, `noncanonical_wire`, `stale_dependency`, `invalid_semantic_graph`, `unknown_contract_version` and others) and the JSON pointer of the value at fault. |
 | `Incomplete` | The input exceeded a limit the caller set, so no conclusion was reached. |
 
-## What it lowers to
+## Lowering
 
 Lowering takes the keys a backend asks for and a *lowering profile*: which node
 families the backend supports, whether unbounded types must be bounded, and a
@@ -59,7 +55,7 @@ the answer for another. Everything that lowered is assembled into a single
   <img alt="Lowering answers each requested node on its own with one of five records: lowered, unsupported when a reachable family is outside the profile, requires_bound when a reachable type is unbounded, invalid_input when the key is not in the package, or failed when the work or byte budget runs out. A request that cannot lower adds nothing to the package." src="docs/images/lowering-light.svg">
 </picture>
 
-## Smallest example
+## Example
 
 Read a package, then lower two keys, one of which is not in the graph. The
 reader half is `read` in [`tests/it/checked_package_v2_reader.rs`](tests/it/checked_package_v2_reader.rs)
@@ -125,7 +121,7 @@ when any fixture mismatches and `2` on an invalid invocation or corpus.
 [`corpus/contract-v0.1/README.md`](corpus/contract-v0.1/README.md) and
 [`schemas/README.md`](schemas/README.md).
 
-## The Quire ecosystem
+## Quire ecosystem
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/ecosystem-dark.svg">
