@@ -112,10 +112,10 @@ type: TestMatrix
 
 | Functional Req | Acceptance Criteria | Test Case | Status | Required cases |
 |---|---|---|---|---|
-| FR-038 | FR-038-AC-299 | TC-230 | 🚧 PLANNED/UNRUN; spec-first | Canonical and rejected quantity magnitudes, unit family, and wrong literal type. |
-| FR-038 | FR-038-AC-300 | TC-230 | 🚧 PLANNED/UNRUN; spec-first | Checked-unit typeRef for fields, parameters and results; missing name and argument mismatches. |
-| FR-038 | FR-038-AC-301 | TC-230 | 🚧 PLANNED/UNRUN; spec-first | Separate type, dimension and unit name namespaces; duplicate refusal order. |
-| FR-038 | FR-038-AC-302 | TC-230 | 🚧 PLANNED/UNRUN; spec-first | Selected-checkout QSpec cases and strict-coverage comparison. |
+| FR-038 | FR-038-AC-299 | TC-230 | Implemented; focused tests pass | Canonical and rejected quantity magnitudes, unit family, and wrong literal type. |
+| FR-038 | FR-038-AC-300 | TC-230 | Implemented; focused tests pass | Checked-unit typeRef for fields, parameters and results; missing name and argument mismatches. |
+| FR-038 | FR-038-AC-301 | TC-230 | Implemented; focused tests pass | Separate type, dimension and unit name namespaces; duplicate refusal order. |
+| FR-038 | FR-038-AC-302 | TC-230 | Implemented; selected QSpec conformance passes; strict coverage unchanged at 40 unbacked | Selected-checkout QSpec cases and strict-coverage comparison. |
 
 ## Pending structural type work coverage (IR-490)
 
