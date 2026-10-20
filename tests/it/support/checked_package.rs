@@ -1590,6 +1590,9 @@ fn join_targets(term: &Value, out: &mut std::collections::BTreeSet<String>) -> b
             {
                 out.insert(declaration.to_owned());
             }
+            if let Some(population) = term["operation"]["member"]["population"]["digest"].as_str() {
+                out.insert(population.to_owned());
+            }
             for argument in term["arguments"].as_array().into_iter().flatten() {
                 join_targets(argument, out);
             }
