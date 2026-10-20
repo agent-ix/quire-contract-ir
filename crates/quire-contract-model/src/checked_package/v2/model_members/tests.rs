@@ -11,7 +11,7 @@ use ix_trace_rs::trace;
 /// used when the production reader admits selected domain declarations.
 /// Ordinary workspace tests have no QSpec checkout; the explicit conformance
 /// target supplies one and runs this test alongside the public reader test.
-#[trace("TC-048", "FR-038-AC-176")]
+#[trace("TC-048", "TC-229", "FR-038-AC-176", "FR-038-AC-294", "FR-038-AC-298")]
 #[test]
 fn tc_048_qspec_model_declaration_keys_use_production_derivation() {
     let root = match std::env::var("QUIRE_SPECIFICATION_DIR") {
@@ -58,6 +58,44 @@ fn tc_048_qspec_model_declaration_keys_use_production_derivation() {
             declaration_key(identity, form, node, BYTES).expect("production declaration key"),
             expected,
             "{name}: production key must equal QSpec's recorded digest"
+        );
+    }
+    let population_path = std::path::Path::new(&root)
+        .join("proposals/checked-package-v2/model-owner-form-vectors.json");
+    let population_bytes = std::fs::read(&population_path)
+        .unwrap_or_else(|error| panic!("{} cannot be read: {error}", population_path.display()));
+    let population_vectors: serde_json::Value = serde_json::from_slice(&population_bytes)
+        .unwrap_or_else(|error| panic!("{} is not JSON: {error}", population_path.display()));
+    let population_rows = population_vectors["model_declaration_nodes"]
+        .as_array()
+        .expect("QSpec model declaration vectors");
+    let population_rows = population_rows
+        .iter()
+        .filter(|row| row["preimage"]["semantic_form"] == "population")
+        .collect::<Vec<_>>();
+    assert_eq!(population_rows.len(), 2, "QSpec P7/P8 population vectors");
+    for row in population_rows {
+        let name = row["name"].as_str().expect("population vector name");
+        let preimage = &row["preimage"];
+        assert_eq!(preimage["node_tag"], "relation", "{name}");
+        assert_eq!(preimage["semantic_type"], serde_json::Value::Null, "{name}");
+        assert_eq!(preimage["declaration"], serde_json::Value::Null, "{name}");
+        assert_eq!(preimage["recursion"], serde_json::Value::Null, "{name}");
+        assert_eq!(
+            preimage["body"],
+            serde_json::json!({"term": "aggregate", "members": []}),
+            "{name}"
+        );
+        assert_eq!(
+            declaration_key(
+                preimage["owner"]["identity"].as_str().expect("identity"),
+                DeclarationForm::Population,
+                preimage["owner"]["node"].as_str().expect("population node"),
+                BYTES,
+            )
+            .expect("production population key"),
+            row["sha256"].as_str().expect("published SHA-256"),
+            "{name}"
         );
     }
 }
