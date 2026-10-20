@@ -12,7 +12,7 @@ relationships:
 
 ## Description
 
-Verify FR-035-AC-2, FR-035-AC-5 through FR-035-AC-8, and FR-035-AC-10 through FR-035-AC-16,
+Verify FR-035-AC-2, FR-035-AC-5 through FR-035-AC-8, and FR-035-AC-10 through FR-035-AC-17,
 and the aggregate FR-330 package separately from TC-044's per-item semantic
 and refusal tests. Focused FR-330
 emitter and strict-reader controls run in
@@ -83,6 +83,13 @@ otherwise valid canonical package to a different valid requested node,
 recompute the package identity, and assert
 `Refused(invalid_package)` at `/feature_accounting` with cause `invalid_value`.
 Each case admits no `ContractPackageV1`.
+
+For FR-035-AC-17, construct an otherwise valid package with one nested
+`invalid_body.refusal`. For each of `unknown_contract_version` and
+`unknown_required_capability`, admit the record without a cause, then add
+`unsupported-wire` or `unsupported-feature` respectively. Require
+`Refused(invalid_package)` with cause `invalid-value` at that record's
+`/refusal/cause` pointer; no package is admitted.
 
 For FR-035-AC-2, change only the package's own identity digest and assert
 `Refused(invalid_package)` at `/identity/digest` with cause `invalid_value`.

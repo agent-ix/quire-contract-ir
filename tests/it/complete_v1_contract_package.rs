@@ -1092,6 +1092,41 @@ fn defensive_body_payloads_are_closed_and_omitted_pointers_stay_omitted() {
     );
 }
 
+#[trace("TC-047", "FR-035-AC-17")]
+#[test]
+fn reader_refuses_causes_on_causeless_nested_reader_codes() {
+    for (code, cause, contract_version) in [
+        ("unknown_contract_version", "unsupported-wire", Some("unknown/v1")),
+        ("unknown_required_capability", "unsupported-feature", None),
+    ] {
+        let mut wire = failed_wire("0", "0");
+        let mut nested = json!({"code": code, "path": ""});
+        if let Some(version) = contract_version {
+            nested["contract_version"] = json!(version);
+        }
+        wire["feature_accounting"][1] = json!({
+            "node_id": id("1010"), "disposition": "invalid_body", "body_node_id": id("1010"),
+            "refusal": nested,
+        });
+        wire["source_map"]["refusals"][0]["disposition"] = json!("invalid_body");
+        assert!(matches!(
+            read(&rehashed(wire.clone())),
+            ContractPackageReadResult::Admitted(_)
+        ));
+
+        wire["feature_accounting"][1]["refusal"]["cause"] = json!(cause);
+        let ContractPackageReadResult::Refused(refusal) = read(&canonical(&wire)) else {
+            panic!("{code} with a cause must refuse");
+        };
+        assert_eq!(refusal.code, Code::InvalidPackage);
+        assert_eq!(refusal.cause, Some(Cause::InvalidValue));
+        assert_eq!(
+            refusal.path.expect("cause pointer").as_str(),
+            "/feature_accounting/1/refusal/cause"
+        );
+    }
+}
+
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
 fn duplicate_member_and_noncanonical_bytes_refuse_before_identity() {
