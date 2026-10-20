@@ -4,8 +4,8 @@
 //! Owner-wire admission and refusal cases built from this crate's public wire vocabulary.
 
 use crate::support::checked_package::{
-    application_node_key, canonical, evidence_for, node_id, refresh_identity, settle, sha256_hex,
-    structural_key, v2_all_families, v2_nominal,
+    application_node_key, bounds_body, canonical, evidence_for, integer_key, node_id,
+    refresh_identity, settle, sha256_hex, structural_key, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -327,7 +327,9 @@ fn tc_229_population_reference_requires_owner_and_selected_population() {
 #[trace("TC-229", "FR-038-AC-296")]
 #[test]
 fn tc_229_declared_population_is_query_operand() {
-    for lookup in [false, true] {
+    let mut shared_population = None;
+    let mut unbounded_application = None;
+    for (lookup, bounded) in [(false, false), (false, true), (true, false)] {
         let (mut package, document) = declared_population_package();
         let population = package["semantic_graph"]["nodes"]
             .as_array()
@@ -377,39 +379,70 @@ fn tc_229_declared_population_is_query_operand() {
                 "semantic_type":node_id(&set), "dependencies":[],
                 "occurrences":[{"role":"type","ordinal":0}], "body":set_body
             }));
-        let (result, mode, arguments) =
-            if lookup {
-                let option_body = json!({"term":"aggregate","members":[
+        let (result, mode, arguments) = if lookup {
+            let option_body = json!({"term":"aggregate","members":[
             {"term":"reference","target":node_id(&reference)}]});
-                let option = structural_key("composite_type", "option", None, &option_body);
-                package["semantic_graph"]["nodes"].as_array_mut().unwrap().push(json!({
-            "node_id":node_id(&option), "schema_version":"quire.checked-semantic-graph/v2",
-            "node_tag":"composite_type", "semantic_form":"option",
-            "semantic_type":node_id(&option), "dependencies":[],
-            "occurrences":[{"role":"type","ordinal":0}], "body":option_body
-        }));
-                let identity_body = json!({"term":"reference","target":point.clone()});
-                let identity =
-                    structural_key("expression", "reference", Some(&reference), &identity_body);
-                package["semantic_graph"]["nodes"].as_array_mut().unwrap().push(json!({
+            let option = structural_key("composite_type", "option", None, &option_body);
+            package["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({
+                    "node_id":node_id(&option), "schema_version":"quire.checked-semantic-graph/v2",
+                    "node_tag":"composite_type", "semantic_form":"option",
+                    "semantic_type":node_id(&option), "dependencies":[],
+                    "occurrences":[{"role":"type","ordinal":0}], "body":option_body
+                }));
+            let identity_body = json!({"term":"reference","target":point.clone()});
+            let identity =
+                structural_key("expression", "reference", Some(&reference), &identity_body);
+            package["semantic_graph"]["nodes"].as_array_mut().unwrap().push(json!({
             "node_id":node_id(&identity), "schema_version":"quire.checked-semantic-graph/v2",
             "node_tag":"expression", "semantic_form":"reference",
             "semantic_type":node_id(&reference), "dependencies":[],
             "occurrences":[{"role":"expression","ordinal":0}], "body":identity_body
         }));
-                (
-                    option,
-                    json!({"kind":"absence","value":"option"}),
-                    json!([{"term":"reference","target":population},
+            (
+                option,
+                json!({"kind":"absence","value":"option"}),
+                json!([{"term":"reference","target":population},
                 {"term":"reference","target":node_id(&identity)}]),
-                )
+            )
+        } else {
+            let result = if bounded {
+                let integer = integer_key();
+                if !package["semantic_graph"]["nodes"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|node| node["node_id"] == node_id(&integer))
+                {
+                    package["semantic_graph"]["nodes"].as_array_mut().unwrap().push(json!({
+                            "node_id":node_id(&integer), "schema_version":"quire.checked-semantic-graph/v2",
+                            "node_tag":"scalar_type", "semantic_form":"integer",
+                            "semantic_type":node_id(&integer), "dependencies":[],
+                            "occurrences":[{"role":"type","ordinal":0}],
+                            "body":{"term":"aggregate","members":[]}
+                        }));
+                }
+                let body = bounds_body("0", "2");
+                let bounded_key =
+                    structural_key("bounded_domain", "collection_bounds", Some(&set), &body);
+                package["semantic_graph"]["nodes"].as_array_mut().unwrap().push(json!({
+                        "node_id":node_id(&bounded_key), "schema_version":"quire.checked-semantic-graph/v2",
+                        "node_tag":"bounded_domain", "semantic_form":"collection_bounds",
+                        "semantic_type":node_id(&set), "dependencies":[node_id(&set)],
+                        "occurrences":[{"role":"type","ordinal":0}], "body":body
+                    }));
+                bounded_key
             } else {
-                (
-                    set,
-                    Value::Null,
-                    json!([{"term":"reference","target":population}]),
-                )
+                set
             };
+            (
+                result,
+                Value::Null,
+                json!([{"term":"reference","target":population}]),
+            )
+        };
         let body = json!({"term":"application","operator":"query",
         "operation":{"identity":if lookup {"quire.op.model.lookup"} else {"quire.op.model.all_instances"},
             "laws":[],"mode":mode,
@@ -426,12 +459,32 @@ fn tc_229_declared_population_is_query_operand() {
                 "occurrences":[{"role":"expression","ordinal":0}], "body":body
             }));
         settle(&mut package);
+        if let Some(shared) = &shared_population {
+            assert_eq!(&population, shared, "one declaration keeps its node key");
+        } else {
+            shared_population = Some(population.clone());
+        }
+        let application_id = package["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["node_id"]
+            .clone();
+        if bounded {
+            assert_ne!(
+                Some(&application_id),
+                unbounded_application.as_ref(),
+                "a unit maximum changes the application, not the population reference"
+            );
+        } else if !lookup {
+            unbounded_application = Some(application_id);
+        }
         assert!(
             matches!(
                 read_with_model(&package, &document),
                 CheckedPackageV2ReadResult::Admitted(_)
             ),
-            "lookup={lookup}: {:?}",
+            "lookup={lookup}, bounded={bounded}: {:?}",
             read_with_model(&package, &document)
         );
     }
