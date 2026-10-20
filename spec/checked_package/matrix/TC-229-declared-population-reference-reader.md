@@ -19,11 +19,11 @@ copy no upstream fixture, schema or binary into this repository.
 ## Test Procedure
 
 1. Read QSpec's `model-owner-form-vectors.json` for the `counters` and
-   `archive` declarations and P7/P8 preimages. Build a package with a
-   selected document containing those two `populations` entries. Read its
-   self-typed `relation`/`population` nodes through the production reader and
-   compare their re-derived identities. Omit the node owner and projection
-   owner separately; change one fixed member and one owner string separately.
+   `archive` P7/P8 preimages and compare them with the production declaration
+   key function. Build selected documents with population entries and admit
+   self-typed `relation`/`population` nodes through the public reader. Omit the
+   node owner and projection owner separately; change fixed members and owner
+   strings separately.
 2. Join each valid owner to its exact selected `identity` and `node`. Change
    the owner's node to an object type and an unknown node, then change an
    object-type or relationship node's owner to a declared population. Compare
@@ -36,9 +36,10 @@ copy no upstream fixture, schema or binary into this repository.
    carried in the result type only. Exercise a population reference in a
    collection operand, reaches population link and each forbidden declaring
    member position.
-4. Read QSpec's amended published operation fixture and compare its published
-   package, application and operand identities. Construct the retired
-   ownerless relation/population operand and check the schema refusal.
+4. Admit QSpec's amended published operation fixture so the reader
+   authenticates its published package and application identities. Check the
+   population binding's operand identity and both query dependencies. Apply
+   QSpec's ownerless relation/population case and check the schema refusal.
 
 ## Expected Results
 
@@ -53,4 +54,4 @@ node refuses. Every test binds its requirement with `#[trace]`.
 
 ## Status
 
-Planned for IR-937. The tests and implementation follow this spec change.
+Implemented by IR-937's traced production reader and QSpec conformance tests.

@@ -102,9 +102,9 @@ type: TestMatrix
 
 | Functional Req | Acceptance Criteria | Test Case | Status | Required cases |
 |---|---|---|---|---|
-| FR-038 | FR-038-AC-294, FR-038-AC-295 | TC-229 | 🚧 PLANNED/UNRUN; spec-first | Required `ModelOwner`, closed P7/P8 preimages, selected `populations` join, absent-owner and wrong-kind refusals. |
-| FR-038 | FR-038-AC-296, FR-038-AC-297 | TC-229 | 🚧 PLANNED/UNRUN; spec-first | Both model operations over declared references and typed parameter bindings; dependency and identity distinctions, result bound placement, and forbidden position refusals. |
-| FR-038 | FR-038-AC-298 | TC-229 | 🚧 PLANNED/UNRUN; spec-first | Direct selected-checkout QSpec vectors and adverse recipes; no fixture copy. |
+| FR-038 | FR-038-AC-294, FR-038-AC-295 | TC-229 | Implemented; focused tests pass | Required `ModelOwner`, closed P7/P8 preimages, selected `populations` join, absent-owner and wrong-kind refusals. |
+| FR-038 | FR-038-AC-296, FR-038-AC-297 | TC-229 | Implemented; focused tests pass | Both model operations over declared references and typed parameter bindings; dependency and identity distinctions, result bound placement, and forbidden position refusals. |
+| FR-038 | FR-038-AC-298 | TC-229 | Implemented; QSpec conformance passes | Direct selected-checkout QSpec vectors and adverse recipes; no fixture copy. |
 
 ## Pending structural type work coverage (IR-490)
 
