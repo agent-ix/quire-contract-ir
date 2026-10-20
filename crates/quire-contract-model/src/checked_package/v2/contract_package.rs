@@ -1415,8 +1415,6 @@ fn cause_admitted(code: CheckedPackageRefusalCode, cause: CheckedPackageRefusalC
         | Cause::StaleNodeKey
         | Cause::DeclarationNominalMismatch => code == Code::InvalidPackage,
         Cause::AmbiguousName => code == Code::AmbiguousDeclaration,
-        Cause::UnsupportedWire => code == Code::UnknownContractVersion,
-        Cause::UnsupportedFeature => code == Code::UnknownRequiredCapability,
         Cause::ByteDigestMismatch | Cause::DigestDomainMismatch | Cause::ContentMismatch => {
             code == Code::StaleDependency
         }
