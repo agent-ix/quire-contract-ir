@@ -77,6 +77,9 @@ pub(super) struct SuppliedDependencies<'e> {
 }
 
 impl<'e> SuppliedDependencies<'e> {
+    pub(super) fn packages(&self) -> Vec<&'e CheckedPackageV2> {
+        self.packages.iter().map(|entry| entry.package).collect()
+    }
     /// Index already admitted, selection-matched packages for another closed
     /// reader that shares FR-322 dependency-reference semantics.
     pub(super) fn from_admitted(
@@ -110,6 +113,77 @@ impl<'e> SuppliedDependencies<'e> {
             .iter()
             .find(|supplied| supplied.package_id == package)
     }
+}
+
+struct SelectionPath {
+    parent: Option<usize>,
+    index: usize,
+}
+
+fn selection_pointer(root: &JsonPointer, paths: &[SelectionPath], path: usize) -> JsonPointer {
+    let mut indices = Vec::new();
+    let mut cursor = Some(path);
+    while let Some(position) = cursor {
+        let node = &paths[position];
+        indices.push(node.index);
+        cursor = node.parent;
+    }
+    indices.into_iter().rev().fold(root.clone(), |at, index| {
+        at.key("lock").key("dependency_selections").index(index)
+    })
+}
+
+/// Checks the recursive closure without copying it into every admitted package.
+/// The input packages are aligned with the importing lock's direct selections.
+pub(super) fn check_derived_closure<'a>(
+    selections: &'a [CheckedDependencySelection],
+    packages: &[&'a CheckedPackageV2],
+    root: JsonPointer,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let mut paths = Vec::new();
+    let mut pending = Vec::new();
+    for (index, (selection, package)) in selections.iter().zip(packages).enumerate().rev() {
+        paths.push(SelectionPath {
+            parent: None,
+            index,
+        });
+        pending.push((selection, *package, paths.len() - 1));
+    }
+    let mut seen: BTreeMap<&str, (&CheckedSemanticId, usize)> = BTreeMap::new();
+    while let Some((selection, package, path)) = pending.pop() {
+        meter.charge(1, || selection_pointer(&root, &paths, path))?;
+        if let Some((prior_id, prior_path)) = seen.get(selection.identity.as_ref()) {
+            if *prior_id != &selection.package_id {
+                let mut refusal = ValidationFailure::refused_because(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    selection_pointer(&root, &paths, *prior_path),
+                    CheckedPackageRefusalCause::ConflictingDefinition,
+                );
+                if let ValidationFailure::Refused(ref mut value) = refusal {
+                    value.related_path = Some(selection_pointer(&root, &paths, path));
+                }
+                return Err(refusal);
+            }
+            continue;
+        }
+        seen.insert(selection.identity.as_ref(), (&selection.package_id, path));
+        for (index, (child_selection, child_package)) in package
+            .lock()
+            .dependency_selections
+            .iter()
+            .zip(&package.direct_dependencies)
+            .enumerate()
+            .rev()
+        {
+            paths.push(SelectionPath {
+                parent: Some(path),
+                index,
+            });
+            pending.push((child_selection, child_package.as_ref(), paths.len() - 1));
+        }
+    }
+    Ok(())
 }
 
 /// Binds every selection entry to the package `evidence` supplies for its

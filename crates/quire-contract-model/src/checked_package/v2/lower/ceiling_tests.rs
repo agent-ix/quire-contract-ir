@@ -249,6 +249,7 @@ fn package(bytes: u64) -> CheckedPackageV2 {
         kinds,
         bytes,
         models: Default::default(),
+        direct_dependencies: Vec::new(),
     }
 }
 

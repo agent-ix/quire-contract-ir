@@ -511,4 +511,40 @@ fn diamond_with_different_transitive_package_ids_refuses() {
         conflict.cause,
         Some(CheckedPackageRefusalCause::ConflictingDefinition)
     );
+    assert_eq!(
+        conflict.path,
+        Some(pointer(
+            "/lock/dependency_selections/0/lock/dependency_selections/0"
+        ))
+    );
+    assert_eq!(
+        conflict.related_path,
+        Some(pointer(
+            "/lock/dependency_selections/1/lock/dependency_selections/0"
+        ))
+    );
+}
+
+#[trace("TC-233", "FR-322-AC-35")]
+#[test]
+fn reader_admits_an_overlisted_transitive_selection_as_a_direct_claim() {
+    let base = v2_all_families();
+    let (leaf_id, leaf) = admitted_dependency(&base);
+    let direct_wire = with_selections(base.clone(), vec![entry("test/leaf", &leaf_id)]);
+    let CheckedPackageV2ReadResult::Admitted(direct) =
+        read_with(&direct_wire, &[("test/leaf", &leaf)])
+    else {
+        panic!("direct library admits");
+    };
+    let root = with_selections(
+        base,
+        vec![
+            entry("test/direct", &direct.package_id().digest),
+            entry("test/leaf", &leaf_id),
+        ],
+    );
+    assert!(matches!(
+        read_with(&root, &[("test/direct", &direct), ("test/leaf", &leaf)]),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
 }
