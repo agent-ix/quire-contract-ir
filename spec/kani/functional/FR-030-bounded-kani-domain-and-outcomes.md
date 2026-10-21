@@ -98,6 +98,51 @@ build `proved` or `counterexample` through the non-success constructor,
 returns a typed `KaniOutcomeError` with the code `kani_outcome_invalid`,
 registered in STD-001, and no outcome; it never substitutes another kind or cause.
 
+### Public infallible non-success constructors
+
+The root crate shall expose the following inherent `KaniOutcome` methods to
+consumers outside the `kani` module. Every method returns `KaniOutcome`
+directly, with no `Result`, optional outcome, panic for an impossible kind,
+or caller-supplied `KaniOutcomeKind`.
+
+| Method | Arguments before `source_id`, `context` | Outcome kind | Cause |
+| --- | --- | --- | --- |
+| `refused` | `code: Std001Code` | `Refused` | Exact supplied code |
+| `invalid_input` | `code: Std001Code` | `InvalidInput` | Exact supplied code |
+| `incomplete_input` | `code: Std001Code` | `IncompleteInput` | Exact supplied code |
+| `timed_out` | `code: Std001Code` | `TimedOut` | Exact supplied code |
+| `resource_exhausted` | `code: Std001Code` | `ResourceExhausted` | Exact supplied code |
+| `cancelled` | `source: KaniCancellationSource`, `code: Std001Code` | `Cancelled { source }` | Exact supplied code |
+| `checker_unavailable` | None | `Unavailable` | `Std001Code::KANI_CHECKER_ABSENT` |
+| `backend_unavailable` | None | `Unavailable` | `Std001Code::KANI_BACKEND_ABSENT` |
+| `vacuous_proof` | None | `Inconclusive` | `Std001Code::KANI_VACUOUS_PROOF` |
+
+Each method takes `source_id: impl Into<String>` and
+`context: impl Into<String>` as its final two arguments. The outcome shall
+retain both strings exactly. The six methods taking a code shall retain any
+valid `Std001Code`, including a consumer-owned unregistered code, without
+substitution or a new registry-membership check
+([FR-044](../../core/functional/FR-044-typed-std001-code.md)). The three
+fixed-cause methods shall take no cause-code argument. No method in this
+route can request `Proved` or `Counterexample`, and every returned outcome
+shall have `boolean_claim() == None`.
+
+`vacuous_proof` records a caller-observed zero-SUCCESS-check result; it does
+not observe checks or classify an arbitrary profile refusal. Likewise,
+`cancelled` records the supplied observed event source and does not infer or
+observe cancellation. The consumer remains responsible for supplying the
+actual event and source/profile/bound context. This API adds neither a live
+Kani producer nor a QSL terminal mapper.
+
+The infallible methods shall use the same internal outcome-construction path
+as the existing fallible `non_success` method; they introduce no alternate
+wire envelope or compatibility layer. `non_success` remains the fallible
+entry point for callers holding a broad `KaniOutcomeKind`. This addition does
+not relax its existing rejection of `Proved` and `Counterexample`, and it
+does not claim that the planned AC-4/AC-5 constructor and field-validation
+work is implemented. In particular, adding fixed-cause infallible methods
+does not itself make invalid broad `non_success` cause requests refuse.
+
 A `proved` outcome carries the number of SUCCESS checks the run's obligation completed with, and that number is at least one. When a Kani run reports a proof whose obligation completed with zero SUCCESS checks, the bounded-Kani boundary shall record `inconclusive` with the cause code `kani_vacuous_proof` and no Boolean claim, never `proved`; that classification is the one shared rule every caller that classifies a Kani run routes through.
 
 The harness constrains only values after the ABI has established that the finite population and relationships are valid. It shall never use `assume` to discard invalid, incomplete, unavailable, or over-bound input; those inputs return their earliest typed result with originating source identity and no partial lowering, oracle, proof, or replay artifact.
@@ -113,6 +158,8 @@ The harness constrains only values after the ABI has established that the finite
 | FR-030-AC-5 | An `unavailable` outcome built for an absent checker carries cause `kani_checker_absent` and one built for an absent backend carries `kani_backend_absent`, each with no Boolean claim; a request for an `unavailable` outcome with any other cause code, an `inconclusive` outcome with a cause other than `kani_vacuous_proof`, or a `proved` or `counterexample` outcome through the non-success constructor returns `KaniOutcomeError` with code `kani_outcome_invalid` and no outcome; and a struct-literal `KaniOutcome` outside the `kani` module fails to compile. | Test (TC-223) |
 | FR-030-AC-6 | The `code` of the outcome built for a zero-check proof equals `Std001Code::KANI_VACUOUS_PROOF` and its serialization holds the member `"code":"kani_vacuous_proof"`; the `code` of the `KaniOutcomeError` for a `proved` outcome with a count of zero equals `Std001Code::KANI_OUTCOME_INVALID`; a call that passes a `&str` or a `String` as the code of the non-success constructor fails to compile; and a serialized `KaniOutcome` whose `code` is `"Bad-Code"` fails to deserialize. | Test (TC-443) |
 | FR-030-AC-7 | The IR outcome constructor accepts the observed caller-request or timer-owner deadline source as `Cancelled { source: Requested }` or `Cancelled { source: Deadline }`; each serializes and deserializes with that exact `kind` source and no Boolean claim. Construction without a source fails to compile. Deserialization refuses a unit `"cancelled"` kind, a missing or unknown source, and an origin on a non-cancelled kind. Every existing non-cancelled kind retains its former wire spelling. The future CG Kani producer reads the event that actually stopped the run; an execution timeout without that event remains `TimedOut`, and reversing the recorded event reverses the constructed cancellation source. | Test (TC-449) |
+| FR-030-AC-8 | An external consumer calls each of the nine public infallible methods with an explicit `KaniOutcome` return type. The six coded methods retain a consumer-owned unregistered `Std001Code`; `checker_unavailable`, `backend_unavailable` and `vacuous_proof` carry their exact fixed causes. Every outcome retains distinct supplied source/context strings, has the specified kind and no Boolean claim, and survives a serialization/deserialization round trip with exactly the same kind, code, source and context. Both cancellation sources remain distinct in the wire form. | Test |
+| FR-030-AC-9 | External compile-fail probes cannot pass `KaniOutcomeKind::Proved` or `Counterexample` as a kind to the infallible route, cannot supply a cause argument to its three fixed-cause methods, cannot omit the cancellation source, and cannot pass a `&str` or `String` as a coded method's cause. Each probe is paired with a passing public call of the intended signature. Existing fallible `non_success` requests for `Proved` and `Counterexample` still return `KaniOutcomeError` naming the exact requested kind and cause and build no outcome. | Test |
 
 ## Dependencies
 
@@ -139,3 +186,8 @@ AC-7 remains incomplete: the IR carrier has a required typed cancellation
 source, exact wire form and refusal controls tagged to TC-449. The CG Kani
 launcher has no source-bearing cancellation event reader or IR
 cancelled-outcome producer; IR-701 owns the live-event and reversal control.
+
+AC-8 and AC-9 are planned under IR-621; [TC-457](../matrix/TC-457-infallible-non-success-outcomes.md)
+defines their public-consumer controls. The existing private `NonSuccessKind`
+and `raise` do not yet provide this public route. IR-621 does not claim AC-4,
+AC-5, the live cancellation producer in AC-7, or downstream codegen adoption.
