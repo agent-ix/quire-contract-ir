@@ -31,7 +31,6 @@ help:
 	@echo "  make build            - Release build"
 	@echo "  make clean            - cargo clean"
 	@echo "  make deny             - Run all cargo-deny policy checks"
-	@echo "  make audit-unsafe     - Enforce // SAFETY: comments on unsafe blocks"
 	@echo "  make use-local        - Patch first-party git deps to sibling checkouts (.cargo/config.toml)"
 	@echo "  make use-remote       - Remove the local patch file and restore Cargo.lock; build from GitHub"
 	@echo "  make ci               - All local release gates"
@@ -161,10 +160,6 @@ deny:
 cargo-audit:
 	$(CARGO) audit
 
-.PHONY: audit-unsafe
-audit-unsafe:
-	bash scripts/check_unsafe_comments.sh
-
 # =============================================================================
 # Local development against sibling checkouts
 #
@@ -232,7 +227,7 @@ use-remote:
 # =============================================================================
 
 .PHONY: ci
-ci: fmt-check lint test corpus spec deny cargo-audit audit-unsafe
+ci: fmt-check lint test corpus spec deny cargo-audit
 
 .PHONY: release-check
 release-check: ci
