@@ -617,6 +617,8 @@ pub enum CheckedMemberType {
     Record(CheckedNodeId),
     /// A selected model variant declaration with unordered enum cases.
     Variant(CheckedNodeId),
+    /// `Quantity<u>`: the checked unit node of `u`.
+    Quantity(CheckedNodeId),
     /// `Option<X>`: the element type.
     Option(Box<CheckedMemberType>),
     /// `K<E>`, or `K<E>[lower, upper]` when bounded.
@@ -675,6 +677,10 @@ impl From<&MemberType> for CheckedMemberType {
                 digest: target.clone(),
             }),
             MemberType::Variant(target) => Self::Variant(CheckedNodeId {
+                domain: NODE_DOMAIN.into(),
+                digest: target.clone(),
+            }),
+            MemberType::Quantity(target) => Self::Quantity(CheckedNodeId {
                 domain: NODE_DOMAIN.into(),
                 digest: target.clone(),
             }),

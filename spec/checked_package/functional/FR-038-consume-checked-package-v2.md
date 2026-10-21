@@ -4436,11 +4436,12 @@ The declaration stage ends with two name checks. A node carrying both a
 `declaration` and a nominal identity preimage that fixes a name (an enum
 declaration, a dimension or a declared unit) shall declare exactly that
 preimage's `qualified_declaration`, else the reader refuses as
-`invalid_package` with cause `declaration-nominal-mismatch`. No two nodes
-shall declare the same `qualified_name`, else the reader refuses as
-`ambiguous_declaration` with cause `ambiguous-name`, located at the
-lowest-digest node sharing the name; the refusal names that one node, not
-every holder. QSpec FR-322 orders both before any frame
+`invalid_package` with cause `declaration-nominal-mismatch`. Names are unique
+within the types, dimensions and units namespaces: a unit, dimension and type
+may share a qualified name. Two nodes in one namespace declaring the same
+`qualified_name` refuse as `ambiguous_declaration` with cause
+`ambiguous-name`, located at the later node in node-id order. QSpec FR-322
+orders both before any frame
 or operation refusal but not against each other; this reader checks the
 nominal join first, each at the first offending node in ascending node-id
 digest order.
@@ -4623,6 +4624,33 @@ identity, declaration, frame and resource refusals retain their existing
 precedence; the native literal and operation checks run in the existing
 operation step under the same bounded work accounting.
 
+### Quantity literals and checked-unit type references
+
+The V2 reader SHALL admit a `literal` with `value_kind: "quantity"` only when
+its `type` names a `scalar_type`/`unit` node. That node supplies the `quantity`
+operand family. The literal `value` is a canonical exact rational magnitude:
+an integer `n` or a reduced fraction `n/d` with a positive denominator,
+following QSpec FR-322's scalar-literal rule. A literal of another kind typed
+by a unit, or a quantity literal typed by another family, SHALL refuse
+`ill_typed`/`operator-ineligible` at the literal type. A quantity magnitude
+outside that canonical grammar SHALL refuse `invalid_package`/`invalid-value`
+at the value. No conversion, rounding or normalization repairs the wire.
+
+A selected model document's field, operation parameter or operation result
+`typeRef` may name `ix://quire/unit/<name>`, where `<name>` is the checked
+package unit declaration's qualified-name segments joined with `/`. The
+reader SHALL resolve it to that unit's existing `scalar_type`/`unit` node,
+through the same multiplicity and presence tables as other member types; it
+introduces no new type node. An unresolved unit name SHALL refuse
+`missing_declaration`/`missing-name`, and an argument typed by another unit or
+family SHALL refuse `ill_typed`/`operator-ineligible`.
+
+Declaration names SHALL be unique within each of the `types`, `dimensions`
+and `units` namespaces. The same qualified name may occur once in each
+namespace. Two nodes of one namespace with that name SHALL refuse
+`ambiguous_declaration`/`ambiguous-name` at the later node in node-id order.
+The reader SHALL decide this before operation admission.
+
 ### Retain a production-derived expected node key
 
 When the reader refuses a graph node as `invalid_package` with cause
@@ -4699,7 +4727,7 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-18 | For a keyed input that reaches the graph-reference stage, a self-typed node's own body-root `literal.type` naming itself is exempt from the reference-cycle check and needs no declared `recursion_group`. The same self-reference nested in an `aggregate` member, `binding` value or `application` argument is not exempt and refuses as `invalid_semantic_graph` at `/semantic_graph/nodes/<n>` (the node object lacking `recursion_group`), as do a self-typed node's `reference` body and `application.result_type` naming itself. Public admission authenticates content-derived structural and application keys before that stage; a body embedding its own final key has no constructible honest preimage. Public tests assert that first stale-key refusal, and a private graph-stage test verifies the conditional carve-out. | Test (TC-048) |
 | FR-038-AC-19 | A `lock.model_selections` array carrying two entries of different defect classes refuses for the earlier class under the stated total order, at `lock.model_selections`, regardless of which of the two entries appears first in the array: an entry outside `sha256-jcs` beside an entry of empty `identity` refuses as `digest_domain_mismatch`, and an entry of empty `identity` beside an entry whose digest no supplied document satisfies refuses as `malformed_wire`. Both orderings of each pairing are pinned and refuse with the same code, so a refusal decided by array position rather than by defect class fails this criterion rather than passing it as "some refusal occurred". | Test (TC-048) |
 | FR-038-AC-20 | A selection binds by `identity`, so a `lock.model_selections` array holds at most one entry per identity: two entries naming the same `identity` and differing in `digest` refuse as `stale_dependency` at the later entry's `digest` (`/lock/model_selections/<i>/digest`), whichever of the two entries appears first in the array, even when both entries are independently well-formed and each names a document the package evidence supplies, and never as `malformed_wire`; the pair is refused before any document is read, so it refuses the same way, in both orders, when an entry of the pair or an earlier row has no supplied document, a forged one or one naming another identity, and never as that document's own `missing_import`, `content-mismatch`, `byte-digest-mismatch` or `invalid_model_binding` refusal; an array whose two entries name different identities still admits (each other check passing). An entry carries no `version`, so the identity is the whole locator (FR-038-AC-62). A same-identity, different-digest pair is decided by the total order above, so it refuses `digest_domain_mismatch` when one of its entries is outside `sha256-jcs`, whichever of the two carries that second defect. | Test (TC-048) |
-| FR-038-AC-21 | A node whose declared `qualified_name` differs from its nominal preimage's `qualified_declaration` refuses as `invalid_package` with cause `declaration-nominal-mismatch` at that node; two nodes declaring one name refuse as `ambiguous_declaration` with cause `ambiguous-name` at the lower-digest of the two; a package carrying both defects refuses for the nominal mismatch; and a package also carrying a frame or an operation defect still refuses for its declaration defect. | Test (TC-048) |
+| FR-038-AC-21 | A node whose declared `qualified_name` differs from its nominal preimage's `qualified_declaration` refuses as `invalid_package` with cause `declaration-nominal-mismatch` at that node; two nodes in the same namespace declaring one name refuse as `ambiguous_declaration` with cause `ambiguous-name` at the later node in node-id order, while the same name across namespaces admits; a package carrying both defects refuses for the nominal mismatch; and a package also carrying a frame or an operation defect still refuses for its declaration defect. | Test (TC-048, TC-230) |
 | FR-038-AC-22 | A QSL-shaped package holding a function whose body applies an operation to its parameters, each a `value`/`parameter` node, and a `scalar_type`/`compound_unit` node, admits and lowers; a parameter with a negative, non-canonical or missing level, an empty, non-identifier or wrongly typed name, or an extra binding refuses as `invalid_semantic_graph` at the node's `body`; a parameter with a dependency, itself as its type or a `declaration`, and a compound unit with a zero exponent, a term naming a non-unit, a repeated unit, a dependency list other than its unit keys or a type other than itself, each refuses as `invalid_semantic_graph` at the member it breaks; the empty compound unit admits. | Test (TC-048) |
 | FR-038-AC-23 | An application node whose `dependencies` omits a body reference target, lists them out of digest order, repeats one, or adds its `result_type` refuses as `invalid_semantic_graph` at `semantic_graph.nodes.dependencies`, located at that node. | Test (TC-048) |
 | FR-038-AC-24 | Every refusal about a value carries the RFC 6901 pointer of that value, built from the reader's own position: member names escaped (`~` as `~0`, `/` as `~1`), array elements by index, resolving in the document read — an unknown member (including one whose name holds `~` or `/`) at that member, a repeated member at that member, a missing member at the object lacking it, a wrongly typed value at that value, a stale mirror at the first differing value, and each graph, lock, source-map, capability and diagnostic refusal at the member its failed check read; malformed JSON and non-canonical bytes carry no pointer. The `unknown field` occurrence-role value of FR-038-AC-2 points exactly at `/semantic_graph/nodes/0/occurrences/0/role`; the genuine extra-member and wrong-kind controls each point at the member or value they change. No refusal code changes. | Test (TC-048) |
@@ -4971,6 +4999,10 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-305 | `quire.op.model.all_instances` and `quire.op.model.lookup` each admit a reference to a declared population as operand 0 and list it in dependencies; the same declared population is one reference node across both reads, while the two named populations yield distinct reference, application and package identities. A `value`/`parameter` typed `Population<O>[N]` remains an admitted operand 0. A unit maximum is represented only in the application's result-type collection bounds, not in the declared population node. | Test (TC-229) |
 | FR-038-AC-306 | A declared population reference used as a `collection_kind` operand, as the `population` link of a reaches `relationship_end`, or as the declaring node of a `field`, `operation` or `relationship_end` member refuses `ill_typed`/`operator-ineligible` at that operand or member. An otherwise identical binding typed by `bounded_domain`/`model_population` keeps its existing outcome. | Test (TC-229) |
 | FR-038-AC-307 | The reader consumes QSpec's selected-checkout published population-reference vectors and operation fixture directly, without copying them into this repository: it admits the amended positive package and checks its package, application and operand identities; it refuses the retired ownerless relation/population operand as `malformed_wire`; and it matches the `population_reference_cases` adverse outcomes by code, cause and locus. | Test (TC-229) |
+| FR-038-AC-299 | A `quantity` literal typed by a `scalar_type`/`unit` node admits with family `quantity` for the canonical magnitudes `3`, `0`, `-5`, `1/1000` and `-7/2`. Each of `03`, `+3`, `2/4`, `4/2`, `1/0`, `0/5`, `3/1`, `1/-2`, ` 3`, `2.5` and the empty value refuses `invalid_package`/`invalid-value` at `value`. A quantity literal typed by an integer, string or Boolean node, and an integer literal typed by a unit node, refuse `ill_typed`/`operator-ineligible` at `type`; the V2 schemas enumerate `quantity`. | Test (TC-230) |
+| FR-038-AC-300 | A field, operation parameter and operation result `typeRef` `ix://quire/unit/ms` resolve to the checked package's existing `ms` unit node and retain `Quantity<ms>` under scalar, optional and set multiplicities. A missing `ix://quire/unit/ghost` refuses `missing_declaration`/`missing-name`; a `Quantity<s>` or integer argument to a parameter requiring `Quantity<ms>` refuses `ill_typed`/`operator-ineligible`. No unit type node is synthesized from the model document. | Test (TC-230) |
+| FR-038-AC-301 | A unit, dimension and record with the same qualified declaration name admit as three namespaces; two units or two types with that name refuse `ambiguous_declaration`/`ambiguous-name` at the later node in node-id order before operation checks. | Test (TC-230) |
+| FR-038-AC-302 | TC-230 consumes QSpec's selected-checkout QL-01..04, MU-01..06 and NS-01..03 cases directly or constructs their recorded wire shapes through the public reader, checks accepted and refused outcomes by code, cause and locus, and compares strict coverage with the main-branch baseline. | Test (TC-230) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be

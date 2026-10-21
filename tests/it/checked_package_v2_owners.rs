@@ -9,8 +9,8 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedCollectionKind, CheckedMemberType, CheckedPackageReadLimits, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 
@@ -133,6 +133,162 @@ fn read_with_model(package: &Value, document: &Value) -> CheckedPackageV2ReadRes
         CheckedPackageReadLimits::bounded(),
         &evidence,
     )
+}
+
+fn unit_field_document(type_ref: &str) -> (Value, Value) {
+    let (mut package, mut document) = model_package();
+    document["types"][0]["fields"] = json!([{
+        "identity": "ix://acme/owners/Point/duration", "name": "duration",
+        "typeRef": type_ref, "presence": "required", "nullable": false,
+        "defaultKind": "none",
+        "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true},
+    }]);
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+    refresh_identity(&mut package);
+    (package, document)
+}
+
+#[trace("TC-230", "FR-038-AC-300")]
+#[test]
+fn tc_230_selected_model_field_resolves_checked_unit_type_ref() {
+    let (package, document) = unit_field_document("ix://quire/unit/Example/Metre");
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read_with_model(&package, &document)
+    else {
+        panic!("selected checked unit must admit");
+    };
+    let nodes = package["semantic_graph"]["nodes"].as_array().unwrap();
+    let unit: quire_contract_model::CheckedNodeId = serde_json::from_value(
+        nodes
+            .iter()
+            .find(|node| node["semantic_form"] == "unit")
+            .unwrap()["node_id"]
+            .clone(),
+    )
+    .unwrap();
+    let model: quire_contract_model::CheckedNodeId = serde_json::from_value(
+        nodes
+            .iter()
+            .find(|node| node["semantic_form"] == "object_type")
+            .unwrap()["node_id"]
+            .clone(),
+    )
+    .unwrap();
+    let fields = admitted.model_object_fields(&model).expect("model fields");
+    assert_eq!(
+        fields
+            .field("duration")
+            .and_then(|field| field.member_type()),
+        Some(&CheckedMemberType::Quantity(unit)),
+    );
+}
+
+#[trace("TC-230", "FR-038-AC-300")]
+#[test]
+fn tc_230_selected_model_field_refuses_unknown_unit_type_ref() {
+    let (package, document) = unit_field_document("ix://quire/unit/Example/ghost");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&package, &document) else {
+        panic!("unknown unit must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        Some("/lock/model_selections/0"),
+    );
+    assert!(refusal.locus.is_none());
+}
+
+#[trace("TC-230", "FR-038-AC-300")]
+#[test]
+fn tc_230_checked_unit_field_obeys_collection_multiplicity() {
+    let (mut package, mut document) = unit_field_document("ix://quire/unit/Example/Metre");
+    document["types"][0]["fields"][0]["multiplicity"] =
+        json!({"lower": 0, "ordered": false, "unique": true});
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+    refresh_identity(&mut package);
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read_with_model(&package, &document)
+    else {
+        panic!("unit collection must admit");
+    };
+    let nodes = package["semantic_graph"]["nodes"].as_array().unwrap();
+    let id = |form| {
+        serde_json::from_value::<quire_contract_model::CheckedNodeId>(
+            nodes
+                .iter()
+                .find(|node| node["semantic_form"] == form)
+                .unwrap()["node_id"]
+                .clone(),
+        )
+        .unwrap()
+    };
+    let fields = admitted
+        .model_object_fields(&id("object_type"))
+        .expect("model fields");
+    assert_eq!(
+        fields
+            .field("duration")
+            .and_then(|field| field.member_type()),
+        Some(&CheckedMemberType::Collection {
+            kind: CheckedCollectionKind::Set,
+            element: Box::new(CheckedMemberType::Quantity(id("unit"))),
+            bounds: None,
+        }),
+    );
+}
+
+#[trace("TC-230", "FR-038-AC-300")]
+#[test]
+fn tc_230_checked_unit_field_obeys_optional_presence() {
+    let (mut package, mut document) = unit_field_document("ix://quire/unit/Example/Metre");
+    document["types"][0]["fields"][0]["presence"] = json!("optional");
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+    refresh_identity(&mut package);
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read_with_model(&package, &document)
+    else {
+        panic!("optional unit field must admit");
+    };
+    let nodes = package["semantic_graph"]["nodes"].as_array().unwrap();
+    let id = |form| {
+        serde_json::from_value::<quire_contract_model::CheckedNodeId>(
+            nodes
+                .iter()
+                .find(|node| node["semantic_form"] == form)
+                .unwrap()["node_id"]
+                .clone(),
+        )
+        .unwrap()
+    };
+    let fields = admitted
+        .model_object_fields(&id("object_type"))
+        .expect("model fields");
+    assert_eq!(
+        fields
+            .field("duration")
+            .and_then(|field| field.member_type()),
+        Some(&CheckedMemberType::Option(Box::new(
+            CheckedMemberType::Quantity(id("unit")),
+        ))),
+    );
+}
+
+#[trace("TC-230", "FR-038-AC-300")]
+#[test]
+fn tc_230_selected_model_operation_parameter_and_result_resolve_checked_unit() {
+    let (mut package, mut document) = model_package();
+    let slot = json!({
+        "typeRef": "ix://quire/unit/Example/Metre",
+        "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true},
+    });
+    document["types"][0]["operations"] = json!([{
+        "identity": "ix://acme/owners/Point/advance",
+        "params": [slot.clone()], "returns": slot,
+    }]);
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+    refresh_identity(&mut package);
+    assert!(matches!(
+        read_with_model(&package, &document),
+        CheckedPackageV2ReadResult::Admitted(_),
+    ));
 }
 
 fn declared_population_package_for(population: &str) -> (Value, Value) {

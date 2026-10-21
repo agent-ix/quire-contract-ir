@@ -2627,20 +2627,18 @@ fn with_shared_name() -> (Value, [String; 2]) {
     (value, digests)
 }
 
-#[trace("TC-048", "FR-038-AC-21")]
+#[trace("TC-230", "FR-038-AC-301")]
 #[test]
-fn tc_048_two_nodes_declaring_one_name_refuse_as_ambiguous() {
-    let (value, digests) = with_shared_name();
-    let least = digests.iter().min().expect("two digests");
-    assert_eq!(
-        refused(&value, &evidence_for(&value)),
-        refusal_at(
-            CheckedPackageRefusalCode::AmbiguousDeclaration,
-            &declared_name_at(&value, least),
-            Some(CheckedPackageRefusalCause::AmbiguousName),
-            least,
-        )
-    );
+fn tc_230_unit_and_dimension_can_share_one_name() {
+    let (value, _) = with_shared_name();
+    assert!(matches!(
+        CheckedPackageV2::read(
+            &canonical(&value),
+            CheckedPackageReadLimits::bounded(),
+            &evidence_for(&value),
+        ),
+        CheckedPackageV2ReadResult::Admitted(_),
+    ));
 }
 
 #[trace("TC-048", "FR-038-AC-21")]
@@ -2711,7 +2709,7 @@ fn rekey_declared_all_families(package: &mut Value) {
     panic!("declared all-family fixture did not reach stable keys");
 }
 
-#[trace("TC-048", "FR-038-AC-21")]
+#[trace("TC-048", "TC-230", "FR-038-AC-21", "FR-038-AC-301")]
 #[test]
 fn tc_048_a_declaration_refusal_precedes_an_operation_refusal() {
     // Nodes: 0 root, 1 declaring namespace ("Example::Widget"), 2 literal,
@@ -2754,14 +2752,14 @@ fn tc_048_a_declaration_refusal_precedes_an_operation_refusal() {
         refused(&both, &evidence_for(&both)),
         refusal_at(
             CheckedPackageRefusalCode::AmbiguousDeclaration,
-            &declared_name_at(&both, declaring.clone().min(function.clone()).as_str()),
+            &declared_name_at(&both, declaring.clone().max(function.clone()).as_str()),
             Some(CheckedPackageRefusalCause::AmbiguousName),
-            declaring.min(function).as_str(),
+            declaring.max(function).as_str(),
         )
     );
 }
 
-#[trace("TC-048", "FR-038-AC-21")]
+#[trace("TC-048", "TC-230", "FR-038-AC-21", "FR-038-AC-301")]
 #[test]
 fn tc_048_a_declaration_refusal_precedes_a_frame_refusal() {
     let with_frame_defect = || {
@@ -2795,9 +2793,9 @@ fn tc_048_a_declaration_refusal_precedes_a_frame_refusal() {
         refused(&both, &evidence_for(&both)),
         refusal_at(
             CheckedPackageRefusalCode::AmbiguousDeclaration,
-            &declared_name_at(&both, first.clone().min(second.clone()).as_str()),
+            &declared_name_at(&both, first.clone().max(second.clone()).as_str()),
             Some(CheckedPackageRefusalCause::AmbiguousName),
-            first.min(second).as_str(),
+            first.max(second).as_str(),
         )
     );
 }

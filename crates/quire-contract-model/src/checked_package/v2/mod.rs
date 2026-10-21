@@ -111,7 +111,9 @@ use super::shared::{
     CheckedSourceMapEntry, CheckedSourceRef, CheckedSourceRegion, JsonPointer,
 };
 use model_fields::{build_field_tables, DeclarationIndex, RetainedModels};
-use model_members::{admit_selection, Budget, DomainModel, ModelOwners, SelectionFailure};
+use model_members::{
+    admit_selection, Budget, DomainModel, ModelOwners, SelectionFailure, UnitRefs,
+};
 use quire_canonical::FixedShape;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -1156,6 +1158,31 @@ struct LockAdmission<'a> {
     dependencies: SuppliedDependencies<'a>,
 }
 
+/// Candidate unit references for model selection admission. The input byte
+/// limit bounds this one graph walk and its index before graph work is charged.
+/// The graph stage subsequently validates each node, name and key before the
+/// package admits.
+fn checked_unit_refs(nodes: &[CheckedSemanticNodeV2]) -> UnitRefs {
+    let mut refs = BTreeMap::new();
+    for node in nodes {
+        if node.node_tag.as_ref() != "scalar_type" || node.semantic_form.as_ref() != "unit" {
+            continue;
+        }
+        let Some(declaration) = &node.declaration else {
+            continue;
+        };
+        let name = declaration
+            .qualified_name
+            .iter()
+            .map(AsRef::as_ref)
+            .collect::<Vec<&str>>()
+            .join("/");
+        refs.entry(format!("ix://quire/unit/{name}").into())
+            .or_insert_with(|| node.node_id.digest.clone());
+    }
+    std::sync::Arc::new(refs)
+}
+
 /// Checks the lock and returns what it admits.
 fn validate_lock<'a>(
     wire: &'a CheckedPackageWireV2,
@@ -1224,7 +1251,13 @@ fn validate_lock<'a>(
             models_pointer().index(repeat),
         ));
     }
-    let mut models = validate_domain_packages(&lock.model_selections, evidence, meter, bytes)?;
+    let unit_refs = if lock.model_selections.is_empty() {
+        std::sync::Arc::new(BTreeMap::new())
+    } else {
+        checked_unit_refs(&wire.semantic_graph.nodes)
+    };
+    let mut models =
+        validate_domain_packages(&lock.model_selections, evidence, meter, bytes, &unit_refs)?;
     // Implements: FR-322. Every selected dependency's admitted package is supplied and
     // binds to its entry, before any `dependency_reference` is read.
     let dependencies = admit_dependencies(&lock.dependency_selections, evidence, meter)?;
@@ -1347,6 +1380,7 @@ fn validate_domain_packages(
     evidence: &CheckedPackageEvidence,
     meter: &mut WorkMeter,
     bytes: u64,
+    unit_refs: &UnitRefs,
 ) -> Result<Vec<DomainModel>, ValidationFailure> {
     let row = |index: usize| member_pointer(&["lock", "model_selections"]).index(index);
     let at = |index: usize, member: &str| row(index).key(member);
@@ -1388,40 +1422,42 @@ fn validate_domain_packages(
         .enumerate()
         .map(|(index, model)| {
             let mut budget = Budget::new(meter, index, bytes);
-            admit_selection(model, evidence, &mut budget).map_err(|failure| match failure {
-                SelectionFailure::Limit(failure) => failure,
-                SelectionFailure::InexactNumber {
-                    document_pointer,
-                    cause,
-                } => ValidationFailure::refused_number_in_document(
-                    at(index, "digest"),
-                    document_pointer,
-                    cause,
-                ),
-                SelectionFailure::Refused(refused) => {
-                    let model_members::SelectionRefusal {
-                        refusal,
-                        member,
-                        declaration_identity,
-                        declaration_origin,
-                        mismatch,
-                    } = *refused;
-                    // Intake metadata is private. Its owning lifetime ends at
-                    // this projection; none is attached to the public refusal.
-                    drop((declaration_identity, declaration_origin));
-                    let path = member.map_or_else(|| row(index), |member| at(index, member));
-                    if let Some((expected, actual)) = mismatch {
-                        ValidationFailure::Refused(Box::new(CheckedPackageRefusal::mismatch(
-                            path,
-                            refusal.cause,
-                            expected,
-                            actual,
-                        )))
-                    } else {
-                        ValidationFailure::refused_because(refusal.code, path, refusal.cause)
+            admit_selection(model, evidence, &mut budget, unit_refs).map_err(
+                |failure| match failure {
+                    SelectionFailure::Limit(failure) => failure,
+                    SelectionFailure::InexactNumber {
+                        document_pointer,
+                        cause,
+                    } => ValidationFailure::refused_number_in_document(
+                        at(index, "digest"),
+                        document_pointer,
+                        cause,
+                    ),
+                    SelectionFailure::Refused(refused) => {
+                        let model_members::SelectionRefusal {
+                            refusal,
+                            member,
+                            declaration_identity,
+                            declaration_origin,
+                            mismatch,
+                        } = *refused;
+                        // Intake metadata is private. Its owning lifetime ends at
+                        // this projection; none is attached to the public refusal.
+                        drop((declaration_identity, declaration_origin));
+                        let path = member.map_or_else(|| row(index), |member| at(index, member));
+                        if let Some((expected, actual)) = mismatch {
+                            ValidationFailure::Refused(Box::new(CheckedPackageRefusal::mismatch(
+                                path,
+                                refusal.cause,
+                                expected,
+                                actual,
+                            )))
+                        } else {
+                            ValidationFailure::refused_because(refusal.code, path, refusal.cause)
+                        }
                     }
-                }
-            })
+                },
+            )
         })
         .collect()
 }
@@ -1819,11 +1855,12 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
 /// FR-322's declaration-name refusals, after the nominal checks and before
 /// frame and operation checks. First, a node carrying both a `declaration` and
 /// a nominal preimage that fixes a name must declare exactly that name, else
-/// `invalid_package` / `declaration-nominal-mismatch`. Then no two nodes may
-/// declare the same `qualified_name`, else `ambiguous_declaration` /
-/// `ambiguous-name`. Each sweep reports at the first offending node in
-/// ascending node-id digest order, the iteration order of `index`; for an
-/// ambiguous name that is the lowest-digest node sharing it. FR-322 orders
+/// `invalid_package` / `declaration-nominal-mismatch`. Then no two nodes in
+/// one namespace may declare the same `qualified_name`, else
+/// `ambiguous_declaration` / `ambiguous-name`. The namespaces are units,
+/// dimensions and all other types. Each sweep reports at the first offending
+/// node in ascending node-id digest order, the iteration order of `index`;
+/// for an ambiguous name that is the later node sharing it. FR-322 orders
 /// both before any operation refusal but not against each other: this reader
 /// checks the nominal join first. Takes no work meter: every name compared
 /// here was already charged when `validate_graph`'s per-node loop admitted it.
@@ -1855,27 +1892,24 @@ fn validate_declaration_names(
             ));
         }
     }
-    let mut holders: BTreeMap<&[Box<str>], Vec<(&CheckedNodeId, usize)>> = BTreeMap::new();
+    let mut holders = BTreeSet::new();
     for (&node_id, &position) in index {
-        if let Some(declaration) = &nodes[position].declaration {
-            holders
-                .entry(declaration.qualified_name.as_slice())
-                .or_default()
-                .push((node_id, position));
+        let node = &nodes[position];
+        if let Some(declaration) = &node.declaration {
+            let namespace = match (node.node_tag.as_ref(), node.semantic_form.as_ref()) {
+                ("scalar_type", "dimension") => 0_u8,
+                ("scalar_type", "unit") => 1,
+                _ => 2,
+            };
+            if !holders.insert((namespace, declaration.qualified_name.as_slice())) {
+                return Err(refuse_at(
+                    CheckedPackageRefusalCode::AmbiguousDeclaration,
+                    name_pointer(position),
+                    Some(CheckedPackageRefusalCause::AmbiguousName),
+                    node_id.clone(),
+                ));
+            }
         }
-    }
-    if let Some((first, position)) = holders
-        .values()
-        .filter(|ids| ids.len() > 1)
-        .filter_map(|ids| ids.first())
-        .min()
-    {
-        return Err(refuse_at(
-            CheckedPackageRefusalCode::AmbiguousDeclaration,
-            name_pointer(*position),
-            Some(CheckedPackageRefusalCause::AmbiguousName),
-            (*first).clone(),
-        ));
     }
     Ok(())
 }

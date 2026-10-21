@@ -747,7 +747,7 @@ fn tc_048_a_grouped_union_key_has_public_reader_stage_precedence() {
             "declaration" => (
                 Code::AmbiguousDeclaration,
                 Some(Cause::AmbiguousName),
-                "/semantic_graph/nodes/12/declaration/qualified_name".to_owned(),
+                "/semantic_graph/nodes/15/declaration/qualified_name".to_owned(),
                 false,
             ),
             "frame" => (

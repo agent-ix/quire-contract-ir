@@ -568,8 +568,8 @@ mod tests {
             MemberType::Reference(target) => {
                 wire(&key, "composite_type", "reference", &key, over(target))
             }
-            MemberType::Record(_) | MemberType::Variant(_) => {
-                panic!("a model type is a selected declaration, not a derived node")
+            MemberType::Record(_) | MemberType::Variant(_) | MemberType::Quantity(_) => {
+                panic!("a nominal type is a selected declaration, not a derived node")
             }
             MemberType::Option(inner) => {
                 let inner = inner.node_key(BYTES).expect("inner key");

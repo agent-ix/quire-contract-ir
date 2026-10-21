@@ -12,9 +12,9 @@
 //! from FR-322's and QSL FR-092's preimages; nothing of QSpec is copied in.
 
 use crate::support::checked_package::{
-    application_node_key, bounds_body, canonical, evidence_for, node_id, nominal_package,
-    over_body, pointer, rebuild_source_map, refresh_identity, refusal_bytes, refusal_cause, settle,
-    sha256_hex, ExpectedRefusal,
+    application_node_key, bounds_body, canonical, evidence_for, node_id, nominal_fixture_members,
+    nominal_package, over_body, pointer, rebuild_source_map, refresh_identity, refusal_bytes,
+    refusal_cause, settle, sha256_hex, ExpectedRefusal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -1803,6 +1803,93 @@ fn tc_048_a_model_owned_operation_admits_through_a_real_semantic_ir_document() {
     match read(&package, &evidence) {
         CheckedPackageV2ReadResult::Admitted(_) => {}
         other => panic!("expected admission, got {other:?}"),
+    }
+}
+
+fn unit_dispatch_call(
+    argument_family: &str,
+    result_unit: bool,
+) -> (Value, quire_contract_model::CheckedPackageEvidence) {
+    let mut document = domain_document(json!({}));
+    document["types"][0]["operations"][0]["params"] = json!([slot(None, "ix://quire/unit/ms")]);
+    if result_unit {
+        document["types"][0]["operations"][0]["returns"] = slot(None, "ix://quire/unit/ms");
+    }
+    let digest = sha256_hex(&canonical(&document));
+    let mut package = package_selecting("total", &digest);
+    let mut members = nominal_fixture_members();
+    let unit = members
+        .iter_mut()
+        .find(|(preimage, _)| preimage["version"] == "quire.unit-node/v1")
+        .expect("unit");
+    unit.0["qualified_declaration"] = json!(["ms"]);
+    unit.1 = sha256_hex(&canonical(&unit.0));
+    let mut second_preimage = unit.0.clone();
+    second_preimage["qualified_declaration"] = json!(["s"]);
+    second_preimage["target_unit_node_id"] = node_id(&unit.1);
+    second_preimage["scale"]["numerator"] = json!("2");
+    let second = sha256_hex(&canonical(&second_preimage));
+    let ms = unit.1.clone();
+    members.push((second_preimage, second.clone()));
+    let nominal = nominal_package(&members);
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .extend(
+            nominal["semantic_graph"]["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .cloned(),
+        );
+    let argument_type = match argument_family {
+        "integer" => None,
+        "ms" => Some(ms.as_str()),
+        "s" => Some(second.as_str()),
+        other => panic!("unknown argument family {other}"),
+    };
+    if let Some(argument_type) = argument_type {
+        let (argument, node) = parameter("argument", "1", argument_type);
+        package["semantic_graph"]["nodes"][5] = node;
+        package["semantic_graph"]["nodes"][CALL]["body"]["arguments"][1] = reference(&argument);
+        settle(&mut package);
+    }
+    if result_unit {
+        package["semantic_graph"]["nodes"][CALL]["semantic_type"] = node_id(&ms);
+        package["semantic_graph"]["nodes"][CALL]["body"]["result_type"] = node_id(&ms);
+        settle(&mut package);
+    }
+    rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
+    let mut evidence = evidence_for(&package);
+    evidence
+        .insert_domain_package_document(digest, canonical(&document))
+        .expect("domain evidence");
+    (package, evidence)
+}
+
+#[trace("TC-230", "FR-038-AC-300", "FR-038-AC-302")]
+#[test]
+fn tc_230_dispatch_call_requires_the_selected_checked_unit() {
+    for result_unit in [false, true] {
+        let (package, evidence) = unit_dispatch_call("ms", result_unit);
+        assert!(matches!(
+            read(&package, &evidence),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ));
+    }
+    for argument_family in ["integer", "s"] {
+        let (package, evidence) = unit_dispatch_call(argument_family, false);
+        let refusal = refused(&package, &evidence);
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::OperatorIneligible)
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(ToString::to_string),
+            Some(format!("/semantic_graph/nodes/{CALL}/body/arguments/1")),
+        );
     }
 }
 

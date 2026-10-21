@@ -55,6 +55,9 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+
+pub(super) type UnitRefs = Arc<BTreeMap<Box<str>, Box<str>>>;
 
 mod intake_origin;
 use intake_origin::{retained_origin, IntakeDeclarationOrigin, OriginView};
@@ -355,6 +358,8 @@ pub(super) struct DomainModel {
     pub(super) value_types: BTreeMap<Box<str>, Option<IntegerBounds>>,
     /// Exact semantic case names of selected variant types, by declaration identity.
     pub(super) variant_types: BTreeMap<Box<str>, BTreeSet<Box<str>>>,
+    /// Checked-package unit `typeRef` to the unit node digest.
+    pub(super) unit_refs: UnitRefs,
     /// Relationship declarations, by IR node identity.
     pub(super) relationships: BTreeMap<Box<str>, RelationshipDecl>,
     /// Declared populations, by IR node identity in the selected document.
@@ -619,6 +624,8 @@ pub(super) enum MemberType {
     Record(Box<str>),
     /// A selected, self-typed model variant declaration.
     Variant(Box<str>),
+    /// `Quantity<u>`, by the checked unit's node digest.
+    Quantity(Box<str>),
     /// `Option<X>`.
     Option(Box<MemberType>),
     /// `K<E>`, or `K<E>[l, u]` when bounded.
@@ -680,6 +687,7 @@ impl MemberType {
                 bytes,
             ),
             Self::Record(target) | Self::Variant(target) => Ok(target.to_string()),
+            Self::Quantity(target) => Ok(target.to_string()),
             Self::Option(inner) => {
                 let inner = inner.node_key(bytes)?;
                 anonymous(
@@ -1091,6 +1099,13 @@ impl DomainModel {
     /// FR-322 step 4's element type of a declared `typeRef`.
     // Reads a selected domain package document's native type reference, decoding it to a member type.
     fn element_type(&self, type_ref: &str) -> Option<MemberType> {
+        if type_ref.starts_with("ix://quire/unit/") {
+            return self
+                .unit_refs
+                .get(type_ref)
+                .cloned()
+                .map(MemberType::Quantity);
+        }
         match type_ref {
             NATIVE_BOOLEAN => return Some(MemberType::Boolean),
             NATIVE_INTEGER => return Some(MemberType::Integer),
@@ -1917,6 +1932,7 @@ pub(super) fn admit_selection(
     selection: &CheckedDomainPackageRef,
     evidence: &CheckedPackageEvidence,
     budget: &mut Budget<'_>,
+    unit_refs: &UnitRefs,
 ) -> Result<DomainModel, SelectionFailure> {
     let document = admit_document(
         selection,
@@ -1924,7 +1940,7 @@ pub(super) fn admit_selection(
         semantic_ir_identity,
         budget,
     )?;
-    let model = read_semantic_ir(&document, budget);
+    let model = read_semantic_ir(&document, budget, unit_refs);
     quire_canonical::drop_value(document);
     model
 }
@@ -2187,6 +2203,7 @@ fn node_size(value: &Value) -> u64 {
 pub(super) fn read_semantic_ir(
     document: &Value,
     budget: &mut Budget<'_>,
+    unit_refs: &UnitRefs,
 ) -> Result<DomainModel, SelectionFailure> {
     let identity = semantic_ir_identity(document).ok_or_else(ModelRefusal::malformed)?;
     let mut meanings: BTreeMap<(&str, &str), &str> = BTreeMap::new();
@@ -2225,6 +2242,7 @@ pub(super) fn read_semantic_ir(
         record_types: BTreeMap::new(),
         value_types: BTreeMap::new(),
         variant_types: BTreeMap::new(),
+        unit_refs: unit_refs.clone(),
         relationships: BTreeMap::new(),
         populations: BTreeSet::new(),
         relation_nodes: BTreeSet::new(),
@@ -2445,6 +2463,12 @@ impl References<'_> {
     // Reads a selected domain package document's type reference prefix.
     fn check_type_ref(&self, type_ref: &str, path: &[Segment], defects: &mut Defects) {
         let path = joined(path, Segment::Name("typeRef"));
+        if type_ref.starts_with("ix://quire/unit/") {
+            if !self.model.unit_refs.contains_key(type_ref) {
+                defects.push(Row::Reference, &path, ModelRefusal::missing_name());
+            }
+            return;
+        }
         match type_ref.strip_prefix(NATIVE_PREFIX) {
             Some(name) if NATIVE_NAMES.contains(&name) => {}
             Some(_) => defects.push(Row::Meaning, &path, ModelRefusal::malformed()),
