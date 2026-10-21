@@ -31,7 +31,7 @@ pub struct ContractOccurrenceKeyV1 {
 }
 
 impl ContractOccurrenceKeyV1 {
-    fn matches(&self, entry: &CheckedSourceMapEntry) -> bool {
+    pub(super) fn matches(&self, entry: &CheckedSourceMapEntry) -> bool {
         self.node_id == entry.node_id && self.role == entry.role && self.ordinal == entry.ordinal
     }
 }

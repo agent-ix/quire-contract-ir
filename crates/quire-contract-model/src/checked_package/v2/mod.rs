@@ -61,12 +61,14 @@ pub use contract_package::{
     ContractDispositionV1, ContractFeatureRecordV1, ContractGuardContextErrorV1,
     ContractGuardContextFailureCauseV1, ContractGuardContextFailureV1, ContractGuardContextViewV1,
     ContractGuardReferenceV1, ContractLoweredGuardContextV1, ContractLoweredResultV1,
-    ContractNodeSourcesV1, ContractOccurrenceKeyV1, ContractPackageReadResult, ContractPackageV1,
-    ContractPackageWireV1, ContractPathGuardV1, ContractProvenanceV1, ContractReachedClosureV1,
-    ContractReachedNodeV1, ContractRefusalSourcesV1, ContractRequestSourcesV1,
-    ContractResultBoundV1, ContractResultContextV1, ContractResultViewV1, ContractRootViewError,
-    ContractRootViewV1, ContractSelectedReferenceV1, ContractSemanticGraphV1, ContractSourceMapV1,
-    ContractSourceV1,
+    ContractLoweredScalarOperandsV1, ContractNodeSourcesV1, ContractOccurrenceKeyV1,
+    ContractPackageReadResult, ContractPackageV1, ContractPackageWireV1, ContractPathGuardV1,
+    ContractProvenanceV1, ContractReachedClosureV1, ContractReachedNodeV1,
+    ContractRefusalSourcesV1, ContractRequestSourcesV1, ContractResultBoundV1,
+    ContractResultContextV1, ContractResultViewV1, ContractRootViewError, ContractRootViewV1,
+    ContractScalarOperandChildV1, ContractScalarOperandErrorV1, ContractScalarOperandV1,
+    ContractScalarOperandViewV1, ContractScalarOwnRangeV1, ContractSelectedReferenceV1,
+    ContractSemanticGraphV1, ContractSourceMapV1, ContractSourceV1,
 };
 pub use identity::*;
 pub use lower::*;

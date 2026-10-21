@@ -183,7 +183,7 @@ pub(crate) fn admit(value: &Value) -> CheckedPackageV2 {
     }
 }
 
-fn profile() -> CompleteLoweringProfileV2 {
+pub(crate) fn profile() -> CompleteLoweringProfileV2 {
     CompleteLoweringProfileV2 {
         reference: LoweringProfileRef {
             authority: "quire".into(),
@@ -199,7 +199,7 @@ pub(crate) fn package(source: &CheckedPackageV2, roots: &[CheckedNodeId]) -> Con
     package_with_profile(source, roots, &profile())
 }
 
-fn package_with_profile(
+pub(crate) fn package_with_profile(
     source: &CheckedPackageV2,
     roots: &[CheckedNodeId],
     selected_profile: &CompleteLoweringProfileV2,
