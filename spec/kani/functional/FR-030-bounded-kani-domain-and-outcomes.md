@@ -188,7 +188,12 @@ source, exact wire form and refusal controls tagged to TC-449. The CG Kani
 launcher has no source-bearing cancellation event reader or IR
 cancelled-outcome producer; IR-701 owns the live-event and reversal control.
 
-AC-8 and AC-9 are planned under IR-621; [TC-457](../matrix/TC-457-infallible-non-success-outcomes.md)
-defines their public-consumer controls. The existing private `NonSuccessKind`
-and `raise` do not yet provide this public route. IR-621 does not claim AC-4,
-AC-5, the live cancellation producer in AC-7, or downstream codegen adoption.
+AC-8 and AC-9 are implemented through the nine public infallible constructors
+and [TC-457](../matrix/TC-457-infallible-non-success-outcomes.md). External
+consumer tests exercise all nine direct return types, consumer-owned codes,
+fixed causes, exact source/context and wire round trips, including both
+cancellation sources. Paired passing and compile-fail doctests check the public
+signatures, and the broad fallible route still rejects both Boolean kinds.
+The methods share the existing private `NonSuccessKind`/`raise` construction
+path. This does not implement AC-4, AC-5, the live cancellation producer in
+AC-7, or downstream codegen adoption.
