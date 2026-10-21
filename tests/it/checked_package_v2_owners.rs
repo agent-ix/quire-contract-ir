@@ -4,7 +4,8 @@
 //! Owner-wire admission and refusal cases built from this crate's public wire vocabulary.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, refresh_identity, sha256_hex, v2_all_families, v2_nominal,
+    application_node_key, bounds_body, canonical, evidence_for, integer_key, node_id,
+    refresh_identity, settle, sha256_hex, structural_key, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -129,6 +130,664 @@ fn read_with_model(package: &Value, document: &Value) -> CheckedPackageV2ReadRes
         CheckedPackageReadLimits::bounded(),
         &evidence,
     )
+}
+
+fn declared_population_package_for(population: &str) -> (Value, Value) {
+    declared_population_package_for_owner(population, "acme/owners")
+}
+
+fn declared_population_package_for_owner(population: &str, owner_identity: &str) -> (Value, Value) {
+    let (mut package, mut document) = model_package();
+    document["populations"] = json!([{"node": population}]);
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+
+    let node = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .last_mut()
+        .expect("declaration node");
+    node["node_tag"] = json!("relation");
+    node["semantic_form"] = json!("population");
+    node["owner"]["identity"] = json!(owner_identity);
+    node["owner"]["node"] = json!(population);
+    let preimage = json!({
+        "version": "quire.structural-node/v1",
+        "node_tag": "relation", "semantic_form": "population",
+        "semantic_type": null, "declaration": null, "recursion": null,
+        "owner": node["owner"],
+        "body": {"term": "aggregate", "members": []},
+    });
+    let id = node_id(&sha256_hex(&canonical(&preimage)));
+    node["node_id"] = id.clone();
+    node["semantic_type"] = id.clone();
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .last_mut()
+        .expect("population occurrence")["node_id"] = id;
+    refresh_identity(&mut package);
+    (package, document)
+}
+
+fn declared_population_package() -> (Value, Value) {
+    declared_population_package_for("ix://acme/owners/counters")
+}
+
+#[trace("TC-229", "FR-038-AC-303", "FR-038-AC-304")]
+#[test]
+fn tc_229_selected_declared_population_reference_admits() {
+    let (package, document) = declared_population_package();
+    assert!(matches!(
+        read_with_model(&package, &document),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
+#[trace("TC-229", "FR-038-AC-303", "FR-038-AC-304")]
+#[test]
+fn tc_229_distinct_population_declarations_have_distinct_keys() {
+    let (counters, counters_document) = declared_population_package();
+    let (archive, archive_document) = declared_population_package_for("ix://acme/owners/archive");
+    assert_ne!(
+        counters["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["node_id"],
+        archive["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["node_id"]
+    );
+    for (package, document) in [
+        (&counters, &counters_document),
+        (&archive, &archive_document),
+    ] {
+        assert!(matches!(
+            read_with_model(package, document),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ));
+    }
+}
+
+#[trace("TC-229", "FR-038-AC-303", "FR-038-AC-304")]
+#[test]
+fn tc_229_population_owner_identity_is_joined_independently_of_node() {
+    let (base, _) = declared_population_package();
+    let (foreign_owner, document) =
+        declared_population_package_for_owner("ix://acme/owners/counters", "acme/elsewhere");
+    let base_node = base["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    let changed_node = foreign_owner["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    assert_eq!(changed_node["owner"]["node"], base_node["owner"]["node"]);
+    assert_ne!(changed_node["node_id"], base_node["node_id"]);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&foreign_owner, &document)
+    else {
+        panic!("unselected owner identity must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
+    );
+    assert_eq!(
+        refusal.path.expect("path").as_str(),
+        format!(
+            "/semantic_graph/nodes/{}/node_id",
+            foreign_owner["semantic_graph"]["nodes"]
+                .as_array()
+                .unwrap()
+                .len()
+                - 1
+        )
+    );
+}
+
+#[trace("TC-229", "FR-038-AC-303", "FR-038-AC-304")]
+#[test]
+fn tc_229_population_reference_requires_owner_and_selected_population() {
+    let (base, document) = declared_population_package();
+    let position = base["semantic_graph"]["nodes"].as_array().unwrap().len() - 1;
+    let mut ownerless = base.clone();
+    ownerless["semantic_graph"]["nodes"][position]
+        .as_object_mut()
+        .unwrap()
+        .remove("owner");
+    refresh_identity(&mut ownerless);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&ownerless, &document)
+    else {
+        panic!("ownerless population reference must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+
+    let mut ownerless_projection = base.clone();
+    ownerless_projection["identity_preimage"]["identity_projection"][position]
+        .as_object_mut()
+        .unwrap()
+        .remove("owner");
+    ownerless_projection["package_id"]["digest"] = json!(sha256_hex(&canonical(
+        &ownerless_projection["identity_preimage"]
+    )));
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with_model(&ownerless_projection, &document)
+    else {
+        panic!("ownerless population projection must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+
+    let mut wrong_shape = base.clone();
+    wrong_shape["semantic_graph"]["nodes"][position]["body"] = json!({
+        "term":"aggregate","members":[{"term":"binding","name":"max",
+            "value":{"term":"literal","type":base["semantic_graph"]["nodes"][0]["node_id"],
+                "value_kind":"integer","value":"2"}}]
+    });
+    refresh_identity(&mut wrong_shape);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&wrong_shape, &document)
+    else {
+        panic!("population reference with a maximum in its body must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::StaleNodeKey)
+    );
+
+    let mut wrong_dependencies = base.clone();
+    wrong_dependencies["semantic_graph"]["nodes"][position]["dependencies"] =
+        json!([base["semantic_graph"]["nodes"][0]["node_id"]]);
+    refresh_identity(&mut wrong_dependencies);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with_model(&wrong_dependencies, &document)
+    else {
+        panic!("population reference with a dependency must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::StaleNodeKey)
+    );
+
+    for (name, node_tag, form, declared) in [
+        (
+            "missing population",
+            "relation",
+            "population",
+            "ix://acme/owners/missing",
+        ),
+        (
+            "object claimed as population",
+            "relation",
+            "population",
+            "ix://acme/owners/Point",
+        ),
+        (
+            "population claimed as object",
+            "model",
+            "object_type",
+            "ix://acme/owners/counters",
+        ),
+        (
+            "population claimed as relationship",
+            "relation",
+            "relationship",
+            "ix://acme/owners/counters",
+        ),
+    ] {
+        let mut changed = base.clone();
+        let node = &mut changed["semantic_graph"]["nodes"][position];
+        node["node_tag"] = json!(node_tag);
+        node["semantic_form"] = json!(form);
+        node["owner"]["node"] = json!(declared);
+        refresh_identity(&mut changed);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&changed, &document)
+        else {
+            panic!("{name} must refuse");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::MissingDeclaration,
+            "{name}"
+        );
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::MissingSelection),
+            "{name}"
+        );
+        assert_eq!(
+            refusal.path.expect("path").as_str(),
+            format!("/semantic_graph/nodes/{position}/node_id"),
+            "{name}"
+        );
+    }
+}
+
+#[trace("TC-229", "FR-038-AC-305")]
+#[test]
+fn tc_229_declared_population_is_query_operand() {
+    let mut shared_population = None;
+    let mut unbounded_application = None;
+    for (lookup, bounded) in [(false, false), (false, true), (true, false)] {
+        let (mut package, document) = declared_population_package();
+        let population = package["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["node_id"]
+            .clone();
+        let (object_package, _) = model_package();
+        let object_node = object_package["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()
+            .clone();
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(object_node);
+        let point = package["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|node| node["semantic_form"] == "object_type")
+            .unwrap()["node_id"]
+            .clone();
+        let reference_body = json!({"term":"aggregate","members":[
+        {"term":"reference","target":point.clone()}]});
+        let reference = structural_key("composite_type", "reference", None, &reference_body);
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "node_id":node_id(&reference), "schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"composite_type", "semantic_form":"reference",
+                "semantic_type":node_id(&reference), "dependencies":[],
+                "occurrences":[{"role":"type","ordinal":0}], "body":reference_body
+            }));
+        let set_body = json!({"term":"aggregate","members":[
+        {"term":"reference","target":node_id(&reference)}]});
+        let set = structural_key("composite_type", "set", None, &set_body);
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "node_id":node_id(&set), "schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"composite_type", "semantic_form":"set",
+                "semantic_type":node_id(&set), "dependencies":[],
+                "occurrences":[{"role":"type","ordinal":0}], "body":set_body
+            }));
+        let (result, mode, arguments) = if lookup {
+            let option_body = json!({"term":"aggregate","members":[
+            {"term":"reference","target":node_id(&reference)}]});
+            let option = structural_key("composite_type", "option", None, &option_body);
+            package["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({
+                    "node_id":node_id(&option), "schema_version":"quire.checked-semantic-graph/v2",
+                    "node_tag":"composite_type", "semantic_form":"option",
+                    "semantic_type":node_id(&option), "dependencies":[],
+                    "occurrences":[{"role":"type","ordinal":0}], "body":option_body
+                }));
+            let identity_body = json!({"term":"reference","target":point.clone()});
+            let identity =
+                structural_key("expression", "reference", Some(&reference), &identity_body);
+            package["semantic_graph"]["nodes"].as_array_mut().unwrap().push(json!({
+            "node_id":node_id(&identity), "schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"expression", "semantic_form":"reference",
+            "semantic_type":node_id(&reference), "dependencies":[],
+            "occurrences":[{"role":"expression","ordinal":0}], "body":identity_body
+        }));
+            (
+                option,
+                json!({"kind":"absence","value":"option"}),
+                json!([{"term":"reference","target":population},
+                {"term":"reference","target":node_id(&identity)}]),
+            )
+        } else {
+            let result = if bounded {
+                let integer = integer_key();
+                if !package["semantic_graph"]["nodes"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|node| node["node_id"] == node_id(&integer))
+                {
+                    package["semantic_graph"]["nodes"].as_array_mut().unwrap().push(json!({
+                            "node_id":node_id(&integer), "schema_version":"quire.checked-semantic-graph/v2",
+                            "node_tag":"scalar_type", "semantic_form":"integer",
+                            "semantic_type":node_id(&integer), "dependencies":[],
+                            "occurrences":[{"role":"type","ordinal":0}],
+                            "body":{"term":"aggregate","members":[]}
+                        }));
+                }
+                let body = bounds_body("0", "2");
+                let bounded_key =
+                    structural_key("bounded_domain", "collection_bounds", Some(&set), &body);
+                package["semantic_graph"]["nodes"].as_array_mut().unwrap().push(json!({
+                        "node_id":node_id(&bounded_key), "schema_version":"quire.checked-semantic-graph/v2",
+                        "node_tag":"bounded_domain", "semantic_form":"collection_bounds",
+                        "semantic_type":node_id(&set), "dependencies":[node_id(&set)],
+                        "occurrences":[{"role":"type","ordinal":0}], "body":body
+                    }));
+                bounded_key
+            } else {
+                set
+            };
+            (
+                result,
+                Value::Null,
+                json!([{"term":"reference","target":population}]),
+            )
+        };
+        let body = json!({"term":"application","operator":"query",
+        "operation":{"identity":if lookup {"quire.op.model.lookup"} else {"quire.op.model.all_instances"},
+            "laws":[],"mode":mode,
+            "member":{"kind":"type_argument","declaration":point},"leaves":[]},
+        "result_type":node_id(&result),"arguments":arguments});
+        let application = application_node_key("expression", "query", &result, &body);
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "node_id":node_id(&application), "schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"expression", "semantic_form":"query",
+                "semantic_type":node_id(&result), "dependencies":[],
+                "occurrences":[{"role":"expression","ordinal":0}], "body":body
+            }));
+        settle(&mut package);
+        if let Some(shared) = &shared_population {
+            assert_eq!(&population, shared, "one declaration keeps its node key");
+        } else {
+            shared_population = Some(population.clone());
+        }
+        let application_id = package["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["node_id"]
+            .clone();
+        if bounded {
+            assert_ne!(
+                Some(&application_id),
+                unbounded_application.as_ref(),
+                "a unit maximum changes the application, not the population reference"
+            );
+        } else if !lookup {
+            unbounded_application = Some(application_id);
+        }
+        assert!(
+            matches!(
+                read_with_model(&package, &document),
+                CheckedPackageV2ReadResult::Admitted(_)
+            ),
+            "lookup={lookup}, bounded={bounded}: {:?}",
+            read_with_model(&package, &document)
+        );
+    }
+}
+
+#[trace("TC-229", "FR-038-AC-305", "FR-038-AC-307")]
+#[test]
+fn tc_229_qspec_published_population_binding_fixture_admits() {
+    let root = match std::env::var("QUIRE_SPECIFICATION_DIR") {
+        Ok(root) if !root.is_empty() => root,
+        _ if std::env::var_os("QSPEC_CONFORMANCE").is_none() => return,
+        _ => panic!("QUIRE_SPECIFICATION_DIR is required for QSpec conformance"),
+    };
+    let proposal = std::path::Path::new(&root).join("proposals/checked-package-v2");
+    let package: Value = serde_json::from_slice(
+        &std::fs::read(proposal.join("fixtures/positive-operation-identities.json"))
+            .expect("QSpec positive operation fixture"),
+    )
+    .expect("QSpec positive operation JSON");
+    let document: Value = serde_json::from_slice(
+        &std::fs::read(proposal.join("domain-package-acme-orders.json"))
+            .expect("QSpec selected domain document"),
+    )
+    .expect("QSpec selected domain JSON");
+    assert!(matches!(
+        read_with_model(&package, &document),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let population = nodes
+        .iter()
+        .find(|node| {
+            node["node_tag"] == "value"
+                && node["semantic_form"] == "parameter"
+                && node["body"]["members"][0]["value"]["value"] == "census"
+        })
+        .expect("published population binding");
+    let population_id = &population["node_id"];
+    for identity in ["quire.op.model.all_instances", "quire.op.model.lookup"] {
+        let application = nodes
+            .iter()
+            .find(|node| node["body"]["operation"]["identity"] == identity)
+            .expect("published population query");
+        assert_eq!(
+            application["body"]["arguments"][0]["target"],
+            *population_id
+        );
+        assert!(application["dependencies"]
+            .as_array()
+            .unwrap()
+            .contains(population_id));
+    }
+}
+
+#[trace(
+    "TC-229",
+    "FR-038-AC-304",
+    "FR-038-AC-305",
+    "FR-038-AC-306",
+    "FR-038-AC-307"
+)]
+#[test]
+fn tc_229_qspec_population_reference_cases_match_reader() {
+    let root = match std::env::var("QUIRE_SPECIFICATION_DIR") {
+        Ok(root) if !root.is_empty() => root,
+        _ if std::env::var_os("QSPEC_CONFORMANCE").is_none() => return,
+        _ => panic!("QUIRE_SPECIFICATION_DIR is required for QSpec conformance"),
+    };
+    let proposal = std::path::Path::new(&root).join("proposals/checked-package-v2");
+    let read = |name: &str| -> Value {
+        serde_json::from_slice(&std::fs::read(proposal.join(name)).expect("QSpec fixture"))
+            .expect("QSpec JSON")
+    };
+    let cases = read("fixtures/adverse.json");
+    let rows = cases["population_reference_cases"]
+        .as_array()
+        .expect("population cases");
+    assert_eq!(rows.len(), 12, "QSpec population case inventory");
+    let mut admitted = std::collections::BTreeMap::new();
+    for case in rows {
+        let id = case["id"].as_str().expect("case id");
+        assert_eq!(case["base"], "positive-operation-identities", "{id}");
+        if case["operation"] == "published" {
+            assert_eq!(id, "parameter-operand-admitted");
+            continue;
+        }
+        let mut package = read("fixtures/positive-operation-identities.json");
+        let mut document = read("domain-package-acme-orders.json");
+        document["populations"] = json!([
+            {"node":"ix://acme/orders/counters"},
+            {"node":"ix://acme/orders/archive"}
+        ]);
+        package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+        let owner = case["owner_node"]
+            .as_str()
+            .map(|node| json!({"kind":"model","identity":"acme/orders","node":node}));
+        let preimage = json!({"version":"quire.structural-node/v1",
+            "node_tag":"relation","semantic_form":"population","semantic_type":null,
+            "declaration":null,"recursion":null,"owner":owner,
+            "body":{"term":"aggregate","members":[]}});
+        let population = node_id(&sha256_hex(&canonical(&preimage)));
+        let mut population_node = json!({
+            "node_id":population,"schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"relation","semantic_form":"population",
+            "semantic_type":population,"dependencies":[],
+            "occurrences":[{"role":"generated","ordinal":0}],
+            "body":{"term":"aggregate","members":[]}
+        });
+        if let Some(owner) = owner {
+            population_node["owner"] = owner;
+        }
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(population_node);
+        let operation = format!(
+            "quire.op.{}",
+            case["operation"].as_str().expect("operation")
+        );
+        let application = package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|node| node["body"]["operation"]["identity"] == operation)
+            .unwrap_or_else(|| panic!("{id}: published operation {operation}"));
+        if case["member_declaration"] == true {
+            application["body"]["operation"]["member"]["declaration"] = population.clone();
+        } else if case["member_population"] == true {
+            application["body"]["operation"]["member"]["population"] = population.clone();
+        } else {
+            application["body"]["arguments"][0]["target"] = population.clone();
+        }
+        if let Some(also) = case["also"].as_str() {
+            let also = format!("quire.op.{also}");
+            let application = package["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|node| node["body"]["operation"]["identity"] == also)
+                .unwrap_or_else(|| panic!("{id}: second published operation {also}"));
+            application["body"]["arguments"][0]["target"] = population.clone();
+        }
+        settle(&mut package);
+        let source = package["lock"]["sources"][0].clone();
+        package["source_map"] = Value::Array(
+            package["semantic_graph"]["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .enumerate()
+                .map(|(position, node)| {
+                    json!({"node_id":node["node_id"],
+                    "role":node["occurrences"][0]["role"],
+                    "ordinal":node["occurrences"][0]["ordinal"],
+                    "regions":[{"source":source,"start":position,"end":position+1}]})
+                })
+                .collect(),
+        );
+        match read_with_model(&package, &document) {
+            CheckedPackageV2ReadResult::Admitted(_) if case["outcome"] == "admitted" => {
+                let nodes = package["semantic_graph"]["nodes"].as_array().unwrap();
+                let application = nodes
+                    .iter()
+                    .find(|node| node["body"]["operation"]["identity"] == operation)
+                    .unwrap();
+                assert!(
+                    application["dependencies"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&population),
+                    "{id}"
+                );
+                if let Some(also) = case["also"].as_str() {
+                    let also = format!("quire.op.{also}");
+                    let second = nodes
+                        .iter()
+                        .find(|node| node["body"]["operation"]["identity"] == also)
+                        .expect("second population query");
+                    assert_eq!(second["body"]["arguments"][0]["target"], population, "{id}");
+                    assert_eq!(
+                        nodes
+                            .iter()
+                            .filter(|node| node["semantic_form"] == "population")
+                            .count(),
+                        1,
+                        "{id}"
+                    );
+                }
+                admitted.insert(
+                    id.to_owned(),
+                    (
+                        population.clone(),
+                        application["node_id"].clone(),
+                        package["package_id"].clone(),
+                    ),
+                );
+            }
+            CheckedPackageV2ReadResult::Refused(refusal) if case["outcome"] != "admitted" => {
+                let expected_code = case["expected_code"].as_str().expect("expected code");
+                assert_eq!(
+                    serde_json::to_value(refusal.code).unwrap(),
+                    json!(expected_code),
+                    "{id}"
+                );
+                if let Some(cause) = case["expected_cause"].as_str() {
+                    assert_eq!(
+                        serde_json::to_value(refusal.cause).unwrap(),
+                        json!(cause),
+                        "{id}"
+                    );
+                }
+                let nodes = package["semantic_graph"]["nodes"].as_array().unwrap();
+                let locus = match id {
+                    "population-owned-by-an-object-type"
+                    | "population-owned-by-an-undeclared-node" => {
+                        format!("/semantic_graph/nodes/{}/node_id", nodes.len() - 1)
+                    }
+                    "population-without-an-owner" => {
+                        format!("/semantic_graph/nodes/{}", nodes.len() - 1)
+                    }
+                    other => {
+                        let position = nodes
+                            .iter()
+                            .position(|node| node["body"]["operation"]["identity"] == operation)
+                            .unwrap_or_else(|| panic!("{other}: application"));
+                        let suffix = match other {
+                            "population-as-a-relationship-declaration" => {
+                                "/body/operation/member/declaration"
+                            }
+                            "population-as-a-field-declaration"
+                            | "population-as-a-collection-operand" => "/body/arguments/0",
+                            "population-as-an-operation-declaration" => {
+                                "/body/operation/member/name"
+                            }
+                            "population-as-a-reaches-population-link" => {
+                                "/body/operation/member/population"
+                            }
+                            _ => panic!("{other}: unexpected refusal case"),
+                        };
+                        format!("/semantic_graph/nodes/{position}{suffix}")
+                    }
+                };
+                assert_eq!(
+                    refusal.path.as_ref().map(|path| path.as_str()),
+                    Some(locus.as_str()),
+                    "{id}"
+                );
+            }
+            outcome => panic!("{id}: unexpected {outcome:?}"),
+        }
+    }
+    let counters = &admitted["counters-all-instances-admitted"];
+    let archive = &admitted["archive-all-instances-admitted"];
+    assert_ne!(counters.0, archive.0);
+    assert_ne!(counters.1, archive.1);
+    assert_ne!(counters.2, archive.2);
 }
 
 fn owned_clause(mut package: Value, document: &Value, declared: &str, clause: &str) -> Value {

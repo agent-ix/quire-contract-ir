@@ -1269,11 +1269,11 @@ fn fold_and_reduce_admit_without_member_family_and_refuse_unequal_result() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-247", "FR-038-AC-248")]
+#[trace("TC-048", "TC-229", "FR-038-AC-247", "FR-038-AC-248", "FR-038-AC-305")]
 #[test]
 fn non_member_model_results_remain_admitted() {
     for lookup in [false, true] {
-        let (mut package, unit, _, _, left, _) = fixture();
+        let (mut package, unit, _, integer, left, _) = fixture();
         let reference_body = json!({"term":"aggregate","members":[reference(&unit)]});
         let reference_type = structural_key("composite_type", "reference", None, &reference_body);
         add_node(
@@ -1301,16 +1301,45 @@ fn non_member_model_results_remain_admitted() {
             None,
             &json!({"term":"aggregate","members":[]}),
         );
-        let population_body = json!({"term":"aggregate","members":[{"term":"binding","name":"identity","value":{
-            "term":"literal","type":node_id(&text),"value_kind":"text","value":"population-a"}}]});
-        let population = structural_key("relation", "population", None, &population_body);
+        let set_body = json!({"term":"aggregate","members":[reference(&reference_type)]});
+        let set = structural_key("composite_type", "set", None, &set_body);
+        if lookup {
+            add_node(&mut package, &set, "composite_type", "set", &set, set_body);
+        }
+        let population_body = json!({"term":"aggregate","members":[]});
+        let population_type = structural_key(
+            "bounded_domain",
+            "model_population",
+            Some(&set),
+            &population_body,
+        );
+        add_node(
+            &mut package,
+            &population_type,
+            "bounded_domain",
+            "model_population",
+            &set,
+            population_body,
+        );
+        let parameter_body = json!({"term":"aggregate","members":[
+            {"term":"binding","name":"name","value":{
+                "term":"literal","type":node_id(&text),"value_kind":"text","value":"population_a"}},
+            {"term":"binding","name":"level","value":{
+                "term":"literal","type":node_id(&integer),"value_kind":"integer","value":"0"}}
+        ]});
+        let population = structural_key(
+            "value",
+            "parameter",
+            Some(&population_type),
+            &parameter_body,
+        );
         add_node(
             &mut package,
             &population,
-            "relation",
-            "population",
-            &population,
-            population_body,
+            "value",
+            "parameter",
+            &population_type,
+            parameter_body,
         );
         let mut arguments = vec![reference(&population)];
         if lookup {

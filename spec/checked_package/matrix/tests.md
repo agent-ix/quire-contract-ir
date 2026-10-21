@@ -98,6 +98,14 @@ type: TestMatrix
 | FR-038 | FR-038-AC-280 | TC-048 | Implemented (IR-852); tagged tests | The `population` check follows an earlier `check_relationship_member` defect; a mode or leaf on a reaches application is refused by the identity stage. |
 | FR-038 | FR-038-AC-251 | TC-048 | Implemented (IR-225; amended from an expected-set shape guard to current catalogue entry selection). | Catalogue-wide differential reads all 160 entries and has behavioral controls for 56 of 160 entries. The remaining 104 are named and classified by fixture need (25 control/temporal/state/claim/protocol context, 15 IEEE profile and typed operands, 3 selected model declarations, 61 other typed operands or member fixtures); this is not a complete catalogue baseline. `model.lookup`, `model.all_instances`, every other member-result kind and fold/reduce preserve their specified outcomes; mismatched results distinguish the selector. |
 
+## Declared population reference reader coverage (IR-937)
+
+| Functional Req | Acceptance Criteria | Test Case | Status | Required cases |
+|---|---|---|---|---|
+| FR-038 | FR-038-AC-303, FR-038-AC-304 | TC-229 | Implemented; focused tests pass | Required `ModelOwner`, closed P7/P8 preimages, selected `populations` join, absent-owner and wrong-kind refusals. |
+| FR-038 | FR-038-AC-305, FR-038-AC-306 | TC-229 | Implemented; focused tests pass | Both model operations over declared references and typed parameter bindings; dependency and identity distinctions, result bound placement, and forbidden position refusals. |
+| FR-038 | FR-038-AC-307 | TC-229 | Implemented; QSpec conformance passes | Direct selected-checkout QSpec vectors and adverse recipes; no fixture copy. |
+
 ## Pending structural type work coverage (IR-490)
 
 | Functional Req | Acceptance Criteria | Test Case | Status | Required cases |

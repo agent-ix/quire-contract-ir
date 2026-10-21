@@ -189,7 +189,9 @@ pub(super) fn valid_derived_shape(
     let model_owned = matches!(
         kind,
         CheckedNodeKind::Model(super::ModelForm::ObjectType | super::ModelForm::SystemsInterface)
-            | CheckedNodeKind::Relation(super::RelationForm::Relationship)
+            | CheckedNodeKind::Relation(
+                super::RelationForm::Relationship | super::RelationForm::Population
+            )
     ) || (matches!(
         kind,
         CheckedNodeKind::Model(super::ModelForm::RecordValueType | super::ModelForm::VariantType)
@@ -201,6 +203,10 @@ pub(super) fn valid_derived_shape(
         && model_owned
         && (node.semantic_type != node.node_id
             || node.recursion_group.is_some()
+            || (matches!(
+                kind,
+                CheckedNodeKind::Relation(super::RelationForm::Population)
+            ) && !node.dependencies.is_empty())
             || aggregate_members(&node.body).is_none_or(|members| !members.is_empty())))
 }
 

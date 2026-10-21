@@ -356,6 +356,8 @@ pub(super) struct DomainModel {
     pub(super) variant_types: BTreeMap<Box<str>, BTreeSet<Box<str>>>,
     /// Relationship declarations, by IR node identity.
     pub(super) relationships: BTreeMap<Box<str>, RelationshipDecl>,
+    /// Declared populations, by IR node identity in the selected document.
+    pub(super) populations: BTreeSet<Box<str>>,
     /// Systems connection declarations that also back relation nodes.
     pub(super) relation_nodes: BTreeSet<Box<str>>,
     /// Types of every other FR-208 meaning, by IR node identity.
@@ -373,6 +375,7 @@ pub(super) enum DeclarationForm {
     VariantType,
     SystemsInterface,
     Relationship,
+    Population,
 }
 
 impl DeclarationForm {
@@ -382,7 +385,7 @@ impl DeclarationForm {
             | Self::RecordValueType
             | Self::VariantType
             | Self::SystemsInterface => "model",
-            Self::Relationship => "relation",
+            Self::Relationship | Self::Population => "relation",
         }
     }
 
@@ -393,6 +396,7 @@ impl DeclarationForm {
             Self::VariantType => "variant_type",
             Self::SystemsInterface => "systems_interface",
             Self::Relationship => "relationship",
+            Self::Population => "population",
         }
     }
 }
@@ -1187,7 +1191,7 @@ pub(super) struct ModelOwners<'m> {
 }
 
 impl<'m> ModelOwners<'m> {
-    /// Recomputes the key of every object, record and relationship declaration
+    /// Recomputes the key of every selected model declaration
     /// of each admitted document; `charge` is called once per key.
     pub(super) fn new(
         models: &'m [DomainModel],
@@ -1216,7 +1220,16 @@ impl<'m> ModelOwners<'m> {
                 .variant_types
                 .keys()
                 .map(|node| (node, DeclarationForm::VariantType));
-            for (node, form) in objects.chain(records).chain(variants).chain(relationships) {
+            let populations = package
+                .populations
+                .iter()
+                .map(|node| (node, DeclarationForm::Population));
+            for (node, form) in objects
+                .chain(records)
+                .chain(variants)
+                .chain(relationships)
+                .chain(populations)
+            {
                 charge(index)?;
                 // A key the encoder refuses (a preimage past the byte limit)
                 // refuses the read as `invalid_semantic_graph` at the
@@ -1314,6 +1327,7 @@ pub(super) fn check_declaration_node(
     let fixed = node.semantic_type == node.node_id
         && node.declaration.is_none()
         && node.recursion_group.is_none()
+        && (form != DeclarationForm::Population || node.dependencies.is_empty())
         && node.body == json!({"term": "aggregate", "members": []});
     if fixed {
         Ok(())
@@ -1342,6 +1356,9 @@ impl<'m> ModelOwners<'m> {
             Ok(owner) => owner,
             Err(refusal) => return Ok(Err(refusal)),
         };
+        if owner.form == DeclarationForm::Population {
+            return Ok(Err(ModelRefusal::ineligible()));
+        }
         let mut budget = Budget::new(meter, owner.selection, owner.package.bytes);
         match owner.package.resolve(owner.node, kind, name, &mut budget) {
             Ok(member) => Ok(Ok((owner, member))),
@@ -2208,10 +2225,18 @@ pub(super) fn read_semantic_ir(
         value_types: BTreeMap::new(),
         variant_types: BTreeMap::new(),
         relationships: BTreeMap::new(),
+        populations: BTreeSet::new(),
         relation_nodes: BTreeSet::new(),
         other_types: BTreeSet::new(),
         fields: FieldTables::default(),
     };
+    for population in list(document, "populations")? {
+        budget.charge(node_size(population))?;
+        let node = text(population, "node")?;
+        if node.is_empty() || !model.populations.insert(node.into()) {
+            return Err(ModelRefusal::malformed().into());
+        }
+    }
     let mut scope = Scope {
         objects: BTreeSet::new(),
         records: BTreeSet::new(),

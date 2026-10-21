@@ -1571,8 +1571,8 @@ pub fn rekey_application_node(package: &mut Value, position: usize) {
 }
 
 /// Collects the targets FR-322's application-node dependency join names in
-/// `term` (its `reference` targets and the `declaration` of each application's
-/// operation member) into `out`; whether `term` holds an application.
+/// `term`: references and an application's declaration or population link.
+/// Returns whether `term` holds an application.
 fn join_targets(term: &Value, out: &mut std::collections::BTreeSet<String>) -> bool {
     let mut holds_application = false;
     match term["term"].as_str() {
@@ -1589,6 +1589,16 @@ fn join_targets(term: &Value, out: &mut std::collections::BTreeSet<String>) -> b
             if let Some(declaration) = term["operation"]["member"]["declaration"]["digest"].as_str()
             {
                 out.insert(declaration.to_owned());
+            }
+            if matches!(
+                term["operation"]["identity"].as_str(),
+                Some("quire.op.model.reaches" | "quire.op.model.navigate")
+            ) {
+                if let Some(population) =
+                    term["operation"]["member"]["population"]["digest"].as_str()
+                {
+                    out.insert(population.to_owned());
+                }
             }
             for argument in term["arguments"].as_array().into_iter().flatten() {
                 join_targets(argument, out);

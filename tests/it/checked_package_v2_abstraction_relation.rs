@@ -38,39 +38,37 @@ const LEFT: &str = "ix://acme/config/Left";
 const RIGHT: &str = "ix://acme/config/Right";
 const BOTH: &str = "ix://acme/config/Both";
 const NATIVE_INTEGER: &str = "ix://quire/native/Integer";
+const POPULATION_A: &str = "ix://acme/config/PopulationA";
+const POPULATION_B: &str = "ix://acme/config/PopulationB";
 
 /// The derived key of the anonymous `Integer` node (FR-038-AC-134).
 const INTEGER: &str = INTEGER_KEY;
 fn text_key() -> String {
     structural_key("scalar_type", "text", None, &empty())
 }
-fn population_body(identity: &str) -> Value {
-    json!({"term": "aggregate", "members": [{"term": "binding", "name": "identity", "value": {
-        "term": "literal", "type": node_id(&text_key()), "value_kind": "text", "value": identity,
-    }}]})
+fn population_body() -> Value {
+    empty()
+}
+
+fn population_key(node: &str) -> String {
+    sha256_hex(&canonical(&json!({
+        "version": "quire.structural-node/v1", "node_tag": "relation",
+        "semantic_form": "population", "semantic_type": null,
+        "declaration": null, "recursion": null,
+        "owner": {"kind": "model", "identity": IDENTITY, "node": node},
+        "body": population_body(),
+    })))
 }
 
 fn population_a() -> &'static str {
-    static KEY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-        structural_key(
-            "relation",
-            "population",
-            None,
-            &population_body("population-a"),
-        )
-    });
+    static KEY: std::sync::LazyLock<String> =
+        std::sync::LazyLock::new(|| population_key(POPULATION_A));
     &KEY
 }
 
 fn population_b() -> &'static str {
-    static KEY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-        structural_key(
-            "relation",
-            "population",
-            None,
-            &population_body("population-b"),
-        )
-    });
+    static KEY: std::sync::LazyLock<String> =
+        std::sync::LazyLock::new(|| population_key(POPULATION_B));
     &KEY
 }
 
@@ -154,6 +152,7 @@ fn domain_document() -> Value {
             ),
             domain_type(BOTH, &[LEFT, RIGHT], vec![], vec![]),
         ],
+        "populations": [{"node": POPULATION_A}, {"node": POPULATION_B}],
     })
 }
 
@@ -251,7 +250,7 @@ fn base_over(document: &Value) -> Value {
             population_a(),
             &[],
             "type",
-            population_body("population-a"),
+            population_body(),
         ),
         plain(
             population_b(),
@@ -260,9 +259,11 @@ fn base_over(document: &Value) -> Value {
             population_b(),
             &[],
             "type",
-            population_body("population-b"),
+            population_body(),
         ),
     ];
+    nodes[2]["owner"] = json!({"kind": "model", "identity": IDENTITY, "node": POPULATION_A});
+    nodes[3]["owner"] = json!({"kind": "model", "identity": IDENTITY, "node": POPULATION_B});
     for (declared, model) in [CONFIG_VERSION, DRAFT, LEFT, RIGHT, BOTH]
         .into_iter()
         .zip(object_types())
