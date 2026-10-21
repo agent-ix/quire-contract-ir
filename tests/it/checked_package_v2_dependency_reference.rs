@@ -665,7 +665,7 @@ fn tc_048_the_selected_dependency_is_supplied_and_binds_to_its_entry() {
     );
 }
 
-#[trace("FR-322-AC-84")]
+#[trace("TC-048", "FR-322-AC-84")]
 #[test]
 fn dependency_selection_checks_presence_then_binding_in_lock_order() {
     let dependency = build_dependency(|_| {});
@@ -945,7 +945,7 @@ fn unbound_parameter_dependency(listed: bool, referenced: bool) -> Dependency {
     })
 }
 
-#[trace("FR-322-AC-86")]
+#[trace("TC-048", "FR-322-AC-86")]
 #[test]
 fn unbound_parameter_type_is_outside_the_signature() {
     for (listed, referenced) in [(true, false), (false, true), (true, true)] {
@@ -961,7 +961,7 @@ fn unbound_parameter_type_is_outside_the_signature() {
     }
 }
 
-#[trace("FR-322-AC-86")]
+#[trace("TC-048", "FR-322-AC-86")]
 #[test]
 fn signature_type_closure_follows_dependencies_only() {
     let by_type = structural_key(
@@ -1001,7 +1001,7 @@ fn signature_type_closure_follows_dependencies_only() {
     }
 }
 
-#[trace("FR-322-AC-86")]
+#[trace("TC-048", "FR-322-AC-86")]
 #[test]
 fn dependency_function_body_reference_outside_signature_is_eligible() {
     let dependency = build_dependency(|nodes| {
