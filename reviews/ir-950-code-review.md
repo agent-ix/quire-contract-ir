@@ -51,3 +51,5 @@ After excerpts (same source locations, fe0e4973):
 ## Current verdict
 
 **PASS at fe0e4973** — both original findings are fixed by inspected source changes. The original review verdict above remains the frozen-head record; the final aggregate gate is the author's pending pre-PR qualification.
+
+Rebase confirmation at e3645e9b (current main 5ffe82b): FND-001 remains fixed because the entire `requirement_digest` member and `coverage-digest` case were removed from the upstream corpus contract; the Rust `trace` builder now emits only `{kind: deep|shallow}`. FND-002 remains fixed because sibling staging, runner self-check, and destination swap still occur in that order. The conflict resolution matches main's 106 inputs and `2^127` numeric range fixture, and `Scratch::empty` was moved into the shared support module. No new finding in this narrow rebase review. **Current verdict: PASS at e3645e9b**, subject to the author's final aggregate gate.

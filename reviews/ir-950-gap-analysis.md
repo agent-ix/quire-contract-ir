@@ -33,3 +33,7 @@ The computed `quire matrix --scope . --format json` reports 239 tagged, 24 untag
 ## Disposition-round scope update
 
 At fe0e4973, the additional `#[trace("FR-018-AC-1", "TC-018")]` test for failed regeneration compares every existing corpus file path and byte after a missing runner. It is a correct binding of the generator's scratch preservation behavior to FR-018-AC-1. The code change derives the deep trace's canonical requirement identity from the package; it adds no new criterion or unowned public surface.
+
+## Rebase update
+
+At e3645e9b over main 5ffe82b, the computed matrix reports 524 tagged, 67 untagged, 1 tagged-by-ignored-test, and 12 method-without-symbol criteria. This supersedes the earlier 239/24/2 repository-wide snapshot. FR-018-AC-1, AC-2, and AC-3 remain tagged; AC-1 now includes both the byte-parity and failed-runner tests. The changed generator still has its owner in FR-018, and the 106-case corpus and removed coverage-digest case match current main. No new PR-scoped trace or reverse ownership gap was found. The repository-wide untagged baseline remains outside this narrow review.
