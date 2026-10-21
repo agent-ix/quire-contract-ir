@@ -27,10 +27,14 @@ fn assert_round_trip(
         KaniOutcomeKind::IncompleteInput => serde_json::json!("incomplete_input"),
         KaniOutcomeKind::TimedOut => serde_json::json!("timed_out"),
         KaniOutcomeKind::ResourceExhausted => serde_json::json!("resource_exhausted"),
-        KaniOutcomeKind::Cancelled { source: KaniCancellationSource::Requested } => {
+        KaniOutcomeKind::Cancelled {
+            source: KaniCancellationSource::Requested,
+        } => {
             serde_json::json!({"cancelled": {"source": "requested"}})
         }
-        KaniOutcomeKind::Cancelled { source: KaniCancellationSource::Deadline } => {
+        KaniOutcomeKind::Cancelled {
+            source: KaniCancellationSource::Deadline,
+        } => {
             serde_json::json!({"cancelled": {"source": "deadline"}})
         }
         KaniOutcomeKind::Unavailable => serde_json::json!("unavailable"),
@@ -50,27 +54,74 @@ fn assert_round_trip(
 fn coded_constructors_retain_consumer_causes_and_exact_context() {
     let code = std001_code!("consumer_population_stop");
     assert!(!code.is_registered());
-    let refused: KaniOutcome = KaniOutcome::refused(code, "source:refused", "kani-bounded/1; bound=1");
-    let invalid: KaniOutcome = KaniOutcome::invalid_input(code, String::from("source:invalid"), String::from("kani-bounded/1; bound=2"));
-    let incomplete: KaniOutcome = KaniOutcome::incomplete_input(code, "source:incomplete", "kani-bounded/1; bound=3");
-    let timed_out: KaniOutcome = KaniOutcome::timed_out(code, "source:timeout", "kani-bounded/1; bound=4");
-    let exhausted: KaniOutcome = KaniOutcome::resource_exhausted(code, "source:exhausted", "kani-bounded/1; bound=5");
+    let refused: KaniOutcome =
+        KaniOutcome::refused(code, "source:refused", "kani-bounded/1; bound=1");
+    let invalid: KaniOutcome = KaniOutcome::invalid_input(
+        code,
+        String::from("source:invalid"),
+        String::from("kani-bounded/1; bound=2"),
+    );
+    let incomplete: KaniOutcome =
+        KaniOutcome::incomplete_input(code, "source:incomplete", "kani-bounded/1; bound=3");
+    let timed_out: KaniOutcome =
+        KaniOutcome::timed_out(code, "source:timeout", "kani-bounded/1; bound=4");
+    let exhausted: KaniOutcome =
+        KaniOutcome::resource_exhausted(code, "source:exhausted", "kani-bounded/1; bound=5");
     for (outcome, kind, source, context) in [
-        (refused, KaniOutcomeKind::Refused, "source:refused", "kani-bounded/1; bound=1"),
-        (invalid, KaniOutcomeKind::InvalidInput, "source:invalid", "kani-bounded/1; bound=2"),
-        (incomplete, KaniOutcomeKind::IncompleteInput, "source:incomplete", "kani-bounded/1; bound=3"),
-        (timed_out, KaniOutcomeKind::TimedOut, "source:timeout", "kani-bounded/1; bound=4"),
-        (exhausted, KaniOutcomeKind::ResourceExhausted, "source:exhausted", "kani-bounded/1; bound=5"),
+        (
+            refused,
+            KaniOutcomeKind::Refused,
+            "source:refused",
+            "kani-bounded/1; bound=1",
+        ),
+        (
+            invalid,
+            KaniOutcomeKind::InvalidInput,
+            "source:invalid",
+            "kani-bounded/1; bound=2",
+        ),
+        (
+            incomplete,
+            KaniOutcomeKind::IncompleteInput,
+            "source:incomplete",
+            "kani-bounded/1; bound=3",
+        ),
+        (
+            timed_out,
+            KaniOutcomeKind::TimedOut,
+            "source:timeout",
+            "kani-bounded/1; bound=4",
+        ),
+        (
+            exhausted,
+            KaniOutcomeKind::ResourceExhausted,
+            "source:exhausted",
+            "kani-bounded/1; bound=5",
+        ),
     ] {
         assert_round_trip(&outcome, kind, code, source, context);
         assert!(!outcome.code.is_registered());
     }
     for (source, source_id, context) in [
-        (KaniCancellationSource::Requested, "source:requested", "kani-bounded/1; bound=6"),
-        (KaniCancellationSource::Deadline, "source:deadline", "kani-bounded/1; bound=7"),
+        (
+            KaniCancellationSource::Requested,
+            "source:requested",
+            "kani-bounded/1; bound=6",
+        ),
+        (
+            KaniCancellationSource::Deadline,
+            "source:deadline",
+            "kani-bounded/1; bound=7",
+        ),
     ] {
         let outcome: KaniOutcome = KaniOutcome::cancelled(source, code, source_id, context);
-        assert_round_trip(&outcome, KaniOutcomeKind::Cancelled { source }, code, source_id, context);
+        assert_round_trip(
+            &outcome,
+            KaniOutcomeKind::Cancelled { source },
+            code,
+            source_id,
+            context,
+        );
         assert!(!outcome.code.is_registered());
     }
 }
@@ -78,13 +129,34 @@ fn coded_constructors_retain_consumer_causes_and_exact_context() {
 #[trace("FR-030-AC-8")]
 #[test]
 fn fixed_cause_constructors_retain_the_registered_cause_and_context() {
-    let checker: KaniOutcome = KaniOutcome::checker_unavailable("source:checker", "kani-bounded/1; bound=8");
-    let backend: KaniOutcome = KaniOutcome::backend_unavailable("source:backend", "kani-bounded/1; bound=9");
-    let vacuous: KaniOutcome = KaniOutcome::vacuous_proof("source:zero-checks", "kani-bounded/1; bound=10");
+    let checker: KaniOutcome =
+        KaniOutcome::checker_unavailable("source:checker", "kani-bounded/1; bound=8");
+    let backend: KaniOutcome =
+        KaniOutcome::backend_unavailable("source:backend", "kani-bounded/1; bound=9");
+    let vacuous: KaniOutcome =
+        KaniOutcome::vacuous_proof("source:zero-checks", "kani-bounded/1; bound=10");
     for (outcome, kind, code, source, context) in [
-        (checker, KaniOutcomeKind::Unavailable, Std001Code::KANI_CHECKER_ABSENT, "source:checker", "kani-bounded/1; bound=8"),
-        (backend, KaniOutcomeKind::Unavailable, Std001Code::KANI_BACKEND_ABSENT, "source:backend", "kani-bounded/1; bound=9"),
-        (vacuous, KaniOutcomeKind::Inconclusive, Std001Code::KANI_VACUOUS_PROOF, "source:zero-checks", "kani-bounded/1; bound=10"),
+        (
+            checker,
+            KaniOutcomeKind::Unavailable,
+            Std001Code::KANI_CHECKER_ABSENT,
+            "source:checker",
+            "kani-bounded/1; bound=8",
+        ),
+        (
+            backend,
+            KaniOutcomeKind::Unavailable,
+            Std001Code::KANI_BACKEND_ABSENT,
+            "source:backend",
+            "kani-bounded/1; bound=9",
+        ),
+        (
+            vacuous,
+            KaniOutcomeKind::Inconclusive,
+            Std001Code::KANI_VACUOUS_PROOF,
+            "source:zero-checks",
+            "kani-bounded/1; bound=10",
+        ),
     ] {
         assert_round_trip(&outcome, kind, code, source, context);
         assert!(outcome.code.is_registered());
@@ -98,8 +170,13 @@ fn fixed_cause_constructors_retain_the_registered_cause_and_context() {
 fn broad_fallible_constructor_still_rejects_both_boolean_kinds() {
     let code = std001_code!("consumer_boolean_refusal");
     for kind in [KaniOutcomeKind::Proved, KaniOutcomeKind::Counterexample] {
-        let error = KaniOutcome::non_success(kind.clone(), code, "source:boolean", "kani-bounded/1; bound=11")
-            .expect_err("a Boolean outcome cannot use the non-success route");
+        let error = KaniOutcome::non_success(
+            kind.clone(),
+            code,
+            "source:boolean",
+            "kani-bounded/1; bound=11",
+        )
+        .expect_err("a Boolean outcome cannot use the non-success route");
         assert_eq!(error.code(), Std001Code::KANI_OUTCOME_INVALID);
         assert_eq!(error.requested_kind(), &kind);
         assert_eq!(error.requested_code(), code);

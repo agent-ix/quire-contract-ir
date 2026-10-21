@@ -379,7 +379,12 @@ impl KaniOutcome {
         source_id: impl Into<String>,
         context: impl Into<String>,
     ) -> Self {
-        Self::raise(NonSuccessKind::Cancelled { source }, code, source_id, context)
+        Self::raise(
+            NonSuccessKind::Cancelled { source },
+            code,
+            source_id,
+            context,
+        )
     }
 
     /// Constructs an outcome for an absent checker with its fixed cause.
