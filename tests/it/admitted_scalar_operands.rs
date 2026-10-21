@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! TC-457: a public consumer reads ordered operands from an admitted V1 package.
+//! TC-458: a public consumer reads ordered operands from an admitted V1 package.
 
 use crate::admitted_result_context::{
     admit, by_operation, fixture, package, package_with_profile, profile, sources_for,
@@ -33,7 +33,7 @@ fn add_body_mut(wire: &mut Value) -> &mut Value {
         .expect("add node")["body"]
 }
 
-#[trace("TC-457", "FR-054-AC-1", "FR-054-AC-5")]
+#[trace("TC-458", "FR-054-AC-1", "FR-054-AC-5")]
 #[test]
 fn tc_457_admitted_add_retains_graph_child_then_inline_one() {
     let checked = admit(&fixture());
@@ -103,7 +103,7 @@ fn tc_457_admitted_add_retains_graph_child_then_inline_one() {
     );
 }
 
-#[trace("TC-457", "FR-054-AC-2")]
+#[trace("TC-458", "FR-054-AC-2")]
 #[test]
 fn tc_457_repeated_graph_child_keeps_both_authored_positions() {
     let wire = revised(fixture(), |wire| {
@@ -143,7 +143,7 @@ fn tc_457_repeated_graph_child_keeps_both_authored_positions() {
     assert_eq!(first_sources, second_sources);
 }
 
-#[trace("TC-457", "FR-054-AC-3")]
+#[trace("TC-458", "FR-054-AC-3")]
 #[test]
 fn tc_457_absent_own_range_does_not_erase_positions_or_invent_a_fallback() {
     let unbounded = revised(fixture(), |wire| {
@@ -203,7 +203,7 @@ fn tc_457_absent_own_range_does_not_erase_positions_or_invent_a_fallback() {
     assert_eq!(value.to_string(), huge);
 }
 
-#[trace("TC-457", "FR-054-AC-4", "FR-054-AC-5")]
+#[trace("TC-458", "FR-054-AC-4", "FR-054-AC-5")]
 #[test]
 fn tc_457_invalid_occurrence_refuses_without_mutating_admitted_views() {
     let checked = admit(&fixture());
@@ -280,7 +280,7 @@ fn tc_457_invalid_occurrence_refuses_without_mutating_admitted_views() {
     );
 }
 
-#[trace("TC-457", "FR-054-AC-4")]
+#[trace("TC-458", "FR-054-AC-4")]
 #[test]
 fn tc_457_two_valid_represented_occurrences_remain_distinct() {
     let mut wire = revised(fixture(), |wire| {
@@ -343,7 +343,7 @@ fn tc_457_two_valid_represented_occurrences_remain_distinct() {
     assert_eq!(first_view.arguments.len(), second_view.arguments.len());
 }
 
-#[trace("TC-457", "FR-054-AC-4")]
+#[trace("TC-458", "FR-054-AC-4")]
 #[test]
 fn tc_457_inconsistent_child_source_refuses_without_a_partial_vector() {
     let checked = admit(&fixture());

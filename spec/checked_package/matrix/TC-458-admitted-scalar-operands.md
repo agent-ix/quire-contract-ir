@@ -1,12 +1,12 @@
 ---
-id: TC-457
+id: TC-458
 title: "Admitted scalar operand projection preserves positions and absence"
 type: TC
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-054
     type: verifies
 ---
-# TC-457: Admitted scalar operand projection preserves positions and absence
+# TC-458: Admitted scalar operand projection preserves positions and absence
 
 ## Description
 
