@@ -339,6 +339,129 @@ fn operation_redefinitions_refuse_malformed_and_missing_targets() {
     }
 }
 
+#[trace("TC-280", "FR-154-AC-14")]
+#[test]
+fn operation_parameter_names_are_validated_at_selection() {
+    let operation = format!("{WIDGET}/act");
+    let parameter = |name: Value, identity: &str| {
+        json!({"identity": identity, "name": name,
+            "typeRef": "ix://quire/native/Integer",
+            "multiplicity": multiplicity(1, Some(1))})
+    };
+    for name in [
+        Value::Null,
+        json!(1),
+        json!(""),
+        json!("1n"),
+        json!("n-1"),
+        json!("other"),
+    ] {
+        let mut object = object_type(WIDGET, &[], vec![]);
+        object["operations"] = json!([{"identity": operation, "params": [parameter(name, &format!("{operation}/n"))]}]);
+        assert_eq!(
+            read(&document(vec![object])).map(|_| ()),
+            Err(ModelRefusal::malformed())
+        );
+    }
+    let mut object = object_type(WIDGET, &[], vec![]);
+    let mut missing = parameter(json!("n"), &format!("{operation}/n"));
+    missing.as_object_mut().expect("parameter").remove("name");
+    object["operations"] = json!([{"identity": operation, "params": [missing]}]);
+    assert_eq!(
+        read(&document(vec![object])).map(|_| ()),
+        Err(ModelRefusal::malformed())
+    );
+    let mut object = object_type(WIDGET, &[], vec![]);
+    object["operations"] = json!([{"identity": operation, "params": [
+        parameter(json!(""), &format!("{operation}/n")),
+        parameter(json!("n"), &format!("{operation}/n"))]}]);
+    let repeated = document(vec![object]);
+    assert_eq!(
+        read(&repeated).map(|_| ()),
+        Err(ModelRefusal::new(
+            Code::InvalidModelBinding,
+            Cause::ConflictingBinding
+        ))
+    );
+    let mut meter = WorkMeter::new(u64::MAX);
+    let Err(SelectionFailure::Refused(refusal)) = read_semantic_ir(
+        &repeated,
+        &mut Budget::new(&mut meter, 0, BYTES),
+        &Arc::new(BTreeMap::new()),
+    ) else {
+        panic!("expected repeated parameter identity refusal");
+    };
+    assert_eq!(
+        refusal.declaration_identity.as_deref(),
+        Some(format!("{operation}/n").as_str())
+    );
+    assert_eq!(
+        refusal.declaration_path,
+        Some(vec![
+            Segment::Name("operations"),
+            Segment::Index(0),
+            Segment::Name("params"),
+            Segment::Index(1),
+        ])
+    );
+    assert_eq!(refusal.declaration_origin, None);
+    let mut object = object_type(WIDGET, &[], vec![]);
+    object["operations"] = json!([{"identity": operation, "params": [
+        parameter(json!("n"), &format!("{operation}/n")),
+        parameter(json!("N"), &format!("{operation}/N"))]}]);
+    assert!(read(&document(vec![object])).is_ok());
+}
+
+#[trace("TC-280", "FR-154-AC-14")]
+#[test]
+fn operation_parameter_name_refusal_retains_the_operation_origin() {
+    let operation = format!("{WIDGET}/act");
+    let mut object = object_type(WIDGET, &[], vec![]);
+    object["operations"] = json!([{
+        "identity": operation,
+        "origin": {"source": {"sourceIdentity": WIDGET, "path": "Widget.md",
+            "startLine": 3, "startColumn": 7}},
+        "params": [{"identity": format!("{operation}/n"), "name": "other",
+            "typeRef": "ix://quire/native/Integer",
+            "multiplicity": multiplicity(1, Some(1))}]
+    }]);
+    let mut meter = WorkMeter::new(u64::MAX);
+    let selection = read_semantic_ir(
+        &document(vec![object]),
+        &mut Budget::new(&mut meter, 0, BYTES),
+        &Arc::new(BTreeMap::new()),
+    );
+    let Err(SelectionFailure::Refused(refusal)) = selection else {
+        panic!("expected a selected-document refusal");
+    };
+    assert_eq!(refusal.refusal, ModelRefusal::malformed());
+    assert_eq!(
+        refusal.declaration_path,
+        Some(vec![
+            Segment::Name("operations"),
+            Segment::Index(0),
+            Segment::Name("params"),
+            Segment::Index(0),
+            Segment::Name("name"),
+        ])
+    );
+    assert_eq!(
+        refusal.declaration_identity.as_deref(),
+        Some(operation.as_str())
+    );
+    assert_eq!(
+        refusal.declaration_origin,
+        Some(IntakeDeclarationOrigin::Source {
+            source_identity: WIDGET.into(),
+            path: "Widget.md".into(),
+            start_line: 3,
+            start_column: 7,
+            end_line: None,
+            end_column: None,
+        })
+    );
+}
+
 pub(in crate::checked_package::v2) fn relationship() -> Value {
     json!({
         "identity": LINK,
@@ -396,7 +519,7 @@ fn tc_048_relationship_slot_does_not_change_nested_field_operation_or_parameter_
     document["types"][0]["fields"] = json!([field(WIDGET, "count", "ix://quire/native/Integer")]);
     document["types"][0]["operations"] = json!([{
         "identity": format!("{WIDGET}/inspect"),
-        "params": [{"identity": format!("{WIDGET}/inspect/item"),
+        "params": [{"identity": format!("{WIDGET}/inspect/item"), "name": "item",
             "typeRef": "ix://quire/native/Integer",
             "multiplicity": multiplicity(1, Some(1))}],
     }]);

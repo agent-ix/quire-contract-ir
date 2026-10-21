@@ -1439,11 +1439,12 @@ fn validate_domain_packages(
                             member,
                             declaration_identity,
                             declaration_origin,
+                            declaration_path,
                             mismatch,
                         } = *refused;
                         // Intake metadata is private. Its owning lifetime ends at
                         // this projection; none is attached to the public refusal.
-                        drop((declaration_identity, declaration_origin));
+                        drop((declaration_identity, declaration_origin, declaration_path));
                         let path = member.map_or_else(|| row(index), |member| at(index, member));
                         if let Some((expected, actual)) = mismatch {
                             ValidationFailure::Refused(Box::new(CheckedPackageRefusal::mismatch(

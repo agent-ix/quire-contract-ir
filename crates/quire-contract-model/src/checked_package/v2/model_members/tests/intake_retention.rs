@@ -196,7 +196,7 @@ fn tc_048_intake_retains_actual_nested_declaration_not_owner_or_missing_target()
         .as_object_mut()
         .expect("operation")
         .remove("returns");
-    operation["params"] = json!([{"identity": "ix://acme/orders/Widget/perform/argument",
+    operation["params"] = json!([{"identity": "ix://acme/orders/Widget/perform/argument", "name": "argument",
         "origin": source("nested/parameter.md"), "typeRef": missing,
         "multiplicity": multiplicity(1, Some(1))}]);
     owner["operations"] = json!([operation.clone()]);
@@ -232,7 +232,7 @@ fn tc_048_intake_retains_actual_nested_declaration_not_owner_or_missing_target()
     // before a later owner's list/supertype or operation-return defect.
     let mut valid_field = field(WIDGET, "valid", "ix://quire/native/Integer");
     valid_field["origin"] = source("wrong-field-context.md");
-    let valid_param = json!({"identity":"ix://acme/orders/Widget/perform/argument",
+    let valid_param = json!({"identity":"ix://acme/orders/Widget/perform/argument", "name":"argument",
         "typeRef":"ix://quire/native/Integer", "multiplicity":multiplicity(1,Some(1)),
         "origin":source("wrong-param-context.md")});
     let valid_operation = json!({"identity":"ix://acme/orders/Widget/perform", "name":"perform",

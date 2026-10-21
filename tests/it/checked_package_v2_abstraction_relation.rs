@@ -1716,14 +1716,11 @@ fn tc_225_a_frame_operation_resolves_as_an_anchor_does_and_binds_its_parameters(
     }
 }
 
-/// IR reading (FR-346): a frame entry over an operation whose declared
-/// parameter names are not all present and unique cannot match, and refuses
-/// `invalid_model_binding`/`malformed-declaration` at the entry. The domain
-/// document is admitted as it is.
-/// ACs: FR-346-AC-7
-#[trace("TC-225", "FR-346-AC-7")]
+/// FR-154-AC-14 validates declared parameter names at the selected domain
+/// document before the abstraction relation frame entry is reached.
+#[trace("TC-225", "TC-280", "FR-346-AC-7", "FR-154-AC-14")]
 #[test]
-fn tc_225_an_operation_without_distinct_parameter_names_cannot_be_bound() {
+fn tc_225_an_operation_without_valid_parameter_names_refuses_at_selection() {
     let rebase = |parameters: &[(&str, &str)]| {
         body(
             vec![],
@@ -1772,18 +1769,18 @@ fn tc_225_an_operation_without_distinct_parameter_names_cannot_be_bound() {
             CheckedPackageV2ReadResult::Refused(refusal) => refusal,
             other => panic!("{case}: expected a refusal, read {other:?}"),
         };
-        assert_eq!(refusal.code, Code::InvalidModelBinding, "{case}");
+        assert_eq!(
+            refusal.code,
+            Code::InvalidModelBinding,
+            "{case}: {refusal:?}"
+        );
         assert_eq!(refusal.cause, Some(Cause::MalformedDeclaration), "{case}");
         assert_eq!(
             refusal.path.as_ref().map(|path| path.as_str()),
-            Some(at_node(at(&value, &relation), "/body/frames/0").as_str()),
+            Some("/lock/model_selections/0"),
             "{case}"
         );
-        assert_eq!(
-            refusal.locus.as_ref().map(|id| &*id.digest),
-            Some(config_version().as_str()),
-            "{case}"
-        );
+        assert_eq!(refusal.locus.as_ref().map(|id| &*id.digest), None, "{case}");
     }
 }
 

@@ -1404,6 +1404,8 @@ pub(super) struct SelectionRefusal {
     pub(super) member: Option<&'static str>,
     pub(super) declaration_identity: Option<Box<str>>,
     pub(super) declaration_origin: Option<IntakeDeclarationOrigin>,
+    /// Member path within the selected type definition, retained privately.
+    pub(super) declaration_path: Option<Vec<Segment>>,
     pub(super) mismatch: Option<(CheckedSemanticId, CheckedSemanticId)>,
 }
 
@@ -1418,6 +1420,7 @@ impl SelectionRefusal {
             member,
             declaration_identity: None,
             declaration_origin: None,
+            declaration_path: None,
             mismatch: None,
         }
     }
@@ -1448,6 +1451,7 @@ impl SelectionRefusal {
             member: None,
             declaration_identity: identity.map(Box::from),
             declaration_origin: retained_origin(node.get("origin"), budget)?,
+            declaration_path: None,
             mismatch: None,
         })
     }
@@ -2053,6 +2057,8 @@ enum Row {
     Reference,
     /// A relationship identity names a declaration already read in this document.
     Duplicate,
+    /// An operation parameter's declared name is invalid for its identity.
+    ParameterName,
     /// A multiplicity has `lower > upper`.
     Multiplicity,
 }
@@ -2060,7 +2066,7 @@ enum Row {
 /// A member path segment: a member name, or a list index. A name orders
 /// before an index and names by their UTF-8 bytes (FR-154).
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-enum Segment {
+pub(super) enum Segment {
     Name(&'static str),
     Index(usize),
 }
@@ -2344,12 +2350,17 @@ pub(super) fn read_semantic_ir(
                     &mut defects,
                 );
                 if let Some(refusal) = defects.first() {
-                    return Err(SelectionRefusal::located(
-                        refusal.refusal,
-                        refusal.declaration,
-                        budget,
-                    )?
-                    .into());
+                    let mut selected =
+                        SelectionRefusal::located(refusal.refusal, refusal.declaration, budget)?;
+                    if matches!(refusal.row, Row::Duplicate | Row::ParameterName)
+                        && refusal.path.first() == Some(&Segment::Name("operations"))
+                    {
+                        selected.declaration_path = Some(refusal.path);
+                        if refusal.row == Row::Duplicate {
+                            selected.declaration_origin = None;
+                        }
+                    }
+                    return Err(selected.into());
                 }
                 if meaning == meaning::RECORD_VALUE_TYPE {
                     records.push((node, object));
@@ -2858,11 +2869,50 @@ fn semantic_ir_object_type<'v>(
         let params_path = joined(&base, Segment::Name("params"));
         let mut parameters = Vec::new();
         let declared = items_at(operation, "params", &params_path, defects);
+        let mut seen = BTreeMap::new();
+        let mut colliding = BTreeSet::new();
+        for (position, parameter) in declared.iter().enumerate() {
+            if let Some(identity) = parameter.get("identity").and_then(Value::as_str) {
+                if let Some(&first) = seen.get(identity) {
+                    colliding.insert(first);
+                    colliding.insert(position);
+                    defects.context(parameter);
+                    defects.push(
+                        Row::Duplicate,
+                        &joined(&params_path, Segment::Index(position)),
+                        ModelRefusal::new(
+                            CheckedPackageRefusalCode::InvalidModelBinding,
+                            CheckedPackageRefusalCause::ConflictingBinding,
+                        ),
+                    );
+                } else {
+                    seen.insert(identity, position);
+                }
+            }
+        }
         for (position, parameter) in declared.iter().enumerate() {
             defects.context(parameter);
             let at = joined(&params_path, Segment::Index(position));
-            if parameter.get("identity").is_some() {
+            if !colliding.contains(&position) && parameter.get("identity").is_some() {
                 identity_of(parameter, &operation_identity, &at, defects);
+            }
+            if !colliding.contains(&position) {
+                let name = parameter.get("name").and_then(Value::as_str);
+                let identity_name = parameter
+                    .get("identity")
+                    .and_then(Value::as_str)
+                    .and_then(|identity| identity.strip_prefix(operation_identity.as_ref()))
+                    .and_then(|suffix| suffix.strip_prefix('/'));
+                if identity_name.is_some()
+                    && !name.is_some_and(|name| is_object_id(name) && identity_name == Some(name))
+                {
+                    defects.context(operation);
+                    defects.push(
+                        Row::ParameterName,
+                        &joined(&at, Segment::Name("name")),
+                        ModelRefusal::malformed(),
+                    );
+                }
             }
             parameters.push(references.slot(parameter, &at, defects));
         }
