@@ -358,11 +358,14 @@ fn literal_defect(
                 continue;
             };
             let family = resolve_family(&type_id, graph.nodes, graph.kinds, graph.index);
-            // IEEE bits require their own width even when the declared node
-            // has no operand family. Other literal kinds keep their existing
-            // familyless-type behavior.
+            // IEEE bits require their own width and quantities require a unit
+            // even when the declared node has no operand family. Other literal
+            // kinds keep their existing familyless-type behavior.
             if family.is_none()
-                && !matches!(kind, LiteralKind::Float32Bits | LiteralKind::Float64Bits)
+                && !matches!(
+                    kind,
+                    LiteralKind::Float32Bits | LiteralKind::Float64Bits | LiteralKind::Quantity
+                )
             {
                 continue;
             }

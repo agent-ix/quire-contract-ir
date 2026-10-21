@@ -280,6 +280,28 @@ fn tc_230_quantity_literal_refuses_noncanonical_magnitude_and_other_family() {
     }
 }
 
+#[trace("TC-230", "FR-038-AC-299")]
+#[test]
+fn tc_230_quantity_literal_refuses_dimension_type_without_operand_family() {
+    let (mut package, _, _, _, _, _) = fixture();
+    let dimension = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "dimension")
+        .expect("dimension node")["node_id"]["digest"]
+        .as_str()
+        .expect("dimension digest")
+        .to_owned();
+    let at = append_literal(&mut package, &dimension, "quantity", json!("3"));
+    refuses(
+        &package,
+        CheckedPackageRefusalCode::IllTyped,
+        CheckedPackageRefusalCause::OperatorIneligible,
+        &format!("/semantic_graph/nodes/{at}/body/type"),
+    );
+}
+
 fn change_literal_type(package: &mut Value, position: usize, ty: &str) {
     let node = &mut package["semantic_graph"]["nodes"][position];
     node["body"]["type"] = node_id(ty);
