@@ -175,6 +175,38 @@ fn declared_population_package() -> (Value, Value) {
 
 #[trace("TC-229", "FR-038-AC-303", "FR-038-AC-304")]
 #[test]
+fn tc_229_raw_population_record_joins_by_identity() {
+    let (mut package, mut document) = declared_population_package();
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind": {"module": "acme/owners", "name": "population"},
+            "construct": {"meaning": "quire.meaning.model.population/v1"},
+        }));
+    document["populations"] = json!([{
+        "identity": "ix://acme/owners/counters",
+        "displayName": "counters",
+        "kind": {"module": "acme/owners", "name": "population"},
+        "members": ["ix://acme/owners/Point"],
+        "extent": "closed",
+        "origin": {"generated": {
+            "generatorIdentity": "ix://acme/owners/spec",
+            "generatorVersion": "1.0.0",
+            "inputIdentities": ["ix://acme/owners/counters"],
+        }},
+    }]);
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+    refresh_identity(&mut package);
+
+    assert!(matches!(
+        read_with_model(&package, &document),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
+#[trace("TC-229", "FR-038-AC-303", "FR-038-AC-304")]
+#[test]
 fn tc_229_selected_declared_population_reference_admits() {
     let (package, document) = declared_population_package();
     assert!(matches!(
