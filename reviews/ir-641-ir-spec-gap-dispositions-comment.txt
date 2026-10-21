@@ -1,0 +1,428 @@
+<!-- reviewer-dispositions repo=agent-ix/quire-contract-ir visibility=public quoin=0.28.4 module=spec-artifacts-process@b82e42e893612b4b4ee94127714b4577ee893502 id=SR-15311 round=1 model=gpt-6.1-sol run=be712d1b-4313-4600-bcdd-879623058932 -->
+
+64 inherited criterion gaps and one helper-tag finding deferred to IR-878 (actual owner handoff c235aa4e-50e1-4489-9477-f6915a9a6787); four new planned consumer Test criteria FR-055-AC-1/2/3/5 deferred to IR-641 implementation. Full-gap remains FAIL; the specification-only contract has no scoped correctness finding. No evidence or source behavior was changed to dispose these findings.
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-002 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-003 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-004 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-005 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-006 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-007 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-008 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-009 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-010 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-011 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-012 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-013 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-014 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-015 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-016 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-017 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-018 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-019 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-020 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-021 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-022 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-023 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-024 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-025 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-026 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-027 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-028 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-029 | deferred | IR-641 owns consumer implementation after this spec-only prerequisite merge; the specification explicitly says PLANNED. This row remains untested and is not fixed or waived. |
+| FND-030 | deferred | IR-641 owns consumer implementation after this spec-only prerequisite merge; the specification explicitly says PLANNED. This row remains untested and is not fixed or waived. |
+| FND-031 | deferred | IR-641 owns consumer implementation after this spec-only prerequisite merge; the specification explicitly says PLANNED. This row remains untested and is not fixed or waived. |
+| FND-032 | deferred | IR-641 owns consumer implementation after this spec-only prerequisite merge; the specification explicitly says PLANNED. This row remains untested and is not fixed or waived. |
+| FND-033 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-034 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-035 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-036 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-037 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-038 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-039 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-040 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-041 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-042 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-043 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-044 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-045 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-046 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-047 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-048 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-049 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-050 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-051 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-052 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-053 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-054 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-055 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-056 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-057 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-058 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-059 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-060 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-061 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-062 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-063 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-064 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-065 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-066 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-067 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-068 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+| FND-069 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
+
++++ [reviewer data]
+
+```yaml
+dispositions:
+- fnd: FND-001
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-002
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-003
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-004
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-005
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-006
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-007
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-008
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-009
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-010
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-011
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-012
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-013
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-014
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-015
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-016
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-017
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-018
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-019
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-020
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-021
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-022
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-023
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-024
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-025
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-026
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-027
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-028
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-029
+  outcome: deferred
+  reason: IR-641 owns consumer implementation after this spec-only prerequisite merge;
+    the specification explicitly says PLANNED. This row remains untested and is not
+    fixed or waived.
+- fnd: FND-030
+  outcome: deferred
+  reason: IR-641 owns consumer implementation after this spec-only prerequisite merge;
+    the specification explicitly says PLANNED. This row remains untested and is not
+    fixed or waived.
+- fnd: FND-031
+  outcome: deferred
+  reason: IR-641 owns consumer implementation after this spec-only prerequisite merge;
+    the specification explicitly says PLANNED. This row remains untested and is not
+    fixed or waived.
+- fnd: FND-032
+  outcome: deferred
+  reason: IR-641 owns consumer implementation after this spec-only prerequisite merge;
+    the specification explicitly says PLANNED. This row remains untested and is not
+    fixed or waived.
+- fnd: FND-033
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-034
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-035
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-036
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-037
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-038
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-039
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-040
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-041
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-042
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-043
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-044
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-045
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-046
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-047
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-048
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-049
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-050
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-051
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-052
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-053
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-054
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-055
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-056
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-057
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-058
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-059
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-060
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-061
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-062
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-063
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-064
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-065
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-066
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-067
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-068
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+- fnd: FND-069
+  outcome: deferred
+  reason: Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan
+    in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only
+    consumer contract. Remains unresolved; no passing coverage claim.
+```
+
++++

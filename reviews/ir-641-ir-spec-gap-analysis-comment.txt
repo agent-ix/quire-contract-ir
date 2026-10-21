@@ -1,0 +1,805 @@
+<!-- reviewer repo=agent-ix/quire-contract-ir visibility=public quoin=0.28.4 module=spec-artifacts-process@b82e42e893612b4b4ee94127714b4577ee893502 id=SR-15311 method=gap-analysis lang=spec pr=quire-contract-ir#499 model=gpt-6.1-sol run=be712d1b-4313-4600-bcdd-879623058932 -->
+
+FAIL: Full-repository computed matrix has 68 criterion evidence gaps (64 inherited; four newly planned consumer Test criteria). A pre-existing authored trace on a helper cannot bind. These are not concealed by the specification-only delivery.
+
+| FND | Severity | Check | Summary |
+| --- | --- | --- | --- |
+| FND-001 | high | coverage | FR-035-AC-9 has no test carrying its criterion binding. |
+| FND-002 | high | coverage | FR-038-AC-132 has no test carrying its criterion binding. |
+| FND-003 | high | coverage | FR-038-AC-135 has no test carrying its criterion binding. |
+| FND-004 | high | coverage | FR-038-AC-232 has no test carrying its criterion binding. |
+| FND-005 | high | coverage | FR-038-AC-233 has no test carrying its criterion binding. |
+| FND-006 | high | coverage | FR-038-AC-234 has no test carrying its criterion binding. |
+| FND-007 | high | coverage | FR-038-AC-235 has no test carrying its criterion binding. |
+| FND-008 | high | coverage | FR-038-AC-281 has no test carrying its criterion binding. |
+| FND-009 | high | coverage | FR-038-AC-282 has no test carrying its criterion binding. |
+| FND-010 | high | coverage | FR-038-AC-283 has no test carrying its criterion binding. |
+| FND-011 | high | coverage | FR-038-AC-284 has no test carrying its criterion binding. |
+| FND-012 | high | coverage | FR-038-AC-285 has no test carrying its criterion binding. |
+| FND-013 | high | coverage | FR-038-AC-286 has no test carrying its criterion binding. |
+| FND-014 | high | coverage | FR-038-AC-287 has no test carrying its criterion binding. |
+| FND-015 | high | coverage | FR-038-AC-288 has no test carrying its criterion binding. |
+| FND-016 | high | coverage | FR-038-AC-289 has no test carrying its criterion binding. |
+| FND-017 | high | coverage | FR-038-AC-290 has no test carrying its criterion binding. |
+| FND-018 | high | coverage | FR-038-AC-291 has no test carrying its criterion binding. |
+| FND-019 | high | coverage | FR-038-AC-292 has no test carrying its criterion binding. |
+| FND-020 | high | coverage | NFR-006-M-1 has no test carrying its criterion binding. |
+| FND-021 | high | coverage | NFR-006-M-2 has no test carrying its criterion binding. |
+| FND-022 | high | coverage | NFR-006-M-3 has no test carrying its criterion binding. |
+| FND-023 | high | coverage | FR-045-AC-1 has no test carrying its criterion binding. |
+| FND-024 | high | coverage | FR-045-AC-2 has no test carrying its criterion binding. |
+| FND-025 | high | coverage | FR-045-AC-3 has no test carrying its criterion binding. |
+| FND-026 | high | coverage | FR-045-AC-4 has no test carrying its criterion binding. |
+| FND-027 | high | coverage | FR-045-AC-5 has no test carrying its criterion binding. |
+| FND-028 | high | coverage | FR-045-AC-6 has no test carrying its criterion binding. |
+| FND-029 | high | coverage | FR-055-AC-1 has no test carrying its criterion binding. |
+| FND-030 | high | coverage | FR-055-AC-2 has no test carrying its criterion binding. |
+| FND-031 | high | coverage | FR-055-AC-3 has no test carrying its criterion binding. |
+| FND-032 | high | coverage | FR-055-AC-5 has no test carrying its criterion binding. |
+| FND-033 | high | coverage | NFR-001-AC-2 has no test carrying its criterion binding. |
+| FND-034 | high | coverage | NFR-001-AC-3 has no test carrying its criterion binding. |
+| FND-035 | high | coverage | NFR-001-M-1 has no test carrying its criterion binding. |
+| FND-036 | high | coverage | NFR-001-M-2 has no test carrying its criterion binding. |
+| FND-037 | high | coverage | NFR-001-M-3 has no test carrying its criterion binding. |
+| FND-038 | high | coverage | NFR-002-M-1 has no test carrying its criterion binding. |
+| FND-039 | high | coverage | NFR-002-M-2 has no test carrying its criterion binding. |
+| FND-040 | high | coverage | NFR-003-M-1 has no test carrying its criterion binding. |
+| FND-041 | high | coverage | NFR-003-M-2 has no test carrying its criterion binding. |
+| FND-042 | high | coverage | NFR-003-M-3 has no test carrying its criterion binding. |
+| FND-043 | high | coverage | NFR-003-M-4 has no test carrying its criterion binding. |
+| FND-044 | high | coverage | FR-030-AC-4 has no test carrying its criterion binding. |
+| FND-045 | high | coverage | FR-030-AC-5 has no test carrying its criterion binding. |
+| FND-046 | high | coverage | FR-030-AC-7 has no test carrying its criterion binding. |
+| FND-047 | high | coverage | FR-036-AC-1 has no test carrying its criterion binding. |
+| FND-048 | high | coverage | FR-036-AC-2 has no test carrying its criterion binding. |
+| FND-049 | high | coverage | FR-036-AC-3 has no test carrying its criterion binding. |
+| FND-050 | high | coverage | FR-036-AC-4 has no test carrying its criterion binding. |
+| FND-051 | high | coverage | FR-036-AC-5 has no test carrying its criterion binding. |
+| FND-052 | high | coverage | FR-037-AC-6 has no test carrying its criterion binding. |
+| FND-053 | high | coverage | FR-039-AC-1 has no test carrying its criterion binding. |
+| FND-054 | high | coverage | FR-039-AC-2 has no test carrying its criterion binding. |
+| FND-055 | high | coverage | FR-039-AC-3 has no test carrying its criterion binding. |
+| FND-056 | high | coverage | FR-039-AC-4 has no test carrying its criterion binding. |
+| FND-057 | high | coverage | FR-016-AC-1 has no test carrying its criterion binding. |
+| FND-058 | high | coverage | FR-016-AC-3 has no test carrying its criterion binding. |
+| FND-059 | high | coverage | FR-017-AC-2 has no test carrying its criterion binding. |
+| FND-060 | high | coverage | FR-019-AC-4 has no test carrying its criterion binding. |
+| FND-061 | high | coverage | FR-028-AC-4 is bound only to an ignored test. |
+| FND-062 | high | coverage | FR-052-AC-7 has no test carrying its criterion binding. |
+| FND-063 | high | coverage | FR-052-AC-9 has no test carrying its criterion binding. |
+| FND-064 | high | coverage | FR-052-AC-10 has no test carrying its criterion binding. |
+| FND-065 | high | coverage | FR-052-AC-11 has no test carrying its criterion binding. |
+| FND-066 | high | coverage | FR-052-AC-16 has no test carrying its criterion binding. |
+| FND-067 | high | coverage | FR-052-AC-26 has no test carrying its criterion binding. |
+| FND-068 | high | coverage | FR-052-AC-27 has no test carrying its criterion binding. |
+| FND-069 | medium | other | An authored FR-092 trace on the non-test fixture_key helper cannot bind an evidence criterion. |
+
++++ [reviewer data]
+
+```yaml
+clean: false
+paths:
+  - &p0 "spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md"
+  - &p1 "spec/checked_package/functional/FR-038-consume-checked-package-v2.md"
+  - &p2 "spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md"
+  - &p3 "spec/checked_package/functional/FR-047-preserve-first-evidence-entry.md"
+  - &p4 "spec/checked_package/functional/FR-049-admitted-scalar-result-context.md"
+  - &p5 "spec/checked_package/functional/FR-050-admitted-scalar-path-guard-context.md"
+  - &p6 "spec/checked_package/functional/FR-051-encode-checked-package-v2-envelope.md"
+  - &p7 "spec/checked_package/functional/FR-054-admitted-scalar-operand-projection.md"
+  - &p8 "spec/checked_package/functional/FR-344-admit-or-refuse-the-adr-002-2-0-0-members.md"
+  - &p9 "spec/checked_package/functional/FR-346-admit-abstraction-relation-body.md"
+  - &p10 "spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md"
+  - &p11 "spec/checked_package/non-functional/NFR-006-v2-producer-memory.md"
+  - &p12 "spec/conformance/functional/FR-018-conformance-corpus.md"
+  - &p13 "spec/conformance/functional/FR-020-json-conformance-interface.md"
+  - &p14 "spec/core/functional/FR-011-package-identity.md"
+  - &p15 "spec/core/functional/FR-012-anchors-clauses-dependencies.md"
+  - &p16 "spec/core/functional/FR-044-typed-std001-code.md"
+  - &p17 "spec/core/functional/FR-045-derive-proof-coverage-baseline.md"
+  - &p18 "spec/core/functional/FR-055-owned-lock-coherence-gate.md"
+  - &p19 "spec/core/non-functional/NFR-001-determinism.md"
+  - &p20 "spec/core/non-functional/NFR-002-portability-independence.md"
+  - &p21 "spec/core/non-functional/NFR-003-diagnostic-integrity.md"
+  - &p22 "spec/kani/functional/FR-029-versioned-bounded-kani-profile.md"
+  - &p23 "spec/kani/functional/FR-030-bounded-kani-domain-and-outcomes.md"
+  - &p24 "spec/kani/functional/FR-031-bounded-kani-dispatch-and-terminal-map.md"
+  - &p25 "spec/kani/functional/FR-036-exact-backend-negotiation-and-emission.md"
+  - &p26 "spec/kani/functional/FR-037-canonical-backend-replay-and-qualification.md"
+  - &p27 "spec/kani/functional/FR-039-root-crate-public-interface.md"
+  - &p28 "spec/model/functional/FR-013-type-system.md"
+  - &p29 "spec/model/functional/FR-014-expression-semantics.md"
+  - &p30 "spec/model/functional/FR-015-definedness.md"
+  - &p31 "spec/model/functional/FR-016-canonicalization-digests.md"
+  - &p32 "spec/model/functional/FR-017-version-orphan-coverage.md"
+  - &p33 "spec/model/functional/FR-019-rust-library-interface.md"
+  - &p34 "spec/model/functional/FR-023-executable-projection-binding.md"
+  - &p35 "spec/model/functional/FR-028-separate-cycle-free-contract-model.md"
+  - &p36 "spec/model/functional/FR-046-derive-candidate-application-node-identity.md"
+  - &p37 "spec/model/functional/FR-048-derive-structural-and-group-candidates.md"
+  - &p38 "spec/model/functional/FR-052-source-obligation-correspondence.md"
+  - &p39 "spec/model/functional/FR-053-selected-population-binding.md"
+  - &p40 "spec/output_mapping/functional/FR-032-admit-output-mapping-request.md"
+  - &p41 "spec/output_mapping/functional/FR-033-account-for-output-obligations.md"
+  - &p42 "spec/output_mapping/functional/FR-034-assemble-output-package-atomically.md"
+  - &p43 "tests/it/checked_package_v2_frame_entries.rs"
+scope:
+  - {id: "FR-035-AC-1", path: *p0, role: examined, excerpt: "Each V1-BACK-001 through V1-BACK-004 and"}
+  - {id: "FR-035-AC-2", path: *p0, role: examined, excerpt: "A source, type, anchor, identity, bound,"}
+  - {id: "FR-035-AC-3", path: *p0, role: examined, excerpt: "Mixed supported and refused requests ret"}
+  - {id: "FR-035-AC-4", path: *p0, role: examined, excerpt: "Every local reference resolves by typed "}
+  - {id: "FR-035-AC-5", path: *p0, role: examined, excerpt: "One call emits exactly one FR-330 `quire"}
+  - {id: "FR-035-AC-6", path: *p0, role: examined, excerpt: "For an admitted lowered root, the typed "}
+  - {id: "FR-035-AC-7", path: *p0, role: examined, excerpt: "A selected dependency reference in the v"}
+  - {id: "FR-035-AC-8", path: *p0, role: examined, excerpt: "Querying a non-`lowered` requested key r"}
+  - {id: "FR-035-AC-9", path: *p0, role: examined, excerpt: "The typed profile exposes `required_sour"}
+  - {id: "FR-035-AC-10", path: *p0, role: examined, excerpt: "Given an otherwise valid canonical `Cont"}
+  - {id: "FR-035-AC-11", path: *p0, role: examined, excerpt: "Given otherwise valid canonical package "}
+  - {id: "FR-035-AC-12", path: *p0, role: examined, excerpt: "Given an otherwise valid canonical `Cont"}
+  - {id: "FR-035-AC-13", path: *p0, role: examined, excerpt: "Given otherwise valid `ContractPackageWi"}
+  - {id: "FR-035-AC-14", path: *p0, role: examined, excerpt: "Given an otherwise valid canonical `Cont"}
+  - {id: "FR-035-AC-15", path: *p0, role: examined, excerpt: "For an otherwise valid canonical package"}
+  - {id: "FR-035-AC-16", path: *p0, role: examined, excerpt: "For an otherwise valid canonical package"}
+  - {id: "FR-035-AC-17", path: *p0, role: examined, excerpt: "Given an otherwise valid canonical `Cont"}
+  - {id: "FR-035-AC-18", path: *p0, role: examined, excerpt: "Given an otherwise valid canonical Contr"}
+  - {id: "FR-038-AC-1", path: *p1, role: examined, excerpt: "Each positive V2 package fixture this re"}
+  - {id: "FR-038-AC-2", path: *p1, role: examined, excerpt: "The reader refuses malformed, duplicate-"}
+  - {id: "FR-038-AC-3", path: *p1, role: examined, excerpt: "Exact byte, node, edge, occurrence, diag"}
+  - {id: "FR-038-AC-4", path: *p1, role: examined, excerpt: "The recomputed package id equals each po"}
+  - {id: "FR-038-AC-5", path: *p1, role: examined, excerpt: "Every nominal preimage of the in-repo no"}
+  - {id: "FR-038-AC-6", path: *p1, role: examined, excerpt: "Every admitted node family lowers indepe"}
+  - {id: "FR-038-AC-9", path: *p1, role: examined, excerpt: "The shipped default read-limit policy is"}
+  - {id: "FR-038-AC-7", path: *p1, role: examined, excerpt: "Lowering every node of every positive fi"}
+  - {id: "FR-038-AC-8", path: *p1, role: examined, excerpt: "A closure holding both an out-of-profile"}
+  - {id: "FR-038-AC-10", path: *p1, role: examined, excerpt: "A `lock.model_selections` entry that rep"}
+  - {id: "FR-038-AC-11", path: *p1, role: examined, excerpt: "A `lock.model_selections` array carrying"}
+  - {id: "FR-038-AC-12", path: *p1, role: examined, excerpt: "A `creates` or `deletes` entry's eligibi"}
+  - {id: "FR-038-AC-13", path: *p1, role: examined, excerpt: "An entry naming a digest that is not amo"}
+  - {id: "FR-038-AC-14", path: *p1, role: examined, excerpt: "A frame node carrying both a meaning-joi"}
+  - {id: "FR-038-AC-15", path: *p1, role: examined, excerpt: "A package carrying two defective `state`"}
+  - {id: "FR-038-AC-17", path: *p1, role: examined, excerpt: "Each declared wire member the V2 contrac"}
+  - {id: "FR-038-AC-18", path: *p1, role: examined, excerpt: "For a keyed input that reaches the graph"}
+  - {id: "FR-038-AC-19", path: *p1, role: examined, excerpt: "A `lock.model_selections` array carrying"}
+  - {id: "FR-038-AC-20", path: *p1, role: examined, excerpt: "A selection binds by `identity`, so a `l"}
+  - {id: "FR-038-AC-21", path: *p1, role: examined, excerpt: "A node whose declared `qualified_name` d"}
+  - {id: "FR-038-AC-22", path: *p1, role: examined, excerpt: "A QSL-shaped package holding a function "}
+  - {id: "FR-038-AC-23", path: *p1, role: examined, excerpt: "An application node whose `dependencies`"}
+  - {id: "FR-038-AC-24", path: *p1, role: examined, excerpt: "Every refusal about a value carries the "}
+  - {id: "FR-038-AC-25", path: *p1, role: examined, excerpt: "An `unknown_contract_version` refusal po"}
+  - {id: "FR-038-AC-26", path: *p1, role: examined, excerpt: "Each one-over limit other than the byte "}
+  - {id: "FR-038-AC-27", path: *p1, role: examined, excerpt: "A domain package selection is admitted o"}
+  - {id: "FR-038-AC-28", path: *p1, role: examined, excerpt: "A domain package document's declarations"}
+  - {id: "FR-038-AC-29", path: *p1, role: examined, excerpt: "A package whose lock selects a domain pa"}
+  - {id: "FR-038-AC-30", path: *p1, role: examined, excerpt: "Reading a selected domain package and re"}
+  - {id: "FR-038-AC-31", path: *p1, role: examined, excerpt: "A package whose lock and identity preima"}
+  - {id: "FR-038-AC-32", path: *p1, role: examined, excerpt: "A `dependency_selections` entry whose `p"}
+  - {id: "FR-038-AC-33", path: *p1, role: examined, excerpt: "A `dependency_selections` entry repeatin"}
+  - {id: "FR-038-AC-35", path: *p1, role: examined, excerpt: "A package whose `function` call has a `d"}
+  - {id: "FR-038-AC-36", path: *p1, role: examined, excerpt: "A `dependency_reference` with a bare-dig"}
+  - {id: "FR-038-AC-37", path: *p1, role: examined, excerpt: "A `dependency_selections` entry with no "}
+  - {id: "FR-038-AC-293", path: *p1, role: examined, excerpt: "Given an otherwise valid package with di"}
+  - {id: "FR-038-AC-38", path: *p1, role: examined, excerpt: "A dependency function whose parameter is"}
+  - {id: "FR-038-AC-39", path: *p1, role: examined, excerpt: "Under a bounds-required profile, `x + 1`"}
+  - {id: "FR-038-AC-40", path: *p1, role: examined, excerpt: "Under a bounds-required profile a `bound"}
+  - {id: "FR-038-AC-41", path: *p1, role: examined, excerpt: "Under a bounds-required profile a `scala"}
+  - {id: "FR-038-AC-42", path: *p1, role: examined, excerpt: "An enum's operand family is `ordered_enu"}
+  - {id: "FR-038-AC-43", path: *p1, role: examined, excerpt: "`structural.eq` over an all-integer reco"}
+  - {id: "FR-038-AC-44", path: *p1, role: examined, excerpt: "`operation.leaves` is exactly the derive"}
+  - {id: "FR-038-AC-45", path: *p1, role: examined, excerpt: "A package a producer emits under the con"}
+  - {id: "FR-038-AC-46", path: *p1, role: examined, excerpt: "A package whose definition references ar"}
+  - {id: "FR-038-AC-47", path: *p1, role: examined, excerpt: "A package whose source references are ex"}
+  - {id: "FR-038-AC-48", path: *p1, role: examined, excerpt: "A definition reference at a lock, `ident"}
+  - {id: "FR-038-AC-49", path: *p1, role: examined, excerpt: "An `operation.laws[].definition` that ca"}
+  - {id: "FR-038-AC-50", path: *p1, role: examined, excerpt: "A `lock.sources` row, `source_map` regio"}
+  - {id: "FR-038-AC-51", path: *p1, role: examined, excerpt: "A definition reference at a lock, `ident"}
+  - {id: "FR-038-AC-52", path: *p1, role: examined, excerpt: "A source reference at a `lock.sources` r"}
+  - {id: "FR-038-AC-53", path: *p1, role: examined, excerpt: "A `lock.sources` row whose `digest_domai"}
+  - {id: "FR-038-AC-54", path: *p1, role: examined, excerpt: "A `lock.sources` row, whose `digest_doma"}
+  - {id: "FR-038-AC-55", path: *p1, role: examined, excerpt: "A `source_map` region `source` or `diagn"}
+  - {id: "FR-038-AC-56", path: *p1, role: examined, excerpt: "An `operation.laws[].definition` of a va"}
+  - {id: "FR-038-AC-57", path: *p1, role: examined, excerpt: "An `operation.laws[].definition` of a pr"}
+  - {id: "FR-038-AC-58", path: *p1, role: examined, excerpt: "The operation catalog read over supplied"}
+  - {id: "FR-038-AC-59", path: *p1, role: examined, excerpt: "A `lock.definition_selections` row that "}
+  - {id: "FR-038-AC-60", path: *p1, role: examined, excerpt: "A package whose one definition row's `id"}
+  - {id: "FR-038-AC-61", path: *p1, role: examined, excerpt: "A `source` or `definition` nominal owner"}
+  - {id: "FR-038-AC-62", path: *p1, role: examined, excerpt: "A package whose `lock.model_selections` "}
+  - {id: "FR-038-AC-63", path: *p1, role: examined, excerpt: "A package whose `lock.dependency_selecti"}
+  - {id: "FR-038-AC-64", path: *p1, role: examined, excerpt: "Selections bind by identity and content "}
+  - {id: "FR-038-AC-65", path: *p1, role: examined, excerpt: "Every application operator class, operat"}
+  - {id: "FR-038-AC-67", path: *p1, role: examined, excerpt: "An unknown identity refuses `unknown-ope"}
+  - {id: "FR-038-AC-68", path: *p1, role: examined, excerpt: "At the operation check of a `quire.op.te"}
+  - {id: "FR-038-AC-69", path: *p1, role: examined, excerpt: "A member of kind `temporal_interval` or "}
+  - {id: "FR-038-AC-70", path: *p1, role: examined, excerpt: "`structural.eq` over `record Node { labe"}
+  - {id: "FR-038-AC-71", path: *p1, role: examined, excerpt: "Over `Node`, the recursion leaf placed b"}
+  - {id: "FR-038-AC-72", path: *p1, role: examined, excerpt: "The leaf count and derivation over a cyc"}
+  - {id: "FR-038-AC-73", path: *p1, role: examined, excerpt: "Under a bounds-required profile a positi"}
+  - {id: "FR-038-AC-74", path: *p1, role: examined, excerpt: "For every in-repo positive fixture, the "}
+  - {id: "FR-038-AC-75", path: *p1, role: examined, excerpt: "For every in-repo positive fixture, the "}
+  - {id: "FR-038-AC-76", path: *p1, role: examined, excerpt: "For every in-repo positive fixture, the "}
+  - {id: "FR-038-AC-77", path: *p1, role: examined, excerpt: "A `CheckedSemanticGraphV2` holding one n"}
+  - {id: "FR-038-AC-78", path: *p1, role: examined, excerpt: "The encodes of FR-038-AC-77, run under a"}
+  - {id: "FR-038-AC-79", path: *p1, role: examined, excerpt: "A package document holding the integer 9"}
+  - {id: "FR-038-AC-80", path: *p1, role: examined, excerpt: "`quire-canonical` is a `branch = \"main\"`"}
+  - {id: "FR-038-AC-81", path: *p1, role: examined, excerpt: "Observed at the operation check of a bod"}
+  - {id: "FR-038-AC-82", path: *p1, role: examined, excerpt: "Observed at the operation check, `quire."}
+  - {id: "FR-038-AC-83", path: *p1, role: examined, excerpt: "Observed at the operation check, `quire."}
+  - {id: "FR-038-AC-84", path: *p1, role: examined, excerpt: "Observed at the operation check, `quire."}
+  - {id: "FR-038-AC-85", path: *p1, role: examined, excerpt: "Observed at the operation check, `quire."}
+  - {id: "FR-038-AC-86", path: *p1, role: examined, excerpt: "Observed at the operation check, `quire."}
+  - {id: "FR-038-AC-87", path: *p1, role: examined, excerpt: "The operand family of a node is exactly,"}
+  - {id: "FR-038-AC-88", path: *p1, role: examined, excerpt: "The preimage of an application node that"}
+  - {id: "FR-038-AC-89", path: *p1, role: examined, excerpt: "Every identity digest of an unchanged id"}
+  - {id: "FR-038-AC-90", path: *p1, role: examined, excerpt: "`NominalIdentityPreimage::digest` takes "}
+  - {id: "FR-038-AC-91", path: *p1, role: examined, excerpt: "The files `canonical.rs`, `binding.rs`, "}
+  - {id: "FR-038-AC-92", path: *p1, role: examined, excerpt: "The application node preimage, `LoweredN"}
+  - {id: "FR-038-AC-93", path: *p1, role: examined, excerpt: "A selected model document holding the nu"}
+  - {id: "FR-038-AC-94", path: *p1, role: examined, excerpt: "A selected model document whose bytes ar"}
+  - {id: "FR-038-AC-95", path: *p1, role: examined, excerpt: "Lowering encodes under the byte limit th"}
+  - {id: "FR-038-AC-96", path: *p1, role: examined, excerpt: "Each of the fifteen `temporal_formula` i"}
+  - {id: "FR-038-AC-97", path: *p1, role: examined, excerpt: "On each of the eight interval operators "}
+  - {id: "FR-038-AC-98", path: *p1, role: examined, excerpt: "The `fairness` member of `quire.op.tempo"}
+  - {id: "FR-038-AC-99", path: *p1, role: examined, excerpt: "A package holding a `composite_type`/`un"}
+  - {id: "FR-038-AC-100", path: *p1, role: examined, excerpt: "Placement in both directions: an applica"}
+  - {id: "FR-038-AC-101", path: *p1, role: examined, excerpt: "Admitted temporal/formula and expression"}
+  - {id: "FR-038-AC-102", path: *p1, role: examined, excerpt: "The temporal step runs after the frame a"}
+  - {id: "FR-038-AC-103", path: *p1, role: examined, excerpt: "A clause whose `over` argument is a `ref"}
+  - {id: "FR-038-AC-104", path: *p1, role: examined, excerpt: "Under a clause whose `temporal_profile` "}
+  - {id: "FR-038-AC-108", path: *p1, role: examined, excerpt: "Each of the five members of QSpec FR-250"}
+  - {id: "FR-038-AC-105", path: *p1, role: examined, excerpt: "The temporal and case operands are check"}
+  - {id: "FR-038-AC-106", path: *p1, role: examined, excerpt: "`quire.op.structural.eq` over two values"}
+  - {id: "FR-038-AC-107", path: *p1, role: examined, excerpt: "Read from the authoritative `quire-speci"}
+  - {id: "FR-038-AC-109", path: *p1, role: examined, excerpt: "A selected model document holding at `/p"}
+  - {id: "FR-038-AC-110", path: *p1, role: examined, excerpt: "The cause of each refusal FR-038-AC-93 n"}
+  - {id: "FR-038-AC-111", path: *p1, role: examined, excerpt: "A package document holding the number `0"}
+  - {id: "FR-038-AC-112", path: *p1, role: examined, excerpt: "`make conformance-qspec` reads `proposal"}
+  - {id: "FR-038-AC-113", path: *p1, role: examined, excerpt: "`make conformance-qspec` reads `proposal"}
+  - {id: "FR-038-AC-114", path: *p1, role: examined, excerpt: "A node body in which an application of a"}
+  - {id: "FR-038-AC-115", path: *p1, role: examined, excerpt: "A `case` application nested inside anoth"}
+  - {id: "FR-038-AC-116", path: *p1, role: examined, excerpt: "A package whose `node_id`s, `identity_pr"}
+  - {id: "FR-038-AC-117", path: *p1, role: examined, excerpt: "`CheckedPackageReadLimits` has no depth "}
+  - {id: "FR-038-AC-118", path: *p1, role: examined, excerpt: "Each of the five `body_grammar_mutations"}
+  - {id: "FR-038-AC-119", path: *p1, role: examined, excerpt: "On each of the eight interval operators "}
+  - {id: "FR-038-AC-120", path: *p1, role: examined, excerpt: "Each of these timed-form intervals refus"}
+  - {id: "FR-038-AC-121", path: *p1, role: examined, excerpt: "Under `quire.temporal.timed/v1`, `lower`"}
+  - {id: "FR-038-AC-122", path: *p1, role: examined, excerpt: "The timed form `{lower, upper, lower_end"}
+  - {id: "FR-038-AC-123", path: *p1, role: examined, excerpt: "Tamper regression (IR-627; implemented f"}
+  - {id: "FR-038-AC-124", path: *p1, role: examined, excerpt: "Closed body of each derived shape (IR-62"}
+  - {id: "FR-038-AC-125", path: *p1, role: examined, excerpt: "Self-typing and `semantic_type` (IR-627;"}
+  - {id: "FR-038-AC-126", path: *p1, role: examined, excerpt: "Indirect redirection (IR-627; implemente"}
+  - {id: "FR-038-AC-127", path: *p1, role: examined, excerpt: "Stage and order (IR-627 baseline impleme"}
+  - {id: "FR-038-AC-128", path: *p1, role: examined, excerpt: "Exact bounds at the extremes (IR-627; im"}
+  - {id: "FR-038-AC-129", path: *p1, role: examined, excerpt: "Trust root (IR-627; implemented). A pack"}
+  - {id: "FR-038-AC-130", path: *p1, role: examined, excerpt: "One derivation (IR-627; implemented by t"}
+  - {id: "FR-038-AC-131", path: *p1, role: examined, excerpt: "PLANNED; new IR-630 controls UNRUN. Ever"}
+  - {id: "FR-038-AC-132", path: *p1, role: examined, excerpt: "No copy (IR-627 checkout-reference harne"}
+  - {id: "FR-038-AC-133", path: *p1, role: examined, excerpt: "Positive fixtures carry derived keys (IR"}
+  - {id: "FR-038-AC-134", path: *p1, role: examined, excerpt: "In-repo fixtures carry derived keys (IR-"}
+  - {id: "FR-038-AC-135", path: *p1, role: examined, excerpt: "Adverse mutations still reach their stag"}
+  - {id: "FR-038-AC-136", path: *p1, role: examined, excerpt: "Fields as values (IR-628; implemented, u"}
+  - {id: "FR-038-AC-137", path: *p1, role: examined, excerpt: "Effective set is the one admission resol"}
+  - {id: "FR-038-AC-138", path: *p1, role: examined, excerpt: "Every member kind (IR-628; implemented, "}
+  - {id: "FR-038-AC-139", path: *p1, role: examined, excerpt: "Absence and refusal semantics (IR-628; i"}
+  - {id: "FR-038-AC-140", path: *p1, role: examined, excerpt: "Independent of any node body (IR-628; im"}
+  - {id: "FR-038-AC-141", path: *p1, role: examined, excerpt: "One derivation with admission (IR-628; i"}
+  - {id: "FR-038-AC-142", path: *p1, role: examined, excerpt: "Public shape and stability (IR-628; impl"}
+  - {id: "FR-038-AC-143", path: *p1, role: examined, excerpt: "Pure, total, bounded (IR-628; implemente"}
+  - {id: "FR-038-AC-144", path: *p1, role: examined, excerpt: "Resolution is charged once, at admission"}
+  - {id: "FR-038-AC-145", path: *p1, role: examined, excerpt: "PLANNED (IR-630); UNRUN. Correctly keyed"}
+  - {id: "FR-038-AC-146", path: *p1, role: examined, excerpt: "PLANNED (IR-630); UNRUN; retires ordinar"}
+  - {id: "FR-038-AC-147", path: *p1, role: examined, excerpt: "PLANNED (IR-630); UNRUN; retires off-cyc"}
+  - {id: "FR-038-AC-148", path: *p1, role: examined, excerpt: "PLANNED (IR-630); UNRUN; replaces former"}
+  - {id: "FR-038-AC-149", path: *p1, role: examined, excerpt: "PLANNED (IR-630); UNRUN. Group membershi"}
+  - {id: "FR-038-AC-150", path: *p1, role: examined, excerpt: "PLANNED (IR-630); UNRUN; the prior owner"}
+  - {id: "FR-038-AC-151", path: *p1, role: examined, excerpt: "Implemented by IR-644 and verified by TC"}
+  - {id: "FR-038-AC-152", path: *p1, role: examined, excerpt: "Implemented by IR-644 and verified by TC"}
+  - {id: "FR-038-AC-153", path: *p1, role: examined, excerpt: "A declared record, tuple and function ea"}
+  - {id: "FR-038-AC-154", path: *p1, role: examined, excerpt: "Omitting a required node or projection o"}
+  - {id: "FR-038-AC-155", path: *p1, role: examined, excerpt: "Before structural key re-derivation, a `"}
+  - {id: "FR-038-AC-159", path: *p1, role: examined, excerpt: "For admitted `quire.op.integer.add`, `qu"}
+  - {id: "FR-038-AC-160", path: *p1, role: examined, excerpt: "A reference to a `value`/`parameter` ret"}
+  - {id: "FR-038-AC-161", path: *p1, role: examined, excerpt: "For an admitted inline integer literal a"}
+  - {id: "FR-038-AC-162", path: *p1, role: examined, excerpt: "An unknown graph node, a known non-appli"}
+  - {id: "FR-038-AC-163", path: *p1, role: examined, excerpt: "A crate-internal mutation of an admitted"}
+  - {id: "FR-038-AC-164", path: *p1, role: examined, excerpt: "An external Rust API fixture calls the a"}
+  - {id: "FR-038-AC-165", path: *p1, role: examined, excerpt: "PLANNED / UNRUN (IR-661). A selected, in"}
+  - {id: "FR-038-AC-166", path: *p1, role: examined, excerpt: "PLANNED / UNRUN (IR-661). Changing only "}
+  - {id: "FR-038-AC-167", path: *p1, role: examined, excerpt: "PLANNED / UNRUN (IR-661). An unresolved "}
+  - {id: "FR-038-AC-168", path: *p1, role: examined, excerpt: "PLANNED / UNRUN (IR-661). Repeating a re"}
+  - {id: "FR-038-AC-169", path: *p1, role: examined, excerpt: "PLANNED / UNRUN (IR-661). `relationship_"}
+  - {id: "FR-038-AC-170", path: *p1, role: examined, excerpt: "PLANNED / UNRUN (IR-661). Forward and in"}
+  - {id: "FR-038-AC-171", path: *p1, role: examined, excerpt: "PLANNED / UNRUN (IR-661). For `quire.op."}
+  - {id: "FR-038-AC-172", path: *p1, role: examined, excerpt: "PLANNED / UNRUN (IR-661). A homogeneous "}
+  - {id: "FR-038-AC-173", path: *p1, role: examined, excerpt: "PLANNED / UNRUN (IR-661). Removing direc"}
+  - {id: "FR-038-AC-174", path: *p1, role: examined, excerpt: "IMPLEMENTED; final-head runtime/Clippy c"}
+  - {id: "FR-038-AC-175", path: *p1, role: examined, excerpt: "IMPLEMENTED; final-head runtime/Clippy c"}
+  - {id: "FR-038-AC-176", path: *p1, role: examined, excerpt: "IMPLEMENTED (IR-654 code; external confo"}
+  - {id: "FR-038-AC-177", path: *p1, role: examined, excerpt: "Implemented by `composite_application_op"}
+  - {id: "FR-038-AC-178", path: *p1, role: examined, excerpt: "Implemented by `composite_application_op"}
+  - {id: "FR-038-AC-179", path: *p1, role: examined, excerpt: "Implemented by `composite_application_op"}
+  - {id: "FR-038-AC-180", path: *p1, role: examined, excerpt: "Implementation exists in `composite_appl"}
+  - {id: "FR-038-AC-181", path: *p1, role: examined, excerpt: "Implemented by `composite_application_op"}
+  - {id: "FR-038-AC-182", path: *p1, role: examined, excerpt: "Implemented by `composite_application_op"}
+  - {id: "FR-038-AC-183", path: *p1, role: examined, excerpt: "Implemented and verified by TC-048 and T"}
+  - {id: "FR-038-AC-184", path: *p1, role: examined, excerpt: "Implemented and verified by TC-048 (IR-6"}
+  - {id: "FR-038-AC-185", path: *p1, role: examined, excerpt: "Implemented and verified by TC-048 (IR-6"}
+  - {id: "FR-038-AC-186", path: *p1, role: examined, excerpt: "IMPLEMENTED; final-head runtime/Clippy c"}
+  - {id: "FR-038-AC-187", path: *p1, role: examined, excerpt: "IMPLEMENTED; final-head runtime/Clippy c"}
+  - {id: "FR-038-AC-188", path: *p1, role: examined, excerpt: "IMPLEMENTED; final-head runtime/Clippy c"}
+  - {id: "FR-038-AC-189", path: *p1, role: examined, excerpt: "IMPLEMENTED; final-head runtime/Clippy c"}
+  - {id: "FR-038-AC-190", path: *p1, role: examined, excerpt: "IMPLEMENTED; final-head runtime/Clippy c"}
+  - {id: "FR-038-AC-191", path: *p1, role: examined, excerpt: "IMPLEMENTED; final-head runtime/Clippy c"}
+  - {id: "FR-038-AC-192", path: *p1, role: examined, excerpt: "IMPLEMENTED; final-head runtime/Clippy c"}
+  - {id: "FR-038-AC-193", path: *p1, role: examined, excerpt: "IMPLEMENTED; source Inspection completed"}
+  - {id: "FR-038-AC-194", path: *p1, role: examined, excerpt: "IMPLEMENTED; source Inspection completed"}
+  - {id: "FR-038-AC-195", path: *p1, role: examined, excerpt: "The repository lint gate runs both Clipp"}
+  - {id: "FR-038-AC-196", path: *p1, role: examined, excerpt: "IMPLEMENTED; final-head runtime/Clippy c"}
+  - {id: "FR-038-AC-197", path: *p1, role: examined, excerpt: "Implemented (IR-690) by `composite_appli"}
+  - {id: "FR-038-AC-198", path: *p1, role: examined, excerpt: "Implemented (IR-690); TC-048 compares in"}
+  - {id: "FR-038-AC-199", path: *p1, role: examined, excerpt: "Implemented (IR-690); TC-048 checks Miss"}
+  - {id: "FR-038-AC-200", path: *p1, role: examined, excerpt: "Implemented (IR-690); TC-048 independent"}
+  - {id: "FR-038-AC-201", path: *p1, role: examined, excerpt: "Implemented (IR-690); source inspection "}
+  - {id: "FR-038-AC-202", path: *p1, role: examined, excerpt: "Implemented (IR-703); tagged local contr"}
+  - {id: "FR-038-AC-203", path: *p1, role: examined, excerpt: "Implemented (IR-703); tagged local contr"}
+  - {id: "FR-038-AC-204", path: *p1, role: examined, excerpt: "Implemented (IR-703); the tagged QSL pro"}
+  - {id: "FR-038-AC-205", path: *p1, role: examined, excerpt: "Implemented (IR-703); tagged local contr"}
+  - {id: "FR-038-AC-206", path: *p1, role: examined, excerpt: "Implemented (IR-703); tagged local contr"}
+  - {id: "FR-038-AC-207", path: *p1, role: examined, excerpt: "Implemented (IR-703); tagged local contr"}
+  - {id: "FR-038-AC-208", path: *p1, role: examined, excerpt: "Implemented (IR-703); tagged local contr"}
+  - {id: "FR-038-AC-209", path: *p1, role: examined, excerpt: "Implemented (IR-703); tagged local contr"}
+  - {id: "FR-038-AC-210", path: *p1, role: examined, excerpt: "Implemented (IR-484). For a valid self-t"}
+  - {id: "FR-038-AC-211", path: *p1, role: examined, excerpt: "Implemented (IR-484). `quire.op.control."}
+  - {id: "FR-038-AC-212", path: *p1, role: examined, excerpt: "Implemented (IR-484). A body-root or arg"}
+  - {id: "FR-038-AC-213", path: *p1, role: examined, excerpt: "Implemented (IR-484). `quire.op.quantity"}
+  - {id: "FR-038-AC-222", path: *p1, role: examined, excerpt: "Implemented (IR-742). Through `CheckedPa"}
+  - {id: "FR-038-AC-223", path: *p1, role: examined, excerpt: "Implemented (IR-742). Through `CheckedPa"}
+  - {id: "FR-038-AC-247", path: *p1, role: examined, excerpt: "Implemented (IR-225). Through `CheckedPa"}
+  - {id: "FR-038-AC-248", path: *p1, role: examined, excerpt: "Implemented (IR-225). For a catalogued `"}
+  - {id: "FR-038-AC-249", path: *p1, role: examined, excerpt: "Implemented (IR-225). A `type_argument` "}
+  - {id: "FR-038-AC-250", path: *p1, role: examined, excerpt: "Implemented (IR-225). Through the public"}
+  - {id: "FR-038-AC-251", path: *p1, role: examined, excerpt: "Implemented (IR-225; amended from an exp"}
+  - {id: "FR-038-AC-214", path: *p1, role: examined, excerpt: "CODE-GATED (IR-575; isolated 2026-10-10 "}
+  - {id: "FR-038-AC-215", path: *p1, role: examined, excerpt: "A selected model document that reads as "}
+  - {id: "FR-038-AC-216", path: *p1, role: examined, excerpt: "Bytes of a selected model document that "}
+  - {id: "FR-038-AC-217", path: *p1, role: examined, excerpt: "A `dependency_selections` entry whose su"}
+  - {id: "FR-038-AC-218", path: *p1, role: examined, excerpt: "The `expected` and `actual` members of `"}
+  - {id: "FR-038-AC-224", path: *p1, role: examined, excerpt: "PLANNED/UNRUN (IR-490). A private operat"}
+  - {id: "FR-038-AC-225", path: *p1, role: examined, excerpt: "IMPLEMENTED (IR-739; tagged reader and c"}
+  - {id: "FR-038-AC-226", path: *p1, role: examined, excerpt: "IMPLEMENTED (IR-739; tagged reader and c"}
+  - {id: "FR-038-AC-227", path: *p1, role: examined, excerpt: "IMPLEMENTED (IR-739; tagged reader and c"}
+  - {id: "FR-038-AC-228", path: *p1, role: examined, excerpt: "PLANNED/UNRUN (IR-491). Through `Checked"}
+  - {id: "FR-038-AC-229", path: *p1, role: examined, excerpt: "PLANNED/UNRUN (IR-491). For `structural."}
+  - {id: "FR-038-AC-230", path: *p1, role: examined, excerpt: "PLANNED/UNRUN (IR-491). For every catalo"}
+  - {id: "FR-038-AC-231", path: *p1, role: examined, excerpt: "PLANNED/UNRUN (IR-491). An otherwise val"}
+  - {id: "FR-038-AC-232", path: *p1, role: examined, excerpt: "PLANNED/UNRUN (IR-691). A fresh QSL FR-0"}
+  - {id: "FR-038-AC-233", path: *p1, role: examined, excerpt: "PLANNED/UNRUN (IR-691). In crate-interna"}
+  - {id: "FR-038-AC-234", path: *p1, role: examined, excerpt: "PLANNED/UNRUN (IR-691). A narrow whose a"}
+  - {id: "FR-038-AC-235", path: *p1, role: examined, excerpt: "PLANNED/UNRUN (IR-691). Independently co"}
+  - {id: "FR-038-AC-236", path: *p1, role: examined, excerpt: "IMPLEMENTED (IR-777). A selected Semanti"}
+  - {id: "FR-038-AC-237", path: *p1, role: examined, excerpt: "IMPLEMENTED (IR-777). A value typed by t"}
+  - {id: "FR-038-AC-238", path: *p1, role: examined, excerpt: "IMPLEMENTED (IR-777). An empty selected "}
+  - {id: "FR-038-AC-239", path: *p1, role: examined, excerpt: "PLANNED/UNRUN (IR-782). A package with a"}
+  - {id: "FR-038-AC-240", path: *p1, role: examined, excerpt: "PLANNED/UNRUN (IR-782). An extra depende"}
+  - {id: "FR-038-AC-241", path: *p1, role: examined, excerpt: "PLANNED/UNRUN (IR-782). A carrier with a"}
+  - {id: "FR-038-AC-294", path: *p1, role: examined, excerpt: "Implemented; tagged native public-reader"}
+  - {id: "FR-038-AC-295", path: *p1, role: examined, excerpt: "Implemented; tagged native public-reader"}
+  - {id: "FR-038-AC-242", path: *p1, role: examined, excerpt: "IMPLEMENTED (IR-800; tagged reader tests"}
+  - {id: "FR-038-AC-243", path: *p1, role: examined, excerpt: "IMPLEMENTED (IR-800; tagged reader tests"}
+  - {id: "FR-038-AC-244", path: *p1, role: examined, excerpt: "IMPLEMENTED (IR-800; tagged reader tests"}
+  - {id: "FR-038-AC-245", path: *p1, role: examined, excerpt: "IMPLEMENTED (IR-800; tagged reader tests"}
+  - {id: "FR-038-AC-252", path: *p1, role: examined, excerpt: "Implemented (IR-824). This criterion sup"}
+  - {id: "FR-038-AC-253", path: *p1, role: examined, excerpt: "Implemented (IR-824). For `quire.op.mode"}
+  - {id: "FR-038-AC-254", path: *p1, role: examined, excerpt: "Implemented (IR-824). For `quire.op.mode"}
+  - {id: "FR-038-AC-255", path: *p1, role: examined, excerpt: "Implemented (IR-824). For `quire.op.mode"}
+  - {id: "FR-038-AC-256", path: *p1, role: examined, excerpt: "Implemented (IR-824). For `quire.op.mode"}
+  - {id: "FR-038-AC-257", path: *p1, role: examined, excerpt: "Implemented (IR-824). A `quire.op.model."}
+  - {id: "FR-038-AC-258", path: *p1, role: examined, excerpt: "Implemented (IR-832). For an admitted `v"}
+  - {id: "FR-038-AC-259", path: *p1, role: examined, excerpt: "Implemented (IR-832). `parameter_declara"}
+  - {id: "FR-038-AC-260", path: *p1, role: examined, excerpt: "Implemented (IR-832). Two admitted param"}
+  - {id: "FR-038-AC-261", path: *p1, role: examined, excerpt: "Implemented (IR-832). For an admitted `q"}
+  - {id: "FR-038-AC-262", path: *p1, role: examined, excerpt: "Implemented (IR-851). When `relationship"}
+  - {id: "FR-038-AC-263", path: *p1, role: examined, excerpt: "Implemented (IR-851). For admitted reach"}
+  - {id: "FR-038-AC-264", path: *p1, role: examined, excerpt: "Implemented (IR-851). `relationship_end`"}
+  - {id: "FR-038-AC-265", path: *p1, role: examined, excerpt: "Implemented (IR-851). When a crate-inter"}
+  - {id: "FR-038-AC-266", path: *p1, role: examined, excerpt: "Implemented (IR-851). When `relationship"}
+  - {id: "FR-038-AC-267", path: *p1, role: examined, excerpt: "Implemented (IR-851). An external Rust A"}
+  - {id: "FR-038-AC-268", path: *p1, role: examined, excerpt: "Implemented (IR-851). `model_object_fiel"}
+  - {id: "FR-038-AC-269", path: *p1, role: examined, excerpt: "Implemented (IR-852). When `reaches_popu"}
+  - {id: "FR-038-AC-270", path: *p1, role: examined, excerpt: "Implemented (IR-852). When `reaches_popu"}
+  - {id: "FR-038-AC-271", path: *p1, role: examined, excerpt: "Implemented (IR-852). `reaches_populatio"}
+  - {id: "FR-038-AC-272", path: *p1, role: examined, excerpt: "Implemented (IR-852). A reaches applicat"}
+  - {id: "FR-038-AC-273", path: *p1, role: examined, excerpt: "Implemented (IR-852). A reaches applicat"}
+  - {id: "FR-038-AC-274", path: *p1, role: examined, excerpt: "Implemented (IR-852). A reaches applicat"}
+  - {id: "FR-038-AC-275", path: *p1, role: examined, excerpt: "Implemented (IR-852). A `quire.op.model."}
+  - {id: "FR-038-AC-276", path: *p1, role: examined, excerpt: "Implemented (IR-852). A reaches or navig"}
+  - {id: "FR-038-AC-277", path: *p1, role: examined, excerpt: "Implemented (IR-852). When `reaches_popu"}
+  - {id: "FR-038-AC-278", path: *p1, role: examined, excerpt: "Implemented (IR-852). An external Rust A"}
+  - {id: "FR-038-AC-279", path: *p1, role: examined, excerpt: "Implemented (IR-852). A reaches applicat"}
+  - {id: "FR-038-AC-280", path: *p1, role: examined, excerpt: "Implemented (IR-852). A reaches applicat"}
+  - {id: "FR-038-AC-281", path: *p1, role: examined, excerpt: "A reader-admitted protocol member has a "}
+  - {id: "FR-038-AC-282", path: *p1, role: examined, excerpt: "Each of the seven protocol member forms "}
+  - {id: "FR-038-AC-283", path: *p1, role: examined, excerpt: "A protocol node derives its `quire.appli"}
+  - {id: "FR-038-AC-284", path: *p1, role: examined, excerpt: "The reader runs a protocol step after st"}
+  - {id: "FR-038-AC-285", path: *p1, role: examined, excerpt: "Every role, channel, queue, obligation a"}
+  - {id: "FR-038-AC-286", path: *p1, role: examined, excerpt: "A role admits the FR-465 static and repl"}
+  - {id: "FR-038-AC-287", path: *p1, role: examined, excerpt: "A clause names exactly one `finish` obli"}
+  - {id: "FR-038-AC-288", path: *p1, role: examined, excerpt: "Each of the thirteen control operators a"}
+  - {id: "FR-038-AC-289", path: *p1, role: examined, excerpt: "A `compensate` body admits the thirteen "}
+  - {id: "FR-038-AC-290", path: *p1, role: examined, excerpt: "For each clause the reader constructs th"}
+  - {id: "FR-038-AC-291", path: *p1, role: examined, excerpt: "Binder levels start at the introducing c"}
+  - {id: "FR-038-AC-292", path: *p1, role: examined, excerpt: "At a `choice` or `repeat` decision the r"}
+  - {id: "FR-038-AC-246", path: *p1, role: examined, excerpt: "Implemented (IR-803). For a reader-admit"}
+  - {id: "FR-038-AC-303", path: *p1, role: examined, excerpt: "A self-typed `relation`/`population` nod"}
+  - {id: "FR-038-AC-304", path: *p1, role: examined, excerpt: "After FR-154 admission, the reader joins"}
+  - {id: "FR-038-AC-305", path: *p1, role: examined, excerpt: "`quire.op.model.all_instances` and `quir"}
+  - {id: "FR-038-AC-306", path: *p1, role: examined, excerpt: "A declared population reference used as "}
+  - {id: "FR-038-AC-307", path: *p1, role: examined, excerpt: "The reader consumes QSpec's selected-che"}
+  - {id: "FR-040-AC-1", path: *p2, role: examined, excerpt: "A `modifies` array holding a `relationsh"}
+  - {id: "FR-040-AC-2", path: *p2, role: examined, excerpt: "A relationship entry naming an object ty"}
+  - {id: "FR-040-AC-3", path: *p2, role: examined, excerpt: "A field entry on a model declaration obj"}
+  - {id: "FR-040-AC-4", path: *p2, role: examined, excerpt: "Two field entries of one declaring node "}
+  - {id: "FR-040-AC-5", path: *p2, role: examined, excerpt: "A frame whose `semantic_type` names a no"}
+  - {id: "FR-040-AC-6", path: *p2, role: examined, excerpt: "Each of the fifteen `model` forms admits"}
+  - {id: "FR-040-AC-7", path: *p2, role: examined, excerpt: "An operation anchor with the three bindi"}
+  - {id: "FR-040-AC-8", path: *p2, role: examined, excerpt: "An invariant, a precondition and a postc"}
+  - {id: "FR-040-AC-9", path: *p2, role: examined, excerpt: "For `Order.scaled(n: Integer): Integer`,"}
+  - {id: "FR-040-AC-10", path: *p2, role: examined, excerpt: "A `quire.op.state.clause` application st"}
+  - {id: "FR-040-AC-11", path: *p2, role: examined, excerpt: "A `value`/`parameter` body of `name` the"}
+  - {id: "FR-040-AC-12", path: *p2, role: examined, excerpt: "A package carrying a frame defect and a "}
+  - {id: "FR-040-AC-13", path: *p2, role: examined, excerpt: "A `quire.op.model.reaches_field` applica"}
+  - {id: "FR-040-AC-14", path: *p2, role: examined, excerpt: "IMPLEMENTED (IR-770). With an authentic "}
+  - {id: "FR-040-AC-15", path: *p2, role: examined, excerpt: "IMPLEMENTED (IR-770). A selected record "}
+  - {id: "FR-040-AC-16", path: *p2, role: examined, excerpt: "IMPLEMENTED (IR-770). Selected record ow"}
+  - {id: "FR-040-AC-17", path: *p2, role: examined, excerpt: "A frame body carrying `modifies` field e"}
+  - {id: "FR-040-AC-18", path: *p2, role: examined, excerpt: "A `field` entry with no `scope`, a `fiel"}
+  - {id: "FR-040-AC-19", path: *p2, role: examined, excerpt: "A frame body with no `deletes_scoped` me"}
+  - {id: "FR-040-AC-20", path: *p2, role: examined, excerpt: "A `deletes_scoped` entry of a `kind` oth"}
+  - {id: "FR-040-AC-21", path: *p2, role: examined, excerpt: "A `deletes_scoped` that does not hold th"}
+  - {id: "FR-040-AC-22", path: *p2, role: examined, excerpt: "The `modifies` entries of one declaring "}
+  - {id: "FR-040-AC-23", path: *p2, role: examined, excerpt: "Two `field` entries sharing a declaratio"}
+  - {id: "FR-040-AC-24", path: *p2, role: examined, excerpt: "A frame holding a `conflicting-binding` "}
+  - {id: "FR-040-AC-25", path: *p2, role: examined, excerpt: "A frame holding a `conflicting-binding` "}
+  - {id: "FR-040-AC-26", path: *p2, role: examined, excerpt: "A `scope` or a `deletes_scoped` entry ch"}
+  - {id: "FR-040-AC-27", path: *p2, role: examined, excerpt: "A `parameter` entry of a frame's `delete"}
+  - {id: "FR-040-AC-28", path: *p2, role: examined, excerpt: "Two anchors of one `context` referencing"}
+  - {id: "FR-040-AC-29", path: *p2, role: examined, excerpt: "A package carrying a frame-step defect a"}
+  - {id: "FR-040-AC-30", path: *p2, role: examined, excerpt: "An anchor whose `context` is not a model"}
+  - {id: "FR-047-AC-1", path: *p3, role: examined, excerpt: "A vacant domain key accepts its exact by"}
+  - {id: "FR-047-AC-2", path: *p3, role: examined, excerpt: "Different raw bytes under an occupied do"}
+  - {id: "FR-047-AC-3", path: *p3, role: examined, excerpt: "Equal admitted-content dependencies in d"}
+  - {id: "FR-047-AC-4", path: *p3, role: examined, excerpt: "Unequal admitted dependencies under an o"}
+  - {id: "FR-047-AC-5", path: *p3, role: examined, excerpt: "One and two exact feature declarations y"}
+  - {id: "FR-047-AC-6", path: *p3, role: examined, excerpt: "Public model-crate callers handle both i"}
+  - {id: "FR-049-AC-1", path: *p4, role: examined, excerpt: "For the reader-admitted QSL source `func"}
+  - {id: "FR-049-AC-2", path: *p4, role: examined, excerpt: "For a QSL item with `None`, the expressi"}
+  - {id: "FR-049-AC-3", path: *p4, role: examined, excerpt: "For `Some`, an absent, non-lowered or un"}
+  - {id: "FR-049-AC-4", path: *p4, role: examined, excerpt: "A non-lowered expression root returns it"}
+  - {id: "FR-049-AC-5", path: *p4, role: examined, excerpt: "The result identifies the exact applicat"}
+  - {id: "FR-049-AC-6", path: *p4, role: examined, excerpt: "Contextual lowering emits exactly the ex"}
+  - {id: "FR-050-AC-1", path: *p5, role: examined, excerpt: "For QSL FR-062 RR-13, the checked `ratio"}
+  - {id: "FR-050-AC-2", path: *p5, role: examined, excerpt: "Two checked items sharing one applicatio"}
+  - {id: "FR-050-AC-3", path: *p5, role: examined, excerpt: "The public guard query returns the corre"}
+  - {id: "FR-050-AC-4", path: *p5, role: examined, excerpt: "Mutating only the supplied guard key to "}
+  - {id: "FR-050-AC-5", path: *p5, role: examined, excerpt: "Every guard root has an ordinary FR-035 "}
+  - {id: "FR-051-AC-1", path: *p6, role: examined, excerpt: "A default-feature external consumer cons"}
+  - {id: "FR-051-AC-2", path: *p6, role: examined, excerpt: "For an otherwise valid package, encoding"}
+  - {id: "FR-051-AC-3", path: *p6, role: examined, excerpt: "An external producer mints `package_id` "}
+  - {id: "FR-051-AC-4", path: *p6, role: examined, excerpt: "For empty, nested, and deeply nested nod"}
+  - {id: "FR-054-AC-1", path: *p7, role: examined, excerpt: "For a reader-admitted positive scalar ap"}
+  - {id: "FR-054-AC-2", path: *p7, role: examined, excerpt: "For an admitted application whose two ar"}
+  - {id: "FR-054-AC-3", path: *p7, role: examined, excerpt: "For admitted applications with unbounded"}
+  - {id: "FR-054-AC-4", path: *p7, role: examined, excerpt: "A missing, foreign, non-lowered or non-a"}
+  - {id: "FR-054-AC-5", path: *p7, role: examined, excerpt: "A separate consumer test compiles agains"}
+  - {id: "FR-344-AC-1", path: *p8, role: examined, excerpt: "A `quire.checked-package/v2` document wh"}
+  - {id: "FR-344-AC-2", path: *p8, role: examined, excerpt: "A `relation`/`population` node whose `bo"}
+  - {id: "FR-344-AC-3", path: *p8, role: examined, excerpt: "A `quire.checked-package/v2` document ca"}
+  - {id: "FR-346-AC-1", path: *p9, role: examined, excerpt: "A package holding one `correspondence`/`"}
+  - {id: "FR-346-AC-2", path: *p9, role: examined, excerpt: "IR reading: a body missing `frames` (pat"}
+  - {id: "FR-346-AC-3", path: *p9, role: examined, excerpt: "A frame entry for (`ConfigVersion`, `att"}
+  - {id: "FR-346-AC-4", path: *p9, role: examined, excerpt: "A node whose `node_id` is not the digest"}
+  - {id: "FR-346-AC-5", path: *p9, role: examined, excerpt: "A `type` target naming a `relation`/`pop"}
+  - {id: "FR-346-AC-6", path: *p9, role: examined, excerpt: "A `fields` name `ConfigVersion` does not"}
+  - {id: "FR-346-AC-7", path: *p9, role: examined, excerpt: "A frame entry for (`ConfigVersion`, `noS"}
+  - {id: "FR-346-AC-8", path: *p9, role: examined, excerpt: "Two entries that bind the object key `Co"}
+  - {id: "FR-346-AC-9", path: *p9, role: examined, excerpt: "A package carrying a state-step defect a"}
+  - {id: "FR-346-AC-10", path: *p9, role: examined, excerpt: "Changing one `rust_field` in an admitted"}
+  - {id: "FR-347-AC-1", path: *p10, role: examined, excerpt: "Over a selected document declaring `Mone"}
+  - {id: "FR-347-AC-2", path: *p10, role: examined, excerpt: "In the same document a call to `charge(m"}
+  - {id: "FR-347-AC-3", path: *p10, role: examined, excerpt: "A call to `settle(t: TaxedMoney)` with a"}
+  - {id: "FR-347-AC-4", path: *p10, role: examined, excerpt: "A parameter typed `Integer`, `Int[0, 9]`"}
+  - {id: "FR-347-AC-5", path: *p10, role: examined, excerpt: "An argument typed at a `composite_type`/"}
+  - {id: "FR-347-AC-6", path: *p10, role: examined, excerpt: "A call with two record-typed parameters,"}
+  - {id: "FR-347-AC-7", path: *p10, role: examined, excerpt: "The receiver of a call to `charge` typed"}
+  - {id: "FR-347-AC-8", path: *p10, role: examined, excerpt: "Conformance of a `GiftTaxedMoney` argume"}
+  - {id: "FR-347-AC-9", path: *p10, role: examined, excerpt: "A `record.project` read of `occurred_at`"}
+  - {id: "FR-347-AC-10", path: *p10, role: examined, excerpt: "A `case` over a union whose arm bodies a"}
+  - {id: "FR-347-AC-11", path: *p10, role: examined, excerpt: "A `union_value` whose member payload is "}
+  - {id: "FR-347-AC-12", path: *p10, role: examined, excerpt: "A `function` node with declared `semanti"}
+  - {id: "FR-347-AC-13", path: *p10, role: examined, excerpt: "A `function.call` whose callee is a `ref"}
+  - {id: "FR-347-AC-14", path: *p10, role: examined, excerpt: "A callee function node whose `parameters"}
+  - {id: "NFR-006-M-1", path: *p11, role: examined, excerpt: "Peak incremental resident memory in the "}
+  - {id: "NFR-006-M-2", path: *p11, role: examined, excerpt: "Concurrent extra owned copies of each pr"}
+  - {id: "NFR-006-M-3", path: *p11, role: examined, excerpt: "Canonical package bytes and `package_id`"}
+  - {id: "FR-018-AC-1", path: *p12, role: examined, excerpt: "Running the corpus directory yields one "}
+  - {id: "FR-018-AC-2", path: *p12, role: examined, excerpt: "Mutation fixtures independently alter sc"}
+  - {id: "FR-018-AC-3", path: *p12, role: examined, excerpt: "Raw package probes pin exact and one-pas"}
+  - {id: "FR-020-AC-1", path: *p13, role: examined, excerpt: "A process test runs the published corpus"}
+  - {id: "FR-020-AC-2", path: *p13, role: examined, excerpt: "Process fixtures pin exit 1 with all six"}
+  - {id: "FR-020-AC-3", path: *p13, role: examined, excerpt: "The published fixture schema accepts `\"-"}
+  - {id: "FR-020-AC-4", path: *p13, role: examined, excerpt: "The published package schema accepts a r"}
+  - {id: "FR-020-AC-5", path: *p13, role: examined, excerpt: "The fixture input schema refuses as `inv"}
+  - {id: "FR-020-AC-6", path: *p13, role: examined, excerpt: "The fixture input schema passes the valu"}
+  - {id: "FR-020-AC-7", path: *p13, role: examined, excerpt: "The runner returns `invalid_wire_format`"}
+  - {id: "FR-020-AC-8", path: *p13, role: examined, excerpt: "The expectation of a decoder fixture tha"}
+  - {id: "FR-020-AC-9", path: *p13, role: examined, excerpt: "The same number as the decoder fixture s"}
+  - {id: "FR-020-AC-10", path: *p13, role: examined, excerpt: "Every canonical file of the published co"}
+  - {id: "FR-020-AC-11", path: *p13, role: examined, excerpt: "Every canonical file of the published co"}
+  - {id: "FR-020-AC-12", path: *p13, role: examined, excerpt: "A published corpus run exits 0 and emits"}
+  - {id: "FR-020-AC-13", path: *p13, role: examined, excerpt: "The published fixture schema rejects `0`"}
+  - {id: "FR-020-AC-14", path: *p13, role: examined, excerpt: "The published package schema rejects a r"}
+  - {id: "FR-020-AC-15", path: *p13, role: examined, excerpt: "A successful `document_json` expression "}
+  - {id: "FR-011-AC-1", path: *p14, role: examined, excerpt: "A package round trip through the non-can"}
+  - {id: "FR-011-AC-2", path: *p14, role: examined, excerpt: "Incrementing one requirement revision ch"}
+  - {id: "FR-011-AC-3", path: *p14, role: examined, excerpt: "Empty or malformed package, source-docum"}
+  - {id: "FR-012-AC-1", path: *p15, role: examined, excerpt: "A floating executable clause is rejected"}
+  - {id: "FR-012-AC-2", path: *p15, role: examined, excerpt: "The recursive reference body returns eac"}
+  - {id: "FR-012-AC-3", path: *p15, role: examined, excerpt: "Malformed, cross-package, stale-revision"}
+  - {id: "FR-012-AC-4", path: *p15, role: examined, excerpt: "Every executable clause kind accepts onl"}
+  - {id: "FR-012-AC-5", path: *p15, role: examined, excerpt: "The typed expression tree implements the"}
+  - {id: "FR-012-AC-6", path: *p15, role: examined, excerpt: "Source spans reject zero line/column pos"}
+  - {id: "FR-044-AC-1", path: *p16, role: examined, excerpt: "`Std001Code::new(\"kani_vacuous_proof\")` "}
+  - {id: "FR-044-AC-2", path: *p16, role: examined, excerpt: "`serde_json::to_string` of `Std001Code::"}
+  - {id: "FR-044-AC-3", path: *p16, role: examined, excerpt: "`Std001Code::REGISTERED` equals, in orde"}
+  - {id: "FR-044-AC-4", path: *p16, role: examined, excerpt: "`std001_code!(\"kani_corpus_identity_coll"}
+  - {id: "FR-044-AC-5", path: *p16, role: examined, excerpt: "`Std001Code::from_static`, evaluated in "}
+  - {id: "FR-045-AC-1", path: *p17, role: examined, excerpt: "From a fixture whose inventories contain"}
+  - {id: "FR-045-AC-2", path: *p17, role: examined, excerpt: "A proved production Kani result credits "}
+  - {id: "FR-045-AC-3", path: *p17, role: examined, excerpt: "An effective bound narrower than declare"}
+  - {id: "FR-045-AC-4", path: *p17, role: examined, excerpt: "Requirement, module, function and obliga"}
+  - {id: "FR-045-AC-5", path: *p17, role: examined, excerpt: "An FR-029 `unsupported` negotiation disp"}
+  - {id: "FR-045-AC-6", path: *p17, role: examined, excerpt: "Repeating a baseline on unchanged author"}
+  - {id: "FR-055-AC-1", path: *p18, role: examined, excerpt: "The normal `make deny` recipe invokes th"}
+  - {id: "FR-055-AC-2", path: *p18, role: examined, excerpt: "Through the same normal `make deny` reci"}
+  - {id: "FR-055-AC-3", path: *p18, role: examined, excerpt: "A missing checker executable, malformed "}
+  - {id: "FR-055-AC-4", path: *p18, role: examined, excerpt: "The committed `scripts/check_one_copy.aw"}
+  - {id: "FR-055-AC-5", path: *p18, role: examined, excerpt: "Adoption leaves the committed Cargo mani"}
+  - {id: "NFR-001-AC-1", path: *p19, role: examined, excerpt: "Two complete corpus runs over fixed inpu"}
+  - {id: "NFR-001-AC-2", path: *p19, role: examined, excerpt: "For each fixed admitted corpus input and"}
+  - {id: "NFR-001-AC-3", path: *p19, role: examined, excerpt: "For each fixed rejected corpus input and"}
+  - {id: "NFR-001-M-1", path: *p19, role: examined, excerpt: "Cross-run byte equality"}
+  - {id: "NFR-001-M-2", path: *p19, role: examined, excerpt: "Cross-platform canonical byte equality"}
+  - {id: "NFR-001-M-3", path: *p19, role: examined, excerpt: "Ordered diagnostic code/path tuple equal"}
+  - {id: "NFR-002-AC-1", path: *p20, role: examined, excerpt: "Public schema and model names contain no"}
+  - {id: "NFR-002-AC-3", path: *p20, role: examined, excerpt: "Public JSON field names, identity kinds,"}
+  - {id: "NFR-002-AC-4", path: *p20, role: examined, excerpt: "Public type and expression schema/API vo"}
+  - {id: "NFR-002-M-1", path: *p20, role: examined, excerpt: "Forbidden public vocabulary"}
+  - {id: "NFR-002-M-2", path: *p20, role: examined, excerpt: "Target-dependent canonical fields"}
+  - {id: "NFR-003-AC-1", path: *p21, role: examined, excerpt: "Every declared invalid-input class retur"}
+  - {id: "NFR-003-AC-2", path: *p21, role: examined, excerpt: "No malformed, unsupported, stale, undefi"}
+  - {id: "NFR-003-AC-3", path: *p21, role: examined, excerpt: "Given artifact traces whose source and t"}
+  - {id: "NFR-003-M-1", path: *p21, role: examined, excerpt: "Public panic paths for untrusted input"}
+  - {id: "NFR-003-M-2", path: *p21, role: examined, excerpt: "Failure classes with stable code"}
+  - {id: "NFR-003-M-3", path: *p21, role: examined, excerpt: "Coverage diagnostic locus accuracy"}
+  - {id: "NFR-003-M-4", path: *p21, role: examined, excerpt: "Orphans counted as covered"}
+  - {id: "FR-029-AC-1", path: *p22, role: examined, excerpt: "A selected profile binds its versioned l"}
+  - {id: "FR-029-AC-2", path: *p22, role: examined, excerpt: "Every encountered construct has exactly "}
+  - {id: "FR-029-AC-3", path: *p22, role: examined, excerpt: "A scalar capability refuses an object, r"}
+  - {id: "FR-030-AC-1", path: *p23, role: examined, excerpt: "Every model, population, snapshot, ident"}
+  - {id: "FR-030-AC-2", path: *p23, role: examined, excerpt: "Invalid and incomplete populations, unav"}
+  - {id: "FR-030-AC-3", path: *p23, role: examined, excerpt: "No invalid, refused, incomplete, unavail"}
+  - {id: "FR-030-AC-4", path: *p23, role: examined, excerpt: "A `proved` outcome built from a run with"}
+  - {id: "FR-030-AC-5", path: *p23, role: examined, excerpt: "An `unavailable` outcome built for an ab"}
+  - {id: "FR-030-AC-6", path: *p23, role: examined, excerpt: "The `code` of the outcome built for a ze"}
+  - {id: "FR-030-AC-7", path: *p23, role: examined, excerpt: "The IR outcome constructor accepts the o"}
+  - {id: "FR-030-AC-8", path: *p23, role: examined, excerpt: "An external consumer calls each of the n"}
+  - {id: "FR-030-AC-9", path: *p23, role: examined, excerpt: "External compile-fail probes cannot pass"}
+  - {id: "FR-031-AC-1", path: *p24, role: examined, excerpt: "The shared dispatch index routes defined"}
+  - {id: "FR-036-AC-1", path: *p25, role: examined, excerpt: "Generated symbolic ranges equal model-de"}
+  - {id: "FR-036-AC-2", path: *p25, role: examined, excerpt: "Missing bounds, absent exact encodings, "}
+  - {id: "FR-036-AC-3", path: *p25, role: examined, excerpt: "Every generated item keeps its precondit"}
+  - {id: "FR-036-AC-4", path: *p25, role: examined, excerpt: "A provider completes accounting for ever"}
+  - {id: "FR-036-AC-5", path: *p25, role: examined, excerpt: "A requested claim for which the provider"}
+  - {id: "FR-037-AC-6", path: *p26, role: examined, excerpt: "Contract IR's public API names no replay"}
+  - {id: "FR-039-AC-1", path: *p27, role: examined, excerpt: "The root crate's public items are exactl"}
+  - {id: "FR-039-AC-2", path: *p27, role: examined, excerpt: "No public item names a `quire_spec_langu"}
+  - {id: "FR-039-AC-3", path: *p27, role: examined, excerpt: "Code naming any item the \"Items QSL owns"}
+  - {id: "FR-039-AC-4", path: *p27, role: examined, excerpt: "Every public `kani` function over untrus"}
+  - {id: "FR-013-AC-1", path: *p28, role: examined, excerpt: "Every closed value-type and declaration "}
+  - {id: "FR-013-AC-2", path: *p28, role: examined, excerpt: "Public serialized types contain no Rust,"}
+  - {id: "FR-013-AC-3", path: *p28, role: examined, excerpt: "Duplicate names/fields/variants, empty e"}
+  - {id: "FR-013-AC-4", path: *p28, role: examined, excerpt: "A valid declaration environment round tr"}
+  - {id: "FR-013-AC-5", path: *p28, role: examined, excerpt: "Integer bounds and literals at `i128::MI"}
+  - {id: "FR-013-AC-6", path: *p28, role: examined, excerpt: "Public `IntegerType` bounds/accessors, `"}
+  - {id: "FR-014-AC-1", path: *p29, role: examined, excerpt: "Ill-typed operands, result mismatches, i"}
+  - {id: "FR-014-AC-2", path: *p29, role: examined, excerpt: "Canonical representation distinguishes s"}
+  - {id: "FR-014-AC-3", path: *p29, role: examined, excerpt: "Current/pre/post observation policy, pur"}
+  - {id: "FR-014-AC-4", path: *p29, role: examined, excerpt: "Rechecking identical declarations, conte"}
+  - {id: "FR-014-AC-5", path: *p29, role: examined, excerpt: "Expression trees at the node/depth limit"}
+  - {id: "FR-014-AC-6", path: *p29, role: examined, excerpt: "Typed expression fixtures derive exact i"}
+  - {id: "FR-014-AC-7", path: *p29, role: examined, excerpt: "A guarded product of 120 leaves checks s"}
+  - {id: "FR-014-AC-8", path: *p29, role: examined, excerpt: "With matching declared types, integer li"}
+  - {id: "FR-014-AC-9", path: *p29, role: examined, excerpt: "Inspection of every private checked-nume"}
+  - {id: "FR-015-AC-1", path: *p30, role: examined, excerpt: "Every partial operation is accepted only"}
+  - {id: "FR-015-AC-2", path: *p30, role: examined, excerpt: "Replacing a short-circuit guard with a t"}
+  - {id: "FR-015-AC-3", path: *p30, role: examined, excerpt: "True/false facts from conjunction, disju"}
+  - {id: "FR-015-AC-4", path: *p30, role: examined, excerpt: "Reject-overflow arithmetic uses constant"}
+  - {id: "FR-015-AC-5", path: *p30, role: examined, excerpt: "Every `potentially_undefined` diagnostic"}
+  - {id: "FR-015-AC-6", path: *p30, role: examined, excerpt: "Bottom-up range sets from literals, decl"}
+  - {id: "FR-015-AC-7", path: *p30, role: examined, excerpt: "Positive and negative bounded-rational f"}
+  - {id: "FR-015-AC-8", path: *p30, role: examined, excerpt: "At an `i128::MIN` endpoint, integer `rej"}
+  - {id: "FR-016-AC-1", path: *p31, role: examined, excerpt: "Exact golden fixtures, regenerated from "}
+  - {id: "FR-016-AC-2", path: *p31, role: examined, excerpt: "A semantic change to a clause changes th"}
+  - {id: "FR-016-AC-3", path: *p31, role: examined, excerpt: "A deterministic reservation-failure harn"}
+  - {id: "FR-016-AC-4", path: *p31, role: examined, excerpt: "Each of the five object kinds exposes a "}
+  - {id: "FR-016-AC-5", path: *p31, role: examined, excerpt: "The eight integer members are JSON strin"}
+  - {id: "FR-016-AC-6", path: *p31, role: examined, excerpt: "Every canonical byte sequence and digest"}
+  - {id: "FR-016-AC-7", path: *p31, role: examined, excerpt: "The semantic value has no member that ca"}
+  - {id: "FR-016-AC-8", path: *p31, role: examined, excerpt: "The digest for kind `K` equals SHA-256 o"}
+  - {id: "FR-016-AC-9", path: *p31, role: examined, excerpt: "Canonical bytes spell integer type bound"}
+  - {id: "FR-017-AC-1", path: *p32, role: examined, excerpt: "Version preflight accepts schema 1.1; sc"}
+  - {id: "FR-017-AC-2", path: *p32, role: examined, excerpt: "Shallow, deep, uncovered, and each close"}
+  - {id: "FR-017-AC-3", path: *p32, role: examined, excerpt: "With package requirements and traces aut"}
+  - {id: "FR-017-AC-4", path: *p32, role: examined, excerpt: "For the same current requirement, a vali"}
+  - {id: "FR-017-AC-5", path: *p32, role: examined, excerpt: "Every repeated artifact ID produces exac"}
+  - {id: "FR-017-AC-6", path: *p32, role: examined, excerpt: "For every artifact ID occurring more tha"}
+  - {id: "FR-019-AC-1", path: *p33, role: examined, excerpt: "A TC-018 integration test imports `PUBLI"}
+  - {id: "FR-019-AC-3", path: *p33, role: examined, excerpt: "`expected_inventory` equals the five pre"}
+  - {id: "FR-019-AC-4", path: *p33, role: examined, excerpt: "A default-feature build of `quire-contra"}
+  - {id: "FR-019-AC-5", path: *p33, role: examined, excerpt: "The `quire_contract_model` crate root ha"}
+  - {id: "FR-019-AC-6", path: *p33, role: examined, excerpt: "The table's `CheckedArtifactRef` has exa"}
+  - {id: "FR-019-AC-2", path: *p33, role: examined, excerpt: "The complete negative corpus executes pa"}
+  - {id: "FR-019-AC-7", path: *p33, role: examined, excerpt: "Public compile-time/API fixtures constru"}
+  - {id: "FR-019-AC-8", path: *p33, role: examined, excerpt: "Compile-time fixtures and public-source "}
+  - {id: "FR-019-AC-9", path: *p33, role: examined, excerpt: "An otherwise valid package or expression"}
+  - {id: "FR-019-AC-10", path: *p33, role: examined, excerpt: "Public package and expression decoding, "}
+  - {id: "FR-019-AC-11", path: *p33, role: examined, excerpt: "Each public canonicalization entrypoint "}
+  - {id: "FR-019-AC-12", path: *p33, role: examined, excerpt: "A default-feature external API test impo"}
+  - {id: "FR-019-AC-13", path: *p33, role: examined, excerpt: "Public-source signature inspection finds"}
+  - {id: "FR-023-AC-1", path: *p34, role: examined, excerpt: "A labelled synthetic projection using sh"}
+  - {id: "FR-023-AC-2", path: *p34, role: examined, excerpt: "Missing, duplicate, foreign, stale-revis"}
+  - {id: "FR-023-AC-3", path: *p34, role: examined, excerpt: "Metadata/expression dependency disagreem"}
+  - {id: "FR-023-AC-4", path: *p34, role: examined, excerpt: "Unknown format/members, trailing JSON, i"}
+  - {id: "FR-023-AC-5", path: *p34, role: examined, excerpt: "An external integration test consumes pu"}
+  - {id: "FR-023-AC-6", path: *p34, role: examined, excerpt: "A projection whose package source revisi"}
+  - {id: "FR-028-AC-1", path: *p35, role: examined, excerpt: "Cargo metadata for every production feat"}
+  - {id: "FR-028-AC-2", path: *p35, role: examined, excerpt: "Schemas, canonical bytes, identities, di"}
+  - {id: "FR-028-AC-3", path: *p35, role: examined, excerpt: "The root package's own manifest names no"}
+  - {id: "FR-028-AC-4", path: *p35, role: examined, excerpt: "Default, all-feature and minimum-version"}
+  - {id: "FR-028-AC-5", path: *p35, role: examined, excerpt: "The split introduces no copied owner wir"}
+  - {id: "FR-046-AC-1", path: *p36, role: examined, excerpt: "An external model-crate consumer derives"}
+  - {id: "FR-046-AC-2", path: *p36, role: examined, excerpt: "An ordinary application produces the ind"}
+  - {id: "FR-046-AC-3", path: *p36, role: examined, excerpt: "A group containing applications and nona"}
+  - {id: "FR-046-AC-4", path: *p36, role: examined, excerpt: "Missing grouped context, absent target, "}
+  - {id: "FR-046-AC-5", path: *p36, role: examined, excerpt: "For an independently encoded preimage of"}
+  - {id: "FR-046-AC-6", path: *p36, role: examined, excerpt: "After correct final-key/reference substi"}
+  - {id: "FR-048-AC-1", path: *p37, role: examined, excerpt: "An external default-feature model-crate "}
+  - {id: "FR-048-AC-2", path: *p37, role: examined, excerpt: "Reader-admissible owner-free `reference`"}
+  - {id: "FR-048-AC-3", path: *p37, role: examined, excerpt: "A reader-admissible group with structura"}
+  - {id: "FR-048-AC-4", path: *p37, role: examined, excerpt: "Repeated selectors, an unknown tag/form,"}
+  - {id: "FR-048-AC-5", path: *p37, role: examined, excerpt: "Exact canonical byte ceiling succeeds; o"}
+  - {id: "FR-052-AC-1", path: *p38, role: examined, excerpt: "A default-feature consumer imports and c"}
+  - {id: "FR-052-AC-2", path: *p38, role: examined, excerpt: "A typed fixture containing two Quire-aut"}
+  - {id: "FR-052-AC-3", path: *p38, role: examined, excerpt: "A foreign source, each dangling endpoint"}
+  - {id: "FR-052-AC-4", path: *p38, role: examined, excerpt: "Inspection of the public constructor and"}
+  - {id: "FR-052-AC-5", path: *p38, role: examined, excerpt: "An external default-feature consumer com"}
+  - {id: "FR-052-AC-6", path: *p38, role: examined, excerpt: "Omitting each of the four owner outcomes"}
+  - {id: "FR-052-AC-7", path: *p38, role: examined, excerpt: "Complete Quire scope covers every author"}
+  - {id: "FR-052-AC-9", path: *p38, role: examined, excerpt: "For each of the four owners, the native "}
+  - {id: "FR-052-AC-10", path: *p38, role: examined, excerpt: "For each owner, stopping before normal e"}
+  - {id: "FR-052-AC-11", path: *p38, role: examined, excerpt: "The neutral model retains an owner-issue"}
+  - {id: "FR-052-AC-12", path: *p38, role: examined, excerpt: "A synthetic `SourceInventoryEnumerator` "}
+  - {id: "FR-052-AC-13", path: *p38, role: examined, excerpt: "For a synthetic enumerator, the neutral "}
+  - {id: "FR-052-AC-14", path: *p38, role: examined, excerpt: "A default-feature neutral consumer disti"}
+  - {id: "FR-052-AC-15", path: *p38, role: examined, excerpt: "An explicit source-author binding connec"}
+  - {id: "FR-052-AC-16", path: *p38, role: examined, excerpt: "With PLAT-1165's real Quire producer, no"}
+  - {id: "FR-052-AC-17", path: *p38, role: examined, excerpt: "Given four synthetic `Complete` outcomes"}
+  - {id: "FR-052-AC-18", path: *p38, role: examined, excerpt: "Given synthetic outcomes, two faults in "}
+  - {id: "FR-052-AC-19", path: *p38, role: examined, excerpt: "Given synthetic `Complete` outcomes, an "}
+  - {id: "FR-052-AC-20", path: *p38, role: examined, excerpt: "Given the FR-052-AC-17 inputs, permuting"}
+  - {id: "FR-052-AC-21", path: *p38, role: examined, excerpt: "Given synthetic outcomes, an outcome in "}
+  - {id: "FR-052-AC-22", path: *p38, role: examined, excerpt: "Given synthetic `Complete` outcomes, two"}
+  - {id: "FR-052-AC-23", path: *p38, role: examined, excerpt: "Given synthetic `Complete` outcomes, an "}
+  - {id: "FR-052-AC-24", path: *p38, role: examined, excerpt: "Conflicting inventory facts (two `Semant"}
+  - {id: "FR-052-AC-25", path: *p38, role: examined, excerpt: "Given an owner-issued IR V2 reader resul"}
+  - {id: "FR-052-AC-26", path: *p38, role: examined, excerpt: "Given a selected QSL checked request, th"}
+  - {id: "FR-052-AC-27", path: *p38, role: examined, excerpt: "Given a `quire-code-rs` selected product"}
+  - {id: "FR-053-AC-1", path: *p39, role: examined, excerpt: "Through a default-feature public model c"}
+  - {id: "FR-053-AC-2", path: *p39, role: examined, excerpt: "Two population nodes with the same selec"}
+  - {id: "FR-053-AC-3", path: *p39, role: examined, excerpt: "An absent selector yields `Unavailable`;"}
+  - {id: "FR-053-AC-4", path: *p39, role: examined, excerpt: "A selected domain-package PopulationReco"}
+  - {id: "FR-053-AC-5", path: *p39, role: examined, excerpt: "A compiled default-feature consumer read"}
+  - {id: "FR-032-AC-1", path: *p40, role: examined, excerpt: "A valid request retains the exact bound "}
+  - {id: "FR-032-AC-2", path: *p40, role: examined, excerpt: "Empty, duplicate, informational, missing"}
+  - {id: "FR-032-AC-3", path: *p40, role: examined, excerpt: "Target family, standard references, mapp"}
+  - {id: "FR-032-AC-4", path: *p40, role: examined, excerpt: "Path, timestamp, locale, display text, i"}
+  - {id: "FR-032-AC-5", path: *p40, role: examined, excerpt: "Every emitted refusal code has exactly o"}
+  - {id: "FR-032-AC-6", path: *p40, role: examined, excerpt: "A request whose canonical identity mater"}
+  - {id: "FR-033-AC-1", path: *p41, role: examined, excerpt: "Every requested obligation is dispatched"}
+  - {id: "FR-033-AC-2", path: *p41, role: examined, excerpt: "Preserved, conditional, unrepresented, a"}
+  - {id: "FR-033-AC-3", path: *p41, role: examined, excerpt: "Mutating any source, dependency, profile"}
+  - {id: "FR-033-AC-4", path: *p41, role: examined, excerpt: "Pending, incomplete, or refused source f"}
+  - {id: "FR-033-AC-5", path: *p41, role: examined, excerpt: "Observation and protocol adequacy remain"}
+  - {id: "FR-033-AC-6", path: *p41, role: examined, excerpt: "A mapper candidate whose record identity"}
+  - {id: "FR-034-AC-1", path: *p42, role: examined, excerpt: "Equal admitted requests, mapper candidat"}
+  - {id: "FR-034-AC-2", path: *p42, role: examined, excerpt: "Missing, duplicate, foreign, stale, reor"}
+  - {id: "FR-034-AC-3", path: *p42, role: examined, excerpt: "Every zero, exact, just-over, and overfl"}
+  - {id: "FR-034-AC-4", path: *p42, role: examined, excerpt: "Mutating source/profile/generator owner/"}
+  - {id: "FR-034-AC-5", path: *p42, role: examined, excerpt: "Structural observer acceptance, refusal,"}
+  - {id: "FR-034-AC-6", path: *p42, role: examined, excerpt: "Identity material is canonicalized under"}
+  - {id: "FR-034-AC-7", path: *p42, role: examined, excerpt: "The record identity and the package iden"}
+  - {id: "FR-034-AC-8", path: *p42, role: examined, excerpt: "In the written-out material each `Mappin"}
+  - {id: "FR-034-AC-9", path: *p42, role: examined, excerpt: "A request whose `maximum_emitted_bytes` "}
+  - {id: "fixture_key", path: *p43, role: examined, excerpt: "/// FR-092/FR-094 keys computed here fro"}
+findings:
+  - {fnd: "FND-001", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-035-AC-9", related_ids: [], path: *p0, lines: "183", excerpt: "The typed profile exposes `required_source_selections: Vec<CheckedSelection>` and the IR adapter con", finding: "FR-035-AC-9 has no test carrying its criterion binding."}
+  - {fnd: "FND-002", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-038-AC-132", related_ids: [], path: *p1, lines: "4812", excerpt: "No copy (IR-627 checkout-reference harness implemented; IR-630 extended conformance PLANNED and UNRU", finding: "FR-038-AC-132 has no test carrying its criterion binding."}
+  - {fnd: "FND-003", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-038-AC-135", related_ids: [], path: *p1, lines: "4815", excerpt: "Adverse mutations still reach their stage (IR-627; planned, ungated; supersedes AC-112's base packag", finding: "FR-038-AC-135 has no test carrying its criterion binding."}
+  - {fnd: "FND-004", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-038-AC-232", related_ids: [], path: *p1, lines: "4911", excerpt: "PLANNED/UNRUN (IR-691). A fresh QSL FR-093 checked and emitted `record Point { x: Int[0,9]; }` value", finding: "FR-038-AC-232 has no test carrying its criterion binding."}
+  - {fnd: "FND-005", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-038-AC-233", related_ids: [], path: *p1, lines: "4912", excerpt: "PLANNED/UNRUN (IR-691). In crate-internal admitted-then-mutated controls, altering only the narrow n", finding: "FR-038-AC-233 has no test carrying its criterion binding."}
+  - {fnd: "FND-006", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-038-AC-234", related_ids: [], path: *p1, lines: "4913", excerpt: "PLANNED/UNRUN (IR-691). A narrow whose argument reaches a parameter, another application including a", finding: "FR-038-AC-234 has no test carrying its criterion binding."}
+  - {fnd: "FND-007", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-038-AC-235", related_ids: [], path: *p1, lines: "4914", excerpt: "PLANNED/UNRUN (IR-691). Independently count the exact logical graph, term/member, examined-endpoint-", finding: "FR-038-AC-235 has no test carrying its criterion binding."}
+  - {fnd: "FND-008", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-038-AC-281", related_ids: [], path: *p1, lines: "4956", excerpt: "A reader-admitted protocol member has a `quire.op.protocol.control` body root, exactly one `protocol", finding: "FR-038-AC-281 has no test carrying its criterion binding."}
+  - {fnd: "FND-009", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-038-AC-282", related_ids: [], path: *p1, lines: "4957", excerpt: "Each of the seven protocol member forms admits only the FR-464, FR-465 or FR-466 fixed argument name", finding: "FR-038-AC-282 has no test carrying its criterion binding."}
+  - {fnd: "FND-010", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-038-AC-283", related_ids: [], path: *p1, lines: "4958", excerpt: "A protocol node derives its `quire.application-node/v1` key from its exact tag, form, Boolean type, ", finding: "FR-038-AC-283 has no test carrying its criterion binding."}
+  - {fnd: "FND-011", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-038-AC-284", related_ids: [], path: *p1, lines: "4959", excerpt: "The reader runs a protocol step after state, temporal and abstraction and before operations. That st", finding: "FR-038-AC-284 has no test carrying its criterion binding."}
+  - {fnd: "FND-012", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-038-AC-285", related_ids: [], path: *p1, lines: "4960", excerpt: "Every role, channel, queue, obligation and compensation is listed by exactly one owning protocol cla", finding: "FR-038-AC-285 has no test carrying its criterion binding."}
+  - {fnd: "FND-013", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-038-AC-286", related_ids: [], path: *p1, lines: "4961", excerpt: "A role admits the FR-465 static and replicated shapes only, including a model of an eligible form, r", finding: "FR-038-AC-286 has no test carrying its criterion binding."}
+  - {fnd: "FND-014", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-038-AC-287", related_ids: [], path: *p1, lines: "4962", excerpt: "A clause names exactly one `finish` obligation whose closing-record binder and Boolean constraint re", finding: "FR-038-AC-287 has no test carrying its criterion binding."}
+  - {fnd: "FND-015", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-038-AC-288", related_ids: [], path: *p1, lines: "4963", excerpt: "Each of the thirteen control operators admits its FR-466 ordered arguments and local reference, type", finding: "FR-038-AC-288 has no test carrying its criterion binding."}
+  - {fnd: "FND-016", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-038-AC-289", related_ids: [], path: *p1, lines: "4964", excerpt: "A `compensate` body admits the thirteen FR-466 bindings in order, including distinct registration an", finding: "FR-038-AC-289 has no test carrying its criterion binding."}
+  - {fnd: "FND-017", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-038-AC-290", related_ids: [], path: *p1, lines: "4965", excerpt: "For each clause the reader constructs the QSpec FR-464 derived causal relation from control containm", finding: "FR-038-AC-290 has no test carrying its criterion binding."}
+  - {fnd: "FND-018", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-038-AC-291", related_ids: [], path: *p1, lines: "4966", excerpt: "Binder levels start at the introducing construct's entry count; protocol `over` is level 0, an `each", finding: "FR-038-AC-291 has no test carrying its criterion binding."}
+  - {fnd: "FND-019", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-038-AC-292", related_ids: [], path: *p1, lines: "4967", excerpt: "At a `choice` or `repeat` decision the reader admits only QSpec FR-466 visible facts owned by the de", finding: "FR-038-AC-292 has no test carrying its criterion binding."}
+  - {fnd: "FND-020", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "NFR-006-M-1", related_ids: [], path: *p11, lines: "1", excerpt: "Peak incremental resident memory in the TC-455 emission window", finding: "NFR-006-M-1 has no test carrying its criterion binding."}
+  - {fnd: "FND-021", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "NFR-006-M-2", related_ids: [], path: *p11, lines: "1", excerpt: "Concurrent extra owned copies of each projected graph-node body on the successful producer path", finding: "NFR-006-M-2 has no test carrying its criterion binding."}
+  - {fnd: "FND-022", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "NFR-006-M-3", related_ids: [], path: *p11, lines: "1", excerpt: "Canonical package bytes and `package_id` for the same checked input", finding: "NFR-006-M-3 has no test carrying its criterion binding."}
+  - {fnd: "FND-023", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-045-AC-1", related_ids: [], path: *p17, lines: "72", excerpt: "From a fixture whose inventories contain two criteria, three obligations and two production function", finding: "FR-045-AC-1 has no test carrying its criterion binding."}
+  - {fnd: "FND-024", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-045-AC-2", related_ids: [], path: *p17, lines: "73", excerpt: "A proved production Kani result credits only its exactly matched claim and declared finite domain wh", finding: "FR-045-AC-2 has no test carrying its criterion binding."}
+  - {fnd: "FND-025", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-045-AC-3", related_ids: [], path: *p17, lines: "74", excerpt: "An effective bound narrower than declared is reported only for that narrower domain; a shadow proof ", finding: "FR-045-AC-3 has no test carrying its criterion binding."}
+  - {fnd: "FND-026", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-045-AC-4", related_ids: [], path: *p17, lines: "75", excerpt: "Requirement, module, function and obligation reports have separately derived eligible denominators a", finding: "FR-045-AC-4 has no test carrying its criterion binding."}
+  - {fnd: "FND-027", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-045-AC-5", related_ids: [], path: *p17, lines: "76", excerpt: "An FR-029 `unsupported` negotiation disposition remains visible with its capability and reason and r", finding: "FR-045-AC-5 has no test carrying its criterion binding."}
+  - {fnd: "FND-028", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-045-AC-6", related_ids: [], path: *p17, lines: "77", excerpt: "Repeating a baseline on unchanged authoritative inventories, policy and results produces the same ro", finding: "FR-045-AC-6 has no test carrying its criterion binding."}
+  - {fnd: "FND-029", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-055-AC-1", related_ids: [], path: *p18, lines: "33", excerpt: "The normal `make deny` recipe invokes the released `quire check-lock Cargo.lock` command on this rep", finding: "FR-055-AC-1 has no test carrying its criterion binding."}
+  - {fnd: "FND-030", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-055-AC-2", related_ids: [], path: *p18, lines: "34", excerpt: "Through the same normal `make deny` recipe, a scratch lock with duplicate first-party Git package na", finding: "FR-055-AC-2 has no test carrying its criterion binding."}
+  - {fnd: "FND-031", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-055-AC-3", related_ids: [], path: *p18, lines: "35", excerpt: "A missing checker executable, malformed scratch lock, or checker refusal cannot produce successful `", finding: "FR-055-AC-3 has no test carrying its criterion binding."}
+  - {fnd: "FND-032", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-055-AC-5", related_ids: [], path: *p18, lines: "37", excerpt: "Adoption leaves the committed Cargo manifests and lock byte-for-byte unchanged and adds no runtime d", finding: "FR-055-AC-5 has no test carrying its criterion binding."}
+  - {fnd: "FND-033", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "NFR-001-AC-2", related_ids: [], path: *p19, lines: "36", excerpt: "For each fixed admitted corpus input and supported profile that yields canonical output, Linux, macO", finding: "NFR-001-AC-2 has no test carrying its criterion binding."}
+  - {fnd: "FND-034", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "NFR-001-AC-3", related_ids: [], path: *p19, lines: "37", excerpt: "For each fixed rejected corpus input and profile, repeated runs and supported operating systems prod", finding: "NFR-001-AC-3 has no test carrying its criterion binding."}
+  - {fnd: "FND-035", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "NFR-001-M-1", related_ids: [], path: *p19, lines: "1", excerpt: "Cross-run byte equality", finding: "NFR-001-M-1 has no test carrying its criterion binding."}
+  - {fnd: "FND-036", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "NFR-001-M-2", related_ids: [], path: *p19, lines: "1", excerpt: "Cross-platform canonical byte equality", finding: "NFR-001-M-2 has no test carrying its criterion binding."}
+  - {fnd: "FND-037", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "NFR-001-M-3", related_ids: [], path: *p19, lines: "1", excerpt: "Ordered diagnostic code/path tuple equality", finding: "NFR-001-M-3 has no test carrying its criterion binding."}
+  - {fnd: "FND-038", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "NFR-002-M-1", related_ids: [], path: *p20, lines: "1", excerpt: "Forbidden public vocabulary", finding: "NFR-002-M-1 has no test carrying its criterion binding."}
+  - {fnd: "FND-039", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "NFR-002-M-2", related_ids: [], path: *p20, lines: "1", excerpt: "Target-dependent canonical fields", finding: "NFR-002-M-2 has no test carrying its criterion binding."}
+  - {fnd: "FND-040", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "NFR-003-M-1", related_ids: [], path: *p21, lines: "1", excerpt: "Public panic paths for untrusted input", finding: "NFR-003-M-1 has no test carrying its criterion binding."}
+  - {fnd: "FND-041", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "NFR-003-M-2", related_ids: [], path: *p21, lines: "1", excerpt: "Failure classes with stable code", finding: "NFR-003-M-2 has no test carrying its criterion binding."}
+  - {fnd: "FND-042", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "NFR-003-M-3", related_ids: [], path: *p21, lines: "1", excerpt: "Coverage diagnostic locus accuracy", finding: "NFR-003-M-3 has no test carrying its criterion binding."}
+  - {fnd: "FND-043", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "NFR-003-M-4", related_ids: [], path: *p21, lines: "1", excerpt: "Orphans counted as covered", finding: "NFR-003-M-4 has no test carrying its criterion binding."}
+  - {fnd: "FND-044", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-030-AC-4", related_ids: [], path: *p23, lines: "157", excerpt: "A `proved` outcome built from a run with three SUCCESS checks carries the count three; a run with ze", finding: "FR-030-AC-4 has no test carrying its criterion binding."}
+  - {fnd: "FND-045", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-030-AC-5", related_ids: [], path: *p23, lines: "158", excerpt: "An `unavailable` outcome built for an absent checker carries cause `kani_checker_absent` and one bui", finding: "FR-030-AC-5 has no test carrying its criterion binding."}
+  - {fnd: "FND-046", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-030-AC-7", related_ids: [], path: *p23, lines: "160", excerpt: "The IR outcome constructor accepts the observed caller-request or timer-owner deadline source as `Ca", finding: "FR-030-AC-7 has no test carrying its criterion binding."}
+  - {fnd: "FND-047", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-036-AC-1", related_ids: [], path: *p25, lines: "58", excerpt: "Generated symbolic ranges equal model-derived inclusive domains, including boundary values.", finding: "FR-036-AC-1 has no test carrying its criterion binding."}
+  - {fnd: "FND-048", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-036-AC-2", related_ids: [], path: *p25, lines: "59", excerpt: "Missing bounds, absent exact encodings, and unsupported meaning produce a per-item non-success and n", finding: "FR-036-AC-2 has no test carrying its criterion binding."}
+  - {fnd: "FND-049", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-036-AC-3", related_ids: [], path: *p25, lines: "60", excerpt: "Every generated item keeps its precondition, postcondition, invariant and frame clauses separate.", finding: "FR-036-AC-3 has no test carrying its criterion binding."}
+  - {fnd: "FND-050", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-036-AC-4", related_ids: [], path: *p25, lines: "61", excerpt: "A provider completes accounting for every requested item before exposing generated bytes or a result", finding: "FR-036-AC-4 has no test carrying its criterion binding."}
+  - {fnd: "FND-051", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-036-AC-5", related_ids: [], path: *p25, lines: "62", excerpt: "A requested claim for which the provider manifest advertises no matching FR-290 capability settles `", finding: "FR-036-AC-5 has no test carrying its criterion binding."}
+  - {fnd: "FND-052", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-037-AC-6", related_ids: [], path: *p26, lines: "66", excerpt: "Contract IR's public API names no replay envelope, replay request, replay result, witness, parity ve", finding: "FR-037-AC-6 has no test carrying its criterion binding."}
+  - {fnd: "FND-053", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-039-AC-1", related_ids: [], path: *p27, lines: "113", excerpt: "The root crate's public items are exactly those the Public items table lists, checked by a public-si", finding: "FR-039-AC-1 has no test carrying its criterion binding."}
+  - {fnd: "FND-054", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-039-AC-2", related_ids: [], path: *p27, lines: "114", excerpt: "No public item names a `quire_spec_language::runtime` type and no source file under `src/` names `qu", finding: "FR-039-AC-2 has no test carrying its criterion binding."}
+  - {fnd: "FND-055", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-039-AC-3", related_ids: [], path: *p27, lines: "115", excerpt: "Code naming any item the \"Items QSL owns\" or \"Items codegen owns\" section lists through `quire_contr", finding: "FR-039-AC-3 has no test carrying its criterion binding."}
+  - {fnd: "FND-056", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-039-AC-4", related_ids: [], path: *p27, lines: "116", excerpt: "Every public `kani` function over untrusted input returns a typed error with no public panic path un", finding: "FR-039-AC-4 has no test carrying its criterion binding."}
+  - {fnd: "FND-057", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-016-AC-1", related_ids: [], path: *p31, lines: "148", excerpt: "Exact golden fixtures, regenerated from `quire-canonical`'s own output, pin the profile envelope, es", finding: "FR-016-AC-1 has no test carrying its criterion binding."}
+  - {fnd: "FND-058", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-016-AC-3", related_ids: [], path: *p31, lines: "150", excerpt: "A deterministic reservation-failure harness forces canonical byte allocation failure and verifies `c", finding: "FR-016-AC-3 has no test carrying its criterion binding."}
+  - {fnd: "FND-059", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-017-AC-2", related_ids: [], path: *p32, lines: "97", excerpt: "Shallow, deep, uncovered, and each closed orphan reason have positive/negative fixtures; stale revis", finding: "FR-017-AC-2 has no test carrying its criterion binding."}
+  - {fnd: "FND-060", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-019-AC-4", related_ids: [], path: *p33, lines: "219", excerpt: "A default-feature build of `quire-contract-model` exports neither `MappingAllocationPoint` nor `Mapp", finding: "FR-019-AC-4 has no test carrying its criterion binding."}
+  - {fnd: "FND-061", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-028-AC-4", related_ids: [], path: *p35, lines: "63", excerpt: "Default, all-feature and minimum-version builds prove that no optional, dev or historical dependency", finding: "FR-028-AC-4 is bound only to an ignored test."}
+  - {fnd: "FND-062", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-052-AC-7", related_ids: [], path: *p38, lines: "471", excerpt: "Complete Quire scope covers every authored acceptance criterion in the bound selected corpus and dec", finding: "FR-052-AC-7 has no test carrying its criterion binding."}
+  - {fnd: "FND-063", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-052-AC-9", related_ids: [], path: *p38, lines: "472", excerpt: "For each of the four owners, the native enumerator or typed adapter issues a `Complete` outcome only", finding: "FR-052-AC-9 has no test carrying its criterion binding."}
+  - {fnd: "FND-064", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-052-AC-10", related_ids: [], path: *p38, lines: "473", excerpt: "For each owner, stopping before normal exhaustion issues `Incomplete` with retained partial rows and", finding: "FR-052-AC-10 has no test carrying its criterion binding."}
+  - {fnd: "FND-065", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-052-AC-11", related_ids: [], path: *p38, lines: "474", excerpt: "The neutral model retains an owner-issued outcome only when its source, owner, scope and observed co", finding: "FR-052-AC-11 has no test carrying its criterion binding."}
+  - {fnd: "FND-066", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-052-AC-16", related_ids: [], path: *p38, lines: "479", excerpt: "With PLAT-1165's real Quire producer, normal exhaustion of the validated selected scope issues `Comp", finding: "FR-052-AC-16 has no test carrying its criterion binding."}
+  - {fnd: "FND-067", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-052-AC-26", related_ids: [], path: *p38, lines: "489", excerpt: "Given a selected QSL checked request, the QSL-owned adapter enumerates every `CheckedGraph::requirem", finding: "FR-052-AC-26 has no test carrying its criterion binding."}
+  - {fnd: "FND-068", severity: "high", confidence: "high", method: "gap-analysis", check: "coverage", artifact_id: "FR-052-AC-27", related_ids: [], path: *p38, lines: "490", excerpt: "Given a `quire-code-rs` selected production module, the owner adapter retains that module and every ", finding: "FR-052-AC-27 has no test carrying its criterion binding."}
+  - {fnd: "FND-069", severity: "medium", confidence: "high", method: "gap-analysis", check: "other", artifact_id: "fixture_key", related_ids: ["FR-092"], path: *p43, lines: "390", excerpt: "/// FR-092/FR-094 keys computed here from the declared preimages, independent", finding: "An authored FR-092 trace on the non-test fixture_key helper cannot bind an evidence criterion."}
+bindings: []
+```
+
++++
