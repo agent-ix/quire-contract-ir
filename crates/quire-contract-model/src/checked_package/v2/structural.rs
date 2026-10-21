@@ -90,7 +90,6 @@ enum Defect {
     SemanticType,
     Dependencies,
     Occurrences,
-    Occurrence(usize),
     /// The node body itself.
     Body,
     /// One member of the node body's `aggregate`.
@@ -106,7 +105,6 @@ impl Defect {
             Self::SemanticType => node.key("semantic_type"),
             Self::Dependencies => node.key("dependencies"),
             Self::Occurrences => node.key("occurrences"),
-            Self::Occurrence(index) => node.key("occurrences").index(index),
             Self::Body => node.key("body"),
             Self::BodyMember(member) => node.key("body").key("members").index(member),
             Self::Role(occurrence) => node.key("occurrences").index(occurrence).key("role"),
@@ -370,9 +368,6 @@ pub(super) fn validate_structural_nodes(
 fn protocol_reference_defect(node: &CheckedSemanticNodeV2) -> Option<Defect> {
     if node.occurrences.is_empty() {
         return Some(Defect::Occurrences);
-    }
-    if node.occurrences.len() > 1 {
-        return Some(Defect::Occurrence(1));
     }
     let Some(target) = reference_target(&node.body) else {
         return Some(Defect::Body);
