@@ -238,7 +238,7 @@ fn literal_integer(term: &Value) -> Result<BigInt, CheckedScalarOperandError> {
         .get("value")
         .and_then(Value::as_str)
         .ok_or(Error::MissingRange)?;
-    text.parse::<BigInt>().map_err(|_| Error::MissingRange)
+    text.parse::<BigInt>().map_err(|_| Error::RangeOutOfI128)
 }
 
 fn type_range(

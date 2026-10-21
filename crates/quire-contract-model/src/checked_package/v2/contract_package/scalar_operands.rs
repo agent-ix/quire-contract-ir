@@ -11,19 +11,17 @@ use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedSemanticId, CheckedSourceMapEntry,
 };
 use crate::checked_package::v2::scalar_operands::{scalar_arguments, ScalarArgumentChild};
-use crate::checked_package::v2::{
-    CheckedScalarOperandError, CheckedScalarOperandRange, CheckedSemanticNodeV2,
-};
+use crate::checked_package::v2::{CheckedScalarOperandError, CheckedScalarOperandRange};
 use num_bigint::BigInt;
 use thiserror::Error;
 
 /// A represented graph child or an occurrence-qualified inline integer.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ContractScalarOperandChildV1<'a> {
-    /// One referenced node with its exact admitted source-map entries.
+    /// One referenced node key with its exact admitted source-map entries.
     GraphReference {
-        /// The represented graph node.
-        node: &'a CheckedSemanticNodeV2,
+        /// The represented graph node's authenticated key.
+        node_id: &'a CheckedNodeId,
         /// That node's admitted sources.
         sources: &'a [CheckedSourceMapEntry],
     },
@@ -172,7 +170,10 @@ impl ContractPackageV1 {
                         let sources = self.sources(&node.node_id).ok_or(
                             ContractScalarOperandErrorV1::View(ContractRootViewError::Inconsistent),
                         )?;
-                        ContractScalarOperandChildV1::GraphReference { node, sources }
+                        ContractScalarOperandChildV1::GraphReference {
+                            node_id: &node.node_id,
+                            sources,
+                        }
                     }
                     ScalarArgumentChild::InlineInteger(value) => {
                         ContractScalarOperandChildV1::InlineInteger {

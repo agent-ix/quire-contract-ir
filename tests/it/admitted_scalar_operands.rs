@@ -66,12 +66,12 @@ fn tc_457_admitted_add_retains_graph_child_then_inline_one() {
         (view.arguments[0].ordinal, view.arguments[1].ordinal),
         (0, 1)
     );
-    let ContractScalarOperandChildV1::GraphReference { node, sources } = &view.arguments[0].child
+    let ContractScalarOperandChildV1::GraphReference { node_id, sources } =
+        &view.arguments[0].child
     else {
         panic!("first argument must be a represented graph child");
     };
-    assert_eq!(node.semantic_form.as_ref(), "parameter");
-    assert_eq!(*sources, sources_for(&admitted, &node.node_id));
+    assert_eq!(*sources, sources_for(&admitted, node_id));
     assert!(matches!(
         view.arguments[0].own_range,
         ContractScalarOwnRangeV1::Finite { lower: 0, upper: 9 }
@@ -128,18 +128,18 @@ fn tc_457_repeated_graph_child_keeps_both_authored_positions() {
     );
     let (
         ContractScalarOperandChildV1::GraphReference {
-            node: first,
+            node_id: first,
             sources: first_sources,
         },
         ContractScalarOperandChildV1::GraphReference {
-            node: second,
+            node_id: second,
             sources: second_sources,
         },
     ) = (&view.arguments[0].child, &view.arguments[1].child)
     else {
         panic!("both positions must be graph references");
     };
-    assert_eq!(first.node_id, second.node_id);
+    assert_eq!(first, second);
     assert_eq!(first_sources, second_sources);
 }
 
@@ -272,11 +272,11 @@ fn tc_457_inconsistent_child_source_refuses_without_a_partial_vector() {
         else {
             panic!("add lowered");
         };
-        let ContractScalarOperandChildV1::GraphReference { node, .. } = &view.arguments[0].child
+        let ContractScalarOperandChildV1::GraphReference { node_id, .. } = &view.arguments[0].child
         else {
             panic!("first argument is graph reference");
         };
-        node.node_id.clone()
+        (*node_id).clone()
     };
     assert!(admitted.fault_inject_missing_source_for_test(&child));
     assert_eq!(
