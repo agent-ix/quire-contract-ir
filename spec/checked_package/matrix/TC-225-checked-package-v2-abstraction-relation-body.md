@@ -42,7 +42,10 @@ Compute each expected `node_id` from the body in the test through
 
 For FR-346-AC-7 and FR-154-AC-14, first admit an unchanged selected domain
 document declaring `rebase(from, to)` with a frame entry that binds both
-parameters. Then change only that declaration: remove a parameter `name`,
+parameters. Separately admit `rebase(from, From)` with distinct parameter
+identities ending in `from` and `From` and a frame entry binding both names;
+the case-only difference must not be treated as a duplicate. Then change only
+the original `rebase(from, to)` declaration: remove a parameter `name`,
 make it null or non-string, make it empty or syntactically invalid, give it a
 valid name that differs from its identity's last segment (including the other
 parameter's name while retaining distinct identities), and repeat one
@@ -60,8 +63,11 @@ two steps or two checks reports the earlier one.
 
 ## Status
 
-Implemented in `tests/it/checked_package_v2_abstraction_relation.rs`
-(FR-346-AC-1 to AC-10, and one lowering test that asserts no AC) and the
-Rust spelling and body grammar unit tests in
+Partially implemented in `tests/it/checked_package_v2_abstraction_relation.rs`
+(the existing FR-346-AC-1 to AC-10 cases and one lowering test that asserts no
+AC) and the Rust spelling and body grammar unit tests in
 `crates/quire-contract-model/src/checked_package/v2/rust_spelling.rs` and
-`crates/quire-contract-model/src/checked_package/v2/mod.rs`.
+`crates/quire-contract-model/src/checked_package/v2/mod.rs`. The new
+FR-154-AC-14 selection-row refusals, collision precedence, and admitted
+case-only name control remain planned; the existing parameter-name test still
+asserts the former frame-entry refusal until the IR-571 code change lands.
