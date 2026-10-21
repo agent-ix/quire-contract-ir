@@ -116,6 +116,22 @@ fn domain_type(
     })
 }
 
+fn domain_population(identity: &str) -> Value {
+    json!({
+        "identity": identity,
+        "displayName": identity.rsplit('/').next().expect("population name"),
+        "kind": {"module": IDENTITY, "name": "population"},
+        "members": [CONFIG_VERSION],
+        "extent": "closed",
+        "origin": {"source": {
+            "sourceIdentity": "ix://acme/config/spec",
+            "path": "config/populations.md",
+            "startLine": 1,
+            "startColumn": 1,
+        }},
+    })
+}
+
 fn domain_document() -> Value {
     json!({
         "contractVersion": "2.0.0",
@@ -123,6 +139,9 @@ fn domain_document() -> Value {
         "constructs": [{
             "kind": {"module": IDENTITY, "name": "entity"},
             "construct": {"meaning": "quire.meaning.model.object-type/v1"},
+        }, {
+            "kind": {"module": IDENTITY, "name": "population"},
+            "construct": {"meaning": "quire.meaning.model.population/v1"},
         }],
         "types": [
             domain_type(
@@ -152,7 +171,7 @@ fn domain_document() -> Value {
             ),
             domain_type(BOTH, &[LEFT, RIGHT], vec![], vec![]),
         ],
-        "populations": [{"node": POPULATION_A}, {"node": POPULATION_B}],
+        "populations": [domain_population(POPULATION_A), domain_population(POPULATION_B)],
     })
 }
 
