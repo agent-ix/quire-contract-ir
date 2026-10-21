@@ -2606,3 +2606,9 @@ scope:
 | FND-069 | deferred | Inherited exact-base program debt handed to existing IR-878 owner luna:IR:plan in live comment c235aa4e-50e1-4489-9477-f6915a9a6787; outside the specification-only consumer contract. Remains unresolved; no passing coverage claim. |
 
 Stage disposition: all 69 findings are explicitly deferred to their actual owners. The full-gap verdict remains FAIL. The planned spec contract can merge without declaring consumer adoption implemented, without relaxing any gate, and without closing IR-641.
+
+## Narrow Disposition (round 2)
+
+Same-reviewer narrow disposition after review custody only: all 20 committed typed/raw review files match their source bytes; no product, specification, Makefile or dependency change exists relative to the reviewed candidate. Existing eight PASS method verdicts stand. The full-gap verdict remains FAIL and all 69 prior findings retain their explicit deferred outcomes. The normal final make-spec structural stage passed (1222/1222 documents, zero grammar findings), then strict coverage failed: exact base 40 inherited unbacked rows versus final 45, zero contradicted statuses in both, and no removed rows. The five added rows are exactly FR-055-AC-1/2/3/4/5; all belong to same-ticket IR-641 implementation/qualification after specification merge. AC4 is Inspection, not a fifth missing Test binding. The 40 inherited normal-gate rows were handed to the actual IR-878 owner in comment f2ed9a92-6141-4d8c-97d5-9554b825e83b. No failing gate, criterion, inspection result or implementation status is relabeled green.
+
+No new finding was introduced by custody. No prior finding was reopened or changed; their latest explicit outcomes remain deferred. The empty round-2 dispositions list means there was no open finding requiring a new outcome, not that the full gap became clean.

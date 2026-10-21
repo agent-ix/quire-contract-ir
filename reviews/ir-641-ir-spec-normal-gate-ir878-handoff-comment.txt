@@ -1,0 +1,274 @@
+IR-641 IR spec PR #499 normal-gate inherited-row handoff, supplemental to SR-15311 and comment c235aa4e. Actual source-only coverage on the exact fresh base gives 40 strict unbacked rows and zero contradicted statuses. The final normal make-spec log gives 45 strict unbacked rows and zero contradicted statuses; its entire row set matches the reviewed final spec. The delta is exactly FR-055-AC-1 through FR-055-AC-5 (including AC4 Inspection). The 40 base rows below remain inherited IR-878 owner debt under luna:IR:plan; they are not declared fixed or waived. All five new consumer qualification rows stay with IR-641 implementation after specification merge.
+
+The strict legacy-reference row count is distinct from the computed criterion matrix: 604 criteria / 67 untagged / one ignored-only / 12 methods without symbols. It is also distinct from the 69 SR findings (68 criterion gaps plus one helper-tag defect). In particular AC4 legitimately has Inspection and no expected source symbol in the criterion matrix.
+
+```yaml
+inherited_normal_gate_rows:
+- reference: functional-coverage
+  document: spec/core/matrix/tests.md
+  row_id: FR-045
+  target_ids:
+  - FR-045
+  - TC-446
+  line: 24
+- reference: functional-coverage
+  document: spec/kani/matrix/tests.md
+  row_id: FR-036
+  target_ids:
+  - FR-036
+  - TC-045
+  line: 15
+- reference: functional-coverage
+  document: spec/kani/matrix/tests.md
+  row_id: FR-037
+  target_ids:
+  - FR-037
+  - TC-055
+  line: 16
+- reference: functional-coverage
+  document: spec/kani/matrix/tests.md
+  row_id: FR-039
+  target_ids:
+  - FR-039
+  - TC-055
+  line: 17
+- reference: nfr-verification
+  document: spec/core/non-functional/NFR-001-determinism.md
+  row_id: NFR-001-AC-2
+  target_ids:
+  - NFR-001-AC-2
+  - TC-019
+  line: 36
+- reference: nfr-verification
+  document: spec/core/non-functional/NFR-001-determinism.md
+  row_id: NFR-001-AC-3
+  target_ids:
+  - NFR-001-AC-3
+  - TC-019
+  line: 37
+- reference: traces-to
+  document: spec/core/matrix/tests.md
+  row_id: TC-019
+  target_ids:
+  - NFR-001
+  - TC-019
+  line: 47
+- reference: traces-to
+  document: spec/core/matrix/tests.md
+  row_id: TC-446
+  target_ids:
+  - FR-045
+  - TC-446
+  line: 46
+- reference: traces-to
+  document: spec/kani/matrix/tests.md
+  row_id: TC-045
+  target_ids:
+  - FR-036
+  - TC-045
+  line: 27
+- reference: traces-to
+  document: spec/kani/matrix/tests.md
+  row_id: TC-055
+  target_ids:
+  - FR-037-AC-6
+  - FR-039
+  - TC-055
+  line: 28
+- reference: traces-to
+  document: spec/kani/matrix/tests.md
+  row_id: TC-223
+  target_ids:
+  - FR-030-AC-4
+  - FR-030-AC-5
+  - TC-223
+  line: 24
+- reference: traces-to
+  document: spec/model/matrix/tests.md
+  row_id: TC-444
+  target_ids:
+  - FR-014-AC-9
+  - TC-444
+  line: 36
+- reference: verification
+  document: spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md
+  row_id: FR-035-AC-9
+  target_ids:
+  - FR-035-AC-9
+  line: 183
+- reference: verification
+  document: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+  row_id: FR-038-AC-195
+  target_ids:
+  - FR-038-AC-195
+  line: 4872
+- reference: verification
+  document: spec/core/functional/FR-045-derive-proof-coverage-baseline.md
+  row_id: FR-045-AC-1
+  target_ids:
+  - FR-045-AC-1
+  line: 72
+- reference: verification
+  document: spec/core/functional/FR-045-derive-proof-coverage-baseline.md
+  row_id: FR-045-AC-2
+  target_ids:
+  - FR-045-AC-2
+  line: 73
+- reference: verification
+  document: spec/core/functional/FR-045-derive-proof-coverage-baseline.md
+  row_id: FR-045-AC-3
+  target_ids:
+  - FR-045-AC-3
+  line: 74
+- reference: verification
+  document: spec/core/functional/FR-045-derive-proof-coverage-baseline.md
+  row_id: FR-045-AC-4
+  target_ids:
+  - FR-045-AC-4
+  line: 75
+- reference: verification
+  document: spec/core/functional/FR-045-derive-proof-coverage-baseline.md
+  row_id: FR-045-AC-5
+  target_ids:
+  - FR-045-AC-5
+  line: 76
+- reference: verification
+  document: spec/core/functional/FR-045-derive-proof-coverage-baseline.md
+  row_id: FR-045-AC-6
+  target_ids:
+  - FR-045-AC-6
+  line: 77
+- reference: verification
+  document: spec/kani/functional/FR-030-bounded-kani-domain-and-outcomes.md
+  row_id: FR-030-AC-4
+  target_ids:
+  - FR-030-AC-4
+  - TC-223
+  line: 157
+- reference: verification
+  document: spec/kani/functional/FR-030-bounded-kani-domain-and-outcomes.md
+  row_id: FR-030-AC-5
+  target_ids:
+  - FR-030-AC-5
+  - TC-223
+  line: 158
+- reference: verification
+  document: spec/kani/functional/FR-036-exact-backend-negotiation-and-emission.md
+  row_id: FR-036-AC-1
+  target_ids:
+  - FR-036-AC-1
+  - TC-045
+  line: 58
+- reference: verification
+  document: spec/kani/functional/FR-036-exact-backend-negotiation-and-emission.md
+  row_id: FR-036-AC-2
+  target_ids:
+  - FR-036-AC-2
+  - TC-045
+  line: 59
+- reference: verification
+  document: spec/kani/functional/FR-036-exact-backend-negotiation-and-emission.md
+  row_id: FR-036-AC-3
+  target_ids:
+  - FR-036-AC-3
+  - TC-045
+  line: 60
+- reference: verification
+  document: spec/kani/functional/FR-036-exact-backend-negotiation-and-emission.md
+  row_id: FR-036-AC-4
+  target_ids:
+  - FR-036-AC-4
+  - TC-045
+  line: 61
+- reference: verification
+  document: spec/kani/functional/FR-036-exact-backend-negotiation-and-emission.md
+  row_id: FR-036-AC-5
+  target_ids:
+  - FR-036-AC-5
+  - TC-045
+  line: 62
+- reference: verification
+  document: spec/kani/functional/FR-037-canonical-backend-replay-and-qualification.md
+  row_id: FR-037-AC-6
+  target_ids:
+  - FR-037-AC-6
+  - TC-055
+  line: 66
+- reference: verification
+  document: spec/kani/functional/FR-039-root-crate-public-interface.md
+  row_id: FR-039-AC-1
+  target_ids:
+  - FR-039-AC-1
+  - TC-055
+  line: 113
+- reference: verification
+  document: spec/kani/functional/FR-039-root-crate-public-interface.md
+  row_id: FR-039-AC-2
+  target_ids:
+  - FR-039-AC-2
+  - TC-055
+  line: 114
+- reference: verification
+  document: spec/kani/functional/FR-039-root-crate-public-interface.md
+  row_id: FR-039-AC-3
+  target_ids:
+  - FR-039-AC-3
+  - TC-055
+  line: 115
+- reference: verification
+  document: spec/kani/functional/FR-039-root-crate-public-interface.md
+  row_id: FR-039-AC-4
+  target_ids:
+  - FR-039-AC-4
+  - TC-055
+  line: 116
+- reference: verification
+  document: spec/model/functional/FR-014-expression-semantics.md
+  row_id: FR-014-AC-9
+  target_ids:
+  - FR-014-AC-9
+  - TC-444
+  line: 150
+- reference: verification
+  document: spec/model/functional/FR-052-source-obligation-correspondence.md
+  row_id: FR-052-AC-10
+  target_ids:
+  - FR-052-AC-10
+  line: 473
+- reference: verification
+  document: spec/model/functional/FR-052-source-obligation-correspondence.md
+  row_id: FR-052-AC-11
+  target_ids:
+  - FR-052-AC-11
+  line: 474
+- reference: verification
+  document: spec/model/functional/FR-052-source-obligation-correspondence.md
+  row_id: FR-052-AC-16
+  target_ids:
+  - FR-052-AC-16
+  line: 479
+- reference: verification
+  document: spec/model/functional/FR-052-source-obligation-correspondence.md
+  row_id: FR-052-AC-26
+  target_ids:
+  - FR-052-AC-26
+  line: 489
+- reference: verification
+  document: spec/model/functional/FR-052-source-obligation-correspondence.md
+  row_id: FR-052-AC-27
+  target_ids:
+  - FR-052-AC-27
+  line: 490
+- reference: verification
+  document: spec/model/functional/FR-052-source-obligation-correspondence.md
+  row_id: FR-052-AC-7
+  target_ids:
+  - FR-052-AC-7
+  line: 471
+- reference: verification
+  document: spec/model/functional/FR-052-source-obligation-correspondence.md
+  row_id: FR-052-AC-9
+  target_ids:
+  - FR-052-AC-9
+  line: 472
+```
