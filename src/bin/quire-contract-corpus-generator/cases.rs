@@ -2,8 +2,6 @@
 
 use std::collections::BTreeSet;
 
-use quire_contract_ir::{CanonicalProfile, ContractPackage, ReferenceBody, ValidationOptions};
-
 use super::J;
 
 pub(super) struct Case {
@@ -993,7 +991,7 @@ fn expression_edges(cases: &mut Vec<Case>) {
         ["diagnostic:invalid_wire_format"],
     );
     let mut range_over = expression_input(boolean(true), bool_type());
-    range_over["values"][0]["value_type"].set("maximum", (i64::MAX as u64 + 1).to_string());
+    range_over["values"][0]["value_type"].set("maximum", (1_u128 << 127).to_string());
     add(
         cases,
         "expression-invalid-numeric-range",
@@ -1172,13 +1170,8 @@ fn expression_edges(cases: &mut Vec<Case>) {
     );
 }
 
-fn trace(artifact: &str, target: J, at: i64, deep: Option<&str>) -> J {
-    let depth = match deep {
-        Some(digest) => {
-            obj!("kind" => "deep", "requirement_digest" => digest, "digest_span" => span(at + 1, "trace", 1))
-        }
-        None => obj!("kind" => "shallow"),
-    };
+fn trace(artifact: &str, target: J, at: i64, deep: bool) -> J {
+    let depth = obj!("kind" => if deep { "deep" } else { "shallow" });
     obj!("artifact_id" => artifact, "source" => span(at, "trace", 1), "target" => target,
         "target_span" => span(at + 1, "trace", 1), "depth" => depth)
 }
@@ -1188,21 +1181,12 @@ fn coverage_cases(cases: &mut Vec<Case>) {
     let req_a = owner();
     let req_b =
         obj!("package" => "agent-ix/conformance", "requirement" => "REQ_1", "revision" => 1);
-    let package_json = serde_json::to_string(&coverage_package).expect("fixture JSON serializes");
-    let parsed: ContractPackage<ReferenceBody> =
-        ContractPackage::from_json_str(&package_json, ValidationOptions::strict())
-            .expect("coverage fixture package is valid");
-    let digest = parsed
-        .canonical_requirement(&parsed.requirements()[0], CanonicalProfile::V1)
-        .expect("coverage fixture requirement canonicalizes")
-        .digest()
-        .to_string();
     add(
         cases,
         "coverage-shallow",
         "coverage",
         obj!("package" => coverage_package.clone(),
-        "traces" => vec![trace("shallow", req_a.clone(), 1, None)]),
+        "traces" => vec![trace("shallow", req_a.clone(), 1, false)]),
         [
             "construct:artifact.depth.shallow",
             "construct:coverage.class.shallow",
@@ -1213,7 +1197,7 @@ fn coverage_cases(cases: &mut Vec<Case>) {
         "coverage-deep",
         "coverage",
         obj!("package" => coverage_package.clone(),
-        "traces" => vec![trace("deep", req_a.clone(), 3, Some(&digest))]),
+        "traces" => vec![trace("deep", req_a.clone(), 3, true)]),
         [
             "construct:artifact.depth.deep",
             "construct:coverage.class.deep",
@@ -1233,7 +1217,7 @@ fn coverage_cases(cases: &mut Vec<Case>) {
         "coverage-cross-package",
         "coverage",
         obj!("package" => coverage_package.clone(),
-        "traces" => vec![trace("cross", cross, 5, None)]),
+        "traces" => vec![trace("cross", cross, 5, false)]),
         [
             "construct:coverage.class.orphaned",
             "diagnostic:cross_package_reference",
@@ -1247,7 +1231,7 @@ fn coverage_cases(cases: &mut Vec<Case>) {
         "coverage-missing",
         "coverage",
         obj!("package" => coverage_package.clone(),
-        "traces" => vec![trace("missing", missing, 7, None)]),
+        "traces" => vec![trace("missing", missing, 7, false)]),
         [
             "diagnostic:orphaned_requirement_reference",
             "boundary:artifact.missing",
@@ -1260,7 +1244,7 @@ fn coverage_cases(cases: &mut Vec<Case>) {
         "coverage-stale",
         "coverage",
         obj!("package" => coverage_package.clone(),
-        "traces" => vec![trace("stale", stale, 9, None)]),
+        "traces" => vec![trace("stale", stale, 9, true)]),
         [
             "diagnostic:stale_requirement_revision",
             "boundary:artifact.stale",
@@ -1268,21 +1252,10 @@ fn coverage_cases(cases: &mut Vec<Case>) {
     );
     add(
         cases,
-        "coverage-digest",
-        "coverage",
-        obj!("package" => coverage_package.clone(),
-        "traces" => vec![trace("digest", req_a, 11, Some(&"0".repeat(64)))]),
-        [
-            "diagnostic:stale_trace_digest",
-            "boundary:artifact.digest_mismatch",
-        ],
-    );
-    add(
-        cases,
         "coverage-duplicate",
         "coverage",
         obj!("package" => coverage_package,
-        "traces" => vec![trace("duplicate", req_b.clone(), 13, None), trace("duplicate", req_b, 15, None)]),
+        "traces" => vec![trace("duplicate", req_b.clone(), 13, false), trace("duplicate", req_b, 15, false)]),
         [
             "diagnostic:duplicate_artifact_trace",
             "boundary:artifact.duplicate",

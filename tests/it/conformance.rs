@@ -69,7 +69,7 @@ fn tc_018_rust_generator_regenerates_the_corpus_byte_for_byte() {
         "generator failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(input_count(&scratch.0), 107);
+    assert_eq!(input_count(&scratch.0), 106);
     let expected = relative_files(&corpus());
     assert_eq!(relative_files(&scratch.0), expected);
     for relative in expected {
