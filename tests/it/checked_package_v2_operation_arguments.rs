@@ -14,7 +14,7 @@
 
 use crate::support::checked_package::{
     application_node_key, canonical, evidence_for, fixture_source, node_id, nominal_package,
-    pointer, rebuild_source_map, refresh_identity, sha256_hex, source_owner,
+    pointer, rebuild_source_map, refresh_identity, rekey_application_node, sha256_hex, source_owner,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -1445,4 +1445,79 @@ fn tc_448_a_union_payload_naming_an_object_type_is_still_refused() {
         Cause::OperatorIneligible,
         "",
     );
+}
+
+/// Required operation members distinguish an absent field from explicit null.
+#[trace("FR-038-AC-81")]
+#[test]
+fn operation_mode_and_member_are_required_even_when_null_is_admitted() {
+    let mut scene = Scene::new(Vec::new());
+    let integer = scene.ty(&Ty::Integer);
+    let key = scene.application(App {
+        tag: "expression",
+        form: "binary",
+        operator: "binary",
+        identity: "quire.op.integer.add",
+        member: Value::Null,
+        semantic: &integer,
+        result: &integer,
+        arguments: vec![
+            literal(&integer, "integer", "1"),
+            literal(&integer, "integer", "2"),
+        ],
+    });
+    let base = scene.finish().at(&key);
+    base.admits("integer add with mode and member explicitly null");
+
+    for field in ["mode", "member"] {
+        let mut case = Case {
+            package: base.package.clone(),
+            evidence: base.evidence.clone(),
+            node: base.node,
+        };
+        let operation = case.package["semantic_graph"]["nodes"][case.node]["body"]["operation"]
+            .as_object_mut()
+            .expect("operation object");
+        assert_eq!(operation.remove(field), Some(Value::Null));
+        rekey_application_node(&mut case.package, case.node);
+        rebuild_source_map(&mut case.package);
+        refresh_identity(&mut case.package);
+        assert_ne!(case.package["package_id"], base.package["package_id"]);
+        assert_ne!(
+            case.package["semantic_graph"]["nodes"][case.node]["node_id"],
+            base.package["semantic_graph"]["nodes"][base.node]["node_id"],
+        );
+        let CheckedPackageV2ReadResult::Refused(refusal) = case.read() else {
+            panic!("omitting {field} must refuse");
+        };
+        assert_eq!(refusal.code, Code::InvalidSemanticGraph, "{field}: {refusal:?}");
+        assert_eq!(refusal.cause, None, "{field}: {refusal:?}");
+        assert_eq!(
+            refusal.path,
+            Some(pointer(&format!("/semantic_graph/nodes/{}/body/operation", case.node))),
+            "{field}: {refusal:?}",
+        );
+
+        // A catalog error cannot displace the containing object's shape error.
+        case.package["semantic_graph"]["nodes"][case.node]["body"]["operation"]["identity"] =
+            json!("quire.op.unknown");
+        rekey_application_node(&mut case.package, case.node);
+        rebuild_source_map(&mut case.package);
+        refresh_identity(&mut case.package);
+        let CheckedPackageV2ReadResult::Refused(before_catalog) = case.read() else {
+            panic!("omitting {field} with an unknown identity must refuse");
+        };
+        assert_eq!(before_catalog.code, Code::InvalidSemanticGraph);
+        assert_eq!(before_catalog.cause, None);
+        assert_eq!(before_catalog.path, refusal.path);
+
+        case.package["semantic_graph"]["nodes"][case.node]["body"]["operation"]["identity"] =
+            json!("quire.op.integer.add");
+        case.package["semantic_graph"]["nodes"][case.node]["body"]["operation"][field] = Value::Null;
+        rekey_application_node(&mut case.package, case.node);
+        rebuild_source_map(&mut case.package);
+        refresh_identity(&mut case.package);
+        assert_eq!(case.package, base.package, "restoring {field} restores the original package");
+        case.admits(&format!("restored explicit null {field}"));
+    }
 }
