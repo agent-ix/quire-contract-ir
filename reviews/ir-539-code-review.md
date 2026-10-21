@@ -1,48 +1,56 @@
 ---
-id: SR-14450
-title: "IR-539 required-nullable operation fields: code-review"
+id: SR-14660
+title: 'IR-539 operation required-nullable fields: code-review'
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; IR-539; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; operations.rs and reader order context"
+scope: agent-ix/quire-contract-ir; IR-539; OperationWire, public reader controls,
+  FR-038/TC-048, computed repository matrix
 review_set: subset
 ---
 
 ## Summary
 
-Reviewed IR-539 specification PR 490 against QSpec and the actual reader. Only FR-038 and TC-048 Markdown changed. Rust, manifests, lockfiles, generated code and runtime behavior are unchanged. No applicable AssuranceProfile was found under spec/. No Cargo, formatting, native test or Kani command was run: the code lead owns the single heavy slot. This is a specification-readiness review, not runtime acceptance or whole-repository assurance. No new IDs, AC-294/295 changes, copied fixture, discriminator, alternate identity preimage, runtime shim, new dependency or source catalog was introduced.
+Ticket: IR-539. PR493 frozen candidate reviewed against its actual main parent. Reviewer-only source/Git/Quire inspection; no Cargo, rustfmt, metadata, native test, aggregate or Kani command was run. No applicable AssuranceProfile was found under spec/. Coder receipts were independently inspected: formatting and locked workspace/all-target plus model Clippy passed; 23 healthy passing executions (22 distinct tests), old production compiled and failed the new test because omitted mode admitted, exact healthy restoration passed. Peak recorded memory 3,462,295,552 bytes under 16 GiB/Swap0, zero events. These are inspected execution receipts, not fresh reviewer executions; final aggregate remains the lead's gate.
 
 ## Verdict
 
-**PASS** — No defect found in this method’s examined spec change; this verdict does not accept unimplemented behavior.
+**FAIL** — Required-nullable decoder duplication must be removed.
 
 ## Findings
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | No findings (placeholder) | - |
+| FND-001 | high | The new generic required_nullable decoder duplicates the existing identity.rs required_nullable decoder; centralize the shared required-present/nullable deserialization idiom instead of adding a second implementation. | crates/quire-contract-model/src/checked_package/v2/operations.rs:215-221 |
 
 ## Coverage
 
-The changed prose truthfully distinguishes PLANNED requirements from the existing Option decoder. The private decoder currently accepts omitted mode/member; its shape error is generated before catalog lookup, at the containing operation object for a missing field. Earlier application identity checks remain earlier. The procedure requires valid typed public-reader packages, owning identity helpers, canonical ordering, fresh package identity, independent omission controls and restoration to null. No stale AC-36 attribution remains in the changed prose. Rust review is applicability-only: no Rust diff or changed crate exists, so no Rust gate or separate Rust artifact is claimed.
+Rust and language-independent checks applied. Searched required_nullable across crates/quire-contract-model/src: identity.rs:147-152 already implements the identical Option::deserialize required-present idiom for CheckedNodeId. The new generic helper repeats that behavior locally. Existing identity.rs can consume one shared generic helper with OperationWire. No change is needed to the intended omission/null behavior. No new panic, unsafe, async state, integer conversion, parser bypass, vendored upstream content or gate weakening was found. OperationWire decodes before catalog lookup; OperationLeafWire is unchanged.
 
 ## Examined scope
 
-- `FR-038-AC-81` (examined) `spec/checked_package/functional/FR-038-consume-checked-package-v2.md`: PLANNED (IR-539 required-presence correction): through `CheckedPackageV2::read`, independently omitting `operation.mode` or `operation.member` from an otherwise valid application refuses `invalid_semantic_graph`, with no cause, at `/semantic_graph/nodes/{i}/body/operation`, before catalog semantic checks; the otherwise identical application with both fields present as `null` admits when its catalog entry requires neither. Re-derive all affected application/node and package identities after each mutation so a stale identity cannot mask the operation shape refusal. Explicit-null required-mode an
+- `FR-038-AC-81` (examined) `spec/checked_package/functional/FR-038-consume-checked-package-v2.md`: through `CheckedPackageV2::read`, independently omitting `operation.mode` or `operation.member` from an otherwise valid application refuses `invalid_semantic_graph`, with no cause, at `/semantic_graph/nodes/{i}/body/operation`, before catalog semantic checks; the otherwise identical application with both fields present as `null` admits when its catalog entry requires neither. Re-derive all affected application/node and package identities after each mutation so a stale identity cannot mask the operation shape refusal. Explicit-null required-mode and required-member semantic refusals remain AC-8
 - `FR-038-AC-83` (examined) `spec/checked_package/functional/FR-038-consume-checked-package-v2.md`: Observed at the operation check, `quire.op.decimal.add`, which catalogues the mode kind `rounding`, with `mode` `null` refuses `invalid_package`/`operation-mode-mismatch` at `operation.mode`; with the mode `{kind: rounding, value: toward-zero}` over a first operand typed at a `bounded_domain` over a `decimal` whose body binds `rounding` to `nearest-even`, reached by a `reference` to the domain and, separately, by a `literal` whose `type` names it, it refuses `invalid_package`/`operation-mode-type-mismatch` at `operation.mode/value`.
 - `FR-038-AC-84` (examined) `spec/checked_package/functional/FR-038-consume-checked-package-v2.md`: Observed at the operation check, `quire.op.quantity.convert`, which catalogues the member kind `type_argument`, with its `rounding` mode supplied and `member` `null` refuses `invalid_package`/`operation-member-mismatch` at `operation.member`; `quire.op.record.project` with a `field` member whose `name` is a field the declaring record type does not declare refuses `ill_typed`/`operator-ineligible` at `operation.member.name`; and `quire.op.model.reaches_field` with a `field` member whose `declaration` names no node of the graph refuses `ill_typed`/`operator-ineligible` at `operation.member.decla
-- `TC-048` (examined) `spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md`: Use the repository's owning identity helpers to re-derive the affected
-application/node identity, rewrite its references where necessary, preserve
-canonical node ordering and refresh the package identity after each mutation.
-- `FR-038` (examined) `spec/checked_package/functional/FR-038-consume-checked-package-v2.md`: QSpec requires `mode` and `member` as members of `operation`, each nullable.
-When either member is omitted from that closed object, the reader SHALL refuse
-`invalid_semantic_graph`, with no cause, at the application's `operation`
-object, before the catalog identity, law, mode and member semantic checks.
-Explicit `null` is a present wire member: it SHALL continue through those
-semantic checks, which admit it where the catalog requires no mode or member
-and refuse it with the existing mode or member mismatch where one is required.
-This required-presence correction is PLANNED under IR-539; the cu
-- `FR-322` (context_only) `/home/peter/dev/quire-specification/spec/objects/interfaces/FR-322-checked-package-artifact.md`: `mode` is `null` when the entry names no mode kind
+- `TC-048` (examined) `spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md`: The old
+production decoder admits the omission and fails this test; restoring the
+healthy decoder restores the passing result.
 
-## Method limits
+## Dispositions
 
-Only the changed obligation and relevant source/order/test context were substantively examined. Full unrelated requirement semantics were not re-reviewed. Jev criterion-strength was not selected or run; no new dependency relationship or domain object warrants a separate dependency/object review.
+Round 1 inspects the actual fixed candidate: one private generic helper in parent v2/mod.rs, both OperationWire fields and UnitPreimage target_unit_node_id use super::required_nullable, and both local duplicates were removed. Inspected actual fix-round receipts: fmt/check and locked workspace/all-target plus default-model Clippy PASS; 32 focused passing executions. No reviewer Cargo/build/test run. Original findings and FAIL verdict remain unchanged.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | One private parent-V2 helper is shared by all three callers; local duplicates removed. |
+
+Fixed source excerpt:
+
+```rust
+fn required_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
+```

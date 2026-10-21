@@ -204,7 +204,9 @@ pub(super) fn application_local_digest(
 pub(super) struct OperationWire {
     pub(super) identity: Box<str>,
     pub(super) laws: Vec<OperationLawWire>,
+    #[serde(deserialize_with = "super::required_nullable")]
     mode: Option<OperationModeWire>,
+    #[serde(deserialize_with = "super::required_nullable")]
     pub(super) member: Option<Value>,
     leaves: Vec<OperationLeafWire>,
 }

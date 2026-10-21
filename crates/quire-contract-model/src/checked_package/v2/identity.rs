@@ -18,7 +18,7 @@ use crate::checked_package::common::{
 };
 use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode, JsonPointer};
 use quire_canonical::FixedShape;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -126,7 +126,7 @@ pub struct UnitPreimage {
     /// Dimension node key.
     pub dimension_node_id: CheckedNodeId,
     /// Target unit key; `None` (wire `null`, required member) for the root.
-    #[serde(deserialize_with = "required_nullable")]
+    #[serde(deserialize_with = "super::required_nullable")]
     pub target_unit_node_id: Option<CheckedNodeId>,
     /// Exact reduced scale to the target.
     pub scale: CheckedRational,
@@ -142,13 +142,6 @@ pub struct CheckedRational {
     pub numerator: Box<str>,
     /// Canonical positive integer string.
     pub denominator: Box<str>,
-}
-
-fn required_nullable<'de, D>(deserializer: D) -> Result<Option<CheckedNodeId>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    Option::<CheckedNodeId>::deserialize(deserializer)
 }
 
 /// Locates a decode failure the wire decoder could place no deeper than a

@@ -111,9 +111,18 @@ use super::shared::{
 use model_fields::{build_field_tables, DeclarationIndex, RetainedModels};
 use model_members::{admit_selection, Budget, DomainModel, ModelOwners, SelectionFailure};
 use quire_canonical::FixedShape;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+
+// Explicit null is a value; an absent member must remain a schema refusal.
+fn required_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
 
 /// The I04 transport version admitted by the V2 reader.
 pub const CHECKED_PACKAGE_V2: &str = "quire.checked-package/v2";

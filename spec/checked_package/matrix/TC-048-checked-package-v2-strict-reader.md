@@ -854,7 +854,7 @@ application nodes. Name an identity the catalog lacks, and `quire.op.integer.add
 under `unary`; admit `quire.op.integer.add` under `binary` with two plain
 operands, and give `operation` a bare string (AC-81).
 
-For AC-81's PLANNED IR-539 required-presence controls, independently build a
+For AC-81's implemented required-presence controls, independently build a
 valid integer-add application package with two correctly typed operands, no
 laws or leaves, and both `operation.mode` and `operation.member` explicitly
 `null`. Read it through `CheckedPackageV2::read` as the positive control.
@@ -868,8 +868,12 @@ private operation-unit result as the public-reader result. Read each changed
 package through the same public reader and compare its exact code, cause and
 pointer. Restore the removed member as explicit `null` and refresh identities
 to show admission is restored. These controls concern the containing
-`operation` object only; do not change leaf-mode behavior. No implementation
-or executed result for these planned controls is claimed by this procedure.
+`operation` object only; do not change leaf-mode behavior. The public-reader
+test `operation_mode_and_member_are_required_even_when_null_is_admitted` executes
+these controls and also combines each omission with an unknown operation
+identity to verify that the shape refusal precedes catalog lookup. The old
+production decoder admits the omission and fails this test; restoring the
+healthy decoder restores the passing result.
 
 Supply no law to `quire.op.integer.div`, one law to
 `quire.op.integer.add`, and to `quire.op.integer.div` a law whose `role` is
@@ -912,7 +916,7 @@ one admits. Compare the whole refusal code, cause and pointer. The `definition`
 of a law of the right role is FR-038-AC-56 and FR-038-AC-57's, and the modes of a
 leaf are FR-038-AC-44's.
 
-Expected for the PLANNED public-reader IR-539 controls: the explicit-`null`
+Expected for the implemented public-reader required-presence controls: the explicit-`null`
 integer-add package admits; each of the two independent omissions refuses
 `invalid_semantic_graph` with no cause at
 `/semantic_graph/nodes/{i}/body/operation`, where `{i}` is the application's
