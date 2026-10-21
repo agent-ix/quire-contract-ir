@@ -1752,6 +1752,22 @@ fn tc_225_an_operation_without_valid_parameter_names_refuses_at_selection() {
         ),
         "the unchanged declaration and matching frame are admitted"
     );
+    let mut case_distinct_document = domain_document();
+    let second = &mut case_distinct_document["types"][0]["operations"][1]["params"][1];
+    second["identity"] = json!(format!("{CONFIG_VERSION}/rebase/From"));
+    second["name"] = json!("From");
+    let case_distinct_relation = ordered(rebase(&[("from", "a"), ("From", "b")]));
+    let case_distinct_value = with_nodes(
+        base_over(&case_distinct_document),
+        vec![relation_node(&case_distinct_relation)],
+    );
+    assert!(
+        matches!(
+            read_over(&case_distinct_value, &case_distinct_document),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "case-distinct declared names and matching frame are admitted"
+    );
     let cases: [(&str, Value, Value, Cause); 9] = [
         (
             "a parameter with no name",
