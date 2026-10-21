@@ -1752,7 +1752,7 @@ fn tc_225_an_operation_without_valid_parameter_names_refuses_at_selection() {
         ),
         "the unchanged declaration and matching frame are admitted"
     );
-    let cases: [(&str, Value, Value, Cause); 5] = [
+    let cases: [(&str, Value, Value, Cause); 9] = [
         (
             "a parameter with no name",
             undeclared(|params| {
@@ -1764,6 +1764,30 @@ fn tc_225_an_operation_without_valid_parameter_names_refuses_at_selection() {
         (
             "a parameter whose name is not a string",
             undeclared(|params| params[1]["name"] = json!(5)),
+            ordered(rebase(&[("from", "a"), ("to", "b")])),
+            Cause::MalformedDeclaration,
+        ),
+        (
+            "a parameter whose name is null",
+            undeclared(|params| params[1]["name"] = Value::Null),
+            ordered(rebase(&[("from", "a"), ("to", "b")])),
+            Cause::MalformedDeclaration,
+        ),
+        (
+            "a parameter whose name is empty",
+            undeclared(|params| params[1]["name"] = json!("")),
+            ordered(rebase(&[("from", "a"), ("to", "b")])),
+            Cause::MalformedDeclaration,
+        ),
+        (
+            "a parameter whose name has invalid syntax",
+            undeclared(|params| params[1]["name"] = json!("2to")),
+            ordered(rebase(&[("from", "a"), ("to", "b")])),
+            Cause::MalformedDeclaration,
+        ),
+        (
+            "a parameter whose valid name differs from its identity",
+            undeclared(|params| params[1]["name"] = json!("other")),
             ordered(rebase(&[("from", "a"), ("to", "b")])),
             Cause::MalformedDeclaration,
         ),
