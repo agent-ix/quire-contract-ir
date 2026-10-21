@@ -68,14 +68,6 @@ pub fn lower_query(
                 profile.selection().revision.clone(),
             ))
         }
-        CapabilityDisposition::Inconclusive { code } => {
-            return Err(KaniOutcome::raise(
-                NonSuccessKind::Inconclusive,
-                *code,
-                &query.source_id,
-                profile.selection().revision.clone(),
-            ))
-        }
     }
     if query.values.len() > query.max_items {
         return Err(KaniOutcome::raise(

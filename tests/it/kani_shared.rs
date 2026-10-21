@@ -130,6 +130,101 @@ fn tc_042_an_invalid_profile_is_refused_on_every_construction_path() {
     assert_eq!(round_trip.capabilities().len(), 2);
 }
 
+#[trace("TC-042", "FR-029-AC-2")]
+#[test]
+fn profile_wire_rejects_inconclusive_even_with_the_genuine_run_cause() {
+    for code in ["profile_not_qualified", "kani_vacuous_proof"] {
+        let disposition = serde_json::json!({"inconclusive": {"code": code}});
+        let error = serde_json::from_value::<CapabilityDisposition>(disposition.clone())
+            .expect_err("inconclusive is not a profile disposition");
+        assert!(error.to_string().contains("unknown variant `inconclusive`"));
+        let wire = serde_json::json!({
+            "selection": selection(),
+            "capabilities": [{"construct": "checked-add", "disposition": disposition}]
+        });
+        let error = serde_json::from_value::<KaniProfile>(wire)
+            .expect_err("an otherwise valid profile must reject the obsolete disposition");
+        assert!(error.to_string().contains("unknown variant `inconclusive`"));
+    }
+    for disposition in [
+        CapabilityDisposition::Supported {
+            module: "arithmetic/1".into(),
+        },
+        CapabilityDisposition::Refused {
+            code: std001_code!("profile_not_qualified"),
+        },
+    ] {
+        let wire = serde_json::to_value(&disposition).expect("valid disposition serializes");
+        let decoded: CapabilityDisposition = serde_json::from_value(wire.clone())
+            .expect("supported and refused dispositions remain admitted");
+        assert_eq!(decoded, disposition);
+        let profile_wire = serde_json::json!({
+            "selection": selection(),
+            "capabilities": [{"construct": "checked-add", "disposition": wire}]
+        });
+        let decoded: KaniProfile = serde_json::from_value(profile_wire.clone())
+            .expect("otherwise identical valid profile is admitted");
+        assert_eq!(
+            serde_json::to_value(decoded).expect("profile serializes"),
+            profile_wire
+        );
+    }
+}
+
+#[trace("TC-042", "FR-029-AC-1", "FR-029-AC-2")]
+#[test]
+fn capability_census_preserves_request_order_and_entries_after_a_refusal() {
+    let refused = |construct: &str, code| CapabilityEntry {
+        construct: construct.into(),
+        disposition: CapabilityDisposition::Refused { code },
+    };
+    let supported = CapabilityEntry {
+        construct: "checked-add".into(),
+        disposition: CapabilityDisposition::Supported {
+            module: "arithmetic/1".into(),
+        },
+    };
+    let first = refused("object-reference", std001_code!("object_not_qualified"));
+    let last = refused("temporal", std001_code!("temporal_not_qualified"));
+    let profile = KaniProfile::new(
+        selection(),
+        vec![
+            last.clone(),
+            supported.clone(),
+            refused("unrequested", std001_code!("unrequested_not_qualified")),
+            first.clone(),
+        ],
+    )
+    .expect("larger matrix");
+    let decoded: KaniProfile =
+        serde_json::from_value(serde_json::to_value(profile).expect("profile serializes"))
+            .expect("supported/refused profile round-trips");
+    let census = decoded
+        .classify(
+            &[
+                "object-reference".into(),
+                "checked-add".into(),
+                "temporal".into(),
+            ],
+            "source:census",
+        )
+        .expect("a refusal entry does not stop the census");
+    assert_eq!(census, vec![first, supported, last]);
+    for constructs in [
+        vec!["checked-add".into(), "checked-add".into()],
+        vec![" ".into()],
+    ] {
+        let failure = decoded
+            .classify(&constructs, "source:census")
+            .expect_err("invalid request");
+        assert_eq!(failure.kind, KaniOutcomeKind::Refused);
+        assert_eq!(failure.code, Std001Code::KANI_CAPABILITY_REQUEST_INVALID);
+        assert_eq!(failure.source_id, "source:census");
+        assert_eq!(failure.context, selection().revision);
+        assert_eq!(failure.boolean_claim(), None);
+    }
+}
+
 #[trace("TC-042", "FR-030-AC-1", "FR-030-AC-2")]
 #[test]
 fn tc_042_invalid_and_incomplete_populations_are_not_assumed_away() {

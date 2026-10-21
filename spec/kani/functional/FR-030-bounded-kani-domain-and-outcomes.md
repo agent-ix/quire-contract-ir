@@ -179,9 +179,10 @@ request with a count of zero is planned with AC-4, because no such request
 exists; the TC-443 test reads the error through the non-success request instead.
 AC-4 and AC-5 are planned (TC-223, no test): `KaniOutcome`'s fields are public, a
 `proved` outcome carries no check count and no `proved` request takes one, and
-`non_success` accepts any cause code for `unavailable` and `inconclusive`, so the
-`CapabilityDisposition::Inconclusive` arm of the lowerings, which carries the
-profile's own code, still builds an `inconclusive` outcome that AC-5 will forbid.
+`non_success` accepts any cause code for `unavailable` and `inconclusive`.
+The obsolete inconclusive profile disposition and its three family lowering
+arms have been removed; a legacy profile is rejected before lowering. The
+actual zero-SUCCESS run classifier still produces `kani_vacuous_proof`.
 AC-7 remains incomplete: the IR carrier has a required typed cancellation
 source, exact wire form and refusal controls tagged to TC-449. The CG Kani
 launcher has no source-bearing cancellation event reader or IR
