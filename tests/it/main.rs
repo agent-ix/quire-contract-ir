@@ -65,6 +65,7 @@ mod integration;
 mod kani_arithmetic;
 mod kani_collections;
 mod kani_objects;
+mod kani_outcome_construction;
 mod kani_shared;
 mod nfr003_invalid_input;
 mod output_mapping;

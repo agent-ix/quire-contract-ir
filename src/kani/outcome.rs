@@ -208,6 +208,252 @@ impl KaniOutcome {
         Self::proved(source_id, context)
     }
 
+    /// Constructs a `refused` outcome retaining the supplied cause and context.
+    ///
+    /// ```
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// use quire_contract_model::std001_code;
+    /// let outcome: KaniOutcome = KaniOutcome::refused(std001_code!("consumer_stop"), "source", "context");
+    /// assert_eq!(outcome.boolean_claim(), None);
+    /// ```
+    ///
+    /// ```compile_fail,E0308
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// let _: KaniOutcome = KaniOutcome::refused("consumer_stop", "source", "context");
+    /// ```
+    ///
+    /// ```compile_fail,E0308
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// let _: KaniOutcome = KaniOutcome::refused(String::from("consumer_stop"), "source", "context");
+    /// ```
+    ///
+    /// ```compile_fail,E0308
+    /// use quire_contract_ir::kani::{KaniOutcome, KaniOutcomeKind};
+    /// let _: KaniOutcome = KaniOutcome::refused(KaniOutcomeKind::Proved, "source", "context");
+    /// ```
+    ///
+    /// ```compile_fail,E0308
+    /// use quire_contract_ir::kani::{KaniOutcome, KaniOutcomeKind};
+    /// let _: KaniOutcome = KaniOutcome::refused(KaniOutcomeKind::Counterexample, "source", "context");
+    /// ```
+    pub fn refused(
+        code: Std001Code,
+        source_id: impl Into<String>,
+        context: impl Into<String>,
+    ) -> Self {
+        Self::raise(NonSuccessKind::Refused, code, source_id, context)
+    }
+
+    /// Constructs a `invalid_input` outcome retaining the supplied cause and context.
+    ///
+    /// ```
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// use quire_contract_model::std001_code;
+    /// let outcome: KaniOutcome = KaniOutcome::invalid_input(std001_code!("consumer_stop"), "source", "context");
+    /// assert_eq!(outcome.boolean_claim(), None);
+    /// ```
+    ///
+    /// ```compile_fail,E0308
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// let _: KaniOutcome = KaniOutcome::invalid_input("consumer_stop", "source", "context");
+    /// ```
+    ///
+    /// ```compile_fail,E0308
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// let _: KaniOutcome = KaniOutcome::invalid_input(String::from("consumer_stop"), "source", "context");
+    /// ```
+    pub fn invalid_input(
+        code: Std001Code,
+        source_id: impl Into<String>,
+        context: impl Into<String>,
+    ) -> Self {
+        Self::raise(NonSuccessKind::InvalidInput, code, source_id, context)
+    }
+
+    /// Constructs a `incomplete_input` outcome retaining the supplied cause and context.
+    ///
+    /// ```
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// use quire_contract_model::std001_code;
+    /// let outcome: KaniOutcome = KaniOutcome::incomplete_input(std001_code!("consumer_stop"), "source", "context");
+    /// assert_eq!(outcome.boolean_claim(), None);
+    /// ```
+    ///
+    /// ```compile_fail,E0308
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// let _: KaniOutcome = KaniOutcome::incomplete_input("consumer_stop", "source", "context");
+    /// ```
+    ///
+    /// ```compile_fail,E0308
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// let _: KaniOutcome = KaniOutcome::incomplete_input(String::from("consumer_stop"), "source", "context");
+    /// ```
+    pub fn incomplete_input(
+        code: Std001Code,
+        source_id: impl Into<String>,
+        context: impl Into<String>,
+    ) -> Self {
+        Self::raise(NonSuccessKind::IncompleteInput, code, source_id, context)
+    }
+
+    /// Constructs a `timed_out` outcome retaining the supplied cause and context.
+    ///
+    /// ```
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// use quire_contract_model::std001_code;
+    /// let outcome: KaniOutcome = KaniOutcome::timed_out(std001_code!("consumer_stop"), "source", "context");
+    /// assert_eq!(outcome.boolean_claim(), None);
+    /// ```
+    ///
+    /// ```compile_fail,E0308
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// let _: KaniOutcome = KaniOutcome::timed_out("consumer_stop", "source", "context");
+    /// ```
+    ///
+    /// ```compile_fail,E0308
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// let _: KaniOutcome = KaniOutcome::timed_out(String::from("consumer_stop"), "source", "context");
+    /// ```
+    pub fn timed_out(
+        code: Std001Code,
+        source_id: impl Into<String>,
+        context: impl Into<String>,
+    ) -> Self {
+        Self::raise(NonSuccessKind::TimedOut, code, source_id, context)
+    }
+
+    /// Constructs a `resource_exhausted` outcome retaining the supplied cause and context.
+    ///
+    /// ```
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// use quire_contract_model::std001_code;
+    /// let outcome: KaniOutcome = KaniOutcome::resource_exhausted(std001_code!("consumer_stop"), "source", "context");
+    /// assert_eq!(outcome.boolean_claim(), None);
+    /// ```
+    ///
+    /// ```compile_fail,E0308
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// let _: KaniOutcome = KaniOutcome::resource_exhausted("consumer_stop", "source", "context");
+    /// ```
+    ///
+    /// ```compile_fail,E0308
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// let _: KaniOutcome = KaniOutcome::resource_exhausted(String::from("consumer_stop"), "source", "context");
+    /// ```
+    pub fn resource_exhausted(
+        code: Std001Code,
+        source_id: impl Into<String>,
+        context: impl Into<String>,
+    ) -> Self {
+        Self::raise(NonSuccessKind::ResourceExhausted, code, source_id, context)
+    }
+
+    /// Constructs a `cancelled` outcome retaining the supplied cause and context.
+    /// The source must be the event observed by the producer; this method does not observe it.
+    ///
+    /// ```
+    /// use quire_contract_ir::kani::{KaniOutcome, KaniCancellationSource};
+    /// use quire_contract_model::std001_code;
+    /// let outcome: KaniOutcome = KaniOutcome::cancelled(KaniCancellationSource::Requested, std001_code!("consumer_stop"), "source", "context");
+    /// assert_eq!(outcome.boolean_claim(), None);
+    /// ```
+    ///
+    /// ```compile_fail,E0308
+    /// use quire_contract_ir::kani::{KaniOutcome, KaniCancellationSource};
+    /// let _: KaniOutcome = KaniOutcome::cancelled(KaniCancellationSource::Requested, "consumer_stop", "source", "context");
+    /// ```
+    ///
+    /// ```compile_fail,E0308
+    /// use quire_contract_ir::kani::{KaniOutcome, KaniCancellationSource};
+    /// let _: KaniOutcome = KaniOutcome::cancelled(KaniCancellationSource::Requested, String::from("consumer_stop"), "source", "context");
+    /// ```
+    ///
+    /// ```compile_fail,E0061
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// use quire_contract_model::std001_code;
+    /// let _: KaniOutcome = KaniOutcome::cancelled(std001_code!("consumer_stop"), "source", "context");
+    /// ```
+    pub fn cancelled(
+        source: KaniCancellationSource,
+        code: Std001Code,
+        source_id: impl Into<String>,
+        context: impl Into<String>,
+    ) -> Self {
+        Self::raise(NonSuccessKind::Cancelled { source }, code, source_id, context)
+    }
+
+    /// Constructs an outcome for an absent checker with its fixed cause.
+    ///
+    /// ```
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// let outcome: KaniOutcome = KaniOutcome::checker_unavailable("source", "context");
+    /// assert_eq!(outcome.boolean_claim(), None);
+    /// ```
+    ///
+    /// The cause cannot be overridden:
+    ///
+    /// ```compile_fail,E0061
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// use quire_contract_model::std001_code;
+    /// let _: KaniOutcome = KaniOutcome::checker_unavailable(std001_code!("consumer_stop"), "source", "context");
+    /// ```
+    pub fn checker_unavailable(source_id: impl Into<String>, context: impl Into<String>) -> Self {
+        Self::raise(
+            NonSuccessKind::Unavailable,
+            Std001Code::KANI_CHECKER_ABSENT,
+            source_id,
+            context,
+        )
+    }
+
+    /// Constructs an outcome for an absent backend with its fixed cause.
+    ///
+    /// ```
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// let outcome: KaniOutcome = KaniOutcome::backend_unavailable("source", "context");
+    /// assert_eq!(outcome.boolean_claim(), None);
+    /// ```
+    ///
+    /// The cause cannot be overridden:
+    ///
+    /// ```compile_fail,E0061
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// use quire_contract_model::std001_code;
+    /// let _: KaniOutcome = KaniOutcome::backend_unavailable(std001_code!("consumer_stop"), "source", "context");
+    /// ```
+    pub fn backend_unavailable(source_id: impl Into<String>, context: impl Into<String>) -> Self {
+        Self::raise(
+            NonSuccessKind::Unavailable,
+            Std001Code::KANI_BACKEND_ABSENT,
+            source_id,
+            context,
+        )
+    }
+
+    /// Constructs an outcome for a caller-observed zero-SUCCESS-check result with its fixed cause.
+    ///
+    /// ```
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// let outcome: KaniOutcome = KaniOutcome::vacuous_proof("source", "context");
+    /// assert_eq!(outcome.boolean_claim(), None);
+    /// ```
+    ///
+    /// The cause cannot be overridden:
+    ///
+    /// ```compile_fail,E0061
+    /// use quire_contract_ir::kani::KaniOutcome;
+    /// use quire_contract_model::std001_code;
+    /// let _: KaniOutcome = KaniOutcome::vacuous_proof(std001_code!("consumer_stop"), "source", "context");
+    /// ```
+    pub fn vacuous_proof(source_id: impl Into<String>, context: impl Into<String>) -> Self {
+        Self::raise(
+            NonSuccessKind::Inconclusive,
+            Std001Code::KANI_VACUOUS_PROOF,
+            source_id,
+            context,
+        )
+    }
+
     /// Constructs a typed non-success result carrying `code`.
     ///
     /// The code is a [`Std001Code`], so a string cannot be passed: a code known at
