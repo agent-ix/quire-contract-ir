@@ -223,19 +223,23 @@ fn tc_229_raw_population_record_joins_by_identity() {
 
 #[trace("TC-229", "FR-038-AC-303", "FR-038-AC-304")]
 #[test]
-fn tc_229_population_node_without_identity_is_not_declared() {
+fn tc_229_population_node_without_identity_refuses_at_selection() {
     let (mut package, mut document) = declared_population_package();
     document["populations"] = json!([{"node": "ix://acme/owners/counters"}]);
     package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
     refresh_identity(&mut package);
 
     let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&package, &document) else {
-        panic!("a node-only projection cannot declare a raw population");
+        panic!("a raw population without identity must refuse");
     };
-    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
     assert_eq!(
         refusal.cause,
-        Some(CheckedPackageRefusalCause::MissingSelection)
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+    assert_eq!(
+        refusal.path.expect("path").as_str(),
+        "/lock/model_selections/0"
     );
 }
 
@@ -252,6 +256,24 @@ fn tc_229_population_with_unresolved_construct_refuses() {
 
     let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&package, &document) else {
         panic!("a population with an unresolved construct must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+}
+
+#[trace("TC-229", "FR-038-AC-304")]
+#[test]
+fn tc_229_population_kind_with_wrong_meaning_refuses() {
+    let (mut package, mut document) = declared_population_package();
+    document["populations"][0]["kind"]["name"] = json!("entity");
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+    refresh_identity(&mut package);
+
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&package, &document) else {
+        panic!("a population kind with object-type meaning must refuse");
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
     assert_eq!(
