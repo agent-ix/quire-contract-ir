@@ -2046,19 +2046,22 @@ fn semantic_ir_value_type(value: &Value) -> Option<IntegerBounds> {
     (lower <= upper).then_some(IntegerBounds { lower, upper })
 }
 
-/// FR-154's declaration-refusal table rows, in table order: the order one
-/// node's failures report in.
+/// FR-154's declaration-refusal order for one node. Parameter collisions and
+/// names precede reference checks within an operation (FR-154-AC-14); other
+/// duplicate declarations retain the table's later row.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Row {
     /// The node is not valid for its meaning, including a reference that
     /// names a node of the wrong meaning.
     Meaning,
+    /// A repeated operation parameter identity suppresses checks of both names.
+    ParameterDuplicate,
+    /// An operation parameter's declared name is invalid for its identity.
+    ParameterName,
     /// A reference names no node or member of the package.
     Reference,
     /// A relationship identity names a declaration already read in this document.
     Duplicate,
-    /// An operation parameter's declared name is invalid for its identity.
-    ParameterName,
     /// A multiplicity has `lower > upper`.
     Multiplicity,
 }
@@ -2352,11 +2355,11 @@ pub(super) fn read_semantic_ir(
                 if let Some(refusal) = defects.first() {
                     let mut selected =
                         SelectionRefusal::located(refusal.refusal, refusal.declaration, budget)?;
-                    if matches!(refusal.row, Row::Duplicate | Row::ParameterName)
+                    if matches!(refusal.row, Row::ParameterDuplicate | Row::ParameterName)
                         && refusal.path.first() == Some(&Segment::Name("operations"))
                     {
                         selected.declaration_path = Some(refusal.path);
-                        if refusal.row == Row::Duplicate {
+                        if refusal.row == Row::ParameterDuplicate {
                             selected.declaration_origin = None;
                         }
                     }
@@ -2878,7 +2881,7 @@ fn semantic_ir_object_type<'v>(
                     colliding.insert(position);
                     defects.context(parameter);
                     defects.push(
-                        Row::Duplicate,
+                        Row::ParameterDuplicate,
                         &joined(&params_path, Segment::Index(position)),
                         ModelRefusal::new(
                             CheckedPackageRefusalCode::InvalidModelBinding,
