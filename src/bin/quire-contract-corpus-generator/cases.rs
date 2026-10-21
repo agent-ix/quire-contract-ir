@@ -2,6 +2,8 @@
 
 use std::collections::BTreeSet;
 
+use quire_contract_ir::{CanonicalProfile, ContractPackage, ReferenceBody, ValidationOptions};
+
 use super::J;
 
 pub(super) struct Case {
@@ -1186,7 +1188,15 @@ fn coverage_cases(cases: &mut Vec<Case>) {
     let req_a = owner();
     let req_b =
         obj!("package" => "agent-ix/conformance", "requirement" => "REQ_1", "revision" => 1);
-    let digest = "534e1e3e27345bd9a9fc7a9723793b76b9dfc6f3b35a43c23ba811bf0ef39046";
+    let package_json = serde_json::to_string(&coverage_package).expect("fixture JSON serializes");
+    let parsed: ContractPackage<ReferenceBody> =
+        ContractPackage::from_json_str(&package_json, ValidationOptions::strict())
+            .expect("coverage fixture package is valid");
+    let digest = parsed
+        .canonical_requirement(&parsed.requirements()[0], CanonicalProfile::V1)
+        .expect("coverage fixture requirement canonicalizes")
+        .digest()
+        .to_string();
     add(
         cases,
         "coverage-shallow",
@@ -1203,7 +1213,7 @@ fn coverage_cases(cases: &mut Vec<Case>) {
         "coverage-deep",
         "coverage",
         obj!("package" => coverage_package.clone(),
-        "traces" => vec![trace("deep", req_a.clone(), 3, Some(digest))]),
+        "traces" => vec![trace("deep", req_a.clone(), 3, Some(&digest))]),
         [
             "construct:artifact.depth.deep",
             "construct:coverage.class.deep",

@@ -82,6 +82,44 @@ fn tc_018_rust_generator_regenerates_the_corpus_byte_for_byte() {
     }
 }
 
+/// A failed runner must leave an existing corpus usable and byte-for-byte intact.
+#[trace("FR-018-AC-1", "TC-018")]
+#[test]
+fn tc_018_failed_regeneration_preserves_the_existing_corpus() {
+    let scratch = Scratch::corpus("rust-regeneration-failure");
+    let generator = env!("CARGO_BIN_EXE_quire-contract-corpus-generator");
+    let before = relative_files(&scratch.0)
+        .into_iter()
+        .map(|relative| {
+            let bytes = fs::read(scratch.0.join(&relative)).unwrap();
+            (relative, bytes)
+        })
+        .collect::<Vec<_>>();
+    let output = Command::new(generator)
+        .arg("--output")
+        .arg(&scratch.0)
+        .arg("--runner")
+        .arg(scratch.root().join("missing-runner"))
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert_eq!(
+        relative_files(&scratch.0),
+        before
+            .iter()
+            .map(|(path, _)| path.clone())
+            .collect::<Vec<_>>()
+    );
+    for (relative, bytes) in before {
+        assert_eq!(
+            fs::read(scratch.0.join(&relative)).unwrap(),
+            bytes,
+            "{} changed",
+            relative.display()
+        );
+    }
+}
+
 #[trace(
     "TC-018",
     "FR-018-AC-1",

@@ -57,14 +57,70 @@ fn execute() -> io::Result<()> {
             }
         }
     }
-    if corpus != root.join("corpus/contract-v0.1") {
-        fs::create_dir_all(&corpus)?;
-        fs::copy(
-            root.join("corpus/contract-v0.1/README.md"),
-            corpus.join("README.md"),
-        )?;
+    regenerate(&root, &corpus, &runner)
+}
+
+struct Stage(PathBuf);
+
+impl Drop for Stage {
+    fn drop(&mut self) {
+        if self.0.exists() {
+            let _ = fs::remove_dir_all(&self.0);
+        }
     }
-    generate(&root, &corpus, &runner)
+}
+
+fn unused_sibling(destination: &Path, kind: &str) -> io::Result<PathBuf> {
+    let parent = destination
+        .parent()
+        .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "output has no parent"))?;
+    let name = destination
+        .file_name()
+        .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "output has no name"))?
+        .to_string_lossy();
+    for attempt in 0..128 {
+        let candidate = parent.join(format!(".{name}.{kind}-{}-{attempt}", std::process::id()));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err(Error::new(
+        ErrorKind::AlreadyExists,
+        "no free corpus staging path",
+    ))
+}
+
+fn regenerate(root: &Path, corpus: &Path, runner: &Path) -> io::Result<()> {
+    let parent = corpus
+        .parent()
+        .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "output has no parent"))?;
+    fs::create_dir_all(parent)?;
+    let stage = Stage(unused_sibling(corpus, "stage")?);
+    fs::create_dir(&stage.0)?;
+    let staged_corpus = stage.0.join(
+        corpus
+            .file_name()
+            .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "output has no name"))?,
+    );
+    fs::create_dir(&staged_corpus)?;
+    fs::copy(
+        root.join("corpus/contract-v0.1/README.md"),
+        staged_corpus.join("README.md"),
+    )?;
+    generate(root, &staged_corpus, runner)?;
+
+    if corpus.exists() {
+        let backup = unused_sibling(corpus, "backup")?;
+        fs::rename(corpus, &backup)?;
+        if let Err(error) = fs::rename(&staged_corpus, corpus) {
+            fs::rename(&backup, corpus)?;
+            return Err(error);
+        }
+        fs::remove_dir_all(backup)?;
+    } else {
+        fs::rename(&staged_corpus, corpus)?;
+    }
+    Ok(())
 }
 
 fn default_runner(root: &Path) -> PathBuf {
@@ -123,11 +179,7 @@ fn placeholder(operation: &str) -> J {
 fn generate(root: &Path, corpus: &Path, runner: &Path) -> io::Result<()> {
     let cases = cases::build_cases();
     for directory in ["inputs", "expectations", "canonical"] {
-        let path = corpus.join(directory);
-        if path.exists() {
-            fs::remove_dir_all(&path)?;
-        }
-        fs::create_dir_all(path)?;
+        fs::create_dir_all(corpus.join(directory))?;
     }
     let mut declared = BTreeMap::<String, BTreeSet<String>>::new();
     for case in &cases {
