@@ -1768,7 +1768,7 @@ fn tc_225_an_operation_without_valid_parameter_names_refuses_at_selection() {
         ),
         "case-distinct declared names and matching frame are admitted"
     );
-    let cases: [(&str, Value, Value, Cause); 9] = [
+    let cases: [(&str, Value, Value, Cause); 11] = [
         (
             "a parameter with no name",
             undeclared(|params| {
@@ -1822,6 +1822,24 @@ fn tc_225_an_operation_without_valid_parameter_names_refuses_at_selection() {
         (
             "two parameters of one identity",
             undeclared(|params| params[1]["identity"] = params[0]["identity"].clone()),
+            ordered(rebase(&[("from", "a"), ("to", "b")])),
+            Cause::ConflictingBinding,
+        ),
+        (
+            "an invalid parameter name precedes a missing type reference",
+            undeclared(|params| {
+                params[1]["name"] = json!("other");
+                params[1]["typeRef"] = json!("ix://acme/config/MissingType");
+            }),
+            ordered(rebase(&[("from", "a"), ("to", "b")])),
+            Cause::MalformedDeclaration,
+        ),
+        (
+            "a repeated parameter identity precedes a missing type reference",
+            undeclared(|params| {
+                params[1]["identity"] = params[0]["identity"].clone();
+                params[1]["typeRef"] = json!("ix://acme/config/MissingType");
+            }),
             ordered(rebase(&[("from", "a"), ("to", "b")])),
             Cause::ConflictingBinding,
         ),
