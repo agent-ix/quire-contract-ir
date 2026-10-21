@@ -718,7 +718,7 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
     let rows = cases["population_reference_cases"]
         .as_array()
         .expect("population cases");
-    assert_eq!(rows.len(), 12, "QSpec population case inventory");
+    assert_eq!(rows.len(), 13, "QSpec population case inventory");
     let mut admitted = std::collections::BTreeMap::new();
     for case in rows {
         let id = case["id"].as_str().expect("case id");
@@ -736,18 +736,18 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
                 "kind": {"module": "acme/orders", "name": "population"},
                 "construct": {"meaning": "quire.meaning.model.population/v1"},
             }));
-        document["populations"] = json!([
-            raw_population_record(
-                "ix://acme/orders/counters",
-                "acme/orders",
-                "ix://acme/orders/Order"
-            ),
-            raw_population_record(
-                "ix://acme/orders/archive",
-                "acme/orders",
-                "ix://acme/orders/Order"
-            ),
-        ]);
+        document["populations"] = if case["document_populations"] == "node-only" {
+            Value::Array(
+                cases["selected_document_populations"]
+                    .as_array()
+                    .expect("QSpec selected populations")
+                    .iter()
+                    .map(|entry| json!({"node": entry["identity"]}))
+                    .collect(),
+            )
+        } else {
+            cases["selected_document_populations"].clone()
+        };
         package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
         let owner = case["owner_node"]
             .as_str()
@@ -869,6 +869,9 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
                 }
                 let nodes = package["semantic_graph"]["nodes"].as_array().unwrap();
                 let locus = match id {
+                    "population-entry-without-an-identity-refused" => {
+                        "/lock/model_selections/0".to_owned()
+                    }
                     "population-owned-by-an-object-type"
                     | "population-owned-by-an-undeclared-node" => {
                         format!("/semantic_graph/nodes/{}/node_id", nodes.len() - 1)

@@ -2374,8 +2374,8 @@ its `node` SHALL resolve in that selection's admitted document to the kind
 the node represents: `model`/`object_type` requires an object type without
 `interfaceFeatures`, `model`/`systems_interface` requires an object type with
 `interfaceFeatures`, `relation`/`relationship` requires a relationship, and
-`relation`/`population` requires a population entry whose `node` is the
-owner's `node` in the selected document's `populations` projection.
+`relation`/`population` requires a raw population record whose `identity` is
+the owner's `node` in the selected document's `populations` list.
 An operation clause function requires an operation member; an invariant clause
 function requires an object type. The reader SHALL check this
 for every model-owned node whether or not any other node references it, and
@@ -2397,9 +2397,13 @@ node with a required `ModelOwner`, no declaration or nominal preimage, its
 own `node_id` as `semantic_type`, an empty aggregate body and no dependencies.
 The reader re-derives its `ModelDeclarationNode` key from the owner and
 checks the same fixed members as every other model declaration node. The
-owner's `identity` selects a domain document, and its `node` must occur as a
-population node in that document's `populations` projection; otherwise the
-owner join refuses `missing_declaration`/`missing-selection` at the node id.
+owner's `identity` selects a domain document, and its `node` must equal the
+`identity` of a raw population record in that document's `populations` list;
+otherwise the owner join refuses `missing_declaration`/`missing-selection` at
+the node id.
+A selected `populations` entry with a `node` member and no `identity` refuses
+`invalid_model_binding`/`malformed-declaration` at the model selection before
+the owner join.
 The declaration key is the two UTF-8 strings `owner.identity` and
 `owner.node`, not the digest of this reference node. The node carries no
 member type, extent or maximum. An absent owner refuses `malformed_wire`
@@ -4963,7 +4967,7 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-292 | At a `choice` or `repeat` decision the reader admits only QSpec FR-466 visible facts owned by the deciding role and listed individually in `visible`; a fact from another role, an ineligible send/effect/commit/finish or protocol-input binder, a fact reachable only inside a composite entry, or a readable fact omitted from `visible` refuses `wrong_snapshot`/`wrong-observation` with the specified reason. A binder unavailable at that decision refuses `missing_declaration`/`missing-name` first. | Test (TC-048) |
 | FR-038-AC-246 | Implemented (IR-803). For a reader-admitted `quire.op.structural.eq` application, `composite_application_operands` returns `CheckedCompositeOperator::Eq` together with its operands; for an otherwise equivalent reader-admitted `quire.op.structural.ne` application it returns `CheckedCompositeOperator::Ne` together with its operands. Between those cases, only the returned operator and the selected application's identity and occurrence may differ; operands (including order, child identities, semantic types and domains), ordinals and `consumed_work` are equal. The AC-182 public-fields inspection in `tests/it/checked_package_v2_composite_operands.rs` (`inspect_public_fields`) must exhaustively match both `CheckedCompositeOperator` variants, without a wildcard arm or `#[non_exhaustive]`. The consumer needs no separate operation lookup. TC-048 composite operand tests verify both cases. | Test (TC-048) |
 | FR-038-AC-303 | A self-typed `relation`/`population` node with no declaration, nominal preimage or recursion group, an empty aggregate body, empty dependencies and a `ModelOwner` admits when its key matches the closed `ModelDeclarationNode` preimage. The two QSpec P7/P8 preimages yield their distinct published keys; changing either owner string changes the key. An absent owner on the node or its identity projection refuses `malformed_wire` before key or join checks, and a wrong fixed member refuses by the existing model-declaration shape rule. | Test (TC-229) |
-| FR-038-AC-304 | The reader joins a population reference's owner to the selected document's `populations` entries by the two UTF-8 strings `identity` and `node`. The QSpec `counters` and `archive` owners admit; an unknown node, an object-type node claimed as a population, and a population node claimed as an object type or relationship each refuse `missing_declaration`/`missing-selection` at the first offending node id. The reference node's digest never substitutes for the declaration key. | Test (TC-229) |
+| FR-038-AC-304 | After FR-154 admission, the reader joins a population reference's `owner.node` to the raw `identity` of a `populations` record in the document selected by `owner.identity`. A record without `identity`, with an unresolved `kind` construct, or with a construct whose meaning is not population refuses `invalid_model_binding`/`malformed-declaration` at the selection before the join. The QSpec `counters` and `archive` owners admit; an unknown node, an object-type node claimed as a population, and a population node claimed as an object type or relationship each refuse `missing_declaration`/`missing-selection` at the first offending node id. The reference node's digest never substitutes for the declaration key. | Test (TC-229) |
 | FR-038-AC-305 | `quire.op.model.all_instances` and `quire.op.model.lookup` each admit a reference to a declared population as operand 0 and list it in dependencies; the same declared population is one reference node across both reads, while the two named populations yield distinct reference, application and package identities. A `value`/`parameter` typed `Population<O>[N]` remains an admitted operand 0. A unit maximum is represented only in the application's result-type collection bounds, not in the declared population node. | Test (TC-229) |
 | FR-038-AC-306 | A declared population reference used as a `collection_kind` operand, as the `population` link of a reaches `relationship_end`, or as the declaring node of a `field`, `operation` or `relationship_end` member refuses `ill_typed`/`operator-ineligible` at that operand or member. An otherwise identical binding typed by `bounded_domain`/`model_population` keeps its existing outcome. | Test (TC-229) |
 | FR-038-AC-307 | The reader consumes QSpec's selected-checkout published population-reference vectors and operation fixture directly, without copying them into this repository: it admits the amended positive package and checks its package, application and operand identities; it refuses the retired ownerless relation/population operand as `malformed_wire`; and it matches the `population_reference_cases` adverse outcomes by code, cause and locus. | Test (TC-229) |
