@@ -43,10 +43,12 @@ Compute each expected `node_id` from the body in the test through
 For FR-346-AC-7 and FR-154-AC-14, first admit an unchanged selected domain
 document declaring `rebase(from, to)` with a frame entry that binds both
 parameters. Then change only that declaration: remove a parameter `name`,
-make it non-string, give it the other parameter's name while retaining distinct
-identities, and repeat one parameter identity. The first three mutations
-refuse `invalid_model_binding`/`malformed-declaration` at the domain selection
-row; the repeated identity refuses `invalid_model_binding`/
+make it null or non-string, make it empty or syntactically invalid, give it a
+valid name that differs from its identity's last segment (including the other
+parameter's name while retaining distinct identities), and repeat one
+parameter identity. Every name mutation refuses `invalid_model_binding`/
+`malformed-declaration` at the domain selection row; the repeated identity
+refuses `invalid_model_binding`/
 `conflicting-binding` there before either colliding name is checked. None
 reaches the frame entry.
 
