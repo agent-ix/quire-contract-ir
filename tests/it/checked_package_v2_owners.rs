@@ -211,7 +211,7 @@ fn tc_229_distinct_population_declarations_have_distinct_keys() {
     }
 }
 
-#[trace("TC-229", "FR-038-AC-304")]
+#[trace("TC-229", "FR-038-AC-303", "FR-038-AC-304")]
 #[test]
 fn tc_229_population_owner_identity_is_joined_independently_of_node() {
     let (base, _) = declared_population_package();
