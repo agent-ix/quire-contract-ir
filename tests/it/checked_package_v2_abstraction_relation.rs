@@ -1739,31 +1739,54 @@ fn tc_225_an_operation_without_valid_parameter_names_refuses_at_selection() {
         edit(&mut document["types"][0]["operations"][1]["params"]);
         document
     };
-    let cases: [(&str, Value, Value); 4] = [
+    let valid_document = domain_document();
+    let valid_relation = ordered(rebase(&[("from", "a"), ("to", "b")]));
+    let valid_value = with_nodes(
+        base_over(&valid_document),
+        vec![relation_node(&valid_relation)],
+    );
+    assert!(
+        matches!(
+            read_over(&valid_value, &valid_document),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "the unchanged declaration and matching frame are admitted"
+    );
+    let cases: [(&str, Value, Value, Cause); 5] = [
         (
             "a parameter with no name",
             undeclared(|params| {
                 params[1].as_object_mut().expect("parameter").remove("name");
             }),
             ordered(rebase(&[("from", "a"), ("to", "b")])),
+            Cause::MalformedDeclaration,
         ),
         (
             "a parameter whose name is not a string",
             undeclared(|params| params[1]["name"] = json!(5)),
             ordered(rebase(&[("from", "a"), ("to", "b")])),
+            Cause::MalformedDeclaration,
         ),
         (
             "two parameters of one name",
             undeclared(|params| params[1]["name"] = json!("from")),
             ordered(rebase(&[("from", "a"), ("to", "b")])),
+            Cause::MalformedDeclaration,
         ),
         (
             "two parameters of one name bound twice",
             undeclared(|params| params[1]["name"] = json!("from")),
             ordered(rebase(&[("from", "a"), ("from", "b")])),
+            Cause::MalformedDeclaration,
+        ),
+        (
+            "two parameters of one identity",
+            undeclared(|params| params[1]["identity"] = params[0]["identity"].clone()),
+            ordered(rebase(&[("from", "a"), ("to", "b")])),
+            Cause::ConflictingBinding,
         ),
     ];
-    for (case, document, relation) in cases {
+    for (case, document, relation, cause) in cases {
         let value = with_nodes(base_over(&document), vec![relation_node(&relation)]);
         let refusal = match read_over(&value, &document) {
             CheckedPackageV2ReadResult::Refused(refusal) => refusal,
@@ -1774,7 +1797,7 @@ fn tc_225_an_operation_without_valid_parameter_names_refuses_at_selection() {
             Code::InvalidModelBinding,
             "{case}: {refusal:?}"
         );
-        assert_eq!(refusal.cause, Some(Cause::MalformedDeclaration), "{case}");
+        assert_eq!(refusal.cause, Some(cause), "{case}");
         assert_eq!(
             refusal.path.as_ref().map(|path| path.as_str()),
             Some("/lock/model_selections/0"),
