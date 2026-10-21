@@ -136,6 +136,26 @@ another root reaches it. Neither case SHALL synthesize a root closure.
 This read-only view SHALL leave the admitted six-field FR-330 wire and its
 identity unchanged.
 
+The admitted package SHALL retain each represented local node's exact
+`CheckedNodeKind`, aligned with that node after canonical graph ordering,
+including recursion-group member ordering. Lowering SHALL carry the kind from
+the admitted checked source; strict reading SHALL retain the kind validated
+from the canonical wire. A query by represented local typed key SHALL return
+that kind, and each root and reached node in the typed closure SHALL expose it.
+An absent or unrepresented local key SHALL have no kind. A selected
+dependency's kind SHALL NOT be presented as the kind of a local node.
+
+The admitted package SHALL also retain the exact typed `CheckedNodeTag` for
+each `unsupported` feature-accounting record at its request position, including
+when its requested node is absent from `semantic_graph`. The position is the
+zero-based index in FR-330 `feature_accounting`, independent of a consumer's
+request or envelope index. Lowering SHALL carry
+the typed tag from its disposition; strict reading SHALL retain the tag
+validated from that record. A query by feature-accounting index SHALL return
+that tag; an out-of-range index or a record with another
+disposition SHALL have no unsupported tag. These read-only kinds and tags SHALL
+add no FR-330 wire member and SHALL NOT change canonical bytes or identity.
+
 When reading a canonical `ContractPackageWireV1`, Contract IR SHALL refuse an
 unrecognized string `contract_version` with `unknown_contract_version` located
 at `/contract_version`, retaining the supplied version in the diagnostic.
@@ -190,6 +210,9 @@ admit no `ContractPackageV1`.
 | FR-035-AC-16 | For an otherwise valid canonical package with source-map occurrences and regions, a limit one below the independently counted combined occurrence and region charges returns `Incomplete` with `limit_kind = Occurrences`, the selected limit, `consumed` equal to the count at the first failed charge, and `path` naming the particular occurrence value under `/source_map/nodes/<i>/occurrences/<j>`, `/source_map/requested_items/<i>/occurrences/<j>` or `/source_map/refusals/<i>/occurrences/<j>`, or its `/regions/<k>` member, whose charge crossed the limit. A limit equal to that total admits; a stop does not report only `/source_map`. | Test |
 | FR-035-AC-17 | Given an otherwise valid canonical `ContractPackageWireV1` with an `invalid_body.refusal` whose code is `unknown_contract_version` or `unknown_required_capability`, the reader admits that nested record when `cause` is absent and refuses a present `cause` as `invalid_package`/`invalid-value` at the nested `/cause` pointer, including `unsupported-wire` and `unsupported-feature` respectively, as QSpec FR-322-AC-78 and FR-330 require. | Test (TC-047) |
 | FR-035-AC-18 | Given an otherwise valid canonical ContractPackage whose source lock directly selects two admitted dependencies whose own direct selections reach one transitive identity with different package ids, `ContractPackageWireV1::read` refuses `invalid_package`/`conflicting-definition` before validating graph references. Its `path` and typed `related_path` name the two exact importer-rooted selection paths, beginning at `/package/source/lock/dependency_selections/<i>` and following `/lock/dependency_selections/<j>` through each selected admitted package. | Test (TC-047) |
+| FR-035-AC-19 | For a lowered root whose represented source nodes are reordered by canonical typed key, including a recursion-group block sorted by its least typed key while its members retain admitted graph order, producer admission and strict reading of its canonical bytes return the same exact `CheckedNodeKind` for each represented local key, closure root and reached node. An absent or unrepresented local key returns no kind, and a selected dependency's kind is never substituted for a local kind. | Test |
+| FR-035-AC-20 | For mixed accounting with an `unsupported` request whose node is absent from the represented graph, producer admission and strict reading return its exact typed `CheckedNodeTag` at its zero-based FR-330 `feature_accounting` index. Querying an out-of-range index or any non-`unsupported` record returns no tag, even when its requested node is represented; interposed consumer context or excluded requests do not shift this accounting index. | Test |
+| FR-035-AC-21 | Retaining kinds and unsupported tags changes none of the six FR-330 wire members, canonical bytes or identity; a malformed node kind or unsupported tag retains the strict reader's existing refusal code, location and precedence, and an exhausted limit still returns `Incomplete` without an admitted typed view. | Test |
 
 FR-035-AC-12 through FR-035-AC-14 are backed by tagged TC-047 reader tests in
 `tests/it/complete_v1_contract_package.rs`; the specified workspace test gate, lint, and grammar validation pass.
