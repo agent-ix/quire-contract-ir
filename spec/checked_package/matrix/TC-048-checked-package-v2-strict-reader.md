@@ -846,7 +846,26 @@ Run the operation check of one `application` node as a unit, over a graph of the
 node and the type nodes it names, and the application key check of a graph of
 application nodes. Name an identity the catalog lacks, and `quire.op.integer.add`
 under `unary`; admit `quire.op.integer.add` under `binary` with two plain
-operands, and give `operation` a bare string (AC-81). Supply no law to `quire.op.integer.div`, one law to
+operands, and give `operation` a bare string (AC-81).
+
+For AC-81's PLANNED IR-539 required-presence controls, independently build a
+valid integer-add application package with two correctly typed operands, no
+laws or leaves, and both `operation.mode` and `operation.member` explicitly
+`null`. Read it through `CheckedPackageV2::read` as the positive control.
+Starting afresh from that admitted shape for each adverse case, remove only
+`mode`, and separately only `member`, leaving the other present as `null`.
+Use the repository's owning identity helpers to re-derive the affected
+application/node identity, rewrite its references where necessary, preserve
+canonical node ordering and refresh the package identity after each mutation.
+Do not retain a stale node or package key, fabricate an identifier or use a
+private operation-unit result as the public-reader result. Read each changed
+package through the same public reader and compare its exact code, cause and
+pointer. Restore the removed member as explicit `null` and refresh identities
+to show admission is restored. These controls concern the containing
+`operation` object only; do not change leaf-mode behavior. No implementation
+or executed result for these planned controls is claimed by this procedure.
+
+Supply no law to `quire.op.integer.div`, one law to
 `quire.op.integer.add`, and to `quire.op.integer.div` a law whose `role` is
 `not_integer_division` over a catalogued `integer_division` definition (AC-82).
 Give `quire.op.decimal.add` a `null` mode; supply the mode `toward-zero` over a
@@ -874,8 +893,8 @@ and the correct use admits; `operation-law-missing` at `operation.laws`,
 `operation-law-mismatch` at `operation.laws/0` and at the law's `role`; the
 absent mode `operation-mode-mismatch` at `operation.mode` and the disagreeing
 value `operation-mode-type-mismatch` at `operation.mode/value`, for the
-`reference` and the `literal` (the `null` mode and `null` member cases; an omitted
-member reads as `null`, a reader leniency this case does not pin); `operation-member-mismatch` at `operation.member`
+`reference` and the `literal` (these are explicit-`null` mode and member
+controls, not omitted-member cases); `operation-member-mismatch` at `operation.member`
 and `operator-ineligible` at `operation.member.name` and
 `operation.member.declaration`; `operator-ineligible` at `arguments` for the
 third argument and at the argument for the `boolean` literal and the clause, and
@@ -886,6 +905,20 @@ as stated, the stale key refuses `stale-node-key` at `node_id` and the genuine
 one admits. Compare the whole refusal code, cause and pointer. The `definition`
 of a law of the right role is FR-038-AC-56 and FR-038-AC-57's, and the modes of a
 leaf are FR-038-AC-44's.
+
+Expected for the PLANNED public-reader IR-539 controls: the explicit-`null`
+integer-add package admits; each of the two independent omissions refuses
+`invalid_semantic_graph` with no cause at
+`/semantic_graph/nodes/{i}/body/operation`, where `{i}` is the application's
+actual index after canonical ordering, rather than at `operation/mode` or
+`operation/member`. Restoring the field as explicit `null` admits. The existing
+AC-83 required-mode explicit-`null` case continues to refuse
+`invalid_package`/`operation-mode-mismatch` at `operation.mode`, and AC-84's
+required-member explicit-`null` case continues to refuse
+`invalid_package`/`operation-member-mismatch` at `operation.member`; omission
+shape failures precede these catalog semantic checks. Earlier package-read
+stages retain their existing precedence, and the identity refresh prevents
+an earlier stale-key failure from satisfying either omission control.
 
 ## Typed scalar application operands (FR-038-AC-159 through FR-038-AC-164)
 
