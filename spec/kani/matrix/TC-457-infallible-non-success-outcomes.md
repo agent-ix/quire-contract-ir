@@ -54,7 +54,10 @@ Boolean-kind requests still return `kani_outcome_invalid` without an outcome.
 
 ## Status
 
-Planned under IR-621. No source implementation or tagged test is claimed by
-this specification change. The public constructors do not themselves observe
-SUCCESS checks or cancellation events and provide no new Boolean proof or
-runtime-producer evidence.
+Implemented by the external integration tests in
+`tests/it/kani_outcome_construction.rs` and the paired passing/compile-fail
+doctests on the nine public `KaniOutcome` methods. The native tests assert
+exact construction and wire behavior; the doctests check type and arity
+refusals. The public constructors do not themselves observe SUCCESS checks or
+cancellation events and provide no new Boolean proof or runtime-producer
+evidence.
