@@ -1590,8 +1590,15 @@ fn join_targets(term: &Value, out: &mut std::collections::BTreeSet<String>) -> b
             {
                 out.insert(declaration.to_owned());
             }
-            if let Some(population) = term["operation"]["member"]["population"]["digest"].as_str() {
-                out.insert(population.to_owned());
+            if matches!(
+                term["operation"]["identity"].as_str(),
+                Some("quire.op.model.reaches" | "quire.op.model.navigate")
+            ) {
+                if let Some(population) =
+                    term["operation"]["member"]["population"]["digest"].as_str()
+                {
+                    out.insert(population.to_owned());
+                }
             }
             for argument in term["arguments"].as_array().into_iter().flatten() {
                 join_targets(argument, out);
