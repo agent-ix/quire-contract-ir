@@ -14,7 +14,8 @@
 
 use crate::support::checked_package::{
     application_node_key, canonical, evidence_for, fixture_source, node_id, nominal_package,
-    pointer, rebuild_source_map, refresh_identity, rekey_application_node, sha256_hex, source_owner,
+    pointer, rebuild_source_map, refresh_identity, rekey_application_node, sha256_hex,
+    source_owner,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -1490,11 +1491,18 @@ fn operation_mode_and_member_are_required_even_when_null_is_admitted() {
         let CheckedPackageV2ReadResult::Refused(refusal) = case.read() else {
             panic!("omitting {field} must refuse");
         };
-        assert_eq!(refusal.code, Code::InvalidSemanticGraph, "{field}: {refusal:?}");
+        assert_eq!(
+            refusal.code,
+            Code::InvalidSemanticGraph,
+            "{field}: {refusal:?}"
+        );
         assert_eq!(refusal.cause, None, "{field}: {refusal:?}");
         assert_eq!(
             refusal.path,
-            Some(pointer(&format!("/semantic_graph/nodes/{}/body/operation", case.node))),
+            Some(pointer(&format!(
+                "/semantic_graph/nodes/{}/body/operation",
+                case.node
+            ))),
             "{field}: {refusal:?}",
         );
 
@@ -1513,11 +1521,15 @@ fn operation_mode_and_member_are_required_even_when_null_is_admitted() {
 
         case.package["semantic_graph"]["nodes"][case.node]["body"]["operation"]["identity"] =
             json!("quire.op.integer.add");
-        case.package["semantic_graph"]["nodes"][case.node]["body"]["operation"][field] = Value::Null;
+        case.package["semantic_graph"]["nodes"][case.node]["body"]["operation"][field] =
+            Value::Null;
         rekey_application_node(&mut case.package, case.node);
         rebuild_source_map(&mut case.package);
         refresh_identity(&mut case.package);
-        assert_eq!(case.package, base.package, "restoring {field} restores the original package");
+        assert_eq!(
+            case.package, base.package,
+            "restoring {field} restores the original package"
+        );
         case.admits(&format!("restored explicit null {field}"));
     }
 }
