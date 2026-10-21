@@ -56,8 +56,7 @@ fn relative_files(root: &Path) -> Vec<PathBuf> {
 #[test]
 fn tc_018_rust_generator_regenerates_the_corpus_byte_for_byte() {
     let scratch = Scratch::empty("rust-regeneration");
-    let generator = option_env!("CARGO_BIN_EXE_quire-contract-corpus-generator")
-        .expect("the Rust corpus generator binary is built");
+    let generator = env!("CARGO_BIN_EXE_quire-contract-corpus-generator");
     let output = Command::new(generator)
         .arg("--output")
         .arg(&scratch.0)

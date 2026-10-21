@@ -27,8 +27,15 @@ and actual result, maps them to acceptance-criterion targets through
 `schemas/conformance-trace-map-v1.json`, and reports both in its structured
 row. The union of observed tokens must equal the published inventory. These
 are relevant observations, not a claim that the corpus alone proves each entire
-criterion. Large exact-edge fixtures are reproducibly authored by
-`scripts/generate_conformance_corpus.py`, which freezes runner output as
-expectations and rejects a declared token the runner does not observe. For this
-crate, a full match proves deterministic regression stability against those
+criterion. Large exact-edge fixtures are reproducibly authored by the Rust
+generator:
+
+```text
+cargo build --locked --bin quire-contract-conformance
+cargo run --locked --bin quire-contract-corpus-generator -- --output /tmp/contract-v0.1
+```
+
+Omit `--output` to regenerate the checked-in corpus. The generator freezes
+runner output as expectations and rejects a declared token the runner does not
+observe. For this crate, a full match proves deterministic regression stability against those
 frozen outputs, not independent semantic correctness.
