@@ -35,7 +35,7 @@ fn add_body_mut(wire: &mut Value) -> &mut Value {
 
 #[trace("TC-458", "FR-054-AC-1", "FR-054-AC-5")]
 #[test]
-fn tc_457_admitted_add_retains_graph_child_then_inline_one() {
+fn tc_458_admitted_add_retains_graph_child_then_inline_one() {
     let checked = admit(&fixture());
     let add = by_operation(&checked, "quire.op.integer.add");
     let admitted = package(&checked, std::slice::from_ref(&add.node_id));
@@ -105,7 +105,7 @@ fn tc_457_admitted_add_retains_graph_child_then_inline_one() {
 
 #[trace("TC-458", "FR-054-AC-2")]
 #[test]
-fn tc_457_repeated_graph_child_keeps_both_authored_positions() {
+fn tc_458_repeated_graph_child_keeps_both_authored_positions() {
     let wire = revised(fixture(), |wire| {
         let arguments = add_body_mut(wire)["arguments"]
             .as_array_mut()
@@ -145,7 +145,7 @@ fn tc_457_repeated_graph_child_keeps_both_authored_positions() {
 
 #[trace("TC-458", "FR-054-AC-3")]
 #[test]
-fn tc_457_absent_own_range_does_not_erase_positions_or_invent_a_fallback() {
+fn tc_458_absent_own_range_does_not_erase_positions_or_invent_a_fallback() {
     let unbounded = revised(fixture(), |wire| {
         let target = add_body_mut(wire)["arguments"][0]["target"].clone();
         let parameter = wire["semantic_graph"]["nodes"]
@@ -205,7 +205,7 @@ fn tc_457_absent_own_range_does_not_erase_positions_or_invent_a_fallback() {
 
 #[trace("TC-458", "FR-054-AC-4", "FR-054-AC-5")]
 #[test]
-fn tc_457_invalid_occurrence_refuses_without_mutating_admitted_views() {
+fn tc_458_invalid_occurrence_refuses_without_mutating_admitted_views() {
     let checked = admit(&fixture());
     let add = by_operation(&checked, "quire.op.integer.add");
     let narrow = by_operation(&checked, "quire.op.numeric.narrow");
@@ -282,7 +282,7 @@ fn tc_457_invalid_occurrence_refuses_without_mutating_admitted_views() {
 
 #[trace("TC-458", "FR-054-AC-4")]
 #[test]
-fn tc_457_two_valid_represented_occurrences_remain_distinct() {
+fn tc_458_two_valid_represented_occurrences_remain_distinct() {
     let mut wire = revised(fixture(), |wire| {
         let add = wire["semantic_graph"]["nodes"]
             .as_array_mut()
@@ -345,7 +345,7 @@ fn tc_457_two_valid_represented_occurrences_remain_distinct() {
 
 #[trace("TC-458", "FR-054-AC-4")]
 #[test]
-fn tc_457_inconsistent_child_source_refuses_without_a_partial_vector() {
+fn tc_458_inconsistent_child_source_refuses_without_a_partial_vector() {
     let checked = admit(&fixture());
     let add = by_operation(&checked, "quire.op.integer.add");
     let mut admitted = package(&checked, std::slice::from_ref(&add.node_id));
