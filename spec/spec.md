@@ -183,3 +183,8 @@ coverage target is specified before it is measured and reviewed.
 - [IR to codegen seam: what codegen consumes](assurance/AD-006-codegen-consumption-seam.md).
 - [Cross-repo dependency graph](assurance/AD-007-cross-repo-dependency-graph.md).
 - [Proof coverage accounting](assurance/AD-008-proof-coverage-accounting.md).
+
+## Developer Gate Adoption
+
+[FR-055](core/functional/FR-055-owned-lock-coherence-gate.md) defines planned consumption of the single owned CLI lock
+coherence gate under IR-641. It does not claim consumer implementation or qualification.
