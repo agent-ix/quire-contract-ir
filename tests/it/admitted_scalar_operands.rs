@@ -208,6 +208,7 @@ fn tc_457_absent_own_range_does_not_erase_positions_or_invent_a_fallback() {
 fn tc_457_invalid_occurrence_refuses_without_mutating_admitted_views() {
     let checked = admit(&fixture());
     let add = by_operation(&checked, "quire.op.integer.add");
+    let narrow = by_operation(&checked, "quire.op.numeric.narrow");
     let admitted = package(&checked, std::slice::from_ref(&add.node_id));
     let before = admitted.wire().clone();
     let before_reached = admitted.reached_closure(&add.node_id).expect("reached");
@@ -222,6 +223,7 @@ fn tc_457_invalid_occurrence_refuses_without_mutating_admitted_views() {
             role: CheckedOccurrenceRole::Expression,
             ordinal: add.ordinal + 1,
         },
+        narrow.clone(),
     ] {
         assert_eq!(
             admitted.scalar_operands(&add.node_id, &invalid),
@@ -233,12 +235,31 @@ fn tc_457_invalid_occurrence_refuses_without_mutating_admitted_views() {
         admitted.scalar_operands(&absent, &add),
         Ok(ContractScalarOperandViewV1::Absent)
     ));
-    let narrow = by_operation(&checked, "quire.op.numeric.narrow");
     let with_narrow = package(&checked, &[add.node_id.clone(), narrow.node_id.clone()]);
     assert_eq!(
         with_narrow.scalar_operands(&narrow.node_id, &narrow),
         Err(ContractScalarOperandErrorV1::Projection(
             CheckedScalarOperandError::IneligibleOperator
+        ))
+    );
+    let parameter = checked
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| {
+            node.node_tag.as_ref() == "value" && node.semantic_form.as_ref() == "parameter"
+        })
+        .expect("fixture parameter");
+    let parameter_key = ContractOccurrenceKeyV1 {
+        node_id: parameter.node_id.clone(),
+        role: CheckedOccurrenceRole::Expression,
+        ordinal: 0,
+    };
+    let with_parameter = package(&checked, std::slice::from_ref(&parameter.node_id));
+    assert_eq!(
+        with_parameter.scalar_operands(&parameter.node_id, &parameter_key),
+        Err(ContractScalarOperandErrorV1::Projection(
+            CheckedScalarOperandError::NotApplication
         ))
     );
     let mut unsupported_profile = profile();
