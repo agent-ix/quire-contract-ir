@@ -16,7 +16,8 @@ increment source and ordinary FR-035 lowering, then read that same six-field
 package. Other cases use the repository's admitted package fixtures and
 reader, without copied schemas or a raw-JSON consumer extractor.
 
-The QSL producer-origin positive is **Planned**: the current increment emission
+The QSL producer-origin positive is **Planned** pending
+[QSL-940](https://linear.app/agent-ix/issue/QSL-940): the current increment emission
 represents the authored integer literal as a graph reference in the scalar
 application, while QSL FR-357/FR-358 and ADR-013 require an inline literal in
 that operand identity. The reader-admitted fixture exercises the specified
