@@ -2234,6 +2234,9 @@ pub(super) fn read_semantic_ir(
     for population in list(document, "populations")? {
         budget.charge(node_size(population))?;
         let node = text(population, "identity")?;
+        if population.get("node").is_some() {
+            return Err(ModelRefusal::malformed().into());
+        }
         let (_, meaning) = classify(&prefix, &meanings, &[population], node)?;
         if meaning != meaning::POPULATION || !model.populations.insert(node.into()) {
             return Err(ModelRefusal::malformed().into());
