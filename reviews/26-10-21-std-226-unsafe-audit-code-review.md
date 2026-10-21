@@ -22,7 +22,7 @@ FND-001 is accepted as the requested policy change. A search found no live refer
 
 ## Verification
 
-`make lint`, `cargo metadata --no-deps`, and `git diff --check` passed. The full `make ci` run passed formatting, Clippy, 714 root integration tests, 228 model tests, and subsequent corpus tests. It stopped at strict spec coverage with 40 unbacked rows in unchanged spec/source material. The aggregate gate did not complete.
+`make lint`, `cargo metadata --no-deps`, and `git diff --check` passed. Both full `make ci` runs passed formatting, Clippy, workspace tests, and corpus checks, then stopped at strict spec coverage with 40 unbacked rows in unchanged spec/source material. The first run had 714 root integration tests; the current-main rerun had 747. The aggregate gate did not complete.
 
 ## Verdict
 
