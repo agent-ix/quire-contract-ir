@@ -1,4 +1,4 @@
-//! Versioned profile and complete support/refusal/inconclusive matrix.
+//! Versioned profile and complete supported/refused capability matrix.
 
 use std::collections::BTreeSet;
 
@@ -16,8 +16,6 @@ pub enum CapabilityDisposition {
     Supported { module: String },
     /// The selected profile refuses the construct at the source boundary.
     Refused { code: Std001Code },
-    /// A bounded cause prevents a qualified result.
-    Inconclusive { code: Std001Code },
 }
 
 /// One unique construct entry in a capability matrix.

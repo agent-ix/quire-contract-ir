@@ -103,3 +103,22 @@ fn tc_042_collection_bound_exhaustion_is_non_boolean() {
     assert_eq!(failure.kind, KaniOutcomeKind::ResourceExhausted);
     assert_eq!(failure.boolean_claim(), None);
 }
+
+#[trace("TC-042", "FR-029-AC-2", "FR-030-AC-3")]
+#[test]
+fn profile_refusal_retains_its_exact_cause_source_and_revision() {
+    let cause = quire_contract_model::std001_code!("profile_not_qualified");
+    let refused = KaniProfile::new(selection(), vec![CapabilityEntry {
+        construct: "bounded-collection-query".into(),
+        disposition: CapabilityDisposition::Refused { code: cause },
+    }]).expect("refused profile is valid");
+    let failure = lower_query(&refused, &dispatch(), &input(), CollectionQuery {
+        source_id: "source:profile-refusal".into(), values: vec![2, 3],
+        max_items: 2, kind: QueryKind::ExistsEqual(3),
+    }).expect_err("profile refusal precedes family lowering");
+    assert_eq!(failure.kind, KaniOutcomeKind::Refused);
+    assert_eq!(failure.code, cause);
+    assert_eq!(failure.source_id, "source:profile-refusal");
+    assert_eq!(failure.context, selection().revision);
+    assert_eq!(failure.boolean_claim(), None);
+}

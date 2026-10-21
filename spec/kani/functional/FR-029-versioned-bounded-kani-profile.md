@@ -46,8 +46,9 @@ FR-015 owns native definedness. ADR-0053 owns native source authority and the fi
 
 ## Status
 
-AC-1 and AC-3 are implemented for the exact `kani-bounded/1` profile. AC-2 is planned: the matrix
-still has a `CapabilityDisposition::Inconclusive` entry, which lowering turns
-into an `Inconclusive` run outcome, and no `unsupported` entry. Target-family support remains limited to the
+AC-1 and AC-3 are implemented for the exact `kani-bounded/1` profile. AC-2 remains incomplete: the matrix admits only `Supported` and `Refused`;
+legacy `inconclusive` profile dispositions are rejected on read, and none of
+the three family lowerings converts a profile code into an inconclusive run.
+The `unsupported` entry and its warning/no-outcome negotiation are planned. Target-family support remains limited to the
 closed capability matrix; no scalar or recognized construct implies support for
 another family or unbounded population.

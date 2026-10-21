@@ -75,14 +75,6 @@ pub fn lower_checked_arithmetic(
                 profile.selection().revision.clone(),
             ))
         }
-        CapabilityDisposition::Inconclusive { code } => {
-            return Err(KaniOutcome::raise(
-                NonSuccessKind::Inconclusive,
-                *code,
-                request.source_id,
-                profile.selection().revision.clone(),
-            ))
-        }
     }
     if request.minimum > request.maximum {
         return Err(KaniOutcome::raise(

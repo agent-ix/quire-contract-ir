@@ -72,14 +72,6 @@ pub fn lower_reaches(
                 profile.selection().revision.clone(),
             ))
         }
-        CapabilityDisposition::Inconclusive { code } => {
-            return Err(KaniOutcome::raise(
-                NonSuccessKind::Inconclusive,
-                *code,
-                &request.source_id,
-                profile.selection().revision.clone(),
-            ))
-        }
     }
     if request.max_expansions == 0 {
         return Err(KaniOutcome::raise(

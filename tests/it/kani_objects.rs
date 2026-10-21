@@ -109,3 +109,22 @@ fn tc_042_graph_lowering_retains_exhaustion_as_non_boolean() {
     assert_eq!(exhausted.kind, KaniOutcomeKind::ResourceExhausted);
     assert_eq!(exhausted.boolean_claim(), None);
 }
+
+#[trace("TC-042", "FR-029-AC-2", "FR-030-AC-3")]
+#[test]
+fn profile_refusal_retains_its_exact_cause_source_and_revision() {
+    let cause = quire_contract_model::std001_code!("profile_not_qualified");
+    let refused = KaniProfile::new(selection(), vec![CapabilityEntry {
+        construct: "finite-reference-graph".into(),
+        disposition: CapabilityDisposition::Refused { code: cause },
+    }]).expect("refused profile is valid");
+    let failure = lower_reaches(&refused, &dispatch(), &input(), GraphRequest {
+        source_id: "source:profile-refusal".into(), start_id: "a".into(),
+        target_id: "b".into(), field_id: "parent".into(), max_expansions: 3,
+    }).expect_err("profile refusal precedes family lowering");
+    assert_eq!(failure.kind, KaniOutcomeKind::Refused);
+    assert_eq!(failure.code, cause);
+    assert_eq!(failure.source_id, "source:profile-refusal");
+    assert_eq!(failure.context, selection().revision);
+    assert_eq!(failure.boolean_claim(), None);
+}
