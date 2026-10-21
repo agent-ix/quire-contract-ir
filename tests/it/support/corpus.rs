@@ -49,6 +49,18 @@ pub fn run_corpus(path: &Path) -> Output {
 pub struct Scratch(pub PathBuf);
 
 impl Scratch {
+    pub fn empty(label: &str) -> Self {
+        let root = std::env::temp_dir().join(format!(
+            "quire-contract-ir-tc018-{}-{label}",
+            std::process::id()
+        ));
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
+        }
+        fs::create_dir_all(&root).unwrap();
+        Self(root.join("contract-v0.1"))
+    }
+
     pub fn corpus(label: &str) -> Self {
         let root = std::env::temp_dir().join(format!(
             "quire-contract-ir-tc018-{}-{label}",
