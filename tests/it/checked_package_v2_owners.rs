@@ -245,6 +245,28 @@ fn tc_229_population_node_without_identity_refuses_at_selection() {
 
 #[trace("TC-229", "FR-038-AC-304")]
 #[test]
+fn tc_229_population_with_node_member_refuses_at_selection() {
+    let (mut package, mut document) = declared_population_package();
+    document["populations"][0]["node"] = document["populations"][0]["identity"].clone();
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+    refresh_identity(&mut package);
+
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&package, &document) else {
+        panic!("a raw population must not carry a node member");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+    assert_eq!(
+        refusal.path.expect("path").as_str(),
+        "/lock/model_selections/0"
+    );
+}
+
+#[trace("TC-229", "FR-038-AC-304")]
+#[test]
 fn tc_229_population_with_unresolved_construct_refuses() {
     let (mut package, mut document) = declared_population_package();
     document["constructs"]
@@ -718,7 +740,7 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
     let rows = cases["population_reference_cases"]
         .as_array()
         .expect("population cases");
-    assert_eq!(rows.len(), 13, "QSpec population case inventory");
+    assert_eq!(rows.len(), 15, "QSpec population case inventory");
     let mut admitted = std::collections::BTreeMap::new();
     for case in rows {
         let id = case["id"].as_str().expect("case id");
@@ -736,18 +758,30 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
                 "kind": {"module": "acme/orders", "name": "population"},
                 "construct": {"meaning": "quire.meaning.model.population/v1"},
             }));
-        document["populations"] = if case["document_populations"] == "node-only" {
-            Value::Array(
-                cases["selected_document_populations"]
-                    .as_array()
-                    .expect("QSpec selected populations")
-                    .iter()
-                    .map(|entry| json!({"node": entry["identity"]}))
-                    .collect(),
-            )
-        } else {
-            cases["selected_document_populations"].clone()
-        };
+        document["populations"] = cases["selected_document_populations"].clone();
+        match case["document_populations"].as_str() {
+            Some("node-only") => {
+                document["populations"] = Value::Array(
+                    cases["selected_document_populations"]
+                        .as_array()
+                        .expect("QSpec selected populations")
+                        .iter()
+                        .map(|entry| json!({"node": entry["identity"]}))
+                        .collect(),
+                );
+            }
+            Some("with-node-member") => {
+                document["populations"][0]["node"] = document["populations"][0]["identity"].clone();
+            }
+            Some("without-identity") => {
+                document["populations"][0]
+                    .as_object_mut()
+                    .expect("QSpec population")
+                    .remove("identity");
+            }
+            None => {}
+            Some(other) => panic!("unknown QSpec population document variant: {other}"),
+        }
         package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
         let owner = case["owner_node"]
             .as_str()
@@ -869,7 +903,9 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
                 }
                 let nodes = package["semantic_graph"]["nodes"].as_array().unwrap();
                 let locus = match id {
-                    "population-entry-without-an-identity-refused" => {
+                    "population-entry-without-an-identity-refused"
+                    | "population-entry-with-a-node-member-refused"
+                    | "population-entry-lacking-only-an-identity-refused" => {
                         "/lock/model_selections/0".to_owned()
                     }
                     "population-owned-by-an-object-type"
