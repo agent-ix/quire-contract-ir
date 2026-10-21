@@ -314,7 +314,7 @@ fn protocol_reference_dependency_shape_precedes_key_and_local_join() {
 
 #[trace("FR-038-AC-241", "TC-048")]
 #[test]
-fn protocol_reference_requires_closed_body_and_single_expression_occurrence() {
+fn protocol_reference_requires_closed_body() {
     let mut base = v2_all_families();
     let position = add_carrier(
         &mut base,
@@ -339,21 +339,6 @@ fn protocol_reference_requires_closed_body_and_single_expression_occurrence() {
             format!("/semantic_graph/nodes/{position}/body")
         );
     }
-    let mut changed = base.clone();
-    changed["semantic_graph"]["nodes"][position]["occurrences"] = json!([
-        {"role": "expression", "ordinal": 0}, {"role": "expression", "ordinal": 1}
-    ]);
-    rebuild_source_map(&mut changed);
-    refresh_identity(&mut changed);
-    let actual = match read(&changed) {
-        CheckedPackageV2ReadResult::Refused(value) => value,
-        other => panic!("expected occurrence refusal: {other:?}"),
-    };
-    assert_eq!(actual.code, CheckedPackageRefusalCode::InvalidSemanticGraph);
-    assert_eq!(
-        actual.path.as_ref().expect("path").to_string(),
-        format!("/semantic_graph/nodes/{position}/occurrences/1")
-    );
 }
 
 #[trace("FR-038-AC-241", "TC-048")]
@@ -416,5 +401,211 @@ fn protocol_reference_refuses_forbidden_carrier_members_before_target_join() {
     assert_eq!(
         actual.path.as_ref().expect("path").to_string(),
         format!("/semantic_graph/nodes/{position}/occurrences/0/role")
+    );
+}
+
+fn repeated_reference_package(count: u64) -> (Value, usize) {
+    let mut package = v2_all_families();
+    let position = add_carrier(
+        &mut package,
+        &node_id(&family_key("5050")),
+        &node_id(&family_key("aaaa")),
+    );
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["occurrences"] = Value::Array(
+        (0..count)
+            .map(|ordinal| json!({"role": "expression", "ordinal": ordinal}))
+            .collect(),
+    );
+    let carrier_id = node["node_id"].clone();
+    let rows = package["source_map"].as_array_mut().expect("source map");
+    rows.retain(|row| row["node_id"] != carrier_id);
+    rows.extend((0..count).map(|ordinal| {
+        json!({
+            "node_id": carrier_id,
+            "role": "expression",
+            "ordinal": ordinal,
+            "regions": [{
+                "source": fixture_source(),
+                "start": 100 + ordinal * 10,
+                "end": 105 + ordinal * 10,
+            }],
+        })
+    }));
+    refresh_identity(&mut package);
+    (package, position)
+}
+
+#[trace("FR-038-AC-294", "TC-048")]
+#[test]
+fn repeated_protocol_references_retain_one_carrier_and_stable_canonical_identities() {
+    let mut previous = None;
+    for count in 1..=3 {
+        let (wire, position) = repeated_reference_package(count);
+        let carrier = &wire["semantic_graph"]["nodes"][position];
+        let expected_key = node_id(&structural_key(
+            "protocol",
+            "protocol_reference",
+            Some(&family_key("aaaa")),
+            &json!({"term": "reference", "target": node_id(&family_key("5050"))}),
+        ));
+        assert_eq!(carrier["node_id"], expected_key);
+        let admitted = match read(&wire) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("{count} source references must admit as one carrier: {other:?}"),
+        };
+        assert_eq!(
+            admitted
+                .graph()
+                .nodes
+                .iter()
+                .filter(|node| { node.semantic_form.as_ref() == "protocol_reference" })
+                .count(),
+            1,
+        );
+        let node = &admitted.graph().nodes[position];
+        assert_eq!(
+            serde_json::to_value(&node.node_id).expect("node id"),
+            expected_key
+        );
+        assert_eq!(
+            serde_json::to_value(&node.body).expect("body"),
+            carrier["body"]
+        );
+        assert_eq!(
+            serde_json::to_value(&node.occurrences).expect("occurrences"),
+            carrier["occurrences"],
+        );
+        let correspondence = admitted
+            .source_map()
+            .iter()
+            .filter(|row| row.node_id == node.node_id)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            u64::try_from(correspondence.len()).expect("row count"),
+            count
+        );
+        for (ordinal, row) in correspondence.iter().enumerate() {
+            let ordinal = u64::try_from(ordinal).expect("ordinal");
+            assert_eq!(row.ordinal, ordinal);
+            assert_eq!(
+                row.role,
+                quire_contract_model::CheckedOccurrenceRole::Expression
+            );
+            assert_eq!(row.regions.len(), 1);
+            assert_eq!(
+                serde_json::to_value(&row.regions[0].source).expect("source"),
+                fixture_source()
+            );
+            assert_eq!(row.regions[0].start, 100 + ordinal * 10);
+            assert_eq!(row.regions[0].end, 105 + ordinal * 10);
+        }
+        assert_eq!(
+            serde_json::to_value(admitted.package_id()).expect("package id"),
+            wire["package_id"],
+        );
+        let identities = (node.node_id.clone(), admitted.package_id().clone());
+        if let Some(previous) = &previous {
+            assert_eq!(
+                &identities, previous,
+                "source occurrences must not enter identity"
+            );
+        }
+        previous = Some(identities);
+    }
+}
+
+fn assert_reference_refusal(wire: &Value, code: CheckedPackageRefusalCode, path: &str) {
+    let refused = match read(wire) {
+        CheckedPackageV2ReadResult::Refused(refused) => refused,
+        other => panic!("expected {code:?} at {path}: {other:?}"),
+    };
+    assert_eq!(refused.code, code);
+    assert_eq!(refused.path.expect("refusal path").to_string(), path);
+}
+
+#[trace("FR-038-AC-295", "TC-048")]
+#[test]
+fn repeated_protocol_reference_ordinals_remain_unique() {
+    let (mut wire, position) = repeated_reference_package(2);
+    wire["semantic_graph"]["nodes"][position]["occurrences"][1]["ordinal"] = json!(0);
+    // Keep the source-map keys distinct so only the occurrence array is defective.
+    refresh_identity(&mut wire);
+    assert_reference_refusal(
+        &wire,
+        CheckedPackageRefusalCode::InvalidSourceMap,
+        &format!("/semantic_graph/nodes/{position}/occurrences/1"),
+    );
+}
+
+#[trace("FR-038-AC-295", "TC-048")]
+#[test]
+fn repeated_protocol_reference_source_map_keys_remain_unique() {
+    let (mut wire, _) = repeated_reference_package(2);
+    let rows = wire["source_map"].as_array_mut().expect("source map");
+    let duplicate = rows.last().expect("second occurrence row").clone();
+    let later = rows.len();
+    rows.push(duplicate);
+    refresh_identity(&mut wire);
+    assert_reference_refusal(
+        &wire,
+        CheckedPackageRefusalCode::InvalidSourceMap,
+        &format!("/source_map/{later}"),
+    );
+}
+
+#[trace("FR-038-AC-295", "TC-048")]
+#[test]
+fn protocol_reference_occurrences_must_be_nonempty() {
+    let (mut wire, position) = repeated_reference_package(0);
+    refresh_identity(&mut wire);
+    assert_reference_refusal(
+        &wire,
+        CheckedPackageRefusalCode::InvalidSourceMap,
+        &format!("/semantic_graph/nodes/{position}/occurrences"),
+    );
+}
+
+#[trace("FR-038-AC-295", "TC-048")]
+#[test]
+fn each_repeated_protocol_reference_occurrence_must_have_expression_role() {
+    for occurrence in 0..2 {
+        let (mut wire, position) = repeated_reference_package(2);
+        wire["semantic_graph"]["nodes"][position]["occurrences"][occurrence]["role"] =
+            json!("generated");
+        // The source-map row still exactly mirrors the occurrence; only its role is wrong.
+        let carrier_id = wire["semantic_graph"]["nodes"][position]["node_id"].clone();
+        let row = wire["source_map"]
+            .as_array_mut()
+            .expect("source map")
+            .iter_mut()
+            .find(|row| row["node_id"] == carrier_id && row["ordinal"] == json!(occurrence))
+            .expect("occurrence correspondence");
+        row["role"] = json!("generated");
+        refresh_identity(&mut wire);
+        assert_reference_refusal(
+            &wire,
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            &format!("/semantic_graph/nodes/{position}/occurrences/{occurrence}/role"),
+        );
+    }
+}
+
+#[trace("FR-038-AC-295", "TC-048")]
+#[test]
+fn repeated_protocol_references_do_not_allow_duplicate_carrier_nodes() {
+    let (mut wire, position) = repeated_reference_package(2);
+    let duplicate = wire["semantic_graph"]["nodes"][position].clone();
+    let nodes = wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    let later = nodes.len();
+    nodes.push(duplicate);
+    // Rebuild the identity projection for the actual added node, without duplicating source rows.
+    refresh_identity(&mut wire);
+    assert_reference_refusal(
+        &wire,
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        &format!("/semantic_graph/nodes/{later}/node_id"),
     );
 }
