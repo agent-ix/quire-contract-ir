@@ -133,6 +133,10 @@ fn read_with_model(package: &Value, document: &Value) -> CheckedPackageV2ReadRes
 }
 
 fn declared_population_package_for(population: &str) -> (Value, Value) {
+    declared_population_package_for_owner(population, "acme/owners")
+}
+
+fn declared_population_package_for_owner(population: &str, owner_identity: &str) -> (Value, Value) {
     let (mut package, mut document) = model_package();
     document["populations"] = json!([{"node": population}]);
     package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
@@ -144,6 +148,7 @@ fn declared_population_package_for(population: &str) -> (Value, Value) {
         .expect("declaration node");
     node["node_tag"] = json!("relation");
     node["semantic_form"] = json!("population");
+    node["owner"]["identity"] = json!(owner_identity);
     node["owner"]["node"] = json!(population);
     let preimage = json!({
         "version": "quire.structural-node/v1",
@@ -168,7 +173,7 @@ fn declared_population_package() -> (Value, Value) {
     declared_population_package_for("ix://acme/owners/counters")
 }
 
-#[trace("TC-229", "FR-038-AC-294", "FR-038-AC-295")]
+#[trace("TC-229", "FR-038-AC-303", "FR-038-AC-304")]
 #[test]
 fn tc_229_selected_declared_population_reference_admits() {
     let (package, document) = declared_population_package();
@@ -178,7 +183,7 @@ fn tc_229_selected_declared_population_reference_admits() {
     ));
 }
 
-#[trace("TC-229", "FR-038-AC-294", "FR-038-AC-295")]
+#[trace("TC-229", "FR-038-AC-303", "FR-038-AC-304")]
 #[test]
 fn tc_229_distinct_population_declarations_have_distinct_keys() {
     let (counters, counters_document) = declared_population_package();
@@ -206,7 +211,47 @@ fn tc_229_distinct_population_declarations_have_distinct_keys() {
     }
 }
 
-#[trace("TC-229", "FR-038-AC-294", "FR-038-AC-295")]
+#[trace("TC-229", "FR-038-AC-304")]
+#[test]
+fn tc_229_population_owner_identity_is_joined_independently_of_node() {
+    let (base, _) = declared_population_package();
+    let (foreign_owner, document) =
+        declared_population_package_for_owner("ix://acme/owners/counters", "acme/elsewhere");
+    let base_node = base["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    let changed_node = foreign_owner["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    assert_eq!(changed_node["owner"]["node"], base_node["owner"]["node"]);
+    assert_ne!(changed_node["node_id"], base_node["node_id"]);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&foreign_owner, &document)
+    else {
+        panic!("unselected owner identity must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
+    );
+    assert_eq!(
+        refusal.path.expect("path").as_str(),
+        format!(
+            "/semantic_graph/nodes/{}/node_id",
+            foreign_owner["semantic_graph"]["nodes"]
+                .as_array()
+                .unwrap()
+                .len()
+                - 1
+        )
+    );
+}
+
+#[trace("TC-229", "FR-038-AC-303", "FR-038-AC-304")]
 #[test]
 fn tc_229_population_reference_requires_owner_and_selected_population() {
     let (base, document) = declared_population_package();
@@ -324,7 +369,7 @@ fn tc_229_population_reference_requires_owner_and_selected_population() {
     }
 }
 
-#[trace("TC-229", "FR-038-AC-296")]
+#[trace("TC-229", "FR-038-AC-305")]
 #[test]
 fn tc_229_declared_population_is_query_operand() {
     let mut shared_population = None;
@@ -490,7 +535,7 @@ fn tc_229_declared_population_is_query_operand() {
     }
 }
 
-#[trace("TC-229", "FR-038-AC-296", "FR-038-AC-298")]
+#[trace("TC-229", "FR-038-AC-305", "FR-038-AC-307")]
 #[test]
 fn tc_229_qspec_published_population_binding_fixture_admits() {
     let root = match std::env::var("QUIRE_SPECIFICATION_DIR") {
@@ -543,10 +588,10 @@ fn tc_229_qspec_published_population_binding_fixture_admits() {
 
 #[trace(
     "TC-229",
-    "FR-038-AC-295",
-    "FR-038-AC-296",
-    "FR-038-AC-297",
-    "FR-038-AC-298"
+    "FR-038-AC-304",
+    "FR-038-AC-305",
+    "FR-038-AC-306",
+    "FR-038-AC-307"
 )]
 #[test]
 fn tc_229_qspec_population_reference_cases_match_reader() {

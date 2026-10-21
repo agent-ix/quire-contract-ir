@@ -12,7 +12,7 @@ relationships:
 
 ## Description
 
-Verify FR-038-AC-294 through FR-038-AC-298 at the public V2 reader boundary
+Verify FR-038-AC-303 through FR-038-AC-307 at the public V2 reader boundary
 against QSpec FR-322-AC-82/83. Read QSpec's selected checkout at test time;
 copy no upstream fixture, schema or binary into this repository.
 

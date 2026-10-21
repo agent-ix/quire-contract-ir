@@ -1269,7 +1269,7 @@ fn fold_and_reduce_admit_without_member_family_and_refuse_unequal_result() {
     }
 }
 
-#[trace("TC-048", "TC-229", "FR-038-AC-247", "FR-038-AC-248", "FR-038-AC-296")]
+#[trace("TC-048", "TC-229", "FR-038-AC-247", "FR-038-AC-248", "FR-038-AC-305")]
 #[test]
 fn non_member_model_results_remain_admitted() {
     for lookup in [false, true] {

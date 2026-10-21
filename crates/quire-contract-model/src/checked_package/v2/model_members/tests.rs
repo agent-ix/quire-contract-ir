@@ -11,7 +11,7 @@ use ix_trace_rs::trace;
 /// used when the production reader admits selected domain declarations.
 /// Ordinary workspace tests have no QSpec checkout; the explicit conformance
 /// target supplies one and runs this test alongside the public reader test.
-#[trace("TC-048", "TC-229", "FR-038-AC-176", "FR-038-AC-294", "FR-038-AC-298")]
+#[trace("TC-048", "TC-229", "FR-038-AC-176", "FR-038-AC-303", "FR-038-AC-307")]
 #[test]
 fn tc_048_qspec_model_declaration_keys_use_production_derivation() {
     let root = match std::env::var("QUIRE_SPECIFICATION_DIR") {
