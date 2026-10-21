@@ -4872,6 +4872,7 @@ mod tests {
                 ("composite_type", "tuple", "tuple"),
                 ("composite_type", "union", "union"),
                 ("composite_type", "reference", "reference"),
+                ("bounded_domain", "model_population", "population"),
                 ("expression", "reference", "reference"),
                 ("function", "pure_function", "function"),
                 ("function", "predicate", "function"),
