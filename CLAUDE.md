@@ -25,7 +25,6 @@ make test           # cargo test
 make build          # release build
 make clean          # cargo clean
 make deny           # all cargo-deny policy checks
-make audit-unsafe   # check that every unsafe block has a // SAFETY: comment
 make ci             # all local release gates
 make use-local      # patch first-party git deps (ix-trace-rs, quire-canonical, quire-verification-contracts, quire-walk) to sibling checkouts via a gitignored .cargo/config.toml; snapshots Cargo.lock to .cargo/Cargo.lock.pre-local; fails if cargo metadata fails or a patch is unused
 make use-remote     # delete the patch config and restore Cargo.lock from that snapshot (no snapshot: lock untouched)
@@ -34,7 +33,7 @@ make use-remote     # delete the patch config and restore Cargo.lock from that s
 ## Safety scaffolding
 
 - `deny.toml` allow-lists licenses and denies unknown registries/git sources
-- `scripts/check_unsafe_comments.sh` runs in CI and locally via `make audit-unsafe`. Every `unsafe {` block must have a `// SAFETY:` comment within the 3 preceding lines, or be listed in `scripts/unsafe_comment_baseline.txt`. Update the baseline with `bash scripts/check_unsafe_comments.sh --update-baseline`.
+- Workspace Clippy lints deny undocumented unsafe blocks in every member crate.
 - `rustfmt.toml` uses stable-channel 100-character formatting. CI fails on drift.
 
 ## Layout

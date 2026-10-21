@@ -9,6 +9,9 @@ license = "AGPL-3.0-or-later"
 publish = false
 repository = "https://github.com/agent-ix/quire-contract-ir"
 
+[lints]
+workspace = true
+
 [lib]
 name = "quire_contract_model"
 path = "src/lib.rs"

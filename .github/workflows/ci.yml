@@ -29,9 +29,6 @@ jobs:
       - name: Test
         run: make test
 
-      - name: Unsafe audit
-        run: bash scripts/check_unsafe_comments.sh
-
   supply-chain:
     name: Supply-chain Checks
     runs-on: ubuntu-24.04
