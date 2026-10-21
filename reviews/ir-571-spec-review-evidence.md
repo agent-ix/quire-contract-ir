@@ -27,6 +27,6 @@ The full-repository `quoin advise --mismatch-only` query did not complete during
 
 ## Dispositions
 
-- FND-001 — fixed. TC-225 now requires an admitted `rebase(from, From)` with
-  distinct identities ending in `from` and `From` and a frame entry binding
-  both names.
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | TC-225 now requires an admitted rebase(from, From) control with distinct parameter identities ending in from and From and a frame entry binding both names; the case-only difference must not be treated as a duplicate. |

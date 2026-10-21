@@ -23,7 +23,6 @@ The existing TC-225 test asserts the former frame-entry refusal and conflicts wi
 
 ## Dispositions
 
-- FND-001 — deferred to the separate IR-571 code change. TC-225 now explicitly
-  marks the selection-row behavior and the existing contradictory test as
-  pending. The code PR must replace that assertion before implementation is
-  claimed.
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | deferred | The existing test remains a code defect outside this specification-only PR. TC-225 now explicitly marks the new selection-row cases and the contradictory frame-entry assertion as pending until the separate IR-571 code change. |

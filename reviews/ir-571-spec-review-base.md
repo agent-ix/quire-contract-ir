@@ -23,6 +23,6 @@ The parameter-name rule matches QSpec, but TC-225 reports planned cases as imple
 
 ## Dispositions
 
-- FND-001 — fixed. TC-225 Status now says Partially implemented, lists the
-  pending selection-row and case-only controls, and names the existing test
-  that still asserts the former frame-entry refusal.
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | TC-225 Status now says Partially implemented, identifies the new selection-row and case-only controls as planned, and names the existing test that still asserts the former frame-entry refusal. |
