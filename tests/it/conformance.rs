@@ -3,7 +3,7 @@ use std::{
     ffi::OsString,
     fs,
     panic::catch_unwind,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, Output},
 };
 
@@ -31,6 +31,56 @@ fn error_code(output: &Output) -> String {
 
 fn input_count(corpus: &Path) -> usize {
     fs::read_dir(corpus.join("inputs")).unwrap().count()
+}
+
+fn relative_files(root: &Path) -> Vec<PathBuf> {
+    fn visit(root: &Path, directory: &Path, files: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(directory).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_type().unwrap().is_dir() {
+                visit(root, &entry.path(), files);
+            } else {
+                files.push(entry.path().strip_prefix(root).unwrap().to_owned());
+            }
+        }
+    }
+    let mut files = Vec::new();
+    visit(root, root, &mut files);
+    files.sort();
+    files
+}
+
+/// A fresh Rust regeneration must produce each checked-in corpus file, including
+/// large boundary inputs and canonical bytes, with no missing or extra paths.
+#[trace("FR-018-AC-1", "TC-018")]
+#[test]
+fn tc_018_rust_generator_regenerates_the_corpus_byte_for_byte() {
+    let scratch = Scratch::empty("rust-regeneration");
+    let generator = option_env!("CARGO_BIN_EXE_quire-contract-corpus-generator")
+        .expect("the Rust corpus generator binary is built");
+    let output = Command::new(generator)
+        .arg("--output")
+        .arg(&scratch.0)
+        .arg("--runner")
+        .arg(env!("CARGO_BIN_EXE_quire-contract-conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "generator failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(input_count(&scratch.0), 107);
+    let expected = relative_files(&corpus());
+    assert_eq!(relative_files(&scratch.0), expected);
+    for relative in expected {
+        assert_eq!(
+            fs::read(scratch.0.join(&relative)).unwrap(),
+            fs::read(corpus().join(&relative)).unwrap(),
+            "{} differs",
+            relative.display()
+        );
+    }
 }
 
 #[trace(
