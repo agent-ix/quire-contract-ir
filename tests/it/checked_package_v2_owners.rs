@@ -71,6 +71,9 @@ fn model_document() -> Value {
         "constructs": [{
             "kind": {"module": "acme/owners", "name": "entity"},
             "construct": {"meaning": "quire.meaning.model.object-type/v1"},
+        }, {
+            "kind": {"module": "acme/owners", "name": "population"},
+            "construct": {"meaning": "quire.meaning.model.population/v1"},
         }],
         "types": [{
             "identity": "ix://acme/owners/Point", "displayName": "Point",
@@ -197,13 +200,6 @@ fn declared_population_package() -> (Value, Value) {
 #[test]
 fn tc_229_raw_population_record_joins_by_identity() {
     let (mut package, mut document) = declared_population_package();
-    document["constructs"]
-        .as_array_mut()
-        .expect("constructs")
-        .push(json!({
-            "kind": {"module": "acme/owners", "name": "population"},
-            "construct": {"meaning": "quire.meaning.model.population/v1"},
-        }));
     document["populations"] = json!([{
         "identity": "ix://acme/owners/counters",
         "displayName": "counters",
@@ -240,6 +236,27 @@ fn tc_229_population_node_without_identity_is_not_declared() {
     assert_eq!(
         refusal.cause,
         Some(CheckedPackageRefusalCause::MissingSelection)
+    );
+}
+
+#[trace("TC-229", "FR-038-AC-304")]
+#[test]
+fn tc_229_population_with_unresolved_construct_refuses() {
+    let (mut package, mut document) = declared_population_package();
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .retain(|entry| entry["kind"]["name"] != "population");
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+    refresh_identity(&mut package);
+
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&package, &document) else {
+        panic!("a population with an unresolved construct must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
 }
 
@@ -690,6 +707,13 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
         }
         let mut package = read("fixtures/positive-operation-identities.json");
         let mut document = read("domain-package-acme-orders.json");
+        document["constructs"]
+            .as_array_mut()
+            .expect("constructs")
+            .push(json!({
+                "kind": {"module": "acme/orders", "name": "population"},
+                "construct": {"meaning": "quire.meaning.model.population/v1"},
+            }));
         document["populations"] = json!([
             raw_population_record(
                 "ix://acme/orders/counters",
