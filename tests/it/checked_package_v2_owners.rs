@@ -71,6 +71,9 @@ fn model_document() -> Value {
         "constructs": [{
             "kind": {"module": "acme/owners", "name": "entity"},
             "construct": {"meaning": "quire.meaning.model.object-type/v1"},
+        }, {
+            "kind": {"module": "acme/owners", "name": "population"},
+            "construct": {"meaning": "quire.meaning.model.population/v1"},
         }],
         "types": [{
             "identity": "ix://acme/owners/Point", "displayName": "Point",
@@ -136,9 +139,29 @@ fn declared_population_package_for(population: &str) -> (Value, Value) {
     declared_population_package_for_owner(population, "acme/owners")
 }
 
+fn raw_population_record(identity: &str, module: &str, member: &str) -> Value {
+    json!({
+        "identity": identity,
+        "displayName": identity.rsplit('/').next().expect("population name"),
+        "kind": {"module": module, "name": "population"},
+        "members": [member],
+        "extent": "closed",
+        "origin": {"source": {
+            "path": "spec/populations.md",
+            "sourceIdentity": format!("ix://{module}/spec"),
+            "startColumn": 1,
+            "startLine": 1,
+        }},
+    })
+}
+
 fn declared_population_package_for_owner(population: &str, owner_identity: &str) -> (Value, Value) {
     let (mut package, mut document) = model_package();
-    document["populations"] = json!([{"node": population}]);
+    document["populations"] = json!([raw_population_record(
+        population,
+        "acme/owners",
+        "ix://acme/owners/Point",
+    )]);
     package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
 
     let node = package["semantic_graph"]["nodes"]
@@ -171,6 +194,114 @@ fn declared_population_package_for_owner(population: &str, owner_identity: &str)
 
 fn declared_population_package() -> (Value, Value) {
     declared_population_package_for("ix://acme/owners/counters")
+}
+
+#[trace("TC-229", "FR-038-AC-303", "FR-038-AC-304")]
+#[test]
+fn tc_229_raw_population_record_joins_by_identity() {
+    let (mut package, mut document) = declared_population_package();
+    document["populations"] = json!([{
+        "identity": "ix://acme/owners/counters",
+        "displayName": "counters",
+        "kind": {"module": "acme/owners", "name": "population"},
+        "members": ["ix://acme/owners/Point"],
+        "extent": "closed",
+        "origin": {"generated": {
+            "generatorIdentity": "ix://acme/owners/spec",
+            "generatorVersion": "1.0.0",
+            "inputIdentities": ["ix://acme/owners/counters"],
+        }},
+    }]);
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+    refresh_identity(&mut package);
+
+    assert!(matches!(
+        read_with_model(&package, &document),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
+#[trace("TC-229", "FR-038-AC-303", "FR-038-AC-304")]
+#[test]
+fn tc_229_population_node_without_identity_refuses_at_selection() {
+    let (mut package, mut document) = declared_population_package();
+    document["populations"] = json!([{"node": "ix://acme/owners/counters"}]);
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+    refresh_identity(&mut package);
+
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&package, &document) else {
+        panic!("a raw population without identity must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+    assert_eq!(
+        refusal.path.expect("path").as_str(),
+        "/lock/model_selections/0"
+    );
+}
+
+#[trace("TC-229", "FR-038-AC-304")]
+#[test]
+fn tc_229_population_with_node_member_refuses_at_selection() {
+    let (mut package, mut document) = declared_population_package();
+    document["populations"][0]["node"] = document["populations"][0]["identity"].clone();
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+    refresh_identity(&mut package);
+
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&package, &document) else {
+        panic!("a raw population must not carry a node member");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+    assert_eq!(
+        refusal.path.expect("path").as_str(),
+        "/lock/model_selections/0"
+    );
+}
+
+#[trace("TC-229", "FR-038-AC-304")]
+#[test]
+fn tc_229_population_with_unresolved_construct_refuses() {
+    let (mut package, mut document) = declared_population_package();
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .retain(|entry| entry["kind"]["name"] != "population");
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+    refresh_identity(&mut package);
+
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&package, &document) else {
+        panic!("a population with an unresolved construct must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+}
+
+#[trace("TC-229", "FR-038-AC-304")]
+#[test]
+fn tc_229_population_kind_with_wrong_meaning_refuses() {
+    let (mut package, mut document) = declared_population_package();
+    document["populations"][0]["kind"]["name"] = json!("entity");
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+    refresh_identity(&mut package);
+
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&package, &document) else {
+        panic!("a population kind with object-type meaning must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
 }
 
 #[trace("TC-229", "FR-038-AC-303", "FR-038-AC-304")]
@@ -609,7 +740,7 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
     let rows = cases["population_reference_cases"]
         .as_array()
         .expect("population cases");
-    assert_eq!(rows.len(), 12, "QSpec population case inventory");
+    assert_eq!(rows.len(), 15, "QSpec population case inventory");
     let mut admitted = std::collections::BTreeMap::new();
     for case in rows {
         let id = case["id"].as_str().expect("case id");
@@ -620,10 +751,37 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
         }
         let mut package = read("fixtures/positive-operation-identities.json");
         let mut document = read("domain-package-acme-orders.json");
-        document["populations"] = json!([
-            {"node":"ix://acme/orders/counters"},
-            {"node":"ix://acme/orders/archive"}
-        ]);
+        document["constructs"]
+            .as_array_mut()
+            .expect("constructs")
+            .push(json!({
+                "kind": {"module": "acme/orders", "name": "population"},
+                "construct": {"meaning": "quire.meaning.model.population/v1"},
+            }));
+        document["populations"] = cases["selected_document_populations"].clone();
+        match case["document_populations"].as_str() {
+            Some("node-only") => {
+                document["populations"] = Value::Array(
+                    cases["selected_document_populations"]
+                        .as_array()
+                        .expect("QSpec selected populations")
+                        .iter()
+                        .map(|entry| json!({"node": entry["identity"]}))
+                        .collect(),
+                );
+            }
+            Some("with-node-member") => {
+                document["populations"][0]["node"] = document["populations"][0]["identity"].clone();
+            }
+            Some("without-identity") => {
+                document["populations"][0]
+                    .as_object_mut()
+                    .expect("QSpec population")
+                    .remove("identity");
+            }
+            None => {}
+            Some(other) => panic!("unknown QSpec population document variant: {other}"),
+        }
         package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
         let owner = case["owner_node"]
             .as_str()
@@ -745,6 +903,11 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
                 }
                 let nodes = package["semantic_graph"]["nodes"].as_array().unwrap();
                 let locus = match id {
+                    "population-entry-without-an-identity-refused"
+                    | "population-entry-with-a-node-member-refused"
+                    | "population-entry-lacking-only-an-identity-refused" => {
+                        "/lock/model_selections/0".to_owned()
+                    }
                     "population-owned-by-an-object-type"
                     | "population-owned-by-an-undeclared-node" => {
                         format!("/semantic_graph/nodes/{}/node_id", nodes.len() - 1)

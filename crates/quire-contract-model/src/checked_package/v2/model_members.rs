@@ -89,6 +89,7 @@ mod meaning {
     pub(super) const RECORD_VALUE_TYPE: &str = "quire.meaning.model.record-value-type/v1";
     pub(super) const SYSTEMS_INTERFACE: &str = "quire.meaning.systems.interface/v1";
     pub(super) const SYSTEMS_CONNECTION: &str = "quire.meaning.systems.connection/v1";
+    pub(super) const POPULATION: &str = "quire.meaning.model.population/v1";
     /// Every meaning id FR-208 declares.
     pub(super) const ALL: &[&str] = &[
         OBJECT_TYPE,
@@ -100,7 +101,7 @@ mod meaning {
         "quire.meaning.model.process/v1",
         "quire.meaning.model.persistence-interface/v1",
         "quire.meaning.model.namespace/v1",
-        "quire.meaning.model.population/v1",
+        POPULATION,
         "quire.meaning.systems.part/v1",
         "quire.meaning.systems.port/v1",
         SYSTEMS_INTERFACE,
@@ -2232,8 +2233,12 @@ pub(super) fn read_semantic_ir(
     };
     for population in list(document, "populations")? {
         budget.charge(node_size(population))?;
-        let node = text(population, "node")?;
-        if node.is_empty() || !model.populations.insert(node.into()) {
+        let node = text(population, "identity")?;
+        if population.get("node").is_some() {
+            return Err(ModelRefusal::malformed().into());
+        }
+        let (_, meaning) = classify(&prefix, &meanings, &[population], node)?;
+        if meaning != meaning::POPULATION || !model.populations.insert(node.into()) {
             return Err(ModelRefusal::malformed().into());
         }
     }
