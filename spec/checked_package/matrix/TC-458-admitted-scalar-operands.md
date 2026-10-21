@@ -11,20 +11,25 @@ relationships:
 ## Description
 
 Exercise the public typed operand query on reader-admitted
-`ContractPackageV1` values. Build the positive through the existing QSL
-increment source and ordinary FR-035 lowering, then read that same six-field
-package. Other cases use the repository's admitted package fixtures and
-reader, without copied schemas or a raw-JSON consumer extractor.
+`ContractPackageV1` values. Compile the existing QSL increment source through
+ordinary FR-035 lowering, then query that same six-field package: QSL represents
+both the parameter and the literal as graph nodes. Build the graph-reference
+followed by inline-integer case and the other cases from the repository's
+admitted package fixtures and reader, without copied schemas or a raw-JSON
+consumer extractor.
 
 ## Test Procedure
 
-Read a lowered scalar add with a graph-reference first argument and inline
-integer second argument. Supply its exact application occurrence from the
-admitted source map. Assert ordered positions, graph child key and sources,
-inline signed value and occurrence-qualified position. Assert that the inline
-argument has no graph-node or separate source-map identity. Build an admitted
-application with the same represented child in two positions and assert two
-entries with distinct positions.
+From the fresh QSL increment source, read the lowered scalar add's two graph
+references through the public typed query. Supply its exact application
+occurrence from the admitted source map. Assert positions 0 and 1 in source
+order, each authentic child key and its source-map entries, and an unchanged
+six-field package. Separately, read a reader-admitted scalar add with a graph
+reference followed by an inline integer. Assert its graph child key and
+sources, exact inline signed value and occurrence-qualified position; the
+inline argument has no graph-node or separate source-map identity. Build an
+admitted application with the same represented child in two positions and
+assert two entries with distinct positions.
 
 Read admitted applications with a finite child range, an unbounded integer
 child, a child without a readable own range and an endpoint outside `i128`.
@@ -48,9 +53,10 @@ accessor's finite-range and all-or-error behavior.
 
 ## Expected Results
 
-The positive returns the authored order, authentic occurrence and child
-sources, exact inline value and no invented node. Repeated child references
-remain repeated positions. Missing own range facts do not erase child
-identity or invent an interval. Invalid requests return typed non-success
-without a selected prefix. The admitted package and its other views remain
-unchanged.
+The QSL producer case returns both represented child keys and sources in
+authored order. The reader-admitted inline case returns the authentic
+occurrence and child sources, exact inline value and no invented node.
+Repeated child references remain repeated positions. Missing own range facts
+do not erase child identity or invent an interval. Invalid requests return
+typed non-success without a selected prefix. The admitted package and its
+other views remain unchanged.
