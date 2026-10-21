@@ -2232,7 +2232,11 @@ pub(super) fn read_semantic_ir(
     };
     for population in list(document, "populations")? {
         budget.charge(node_size(population))?;
-        let node = text(population, "node")?;
+        let population = population.as_object().ok_or_else(ModelRefusal::malformed)?;
+        let Some(identity) = population.get("identity") else {
+            continue;
+        };
+        let node = identity.as_str().ok_or_else(ModelRefusal::malformed)?;
         if node.is_empty() || !model.populations.insert(node.into()) {
             return Err(ModelRefusal::malformed().into());
         }

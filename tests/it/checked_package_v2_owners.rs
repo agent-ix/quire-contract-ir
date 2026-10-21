@@ -136,9 +136,29 @@ fn declared_population_package_for(population: &str) -> (Value, Value) {
     declared_population_package_for_owner(population, "acme/owners")
 }
 
+fn raw_population_record(identity: &str, module: &str, member: &str) -> Value {
+    json!({
+        "identity": identity,
+        "displayName": identity.rsplit('/').next().expect("population name"),
+        "kind": {"module": module, "name": "population"},
+        "members": [member],
+        "extent": "closed",
+        "origin": {"source": {
+            "path": "spec/populations.md",
+            "sourceIdentity": format!("ix://{module}/spec"),
+            "startColumn": 1,
+            "startLine": 1,
+        }},
+    })
+}
+
 fn declared_population_package_for_owner(population: &str, owner_identity: &str) -> (Value, Value) {
     let (mut package, mut document) = model_package();
-    document["populations"] = json!([{"node": population}]);
+    document["populations"] = json!([raw_population_record(
+        population,
+        "acme/owners",
+        "ix://acme/owners/Point",
+    )]);
     package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
 
     let node = package["semantic_graph"]["nodes"]
@@ -203,6 +223,24 @@ fn tc_229_raw_population_record_joins_by_identity() {
         read_with_model(&package, &document),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
+}
+
+#[trace("TC-229", "FR-038-AC-303", "FR-038-AC-304")]
+#[test]
+fn tc_229_population_node_without_identity_is_not_declared() {
+    let (mut package, mut document) = declared_population_package();
+    document["populations"] = json!([{"node": "ix://acme/owners/counters"}]);
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+    refresh_identity(&mut package);
+
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&package, &document) else {
+        panic!("a node-only projection cannot declare a raw population");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
+    );
 }
 
 #[trace("TC-229", "FR-038-AC-303", "FR-038-AC-304")]
@@ -653,8 +691,16 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
         let mut package = read("fixtures/positive-operation-identities.json");
         let mut document = read("domain-package-acme-orders.json");
         document["populations"] = json!([
-            {"node":"ix://acme/orders/counters"},
-            {"node":"ix://acme/orders/archive"}
+            raw_population_record(
+                "ix://acme/orders/counters",
+                "acme/orders",
+                "ix://acme/orders/Order"
+            ),
+            raw_population_record(
+                "ix://acme/orders/archive",
+                "acme/orders",
+                "ix://acme/orders/Order"
+            ),
         ]);
         package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
         let owner = case["owner_node"]
