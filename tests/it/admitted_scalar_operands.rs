@@ -7,7 +7,7 @@ use crate::admitted_result_context::{
     admit, by_operation, fixture, package, package_with_profile, profile, sources_for,
 };
 use crate::support::checked_package::{
-    family_key, mint_ungrouped_structural_keys, node_id, settle,
+    family_key, mint_ungrouped_structural_keys, node_id, refresh_identity, settle,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -15,7 +15,7 @@ use quire_contract_model::{
     ContractRootViewError, ContractScalarOperandChildV1, ContractScalarOperandErrorV1,
     ContractScalarOperandViewV1, ContractScalarOwnRangeV1,
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 
 fn revised(mut wire: Value, change: impl FnOnce(&mut Value)) -> Value {
     change(&mut wire);
@@ -278,6 +278,69 @@ fn tc_457_invalid_occurrence_refuses_without_mutating_admitted_views() {
         admitted.reached_closure(&add.node_id).expect("reached"),
         before_reached
     );
+}
+
+#[trace("TC-457", "FR-054-AC-4")]
+#[test]
+fn tc_457_two_valid_represented_occurrences_remain_distinct() {
+    let mut wire = revised(fixture(), |wire| {
+        let add = wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("fixture graph")
+            .iter_mut()
+            .find(|node| node["body"]["operation"]["identity"] == "quire.op.integer.add")
+            .expect("add node");
+        add["occurrences"]
+            .as_array_mut()
+            .expect("occurrences")
+            .push(json!({"role": "expression", "ordinal": 1}));
+    });
+    let add_id = wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("fixture graph")
+        .iter()
+        .find(|node| node["body"]["operation"]["identity"] == "quire.op.integer.add")
+        .expect("add node")["node_id"]
+        .clone();
+    let mut second_source = wire["source_map"]
+        .as_array()
+        .expect("source map")
+        .iter()
+        .find(|entry| entry["node_id"] == add_id)
+        .expect("add source")
+        .clone();
+    second_source["ordinal"] = json!(1);
+    wire["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(second_source);
+    refresh_identity(&mut wire);
+    let checked = admit(&wire);
+    let first = by_operation(&checked, "quire.op.integer.add");
+    let admitted = package(&checked, std::slice::from_ref(&first.node_id));
+    let second = ContractOccurrenceKeyV1 {
+        ordinal: 1,
+        ..first.clone()
+    };
+    let ContractScalarOperandViewV1::Lowered(first_view) = admitted
+        .scalar_operands(&first.node_id, &first)
+        .expect("first represented occurrence")
+    else {
+        panic!("first occurrence must be lowered");
+    };
+    let ContractScalarOperandViewV1::Lowered(second_view) = admitted
+        .scalar_operands(&second.node_id, &second)
+        .expect("second represented occurrence")
+    else {
+        panic!("second occurrence must be lowered");
+    };
+    assert_eq!(first_view.application, first);
+    assert_eq!(second_view.application, second);
+    assert_ne!(
+        first_view.application_source,
+        second_view.application_source
+    );
+    assert_eq!(first_view.arguments.len(), second_view.arguments.len());
 }
 
 #[trace("TC-457", "FR-054-AC-4")]
