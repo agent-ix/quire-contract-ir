@@ -63,7 +63,12 @@ inputs, dispatch routes and typed `KaniOutcome`s. Nothing is QSL-typed: the
 | `kani` | types `DispatchIndex`, `DispatchError`, `ModuleDescriptor`, `SemanticFamily` | FR-031 |
 
 An item's own public fields, variants and inherent methods are part of the
-item and are not listed separately.
+item and are not listed separately. This includes the nine public infallible
+non-success constructors on `KaniOutcome` specified by
+[FR-030](./FR-030-bounded-kani-domain-and-outcomes.md), AC-8 and AC-9.
+`NonSuccessKind` remains private; this addition exports no new outcome-kind
+type. These constructors accept typed, already selected inputs rather than
+untrusted wire input, and their signatures return `KaniOutcome` directly.
 
 The root crate depends on no QSL crate (FR-028), so it has no dependency on
 `quire_spec_language::runtime` or `qsl-replay`; the native-runtime replay

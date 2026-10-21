@@ -102,6 +102,13 @@ equality, hashing and ordering are those of `as_str` bytes.
 registered in STD-001, and holds no copy of the rejected input, so a
 one-mebibyte input costs no allocation of that size.
 
+The six code-taking public infallible non-success constructors of
+[FR-030](../../kani/functional/FR-030-bounded-kani-domain-and-outcomes.md)
+shall accept and retain this same `Std001Code`, including a consumer-owned
+unregistered code. Their other three fixed-cause constructors select existing
+registered constants and take no code argument. This addition changes neither
+the code type's form nor its registry or wire contract.
+
 ### Registered codes
 
 A code STD-001 registers outside `DiagnosticCode` is one associated constant of
