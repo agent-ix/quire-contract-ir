@@ -48,9 +48,10 @@ fn refused_bytes(bytes: &[u8], evidence: &CheckedPackageEvidence) -> CheckedPack
     }
 }
 
-/// The compiler assigns the ordinal and source row. The reader binds that
-/// generated occurrence to its source-map entry and preserves both values.
-#[trace("TC-048", "FR-322-AC-87")]
+/// Reader-only FR-322-AC-14 subcase: the fixture supplies the ordinal and
+/// source row, and the reader preserves them while checking their binding.
+/// Compiler derivation from step order is covered separately by AC-87.
+#[trace("TC-048", "FR-322-AC-14")]
 #[test]
 fn generated_occurrence_ordinal_and_source_region_survive_reading() {
     let mut package = v2_all_families();
