@@ -81,7 +81,7 @@ use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
 use crate::checked_package::terms::subterms;
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
@@ -204,20 +204,11 @@ pub(super) fn application_local_digest(
 pub(super) struct OperationWire {
     pub(super) identity: Box<str>,
     pub(super) laws: Vec<OperationLawWire>,
-    #[serde(deserialize_with = "required_nullable")]
+    #[serde(deserialize_with = "super::required_nullable")]
     mode: Option<OperationModeWire>,
-    #[serde(deserialize_with = "required_nullable")]
+    #[serde(deserialize_with = "super::required_nullable")]
     pub(super) member: Option<Value>,
     leaves: Vec<OperationLeafWire>,
-}
-
-// Explicit null is a value; an absent member must remain a schema refusal.
-fn required_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    Option::<T>::deserialize(deserializer)
 }
 
 impl OperationWire {
