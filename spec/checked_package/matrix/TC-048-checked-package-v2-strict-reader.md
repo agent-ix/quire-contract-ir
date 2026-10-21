@@ -135,7 +135,7 @@ each forbidden declaration, owner, nominal preimage and recursion member.
 Keep the QSpec fixture in its authoritative checkout; derive the local
 controls and identities in this repository's test builder.
 
-For FR-038-AC-294 and FR-038-AC-295 (IR-785, PLANNED/UNRUN), take that
+For FR-038-AC-294 and FR-038-AC-295 (IR-785), take that
 otherwise admitted public-reader package with one carrier occurrence of
 `expression` ordinal 0. Add a second reference to the same local target by
 adding ordinal 1 to that carrier and a distinct source-map row naming the
@@ -166,9 +166,15 @@ closed-body and forbidden-member controls of AC-239 through AC-241.
 Producer conformance may additionally use freshly produced bytes through
 the producer's public interface, with exact source-region assertions;
 neither copied upstream fixtures nor a QSL internal dependency replaces the
-local public-reader controls above. Bind the eventual actual native tests
-to AC-294/AC-295 with `#[trace]` on `#[test]`; this spec amendment alone
-supplies no execution receipt or coverage claim.
+local public-reader controls above. The implemented native tests bind
+to AC-294/AC-295 with `#[trace]` on `#[test]`. The focused
+`checked_package_v2_protocol_reference` module passed all twelve native tests,
+including the one/two/three-reference admission and separate adverse controls.
+Restoring the prior production cardinality rejection made the new positive
+control fail at its two-reference admission with `invalid_semantic_graph`
+at the second occurrence; restoring the healthy production implementation
+returned all twelve controls to passing. This is focused reader evidence,
+not a full matrix or aggregate release-gate result.
 
 For AC-210 through AC-213, start with valid checked V2 packages, not a
 post-admission mutation of an in-memory graph. Build a self-typed declared
