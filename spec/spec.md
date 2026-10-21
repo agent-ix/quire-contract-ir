@@ -117,6 +117,10 @@ defines its reader-admitted QSL and adverse controls.
 defines the typed V2 envelope encoder implemented in the model crate; its
 focused IR controls are
 [TC-451](checked_package/matrix/TC-451-typed-v2-envelope-encoding.md).
+[FR-054](checked_package/functional/FR-054-admitted-scalar-operand-projection.md)
+defines the admitted V1 package's typed, ordered scalar operand view, with
+[TC-458](checked_package/matrix/TC-458-admitted-scalar-operands.md) covering
+positions, source correspondence, own-range absence and refusal.
 QSL-766 owns the separate producer adoption.
 [NFR-006](checked_package/non-functional/NFR-006-v2-producer-memory.md) bounds
 the integrated checked-package V2 producer's emission memory while requiring

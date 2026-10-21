@@ -1,7 +1,9 @@
 //! Typed, position-preserving operands of admitted scalar integer applications.
 
 use super::operation_catalog::operation_catalog;
-use super::{CheckedNodeId, CheckedOccurrence, CheckedPackageV2};
+use super::{CheckedNodeId, CheckedOccurrence, CheckedPackageV2, CheckedSemanticNodeV2};
+use num_bigint::BigInt;
+use num_traits::ToPrimitive;
 use serde_json::Value;
 use thiserror::Error;
 
@@ -73,6 +75,100 @@ pub enum CheckedScalarOperandError {
     RangeOutOfI128,
 }
 
+/// One IR-owned parse of an admitted scalar argument, shared by both package views.
+pub(super) struct ScalarArgument<'a> {
+    pub(super) ordinal: u64,
+    pub(super) child: ScalarArgumentChild<'a>,
+    pub(super) own_range: Result<CheckedScalarOperandRange, CheckedScalarOperandError>,
+}
+
+pub(super) enum ScalarArgumentChild<'a> {
+    Graph(&'a CheckedSemanticNodeV2),
+    InlineInteger(BigInt),
+}
+
+/// Interpret the validated argument vector once, without requiring every own
+/// range to be finite. The checked-package view imposes that older policy;
+/// the admitted-package view retains each position when an own range is absent.
+/// Per-position laziness preserves the checked view's first-error order when
+/// an early range is absent and a later argument is malformed.
+pub(super) fn scalar_arguments<'a>(
+    nodes: &'a [CheckedSemanticNodeV2],
+    node: &'a CheckedSemanticNodeV2,
+) -> Result<
+    impl Iterator<Item = Result<ScalarArgument<'a>, CheckedScalarOperandError>> + 'a,
+    CheckedScalarOperandError,
+> {
+    use CheckedScalarOperandError as Error;
+
+    let body = &node.body;
+    if body.get("term").and_then(Value::as_str) != Some("application") {
+        return Err(Error::NotApplication);
+    }
+    let identity = body
+        .pointer("/operation/identity")
+        .and_then(Value::as_str)
+        .ok_or(Error::UnknownOperator)?;
+    if operation_catalog().entry(identity).is_none() {
+        return Err(Error::UnknownOperator);
+    }
+    if !matches!(
+        identity,
+        "quire.op.integer.add"
+            | "quire.op.integer.sub"
+            | "quire.op.integer.mul"
+            | "quire.op.integer.negate"
+    ) {
+        return Err(Error::IneligibleOperator);
+    }
+    let arguments = body
+        .get("arguments")
+        .and_then(Value::as_array)
+        .ok_or(Error::MissingRange)?;
+    Ok(arguments
+        .iter()
+        .enumerate()
+        .map(move |(position, argument)| {
+            let ordinal = u64::try_from(position).map_err(|_| Error::MissingRange)?;
+            let (child, own_range) = match argument.get("term").and_then(Value::as_str) {
+                Some("reference") => {
+                    let target: CheckedNodeId = serde_json::from_value(
+                        argument.get("target").cloned().ok_or(Error::MissingChild)?,
+                    )
+                    .map_err(|_| Error::MissingChild)?;
+                    let child = nodes
+                        .iter()
+                        .find(|node| node.node_id == target)
+                        .ok_or(Error::MissingChild)?;
+                    let range = if child.node_tag.as_ref() == "value"
+                        && child.semantic_form.as_ref() == "literal"
+                    {
+                        literal_range(&child.body)
+                    } else {
+                        type_range(nodes, &child.semantic_type)
+                    };
+                    (ScalarArgumentChild::Graph(child), range)
+                }
+                Some("literal") => {
+                    let value = literal_integer(argument)?;
+                    let range = value.to_i128().map_or(Err(Error::RangeOutOfI128), |value| {
+                        Ok(CheckedScalarOperandRange {
+                            lower: value,
+                            upper: value,
+                        })
+                    });
+                    (ScalarArgumentChild::InlineInteger(value), range)
+                }
+                _ => return Err(Error::MissingRange),
+            };
+            Ok(ScalarArgument {
+                ordinal,
+                child,
+                own_range,
+            })
+        }))
+}
+
 impl CheckedPackageV2 {
     /// Reads an admitted integer application's operands in wire argument order.
     ///
@@ -91,71 +187,31 @@ impl CheckedPackageV2 {
             .iter()
             .find(|node| &node.node_id == application)
             .ok_or(Error::UnknownNode)?;
-        let body = &node.body;
-        if body.get("term").and_then(Value::as_str) != Some("application") {
+        if node.body.get("term").and_then(Value::as_str) != Some("application") {
             return Err(Error::NotApplication);
         }
         if !node.occurrences.contains(occurrence) {
             return Err(Error::MissingOccurrence);
         }
-        let identity = body
-            .pointer("/operation/identity")
-            .and_then(Value::as_str)
-            .ok_or(Error::UnknownOperator)?;
-        if operation_catalog().entry(identity).is_none() {
-            return Err(Error::UnknownOperator);
-        }
-        if !matches!(
-            identity,
-            "quire.op.integer.add"
-                | "quire.op.integer.sub"
-                | "quire.op.integer.mul"
-                | "quire.op.integer.negate"
-        ) {
-            return Err(Error::IneligibleOperator);
-        }
-        let arguments = body
-            .get("arguments")
-            .and_then(Value::as_array)
-            .ok_or(Error::MissingRange)?;
-        arguments
-            .iter()
-            .enumerate()
-            .map(|(position, argument)| {
-                let ordinal = u64::try_from(position).map_err(|_| Error::MissingRange)?;
-                let (child, range) = match argument.get("term").and_then(Value::as_str) {
-                    Some("reference") => {
-                        let target: CheckedNodeId = serde_json::from_value(
-                            argument.get("target").cloned().ok_or(Error::MissingChild)?,
-                        )
-                        .map_err(|_| Error::MissingChild)?;
-                        let child = nodes
-                            .iter()
-                            .find(|node| node.node_id == target)
-                            .ok_or(Error::MissingChild)?;
-                        let range = if child.node_tag.as_ref() == "value"
-                            && child.semantic_form.as_ref() == "literal"
-                        {
-                            literal_range(&child.body)?
-                        } else {
-                            type_range(nodes, &child.semantic_type)?
-                        };
-                        (CheckedScalarOperandChild::GraphChild(target), range)
+        scalar_arguments(nodes, node)?
+            .map(|argument| {
+                let argument = argument?;
+                let child = match argument.child {
+                    ScalarArgumentChild::Graph(node) => {
+                        CheckedScalarOperandChild::GraphChild(node.node_id.clone())
                     }
-                    Some("literal") => (
+                    ScalarArgumentChild::InlineInteger(_) => {
                         CheckedScalarOperandChild::InlineLiteral {
                             application: application.clone(),
                             occurrence: occurrence.clone(),
-                            ordinal,
-                        },
-                        literal_range(argument)?,
-                    ),
-                    _ => return Err(Error::MissingRange),
+                            ordinal: argument.ordinal,
+                        }
+                    }
                 };
                 Ok(CheckedScalarOperand {
-                    ordinal,
+                    ordinal: argument.ordinal,
                     child,
-                    range,
+                    range: argument.own_range?,
                 })
             })
             .collect()
@@ -164,6 +220,17 @@ impl CheckedPackageV2 {
 
 fn literal_range(term: &Value) -> Result<CheckedScalarOperandRange, CheckedScalarOperandError> {
     use CheckedScalarOperandError as Error;
+    let value = literal_integer(term)?
+        .to_i128()
+        .ok_or(Error::RangeOutOfI128)?;
+    Ok(CheckedScalarOperandRange {
+        lower: value,
+        upper: value,
+    })
+}
+
+fn literal_integer(term: &Value) -> Result<BigInt, CheckedScalarOperandError> {
+    use CheckedScalarOperandError as Error;
     if term.get("value_kind").and_then(Value::as_str) != Some("integer") {
         return Err(Error::MissingRange);
     }
@@ -171,11 +238,7 @@ fn literal_range(term: &Value) -> Result<CheckedScalarOperandRange, CheckedScala
         .get("value")
         .and_then(Value::as_str)
         .ok_or(Error::MissingRange)?;
-    let value = text.parse::<i128>().map_err(|_| Error::RangeOutOfI128)?;
-    Ok(CheckedScalarOperandRange {
-        lower: value,
-        upper: value,
-    })
+    text.parse::<BigInt>().map_err(|_| Error::RangeOutOfI128)
 }
 
 fn type_range(

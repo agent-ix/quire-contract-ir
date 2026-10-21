@@ -17,6 +17,7 @@ mod application_node_identity;
 
 mod admitted_guard_context;
 mod admitted_result_context;
+mod admitted_scalar_operands;
 mod canonical_v1_quire_canonical;
 mod canonicalization;
 mod checked_package_evidence_insertion;

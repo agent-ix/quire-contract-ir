@@ -172,7 +172,7 @@ fn tc_048_numeric_narrow_result_equals_type_argument() {
     );
 }
 
-fn admit(value: &Value) -> CheckedPackageV2 {
+pub(crate) fn admit(value: &Value) -> CheckedPackageV2 {
     match CheckedPackageV2::read(
         &canonical(value),
         CheckedPackageReadLimits::bounded(),
@@ -183,7 +183,7 @@ fn admit(value: &Value) -> CheckedPackageV2 {
     }
 }
 
-fn profile() -> CompleteLoweringProfileV2 {
+pub(crate) fn profile() -> CompleteLoweringProfileV2 {
     CompleteLoweringProfileV2 {
         reference: LoweringProfileRef {
             authority: "quire".into(),
@@ -195,11 +195,11 @@ fn profile() -> CompleteLoweringProfileV2 {
     }
 }
 
-fn package(source: &CheckedPackageV2, roots: &[CheckedNodeId]) -> ContractPackageV1 {
+pub(crate) fn package(source: &CheckedPackageV2, roots: &[CheckedNodeId]) -> ContractPackageV1 {
     package_with_profile(source, roots, &profile())
 }
 
-fn package_with_profile(
+pub(crate) fn package_with_profile(
     source: &CheckedPackageV2,
     roots: &[CheckedNodeId],
     selected_profile: &CompleteLoweringProfileV2,
@@ -219,7 +219,7 @@ fn package_with_profile(
     }
 }
 
-fn sources_for<'a>(
+pub(crate) fn sources_for<'a>(
     package: &'a ContractPackageV1,
     key: &CheckedNodeId,
 ) -> &'a [quire_contract_model::CheckedSourceMapEntry] {
@@ -233,7 +233,7 @@ fn sources_for<'a>(
         .occurrences
 }
 
-fn by_operation(package: &CheckedPackageV2, identity: &str) -> ContractOccurrenceKeyV1 {
+pub(crate) fn by_operation(package: &CheckedPackageV2, identity: &str) -> ContractOccurrenceKeyV1 {
     let node = package
         .graph()
         .nodes

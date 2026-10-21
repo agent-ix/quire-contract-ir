@@ -2,6 +2,7 @@
 
 mod guard_context;
 mod result_context;
+mod scalar_operands;
 
 pub use guard_context::{
     ContractGuardContextErrorV1, ContractGuardContextFailureCauseV1, ContractGuardContextFailureV1,
@@ -11,6 +12,10 @@ pub use guard_context::{
 pub use result_context::{
     ContractLoweredResultV1, ContractOccurrenceKeyV1, ContractResultBoundV1,
     ContractResultContextV1, ContractResultViewV1,
+};
+pub use scalar_operands::{
+    ContractLoweredScalarOperandsV1, ContractScalarOperandChildV1, ContractScalarOperandErrorV1,
+    ContractScalarOperandV1, ContractScalarOperandViewV1, ContractScalarOwnRangeV1,
 };
 
 use super::dependency_references::{
