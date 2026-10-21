@@ -339,6 +339,18 @@ outcome rather than a position-dependent one:
    `stale_dependency` at its `digest`, whatever documents the evidence
    supplies, before any document is read.
 
+For an operation in a selected domain document, FR-154-AC-14 validates each
+parameter's declared `name` before any frame entry reads the operation. A
+missing, non-string, empty, syntactically invalid or identity-mismatched name
+refuses `invalid_model_binding`/`malformed-declaration` at that selection row.
+Repeated parameter identities refuse `invalid_model_binding`/
+`conflicting-binding` first, suppressing the name checks of both colliding
+parameters. The private intake refusal retains the operation's identity,
+origin and `TypeDefinition.operations[k].params[s].name` member path for a
+name defect; the public refusal has the row pointer above. For a repeated
+identity the private refusal retains the shared parameter identity and later
+parameter's `TypeDefinition.operations[k].params[s]` path without an origin.
+
 A selection is bound by `identity` alone (see "Selections bind by identity"
 below), and the nominal `model` owner joins `lock.model_selections` by
 identity, so the lock must hold at most one row per model identity for that
