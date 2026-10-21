@@ -147,8 +147,12 @@ fn profile_wire_rejects_inconclusive_even_with_the_genuine_run_cause() {
         assert!(error.to_string().contains("unknown variant `inconclusive`"));
     }
     for disposition in [
-        CapabilityDisposition::Supported { module: "arithmetic/1".into() },
-        CapabilityDisposition::Refused { code: std001_code!("profile_not_qualified") },
+        CapabilityDisposition::Supported {
+            module: "arithmetic/1".into(),
+        },
+        CapabilityDisposition::Refused {
+            code: std001_code!("profile_not_qualified"),
+        },
     ] {
         let wire = serde_json::to_value(&disposition).expect("valid disposition serializes");
         let decoded: CapabilityDisposition = serde_json::from_value(wire.clone())
@@ -160,7 +164,10 @@ fn profile_wire_rejects_inconclusive_even_with_the_genuine_run_cause() {
         });
         let decoded: KaniProfile = serde_json::from_value(profile_wire.clone())
             .expect("otherwise identical valid profile is admitted");
-        assert_eq!(serde_json::to_value(decoded).expect("profile serializes"), profile_wire);
+        assert_eq!(
+            serde_json::to_value(decoded).expect("profile serializes"),
+            profile_wire
+        );
     }
 }
 
@@ -173,23 +180,43 @@ fn capability_census_preserves_request_order_and_entries_after_a_refusal() {
     };
     let supported = CapabilityEntry {
         construct: "checked-add".into(),
-        disposition: CapabilityDisposition::Supported { module: "arithmetic/1".into() },
+        disposition: CapabilityDisposition::Supported {
+            module: "arithmetic/1".into(),
+        },
     };
     let first = refused("object-reference", std001_code!("object_not_qualified"));
     let last = refused("temporal", std001_code!("temporal_not_qualified"));
-    let profile = KaniProfile::new(selection(), vec![
-        last.clone(), supported.clone(),
-        refused("unrequested", std001_code!("unrequested_not_qualified")), first.clone(),
-    ]).expect("larger matrix");
-    let decoded: KaniProfile = serde_json::from_value(
-        serde_json::to_value(profile).expect("profile serializes")
-    ).expect("supported/refused profile round-trips");
-    let census = decoded.classify(
-        &["object-reference".into(), "checked-add".into(), "temporal".into()], "source:census"
-    ).expect("a refusal entry does not stop the census");
+    let profile = KaniProfile::new(
+        selection(),
+        vec![
+            last.clone(),
+            supported.clone(),
+            refused("unrequested", std001_code!("unrequested_not_qualified")),
+            first.clone(),
+        ],
+    )
+    .expect("larger matrix");
+    let decoded: KaniProfile =
+        serde_json::from_value(serde_json::to_value(profile).expect("profile serializes"))
+            .expect("supported/refused profile round-trips");
+    let census = decoded
+        .classify(
+            &[
+                "object-reference".into(),
+                "checked-add".into(),
+                "temporal".into(),
+            ],
+            "source:census",
+        )
+        .expect("a refusal entry does not stop the census");
     assert_eq!(census, vec![first, supported, last]);
-    for constructs in [vec!["checked-add".into(), "checked-add".into()], vec![" ".into()]] {
-        let failure = decoded.classify(&constructs, "source:census").expect_err("invalid request");
+    for constructs in [
+        vec!["checked-add".into(), "checked-add".into()],
+        vec![" ".into()],
+    ] {
+        let failure = decoded
+            .classify(&constructs, "source:census")
+            .expect_err("invalid request");
         assert_eq!(failure.kind, KaniOutcomeKind::Refused);
         assert_eq!(failure.code, Std001Code::KANI_CAPABILITY_REQUEST_INVALID);
         assert_eq!(failure.source_id, "source:census");

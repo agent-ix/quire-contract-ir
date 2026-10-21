@@ -128,15 +128,28 @@ fn tc_042_checked_arithmetic_emits_exact_plan_only_after_profile_and_dispatch_se
 #[test]
 fn profile_refusal_retains_its_exact_cause_source_and_revision() {
     let cause = quire_contract_model::std001_code!("profile_not_qualified");
-    let refused = KaniProfile::new(selection(), vec![CapabilityEntry {
-        construct: "checked-arithmetic".into(),
-        disposition: CapabilityDisposition::Refused { code: cause },
-    }]).expect("refused profile is valid");
-    let failure = lower_checked_arithmetic(&refused, &dispatch(), &input(),
+    let refused = KaniProfile::new(
+        selection(),
+        vec![CapabilityEntry {
+            construct: "checked-arithmetic".into(),
+            disposition: CapabilityDisposition::Refused { code: cause },
+        }],
+    )
+    .expect("refused profile is valid");
+    let failure = lower_checked_arithmetic(
+        &refused,
+        &dispatch(),
+        &input(),
         quire_contract_ir::kani::CheckedArithmeticRequest {
-            source_id: "source:profile-refusal", operator: NumericOperator::Add,
-            left: 2, right: 3, minimum: -10, maximum: 10,
-        }).expect_err("profile refusal precedes family lowering");
+            source_id: "source:profile-refusal",
+            operator: NumericOperator::Add,
+            left: 2,
+            right: 3,
+            minimum: -10,
+            maximum: 10,
+        },
+    )
+    .expect_err("profile refusal precedes family lowering");
     assert_eq!(failure.kind, KaniOutcomeKind::Refused);
     assert_eq!(failure.code, cause);
     assert_eq!(failure.source_id, "source:profile-refusal");
