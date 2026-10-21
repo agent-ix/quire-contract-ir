@@ -130,10 +130,45 @@ pointer. Repeat the absent-local case with a selected, supplied admitted
 dependency package containing that same typed key but no local copy. Pair a
 carrier join defect with a valid-key frame or operation defect to check
 declaration-stage precedence. Finally try a non-reference body, a
-`dependency_reference` body, an extra body member, extra occurrence, and
+`dependency_reference` body, an extra body member, and
 each forbidden declaration, owner, nominal preimage and recursion member.
 Keep the QSpec fixture in its authoritative checkout; derive the local
 controls and identities in this repository's test builder.
+
+For FR-038-AC-294 and FR-038-AC-295 (IR-785, PLANNED/UNRUN), take that
+otherwise admitted public-reader package with one carrier occurrence of
+`expression` ordinal 0. Add a second reference to the same local target by
+adding ordinal 1 to that carrier and a distinct source-map row naming the
+second reference's own source regions. Independently derive the canonical
+structural key and package identity before and after; assert both packages
+admit, both identities are equal, there is still exactly one carrier, and
+the admitted occurrences and source correspondence retain both references.
+Add a third distinct ordinal and source-map row to check that admission is
+not capped at two occurrences. Keep the body and its target unchanged.
+This is a real serialized input to `CheckedPackageV2::read`, not a
+post-admission mutation, a compile-only check or an assumed admission.
+The positive control must fail if the reader's previous `len > 1` rejection
+is restored, and an identity implementation including occurrences must fail
+the equality assertions.
+
+From the admitting two-reference package, separately repeat an occurrence
+ordinal, repeat a source-map key, empty the occurrence array, replace the
+first and then the second occurrence role with a non-`expression` role, and
+insert a second actual carrier node with the same `node_id`. Check each
+exact code and concrete later-entry or member pointer stated by AC-295.
+For the repeated ordinal, retain unique source-map rows so a duplicate row
+does not mask the occurrence failure; for the repeated row, retain distinct
+occurrence ordinals. Keep canonical encoding and semantic identities valid
+in every mutation, deriving the graph identity projection anew for the
+added-node control. Do not use a stale identity refusal as evidence for
+source-map or graph uniqueness. Preserve the existing target/dependency,
+closed-body and forbidden-member controls of AC-239 through AC-241.
+Producer conformance may additionally use freshly produced bytes through
+the producer's public interface, with exact source-region assertions;
+neither copied upstream fixtures nor a QSL internal dependency replaces the
+local public-reader controls above. Bind the eventual actual native tests
+to AC-294/AC-295 with `#[trace]` on `#[test]`; this spec amendment alone
+supplies no execution receipt or coverage claim.
 
 For AC-210 through AC-213, start with valid checked V2 packages, not a
 post-admission mutation of an in-memory graph. Build a self-typed declared
