@@ -49,9 +49,11 @@ claim a separate graph node or source-map entry. The application's admitted
 source entry remains available for the inline position.
 
 Each entry SHALL separately describe its own integer range as either a finite
-inclusive range or a typed absence. An unbounded integer type, unavailable
-range shape, or endpoint outside the finite native range SHALL be distinguishable
-without erasing the argument entry. A literal's exact value remains available
+inclusive range or a typed absence. An unbounded integer type or endpoint
+outside the finite native range SHALL be distinguishable without erasing the
+argument entry. A defensively encountered missing range shape SHALL have its
+own typed absence; strict checked-package admission can reject such a shape
+before this accessor is reached. A literal's exact value remains available
 even when it cannot be represented as a finite native range. The query SHALL
 NOT infer, select or invent a generation interval; the consumer owns its
 choice among own, inferred and result-bound intervals.
@@ -93,7 +95,7 @@ lowering product, checked-graph fallback or compatibility alias is introduced.
 | --- | --- | --- |
 | FR-054-AC-1 | For a reader-admitted positive scalar application with a graph reference followed by an inline integer literal, a public typed `ContractPackageV1` query returns positions 0 and 1 in that order, the exact child key and admitted sources at 0, and the exact signed literal value qualified by the application occurrence and position at 1, with no fabricated literal node. | Test (TC-457) |
 | FR-054-AC-2 | For an admitted application whose two argument positions reference the same represented child, the query returns two distinct ordered entries with positions 0 and 1 and the same authentic child key and sources; reached-closure set order and deduplication do not alter them. | Test (TC-457) |
-| FR-054-AC-3 | For an admitted application with a child lacking a finite own range, the query still returns the complete positional identity vector and distinguishes unbounded, unavailable and outside-native-range own facts from finite facts. It supplies no inferred or result-fallback interval and does not change the interval selected by an existing consumer. | Test (TC-457) |
+| FR-054-AC-3 | For admitted applications with unbounded or outside-native-range own facts, the query still returns the complete positional identity vector and distinguishes those facts from finite ranges. It supplies no inferred or result-fallback interval and does not change the interval selected by an existing consumer. | Test (TC-457) |
 | FR-054-AC-4 | A missing, foreign, non-lowered or non-application key, invalid role/ordinal/source correspondence, ineligible operation or inconsistent represented child returns typed absence, disposition, refusal or error with no selected operand list; an independently valid represented occurrence of the same node remains structurally valid and does not prove unique-original-expression ownership. | Test (TC-457) |
 | FR-054-AC-5 | A separate consumer test compiles against public owning types and reads the preceding cases from reader-admitted six-field packages without a copied schema, consumer JSON field reads or a CheckedPackageV2 generation fallback. Repeated queries leave the wire, identity, request disposition, FR-049 result context and forward closure unchanged; this accessor alone makes no full scalar replay claim. | Test (TC-457) |
 
