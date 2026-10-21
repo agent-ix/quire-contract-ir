@@ -665,7 +665,7 @@ fn tc_048_the_selected_dependency_is_supplied_and_binds_to_its_entry() {
     );
 }
 
-#[trace("TC-048", "FR-322-AC-84")]
+#[trace("TC-048", "FR-038-AC-37")]
 #[test]
 fn dependency_selection_checks_presence_then_binding_in_lock_order() {
     let dependency = build_dependency(|_| {});
@@ -708,7 +708,7 @@ fn dependency_selection_checks_presence_then_binding_in_lock_order() {
 }
 
 /// ACs: FR-038-AC-37
-#[trace("TC-048", "FR-038-AC-37", "FR-322-AC-85")]
+#[trace("TC-048", "FR-038-AC-37")]
 #[test]
 fn tc_048_a_reference_resolves_in_the_order_selection_name_operator() {
     let dependency = build_dependency(|_| {});
@@ -810,7 +810,7 @@ fn signature(signature: &[&str], result: &str, edit: impl FnOnce(&mut Vec<Value>
 }
 
 /// ACs: FR-038-AC-38
-#[trace("TC-048", "FR-038-AC-38", "FR-322-AC-86")]
+#[trace("TC-048", "FR-038-AC-38")]
 #[test]
 fn tc_048_a_signature_type_that_is_declared_or_model_owned_refuses() {
     let (set_key, set_node) = collection("set", &record_key(), &[&record_key()]);
@@ -945,7 +945,7 @@ fn unbound_parameter_dependency(listed: bool, referenced: bool) -> Dependency {
     })
 }
 
-#[trace("TC-048", "FR-322-AC-86")]
+#[trace("TC-048", "FR-038-AC-38")]
 #[test]
 fn unbound_parameter_type_is_outside_the_signature() {
     for (listed, referenced) in [(true, false), (false, true), (true, true)] {
@@ -961,7 +961,7 @@ fn unbound_parameter_type_is_outside_the_signature() {
     }
 }
 
-#[trace("TC-048", "FR-322-AC-86")]
+#[trace("TC-048", "FR-038-AC-38")]
 #[test]
 fn signature_type_closure_follows_dependencies_only() {
     let by_type = structural_key(
@@ -1001,7 +1001,7 @@ fn signature_type_closure_follows_dependencies_only() {
     }
 }
 
-#[trace("TC-048", "FR-322-AC-86")]
+#[trace("TC-048", "FR-038-AC-38")]
 #[test]
 fn dependency_function_body_reference_outside_signature_is_eligible() {
     let dependency = build_dependency(|nodes| {
