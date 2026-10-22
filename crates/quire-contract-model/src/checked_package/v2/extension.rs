@@ -110,12 +110,14 @@ fn with_detail(
     member: &str,
     expected: Option<&str>,
     actual: Option<String>,
+    actual_semantic_type: Option<CheckedNodeId>,
 ) -> ValidationFailure {
     if let ValidationFailure::Refused(ref mut refusal) = failure {
         refusal.extension_detail = Some(Box::new(CheckedExtensionRefusalDetail {
             member: member.into(),
             expected_type: expected.map(Into::into),
             actual_type: actual.map(Into::into),
+            actual_semantic_type,
         }));
     }
     failure
@@ -189,6 +191,7 @@ pub(super) fn validate(
                 &schema.clauses[body.clauses.len()].name,
                 None,
                 None,
+                None,
             ));
         }
         for (ordinal, (clause, expected)) in body.clauses.iter().zip(&schema.clauses).enumerate() {
@@ -213,6 +216,7 @@ pub(super) fn validate(
                     &clause.name,
                     Some(&expected.type_ref),
                     Some(actual_type(target, kinds[target_position], nodes, index)),
+                    Some(target.semantic_type.clone()),
                 ));
             }
         }

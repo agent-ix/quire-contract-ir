@@ -345,6 +345,8 @@ pub struct CheckedExtensionRefusalDetail {
     pub expected_type: Option<Box<str>>,
     /// The encountered type, when a clause type differs.
     pub actual_type: Option<Box<str>>,
+    /// The referenced subnode's exact semantic type identity at a mismatch.
+    pub actual_semantic_type: Option<CheckedNodeId>,
 }
 
 /// A typed refusal with a stable code and the location of the value it is

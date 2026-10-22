@@ -500,6 +500,21 @@ fn tc_459_extension_clause_targets_are_typed_and_present() {
     assert_eq!(detail.member.as_ref(), "days");
     assert_eq!(detail.expected_type.as_deref(), Some("Int[1, 3650]"));
     assert_eq!(detail.actual_type.as_deref(), Some("Text"));
+    let text_value = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| {
+            node["node_id"]
+                == package["semantic_graph"]["nodes"][position]["body"]["clauses"][0]["value"]
+                    ["target"]
+        })
+        .expect("text clause subnode");
+    assert_eq!(
+        serde_json::to_value(detail.actual_semantic_type.as_ref().expect("semantic type"))
+            .expect("node id"),
+        text_value["semantic_type"]
+    );
 
     let (mut package, position) = extension_fixture();
     let absent = json!({"domain":"quire.checked-semantic-node/v1", "digest":"f".repeat(64)});
@@ -741,6 +756,11 @@ fn tc_459_extension_kind_clause_requires_the_named_kind() {
     assert_eq!(detail.member.as_ref(), "retain");
     assert_eq!(detail.expected_type.as_deref(), Some("retention"));
     assert_eq!(detail.actual_type.as_deref(), Some("quota"));
+    assert_eq!(
+        serde_json::to_value(detail.actual_semantic_type.as_ref().expect("semantic type"))
+            .expect("node id"),
+        package["semantic_graph"]["nodes"][quota]["semantic_type"]
+    );
 
     let retention_id = package["semantic_graph"]["nodes"][retention]["node_id"].clone();
     package["semantic_graph"]["nodes"][policy]["body"]["clauses"][0]["value"]["target"] =
