@@ -958,7 +958,7 @@ impl CheckedPackageV2 {
             .iter()
             .enumerate()
             .map(|(position, node)| {
-                serde_json::from_value(node.body.clone()).map_err(|_| {
+                CheckedTerm::from_validated(&node.body).map_err(|_| {
                     refuse(
                         CheckedPackageRefusalCode::MalformedWire,
                         node_pointer(position).key("body"),

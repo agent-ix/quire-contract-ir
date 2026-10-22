@@ -4,13 +4,13 @@
 //! before decoding this representation. The flat grammar has bounded term
 //! depth, so serde's recursion here is independent of input byte length.
 
-use super::{ApplicationOperator, LiteralKind};
+use super::{ApplicationOperator, BodyTerm, LiteralKind};
 use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedSemanticId};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 
 /// A body term in an admitted checked-package V2 node.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(tag = "term", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CheckedTerm {
     /// A typed scalar literal.
@@ -87,6 +87,73 @@ pub enum CheckedTerm {
         /// Ordered clause bindings.
         clauses: Vec<CheckedTerm>,
     },
+}
+
+impl CheckedTerm {
+    /// Decodes only a body that the reader's flat and closed-shape checks
+    /// already accepted. This is deliberately not a public Deserialize impl:
+    /// an arbitrary recursive wire term has no standalone depth bound.
+    pub(super) fn from_validated(value: &Value) -> Result<Self, ()> {
+        fn field<T: DeserializeOwned>(value: &Value, name: &str) -> Result<T, ()> {
+            serde_json::from_value(value.get(name).ok_or(())?.clone()).map_err(|_| ())
+        }
+
+        fn children(value: &Value, name: &str) -> Result<Vec<CheckedTerm>, ()> {
+            value
+                .get(name)
+                .and_then(Value::as_array)
+                .ok_or(())?
+                .iter()
+                .map(CheckedTerm::from_validated)
+                .collect()
+        }
+
+        let tag = value.get("term").and_then(Value::as_str).ok_or(())?;
+        match BodyTerm::from_wire(tag) {
+            Some(BodyTerm::Literal) => Ok(Self::Literal {
+                type_id: field(value, "type")?,
+                value_kind: field(value, "value_kind")?,
+                value: field(value, "value")?,
+            }),
+            Some(BodyTerm::Reference) => Ok(Self::Reference {
+                target: field(value, "target")?,
+            }),
+            Some(BodyTerm::Application) => Ok(Self::Application {
+                operator: field(value, "operator")?,
+                operation: field(value, "operation")?,
+                result_type: field(value, "result_type")?,
+                arguments: children(value, "arguments")?,
+            }),
+            Some(BodyTerm::Aggregate) => Ok(Self::Aggregate {
+                members: children(value, "members")?,
+            }),
+            Some(BodyTerm::Binding) => Ok(Self::Binding {
+                name: field(value, "name")?,
+                value: Box::new(Self::from_validated(value.get("value").ok_or(())?)?),
+            }),
+            Some(BodyTerm::DependencyReference) => Ok(Self::DependencyReference {
+                package: field(value, "package")?,
+                node: field(value, "node")?,
+            }),
+            Some(BodyTerm::Frame) => Ok(Self::Frame {
+                modifies: field(value, "modifies")?,
+                creates: field(value, "creates")?,
+                deletes: field(value, "deletes")?,
+                deletes_scoped: field(value, "deletes_scoped")?,
+            }),
+            Some(BodyTerm::AbstractionRelation) => Ok(Self::AbstractionRelation {
+                objects: field(value, "objects")?,
+                populations: field(value, "populations")?,
+                frames: field(value, "frames")?,
+            }),
+            None if tag == "extension_form" => Ok(Self::ExtensionForm {
+                definition: field(value, "definition")?,
+                node_kind: field(value, "node_kind")?,
+                clauses: children(value, "clauses")?,
+            }),
+            None => Err(()),
+        }
+    }
 }
 
 /// One frame write grant.
@@ -189,4 +256,88 @@ pub struct CheckedAbstractionParameter {
     pub name: Box<str>,
     /// Rust parameter.
     pub rust_parameter: Box<str>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CheckedTerm;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    #[trace("FR-349-AC-1")]
+    #[test]
+    fn checked_term_variants_round_trip_the_closed_wire_arms() {
+        let node = json!({
+            "domain": "quire.checked-semantic-node/v1",
+            "digest": "a".repeat(64)
+        });
+        let package = json!({
+            "domain": "quire.package.semantic/v2",
+            "algorithm": "sha256",
+            "digest": "b".repeat(64)
+        });
+        let literal = json!({"term":"literal","type":node,"value_kind":"integer","value":"1"});
+        let reference = json!({"term":"reference","target":node});
+        let dependency = json!({"term":"dependency_reference","package":package,"node":node});
+        let binding = json!({"term":"binding","name":"x","value":literal});
+        let aggregate = json!({"term":"aggregate","members":[binding,reference,dependency]});
+        let application = json!({
+            "term":"application","operator":"binary",
+            "operation":{"identity":"quire.op.test","laws":[],"mode":null,"member":null,"leaves":[]},
+            "result_type":node,"arguments":[aggregate]
+        });
+        let frame = json!({
+            "term":"frame","modifies":[],"creates":[],"deletes":[],"deletes_scoped":[]
+        });
+        let abstraction = json!({
+            "term":"abstraction_relation","objects":[],"populations":[],"frames":[]
+        });
+        let extension = json!({
+            "term":"extension_form",
+            "definition":{"authority":"test","identity":"extension"},
+            "node_kind":"retention","clauses":[]
+        });
+
+        for (body, expected) in [
+            (literal, "literal"),
+            (reference, "reference"),
+            (dependency, "dependency_reference"),
+            (binding, "binding"),
+            (aggregate, "aggregate"),
+            (application, "application"),
+            (frame, "frame"),
+            (abstraction, "abstraction_relation"),
+            (extension, "extension_form"),
+        ] {
+            let term = CheckedTerm::from_validated(&body).expect("closed term");
+            let actual = match &term {
+                CheckedTerm::Literal { .. } => "literal",
+                CheckedTerm::Reference { .. } => "reference",
+                CheckedTerm::DependencyReference { .. } => "dependency_reference",
+                CheckedTerm::Binding { .. } => "binding",
+                CheckedTerm::Aggregate { .. } => "aggregate",
+                CheckedTerm::Application { .. } => "application",
+                CheckedTerm::Frame { .. } => "frame",
+                CheckedTerm::AbstractionRelation { .. } => "abstraction_relation",
+                CheckedTerm::ExtensionForm { .. } => "extension_form",
+            };
+            assert_eq!(actual, expected);
+            if let CheckedTerm::Application { arguments, .. } = &term {
+                let [CheckedTerm::Aggregate { members }] = arguments.as_slice() else {
+                    panic!("application argument must be a typed aggregate");
+                };
+                assert!(matches!(members[0], CheckedTerm::Binding { .. }));
+                assert!(matches!(members[1], CheckedTerm::Reference { .. }));
+                assert!(matches!(
+                    members[2],
+                    CheckedTerm::DependencyReference { .. }
+                ));
+            }
+            assert_eq!(serde_json::to_value(term).expect("term serializes"), body);
+        }
+        assert!(
+            CheckedTerm::from_validated(&json!({"term":"group_reference","ordinal":0})).is_err(),
+            "a preimage-only group reference cannot become a wire term"
+        );
+    }
 }
