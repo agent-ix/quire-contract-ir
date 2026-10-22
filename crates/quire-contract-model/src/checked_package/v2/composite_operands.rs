@@ -5,8 +5,7 @@
 
 use super::operation_catalog::operation_catalog;
 use super::structural::{
-    aggregate_members, is_integer_bound, is_non_negative_integer, reference_target,
-    typed_aggregate, typed_binding, typed_reference,
+    is_integer_bound, is_non_negative_integer, typed_aggregate, typed_binding, typed_reference,
 };
 use super::{
     BoundedDomainForm, CheckedCollectionKind, CheckedNodeId, CheckedNodeKind, CheckedOccurrence,
@@ -323,10 +322,6 @@ impl<'a> Graph<'a> {
     }
 }
 
-fn target(term: &Value) -> Option<CheckedNodeId> {
-    reference_target(term)
-}
-
 fn type_error(ordinal: u64, node: Option<CheckedNodeId>) -> Error {
     Error::MalformedDomain {
         ordinal,
@@ -531,13 +526,17 @@ fn child_ordinal(index: usize, ordinal: u64, node: &CheckedNodeId) -> Result<u32
     })
 }
 
-fn forwarding_target(node: &CheckedSemanticNodeV2, kind: CheckedNodeKind) -> Option<CheckedNodeId> {
+fn forwarding_target(
+    graph: &Graph<'_>,
+    node: &CheckedSemanticNodeV2,
+    kind: CheckedNodeKind,
+) -> Option<CheckedNodeId> {
     match kind {
         CheckedNodeKind::CompositeType(CompositeTypeForm::Alias) => {
-            let [inner] = aggregate_members(&node.body)? else {
+            let [inner] = typed_aggregate(graph.term(node)?)? else {
                 return None;
             };
-            target(inner)
+            typed_reference(inner).cloned()
         }
         CheckedNodeKind::BoundedDomain(form) if form != BoundedDomainForm::ModelPopulation => {
             Some(node.semantic_type.clone())
@@ -564,7 +563,7 @@ fn descriptor_kind(
         if seen.contains(&current) {
             return Err(type_error(ordinal, Some(current)));
         }
-        if let Some(next) = forwarding_target(node, kind) {
+        if let Some(next) = forwarding_target(graph, node, kind) {
             meter.charge(1)?;
             seen.push(current);
             current = next;
@@ -1379,7 +1378,10 @@ mod tests {
             index: &package.node_index,
             terms: &package.terms,
         };
-        let mut meter = Meter { limit: 100_000, consumed: 0 };
+        let mut meter = Meter {
+            limit: 100_000,
+            consumed: 0,
+        };
         assert_eq!(
             descriptor_kind(&graph, &id('7'), 0, &mut meter),
             Ok(CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean))

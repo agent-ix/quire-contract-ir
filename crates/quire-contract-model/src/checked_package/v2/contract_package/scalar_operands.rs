@@ -148,7 +148,7 @@ impl ContractPackageV1 {
             .find(|entry| occurrence.matches(entry))
             .ok_or(ContractScalarOperandErrorV1::InvalidOccurrence)?;
 
-        let arguments = scalar_arguments(&self.wire.semantic_graph.nodes, reached.root, None)
+        let arguments = scalar_arguments(&self.wire.semantic_graph.nodes, reached.root, None, None)
             .map_err(ContractScalarOperandErrorV1::Projection)?
             .map(|argument| {
                 let argument = argument.map_err(ContractScalarOperandErrorV1::Projection)?;

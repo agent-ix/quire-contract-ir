@@ -6,7 +6,7 @@
 use super::model_fields::OperationTypes;
 use super::operation_catalog::operation_catalog;
 use super::structural::{
-    reference_target, reference_type_target, typed_anchor_body, typed_clause_body,
+    reference_type_target, typed_anchor_body, typed_clause_body, typed_reference,
 };
 use super::{
     ApplicationOperator, CheckedMemberType, CheckedNodeId, CheckedOccurrence,
@@ -284,9 +284,12 @@ impl CheckedPackageV2 {
                 Some(clause.clone()),
             ));
         }
-        if node
-            .body
-            .pointer("/operation/member/clause")
+        if self
+            .term(clause)
+            .and_then(|term| match term {
+                CheckedTerm::Application { operation, .. } => operation.pointer("/member/clause"),
+                _ => None,
+            })
             .and_then(Value::as_str)
             .is_some_and(|kind| StateClauseKind::from_wire(kind).is_none())
         {
@@ -318,10 +321,14 @@ impl CheckedPackageV2 {
                         .and_then(|owner| self.models.operation_types(owner, anchor.operation))
                 });
         }
-        let condition = node
-            .body
-            .pointer("/arguments/2")
-            .and_then(reference_target)
+        let condition = self
+            .term(clause)
+            .and_then(|term| match term {
+                CheckedTerm::Application { arguments, .. } => arguments.get(2),
+                _ => None,
+            })
+            .and_then(typed_reference)
+            .cloned()
             .ok_or_else(|| context.error(Refusal::MissingComparison, Path::Condition, None))?;
         context.node(&condition).ok_or_else(|| {
             context.error(
@@ -441,9 +448,15 @@ fn project_operand(
             let (kind, range) = if child.node_tag.as_ref() == "value"
                 && child.semantic_form.as_ref() == "literal"
             {
+                let range = match context.package.term(&id) {
+                    Some(CheckedTerm::Literal {
+                        value_kind, value, ..
+                    }) => typed_literal_range(*value_kind, value),
+                    _ => Err(Refusal::IneligibleOperand),
+                };
                 (
                     Kind::Literal,
-                    literal_range(&child.body).map_err(|kind| fail(kind, Some(id.clone())))?,
+                    range.map_err(|kind| fail(kind, Some(id.clone())))?,
                 )
             } else {
                 read_range(context, child, path)?
@@ -507,11 +520,13 @@ fn read_range(
             range,
         ));
     }
-    let (project, pre) = if operation_identity(child) == Some("quire.op.state.pre") {
+    let (project, pre) = if operation_identity(context.package, child) == Some("quire.op.state.pre")
+    {
         if context.kind != CheckedComparisonClauseKind::Postcondition {
             return Err(fail(Refusal::IneligibleOperand));
         }
-        let target = one_reference(child).ok_or_else(|| fail(Refusal::IneligibleOperand))?;
+        let target = one_reference(context.package, child)
+            .ok_or_else(|| fail(Refusal::IneligibleOperand))?;
         (
             context
                 .node(&target)
@@ -521,21 +536,29 @@ fn read_range(
     } else {
         (child, false)
     };
-    if operation_identity(project) != Some("quire.op.record.project") {
+    if operation_identity(context.package, project) != Some("quire.op.record.project") {
         return Err(fail(Refusal::IneligibleOperand));
     }
-    let deref_id = one_reference(project).ok_or_else(|| fail(Refusal::IneligibleOperand))?;
+    let deref_id =
+        one_reference(context.package, project).ok_or_else(|| fail(Refusal::IneligibleOperand))?;
     let deref = context
         .node(&deref_id)
         .ok_or_else(|| context.error(Refusal::MissingChild, path, Some(deref_id.clone())))?;
-    if operation_identity(deref) != Some("quire.op.model.deref")
-        || one_reference(deref).as_ref() != context.parameters.first()
+    if operation_identity(context.package, deref) != Some("quire.op.model.deref")
+        || one_reference(context.package, deref).as_ref() != context.parameters.first()
     {
         return Err(fail(Refusal::IneligibleOperand));
     }
-    let member = project
-        .body
-        .pointer("/operation/member")
+    let Some(CheckedTerm::Application {
+        operation,
+        result_type,
+        ..
+    }) = context.package.term(&project.node_id)
+    else {
+        return Err(fail(Refusal::IneligibleOperand));
+    };
+    let member = operation
+        .get("member")
         .ok_or_else(|| fail(Refusal::IneligibleOperand))?;
     if member.get("kind").and_then(Value::as_str) != Some("field") {
         return Err(fail(Refusal::IneligibleOperand));
@@ -555,11 +578,7 @@ fn read_range(
         .and_then(reference_type_target);
     if self_type.as_ref() != Some(&declaration)
         || deref.semantic_type != declaration
-        || project
-            .body
-            .get("result_type")
-            .and_then(|value| serde_json::from_value::<CheckedNodeId>(value.clone()).ok())
-            != Some(project.semantic_type.clone())
+        || result_type != &project.semantic_type
     {
         return Err(fail(Refusal::IneligibleOperand));
     }
@@ -597,17 +616,27 @@ fn read_range(
     ))
 }
 
-fn operation_identity(node: &CheckedSemanticNodeV2) -> Option<&str> {
-    node.body
-        .pointer("/operation/identity")
-        .and_then(Value::as_str)
-}
-
-fn one_reference(node: &CheckedSemanticNodeV2) -> Option<CheckedNodeId> {
-    let [argument] = node.body.get("arguments")?.as_array()?.as_slice() else {
+fn operation_identity<'a>(
+    package: &'a CheckedPackageV2,
+    node: &CheckedSemanticNodeV2,
+) -> Option<&'a str> {
+    let CheckedTerm::Application { operation, .. } = package.term(&node.node_id)? else {
         return None;
     };
-    reference_target(argument)
+    operation.get("identity").and_then(Value::as_str)
+}
+
+fn one_reference(
+    package: &CheckedPackageV2,
+    node: &CheckedSemanticNodeV2,
+) -> Option<CheckedNodeId> {
+    let CheckedTerm::Application { arguments, .. } = package.term(&node.node_id)? else {
+        return None;
+    };
+    let [argument] = arguments.as_slice() else {
+        return None;
+    };
+    typed_reference(argument).cloned()
 }
 
 fn member_range(
@@ -623,6 +652,7 @@ fn member_range(
     }
 }
 
+#[cfg(test)]
 fn literal_range(term: &Value) -> Result<CheckedScalarOperandRange, CheckedComparisonRefusal> {
     use CheckedComparisonRefusal as Refusal;
     if term.get("value_kind").and_then(Value::as_str) != Some("integer") {
@@ -792,8 +822,10 @@ mod tests {
         );
         assert_eq!((&failure.clause, &failure.claim), (&clause, &claim));
         package.wire.semantic_graph.nodes[4].semantic_form = "state_clause".into();
-        package.wire.semantic_graph.nodes[4].body["operation"]["member"]["clause"] =
-            json!("later_clause_kind");
+        let CheckedTerm::Application { operation, .. } = &mut package.terms[4] else {
+            panic!("fixture clause term");
+        };
+        operation["member"]["clause"] = json!("later_clause_kind");
         let failure = package
             .direct_integer_comparison(&clause, &claim)
             .expect_err("unsupported clause kind");
@@ -801,10 +833,17 @@ mod tests {
             (failure.kind, failure.path),
             (Refusal::UnsupportedClauseKind, Path::Clause)
         );
-        package.wire.semantic_graph.nodes[4].body["operation"]["member"]["clause"] =
-            json!("invariant");
+        let CheckedTerm::Application { operation, .. } = &mut package.terms[4] else {
+            panic!("fixture clause term");
+        };
+        operation["member"]["clause"] = json!("invariant");
 
-        package.wire.semantic_graph.nodes[4].body["arguments"][2] = reference('9');
+        let CheckedTerm::Application { arguments, .. } = &mut package.terms[4] else {
+            panic!("fixture clause term");
+        };
+        arguments[2] = CheckedTerm::Reference {
+            target: unknown.clone(),
+        };
         let failure = package
             .direct_integer_comparison(&clause, &claim)
             .expect_err("missing condition comparison");
@@ -817,7 +856,12 @@ mod tests {
             )
         );
         assert_eq!((&failure.clause, &failure.claim), (&clause, &claim));
-        package.wire.semantic_graph.nodes[4].body["arguments"][2] = reference('4');
+        let CheckedTerm::Application { arguments, .. } = &mut package.terms[4] else {
+            panic!("fixture clause term");
+        };
+        arguments[2] = CheckedTerm::Reference {
+            target: serde_json::from_value(id('4')).expect("comparison id"),
+        };
 
         package.wire.semantic_graph.nodes[3].body["operation"]["identity"] =
             json!("quire.op.integer.unknown");
