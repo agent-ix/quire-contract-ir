@@ -11,7 +11,7 @@
 //! | Vocabulary | Wire member | Enum |
 //! | --- | --- | --- |
 //! | node family | `semantic_graph.nodes.node_tag` | [`CheckedNodeTag`] |
-//! | semantic form, per family | `semantic_graph.nodes.semantic_form` | [`CheckedNodeKind`] over the 13 `*Form` enums |
+//! | semantic form, per family | `semantic_graph.nodes.semantic_form` | [`CheckedNodeKind`] over the 14 `*Form` enums |
 //! | selection role | `lock.*_selections.role`, `lock.edition.role` | [`CheckedSelectionRole`] |
 //! | capability disposition | `capability_report.disposition` | [`CheckedCapabilityDisposition`] |
 //!

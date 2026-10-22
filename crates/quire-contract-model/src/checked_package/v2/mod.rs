@@ -1665,12 +1665,12 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
     }
 }
 
-/// Minimal structural admission for one node body. Every node validates as
-/// the closed `SemanticTerm` grammar, except a `state`/`frame` node, whose
-/// `BodyBindingRules`-selected shape is [`frame::read_frame_body`]'s, and a
-/// `correspondence`/`abstraction_relation` node, whose body is scanned for
-/// applications by [`abstraction::scan_body`] and read as its flat shape by
-/// the abstraction step. A frame or abstraction relation body reports no
+/// Minimal structural admission for one node body. Most nodes use the closed
+/// `SemanticTerm` grammar. Extension nodes use [`extension::read_body`],
+/// `state`/`frame` nodes use [`frame::read_frame_body`], and
+/// `correspondence`/`abstraction_relation` nodes are scanned for applications
+/// by [`abstraction::scan_body`] and read at the abstraction step. The graph
+/// loop collects extension clause targets directly. Frame and abstraction bodies report no
 /// reference targets to the caller: its entries are joined to the node's
 /// `dependencies` by the frame and abstraction steps
 /// ([`frame::validate_frame_semantics`],
@@ -1707,9 +1707,10 @@ fn validate_body(
 }
 
 /// The grammar a node's `body` is validated against (QSpec FR-322
-/// `BodyBindingRules`): a `state`/`frame` node's body is the frame reference
-/// triple, a `correspondence`/`abstraction_relation` node's body is the flat
-/// shape of FR-346, and every other node's body is a `SemanticTerm`.
+/// `BodyBindingRules`): extension nodes use FR-469's declaration body,
+/// `state`/`frame` nodes use the frame reference triple,
+/// `correspondence`/`abstraction_relation` nodes use FR-346's flat shape,
+/// and every other node's body is a `SemanticTerm`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum BodyGrammar {
     /// The closed extension declaration body.
@@ -1722,7 +1723,7 @@ enum BodyGrammar {
     AbstractionRelation,
 }
 
-/// Exactly one kind has each of the two flat grammars. Every form is listed,
+/// Exactly one kind has each of the three flat grammars. Every form is listed,
 /// so a new form is a compile error until its grammar is decided.
 fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
     use CheckedNodeKind as K;

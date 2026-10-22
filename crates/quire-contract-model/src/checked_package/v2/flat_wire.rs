@@ -12,7 +12,7 @@
 //! | Group | an `aggregate` whose members are each a Leaf or a `binding` whose value is a Leaf |
 //! | Tuple | an `aggregate` whose members are each a Leaf or a Group |
 //! | Member | a Leaf, a Group, or a `binding` whose value is a Leaf, a Group or a Tuple |
-//! | Body | a Leaf; an `application` whose `arguments` are each a Member; an `aggregate` whose members are each a Member; a frame body; an abstraction relation body |
+//! | Body | a Leaf; an `application` whose `arguments` are each a Member; an `aggregate` whose members are each a Member; a frame body; an abstraction relation body; an extension form body |
 //!
 //! Each [`Place`] below is one of those positions, and [`Flat`] enters the
 //! terms of a body in document pre-order, outermost first, on `quire-walk`'s
