@@ -27,7 +27,7 @@ remove `identity_projection` or either body member from the wire.
 ## Behavior
 
 The reader SHALL distinguish literal, reference, application, aggregate and
-dependency-reference terms, and binding members nested under aggregates. It
+dependency-reference terms, and binding members nested under aggregates.
 The reader SHALL distinguish the frame, abstraction-relation and extension-form bodies
 selected by their node kinds. Each variant SHALL retain its production's
 required members with typed node identities and closed member kinds where
