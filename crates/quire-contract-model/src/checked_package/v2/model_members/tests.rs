@@ -846,7 +846,11 @@ fn tc_048_selected_native_type_refs_are_retained_for_member_typing() {
         ("count", NativeTypeRef::Integer, Some(MemberType::Integer)),
         ("label", NativeTypeRef::String, Some(MemberType::String)),
         ("key", NativeTypeRef::Uuid, Some(MemberType::Uuid)),
-        ("when", NativeTypeRef::Timestamp, Some(MemberType::Timestamp)),
+        (
+            "when",
+            NativeTypeRef::Timestamp,
+            Some(MemberType::Timestamp),
+        ),
         ("ratio", NativeTypeRef::Rational, None),
     ] {
         let Resolved::Field(field) =
@@ -854,7 +858,11 @@ fn tc_048_selected_native_type_refs_are_retained_for_member_typing() {
         else {
             panic!("expected a field");
         };
-        assert_eq!(field.slot.type_ref, SelectedTypeRef::Native(native), "{name}");
+        assert_eq!(
+            field.slot.type_ref,
+            Some(SelectedTypeRef::Native(native)),
+            "{name}"
+        );
         assert_eq!(model.field_type(field), expected, "{name}");
     }
 }

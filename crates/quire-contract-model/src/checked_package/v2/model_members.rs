@@ -164,7 +164,7 @@ pub(super) struct TypedSlot {
     /// operation parameter's name, which FR-346 compares with a frame entry's
     /// `parameters`.
     pub(super) name: Option<Box<str>>,
-    pub(super) type_ref: SelectedTypeRef,
+    pub(super) type_ref: Option<SelectedTypeRef>,
     pub(super) multiplicity: Multiplicity,
 }
 
@@ -174,7 +174,6 @@ pub(super) enum SelectedTypeRef {
     Native(NativeTypeRef),
     Unit(Box<str>),
     Declared(Box<str>),
-    Invalid,
 }
 
 /// The closed native names accepted by the selected model grammar.
@@ -193,17 +192,17 @@ pub(super) enum NativeTypeRef {
 }
 
 impl SelectedTypeRef {
-    fn from_admitted_name(name: &str) -> Self {
+    fn from_admitted_name(name: &str) -> Option<Self> {
         if name.starts_with("ix://quire/unit/") {
-            return Self::Unit(name.into());
+            return Some(Self::Unit(name.into()));
         }
         if let Some(native) = name.strip_prefix(NATIVE_PREFIX) {
-            return NativeTypeRef::from_name(native).map_or(Self::Invalid, Self::Native);
+            return NativeTypeRef::from_name(native).map(Self::Native);
         }
         if name.is_empty() {
-            Self::Invalid
+            None
         } else {
-            Self::Declared(name.into())
+            Some(Self::Declared(name.into()))
         }
     }
 }
@@ -1157,7 +1156,6 @@ impl DomainModel {
                 };
             }
             SelectedTypeRef::Declared(name) => name.as_ref(),
-            SelectedTypeRef::Invalid => return None,
         };
         if let Some(bounds) = self.value_types.get(type_ref) {
             return bounds.map(MemberType::IntRange);
@@ -1204,7 +1202,7 @@ impl DomainModel {
     /// FR-322 step 4 over one declared `typeRef` and multiplicity; `None`
     /// when the tables give the slot no type.
     pub(super) fn slot_type(&self, slot: &TypedSlot) -> Option<MemberType> {
-        let element = self.element_type(&slot.type_ref)?;
+        let element = self.element_type(slot.type_ref.as_ref()?)?;
         let multiplicity = slot.multiplicity;
         if (multiplicity.lower, multiplicity.upper) == (1, Some(1)) {
             return Some(element);
