@@ -471,10 +471,11 @@ mod schema_cache_tests {
     #[trace("FR-023-AC-7")]
     #[test]
     fn projection_schema_is_one_compiled_value_across_decodes() {
-        let first = compiled_projection_schema().expect("embedded schema");
-        let second = compiled_projection_schema().expect("same embedded schema");
-        assert!(std::ptr::eq(first, second));
         let invalid = serde_json::json!({});
         assert!(validate_schema(&invalid).is_err());
+        let first = compiled_projection_schema().expect("embedded schema");
+        assert!(validate_schema(&invalid).is_err());
+        let second = compiled_projection_schema().expect("same embedded schema");
+        assert!(std::ptr::eq(first, second));
     }
 }
