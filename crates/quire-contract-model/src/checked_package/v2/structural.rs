@@ -471,21 +471,24 @@ fn parameter_defect(
     None
 }
 
-fn typed_aggregate(term: &super::CheckedTerm) -> Option<&[super::CheckedTerm]> {
+pub(super) fn typed_aggregate(term: &super::CheckedTerm) -> Option<&[super::CheckedTerm]> {
     match term {
         super::CheckedTerm::Aggregate { members } => Some(members),
         _ => None,
     }
 }
 
-fn typed_binding<'a>(term: &'a super::CheckedTerm, name: &str) -> Option<&'a super::CheckedTerm> {
+pub(super) fn typed_binding<'a>(
+    term: &'a super::CheckedTerm,
+    name: &str,
+) -> Option<&'a super::CheckedTerm> {
     match term {
         super::CheckedTerm::Binding { name: found, value } if found.as_ref() == name => Some(value),
         _ => None,
     }
 }
 
-fn typed_reference(term: &super::CheckedTerm) -> Option<&CheckedNodeId> {
+pub(super) fn typed_reference(term: &super::CheckedTerm) -> Option<&CheckedNodeId> {
     match term {
         super::CheckedTerm::Reference { target }
             if target.domain.as_ref() == NODE_DOMAIN && is_digest(&target.digest) =>

@@ -5,7 +5,8 @@
 
 use super::operation_catalog::operation_catalog;
 use super::structural::{
-    aggregate_members, binding, is_integer_bound, is_non_negative_integer, reference_target,
+    aggregate_members, is_integer_bound, is_non_negative_integer, reference_target,
+    typed_aggregate, typed_binding, typed_reference,
 };
 use super::{
     BoundedDomainForm, CheckedCollectionKind, CheckedNodeId, CheckedNodeKind, CheckedOccurrence,
@@ -293,6 +294,7 @@ struct Graph<'a> {
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
     index: &'a BTreeMap<CheckedNodeId, usize>,
+    terms: &'a [CheckedTerm],
 }
 
 impl<'a> Graph<'a> {
@@ -312,6 +314,12 @@ impl<'a> Graph<'a> {
             .get(&node.node_id)
             .and_then(|position| self.kinds.get(*position))
             .copied()
+    }
+
+    fn term(&self, node: &CheckedSemanticNodeV2) -> Option<&'a CheckedTerm> {
+        self.index
+            .get(&node.node_id)
+            .and_then(|position| self.terms.get(*position))
     }
 }
 
@@ -369,6 +377,7 @@ impl CheckedPackageV2 {
             nodes: &self.wire.semantic_graph.nodes,
             kinds: &self.kinds,
             index: &self.node_index,
+            terms: &self.terms,
         };
         let mut meter = Meter {
             limit: work_limit,
@@ -648,6 +657,7 @@ fn depth_position(
 }
 
 fn bound(
+    graph: &Graph<'_>,
     node: &CheckedSemanticNodeV2,
     name: &str,
     ordinal: u64,
@@ -655,23 +665,32 @@ fn bound(
     meter: &mut Meter,
 ) -> Result<CheckedCanonicalIntegerBound> {
     let malformed = || type_error(ordinal, Some(node.node_id.clone()));
-    let term = aggregate_members(&node.body)
-        .and_then(|members| members.iter().find_map(|m| binding(m, name)))
+    let Some(CheckedTerm::Aggregate { members }) = graph.term(node) else {
+        return Err(malformed());
+    };
+    let term = members
+        .iter()
+        .find_map(|member| match member {
+            CheckedTerm::Binding { name: found, value } if found.as_ref() == name => Some(value),
+            _ => None,
+        })
         .ok_or_else(malformed)?;
-    let text = term
-        .get("value")
-        .and_then(Value::as_str)
-        .ok_or_else(malformed)?;
+    let CheckedTerm::Literal {
+        value_kind: LiteralKind::Integer,
+        value,
+        ..
+    } = term.as_ref()
+    else {
+        return Err(malformed());
+    };
+    let text = value.as_str().ok_or_else(malformed)?;
     meter.length(text.len())?;
     let valid = if natural {
         is_non_negative_integer(text)
     } else {
         is_integer_bound(text)
     };
-    if term.get("term").and_then(Value::as_str) != Some("literal")
-        || term.get("value_kind").and_then(Value::as_str) != Some("integer")
-        || !valid
-    {
+    if !valid {
         return Err(malformed());
     }
     Ok(CheckedCanonicalIntegerBound(text.into()))
@@ -764,8 +783,8 @@ fn descriptor(
             } else {
                 (
                     Some(D::IntegerRange {
-                        lower: bound(node, "min", ordinal, false, meter)?,
-                        upper: bound(node, "max", ordinal, false, meter)?,
+                        lower: bound(graph, node, "min", ordinal, false, meter)?,
+                        upper: bound(graph, node, "max", ordinal, false, meter)?,
                     }),
                     Suppression::Integer,
                 )
@@ -780,8 +799,8 @@ fn descriptor(
                 (
                     Some(D::Collection {
                         kind,
-                        minimum: bound(node, "min", ordinal, true, meter)?,
-                        maximum: bound(node, "max", ordinal, true, meter)?,
+                        minimum: bound(graph, node, "min", ordinal, true, meter)?,
+                        maximum: bound(graph, node, "max", ordinal, true, meter)?,
                     }),
                     Suppression::Collection,
                 )
@@ -859,6 +878,7 @@ fn descriptor(
 }
 
 fn next_edge(
+    graph: &Graph<'_>,
     frame: &mut TypeFrame<'_>,
     ordinal: u64,
     meter: &mut Meter,
@@ -889,7 +909,12 @@ fn next_edge(
         _ => return Ok(None),
     };
     let members = if indexed || frame.kind == K::CompositeType(CompositeTypeForm::Alias) {
-        Some(aggregate_members(&node.body).ok_or_else(malformed)?)
+        Some(
+            graph
+                .term(node)
+                .and_then(typed_aggregate)
+                .ok_or_else(malformed)?,
+        )
     } else {
         None
     };
@@ -907,24 +932,23 @@ fn next_edge(
     let (target, name, optional_presence) = match frame.kind {
         K::CompositeType(CompositeTypeForm::Record) => {
             let member = members.and_then(|m| m.get(index)).ok_or_else(malformed)?;
-            let name = member
-                .get("name")
-                .and_then(Value::as_str)
-                .ok_or_else(malformed)?;
-            let name = meter.text(name)?;
-            let value = member.get("value").ok_or_else(malformed)?;
-            if member.get("term").and_then(Value::as_str) != Some("binding") {
+            let CheckedTerm::Binding { name, value } = member else {
                 return Err(malformed());
-            }
-            if value.get("term").and_then(Value::as_str) == Some("aggregate") {
-                let [optional] = aggregate_members(value).ok_or_else(malformed)? else {
+            };
+            let name = meter.text(name.as_ref())?;
+            if let CheckedTerm::Aggregate { members } = value.as_ref() {
+                let [optional] = members.as_slice() else {
                     return Err(malformed());
                 };
-                let inner = binding(optional, "optional").ok_or_else(malformed)?;
-                let target = target(inner).ok_or_else(malformed)?;
+                let inner = typed_binding(optional, "optional").ok_or_else(malformed)?;
+                let target = typed_reference(inner).cloned().ok_or_else(malformed)?;
                 (target, Some(name), true)
             } else {
-                (target(value).ok_or_else(malformed)?, Some(name), false)
+                (
+                    typed_reference(value).cloned().ok_or_else(malformed)?,
+                    Some(name),
+                    false,
+                )
             }
         }
         K::CompositeType(_) => {
@@ -933,7 +957,9 @@ fn next_edge(
                 return Err(malformed());
             }
             (
-                target(members.get(index).ok_or_else(malformed)?).ok_or_else(malformed)?,
+                typed_reference(members.get(index).ok_or_else(malformed)?)
+                    .cloned()
+                    .ok_or_else(malformed)?,
                 None,
                 false,
             )
@@ -1028,7 +1054,7 @@ fn project_type(
         let Some(frame) = stack.last_mut() else {
             break;
         };
-        match next_edge(frame, ordinal, meter)? {
+        match next_edge(graph, frame, ordinal, meter)? {
             Some(edge) => {
                 let mut path = frame.path.clone();
                 let suppression = if let Some(index) = edge.ordinal {
@@ -1078,8 +1104,8 @@ fn closed_literal(
     }
     enum Step<'a> {
         Node(CheckedNodeId),
-        Term(&'a Value, &'a CheckedSemanticNodeV2),
-        Members(std::slice::Iter<'a, Value>, &'a CheckedSemanticNodeV2),
+        Term(&'a CheckedTerm, &'a CheckedSemanticNodeV2),
+        Members(std::slice::Iter<'a, CheckedTerm>, &'a CheckedSemanticNodeV2),
         Leave,
     }
     let mut stack = vec![Step::Node(root.node_id.clone())];
@@ -1129,7 +1155,7 @@ fn closed_literal(
                 }
                 ancestors.push(&node.node_id);
                 stack.push(Step::Leave);
-                stack.push(Step::Term(&node.body, node));
+                stack.push(Step::Term(graph.term(node).ok_or_else(nonliteral)?, node));
             }
             Step::Term(term, owner) => {
                 let nonliteral = || {
@@ -1139,20 +1165,17 @@ fn closed_literal(
                         CheckedUnsupportedCompositeOperand::NonliteralGraphValue,
                     )
                 };
-                match term.get("term").and_then(Value::as_str) {
-                    Some("literal") => {}
-                    Some("reference") => {
+                match term {
+                    CheckedTerm::Literal { .. } => {}
+                    CheckedTerm::Reference { target } => {
                         meter.charge(1)?;
-                        let id = target(term).ok_or(Error::MalformedChild { ordinal })?;
-                        stack.push(Step::Node(id));
+                        stack.push(Step::Node(target.clone()));
                     }
-                    Some("aggregate") => {
-                        let members = aggregate_members(term).ok_or_else(nonliteral)?;
+                    CheckedTerm::Aggregate { members } => {
                         stack.push(Step::Members(members.iter(), owner));
                     }
-                    Some("binding") => {
+                    CheckedTerm::Binding { value, .. } => {
                         meter.charge(1)?;
-                        let value = term.get("value").ok_or_else(nonliteral)?;
                         stack.push(Step::Term(value, owner));
                     }
                     _ => return Err(nonliteral()),
@@ -1329,6 +1352,12 @@ mod tests {
         operation
     }
 
+    fn sync_term(package: &mut CheckedPackageV2, position: usize) {
+        package.terms[position] =
+            CheckedTerm::decode_admitted(&package.wire.semantic_graph.nodes[position].body)
+                .expect("synthetic post-admission body remains a typed term");
+    }
+
     #[trace("FR-349-AC-2")]
     #[test]
     fn composite_uses_retained_application_after_raw_body_changes() {
@@ -1396,10 +1425,15 @@ mod tests {
             Some(&float32),
             CheckedNodeKind::BoundedDomain(BoundedDomainForm::FloatRounding),
         );
+        let terms = nodes
+            .iter()
+            .map(|node| CheckedTerm::decode_admitted(&node.body).expect("synthetic body term"))
+            .collect::<Vec<_>>();
         let graph = Graph {
             nodes: &nodes,
             kinds: &kinds,
             index: &index,
+            terms: &terms,
         };
         let root = id('5');
         for (ty, kind, expected_shape) in [
@@ -1643,6 +1677,7 @@ mod tests {
         );
         let mut p = original.clone();
         p.wire.semantic_graph.nodes[6].body["members"][0]["target"] = json!(id('7'));
+        sync_term(&mut p, 6);
         p.wire.semantic_graph.nodes[7].semantic_type = id('7');
         assert_eq!(read(&p), Err(type_error(1, Some(id('7')))));
         let mut p = original.clone();
@@ -1659,6 +1694,7 @@ mod tests {
         p.wire.semantic_graph.nodes[6].semantic_form = "record".into();
         p.kinds[6] = CheckedNodeKind::CompositeType(CompositeTypeForm::Record);
         p.wire.semantic_graph.nodes[6].body = json!({"term":"aggregate","members":[{"term":"binding","name":"bad","value":{"term":"aggregate","members":[]}}]});
+        sync_term(&mut p, 6);
         p.wire.semantic_graph.nodes[7].semantic_type = id('7');
         assert_eq!(read(&p), Err(type_error(1, Some(id('7')))));
         let mut p = original.clone();
@@ -1677,11 +1713,14 @@ mod tests {
         let mut p = package();
         p.wire.semantic_graph.nodes[3].body["members"][0]["value"] =
             json!({"term":"aggregate","members":[]});
+        sync_term(&mut p, 3);
         assert_eq!(read(&p), Err(type_error(0, Some(id('4')))));
         let mut p = package();
         p.wire.semantic_graph.nodes[6].body["members"][0]["target"] = json!(id('7'));
         p.wire.semantic_graph.nodes[3].body["members"][0]["value"] =
             json!({"term":"reference","target":id('7')});
+        sync_term(&mut p, 6);
+        sync_term(&mut p, 3);
         assert_eq!(read(&p), Err(type_error(0, Some(id('7')))));
         let mut p = package();
         p.wire.semantic_graph.nodes[4].semantic_form = "union_value".into();
@@ -1692,6 +1731,7 @@ mod tests {
         p.kinds[4] = CheckedNodeKind::Value(ValueForm::RecordValue);
         p.wire.semantic_graph.nodes[4].body =
             json!({"term":"aggregate","members":[{"term":"reference","target":id('5')}]});
+        sync_term(&mut p, 4);
         assert_eq!(
             read(&p),
             Err(unsupported(
