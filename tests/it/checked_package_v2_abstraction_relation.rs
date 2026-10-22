@@ -1716,14 +1716,12 @@ fn tc_225_a_frame_operation_resolves_as_an_anchor_does_and_binds_its_parameters(
     }
 }
 
-/// IR reading (FR-346): a frame entry over an operation whose declared
-/// parameter names are not all present and unique cannot match, and refuses
-/// `invalid_model_binding`/`malformed-declaration` at the entry. The domain
-/// document is admitted as it is.
+/// QSpec FR-154-AC-14 validates declared parameter names at the selected domain
+/// document before the abstraction relation frame entry is reached.
 /// ACs: FR-346-AC-7
 #[trace("TC-225", "FR-346-AC-7")]
 #[test]
-fn tc_225_an_operation_without_distinct_parameter_names_cannot_be_bound() {
+fn tc_225_an_operation_without_valid_parameter_names_refuses_at_selection() {
     let rebase = |parameters: &[(&str, &str)]| {
         body(
             vec![],
@@ -1742,48 +1740,129 @@ fn tc_225_an_operation_without_distinct_parameter_names_cannot_be_bound() {
         edit(&mut document["types"][0]["operations"][1]["params"]);
         document
     };
-    let cases: [(&str, Value, Value); 4] = [
+    let valid_document = domain_document();
+    let valid_relation = ordered(rebase(&[("from", "a"), ("to", "b")]));
+    let valid_value = with_nodes(
+        base_over(&valid_document),
+        vec![relation_node(&valid_relation)],
+    );
+    assert!(
+        matches!(
+            read_over(&valid_value, &valid_document),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "the unchanged declaration and matching frame are admitted"
+    );
+    let mut case_distinct_document = domain_document();
+    let second = &mut case_distinct_document["types"][0]["operations"][1]["params"][1];
+    second["identity"] = json!(format!("{CONFIG_VERSION}/rebase/From"));
+    second["name"] = json!("From");
+    let case_distinct_relation = ordered(rebase(&[("from", "a"), ("From", "b")]));
+    let case_distinct_value = with_nodes(
+        base_over(&case_distinct_document),
+        vec![relation_node(&case_distinct_relation)],
+    );
+    assert!(
+        matches!(
+            read_over(&case_distinct_value, &case_distinct_document),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "case-distinct declared names and matching frame are admitted"
+    );
+    let cases: [(&str, Value, Value, Cause); 11] = [
         (
             "a parameter with no name",
             undeclared(|params| {
                 params[1].as_object_mut().expect("parameter").remove("name");
             }),
             ordered(rebase(&[("from", "a"), ("to", "b")])),
+            Cause::MalformedDeclaration,
         ),
         (
             "a parameter whose name is not a string",
             undeclared(|params| params[1]["name"] = json!(5)),
             ordered(rebase(&[("from", "a"), ("to", "b")])),
+            Cause::MalformedDeclaration,
+        ),
+        (
+            "a parameter whose name is null",
+            undeclared(|params| params[1]["name"] = Value::Null),
+            ordered(rebase(&[("from", "a"), ("to", "b")])),
+            Cause::MalformedDeclaration,
+        ),
+        (
+            "a parameter whose name is empty",
+            undeclared(|params| params[1]["name"] = json!("")),
+            ordered(rebase(&[("from", "a"), ("to", "b")])),
+            Cause::MalformedDeclaration,
+        ),
+        (
+            "a parameter whose name has invalid syntax",
+            undeclared(|params| params[1]["name"] = json!("2to")),
+            ordered(rebase(&[("from", "a"), ("to", "b")])),
+            Cause::MalformedDeclaration,
+        ),
+        (
+            "a parameter whose valid name differs from its identity",
+            undeclared(|params| params[1]["name"] = json!("other")),
+            ordered(rebase(&[("from", "a"), ("to", "b")])),
+            Cause::MalformedDeclaration,
         ),
         (
             "two parameters of one name",
             undeclared(|params| params[1]["name"] = json!("from")),
             ordered(rebase(&[("from", "a"), ("to", "b")])),
+            Cause::MalformedDeclaration,
         ),
         (
             "two parameters of one name bound twice",
             undeclared(|params| params[1]["name"] = json!("from")),
             ordered(rebase(&[("from", "a"), ("from", "b")])),
+            Cause::MalformedDeclaration,
+        ),
+        (
+            "two parameters of one identity",
+            undeclared(|params| params[1]["identity"] = params[0]["identity"].clone()),
+            ordered(rebase(&[("from", "a"), ("to", "b")])),
+            Cause::ConflictingBinding,
+        ),
+        (
+            "an invalid parameter name precedes a missing type reference",
+            undeclared(|params| {
+                params[1]["name"] = json!("other");
+                params[1]["typeRef"] = json!("ix://acme/config/MissingType");
+            }),
+            ordered(rebase(&[("from", "a"), ("to", "b")])),
+            Cause::MalformedDeclaration,
+        ),
+        (
+            "a repeated parameter identity precedes a missing type reference",
+            undeclared(|params| {
+                params[1]["identity"] = params[0]["identity"].clone();
+                params[1]["typeRef"] = json!("ix://acme/config/MissingType");
+            }),
+            ordered(rebase(&[("from", "a"), ("to", "b")])),
+            Cause::ConflictingBinding,
         ),
     ];
-    for (case, document, relation) in cases {
+    for (case, document, relation, cause) in cases {
         let value = with_nodes(base_over(&document), vec![relation_node(&relation)]);
         let refusal = match read_over(&value, &document) {
             CheckedPackageV2ReadResult::Refused(refusal) => refusal,
             other => panic!("{case}: expected a refusal, read {other:?}"),
         };
-        assert_eq!(refusal.code, Code::InvalidModelBinding, "{case}");
-        assert_eq!(refusal.cause, Some(Cause::MalformedDeclaration), "{case}");
+        assert_eq!(
+            refusal.code,
+            Code::InvalidModelBinding,
+            "{case}: {refusal:?}"
+        );
+        assert_eq!(refusal.cause, Some(cause), "{case}");
         assert_eq!(
             refusal.path.as_ref().map(|path| path.as_str()),
-            Some(at_node(at(&value, &relation), "/body/frames/0").as_str()),
+            Some("/lock/model_selections/0"),
             "{case}"
         );
-        assert_eq!(
-            refusal.locus.as_ref().map(|id| &*id.digest),
-            Some(config_version().as_str()),
-            "{case}"
-        );
+        assert_eq!(refusal.locus.as_ref().map(|id| &*id.digest), None, "{case}");
     }
 }
 

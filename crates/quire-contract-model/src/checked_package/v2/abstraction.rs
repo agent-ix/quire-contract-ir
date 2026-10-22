@@ -649,9 +649,8 @@ fn check_frame(
         match resolve_operation(context, kind, &entry.operation, graph, meter)? {
             Err(refusal) => return Err(model_refusal(refusal, at.clone(), &entry.context)),
             Ok(Some((_, operation))) => {
-                // IR reading (FR-346): a list can match only an operation
-                // whose declared parameter names are all present and unique,
-                // so an operation whose names are not cannot be bound.
+                // Domain selection validated the declared names (FR-154-AC-14);
+                // compare the frame's list with that admitted declaration.
                 let declared = operation
                     .parameters
                     .iter()
