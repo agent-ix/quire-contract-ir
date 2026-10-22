@@ -278,8 +278,9 @@ decoded enum exhaustively, listing every form, with no catch-all arm, so
 adding a member is a compile error at each place that must decide what it
 means. The semantic term grammar inside a node's `body` (the `term` tag, an
 operation member's `kind`, a mode's `kind`) is not one of these enums: the
-body validators read it from the JSON at the wire edge, including when
-lowering re-walks an admitted body through the same validator.
+body validators read it from the JSON at the wire edge. Admission retains the
+validated body-reference adjacency and term counts for lowering; lowering
+uses those admitted facts rather than parsing a body again for each request.
 
 The reader shall recompute `package_id` as the SHA-256 of the RFC 8785
 canonical bytes of `identity_preimage` under `quire.package.semantic/v2`,
@@ -4505,6 +4506,11 @@ below), and `failed` at the work limit. A lowered record
 carries the node, its exact source-map entries, semantic type, reachable
 dependency keys, bounding domain keys, reachable claim keys and a
 `quire.contract-ir.semantic/v1` digest. A non-lowered record carries no node.
+Reusing an admitted graph or closure does not discount any request's work:
+each request reports the same consumed counter and terminal outcome it would
+report when traversed independently. A shared closure is computed once for
+each distinct graph component needed by a lowering call, while the records
+and package still carry each request's full exact dependency population.
 
 The lowerer shall select each request's single record under this total order, so
 that a request satisfying two conditions has one determined outcome rather than
@@ -5014,6 +5020,8 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-300 | A field, operation parameter and operation result `typeRef` `ix://quire/unit/ms` resolve to the checked package's existing `ms` unit node and retain `Quantity<ms>` under scalar, optional and set multiplicities. A missing `ix://quire/unit/ghost` refuses `missing_declaration`/`missing-name`; a `Quantity<s>` or integer argument to a parameter requiring `Quantity<ms>` refuses `ill_typed`/`operator-ineligible`. No unit type node is synthesized from the model document. | Test (TC-230) |
 | FR-038-AC-301 | A unit, dimension and record with the same qualified declaration name admit as three namespaces; two units or two types with that name refuse `ambiguous_declaration`/`ambiguous-name` at the later node in node-id order before operation checks. | Test (TC-230) |
 | FR-038-AC-302 | TC-230 consumes QSpec's selected-checkout QL-01..04, MU-01..06 and NS-01..03 cases directly or constructs their recorded wire shapes through the public reader, checks accepted and refused outcomes by code, cause and locus, and compares strict coverage with the main-branch baseline. | Test (TC-230) |
+
+| FR-038-AC-308 | For an admitted graph with K distinct requested leaves over one shared R-node closure, at K=2,4,8 and R=4,8,16, the reader validates each body once and retains the resolved adjacency and body-term count; lowering performs no further body grammar validation, reuses closure reachability per strongly connected component, and does not scan the full closure separately to decide each candidate bound. Per-request node, term and edge charges, the consumed value at a work-limit stop, each record and the complete package canonical bytes equal the independently lowered baseline. Admission performs R+K body grammar validations for the R shared nodes and K distinct leaves, and lowering performs zero additional validations; a grouped recursive component and a stop within the shared closure preserve the same outcomes. | Test (TC-050) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
