@@ -5,6 +5,11 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::OnceLock;
 
+#[cfg(test)]
+thread_local! {
+    static DECLARATION_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 use quire_canonical::{FixedShape, Limits};
 use serde::{
     de::{self, MapAccess, SeqAccess, Visitor},
@@ -270,6 +275,8 @@ impl BoundPackage {
         for requirement in package.requirements() {
             budget(&mut nodes, 1)?;
             for clause in requirement.clauses() {
+                #[cfg(test)]
+                DECLARATION_VISITS.with(|visits| visits.set(visits.get() + 1));
                 budget(&mut nodes, 1)?;
                 let mut bodies = vec![clause.body()];
                 while let Some(body) = bodies.pop() {
@@ -307,6 +314,8 @@ impl BoundPackage {
         informational.sort();
         let mut bound = BTreeMap::new();
         for binding in projection.bindings {
+            #[cfg(test)]
+            DECLARATION_VISITS.with(|visits| visits.set(visits.get() + 1));
             let clause = match clauses_by_ref.get(&binding.clause).copied() {
                 Some(clause) => clause,
                 None => package
@@ -466,15 +475,71 @@ fn validate_schema(value: &Value) -> Result<(), Vec<Diagnostic>> {
 mod schema_cache_tests {
     use super::*;
     use ix_trace_rs::trace;
+    use serde_json::json;
 
-    /// Tracing: FR-023-AC-7
-    #[trace("FR-023-AC-7")]
+    fn fixture() -> Value {
+        let mut package: Value = serde_json::from_str(include_str!(
+            "../../../corpus/contract-v0.1/inputs/package-constructs.json"
+        ))
+        .expect("package fixture");
+        let mut bindings = Vec::new();
+        for requirement in package["requirements"]
+            .as_array_mut()
+            .expect("requirements")
+        {
+            let owner = json!({"package":"agent-ix/conformance",
+                "requirement":requirement["id"], "revision":requirement["revision"]});
+            for clause in requirement["clauses"].as_array_mut().expect("clauses") {
+                clause["body"] = json!({"node":"literal"});
+                if clause["kind"] == "information" {
+                    continue;
+                }
+                let mut expression: Value = serde_json::from_str(include_str!(
+                    "../../../corpus/contract-v0.1/inputs/expression-boolean-literal.json"
+                ))
+                .expect("expression fixture");
+                expression["owner"] = owner.clone();
+                expression["execution_point"] = clause["anchor"].clone();
+                expression["clause_root"] = json!(true);
+                bindings.push(json!({"clause":{"requirement":owner,"clause":clause["id"]},
+                    "expression":expression}));
+            }
+        }
+        json!({"format":EXECUTABLE_PROJECTION_FORMAT,"package":package,"bindings":bindings})
+    }
+
+    fn decode(value: &Value) -> Result<BoundPackage, Vec<Diagnostic>> {
+        BoundPackage::from_json_bytes(&serde_json::to_vec(value).expect("projection bytes"))
+    }
+
+    #[trace("TC-035", "FR-023-AC-7")]
     #[test]
-    fn projection_schema_is_one_compiled_value_across_decodes() {
-        let invalid = serde_json::json!({});
-        assert!(validate_schema(&invalid).is_err());
+    fn projection_schema_and_declaration_index_are_reused_across_decodes() {
+        let valid = fixture();
+        let first_bound = decode(&valid).expect("valid projection");
+        let first_visits = DECLARATION_VISITS.with(std::cell::Cell::get);
+        let declarations = first_bound.clauses().len() + first_bound.informational().len();
+        let bindings = valid["bindings"].as_array().expect("bindings").len();
+        assert_eq!(declarations, 6);
+        assert_eq!(bindings, 5);
+        assert_eq!(first_visits, declarations + bindings);
         let first = compiled_projection_schema().expect("embedded schema");
-        assert!(validate_schema(&invalid).is_err());
+        let second_bound = decode(&valid).expect("same valid projection");
+        assert_eq!(first_bound.digest(), second_bound.digest());
+        assert_eq!(
+            DECLARATION_VISITS.with(std::cell::Cell::get) - first_visits,
+            declarations + bindings
+        );
+        let mut invalid_clause = valid.clone();
+        invalid_clause["bindings"][0]["clause"]["clause"] = json!("missing");
+        let first_error = decode(&invalid_clause).expect_err("missing clause");
+        let second_error = decode(&invalid_clause).expect_err("same missing clause");
+        assert_eq!(first_error, second_error);
+        let mut invalid_schema = valid;
+        invalid_schema["format"] = json!("future");
+        let first_schema_error = decode(&invalid_schema).expect_err("invalid schema");
+        let second_schema_error = decode(&invalid_schema).expect_err("same invalid schema");
+        assert_eq!(first_schema_error, second_schema_error);
         let second = compiled_projection_schema().expect("same embedded schema");
         assert!(std::ptr::eq(first, second));
     }

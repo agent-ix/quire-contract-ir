@@ -1693,6 +1693,8 @@ fn validate_body(
     at: &Trail<'_>,
     visit: &mut ReferenceVisitor<'_>,
 ) -> Result<u64, ValidationFailure> {
+    #[cfg(test)]
+    lower::BODY_WALKS.with(|walks| walks.set(walks.get() + 1));
     if kind == CheckedNodeKind::Protocol(ProtocolForm::ProtocolReference)
         && !body.as_object().is_some_and(|object| {
             super::common::exact_members(object, &["term", "target"])

@@ -29,7 +29,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 #[cfg(test)]
 thread_local! {
-    static BODY_WALKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(super) static BODY_WALKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static SHARED_CLOSURE_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
@@ -695,8 +695,6 @@ impl CheckedPackageV2 {
                     Step::Index(position),
                     Step::Key("body"),
                 ];
-                #[cfg(test)]
-                BODY_WALKS.with(|walks| walks.set(walks.get() + 1));
                 let terms = super::validate_body(
                     *kind,
                     &node.body,
