@@ -4674,7 +4674,7 @@ mod tests {
         )
     }
 
-    #[trace("FR-349-AC-2", "FR-349-AC-4")]
+    #[trace("FR-349-AC-2")]
     #[test]
     fn admitted_operation_identity_comes_from_the_retained_term() {
         let mut node = application_node(CATALOGUED_IDENTITY, "binary");
