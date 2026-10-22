@@ -1367,6 +1367,25 @@ mod tests {
         assert_eq!(read(&package), Ok(expected));
     }
 
+    #[trace("FR-349-AC-2")]
+    #[test]
+    fn alias_forwarding_uses_retained_term_after_raw_body_changes() {
+        let mut package = package();
+        package.kinds[6] = CheckedNodeKind::CompositeType(CompositeTypeForm::Alias);
+        package.wire.semantic_graph.nodes[6].body = json!({"term":"aggregate","members":[]});
+        let graph = Graph {
+            nodes: &package.wire.semantic_graph.nodes,
+            kinds: &package.kinds,
+            index: &package.node_index,
+            terms: &package.terms,
+        };
+        let mut meter = Meter { limit: 100_000, consumed: 0 };
+        assert_eq!(
+            descriptor_kind(&graph, &id('7'), 0, &mut meter),
+            Ok(CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean))
+        );
+    }
+
     #[trace("TC-048", "FR-038-AC-180")]
     #[test]
     fn ieee_type_walk_keeps_authored_whole_sources_without_claiming_comparison_admission() {
