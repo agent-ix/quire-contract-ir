@@ -20,7 +20,7 @@ use super::model_members::{
     check_declaration_node, member_name, units, Budget, CollectionKind, DeclarationForm,
     DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType, RelationshipDecl,
 };
-use super::{CheckedNodeId, CheckedPackageV2, WorkMeter};
+use super::{CheckedNodeId, CheckedPackageV2, CheckedTerm, WorkMeter};
 use crate::checked_package::common::{ValidationFailure, NODE_DOMAIN};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -536,9 +536,10 @@ impl RetainedModels {
     pub(super) fn relationship(
         &self,
         node: &super::CheckedSemanticNodeV2,
+        term: &CheckedTerm,
     ) -> Option<&RetainedRelationship> {
         let declared = self.index.0.get(node.node_id.digest.as_ref())?;
-        check_declaration_node(declared.form, node).ok()?;
+        check_declaration_node(declared.form, node, empty_declaration_term(term)).ok()?;
         // The map holds relationship identities only, so an indexed
         // declaration of another form finds nothing.
         self.relationships
@@ -549,10 +550,11 @@ impl RetainedModels {
     pub(super) fn operation_types(
         &self,
         context: &super::CheckedSemanticNodeV2,
+        term: &CheckedTerm,
         name: &str,
     ) -> Option<&OperationTypes> {
         let declared = self.index.0.get(context.node_id.digest.as_ref())?;
-        check_declaration_node(declared.form, context).ok()?;
+        check_declaration_node(declared.form, context, empty_declaration_term(term)).ok()?;
         if declared.form != DeclarationForm::ObjectType {
             return None;
         }
@@ -562,9 +564,13 @@ impl RetainedModels {
 
     /// The table of the object type whose model declaration node `node` is: the
     /// FR-322 step 2 rule of `ModelOwners::recover` over the retained index.
-    fn object_table(&self, node: &super::CheckedSemanticNodeV2) -> Option<&FieldTable> {
+    fn object_table(
+        &self,
+        node: &super::CheckedSemanticNodeV2,
+        term: &CheckedTerm,
+    ) -> Option<&FieldTable> {
         let declared = self.index.0.get(node.node_id.digest.as_ref())?;
-        check_declaration_node(declared.form, node).ok()?;
+        check_declaration_node(declared.form, node, empty_declaration_term(term)).ok()?;
         if declared.form != DeclarationForm::ObjectType {
             return None;
         }
@@ -575,10 +581,11 @@ impl RetainedModels {
     pub(super) fn field_type(
         &self,
         node: &super::CheckedSemanticNodeV2,
+        term: &CheckedTerm,
         name: &str,
     ) -> Option<Option<CheckedMemberType>> {
         let mut matching = self
-            .object_table(node)?
+            .object_table(node, term)?
             .exposed
             .iter()
             .filter(|entry| entry.name() == name);
@@ -588,6 +595,10 @@ impl RetainedModels {
         }
         Some(entry.member_type.as_ref().map(CheckedMemberType::from))
     }
+}
+
+fn empty_declaration_term(term: &CheckedTerm) -> bool {
+    matches!(term, CheckedTerm::Aggregate { members } if members.is_empty())
 }
 
 /// A field's member type, as FR-322 step 4 derives it from the selected
@@ -831,7 +842,11 @@ impl CheckedPackageV2 {
             .ok_or(CheckedModelFieldsError::UnknownNode)?;
         let table = self
             .models
-            .object_table(found)
+            .object_table(
+                found,
+                self.term(node)
+                    .ok_or(CheckedModelFieldsError::NotModelObjectType)?,
+            )
             .ok_or(CheckedModelFieldsError::NotModelObjectType)?;
         if let Some(name) = &table.ambiguous {
             return Err(CheckedModelFieldsError::AmbiguousField(name.clone()));

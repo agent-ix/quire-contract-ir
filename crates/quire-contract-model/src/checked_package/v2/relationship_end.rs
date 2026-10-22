@@ -102,7 +102,10 @@ impl CheckedPackageV2 {
             .and_then(Value::as_str)
             .ok_or(Error::UnresolvedEnd)?;
         let retained = node_at(&relationship)
-            .and_then(|declaration| self.models.relationship(declaration))
+            .and_then(|declaration| {
+                self.term(&declaration.node_id)
+                    .and_then(|term| self.models.relationship(declaration, term))
+            })
             .ok_or(Error::UnresolvedEnd)?;
         let SelectedEnds {
             destination,
@@ -137,6 +140,7 @@ pub(super) mod tests {
     use super::*;
     use crate::checked_package::v2::model_fields::RetainedRelationship;
     use crate::checked_package::v2::test_support::node_id;
+    use crate::checked_package::v2::CheckedTerm;
     use crate::checked_package::v2::RetainedModels;
     use crate::{CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2ReadResult};
     use ix_trace_rs::trace;
@@ -498,8 +502,11 @@ pub(super) mod tests {
                 "declaration node no longer has the declaration shape",
                 Box::new(|p, ids| {
                     let position = at(p, &ids[&'c']);
-                    p.wire.semantic_graph.nodes[position].body =
-                        json!({"term": "aggregate", "members": [raw_id('1')]});
+                    p.terms[position] = CheckedTerm::Aggregate {
+                        members: vec![CheckedTerm::Reference {
+                            target: ids[&'1'].clone(),
+                        }],
+                    };
                 }),
             ),
             (
@@ -545,7 +552,10 @@ pub(super) mod tests {
         let position = at(&package, &ids[&'c']);
         let retained = package
             .models
-            .relationship(&package.wire.semantic_graph.nodes[position])
+            .relationship(
+                &package.wire.semantic_graph.nodes[position],
+                &package.terms[position],
+            )
             .cloned()
             .expect("the admitted record");
         package.models = RetainedModels::with_relationship(

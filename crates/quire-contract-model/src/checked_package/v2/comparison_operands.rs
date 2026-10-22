@@ -316,9 +316,11 @@ impl CheckedPackageV2 {
                 .and_then(|position| self.terms.get(position))
                 .and_then(typed_anchor_body)
                 .and_then(|anchor| {
-                    context
-                        .node(&anchor.context)
-                        .and_then(|owner| self.models.operation_types(owner, anchor.operation))
+                    context.node(&anchor.context).and_then(|owner| {
+                        self.term(&owner.node_id).and_then(|term| {
+                            self.models.operation_types(owner, term, anchor.operation)
+                        })
+                    })
                 });
         }
         let condition = self
@@ -592,7 +594,14 @@ fn read_range(
     let ty = context
         .package
         .models
-        .field_type(declared, field)
+        .field_type(
+            declared,
+            context
+                .package
+                .term(&declared.node_id)
+                .ok_or_else(|| fail(Refusal::MissingRange))?,
+            field,
+        )
         .flatten()
         .ok_or_else(|| fail(Refusal::MissingRange))?;
     let range = member_range(&ty).map_err(fail)?;

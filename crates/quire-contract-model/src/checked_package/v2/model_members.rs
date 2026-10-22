@@ -1292,7 +1292,11 @@ impl<'m> ModelOwners<'m> {
             .get(node.node_id.digest.as_ref())
             .copied()
             .ok_or_else(ModelRefusal::unselected)?;
-        check_declaration_node(owner.form, node)?;
+        check_declaration_node(
+            owner.form,
+            node,
+            node.body == json!({"term": "aggregate", "members": []}),
+        )?;
         Ok(owner)
     }
 
@@ -1336,6 +1340,7 @@ impl<'m> ModelOwners<'m> {
 pub(super) fn check_declaration_node(
     form: DeclarationForm,
     node: &CheckedSemanticNodeV2,
+    body_is_empty_aggregate: bool,
 ) -> Result<(), ModelRefusal> {
     if form.tag() != node.node_tag.as_ref() || form.form() != node.semantic_form.as_ref() {
         return Err(ModelRefusal::unselected());
@@ -1344,7 +1349,7 @@ pub(super) fn check_declaration_node(
         && node.declaration.is_none()
         && node.recursion_group.is_none()
         && (form != DeclarationForm::Population || node.dependencies.is_empty())
-        && node.body == json!({"term": "aggregate", "members": []});
+        && body_is_empty_aggregate;
     if fixed {
         Ok(())
     } else {
