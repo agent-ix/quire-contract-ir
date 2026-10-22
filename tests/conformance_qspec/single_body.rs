@@ -7,8 +7,9 @@ use super::{canonical_digest, fixtures_dir, read_json, read_package, POSITIVE_AL
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedPackageIdentityPreimageRefV2, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    encode_checked_package_v2, CheckedPackageIdentityPreimageRefV2, CheckedPackageLockV2,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedSemanticGraphV2,
 };
 use serde_json::{json, Value};
 
@@ -112,9 +113,7 @@ fn published_single_body_packages_keep_their_recorded_identity_and_writer_bytes(
 // These two tests bind the published external requirement directly. The IR
 // consumer-spec mapping is part of the coordinated spec amendment, not inferred
 // from a retired projection-owner criterion.
-#[trace("TC-233", "FR-322-AC-100")]
-#[test]
-fn published_shipped_projection_vectors_refuse_at_the_first_wire_member() {
+fn shipped_projection_vector_refuses_at_the_first_wire_member(selected: &str) {
     let schema = read_json(&fixtures_dir().join("../schema.json")).expect("published schema");
     let selection_schema = json!({
         "$ref": "#/$defs/IdentityPreimage",
@@ -136,6 +135,9 @@ fn published_shipped_projection_vectors_refuse_at_the_first_wire_member() {
     let mut seen = std::collections::BTreeSet::new();
     for row in rows {
         let id = row["id"].as_str().expect("vector id");
+        if id != selected {
+            continue;
+        }
         assert!(seen.insert(id), "duplicate vector {id}");
         assert_eq!(row["base"], "positive-all-families");
         let value = match &row["identity_projection"] {
@@ -177,8 +179,10 @@ fn published_shipped_projection_vectors_refuse_at_the_first_wire_member() {
             "{id}"
         );
     }
-    assert!(seen.contains("identity-preimage-ships-derived-projection"));
-    assert!(seen.contains("identity-preimage-ships-empty-projection"));
+    assert!(
+        seen.contains(selected),
+        "selected published vector is present"
+    );
 }
 
 #[trace("TC-233", "FR-322-AC-14")]
@@ -232,4 +236,122 @@ fn derived_identity_binds_a_nominal_body_and_node_order_but_excludes_occurrences
     assert_eq!(canonical_digest(&hash_input(&relocated)), original_hash);
     // Deliberately do not claim admission: occurrence/source-map consistency is
     // an independent obligation, and this only tests the identity exclusion.
+}
+
+/// Hash the graph through the production borrowed encoder before admission.
+/// This tests the producer API without bypassing the reader trust boundary.
+fn producer_digest(package: &Value) -> String {
+    let lock: CheckedPackageLockV2 = serde_json::from_value(package["lock"].clone()).unwrap();
+    let graph: CheckedSemanticGraphV2 =
+        serde_json::from_value(package["semantic_graph"].clone()).unwrap();
+    let input = CheckedPackageIdentityPreimageRefV2 {
+        version: package["identity_preimage"]["version"].as_str().unwrap(),
+        edition: &lock.edition,
+        profile_selections: &lock.profile_selections,
+        definition_selections: &lock.definition_selections,
+        model_selections: &lock.model_selections,
+        required_features: &lock.required_features,
+        dependency_selections: &lock.dependency_selections,
+        identity_projection: &graph.nodes,
+    };
+    quire_canonical::sha256(&input, Limits::new(1 << 24))
+        .unwrap()
+        .to_string()
+}
+
+#[trace("TC-233", "FR-322-AC-14", "FR-322-AC-100")]
+#[test]
+fn published_selection_schema_and_producer_identity_agree_for_every_fixture() {
+    let schema = read_json(&fixtures_dir().join("../schema.json")).unwrap();
+    // This repository's validator supports the selection fragment. The full
+    // owning schema uses Draft 2020-12 (including prefixItems); it is checked
+    // separately with a validator for that draft, not reinterpreted as Draft 7.
+    let selection_schema = json!({
+        "$ref": "#/$defs/IdentityPreimage",
+        "$defs": schema["$defs"],
+    });
+    let validator = jsonschema::JSONSchema::compile(&selection_schema).unwrap();
+    let mut names: Vec<_> = std::fs::read_dir(fixtures_dir())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .filter(|name| name.starts_with("positive-") && name.ends_with(".json"))
+        .collect();
+    names.sort();
+    assert!(names.len() >= POSITIVE_ALL.len());
+    for name in names {
+        let package = fixture(&name);
+        assert!(
+            validator.is_valid(&package["identity_preimage"]),
+            "{name}: published selection schema"
+        );
+        assert_eq!(package["identity_preimage"].as_object().unwrap().len(), 7);
+        assert_eq!(
+            canonical_digest(&hash_input(&package)),
+            package["package_id"]["digest"],
+            "{name}: normative occurrence-free graph preimage"
+        );
+        assert_eq!(
+            producer_digest(&package),
+            package["package_id"]["digest"],
+            "{name}: production borrowed hash encoder"
+        );
+    }
+}
+
+#[trace("TC-233", "FR-322-AC-14", "FR-322-AC-95")]
+#[test]
+fn producer_identity_covers_full_nominal_body_and_order_excluding_occurrences() {
+    let base = fixture("positive-nominal-identities.json");
+    let original = producer_digest(&base);
+    assert_eq!(original, base["package_id"]["digest"]);
+    let position = base["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|node| {
+            node.get("nominal_identity_preimage").is_some() && node["body"]["term"] == "literal"
+        })
+        .unwrap();
+    let mut changed = base.clone();
+    changed["semantic_graph"]["nodes"][position]["body"]["value"] = json!("ALTERED");
+    assert_eq!(
+        changed["semantic_graph"]["nodes"][position]["node_id"],
+        base["semantic_graph"]["nodes"][position]["node_id"]
+    );
+    assert_ne!(producer_digest(&changed), original);
+    assert_eq!(
+        producer_digest(&changed),
+        canonical_digest(&hash_input(&changed))
+    );
+    let mut reordered = base.clone();
+    reordered["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .reverse();
+    assert_ne!(producer_digest(&reordered), original);
+    assert_eq!(
+        producer_digest(&reordered),
+        canonical_digest(&hash_input(&reordered))
+    );
+    let mut relocated = base;
+    for node in relocated["semantic_graph"]["nodes"].as_array_mut().unwrap() {
+        node["occurrences"] = json!([]);
+    }
+    assert_eq!(producer_digest(&relocated), original);
+}
+
+#[trace("TC-233", "FR-322-AC-100")]
+#[test]
+fn published_shipped_derived_projection_refuses_at_the_first_wire_member() {
+    shipped_projection_vector_refuses_at_the_first_wire_member(
+        "identity-preimage-ships-derived-projection",
+    );
+}
+
+#[trace("TC-233", "FR-322-AC-100")]
+#[test]
+fn published_shipped_empty_projection_refuses_at_the_first_wire_member() {
+    shipped_projection_vector_refuses_at_the_first_wire_member(
+        "identity-preimage-ships-empty-projection",
+    );
 }
