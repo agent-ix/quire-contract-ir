@@ -64,24 +64,6 @@ use intake_origin::{retained_origin, IntakeDeclarationOrigin, OriginView};
 
 const STRUCTURAL_NODE: &str = "quire.structural-node/v1";
 const NATIVE_PREFIX: &str = "ix://quire/native/";
-const NATIVE_BOOLEAN: &str = "ix://quire/native/Boolean";
-const NATIVE_INTEGER: &str = "ix://quire/native/Integer";
-const NATIVE_STRING: &str = "ix://quire/native/String";
-const NATIVE_UUID: &str = "ix://quire/native/UUID";
-const NATIVE_TIMESTAMP: &str = "ix://quire/native/Timestamp";
-/// The unparameterized native value types a `typeRef` may name.
-const NATIVE_NAMES: &[&str] = &[
-    "Boolean",
-    "Integer",
-    "Rational",
-    "Decimal",
-    "Float32",
-    "Float64",
-    "Text",
-    "String",
-    "UUID",
-    "Timestamp",
-];
 
 /// FR-208 meaning ids, as the constructs table of a Semantic IR document
 /// binds them.
@@ -182,8 +164,66 @@ pub(super) struct TypedSlot {
     /// operation parameter's name, which FR-346 compares with a frame entry's
     /// `parameters`.
     pub(super) name: Option<Box<str>>,
-    pub(super) type_ref: Box<str>,
+    pub(super) type_ref: SelectedTypeRef,
     pub(super) multiplicity: Multiplicity,
+}
+
+/// A type reference classified while the selected model document is admitted.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) enum SelectedTypeRef {
+    Native(NativeTypeRef),
+    Unit(Box<str>),
+    Declared(Box<str>),
+    Invalid,
+}
+
+/// The closed native names accepted by the selected model grammar.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum NativeTypeRef {
+    Boolean,
+    Integer,
+    Rational,
+    Decimal,
+    Float32,
+    Float64,
+    Text,
+    String,
+    Uuid,
+    Timestamp,
+}
+
+impl SelectedTypeRef {
+    fn from_admitted_name(name: &str) -> Self {
+        if name.starts_with("ix://quire/unit/") {
+            return Self::Unit(name.into());
+        }
+        if let Some(native) = name.strip_prefix(NATIVE_PREFIX) {
+            return NativeTypeRef::from_name(native).map_or(Self::Invalid, Self::Native);
+        }
+        if name.is_empty() {
+            Self::Invalid
+        } else {
+            Self::Declared(name.into())
+        }
+    }
+}
+
+impl NativeTypeRef {
+    fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "Boolean" => Self::Boolean,
+            "Integer" => Self::Integer,
+            "Rational" => Self::Rational,
+            "Decimal" => Self::Decimal,
+            "Float32" => Self::Float32,
+            "Float64" => Self::Float64,
+            "Text" => Self::Text,
+            "String" => Self::String,
+            "UUID" => Self::Uuid,
+            "Timestamp" => Self::Timestamp,
+            _ => return None,
+        })
+    }
 }
 
 /// One field member record.
@@ -1097,23 +1137,28 @@ impl DomainModel {
     }
 
     /// FR-322 step 4's element type of a declared `typeRef`.
-    // Reads a selected domain package document's native type reference, decoding it to a member type.
-    fn element_type(&self, type_ref: &str) -> Option<MemberType> {
-        if type_ref.starts_with("ix://quire/unit/") {
-            return self
-                .unit_refs
-                .get(type_ref)
-                .cloned()
-                .map(MemberType::Quantity);
-        }
-        match type_ref {
-            NATIVE_BOOLEAN => return Some(MemberType::Boolean),
-            NATIVE_INTEGER => return Some(MemberType::Integer),
-            NATIVE_STRING => return Some(MemberType::String),
-            NATIVE_UUID => return Some(MemberType::Uuid),
-            NATIVE_TIMESTAMP => return Some(MemberType::Timestamp),
-            _ => {}
-        }
+    fn element_type(&self, type_ref: &SelectedTypeRef) -> Option<MemberType> {
+        let type_ref = match type_ref {
+            SelectedTypeRef::Unit(name) => {
+                return self.unit_refs.get(name).cloned().map(MemberType::Quantity);
+            }
+            SelectedTypeRef::Native(native) => {
+                return match native {
+                    NativeTypeRef::Boolean => Some(MemberType::Boolean),
+                    NativeTypeRef::Integer => Some(MemberType::Integer),
+                    NativeTypeRef::String => Some(MemberType::String),
+                    NativeTypeRef::Uuid => Some(MemberType::Uuid),
+                    NativeTypeRef::Timestamp => Some(MemberType::Timestamp),
+                    NativeTypeRef::Rational
+                    | NativeTypeRef::Decimal
+                    | NativeTypeRef::Float32
+                    | NativeTypeRef::Float64
+                    | NativeTypeRef::Text => None,
+                };
+            }
+            SelectedTypeRef::Declared(name) => name.as_ref(),
+            SelectedTypeRef::Invalid => return None,
+        };
         if let Some(bounds) = self.value_types.get(type_ref) {
             return bounds.map(MemberType::IntRange);
         }
@@ -2489,7 +2534,7 @@ impl References<'_> {
             return;
         }
         match type_ref.strip_prefix(NATIVE_PREFIX) {
-            Some(name) if NATIVE_NAMES.contains(&name) => {}
+            Some(name) if NativeTypeRef::from_name(name).is_some() => {}
             Some(_) => defects.push(Row::Meaning, &path, ModelRefusal::malformed()),
             None if self.scope.objects.contains(type_ref)
                 || self.scope.records.contains(type_ref)
@@ -2608,7 +2653,7 @@ impl References<'_> {
         };
         TypedSlot {
             name: value.get("name").and_then(Value::as_str).map(Box::from),
-            type_ref: type_ref.into(),
+            type_ref: SelectedTypeRef::from_admitted_name(type_ref),
             multiplicity,
         }
     }
