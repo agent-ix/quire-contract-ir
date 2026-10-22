@@ -43,3 +43,11 @@ Ticket: IR-276. Reviewed PR #510 at bfb5ba1aba9212f3290f307cd086d1cba4f2603c. Th
 ## Review notes
 
 The revised main-base measurement is a claimed test result in the Linear ticket, not a gate run by this reviewer. The arithmetic and duplicate ID were independently checked against the rebased spec. Scope was restricted to the PR's three Markdown changes and their declared matrix links; no Cargo, Kani or full test gates were run.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At 578ca1a, FR-038-AC-308 says: "Admission performs R+K body grammar validations for the R shared nodes and K distinct leaves, and lowering performs zero additional validations"; this matches the K distinct leaves and removes the impossible K-independent total. |
+| FND-002 | fixed | At 578ca1a, TC-050's Description names FR-038-AC-308, and the checked-package matrix adds a planned/unrun FR-038-AC-308 row and includes it in TC-050's trace list. |
+| FND-003 | fixed | At 578ca1a, the model matrix adds a planned/unrun FR-023-AC-7 row mapped to TC-035 while leaving AC-1 through AC-6 implemented credit intact. |
