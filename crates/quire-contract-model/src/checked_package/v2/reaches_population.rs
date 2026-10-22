@@ -41,13 +41,13 @@ impl CheckedPackageV2 {
     ) -> Result<Option<CheckedSelectedPopulationSelector>, CheckedReachesPopulationError> {
         use CheckedReachesPopulationError as Error;
 
-        let found = self
+        let operation = self
             .reaches_application(application)
             .map_err(|lookup| match lookup {
                 ReachesLookup::Unknown => Error::UnknownNode,
                 ReachesLookup::NotReaches => Error::NotReachesApplication,
             })?;
-        let Some(named) = found.body.pointer("/operation/member/population") else {
+        let Some(named) = operation.pointer("/member/population") else {
             return Ok(None);
         };
         let binding: CheckedNodeId =
@@ -101,8 +101,11 @@ mod tests {
             .insert(id.clone(), package.wire.semantic_graph.nodes.len());
         package.wire.semantic_graph.nodes.push(population);
         let position = package.node_index[&ids[&'7']];
-        package.wire.semantic_graph.nodes[position].body["operation"]["member"]["population"] =
-            json!(id);
+        let super::super::CheckedTerm::Application { operation, .. } = &mut package.terms[position]
+        else {
+            panic!("admitted reaches application term");
+        };
+        operation["member"]["population"] = json!(id);
         (package, ids, id)
     }
 
@@ -165,7 +168,10 @@ mod tests {
         value: Value,
     ) {
         let position = package.node_index[&ids[&'7']];
-        package.wire.semantic_graph.nodes[position].body["operation"]["member"]["population"] =
-            value;
+        let super::super::CheckedTerm::Application { operation, .. } = &mut package.terms[position]
+        else {
+            panic!("admitted reaches application term");
+        };
+        operation["member"]["population"] = value;
     }
 }
