@@ -4527,6 +4527,42 @@ mod tests {
         )
     }
 
+    #[trace("FR-349-AC-2", "FR-349-AC-4")]
+    #[test]
+    fn admitted_operation_identity_comes_from_the_retained_term() {
+        let mut node = application_node(CATALOGUED_IDENTITY, "binary");
+        node.body["result_type"] = json!(node_id('2'));
+        node.body["arguments"] = json!([
+            {"term": "literal", "type": node_id('2'), "value_kind": "integer", "value": "1"},
+            {"term": "literal", "type": node_id('2'), "value_kind": "integer", "value": "2"}
+        ]);
+        let expected = defect_for(&node);
+        let retained = super::CheckedTerm::decode_admitted(&node.body).expect("admitted term");
+        node.body["operation"]["identity"] = json!(UNCATALOGUED_IDENTITY);
+        let nodes = std::slice::from_ref(&node);
+        let kinds = kinds_of(nodes);
+        let index = BTreeMap::from([(&node.node_id, 0)]);
+        let terms = [Some(retained)];
+        let actual = operation_defect(
+            Application {
+                node: &node,
+                position: 0,
+            },
+            &Graph {
+                nodes,
+                kinds: &kinds,
+                index: &index,
+                terms: &terms,
+            },
+            &empty_lock(),
+            &ModelOwners::default(),
+            DependencyReferences::new(&SuppliedDependencies::default()),
+            operation_catalog(),
+            &mut WorkMeter::new(1_000),
+        );
+        assert_eq!(actual, expected);
+    }
+
     /// Each node's kind, decoded as intake decodes it.
     fn kinds_of(nodes: &[CheckedSemanticNodeV2]) -> Vec<CheckedNodeKind> {
         nodes
