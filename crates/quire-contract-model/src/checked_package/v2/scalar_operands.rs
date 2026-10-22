@@ -471,4 +471,23 @@ mod tests {
             Ok(expected)
         );
     }
+
+    #[trace("FR-349-AC-2")]
+    #[test]
+    fn admitted_scalar_ranges_use_retained_graph_terms_after_raw_body_changes() {
+        let mut package = fixture_package();
+        let application: CheckedNodeId = serde_json::from_value(id('4')).expect("id");
+        let occurrence = CheckedOccurrence {
+            role: super::super::CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let expected = package
+            .scalar_application_operands(&application, &occurrence)
+            .expect("original ranges");
+        package.wire.semantic_graph.nodes[1].body = json!({"term": "aggregate", "members": []});
+        assert_eq!(
+            package.scalar_application_operands(&application, &occurrence),
+            Ok(expected)
+        );
+    }
 }
