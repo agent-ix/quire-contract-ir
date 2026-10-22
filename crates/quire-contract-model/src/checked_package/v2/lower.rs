@@ -557,12 +557,51 @@ impl CheckedPackageV2 {
         self.lower_requests(requested, profile, self.bytes)
     }
 
-    fn lower_requests(
+    /// Lowers each key as a separate one-key request while sharing the graph,
+    /// source-map, and closure indexes across the call. The result has no
+    /// aggregate package; each record has the same byte ceiling and terminal
+    /// outcome as `lower` called with that key alone.
+    pub fn lower_independent_records(
         &self,
         requested: &[CheckedNodeId],
         profile: &CompleteLoweringProfileV2,
+    ) -> Vec<CompleteLoweringRecordV2> {
+        let ceiling = self.bytes;
+        let (index, source_maps, records) =
+            self.lower_record_candidates(requested, profile, ceiling);
+        requested
+            .iter()
+            .zip(records)
+            .map(|(request, record)| {
+                match self.assemble(
+                    profile,
+                    std::slice::from_ref(&record),
+                    &index,
+                    &source_maps,
+                    ceiling,
+                ) {
+                    Ok(_) => record,
+                    Err(required) => CompleteLoweringRecordV2::Failed {
+                        node_id: request.clone(),
+                        limit_kind: CheckedPackageLimit::Bytes,
+                        limit: ceiling,
+                        consumed: required,
+                    },
+                }
+            })
+            .collect()
+    }
+
+    fn lower_record_candidates<'a>(
+        &'a self,
+        requested: &[CheckedNodeId],
+        profile: &CompleteLoweringProfileV2,
         ceiling: u64,
-    ) -> CompleteLoweringResultV2 {
+    ) -> (
+        BTreeMap<&'a CheckedNodeId, usize>,
+        NodeSourceMaps<'a>,
+        Vec<CompleteLoweringRecordV2>,
+    ) {
         let index = self
             .graph()
             .nodes
@@ -587,6 +626,17 @@ impl CheckedPackageV2 {
                 )
             })
             .collect::<Vec<_>>();
+        (index, source_maps, records)
+    }
+
+    fn lower_requests(
+        &self,
+        requested: &[CheckedNodeId],
+        profile: &CompleteLoweringProfileV2,
+        ceiling: u64,
+    ) -> CompleteLoweringResultV2 {
+        let (index, source_maps, records) =
+            self.lower_record_candidates(requested, profile, ceiling);
         match self.assemble(profile, &records, &index, &source_maps, ceiling) {
             Ok(package) => CompleteLoweringResultV2 { records, package },
             // The package is over the ceiling: no package exists, so no

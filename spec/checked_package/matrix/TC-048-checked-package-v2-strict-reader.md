@@ -1488,6 +1488,11 @@ nor the full length; `limit + 1` for the integer past 2^53), that a
 package over the ceiling returns no lowered node and no dependency node, and
 that a work-budget failure still names `work` (FR-038-AC-95).
 
+For FR-038-AC-309, choose a retained byte ceiling that admits every one-key
+package but refuses their union. Assert that `lower` on the union keeps its
+whole-call byte failure, while `lower_independent_records` returns exactly the
+separate one-key records, with no spurious shared failure.
+
 ## Inexact numbers (FR-038-AC-109 through FR-038-AC-111)
 
 FR-038-AC-109 through FR-038-AC-111 are implemented and verified in

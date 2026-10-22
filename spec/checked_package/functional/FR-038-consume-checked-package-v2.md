@@ -583,6 +583,15 @@ makes today is replaced by that outcome, so lowering never panics on an encode
 refusal (FR-038-AC-95). A ceiling equal to the canonical length admits; one byte
 under it refuses.
 
+`CheckedPackageV2::lower_independent_records` returns records without an
+aggregate `ContractPackage`. For each requested key, its record shall equal
+the record from a separate one-key `lower` call under the same profile and
+retained byte ceiling. The operation shares graph indexing and component
+closure work across its requests, but an aggregate package's byte-ceiling
+failure does not replace a one-key result that fits. Each request still bears
+its full work charge and reports the same terminal outcome as its one-key
+call (FR-038-AC-309).
+
 `NominalIdentityPreimage::digest`, which a
 caller may call on a preimage it built, takes the caller's configured byte
 limit as an argument and returns the encoder's refusal when the preimage's
@@ -5022,6 +5031,7 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-302 | TC-230 consumes QSpec's selected-checkout QL-01..04, MU-01..06 and NS-01..03 cases directly or constructs their recorded wire shapes through the public reader, checks accepted and refused outcomes by code, cause and locus, and compares strict coverage with the main-branch baseline. | Test (TC-230) |
 
 | FR-038-AC-308 | For an admitted graph with K distinct requested leaves over one shared R-node closure, at K=2,4,8 and R=4,8,16, the reader validates each body once and retains the resolved adjacency and body-term count; lowering performs no further body grammar validation, reuses closure reachability per strongly connected component, and does not scan the full closure separately to decide each candidate bound. Per-request node, term and edge charges, the consumed value at a work-limit stop, each record and the complete package canonical bytes equal the independently lowered baseline. Admission performs R+K body grammar validations for the R shared nodes and K distinct leaves, and lowering performs zero additional validations; a grouped recursive component and a stop within the shared closure preserve the same outcomes. | Test (TC-050) |
+| FR-038-AC-309 | `CheckedPackageV2::lower_independent_records` returns one record per requested key in input order, each byte-for-byte equal to the record from `lower` called with only that key and the same profile and retained byte ceiling. For a shared R-node closure under K requests, graph/source indexes and component closures are built once and body validation is not repeated. When every one-key package fits but their union exceeds the byte ceiling, this method retains each one-key record while `lower` on the union reports its existing whole-call `failed` result. | Test (TC-048, TC-050) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be

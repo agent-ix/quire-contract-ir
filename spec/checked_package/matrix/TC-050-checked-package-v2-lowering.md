@@ -81,3 +81,7 @@ bytes against the equivalent single-request result and the unchanged golden
 output. Repeat with a grouped recursion component and a work limit that stops
 inside the shared closure. The cache may reduce parsing but must not discount
 any request's charged node, term or edge work.
+
+For FR-038-AC-309, call `lower_independent_records` on that shared-closure
+package. Assert one component-closure build, zero additional body validations,
+input-order records and exact equality to the separate one-key `lower` records.

@@ -23,7 +23,8 @@ type: TestMatrix
 | FR-038 | FR-038-AC-195 | `make lint` (CI Lint step) | ✅ The lint gate runs the workspace all-targets and feature-off model-consumer Clippy lanes with `-D warnings`; failure in either fails the gate. This criterion is verified by the lint gate, not a TC-048 Rust test. |
 
 
-| FR-038 | FR-038-AC-308 | TC-050 | 🚧 PLANNED/UNRUN (IR-276): counted R+K admission body validations, zero additional lowering validations, shared-SCC closure reuse and unchanged per-request work/outcome/canonical bytes. |
+| FR-038 | FR-038-AC-308 | TC-050 | ✅ Implemented (IR-276): counted R+K admission body validations, zero additional lowering validations, shared-SCC closure reuse and unchanged per-request work/outcome/canonical bytes in `ceiling_tests.rs`. |
+| FR-038 | FR-038-AC-309 | TC-048, TC-050 | ✅ Independent records equal separate one-key lowering under a union-package byte-ceiling failure and share one SCC closure build with zero additional body validations in `ceiling_tests.rs`. |
 
 ## Test Case Summary
 
