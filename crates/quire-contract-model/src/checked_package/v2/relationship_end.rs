@@ -65,12 +65,12 @@ impl CheckedPackageV2 {
         id: &CheckedNodeId,
     ) -> Result<&CheckedSemanticNodeV2, ReachesLookup> {
         let found = self.node(id).ok_or(ReachesLookup::Unknown)?;
-        let is_reaches = found.body.get("term").and_then(Value::as_str) == Some("application")
-            && found
-                .body
-                .pointer("/operation/identity")
-                .and_then(Value::as_str)
-                == Some("quire.op.model.reaches");
+        let is_reaches = matches!(
+            self.term(id),
+            Some(super::CheckedTerm::Application { operation, .. })
+                if operation.get("identity").and_then(Value::as_str)
+                    == Some("quire.op.model.reaches")
+        );
         if is_reaches {
             Ok(found)
         } else {

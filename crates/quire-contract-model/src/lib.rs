@@ -175,6 +175,12 @@ pub use checked_package::{
     CHECKED_PACKAGE_V2, CONTRACT_IR_SEMANTIC_DOMAIN, CONTRACT_PACKAGE_VERSION,
     DOMAIN_PACKAGE_DIGEST, PACKAGE_DOMAIN_V2,
 };
+
+pub use checked_package::{
+    ApplicationOperator, CheckedAbstractionField, CheckedAbstractionFrame,
+    CheckedAbstractionObject, CheckedAbstractionParameter, CheckedAbstractionPopulation,
+    CheckedFieldScope, CheckedFrameModification, CheckedScopedDeletion, CheckedTerm, LiteralKind,
+};
 pub use code::{Std001Code, Std001CodeError};
 pub use conformance::{
     expected_inventory, run_corpus, ConformanceOperation, FixtureResult, FixtureStatus,

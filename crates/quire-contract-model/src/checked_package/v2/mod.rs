@@ -39,6 +39,7 @@ mod state;
 mod structural;
 mod structural_candidates;
 mod temporal;
+mod typed_terms;
 mod vocabulary;
 
 pub use application_identity::{
@@ -88,6 +89,7 @@ pub use structural_candidates::{
     derive_structural_candidates, CandidateRecursionGroupLabel, CandidateStructuralNodeId,
     StructuralCandidateError, StructuralCandidates,
 };
+pub use typed_terms::*;
 pub use vocabulary::*;
 
 use closure_index::ClosureIndex;
@@ -599,6 +601,7 @@ pub enum CheckedPackageV2ReadResult {
 pub struct CheckedPackageV2 {
     wire: CheckedPackageWireV2,
     kinds: Vec<CheckedNodeKind>,
+    terms: Vec<CheckedTerm>,
     /// Admission-derived lookup; excluded from content equality.
     node_index: BTreeMap<CheckedNodeId, usize>,
     /// Body terms and resolved lowering edges, retained from graph admission.
@@ -949,9 +952,24 @@ impl CheckedPackageV2 {
         let closure_index =
             ClosureIndex::from_direct(&wire.lock.dependency_selections, &direct_dependencies);
         let node_index = retained_node_index(&wire);
+        let terms = wire
+            .semantic_graph
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| {
+                CheckedTerm::decode_admitted(&node.body).map_err(|_| {
+                    refuse(
+                        CheckedPackageRefusalCode::MalformedWire,
+                        node_pointer(position).key("body"),
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
             wire,
             kinds,
+            terms,
             node_index,
             lowering_facts,
             bytes: limits.bytes,
@@ -984,6 +1002,11 @@ impl CheckedPackageV2 {
     /// Each graph node's decoded family and form, in graph order.
     pub fn node_kinds(&self) -> &[CheckedNodeKind] {
         &self.kinds
+    }
+
+    /// The typed body of an admitted node.
+    pub fn term(&self, id: &CheckedNodeId) -> Option<&CheckedTerm> {
+        self.terms.get(*self.node_index.get(id)?)
     }
 
     /// The exact source map.
