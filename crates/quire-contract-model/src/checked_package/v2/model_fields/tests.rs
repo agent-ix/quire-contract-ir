@@ -699,7 +699,10 @@ fn tc_227_the_accessor_does_not_read_a_node_body_it_was_not_passed() {
 fn admitted_model_fields_use_retained_declaration_term() {
     let mut fixture = build_fixture(&ledger(), &[("Ledger", DeclarationForm::ObjectType)]);
     let ledger = id_at(&fixture, 0);
-    let expected = fixture.package.model_object_fields(&ledger).expect("admitted fields");
+    let expected = fixture
+        .package
+        .model_object_fields(&ledger)
+        .expect("admitted fields");
     fixture.package.wire.semantic_graph.nodes[0].body = json!({"term":"aggregate","members":[
         {"term":"reference","target": ledger}
     ]});
@@ -757,10 +760,17 @@ fn tc_227_the_accessor_names_what_is_wrong_with_the_node() {
         );
     }
     // Each fixed member of step 2, broken in turn, makes Base's node no model
-    // object type: a non-empty body, a `declaration`, a recursion group, a
-    // `semantic_type` that is not itself.
-    let breaks: [fn(&mut CheckedSemanticNodeV2); 4] = [
-        |node| node.body = json!({"term": "aggregate", "members": [{"term": "x"}]}),
+    // object type: a non-empty retained term, a `declaration`, a recursion
+    // group, a `semantic_type` that is not itself.
+    let mut wrong_term = fixture.package.clone();
+    wrong_term.terms[1] = super::super::CheckedTerm::Reference {
+        target: base.clone(),
+    };
+    assert_eq!(
+        wrong_term.model_object_fields(&base),
+        Err(CheckedModelFieldsError::NotModelObjectType)
+    );
+    let breaks: [fn(&mut CheckedSemanticNodeV2); 3] = [
         |node| {
             node.declaration = Some(super::super::CheckedDeclaration {
                 qualified_name: vec!["Base".into()],
