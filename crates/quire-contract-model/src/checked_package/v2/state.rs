@@ -31,11 +31,12 @@ use super::model_members::{
     MemberKind, MemberType, ModelOwners, ModelRefusal, OperationDecl, Owner, Resolved,
 };
 use super::structural::{
-    anchor_body, clause_body, is_state_clause_application, reference_type_target, AnchorBody,
+    is_state_clause_application, reference_type_target, typed_anchor_body, typed_clause_body,
+    AnchorBody,
 };
 use super::{
-    CheckedNodeKind, CheckedSemanticNodeV2, CompositeTypeForm, ModelForm, StateClauseKind,
-    StateForm, ValueForm, WorkMeter,
+    CheckedNodeKind, CheckedSemanticNodeV2, CheckedTerm, CompositeTypeForm, ModelForm,
+    StateClauseKind, StateForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, Step, Trail, ValidationFailure};
 use crate::checked_package::shared::{
@@ -50,6 +51,7 @@ use std::ops::ControlFlow;
 pub(super) fn validate_state(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
+    terms: &[Option<CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
@@ -63,7 +65,11 @@ pub(super) fn validate_state(
     validate_placement(&graph)?;
     let mut anchors = Vec::new();
     for (position, node) in graph.each(CheckedNodeKind::State(StateForm::OperationAnchor)) {
-        let body = anchor_body(&node.body).ok_or_else(|| shape_refusal(node, position))?;
+        let body = terms
+            .get(position)
+            .and_then(Option::as_ref)
+            .and_then(typed_anchor_body)
+            .ok_or_else(|| shape_refusal(node, position))?;
         check_anchor(node, position, &body, &graph, meter)?;
         anchors.push((position, node, body));
     }
@@ -79,7 +85,7 @@ pub(super) fn validate_state(
         }
     }
     for (position, node) in graph.each(CheckedNodeKind::State(StateForm::StateClause)) {
-        check_clause(node, position, &graph, meter)?;
+        check_clause(node, position, terms, &graph, meter)?;
     }
     Ok(())
 }
@@ -320,10 +326,15 @@ fn check_anchor(
 fn check_clause(
     clause: &CheckedSemanticNodeV2,
     position: usize,
+    terms: &[Option<CheckedTerm>],
     graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let body = clause_body(&clause.body).ok_or_else(|| shape_refusal(clause, position))?;
+    let body = terms
+        .get(position)
+        .and_then(Option::as_ref)
+        .and_then(typed_clause_body)
+        .ok_or_else(|| shape_refusal(clause, position))?;
     let arguments_at = node_pointer(position).key("body").key("arguments");
     let invariant = body.clause == StateClauseKind::Invariant;
     let (anchor, _) = join(
@@ -373,7 +384,17 @@ fn check_clause(
     let anchor_body = if invariant {
         None
     } else {
-        Some(anchor_body(&anchor.body).ok_or_else(signature_refusal)?)
+        let anchor_position = *graph
+            .index
+            .get(&anchor.node_id)
+            .ok_or_else(signature_refusal)?;
+        Some(
+            terms
+                .get(anchor_position)
+                .and_then(Option::as_ref)
+                .and_then(typed_anchor_body)
+                .ok_or_else(signature_refusal)?,
+        )
     };
     let context_id = anchor_body
         .as_ref()

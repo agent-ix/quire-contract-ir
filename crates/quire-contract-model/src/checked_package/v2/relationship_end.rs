@@ -1,7 +1,7 @@
 //! Typed destination end of an admitted `quire.op.model.reaches` application.
 
 use super::model_members::SelectedEnds;
-use super::{CheckedNodeId, CheckedPackageV2, CheckedSemanticNodeV2};
+use super::{CheckedNodeId, CheckedPackageV2};
 use crate::checked_package::common::NODE_DOMAIN;
 use serde_json::Value;
 use thiserror::Error;
@@ -60,22 +60,14 @@ pub(super) enum ReachesLookup {
 impl CheckedPackageV2 {
     /// The node `id` when its body root is a `quire.op.model.reaches`
     /// application: the one rule both reaches accessors share.
-    pub(super) fn reaches_application(
-        &self,
-        id: &CheckedNodeId,
-    ) -> Result<&CheckedSemanticNodeV2, ReachesLookup> {
-        let found = self.node(id).ok_or(ReachesLookup::Unknown)?;
-        let is_reaches = found.body.get("term").and_then(Value::as_str) == Some("application")
-            && found
-                .body
-                .pointer("/operation/identity")
-                .and_then(Value::as_str)
-                == Some("quire.op.model.reaches");
-        if is_reaches {
-            Ok(found)
-        } else {
-            Err(ReachesLookup::NotReaches)
-        }
+    pub(super) fn reaches_application(&self, id: &CheckedNodeId) -> Result<&Value, ReachesLookup> {
+        self.node(id).ok_or(ReachesLookup::Unknown)?;
+        let Some(super::CheckedTerm::Application { operation, .. }) = self.term(id) else {
+            return Err(ReachesLookup::NotReaches);
+        };
+        (operation.get("identity").and_then(Value::as_str) == Some("quire.op.model.reaches"))
+            .then_some(operation)
+            .ok_or(ReachesLookup::NotReaches)
     }
 
     /// Reads the destination end of an admitted `quire.op.model.reaches`
@@ -91,16 +83,13 @@ impl CheckedPackageV2 {
         use CheckedRelationshipEndError as Error;
 
         let node_at = |id: &CheckedNodeId| self.node(id);
-        let found = self
+        let operation = self
             .reaches_application(application)
             .map_err(|lookup| match lookup {
                 ReachesLookup::Unknown => Error::UnknownNode,
                 ReachesLookup::NotReaches => Error::NotReachesApplication,
             })?;
-        let member = found
-            .body
-            .pointer("/operation/member")
-            .ok_or(Error::UnresolvedEnd)?;
+        let member = operation.get("member").ok_or(Error::UnresolvedEnd)?;
         if member.get("kind").and_then(Value::as_str) != Some("relationship_end") {
             return Err(Error::UnresolvedEnd);
         }
@@ -113,7 +102,10 @@ impl CheckedPackageV2 {
             .and_then(Value::as_str)
             .ok_or(Error::UnresolvedEnd)?;
         let retained = node_at(&relationship)
-            .and_then(|declaration| self.models.relationship(declaration))
+            .and_then(|declaration| {
+                self.term(&declaration.node_id)
+                    .and_then(|term| self.models.relationship(declaration, term))
+            })
             .ok_or(Error::UnresolvedEnd)?;
         let SelectedEnds {
             destination,
@@ -148,6 +140,7 @@ pub(super) mod tests {
     use super::*;
     use crate::checked_package::v2::model_fields::RetainedRelationship;
     use crate::checked_package::v2::test_support::node_id;
+    use crate::checked_package::v2::CheckedTerm;
     use crate::checked_package::v2::RetainedModels;
     use crate::{CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2ReadResult};
     use ix_trace_rs::trace;
@@ -418,7 +411,22 @@ pub(super) mod tests {
         ids: &BTreeMap<char, CheckedNodeId>,
     ) -> &'a mut Value {
         let position = at(package, &ids[&'7']);
-        &mut package.wire.semantic_graph.nodes[position].body["operation"]
+        let super::super::CheckedTerm::Application { operation, .. } = &mut package.terms[position]
+        else {
+            panic!("admitted reaches application term");
+        };
+        operation
+    }
+
+    #[trace("FR-349-AC-2")]
+    #[test]
+    fn relationship_end_uses_retained_operation_after_raw_body_changes() {
+        let (mut package, ids) = admitted();
+        let expected = package.relationship_end(&ids[&'7']).expect("admitted end");
+        let position = at(&package, &ids[&'7']);
+        package.wire.semantic_graph.nodes[position].body =
+            json!({"term": "aggregate", "members": []});
+        assert_eq!(package.relationship_end(&ids[&'7']), Ok(expected));
     }
 
     /// The admitted application resolves to the retained destination end, and
@@ -494,8 +502,11 @@ pub(super) mod tests {
                 "declaration node no longer has the declaration shape",
                 Box::new(|p, ids| {
                     let position = at(p, &ids[&'c']);
-                    p.wire.semantic_graph.nodes[position].body =
-                        json!({"term": "aggregate", "members": [raw_id('1')]});
+                    p.terms[position] = CheckedTerm::Aggregate {
+                        members: vec![CheckedTerm::Reference {
+                            target: ids[&'1'].clone(),
+                        }],
+                    };
                 }),
             ),
             (
@@ -541,7 +552,10 @@ pub(super) mod tests {
         let position = at(&package, &ids[&'c']);
         let retained = package
             .models
-            .relationship(&package.wire.semantic_graph.nodes[position])
+            .relationship(
+                &package.wire.semantic_graph.nodes[position],
+                &package.terms[position],
+            )
             .cloned()
             .expect("the admitted record");
         package.models = RetainedModels::with_relationship(

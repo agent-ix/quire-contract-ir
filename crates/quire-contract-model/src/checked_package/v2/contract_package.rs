@@ -29,7 +29,7 @@ use super::lower::{
 };
 use super::{
     CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedPackageV2, CheckedSelectionRole,
-    CheckedSemanticNodeV2,
+    CheckedSemanticNodeV2, CheckedTerm,
 };
 use crate::checked_package::common::{
     read_typed_prefix, strict_parse, Step, Trail, ValidationFailure, NODE_DOMAIN,
@@ -605,8 +605,9 @@ impl ContractPackageV1 {
                 &Trail::Base(&steps),
                 &mut |target, _site, _at| pending.push_back(target.clone()),
             )?;
-            let selected = super::dependency_references::selected_reference_targets(&node.body)
+            let body = CheckedTerm::decode_admitted(&node.body)
                 .map_err(|()| ContractRootViewError::Inconsistent)?;
+            let selected = super::dependency_references::selected_reference_targets(&body);
             for (package, node) in selected {
                 work.charge(1).map_err(ContractRootViewError::Incomplete)?;
                 selected_references.insert(ContractSelectedReferenceV1 { package, node });
@@ -2170,6 +2171,7 @@ impl ContractPackageWireV1 {
         let mut outgoing: BTreeMap<CheckedNodeId, Vec<CheckedNodeId>> = BTreeMap::new();
         let mut adjacency = Vec::with_capacity(self.semantic_graph.nodes.len());
         let mut kinds = Vec::with_capacity(self.semantic_graph.nodes.len());
+        let mut terms = Vec::with_capacity(self.semantic_graph.nodes.len());
         for (index, node) in self.semantic_graph.nodes.iter().enumerate() {
             let at = JsonPointer::root()
                 .key("semantic_graph")
@@ -2210,6 +2212,18 @@ impl ContractPackageWireV1 {
             if let Some(pointer) = missing {
                 return Err(malformed(pointer, CheckedPackageRefusalCause::InvalidValue));
             }
+            terms.push(match super::CheckedTerm::decode_admitted(&node.body) {
+                Ok(term) => Some(term),
+                Err(()) if super::body_grammar(kind) == super::BodyGrammar::AbstractionRelation => {
+                    None
+                }
+                Err(()) => {
+                    return Err(malformed(
+                        at.clone().key("body"),
+                        CheckedPackageRefusalCause::InvalidValue,
+                    ));
+                }
+            });
             let mut successors = Vec::new();
             let Some(&semantic_type) = positions.get(&node.semantic_type) else {
                 return Err(malformed(
@@ -2242,13 +2256,16 @@ impl ContractPackageWireV1 {
             }
             adjacency.push(successors);
             outgoing.insert(node.node_id.clone(), edges);
-            DependencyReferences::new(&supplied).walk_body(
-                Referrer {
-                    node,
-                    position: index,
-                },
-                &mut *meter,
-            )?;
+            if let Some(term) = terms.last().and_then(Option::as_ref) {
+                DependencyReferences::new(&supplied).walk_admitted(
+                    Referrer {
+                        node,
+                        position: index,
+                    },
+                    term,
+                    &mut *meter,
+                )?;
+            }
         }
         // FR-322's graph-only checks apply to the retained nodes even though
         // this reader does not have the originating source or model documents.
@@ -2277,11 +2294,13 @@ impl ContractPackageWireV1 {
         super::structural::validate_structural_nodes(
             &self.semantic_graph.nodes,
             &kinds,
+            &terms,
             &positions,
         )?;
         super::operations::validate_application_keys(
             &self.semantic_graph.nodes,
             &kinds,
+            &terms,
             &positions,
             &mut *meter,
             limits.bytes,
@@ -2289,6 +2308,7 @@ impl ContractPackageWireV1 {
         super::derived_keys::validate_derived_keys(
             &self.semantic_graph.nodes,
             &kinds,
+            &terms,
             &positions,
             &[],
             &mut *meter,

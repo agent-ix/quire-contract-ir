@@ -11,8 +11,8 @@ use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedSemanticId, CheckedSourceMapEntry,
 };
 use crate::checked_package::v2::{
-    BodyTerm, BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, CheckedSemanticNodeV2,
-    ExpressionForm,
+    ApplicationOperator, BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, CheckedSemanticNodeV2,
+    CheckedTerm, ExpressionForm,
 };
 use serde::Deserialize;
 
@@ -264,33 +264,23 @@ fn direct_narrow_of(node: &CheckedSemanticNodeV2, expression: &CheckedNodeId) ->
     if node_kind(node) != Some(CheckedNodeKind::Expression(ExpressionForm::Conversion)) {
         return false;
     }
-    let body = &node.body;
-    if super::super::super::common::body_term(body) != Some(BodyTerm::Application)
-        || super::super::super::common::application_operator(body)
-            != Some(super::super::ApplicationOperator::Convert)
-    {
-        return false;
-    }
-    let Some(operation) = body
-        .get("operation")
-        .and_then(|value| super::super::operations::OperationWire::deserialize(value).ok())
+    let Ok(CheckedTerm::Application {
+        operator: ApplicationOperator::Convert,
+        operation,
+        arguments,
+        ..
+    }) = CheckedTerm::decode_admitted(&node.body)
     else {
+        return false;
+    };
+    let Ok(operation) = super::super::operations::OperationWire::deserialize(&operation) else {
         return false;
     };
     if operation.identity.as_ref() != "quire.op.numeric.narrow" {
         return false;
     }
-    let Some(arguments) = body.get("arguments").and_then(serde_json::Value::as_array) else {
-        return false;
-    };
-    let [argument] = arguments.as_slice() else {
-        return false;
-    };
-    if super::super::super::common::body_term(argument) != Some(BodyTerm::Reference) {
-        return false;
-    }
-    argument
-        .get("target")
-        .and_then(|value| CheckedNodeId::deserialize(value).ok())
-        .is_some_and(|target| target == *expression)
+    matches!(
+        arguments.as_slice(),
+        [CheckedTerm::Reference { target }] if target == expression
+    )
 }

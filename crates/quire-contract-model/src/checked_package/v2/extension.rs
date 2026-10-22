@@ -3,7 +3,8 @@
 use super::identity::is_identifier;
 use super::model_members::{Budget, DeclarationForm, ModelOwners};
 use super::{
-    CheckedNodeKind, CheckedPackageWireV2, CheckedSemanticNodeV2, ScalarTypeForm, WorkMeter,
+    CheckedNodeKind, CheckedPackageWireV2, CheckedSemanticNodeV2, CheckedTerm, ScalarTypeForm,
+    WorkMeter,
 };
 use crate::checked_package::common::{is_digest, node_pointer, ValidationFailure, NODE_DOMAIN};
 use crate::checked_package::evidence::CheckedPackageEvidence;
@@ -130,6 +131,7 @@ fn with_detail(
 pub(super) fn validate(
     wire: &CheckedPackageWireV2,
     kinds: &[CheckedNodeKind],
+    terms: &[Option<CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
     evidence: &CheckedPackageEvidence,
     owners: &ModelOwners<'_>,
@@ -142,17 +144,35 @@ pub(super) fn validate(
         }
         let node = &nodes[position];
         let at = node_pointer(position).key("body");
-        let body = read_body(&node.body, at.clone())?;
+        let Some(CheckedTerm::ExtensionForm {
+            definition,
+            node_kind,
+            clauses,
+        }) = terms.get(position).and_then(Option::as_ref)
+        else {
+            return Err(ValidationFailure::refused(Code::MalformedWire, at));
+        };
+        let clauses = clauses
+            .iter()
+            .map(|clause| match clause {
+                CheckedTerm::Binding { name, value } => match value.as_ref() {
+                    CheckedTerm::Reference { target } => Some((name.as_ref(), target)),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| ValidationFailure::refused(Code::MalformedWire, at.clone()))?;
         let def_at = at.clone().key("definition");
         let fail = |code, cause, pointer| refusal(node, pointer, code, cause);
-        if !wire.lock.definition_selections.contains(&body.definition) {
+        if !wire.lock.definition_selections.contains(definition) {
             return Err(fail(
                 Code::MissingDeclaration,
                 Some(Cause::MissingSelection),
                 def_at,
             ));
         }
-        let Some(definition) = evidence.extension_definition(&body.definition) else {
+        let Some(definition) = evidence.extension_definition(definition) else {
             return Err(ValidationFailure::unknown_extension_definition(
                 def_at,
                 node.node_id.clone(),
@@ -162,7 +182,7 @@ pub(super) fn validate(
             .typed_node_schema
             .nodes
             .iter()
-            .find(|entry| entry.node_kind == body.node_kind)
+            .find(|entry| entry.node_kind.as_ref() == node_kind.as_ref())
         else {
             return Err(fail(
                 Code::MissingDeclaration,
@@ -170,8 +190,8 @@ pub(super) fn validate(
                 at.key("node_kind"),
             ));
         };
-        for (ordinal, (clause, expected)) in body.clauses.iter().zip(&schema.clauses).enumerate() {
-            if clause.name != expected.name {
+        for (ordinal, ((name, _), expected)) in clauses.iter().zip(&schema.clauses).enumerate() {
+            if *name != expected.name.as_ref() {
                 return Err(fail(
                     Code::InvalidPackage,
                     Some(Cause::InvalidValue),
@@ -179,29 +199,31 @@ pub(super) fn validate(
                 ));
             }
         }
-        if body.clauses.len() > schema.clauses.len() {
+        if clauses.len() > schema.clauses.len() {
             return Err(fail(
                 Code::InvalidPackage,
                 Some(Cause::InvalidValue),
                 at.clone().key("clauses").index(schema.clauses.len()),
             ));
         }
-        if body.clauses.len() < schema.clauses.len() {
+        if clauses.len() < schema.clauses.len() {
             return Err(with_detail(
                 fail(
                     Code::InvalidPackage,
                     Some(Cause::MissingMember),
                     at.clone().key("clauses"),
                 ),
-                &schema.clauses[body.clauses.len()].name,
+                &schema.clauses[clauses.len()].name,
                 None,
                 None,
                 None,
             ));
         }
-        for (ordinal, (clause, expected)) in body.clauses.iter().zip(&schema.clauses).enumerate() {
+        for (ordinal, ((name, target_id), expected)) in
+            clauses.iter().zip(&schema.clauses).enumerate()
+        {
             let pointer = at.clone().key("clauses").index(ordinal).key("value");
-            let Some(&target_position) = index.get(&clause.value.target) else {
+            let Some(&target_position) = index.get(target_id) else {
                 return Err(fail(
                     Code::MissingDeclaration,
                     Some(Cause::MissingName),
@@ -211,18 +233,26 @@ pub(super) fn validate(
             let target = &nodes[target_position];
             if !type_matches(
                 &expected.type_ref,
-                target,
-                kinds[target_position],
                 nodes,
+                kinds,
+                terms,
+                target_position,
                 index,
                 owners,
                 meter,
             )? {
                 return Err(with_detail(
                     fail(Code::IllTyped, Some(Cause::TypeMismatch), pointer),
-                    &clause.name,
+                    name,
                     Some(&expected.type_ref),
-                    Some(actual_type(target, kinds[target_position], nodes, index)),
+                    Some(actual_type(
+                        target,
+                        kinds[target_position],
+                        nodes,
+                        terms,
+                        target_position,
+                        index,
+                    )),
                     Some(target.semantic_type.clone()),
                 ));
             }
@@ -231,15 +261,41 @@ pub(super) fn validate(
     Ok(())
 }
 
+fn integer_range_bounds(term: &CheckedTerm) -> Option<(&str, &str)> {
+    fn bound<'a>(term: &'a CheckedTerm, expected: &str) -> Option<&'a str> {
+        let CheckedTerm::Binding { name, value } = term else {
+            return None;
+        };
+        if name.as_ref() != expected {
+            return None;
+        }
+        let CheckedTerm::Literal { value, .. } = value.as_ref() else {
+            return None;
+        };
+        value.as_str()
+    }
+    let CheckedTerm::Aggregate { members } = term else {
+        return None;
+    };
+    let [lo, hi] = members.as_slice() else {
+        return None;
+    };
+    Some((bound(lo, "min")?, bound(hi, "max")?))
+}
+
 fn type_matches(
     expected: &str,
-    target: &CheckedSemanticNodeV2,
-    kind: CheckedNodeKind,
     nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    terms: &[Option<CheckedTerm>],
+    target_position: usize,
     index: &BTreeMap<&CheckedNodeId, usize>,
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
 ) -> Result<bool, ValidationFailure> {
+    let Some((target, &kind)) = nodes.get(target_position).zip(kinds.get(target_position)) else {
+        return Ok(false);
+    };
     if !matches!(
         kind,
         CheckedNodeKind::Value(_) | CheckedNodeKind::Expression(_) | CheckedNodeKind::Extension(_)
@@ -257,14 +313,11 @@ fn type_matches(
             return Ok(false);
         };
         let type_node = &nodes[position];
-        let members = type_node.body.get("members").and_then(Value::as_array);
-        let bounds_match = members.is_some_and(|members| {
-            members.len() == 2
-                && members[0]["name"] == "min"
-                && members[0]["value"]["value"].as_str() == Some(lo.trim())
-                && members[1]["name"] == "max"
-                && members[1]["value"]["value"].as_str() == Some(hi.trim())
-        });
+        let bounds_match = terms
+            .get(position)
+            .and_then(Option::as_ref)
+            .and_then(integer_range_bounds)
+            .is_some_and(|(lower, upper)| lower == lo.trim() && upper == hi.trim());
         return Ok(matches!(type_node.node_tag.as_ref(), "bounded_domain")
             && type_node.semantic_form.as_ref() == "integer_range"
             && bounds_match);
@@ -311,40 +364,39 @@ fn type_matches(
         }
     }
     Ok(matches!(kind, CheckedNodeKind::Extension(_))
-        && target.body.get("node_kind").and_then(Value::as_str) == Some(expected))
+        && matches!(terms.get(target_position).and_then(Option::as_ref),
+            Some(CheckedTerm::ExtensionForm { node_kind, .. }) if node_kind.as_ref() == expected))
 }
 
 fn actual_type(
     target: &CheckedSemanticNodeV2,
     kind: CheckedNodeKind,
     nodes: &[CheckedSemanticNodeV2],
+    terms: &[Option<CheckedTerm>],
+    target_position: usize,
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> String {
     if matches!(kind, CheckedNodeKind::Extension(_)) {
-        return target
-            .body
-            .get("node_kind")
-            .and_then(Value::as_str)
-            .unwrap_or("extension")
-            .to_owned();
+        return match terms.get(target_position).and_then(Option::as_ref) {
+            Some(CheckedTerm::ExtensionForm { node_kind, .. }) => node_kind.to_string(),
+            _ => "extension".into(),
+        };
     }
-    let Some(type_node) = index
-        .get(&target.semantic_type)
-        .and_then(|&position| nodes.get(position))
-    else {
+    let Some(&type_position) = index.get(&target.semantic_type) else {
+        return target.semantic_type.digest.to_string();
+    };
+    let Some(type_node) = nodes.get(type_position) else {
         return target.semantic_type.digest.to_string();
     };
     if type_node.node_tag.as_ref() == "bounded_domain"
         && type_node.semantic_form.as_ref() == "integer_range"
     {
-        if let Some(members) = type_node.body.get("members").and_then(Value::as_array) {
-            if let [lo, hi] = members.as_slice() {
-                if let (Some(lo), Some(hi)) =
-                    (lo["value"]["value"].as_str(), hi["value"]["value"].as_str())
-                {
-                    return format!("Int[{lo}, {hi}]");
-                }
-            }
+        if let Some((lo, hi)) = terms
+            .get(type_position)
+            .and_then(Option::as_ref)
+            .and_then(integer_range_bounds)
+        {
+            return format!("Int[{lo}, {hi}]");
         }
     }
     match type_node.semantic_form.as_ref() {

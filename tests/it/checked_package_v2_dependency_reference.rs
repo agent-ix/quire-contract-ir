@@ -21,7 +21,7 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     BoundedDomainForm, CheckedNodeId, CheckedNodeTag, CheckedOccurrenceRole,
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm,
     CompleteLoweringProfileV2, ContractDependencies, ContractDependencyInput,
     ContractOccurrenceKeyV1, ContractPackageReadResult, ContractPackageWireV1,
     ContractResultContextV1, ContractResultViewV1, ContractRootViewV1, LoweringProfileRef,
@@ -401,7 +401,7 @@ fn reached_view_retains_selected_dependency_pair_at_package_boundary() {
 }
 
 /// ACs: FR-038-AC-35
-#[trace("TC-048", "FR-038-AC-35")]
+#[trace("TC-048", "FR-038-AC-35", "FR-349-AC-1")]
 #[test]
 fn tc_048_a_dependency_callee_is_admitted_and_never_a_dependency() {
     let dependency = build_dependency(|_| {});
@@ -422,6 +422,18 @@ fn tc_048_a_dependency_callee_is_admitted_and_never_a_dependency() {
         serde_json::to_value(&call.body).expect("body")["arguments"][0],
         dependency_term(&dependency.digest, &function_key())
     );
+    let CheckedTerm::Application { arguments, .. } = admitted
+        .term(&call.node_id)
+        .expect("admitted call has a typed body")
+    else {
+        panic!("admitted call must be a typed application");
+    };
+    assert!(matches!(
+        arguments.first(),
+        Some(CheckedTerm::DependencyReference { package, node })
+            if package.digest.as_ref() == dependency.digest.as_str()
+                && node.digest.as_ref() == function_key().as_str()
+    ));
 
     // Listing the target as a dependency of the calling node refuses.
     let mut listed = package.clone();

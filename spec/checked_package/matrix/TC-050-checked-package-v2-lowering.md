@@ -13,7 +13,8 @@ relationships:
 ## Description
 
 Verify FR-038-AC-6 (QSpec FR-195-AC-1 through FR-195-AC-5) and FR-038-AC-39
-through FR-038-AC-41, FR-038-AC-73 and FR-038-AC-308 through the admitted V2 package API.
+through FR-038-AC-41, FR-038-AC-73, FR-038-AC-308 and FR-038-AC-309
+with the admitted V2 package API.
 
 ## Test Procedure
 
@@ -81,3 +82,7 @@ bytes against the equivalent single-request result and the unchanged golden
 output. Repeat with a grouped recursion component and a work limit that stops
 inside the shared closure. The cache may reduce parsing but must not discount
 any request's charged node, term or edge work.
+
+For FR-038-AC-309, call `lower_independent_records` on that shared-closure
+package. Assert one component-closure build, zero additional body validations,
+input-order records and exact equality to the separate one-key `lower` records.

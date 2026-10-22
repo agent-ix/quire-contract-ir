@@ -1,10 +1,14 @@
 //! Typed, position-preserving operands of admitted scalar integer applications.
 
 use super::operation_catalog::operation_catalog;
-use super::{CheckedNodeId, CheckedOccurrence, CheckedPackageV2, CheckedSemanticNodeV2};
+use super::{
+    CheckedNodeId, CheckedOccurrence, CheckedPackageV2, CheckedSemanticNodeV2, CheckedTerm,
+    LiteralKind,
+};
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 use serde_json::Value;
+use std::borrow::Cow;
 use thiserror::Error;
 
 /// The inclusive finite range of one integer operand.
@@ -95,18 +99,24 @@ pub(super) enum ScalarArgumentChild<'a> {
 pub(super) fn scalar_arguments<'a>(
     nodes: &'a [CheckedSemanticNodeV2],
     node: &'a CheckedSemanticNodeV2,
-) -> Result<
-    impl Iterator<Item = Result<ScalarArgument<'a>, CheckedScalarOperandError>> + 'a,
-    CheckedScalarOperandError,
-> {
+    retained: Option<&'a CheckedTerm>,
+    retained_terms: Option<&'a [CheckedTerm]>,
+) -> Result<ScalarArguments<'a>, CheckedScalarOperandError> {
     use CheckedScalarOperandError as Error;
 
-    let body = &node.body;
-    if body.get("term").and_then(Value::as_str) != Some("application") {
+    // ContractPackageV1 does not retain a second body copy. Its admitted
+    // root is decoded on demand; CheckedPackageV2 borrows its retained tree.
+    let term = match retained {
+        Some(term) => Cow::Borrowed(term),
+        None => {
+            Cow::Owned(CheckedTerm::decode_admitted(&node.body).map_err(|_| Error::NotApplication)?)
+        }
+    };
+    let CheckedTerm::Application { operation, .. } = term.as_ref() else {
         return Err(Error::NotApplication);
-    }
-    let identity = body
-        .pointer("/operation/identity")
+    };
+    let identity = operation
+        .get("identity")
         .and_then(Value::as_str)
         .ok_or(Error::UnknownOperator)?;
     if operation_catalog().entry(identity).is_none() {
@@ -121,52 +131,89 @@ pub(super) fn scalar_arguments<'a>(
     ) {
         return Err(Error::IneligibleOperator);
     }
-    let arguments = body
-        .get("arguments")
-        .and_then(Value::as_array)
-        .ok_or(Error::MissingRange)?;
-    Ok(arguments
-        .iter()
-        .enumerate()
-        .map(move |(position, argument)| {
-            let ordinal = u64::try_from(position).map_err(|_| Error::MissingRange)?;
-            let (child, own_range) = match argument.get("term").and_then(Value::as_str) {
-                Some("reference") => {
-                    let target: CheckedNodeId = serde_json::from_value(
-                        argument.get("target").cloned().ok_or(Error::MissingChild)?,
-                    )
-                    .map_err(|_| Error::MissingChild)?;
-                    let child = nodes
-                        .iter()
-                        .find(|node| node.node_id == target)
-                        .ok_or(Error::MissingChild)?;
-                    let range = if child.node_tag.as_ref() == "value"
-                        && child.semantic_form.as_ref() == "literal"
-                    {
-                        literal_range(&child.body)
-                    } else {
-                        type_range(nodes, &child.semantic_type)
-                    };
-                    (ScalarArgumentChild::Graph(child), range)
-                }
-                Some("literal") => {
-                    let value = literal_integer(argument)?;
-                    let range = value.to_i128().map_or(Err(Error::RangeOutOfI128), |value| {
-                        Ok(CheckedScalarOperandRange {
-                            lower: value,
-                            upper: value,
-                        })
-                    });
-                    (ScalarArgumentChild::InlineInteger(value), range)
-                }
-                _ => return Err(Error::MissingRange),
-            };
-            Ok(ScalarArgument {
-                ordinal,
-                child,
-                own_range,
-            })
-        }))
+    let arguments = match term {
+        Cow::Borrowed(CheckedTerm::Application { arguments, .. }) => {
+            Cow::Borrowed(arguments.as_slice())
+        }
+        Cow::Owned(CheckedTerm::Application { arguments, .. }) => Cow::Owned(arguments),
+        _ => return Err(Error::NotApplication),
+    };
+    Ok(ScalarArguments {
+        nodes,
+        retained_terms,
+        arguments,
+        next: 0,
+    })
+}
+
+/// Lazy, position-preserving scalar projection over a borrowed or decoded
+/// admitted application. It holds no second package body copy.
+pub(super) struct ScalarArguments<'a> {
+    nodes: &'a [CheckedSemanticNodeV2],
+    retained_terms: Option<&'a [CheckedTerm]>,
+    arguments: Cow<'a, [CheckedTerm]>,
+    next: usize,
+}
+
+impl<'a> Iterator for ScalarArguments<'a> {
+    type Item = Result<ScalarArgument<'a>, CheckedScalarOperandError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let position = self.next;
+        let argument = self.arguments.get(position)?;
+        self.next = self.next.saturating_add(1);
+        Some(self.project(position, argument))
+    }
+}
+
+impl<'a> ScalarArguments<'a> {
+    fn project(
+        &self,
+        position: usize,
+        argument: &CheckedTerm,
+    ) -> Result<ScalarArgument<'a>, CheckedScalarOperandError> {
+        use CheckedScalarOperandError as Error;
+        let ordinal = u64::try_from(position).map_err(|_| Error::MissingRange)?;
+        let (child, own_range) = match argument {
+            CheckedTerm::Reference { target } => {
+                let (child_position, child) = self
+                    .nodes
+                    .iter()
+                    .enumerate()
+                    .find(|(_, node)| node.node_id == *target)
+                    .ok_or(Error::MissingChild)?;
+                let range = if child.node_tag.as_ref() == "value"
+                    && child.semantic_form.as_ref() == "literal"
+                {
+                    let term = graph_term(
+                        child,
+                        self.retained_terms
+                            .and_then(|terms| terms.get(child_position)),
+                    )?;
+                    typed_literal_integer(&term).and_then(singleton_range)
+                } else {
+                    type_range(self.nodes, self.retained_terms, &child.semantic_type)
+                };
+                (ScalarArgumentChild::Graph(child), range)
+            }
+            CheckedTerm::Literal { .. } => {
+                let value = typed_literal_integer(argument)?;
+                let range = value.to_i128().map_or(Err(Error::RangeOutOfI128), |value| {
+                    Ok(CheckedScalarOperandRange {
+                        lower: value,
+                        upper: value,
+                    })
+                });
+                (ScalarArgumentChild::InlineInteger(value), range)
+            }
+            _ => return Err(Error::MissingRange),
+        };
+        Ok(ScalarArgument {
+            ordinal,
+            child,
+            own_range,
+        })
+    }
 }
 
 impl CheckedPackageV2 {
@@ -187,13 +234,14 @@ impl CheckedPackageV2 {
             .iter()
             .find(|node| &node.node_id == application)
             .ok_or(Error::UnknownNode)?;
-        if node.body.get("term").and_then(Value::as_str) != Some("application") {
+        let term = self.term(application).ok_or(Error::NotApplication)?;
+        if !matches!(term, CheckedTerm::Application { .. }) {
             return Err(Error::NotApplication);
         }
         if !node.occurrences.contains(occurrence) {
             return Err(Error::MissingOccurrence);
         }
-        scalar_arguments(nodes, node)?
+        scalar_arguments(nodes, node, Some(term), Some(&self.terms))?
             .map(|argument| {
                 let argument = argument?;
                 let child = match argument.child {
@@ -218,37 +266,55 @@ impl CheckedPackageV2 {
     }
 }
 
-fn literal_range(term: &Value) -> Result<CheckedScalarOperandRange, CheckedScalarOperandError> {
-    use CheckedScalarOperandError as Error;
-    let value = literal_integer(term)?
+fn singleton_range(value: BigInt) -> Result<CheckedScalarOperandRange, CheckedScalarOperandError> {
+    let value = value
         .to_i128()
-        .ok_or(Error::RangeOutOfI128)?;
+        .ok_or(CheckedScalarOperandError::RangeOutOfI128)?;
     Ok(CheckedScalarOperandRange {
         lower: value,
         upper: value,
     })
 }
 
-fn literal_integer(term: &Value) -> Result<BigInt, CheckedScalarOperandError> {
-    use CheckedScalarOperandError as Error;
-    if term.get("value_kind").and_then(Value::as_str) != Some("integer") {
-        return Err(Error::MissingRange);
+fn graph_term<'a>(
+    node: &'a CheckedSemanticNodeV2,
+    retained: Option<&'a CheckedTerm>,
+) -> Result<Cow<'a, CheckedTerm>, CheckedScalarOperandError> {
+    match retained {
+        Some(term) => Ok(Cow::Borrowed(term)),
+        None => CheckedTerm::decode_admitted(&node.body)
+            .map(Cow::Owned)
+            .map_err(|_| CheckedScalarOperandError::MissingRange),
     }
-    let text = term
-        .get("value")
-        .and_then(Value::as_str)
-        .ok_or(Error::MissingRange)?;
-    text.parse::<BigInt>().map_err(|_| Error::RangeOutOfI128)
+}
+
+fn typed_literal_integer(term: &CheckedTerm) -> Result<BigInt, CheckedScalarOperandError> {
+    use CheckedScalarOperandError as Error;
+    let CheckedTerm::Literal {
+        value_kind: LiteralKind::Integer,
+        value,
+        ..
+    } = term
+    else {
+        return Err(Error::MissingRange);
+    };
+    value
+        .as_str()
+        .ok_or(Error::MissingRange)?
+        .parse::<BigInt>()
+        .map_err(|_| Error::RangeOutOfI128)
 }
 
 fn type_range(
     nodes: &[super::CheckedSemanticNodeV2],
+    retained_terms: Option<&[CheckedTerm]>,
     ty: &CheckedNodeId,
 ) -> Result<CheckedScalarOperandRange, CheckedScalarOperandError> {
     use CheckedScalarOperandError as Error;
-    let node = nodes
+    let (position, node) = nodes
         .iter()
-        .find(|node| &node.node_id == ty)
+        .enumerate()
+        .find(|(_, node)| &node.node_id == ty)
         .ok_or(Error::MissingRange)?;
     if node.node_tag.as_ref() == "scalar_type" && node.semantic_form.as_ref() == "integer" {
         return Err(Error::UnboundedRange);
@@ -257,16 +323,19 @@ fn type_range(
     {
         return Err(Error::MissingRange);
     }
-    let members = node
-        .body
-        .get("members")
-        .and_then(Value::as_array)
-        .ok_or(Error::MissingRange)?;
+    let term = graph_term(node, retained_terms.and_then(|terms| terms.get(position)))?;
+    let CheckedTerm::Aggregate { members } = term.as_ref() else {
+        return Err(Error::MissingRange);
+    };
     let endpoint = |name: &str| {
-        let text = members.iter().find_map(|member| {
-            (member.get("name").and_then(Value::as_str) == Some(name))
-                .then(|| member.pointer("/value/value").and_then(Value::as_str))
-                .flatten()
+        let text = members.iter().find_map(|member| match member {
+            CheckedTerm::Binding { name: found, value } if found.as_ref() == name => {
+                match value.as_ref() {
+                    CheckedTerm::Literal { value, .. } => value.as_str(),
+                    _ => None,
+                }
+            }
+            _ => None,
         });
         text.ok_or(Error::MissingRange)?
             .parse::<i128>()
@@ -340,10 +409,17 @@ mod tests {
             "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"}, "entries": []},
         }))
         .expect("private package fixture");
+        let terms = wire
+            .semantic_graph
+            .nodes
+            .iter()
+            .map(|node| super::super::CheckedTerm::decode_admitted(&node.body).expect("term"))
+            .collect();
         CheckedPackageV2 {
             node_index: super::super::retained_node_index(&wire),
             lowering_facts: Vec::new(),
             wire,
+            terms,
             kinds: Vec::new(),
             bytes: 1 << 20,
             models: RetainedModels::default(),
@@ -374,16 +450,59 @@ mod tests {
             Err(CheckedScalarOperandError::MissingChild)
         );
         let mut package = fixture_package();
-        package.wire.semantic_graph.nodes[1].body = json!({"term": "aggregate", "members": []});
+        package.terms[1] = CheckedTerm::Aggregate {
+            members: Vec::new(),
+        };
         assert_eq!(
             package.scalar_application_operands(&application, &occurrence),
             Err(CheckedScalarOperandError::MissingRange)
         );
         let mut package = fixture_package();
-        package.wire.semantic_graph.nodes[3].body["operation"]["identity"] = json!("test.unknown");
+        let CheckedTerm::Application { operation, .. } = &mut package.terms[3] else {
+            panic!("application term");
+        };
+        operation["identity"] = json!("test.unknown");
         assert_eq!(
             package.scalar_application_operands(&application, &occurrence),
             Err(CheckedScalarOperandError::UnknownOperator)
+        );
+    }
+
+    #[trace("FR-349-AC-2")]
+    #[test]
+    fn admitted_scalar_arguments_use_retained_terms_after_raw_body_changes() {
+        let mut package = fixture_package();
+        let application: CheckedNodeId = serde_json::from_value(id('4')).expect("id");
+        let occurrence = CheckedOccurrence {
+            role: super::super::CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let expected = package
+            .scalar_application_operands(&application, &occurrence)
+            .expect("original operands");
+        package.wire.semantic_graph.nodes[3].body = json!({"term": "aggregate", "members": []});
+        assert_eq!(
+            package.scalar_application_operands(&application, &occurrence),
+            Ok(expected)
+        );
+    }
+
+    #[trace("FR-349-AC-2")]
+    #[test]
+    fn admitted_scalar_ranges_use_retained_graph_terms_after_raw_body_changes() {
+        let mut package = fixture_package();
+        let application: CheckedNodeId = serde_json::from_value(id('4')).expect("id");
+        let occurrence = CheckedOccurrence {
+            role: super::super::CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let expected = package
+            .scalar_application_operands(&application, &occurrence)
+            .expect("original ranges");
+        package.wire.semantic_graph.nodes[1].body = json!({"term": "aggregate", "members": []});
+        assert_eq!(
+            package.scalar_application_operands(&application, &occurrence),
+            Ok(expected)
         );
     }
 }

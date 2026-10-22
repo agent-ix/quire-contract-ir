@@ -51,6 +51,7 @@ mod checked_package_v2_recursive_leaves;
 mod checked_package_v2_require_bounds;
 mod checked_package_v2_structural_keys;
 mod checked_package_v2_temporal;
+mod checked_package_v2_typed_terms;
 mod checked_package_v2_union;
 mod complete_v1_checked_package;
 mod complete_v1_contract_package;
