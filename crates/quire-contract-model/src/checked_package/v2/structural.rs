@@ -1067,14 +1067,20 @@ mod tests {
                 ]},
             ],
         });
-        let join = application_dependencies(&body).expect("the body holds an application");
+        let term = super::super::CheckedTerm::decode_admitted(&body).expect("closed application");
+        let join = application_dependencies(&term).expect("the body holds an application");
         let expected: BTreeSet<CheckedNodeId> = ['a', 'b', 'c']
             .into_iter()
             .map(|fill| serde_json::from_value(id(fill)).expect("node id"))
             .collect();
         assert_eq!(join, expected);
         assert_eq!(
-            application_dependencies(&json!({"term": "reference", "target": id('a')})),
+            application_dependencies(
+                &super::super::CheckedTerm::decode_admitted(
+                    &json!({"term": "reference", "target": id('a')}),
+                )
+                .expect("closed reference"),
+            ),
             None
         );
         // An unparseable member declaration is left to the operation stage.
@@ -1084,6 +1090,8 @@ mod tests {
             .into_iter()
             .map(|fill| serde_json::from_value(id(fill)).expect("node id"))
             .collect();
+        let malformed =
+            super::super::CheckedTerm::decode_admitted(&malformed).expect("closed application");
         assert_eq!(application_dependencies(&malformed), Some(expected));
     }
 }
