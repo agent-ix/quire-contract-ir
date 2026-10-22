@@ -13,7 +13,7 @@ relationships:
 ## Description
 
 Verify FR-038-AC-6 (QSpec FR-195-AC-1 through FR-195-AC-5) and FR-038-AC-39
-through FR-038-AC-41 and FR-038-AC-73 through the admitted V2 package API.
+through FR-038-AC-41, FR-038-AC-73 and FR-038-AC-308 through the admitted V2 package API.
 
 ## Test Procedure
 
