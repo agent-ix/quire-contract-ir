@@ -1716,9 +1716,10 @@ fn tc_225_a_frame_operation_resolves_as_an_anchor_does_and_binds_its_parameters(
     }
 }
 
-/// FR-154-AC-14 validates declared parameter names at the selected domain
+/// QSpec FR-154-AC-14 validates declared parameter names at the selected domain
 /// document before the abstraction relation frame entry is reached.
-#[trace("TC-225", "TC-280", "FR-346-AC-7", "FR-154-AC-14")]
+/// ACs: FR-346-AC-7
+#[trace("TC-225", "FR-346-AC-7")]
 #[test]
 fn tc_225_an_operation_without_valid_parameter_names_refuses_at_selection() {
     let rebase = |parameters: &[(&str, &str)]| {

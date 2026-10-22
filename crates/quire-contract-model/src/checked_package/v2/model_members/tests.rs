@@ -339,7 +339,7 @@ fn operation_redefinitions_refuse_malformed_and_missing_targets() {
     }
 }
 
-#[trace("TC-280", "FR-154-AC-14")]
+#[trace("TC-225", "FR-346-AC-7")]
 #[test]
 fn operation_parameter_names_are_validated_at_selection() {
     let operation = format!("{WIDGET}/act");
@@ -412,7 +412,7 @@ fn operation_parameter_names_are_validated_at_selection() {
     assert!(read(&document(vec![object])).is_ok());
 }
 
-#[trace("TC-280", "FR-154-AC-14")]
+#[trace("TC-225", "FR-346-AC-7")]
 #[test]
 fn operation_parameter_name_refusal_retains_the_operation_origin() {
     let operation = format!("{WIDGET}/act");
