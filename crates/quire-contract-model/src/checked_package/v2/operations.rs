@@ -71,16 +71,13 @@ use super::{
     ValueForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
-use crate::checked_package::common::{
-    application_operator, body_term, decoder_pointer, literal_kind, node_pointer, NODE_DOMAIN,
-};
+use crate::checked_package::common::{body_term, decoder_pointer, node_pointer, NODE_DOMAIN};
 use crate::checked_package::selected_population::{
     is_model_population, least_type_occurrence, population_maximum, population_object_type,
 };
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
-use crate::checked_package::terms::subterms;
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_traits::One;
@@ -303,14 +300,19 @@ pub(super) fn validate_operations(
         if let Some(failure) = case_placement_defect(position, &graph) {
             return Err(failure);
         }
-        if !is_application(&node.body) {
+        if !matches!(
+            graph.terms.get(position).and_then(Option::as_ref),
+            Some(CheckedTerm::Application { .. })
+        ) {
             // No application check applies, but a union type or union value
             // node has its own joins (QSpec FR-440), and the terms of the
             // body are walked for `dependency_reference` (FR-322, step 7).
             if let Some(failure) = union_defect(position, &graph, owners, meter)? {
                 return Err(failure);
             }
-            references.walk_body(Referrer { node, position }, meter)?;
+            if let Some(term) = graph.terms.get(position).and_then(Option::as_ref) {
+                references.walk_admitted(Referrer { node, position }, term, meter)?;
+            }
             if let Some(failure) = literal_defect(node, position, &graph) {
                 return Err(failure);
             }
@@ -346,20 +348,17 @@ fn literal_defect(
     position: usize,
     graph: &Graph<'_>,
 ) -> Option<ValidationFailure> {
-    let mut pending = vec![(&node.body, node_pointer(position).key("body"))];
+    let root = graph.terms.get(position).and_then(Option::as_ref)?;
+    let mut pending = vec![(root, node_pointer(position).key("body"))];
     let mut native = Vec::new();
     while let Some((term, path)) = pending.pop() {
-        if body_term(term) == Some(BodyTerm::Literal) {
-            let Some(kind) = literal_kind(term) else {
-                continue;
-            };
-            let Some(type_id) = term
-                .get("type")
-                .and_then(|value| serde_json::from_value::<CheckedNodeId>(value.clone()).ok())
-            else {
-                continue;
-            };
-            let family = resolve_family(&type_id, graph.nodes, graph.kinds, graph.index);
+        if let CheckedTerm::Literal {
+            type_id,
+            value_kind: kind,
+            value,
+        } = term
+        {
+            let family = resolve_family(type_id, graph.nodes, graph.kinds, graph.index);
             // IEEE bits require their own width and quantities require a unit
             // even when the declared node has no operand family. Other literal
             // kinds keep their existing familyless-type behavior.
@@ -395,25 +394,15 @@ fn literal_defect(
                 ));
             }
             let valid_native = match kind {
-                LiteralKind::String => Some(term.get("value").is_some_and(Value::is_string)),
-                LiteralKind::Uuid => Some(
-                    term.get("value")
-                        .and_then(Value::as_str)
-                        .is_some_and(canonical_uuid),
-                ),
-                LiteralKind::Timestamp => Some(
-                    term.get("value")
-                        .and_then(Value::as_str)
-                        .is_some_and(|text| {
-                            text.parse::<i128>()
-                                .is_ok_and(|parsed| parsed.to_string() == text)
-                        }),
-                ),
-                LiteralKind::Quantity => Some(
-                    term.get("value")
-                        .and_then(Value::as_str)
-                        .is_some_and(canonical_quantity_magnitude),
-                ),
+                LiteralKind::String => Some(value.is_string()),
+                LiteralKind::Uuid => Some(value.as_str().is_some_and(canonical_uuid)),
+                LiteralKind::Timestamp => Some(value.as_str().is_some_and(|text| {
+                    text.parse::<i128>()
+                        .is_ok_and(|parsed| parsed.to_string() == text)
+                })),
+                LiteralKind::Quantity => {
+                    Some(value.as_str().is_some_and(canonical_quantity_magnitude))
+                }
                 LiteralKind::Boolean
                 | LiteralKind::Integer
                 | LiteralKind::Rational
@@ -428,12 +417,24 @@ fn literal_defect(
                 native.push((valid, path.clone()));
             }
         }
-        for child in subterms(term).collect::<Vec<_>>().into_iter().rev() {
-            let child_path = path.clone().key(child.key);
-            let child_path = child
-                .index
-                .map_or(child_path.clone(), |index| child_path.index(index));
-            pending.push((child.value, child_path));
+        match term {
+            CheckedTerm::Application { arguments, .. } => {
+                for (index, child) in arguments.iter().enumerate().rev() {
+                    pending.push((child, path.clone().key("arguments").index(index)));
+                }
+            }
+            CheckedTerm::Aggregate { members } => {
+                for (index, child) in members.iter().enumerate().rev() {
+                    pending.push((child, path.clone().key("members").index(index)));
+                }
+            }
+            CheckedTerm::Binding { value, .. } => pending.push((value, path.key("value"))),
+            CheckedTerm::Literal { .. }
+            | CheckedTerm::Reference { .. }
+            | CheckedTerm::DependencyReference { .. }
+            | CheckedTerm::Frame { .. }
+            | CheckedTerm::AbstractionRelation { .. }
+            | CheckedTerm::ExtensionForm { .. } => {}
         }
     }
     for (valid, path) in native {
@@ -626,11 +627,17 @@ fn operation_defect(
         ..
     } = *graph;
     let node = application.node;
-    let Some(body) = node.body.as_object() else {
-        return Ok(None);
-    };
-    let operator = application_operator(&node.body);
-    let Some(operation_value) = body.get("operation") else {
+    let Some(
+        term @ CheckedTerm::Application {
+            operator,
+            operation: operation_value,
+            ..
+        },
+    ) = graph
+        .terms
+        .get(application.position)
+        .and_then(Option::as_ref)
+    else {
         return Ok(None);
     };
     let operation = match serde_path_to_error::deserialize::<_, OperationWire>(operation_value) {
@@ -668,7 +675,7 @@ fn operation_defect(
             CheckedPackageRefusalCause::UnknownOperation,
         );
     };
-    if operator != Some(entry.operator) {
+    if *operator != entry.operator {
         return refuse(
             application.body(&["operator"]),
             CheckedPackageRefusalCause::OperationClassMismatch,
@@ -799,18 +806,20 @@ fn operation_defect(
     // FR-322 step 7: the application's own identity checks are done, so its
     // arguments are next, in pre-order; a `dependency_reference` among them
     // is checked here, before the operand checks below.
-    references.walk_arguments(
+    references.walk_admitted(
         Referrer {
             node,
             position: application.position,
         },
+        term,
         meter,
     )?;
     if let Some(failure) = literal_defect(node, application.position, graph) {
         return Ok(Some(failure));
     }
 
-    let arguments = body
+    let arguments = node
+        .body
         .get("arguments")
         .and_then(Value::as_array)
         .cloned()
@@ -887,7 +896,7 @@ fn operation_defect(
                 }
             }
             _ if kind == MemberKind::Field => {
-                if let Some(failure) = check_field_member(application, &operation, nodes, index) {
+                if let Some(failure) = check_field_member(application, &operation, graph) {
                     return Ok(Some(failure));
                 }
             }
@@ -909,16 +918,9 @@ fn operation_defect(
             return Ok(Some(failure));
         }
     }
-    if let Some(failure) = check_mode_type(
-        application,
-        entry,
-        &operation,
-        &arguments,
-        nodes,
-        kinds,
-        index,
-        catalog,
-    ) {
+    if let Some(failure) =
+        check_mode_type(application, entry, &operation, &arguments, graph, catalog)
+    {
         return Ok(Some(failure));
     }
     check_leaf_count(
@@ -952,34 +954,42 @@ fn operation_defect(
 /// resolve, is not resolved (`None`), so a caller skips the check it would
 /// otherwise support rather than guess.
 fn argument_family(
-    argument: &Value,
+    argument: &CheckedTerm,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
     catalog: &OperationCatalog,
 ) -> Option<&'static str> {
-    match body_term(argument) {
-        Some(BodyTerm::Application) if is_clause_application(argument, catalog) => Some("clause"),
-        Some(BodyTerm::Reference | BodyTerm::Literal | BodyTerm::Application) => {
-            let type_node = operand_type_node(argument, nodes, kinds, index)?;
+    match argument {
+        CheckedTerm::Application { .. } if is_clause_application(argument, catalog) => {
+            Some("clause")
+        }
+        CheckedTerm::Reference { .. }
+        | CheckedTerm::Literal { .. }
+        | CheckedTerm::Application { .. } => {
+            let type_node = operand_type_node_typed(argument, nodes, kinds, index)?;
             resolve_family(&type_node, nodes, kinds, index)
         }
-        Some(BodyTerm::Binding) => Some("binder"),
-        Some(BodyTerm::Aggregate) => Some("aggregate"),
+        CheckedTerm::Binding { .. } => Some("binder"),
+        CheckedTerm::Aggregate { .. } => Some("aggregate"),
         // A `dependency_reference` callee has family `function` (FR-322), and
         // the dependency-reference walk (step 7), which runs before the
         // operand checks, has already refused it anywhere but a
         // `quire.op.function.call` callee, so no operand check reads it.
-        Some(BodyTerm::DependencyReference | BodyTerm::Frame | BodyTerm::AbstractionRelation)
-        | None => None,
+        CheckedTerm::DependencyReference { .. }
+        | CheckedTerm::Frame { .. }
+        | CheckedTerm::AbstractionRelation { .. }
+        | CheckedTerm::ExtensionForm { .. } => None,
     }
 }
 
 /// Whether an `application` term's catalogued operation has result `clause`.
-fn is_clause_application(argument: &Value, catalog: &OperationCatalog) -> bool {
-    argument
-        .get("operation")
-        .and_then(|operation| operation.get("identity"))
+fn is_clause_application(argument: &CheckedTerm, catalog: &OperationCatalog) -> bool {
+    let CheckedTerm::Application { operation, .. } = argument else {
+        return false;
+    };
+    operation
+        .get("identity")
         .and_then(Value::as_str)
         .and_then(|identity| catalog.entry(identity))
         .is_some_and(|entry| &*entry.result == "clause")
@@ -1382,6 +1392,16 @@ fn check_operands(
         index,
         ..
     } = *graph;
+    let Some(CheckedTerm::Application {
+        arguments: typed_arguments,
+        ..
+    }) = graph
+        .terms
+        .get(application.position)
+        .and_then(Option::as_ref)
+    else {
+        return Ok(None);
+    };
     let required = entry.operands.len();
     // `None` names the `arguments` array itself (an arity defect); `Some`
     // names the one argument at fault.
@@ -1408,12 +1428,12 @@ fn check_operands(
         if position == 0
             && matches!(entry.leaves.as_deref(), Some("operand:0" | "inner:0"))
             && matches!(
-                body_term(&arguments[0]),
+                typed_arguments.first(),
                 Some(
-                    BodyTerm::Binding
-                        | BodyTerm::Aggregate
-                        | BodyTerm::Frame
-                        | BodyTerm::AbstractionRelation
+                    CheckedTerm::Binding { .. }
+                        | CheckedTerm::Aggregate { .. }
+                        | CheckedTerm::Frame { .. }
+                        | CheckedTerm::AbstractionRelation { .. }
                 )
             )
         {
@@ -1428,12 +1448,15 @@ fn check_operands(
             && position == 0
             && &**expected == "reference"
         {
-            if body_term(&arguments[0]) != Some(BodyTerm::Reference) {
+            if !matches!(typed_arguments.first(), Some(CheckedTerm::Reference { .. })) {
                 return ineligible(Some(0));
             }
             continue;
         }
-        if let Some(actual) = argument_family(&arguments[position], nodes, kinds, index, catalog) {
+        if let Some(actual) = typed_arguments
+            .get(position)
+            .and_then(|argument| argument_family(argument, nodes, kinds, index, catalog))
+        {
             if !catalog.family_fits(actual, expected) {
                 if entry.mode == Some(OperationModeKind::TextProfile) && actual == "string" {
                     string_in_text_mode = true;
@@ -1444,7 +1467,12 @@ fn check_operands(
         }
     }
     if let Some(rest_family) = &entry.rest {
-        for (offset, argument) in arguments[required..].iter().enumerate() {
+        for (offset, argument) in typed_arguments
+            .get(required..)
+            .unwrap_or_default()
+            .iter()
+            .enumerate()
+        {
             if let Some(actual) = argument_family(argument, nodes, kinds, index, catalog) {
                 if !catalog.family_fits(actual, rest_family) {
                     if entry.mode == Some(OperationModeKind::TextProfile) && actual == "string" {
@@ -1480,7 +1508,9 @@ fn check_operands(
                 let families: Option<Vec<&str>> = indices
                     .iter()
                     .map(|position| {
-                        argument_family(&arguments[*position], nodes, kinds, index, catalog)
+                        typed_arguments.get(*position).and_then(|argument| {
+                            argument_family(argument, nodes, kinds, index, catalog)
+                        })
                     })
                     .collect();
                 if let Some(families) = families {
@@ -1492,7 +1522,11 @@ fn check_operands(
             OperationConstraintKind::SameType => {
                 let types: Option<Vec<CheckedNodeId>> = indices
                     .iter()
-                    .map(|position| operand_type_node(&arguments[*position], nodes, kinds, index))
+                    .map(|position| {
+                        typed_arguments.get(*position).and_then(|argument| {
+                            operand_type_node_typed(argument, nodes, kinds, index)
+                        })
+                    })
                     .collect();
                 if let Some(types) = types {
                     if let Some(pair) = types.windows(2).position(|pair| pair[0] != pair[1]) {
@@ -1710,8 +1744,13 @@ fn is_type_node(kind: CheckedNodeKind) -> bool {
 fn case_placement_defect(position: usize, graph: &Graph<'_>) -> Option<ValidationFailure> {
     let node = &graph.nodes[position];
     let kind = graph.kinds[position];
-    let root_is_case = is_application(&node.body)
-        && application_operator(&node.body) == Some(ApplicationOperator::Case);
+    let root_is_case = matches!(
+        graph.terms.get(position).and_then(Option::as_ref),
+        Some(CheckedTerm::Application {
+            operator: ApplicationOperator::Case,
+            ..
+        })
+    );
     let is_case_node = kind == CheckedNodeKind::Expression(ExpressionForm::Case);
     let refuse = |code, path, cause| {
         Some(ValidationFailure::refused_at(
@@ -2666,19 +2705,19 @@ fn check_model_member(
 fn check_field_member(
     application: Application<'_>,
     operation: &OperationWire,
-    nodes: &[CheckedSemanticNodeV2],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    graph: &Graph<'_>,
 ) -> Option<ValidationFailure> {
     let member = operation.member.as_ref()?;
     let declaration: CheckedNodeId =
         serde_json::from_value(member.get("declaration")?.clone()).ok()?;
     let name = member.get("name")?.as_str()?;
-    let declaring = &nodes[*index.get(&declaration)?];
-    let members = declaring.body.get("members")?.as_array()?;
-    let declared = members.iter().any(|entry| {
-        body_term(entry) == Some(BodyTerm::Binding)
-            && entry.get("name").and_then(Value::as_str) == Some(name)
-    });
+    let position = *graph.index.get(&declaration)?;
+    let CheckedTerm::Aggregate { members } = graph.terms.get(position)?.as_ref()? else {
+        return None;
+    };
+    let declared = members.iter().any(
+        |entry| matches!(entry, CheckedTerm::Binding { name: found, .. } if found.as_ref() == name),
+    );
     if declared {
         None
     } else {
@@ -2759,16 +2798,21 @@ fn operand_type_node_typed(
 fn type_pin(
     type_id: &CheckedNodeId,
     kind: OperationModeKind,
-    nodes: &[CheckedSemanticNodeV2],
+    terms: &[Option<CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Option<Box<str>> {
-    let node = &nodes[*index.get(type_id)?];
-    let members = node.body.get("members")?.as_array()?;
-    let binding = members.iter().find(|entry| {
-        body_term(entry) == Some(BodyTerm::Binding)
-            && entry.get("name").and_then(Value::as_str) == Some(kind.as_wire())
-    })?;
-    binding.get("value")?.get("value")?.as_str().map(Box::from)
+    let CheckedTerm::Aggregate { members } = terms.get(*index.get(type_id)?)?.as_ref()? else {
+        return None;
+    };
+    members.iter().find_map(|entry| match entry {
+        CheckedTerm::Binding { name, value } if name.as_ref() == kind.as_wire() => {
+            let CheckedTerm::Literal { value, .. } = value.as_ref() else {
+                return None;
+            };
+            value.as_str().map(Box::from)
+        }
+        _ => None,
+    })
 }
 
 fn check_mode_type(
@@ -2776,11 +2820,15 @@ fn check_mode_type(
     entry: &OperationCatalogEntry,
     operation: &OperationWire,
     arguments: &[Value],
-    nodes: &[CheckedSemanticNodeV2],
-    kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    graph: &Graph<'_>,
     catalog: &super::operation_catalog::OperationCatalog,
 ) -> Option<ValidationFailure> {
+    let Graph {
+        nodes,
+        kinds,
+        index,
+        terms,
+    } = *graph;
     let mode = operation.mode.as_ref()?;
     let mode_kind = mode.kind_class()?;
     if !catalog.is_type_pinned_mode(mode_kind) {
@@ -2812,7 +2860,7 @@ fn check_mode_type(
         let Some(family) = resolve_family(&type_id, nodes, kinds, index) else {
             continue;
         };
-        let pin = type_pin(&type_id, mode_kind, nodes, index).or_else(|| {
+        let pin = type_pin(&type_id, mode_kind, terms, index).or_else(|| {
             (mode_kind == OperationModeKind::Rounding
                 && matches!(family, "decimal" | "float32" | "float64" | "quantity"))
             .then(|| Box::from("exact"))
@@ -2907,7 +2955,12 @@ fn text_profile_pin(
         let node = &nodes[position];
         walked.push(position);
         seen.insert(position);
-        if let Some(pin) = type_pin(&node.node_id, OperationModeKind::TextProfile, nodes, index) {
+        if let Some(pin) = type_pin(
+            &node.node_id,
+            OperationModeKind::TextProfile,
+            walk.terms,
+            index,
+        ) {
             break Some(pin);
         }
         let Some(kind) = kinds.get(position).copied() else {
@@ -4357,6 +4410,54 @@ mod tests {
         })
     }
 
+    /// Unit fixtures enter the operation stage directly. Supply the term
+    /// members that body admission would already have required, while leaving
+    /// each test's operation record and selected operand values intact.
+    fn admitted_fixture_term(mut value: Value, type_id: &CheckedNodeId) -> Value {
+        match value.get("term").and_then(Value::as_str) {
+            Some("literal") => {
+                let object = value.as_object_mut().expect("term object");
+                object.entry("type").or_insert_with(|| json!(type_id));
+                object
+                    .entry("value_kind")
+                    .or_insert_with(|| json!("integer"));
+                object.entry("value").or_insert(Value::Null);
+            }
+            Some("application") => {
+                let object = value.as_object_mut().expect("term object");
+                object
+                    .entry("result_type")
+                    .or_insert_with(|| json!(type_id));
+                if let Some(arguments) = object.get_mut("arguments").and_then(Value::as_array_mut) {
+                    for argument in arguments {
+                        *argument = admitted_fixture_term(std::mem::take(argument), type_id);
+                    }
+                }
+            }
+            Some("aggregate") => {
+                if let Some(members) = value.get_mut("members").and_then(Value::as_array_mut) {
+                    for member in members {
+                        *member = admitted_fixture_term(std::mem::take(member), type_id);
+                    }
+                }
+            }
+            Some("binding") => {
+                if let Some(child) = value.get_mut("value") {
+                    *child = admitted_fixture_term(std::mem::take(child), type_id);
+                }
+            }
+            Some("reference") => {
+                value
+                    .as_object_mut()
+                    .expect("term object")
+                    .entry("target")
+                    .or_insert_with(|| json!(type_id));
+            }
+            _ => {}
+        }
+        value
+    }
+
     /// A single-node `application` term with a caller-supplied `operator`,
     /// `operation` wire value and `arguments`. `node_id`/`semantic_type` are
     /// placeholders `operation_defect` never inspects for its own checks
@@ -4367,6 +4468,11 @@ mod tests {
         operation: Value,
         arguments: Vec<Value>,
     ) -> CheckedSemanticNodeV2 {
+        let fixture_type = node_id('2');
+        let arguments: Vec<Value> = arguments
+            .into_iter()
+            .map(|argument| admitted_fixture_term(argument, &fixture_type))
+            .collect();
         let value = json!({
             "node_id": { "domain": NODE_DOMAIN, "digest": dummy_digest('1') },
             "schema_version": "quire.checked-semantic-graph/v2",
@@ -4380,6 +4486,7 @@ mod tests {
                 "operator": operator,
                 "arguments": arguments,
                 "operation": operation,
+                "result_type": fixture_type,
             },
         });
         serde_json::from_value(value).expect("test fixture node is well-formed")
@@ -4438,6 +4545,7 @@ mod tests {
         semantic_type: &CheckedNodeId,
         body: Value,
     ) -> CheckedSemanticNodeV2 {
+        let body = admitted_fixture_term(body, semantic_type);
         let value = json!({
             "node_id": { "domain": NODE_DOMAIN, "digest": dummy_digest(id_byte) },
             "schema_version": "quire.checked-semantic-graph/v2",
@@ -5667,7 +5775,7 @@ mod tests {
                     "term": "reference",
                     "target": { "domain": NODE_DOMAIN, "digest": dummy_digest('r') },
                 }),
-                json!({ "term": "literal", "value": 0 }),
+                reference_to('p'),
             ],
         );
 
@@ -5677,6 +5785,7 @@ mod tests {
                 record_node,
                 field_type_node,
                 scalar_type_node('t', "text"),
+                parameter_of('p', 'r'),
             ],
             &text_selecting_lock(),
         );
@@ -8173,21 +8282,13 @@ mod tests {
     #[trace("TC-048", "FR-038-AC-86")]
     #[test]
     fn operation_defect_same_type_resolves_literal_and_application_operands() {
-        let record_type = |id_byte: char| {
-            graph_node(
-                id_byte,
-                "composite_type",
-                "record",
-                &node_id(id_byte),
-                json!({ "term": "aggregate", "members": [] }),
-            )
-        };
+        let option_type = |id_byte: char| collection_type_node(id_byte, "option", 'i');
         let literal = |type_byte: char| {
             json!({
                 "term": "literal",
                 "type": { "domain": NODE_DOMAIN, "digest": dummy_digest(type_byte) },
-                "value_kind": "record",
-                "value": "x",
+                "value_kind": "none",
+                "value": null,
             })
         };
         let nested = |type_byte: char| {
@@ -8204,7 +8305,12 @@ mod tests {
             let root = custom_application_node("binary", operation.clone(), vec![first, second]);
             let locus = root.node_id.clone();
             (
-                defect_for_graph(vec![root, record_type('p'), record_type('q')]),
+                defect_for_graph(vec![
+                    root,
+                    option_type('p'),
+                    option_type('q'),
+                    scalar_type_node('i', "integer"),
+                ]),
                 locus,
             )
         };
@@ -8223,7 +8329,7 @@ mod tests {
         assert_eq!(defect(nested('p'), nested('p')).0, Ok(None));
         let (result, locus) = defect(nested('p'), nested('q'));
         assert_eq!(result, refusal(locus), "applications of two result types");
-        let untyped = json!({ "term": "literal", "value": 0 });
+        let untyped = reference_to('z');
         assert_eq!(
             defect(literal('p'), untyped).0,
             Ok(None),
@@ -8241,10 +8347,16 @@ mod tests {
     #[test]
     fn operation_defect_checks_literal_and_application_operands() {
         let typed_literal = |type_byte: char| {
+            let (kind, value) = match type_byte {
+                'b' => ("boolean", json!(true)),
+                '5' | '4' => ("decimal", json!("1")),
+                _ => ("integer", json!("1")),
+            };
             json!({
                 "term": "literal",
                 "type": { "domain": NODE_DOMAIN, "digest": dummy_digest(type_byte) },
-                "value": 1,
+                "value_kind": kind,
+                "value": value,
             })
         };
         let scalar_node = |id_byte: char, form: &str| {
@@ -8874,7 +8986,9 @@ mod tests {
             .map(|(position, node)| (&node.node_id, position))
             .collect();
         let catalog = operation_catalog();
-        let family = super::argument_family(&reference_to('4'), &nodes, &kinds, &index, catalog);
+        let reference = super::CheckedTerm::decode_admitted(&reference_to('4'))
+            .expect("reference fixture admits");
+        let family = super::argument_family(&reference, &nodes, &kinds, &index, catalog);
         assert_eq!(family, Some("temporal"));
         assert!(catalog.family_fits("temporal", "temporal"));
         assert!(catalog.family_fits("temporal", "any_term"));
