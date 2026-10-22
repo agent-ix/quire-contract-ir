@@ -325,7 +325,35 @@ pub(super) fn population_object_type<'a>(
 #[cfg(test)]
 mod tests {
     use super::population_maximum;
+    use crate::checked_package::v2::{CheckedTerm, LiteralKind};
+    use crate::checked_package::CheckedNodeId;
+    use ix_trace_rs::trace;
     use serde_json::json;
+
+    #[trace("FR-349-AC-2", "FR-053-AC-3")]
+    #[test]
+    fn admitted_maximum_reads_typed_binding_and_literal() {
+        let integer = CheckedNodeId {
+            domain: "quire.checked-semantic-node/v1".into(),
+            digest: "0".repeat(64).into(),
+        };
+        let maximum = CheckedTerm::Binding {
+            name: "max".into(),
+            value: Box::new(CheckedTerm::Literal {
+                type_id: integer,
+                value_kind: LiteralKind::Integer,
+                value: json!("0"),
+            }),
+        };
+        let aggregate = CheckedTerm::Aggregate {
+            members: vec![maximum.clone()],
+        };
+        assert_eq!(population_maximum(&aggregate), Some(0));
+        let duplicate = CheckedTerm::Aggregate {
+            members: vec![maximum.clone(), maximum],
+        };
+        assert_eq!(population_maximum(&duplicate), None);
+    }
 
     #[test]
     fn maximum_requires_the_selected_integer_literal_binding() {
