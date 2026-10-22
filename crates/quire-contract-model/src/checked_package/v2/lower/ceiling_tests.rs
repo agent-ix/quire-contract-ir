@@ -247,6 +247,7 @@ fn package(bytes: u64) -> CheckedPackageV2 {
         node_index: super::super::retained_node_index(&wire),
         lowering_facts: Vec::new(),
         wire,
+        terms: Vec::new(),
         kinds,
         bytes,
         models: Default::default(),

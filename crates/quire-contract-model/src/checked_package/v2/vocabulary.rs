@@ -340,7 +340,7 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed `literal.value_kind` vocabulary.
-    pub(in crate::checked_package) LiteralKind {
+    pub LiteralKind {
         Boolean => "boolean",
         Integer => "integer",
         Rational => "rational",
@@ -359,7 +359,7 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed `application.operator` class vocabulary.
-    pub(in crate::checked_package) ApplicationOperator {
+    pub ApplicationOperator {
         Call => "call",
         Unary => "unary",
         Binary => "binary",

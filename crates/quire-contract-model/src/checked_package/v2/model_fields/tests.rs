@@ -570,6 +570,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
             node_index: super::super::retained_node_index(&wire),
             lowering_facts: Vec::new(),
             wire,
+            terms: Vec::new(),
             kinds,
             bytes: BYTES,
             models: RetainedModels::new(index, vec![model]),
