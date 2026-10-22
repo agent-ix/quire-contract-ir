@@ -5,7 +5,9 @@
 
 use super::model_fields::OperationTypes;
 use super::operation_catalog::operation_catalog;
-use super::structural::{anchor_body, clause_body, reference_target, reference_type_target};
+use super::structural::{
+    reference_target, reference_type_target, typed_anchor_body, typed_clause_body,
+};
 use super::{
     CheckedMemberType, CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageV2,
     CheckedScalarOperandRange, CheckedSemanticNodeV2, StateClauseKind,
@@ -293,15 +295,22 @@ impl CheckedPackageV2 {
                 Some(clause.clone()),
             ));
         }
-        let body = clause_body(&node.body).ok_or_else(|| {
-            context.error(Refusal::NotStateClause, Path::Clause, Some(clause.clone()))
-        })?;
+        let body = self
+            .node_index
+            .get(clause)
+            .and_then(|&position| self.terms.get(position))
+            .and_then(typed_clause_body)
+            .ok_or_else(|| {
+                context.error(Refusal::NotStateClause, Path::Clause, Some(clause.clone()))
+            })?;
         context.kind = body.clause.into();
         context.parameters = body.parameters;
         if context.kind != CheckedComparisonClauseKind::Invariant {
             context.operation = context
                 .node(&body.anchor)
-                .and_then(|anchor| anchor_body(&anchor.body))
+                .and_then(|anchor| self.node_index.get(&anchor.node_id).copied())
+                .and_then(|position| self.terms.get(position))
+                .and_then(typed_anchor_body)
                 .and_then(|anchor| {
                     context
                         .node(&anchor.context)

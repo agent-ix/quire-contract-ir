@@ -71,8 +71,7 @@ use super::{
     ValueForm,
 };
 use crate::checked_package::common::{
-    application_operator, body_term, exact_members, is_digest, literal_kind, node_pointer,
-    ValidationFailure, NODE_DOMAIN,
+    body_term, exact_members, is_digest, literal_kind, node_pointer, ValidationFailure, NODE_DOMAIN,
 };
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCode, JsonPointer,
@@ -641,23 +640,8 @@ pub(super) struct AnchorBody<'a> {
     pub(super) frame: CheckedNodeId,
 }
 
-/// The anchor body `body` holds, or `None` for any other shape.
-pub(super) fn anchor_body(body: &Value) -> Option<AnchorBody<'_>> {
-    let Some([context, operation, frame]) = aggregate_members(body) else {
-        return None;
-    };
-    Some(AnchorBody {
-        context: binding(context, "context").and_then(reference_target)?,
-        operation: binding(operation, "operation")
-            .filter(|value| literal_kind(value) == Some(LiteralKind::Text))
-            .and_then(|value| value.get("value"))
-            .and_then(Value::as_str)
-            .filter(|name| is_identifier(name))?,
-        frame: binding(frame, "frame").and_then(reference_target)?,
-    })
-}
-
-fn typed_anchor_body(body: &super::CheckedTerm) -> Option<AnchorBody<'_>> {
+/// The admitted anchor body, or `None` for any other typed shape.
+pub(super) fn typed_anchor_body(body: &super::CheckedTerm) -> Option<AnchorBody<'_>> {
     let [context, operation, frame] = typed_aggregate(body)? else {
         return None;
     };
@@ -705,44 +689,13 @@ pub(super) fn is_state_clause_application(term: &Value) -> bool {
             .is_some_and(|identity| identity == STATE_CLAUSE_OPERATION)
 }
 
-/// The state clause body `body` holds, or `None` for any other shape: an
+/// The admitted state clause body, or `None` for any other shape: an
 /// application of `quire.op.state.clause` with operator class
 /// `state_clause`, member exactly `{kind: "state_clause", clause}`, and
 /// arguments an `aggregate` of one or more `reference` terms, a `reference`
 /// and the condition.
 // Decodes a state clause member's kind and clause.
-pub(super) fn clause_body(body: &Value) -> Option<ClauseBody> {
-    if !is_state_clause_application(body)
-        || application_operator(body) != Some(ApplicationOperator::StateClause)
-    {
-        return None;
-    }
-    let member = body.get("operation")?.get("member")?.as_object()?;
-    let kind = member
-        .get("kind")
-        .and_then(Value::as_str)
-        .and_then(OperationMemberKind::from_wire);
-    if !exact_members(member, &["kind", "clause"]) || kind != Some(OperationMemberKind::StateClause)
-    {
-        return None;
-    }
-    let clause = StateClauseKind::from_wire(member.get("clause")?.as_str()?)?;
-    let [parameters, anchor, _condition] = body.get("arguments")?.as_array()?.as_slice() else {
-        return None;
-    };
-    let parameters = aggregate_members(parameters)?
-        .iter()
-        .map(reference_target)
-        .collect::<Option<Vec<_>>>()
-        .filter(|parameters| !parameters.is_empty())?;
-    Some(ClauseBody {
-        clause,
-        parameters,
-        anchor: reference_target(anchor)?,
-    })
-}
-
-fn typed_clause_body(body: &super::CheckedTerm) -> Option<ClauseBody> {
+pub(super) fn typed_clause_body(body: &super::CheckedTerm) -> Option<ClauseBody> {
     let super::CheckedTerm::Application {
         operator: ApplicationOperator::StateClause,
         operation,
@@ -807,25 +760,7 @@ pub(super) struct UnionMember<'a> {
 /// named by an identifier and valued by an `aggregate` of `reference` terms
 /// (QSpec's `UnionTypeBody`). A repeated name is not a shape defect here: it
 /// is the operation step's `duplicate-member`.
-pub(super) fn union_type_body(body: &Value) -> Option<Vec<UnionMember<'_>>> {
-    let members = aggregate_members(body)?
-        .iter()
-        .map(|member| {
-            let name = member
-                .get("name")
-                .and_then(Value::as_str)
-                .filter(|name| is_identifier(name))?;
-            let payload = aggregate_members(binding(member, name)?)?
-                .iter()
-                .map(reference_target)
-                .collect::<Option<Vec<_>>>()?;
-            Some(UnionMember { name, payload })
-        })
-        .collect::<Option<Vec<_>>>()?;
-    (!members.is_empty()).then_some(members)
-}
-
-fn typed_union_type_body(body: &super::CheckedTerm) -> Option<Vec<UnionMember<'_>>> {
+pub(super) fn typed_union_type_body(body: &super::CheckedTerm) -> Option<Vec<UnionMember<'_>>> {
     let members = typed_aggregate(body)?
         .iter()
         .map(|member| {
@@ -851,18 +786,9 @@ fn typed_union_type_body(body: &super::CheckedTerm) -> Option<Vec<UnionMember<'_
 /// The active member and payload terms a `value`/`union_value` body holds, or
 /// `None` for any other shape: an `aggregate` of exactly one `binding`, named
 /// by an identifier and valued by an `aggregate` (QSpec's `UnionValueBody`).
-pub(super) fn union_value_body(body: &Value) -> Option<(&str, &[Value])> {
-    let [member] = aggregate_members(body)? else {
-        return None;
-    };
-    let name = member
-        .get("name")
-        .and_then(Value::as_str)
-        .filter(|name| is_identifier(name))?;
-    Some((name, aggregate_members(binding(member, name)?)?))
-}
-
-fn typed_union_value_body(body: &super::CheckedTerm) -> Option<(&str, &[super::CheckedTerm])> {
+pub(super) fn typed_union_value_body(
+    body: &super::CheckedTerm,
+) -> Option<(&str, &[super::CheckedTerm])> {
     let [member] = typed_aggregate(body)? else {
         return None;
     };
