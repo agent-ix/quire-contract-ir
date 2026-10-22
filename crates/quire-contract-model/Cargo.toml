@@ -36,12 +36,13 @@ jsonschema = { version = "=0.17.1", default-features = false }
 # The home of `quire.checked-operation-catalog/v1`. This crate reads the catalog
 # from there rather than carrying its own copy of the bytes; see
 # `checked_package/v2/operation_catalog.rs`.
-quire-verification-contracts = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-verification-contracts", branch = "main" }
+# Moving first-party branches use compatible ranges; Cargo.lock records selected revisions.
+quire-verification-contracts = { version = "0.1", git = "https://github.com/agent-ix/quire-verification-contracts", branch = "main" }
 # The one RFC 8785 encoder every identity digest and the V2 wire types encode
 # through, and the reader's canonical-bytes check; see
 # `checked_package/v2/encode.rs`. The `serde_json` feature is its `Encode` for
 # `serde_json::Value` and the non-recursive `drop_value`.
-quire-canonical = { version = "=0.3.0", git = "https://github.com/agent-ix/quire-canonical", branch = "main", features = ["serde_json"] }
+quire-canonical = { version = "0.3", git = "https://github.com/agent-ix/quire-canonical", branch = "main", features = ["serde_json"] }
 serde = { version = "1.0.228", features = ["derive"] }
 # `float_roundtrip` makes the package document's parse of a shortest round-trip
 # text exact, so the canonical-bytes comparison of the value read holds
@@ -65,4 +66,4 @@ unicode-ident = "=1.0.24"
 unicode-normalization = "=0.1.25"
 
 [dev-dependencies]
-ix-trace-rs = { version = "=0.1.0", git = "https://github.com/agent-ix/ix-trace-rs", branch = "main" }
+ix-trace-rs = { version = "0.1", git = "https://github.com/agent-ix/ix-trace-rs", branch = "main" }
