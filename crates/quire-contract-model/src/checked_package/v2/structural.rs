@@ -71,7 +71,7 @@ use super::{
     ValueForm,
 };
 use crate::checked_package::common::{
-    body_term, exact_members, is_digest, literal_kind, node_pointer, ValidationFailure, NODE_DOMAIN,
+    body_term, exact_members, is_digest, node_pointer, ValidationFailure, NODE_DOMAIN,
 };
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCode, JsonPointer,
@@ -516,7 +516,7 @@ fn typed_literal<'a>(
     }
 }
 
-fn typed_parameter_binding<'a>(
+pub(super) fn typed_parameter_binding<'a>(
     body: &'a super::CheckedTerm,
     kind_of: &impl Fn(&CheckedNodeId) -> Option<CheckedNodeKind>,
 ) -> Option<(&'a str, &'a str)> {
@@ -530,36 +530,6 @@ fn typed_parameter_binding<'a>(
     let level = typed_binding(level, "level")
         .and_then(|value| {
             typed_literal(
-                value,
-                LiteralKind::Integer,
-                ScalarTypeForm::Integer,
-                kind_of,
-            )
-        })
-        .and_then(Value::as_str)
-        .filter(|level| is_non_negative_integer(level))?;
-    Some((name, level))
-}
-
-/// The declared `(name, level)` text of a `value`/`parameter` body, when the
-/// body is exactly the closed shape QSL FR-092 gives it: an `aggregate` of the
-/// `"name"` binding (an identifier `text` literal typed at a `scalar_type`/`text`
-/// node) and the `"level"` binding (a canonical non-negative `integer` literal
-/// typed at a `scalar_type`/`integer` node). `kind_of` resolves a type node's kind.
-pub(super) fn parameter_binding<'a>(
-    body: &'a Value,
-    kind_of: &impl Fn(&CheckedNodeId) -> Option<CheckedNodeKind>,
-) -> Option<(&'a str, &'a str)> {
-    let [name, level] = aggregate_members(body)? else {
-        return None;
-    };
-    let name = binding(name, "name")
-        .and_then(|value| literal(value, LiteralKind::Text, ScalarTypeForm::Text, kind_of))
-        .and_then(Value::as_str)
-        .filter(|name| is_identifier(name))?;
-    let level = binding(level, "level")
-        .and_then(|value| {
-            literal(
                 value,
                 LiteralKind::Integer,
                 ScalarTypeForm::Integer,
@@ -905,24 +875,6 @@ pub(super) fn checked_node_identity(value: &Value) -> Option<CheckedNodeId> {
         return None;
     }
     CheckedNodeId::deserialize(value).ok()
-}
-
-/// A `literal` term's value, when its `value_kind` is `value_kind` and its
-/// `type` names a `scalar_type` node of form `type_form`.
-fn literal<'a>(
-    term: &'a Value,
-    value_kind: LiteralKind,
-    type_form: ScalarTypeForm,
-    kind_of: &impl Fn(&CheckedNodeId) -> Option<CheckedNodeKind>,
-) -> Option<&'a Value> {
-    let object = term.as_object()?;
-    if body_term(term) != Some(BodyTerm::Literal) || literal_kind(term) != Some(value_kind) {
-        return None;
-    }
-    let ty: CheckedNodeId = serde_json::from_value(object.get("type")?.clone()).ok()?;
-    (kind_of(&ty)? == CheckedNodeKind::ScalarType(type_form))
-        .then(|| object.get("value"))
-        .flatten()
 }
 
 /// `^(0|[1-9][0-9]*)$`.
