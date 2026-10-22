@@ -89,6 +89,8 @@ use std::ops::ControlFlow;
 enum Defect {
     SemanticType,
     Dependencies,
+    RecursionGroup,
+    NominalIdentityPreimage,
     Occurrences,
     /// The node body itself.
     Body,
@@ -104,6 +106,8 @@ impl Defect {
         match self {
             Self::SemanticType => node.key("semantic_type"),
             Self::Dependencies => node.key("dependencies"),
+            Self::RecursionGroup => node.key("recursion_group"),
+            Self::NominalIdentityPreimage => node.key("nominal_identity_preimage"),
             Self::Occurrences => node.key("occurrences"),
             Self::Body => node.key("body"),
             Self::BodyMember(member) => node.key("body").key("members").index(member),
@@ -133,6 +137,7 @@ impl Graph<'_> {
 /// Which body rule a node's kind selects.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum StructuralForm {
+    Extension,
     Parameter,
     CompoundUnit,
     Frame,
@@ -149,6 +154,7 @@ impl StructuralForm {
     /// the schema fixes one.
     const fn role(self) -> Option<CheckedOccurrenceRole> {
         match self {
+            Self::Extension => Some(CheckedOccurrenceRole::Declaration),
             Self::Parameter => Some(CheckedOccurrenceRole::Expression),
             Self::Frame => Some(CheckedOccurrenceRole::Generated),
             Self::OperationAnchor => Some(CheckedOccurrenceRole::Anchor),
@@ -164,6 +170,7 @@ impl StructuralForm {
     fn of(kind: CheckedNodeKind) -> Option<Self> {
         use CheckedNodeKind as K;
         match kind {
+            K::Extension(_) => Some(Self::Extension),
             K::Value(ValueForm::Parameter) => Some(Self::Parameter),
             K::ScalarType(ScalarTypeForm::CompoundUnit) => Some(Self::CompoundUnit),
             K::ScalarType(
@@ -326,6 +333,22 @@ pub(super) fn validate_structural_nodes(
         };
         let form = StructuralForm::of(kind);
         let defect = match form {
+            Some(StructuralForm::Extension) => {
+                let body =
+                    super::extension::read_body(&node.body, node_pointer(position).key("body"))?;
+                let expected: BTreeSet<_> = super::extension::targets(&body).collect();
+                if node.semantic_type != node.node_id {
+                    Some(Defect::SemanticType)
+                } else if node.recursion_group.is_some() {
+                    Some(Defect::RecursionGroup)
+                } else if node.nominal_identity_preimage.is_some() {
+                    Some(Defect::NominalIdentityPreimage)
+                } else if !node.dependencies.iter().eq(expected) {
+                    Some(Defect::Dependencies)
+                } else {
+                    None
+                }
+            }
             Some(StructuralForm::Parameter) => parameter_defect(node, &graph),
             Some(StructuralForm::CompoundUnit) => compound_unit_defect(node, &graph),
             Some(StructuralForm::OperationAnchor) => {

@@ -82,6 +82,7 @@ impl Shape {
                 | BoundedDomainForm::ModelPopulation => None,
             },
             CheckedNodeKind::Value(_)
+            | CheckedNodeKind::Extension(_)
             | CheckedNodeKind::Expression(_)
             | CheckedNodeKind::Function(_)
             | CheckedNodeKind::Model(_)
@@ -304,6 +305,14 @@ fn charge_terms(
     let mut pending = vec![(body, node_pointer(position).key("body"))];
     while let Some((term, at)) = pending.pop() {
         meter.charge(1, || at.clone())?;
+        if term.get("term").and_then(Value::as_str) == Some("extension_form") {
+            if let Some(clauses) = term.get("clauses").and_then(Value::as_array) {
+                for (ordinal, clause) in clauses.iter().enumerate().rev() {
+                    pending.push((clause, at.clone().key("clauses").index(ordinal)));
+                }
+            }
+            continue;
+        }
         match body_term(term) {
             Some(BodyTerm::Aggregate | BodyTerm::Application) => {
                 let name = if body_term(term) == Some(BodyTerm::Aggregate) {

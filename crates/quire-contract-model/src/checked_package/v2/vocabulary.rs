@@ -111,6 +111,7 @@ closed_vocabulary! {
         Protocol => "protocol",
         Claim => "claim",
         Correspondence => "correspondence",
+        Extension => "extension",
     }
 }
 
@@ -550,11 +551,20 @@ impl LawRole {
     }
 }
 
+closed_vocabulary! {
+    /// The sole form of the extension node family.
+    pub ExtensionForm {
+        ExtensionForm => "extension_form",
+    }
+}
+
 /// A node's family together with its form, decoded once at intake. The
 /// family fixes which form vocabulary applies, so a form of the wrong family
 /// is unrepresentable.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum CheckedNodeKind {
+    /// An extension declaration form.
+    Extension(ExtensionForm),
     /// A `scalar_type` node.
     ScalarType(ScalarTypeForm),
     /// A `composite_type` node.
@@ -589,6 +599,7 @@ impl CheckedNodeKind {
     // Decodes the wire form under its already decoded family.
     pub fn decode(tag: CheckedNodeTag, form: &str) -> Option<Self> {
         match tag {
+            CheckedNodeTag::Extension => ExtensionForm::from_wire(form).map(Self::Extension),
             CheckedNodeTag::ScalarType => ScalarTypeForm::from_wire(form).map(Self::ScalarType),
             CheckedNodeTag::CompositeType => {
                 CompositeTypeForm::from_wire(form).map(Self::CompositeType)
@@ -614,6 +625,7 @@ impl CheckedNodeKind {
     /// The node's family.
     pub const fn tag(self) -> CheckedNodeTag {
         match self {
+            Self::Extension(_) => CheckedNodeTag::Extension,
             Self::ScalarType(_) => CheckedNodeTag::ScalarType,
             Self::CompositeType(_) => CheckedNodeTag::CompositeType,
             Self::BoundedDomain(_) => CheckedNodeTag::BoundedDomain,
@@ -633,6 +645,7 @@ impl CheckedNodeKind {
     /// The exact wire form.
     pub const fn form_wire(self) -> &'static str {
         match self {
+            Self::Extension(form) => form.as_wire(),
             Self::ScalarType(form) => form.as_wire(),
             Self::CompositeType(form) => form.as_wire(),
             Self::BoundedDomain(form) => form.as_wire(),
@@ -657,6 +670,11 @@ impl CheckedNodeKind {
             .iter()
             .flat_map(|tag| -> Vec<Self> {
                 match tag {
+                    CheckedNodeTag::Extension => ExtensionForm::ALL
+                        .iter()
+                        .copied()
+                        .map(Self::Extension)
+                        .collect(),
                     CheckedNodeTag::ScalarType => ScalarTypeForm::ALL
                         .iter()
                         .copied()

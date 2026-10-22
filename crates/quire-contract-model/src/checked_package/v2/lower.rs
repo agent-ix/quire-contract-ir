@@ -706,6 +706,7 @@ pub(super) fn classify_reached_keys<'a>(
             | CheckedNodeTag::Temporal
             | CheckedNodeTag::Protocol
             | CheckedNodeTag::Correspondence => {}
+            CheckedNodeTag::Extension => {}
         }
     }
     (bounds, claims)
@@ -752,6 +753,7 @@ enum QuantityChain {
 fn quantity_chain(kind: CheckedNodeKind) -> QuantityChain {
     use CheckedNodeKind as K;
     match kind {
+        K::Extension(_) => QuantityChain::Other,
         K::ScalarType(ScalarTypeForm::Unit | ScalarTypeForm::CompoundUnit) => {
             QuantityChain::Quantity
         }
@@ -834,6 +836,7 @@ fn quantity_position_ends(
 fn requires_bound(kind: CheckedNodeKind) -> bool {
     use CheckedNodeKind as K;
     match kind {
+        K::Extension(_) => false,
         K::ScalarType(
             ScalarTypeForm::Integer
             | ScalarTypeForm::Rational

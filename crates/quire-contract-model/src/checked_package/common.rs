@@ -118,6 +118,19 @@ impl ValidationFailure {
         })))
     }
 
+    /// A node-local capability refusal whose selected definition is also
+    /// identified by the package document pointer required by FR-469.
+    pub(super) fn unknown_extension_definition(pointer: JsonPointer, locus: CheckedNodeId) -> Self {
+        Self::Refused(Box::new(CheckedPackageRefusal::new(RefusalFields {
+            code: CheckedPackageRefusalCode::UnknownRequiredCapability,
+            path: Some(pointer.clone()),
+            cause: None,
+            locus: Some(locus),
+            contract_version: None,
+            document_pointer: Some(pointer),
+        })))
+    }
+
     /// A stale node key with the different key already derived by this stage.
     pub(super) fn refused_stale_node_key(
         path: JsonPointer,

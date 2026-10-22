@@ -997,6 +997,7 @@ fn reference_term_target(argument: &Value) -> Option<CheckedNodeId> {
 fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
     use CheckedNodeKind as K;
     match kind {
+        K::Extension(_) => None,
         K::ScalarType(
             form @ (ScalarTypeForm::Boolean
             | ScalarTypeForm::Integer
@@ -1139,6 +1140,7 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
 fn is_type_shaped(kind: CheckedNodeKind) -> bool {
     use CheckedNodeKind as K;
     match kind {
+        K::Extension(_) => false,
         K::ScalarType(
             ScalarTypeForm::Boolean
             | ScalarTypeForm::Integer

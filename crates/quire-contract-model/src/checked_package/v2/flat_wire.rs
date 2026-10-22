@@ -63,6 +63,13 @@ enum Place {
 /// own refusal of it.
 pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
     for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
+        if node.node_tag.as_ref() == "extension" && node.semantic_form.as_ref() != "extension_form"
+        {
+            return Err(ValidationFailure::refused(
+                CheckedPackageRefusalCode::MalformedWire,
+                crate::checked_package::common::node_pointer(position).key("semantic_form"),
+            ));
+        }
         let Some(kind) = CheckedNodeTag::from_wire(&node.node_tag)
             .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
         else {
@@ -76,6 +83,25 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
         ];
         let at = Trail::Base(&steps);
         let checked = match body_grammar(kind) {
+            BodyGrammar::Extension => {
+                if node.declaration.is_none() || node.owner.is_none() {
+                    Err(ValidationFailure::refused(
+                        CheckedPackageRefusalCode::MalformedWire,
+                        crate::checked_package::common::node_pointer(position),
+                    ))
+                } else if node.occurrences.len() != 1
+                    || node.occurrences[0].role
+                        != crate::checked_package::shared::CheckedOccurrenceRole::Declaration
+                    || node.occurrences[0].ordinal != 0
+                {
+                    Err(ValidationFailure::refused(
+                        CheckedPackageRefusalCode::MalformedWire,
+                        crate::checked_package::common::node_pointer(position).key("occurrences"),
+                    ))
+                } else {
+                    super::extension::read_body(&node.body, at.pointer()).map(|_| ())
+                }
+            }
             // A frame body and an abstraction relation body are closed shapes
             // of their own, and no application stands in either; an
             // application at the root of an abstraction relation body is a
@@ -120,8 +146,10 @@ fn check_interval_bounds(wire: &CheckedPackageWireV2) -> Result<(), ValidationFa
         else {
             continue;
         };
-        if matches!(body_grammar(kind), BodyGrammar::Frame)
-            || body_term(&node.body) != Some(BodyTerm::Application)
+        if matches!(
+            body_grammar(kind),
+            BodyGrammar::Frame | BodyGrammar::Extension
+        ) || body_term(&node.body) != Some(BodyTerm::Application)
         {
             continue;
         }

@@ -16,6 +16,7 @@ mod contract_package;
 mod dependency_references;
 mod derived_keys;
 pub(in crate::checked_package) mod encode;
+mod extension;
 mod flat_wire;
 mod frame;
 mod identity;
@@ -1076,7 +1077,8 @@ fn validate(
         models,
         dependencies,
     } = validate_lock(wire, evidence, &mut meter, limits.bytes)?;
-    let (kinds, index) = validate_graph(wire, limits, &mut meter, &models, &dependencies)?;
+    let (kinds, index) =
+        validate_graph(wire, limits, &mut meter, &models, &dependencies, evidence)?;
     validate_source_map_entries(
         wire.semantic_graph
             .nodes
@@ -1086,6 +1088,7 @@ fn validate(
         &wire.lock.sources,
         limits,
     )?;
+    extension::validate_source_regions(wire, &kinds)?;
     validate_capabilities(wire, evidence)?;
     validate_diagnostics(wire, limits, &mut meter)?;
     Ok((kinds, RetainedModels::new(index, models)))
@@ -1526,6 +1529,7 @@ fn validate_declaration(
 fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
     use CheckedNodeKind as K;
     match kind {
+        K::Extension(_) => false,
         K::ScalarType(
             ScalarTypeForm::Boolean
             | ScalarTypeForm::Integer
@@ -1691,6 +1695,9 @@ fn validate_body(
         ));
     }
     match body_grammar(kind) {
+        BodyGrammar::Extension => {
+            extension::read_body(body, at.pointer()).map(|body| extension::body_work(&body))
+        }
         BodyGrammar::Frame => frame::read_frame_body(body, at).map(|(_, work)| work),
         BodyGrammar::AbstractionRelation => abstraction::scan_body(body, at, visit),
         // `body` is the node's own top-level term, never a nested one, so
@@ -1705,6 +1712,8 @@ fn validate_body(
 /// shape of FR-346, and every other node's body is a `SemanticTerm`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum BodyGrammar {
+    /// The closed extension declaration body.
+    Extension,
     /// The closed `SemanticTerm` grammar.
     Term,
     /// The frame body of FR-040.
@@ -1718,6 +1727,7 @@ enum BodyGrammar {
 fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
     use CheckedNodeKind as K;
     match kind {
+        K::Extension(_) => BodyGrammar::Extension,
         K::ScalarType(
             ScalarTypeForm::Boolean
             | ScalarTypeForm::Integer
@@ -2033,6 +2043,7 @@ fn validate_graph(
     meter: &mut WorkMeter,
     models: &[DomainModel],
     dependencies: &SuppliedDependencies<'_>,
+    evidence: &CheckedPackageEvidence,
 ) -> Result<(Vec<CheckedNodeKind>, DeclarationIndex), ValidationFailure> {
     let graph = &wire.semantic_graph;
     check_graph_version(graph)?;
@@ -2103,6 +2114,19 @@ fn validate_graph(
             Step::Key("body"),
         ];
         let work = match body_grammar(kind) {
+            BodyGrammar::Extension => {
+                let body = extension::read_body(&node.body, at("body"))?;
+                for target in extension::targets(&body) {
+                    targets.push((
+                        target.clone(),
+                        ReferenceSite {
+                            member: ReferenceMember::Target,
+                            is_body_root: false,
+                        },
+                    ));
+                }
+                extension::body_work(&body)
+            }
             BodyGrammar::Frame => {
                 let (body, work) = frame::read_frame_body(&node.body, &Trail::Base(&body_steps))?;
                 frames.push((&node.node_id, position, body));
@@ -2173,6 +2197,7 @@ fn validate_graph(
     // FR-038 "The timed interval form" stage 2: the last graph check of the
     // nodes before the frame step.
     validate_timed_bounds_reduced(&graph.nodes, &index, meter)?;
+    extension::validate(wire, &kinds, &index, evidence)?;
     // FR-322 step 2: each selected declaration's model declaration node key,
     // one validation visit apiece, charged at the selection it belongs to.
     let owners = ModelOwners::new(models, |selection| {
