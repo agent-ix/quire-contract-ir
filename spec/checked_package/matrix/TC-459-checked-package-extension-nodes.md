@@ -11,7 +11,8 @@ relationships:
 ## Description
 
 Exercise the public V2 reader with QSpec FR-469's published extension packages
-and X01..X17 controls. Read the fixtures from the selected QSpec checkout;
+and the X01..X17 controls described in QSpec TC-951. Read the fixture files
+from the selected QSpec checkout and construct the TC-951 mutations in the test;
 do not copy a schema, package, binary or expected-output file into Contract IR.
 
 ## Test Procedure
@@ -22,7 +23,7 @@ the admitted node, clause references, types, declaration, owner, occurrence,
 source region, structural key and package identity. Supply a second node kind
 under the same tag/form. Change each keyed member and the source region in
 turn, recomputing fixture identities where required. Then run each QSpec
-X01..X17 negative vector through the public reader, checking the exact first
+X01..X17 control through the public reader, checking the exact first
 refusal. Repeat with no held definition, with no selected definition, with
 conflicting evidence, and with simultaneous faults in different reader stages.
 
