@@ -270,10 +270,12 @@ impl BoundPackage {
             ContractPackage::from_json_value(&projection.package, ValidationOptions::strict())?;
         let mut nodes = 0;
         let mut expected = BTreeMap::new();
+        let mut requirements_by_id = BTreeMap::new();
         let mut clauses_by_ref = BTreeMap::new();
         let mut informational = Vec::new();
         for requirement in package.requirements() {
             budget(&mut nodes, 1)?;
+            requirements_by_id.insert(requirement.id(), requirement);
             for clause in requirement.clauses() {
                 #[cfg(test)]
                 DECLARATION_VISITS.with(|visits| visits.set(visits.get() + 1));
@@ -316,12 +318,16 @@ impl BoundPackage {
         for binding in projection.bindings {
             #[cfg(test)]
             DECLARATION_VISITS.with(|visits| visits.set(visits.get() + 1));
-            let clause = match clauses_by_ref.get(&binding.clause).copied() {
-                Some(clause) => clause,
-                None => package
-                    .resolve_clause(&binding.clause, None)
-                    .map_err(|diagnostic| vec![diagnostic])?,
-            };
+            let clause = package
+                .resolve_clause_candidates(
+                    &binding.clause,
+                    requirements_by_id
+                        .get(binding.clause.requirement().requirement())
+                        .copied(),
+                    clauses_by_ref.get(&binding.clause).copied(),
+                    None,
+                )
+                .map_err(|diagnostic| vec![diagnostic])?;
             if !clause.kind().executable() {
                 return Err(failure(
                     DiagnosticCode::InformationalClauseAnchored,
@@ -532,8 +538,18 @@ mod schema_cache_tests {
         );
         let mut invalid_clause = valid.clone();
         invalid_clause["bindings"][0]["clause"]["clause"] = json!("missing");
+        let before_invalid = DECLARATION_VISITS.with(std::cell::Cell::get);
         let first_error = decode(&invalid_clause).expect_err("missing clause");
+        assert_eq!(
+            DECLARATION_VISITS.with(std::cell::Cell::get) - before_invalid,
+            declarations + 1
+        );
+        let before_second_invalid = DECLARATION_VISITS.with(std::cell::Cell::get);
         let second_error = decode(&invalid_clause).expect_err("same missing clause");
+        assert_eq!(
+            DECLARATION_VISITS.with(std::cell::Cell::get) - before_second_invalid,
+            declarations + 1
+        );
         assert_eq!(first_error, second_error);
         let mut invalid_schema = valid;
         invalid_schema["format"] = json!("future");
