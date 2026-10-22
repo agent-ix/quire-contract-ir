@@ -1259,6 +1259,22 @@ impl<B: DependencySource> ContractPackage<B> {
         reference: &RequirementRef,
         span: Option<&SourceSpan>,
     ) -> Result<&Requirement<B>, Diagnostic> {
+        let candidate = (reference.package == self.id)
+            .then(|| {
+                self.requirements
+                    .iter()
+                    .find(|candidate| candidate.id == reference.requirement)
+            })
+            .flatten();
+        self.resolve_requirement_candidate(reference, candidate, span)
+    }
+
+    fn resolve_requirement_candidate<'a>(
+        &self,
+        reference: &RequirementRef,
+        candidate: Option<&'a Requirement<B>>,
+        span: Option<&SourceSpan>,
+    ) -> Result<&'a Requirement<B>, Diagnostic> {
         if reference.package != self.id {
             return Err(with_optional_span(
                 Diagnostic::error(
@@ -1269,11 +1285,7 @@ impl<B: DependencySource> ContractPackage<B> {
                 span,
             ));
         }
-        let Some(requirement) = self
-            .requirements
-            .iter()
-            .find(|candidate| candidate.id == reference.requirement)
-        else {
+        let Some(requirement) = candidate else {
             return Err(with_optional_span(
                 Diagnostic::error(
                     DiagnosticCode::OrphanedRequirementReference,
@@ -1309,20 +1321,41 @@ impl<B: DependencySource> ContractPackage<B> {
         span: Option<&SourceSpan>,
     ) -> Result<&Clause<B>, Diagnostic> {
         let requirement = self.resolve_requirement(&reference.requirement, span)?;
-        requirement
+        let clause = requirement
             .clauses
             .iter()
-            .find(|candidate| candidate.id == reference.clause)
-            .ok_or_else(|| {
-                with_optional_span(
-                    Diagnostic::error(
-                        DiagnosticCode::OrphanedClauseReference,
-                        "referenced clause does not exist",
-                        "reference.clause",
-                    ),
-                    span,
-                )
-            })
+            .find(|candidate| candidate.id == reference.clause);
+        Self::resolved_clause_or_error(clause, span)
+    }
+
+    /// Resolve through indexes built by a caller that already walked this
+    /// package. The same diagnostic order and contents as `resolve_clause`
+    /// apply even when the reference misses an index.
+    pub(crate) fn resolve_clause_candidates<'a>(
+        &self,
+        reference: &ClauseRef,
+        requirement: Option<&'a Requirement<B>>,
+        clause: Option<&'a Clause<B>>,
+        span: Option<&SourceSpan>,
+    ) -> Result<&'a Clause<B>, Diagnostic> {
+        self.resolve_requirement_candidate(&reference.requirement, requirement, span)?;
+        Self::resolved_clause_or_error(clause, span)
+    }
+
+    fn resolved_clause_or_error<'a>(
+        clause: Option<&'a Clause<B>>,
+        span: Option<&SourceSpan>,
+    ) -> Result<&'a Clause<B>, Diagnostic> {
+        clause.ok_or_else(|| {
+            with_optional_span(
+                Diagnostic::error(
+                    DiagnosticCode::OrphanedClauseReference,
+                    "referenced clause does not exist",
+                    "reference.clause",
+                ),
+                span,
+            )
+        })
     }
 }
 

@@ -136,6 +136,7 @@ mod tests {
             .collect();
         CheckedPackageV2 {
             node_index: super::super::retained_node_index(&wire),
+            lowering_facts: Vec::new(),
             wire,
             kinds,
             bytes: 1 << 20,
