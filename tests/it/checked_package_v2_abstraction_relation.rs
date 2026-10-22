@@ -21,7 +21,7 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeKind, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
     CorrespondenceForm,
 };
 use serde_json::{json, Value};
@@ -569,7 +569,7 @@ fn at_node(position: usize, suffix: &str) -> String {
 // AC-1.
 
 /// ACs: FR-346-AC-1
-#[trace("TC-225", "FR-346-AC-1")]
+#[trace("TC-225", "FR-346-AC-1", "FR-349-AC-2")]
 #[test]
 fn tc_225_the_minimal_abstraction_relation_body_admits_with_its_computed_key() {
     let minimal = minimal();
@@ -584,6 +584,21 @@ fn tc_225_the_minimal_abstraction_relation_body_admits_with_its_computed_key() {
     assert_eq!(node.node_id, typed_node_id(&digest_of(&minimal)));
     assert_eq!(node.semantic_type, node.node_id);
     assert_eq!(node.body, minimal);
+    let Some(CheckedTerm::AbstractionRelation {
+        objects,
+        populations,
+        frames,
+    }) = package.term(&node.node_id)
+    else {
+        panic!("admitted relation must have a typed relation body");
+    };
+    assert_eq!(objects.len(), 1);
+    assert!(populations.is_empty());
+    assert_eq!(frames.len(), 1);
+    assert_eq!(
+        serde_json::to_value(package.term(&node.node_id)).expect("typed relation serializes"),
+        node.body
+    );
     assert_eq!(
         node.dependencies,
         vec![typed_node_id(&config_version())],
@@ -718,7 +733,7 @@ fn application(operator: &str, identity: &str) -> Value {
 }
 
 /// ACs: FR-346-AC-2
-#[trace("TC-225", "FR-346-AC-2")]
+#[trace("TC-225", "FR-346-AC-2", "FR-349-AC-4")]
 #[test]
 fn tc_225_a_body_off_its_closed_shape_refuses_without_a_cause() {
     type Edit = Box<dyn Fn(&mut Value)>;

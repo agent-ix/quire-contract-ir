@@ -2170,6 +2170,7 @@ impl ContractPackageWireV1 {
         let mut outgoing: BTreeMap<CheckedNodeId, Vec<CheckedNodeId>> = BTreeMap::new();
         let mut adjacency = Vec::with_capacity(self.semantic_graph.nodes.len());
         let mut kinds = Vec::with_capacity(self.semantic_graph.nodes.len());
+        let mut terms = Vec::with_capacity(self.semantic_graph.nodes.len());
         for (index, node) in self.semantic_graph.nodes.iter().enumerate() {
             let at = JsonPointer::root()
                 .key("semantic_graph")
@@ -2210,6 +2211,18 @@ impl ContractPackageWireV1 {
             if let Some(pointer) = missing {
                 return Err(malformed(pointer, CheckedPackageRefusalCause::InvalidValue));
             }
+            terms.push(match super::CheckedTerm::decode_admitted(&node.body) {
+                Ok(term) => Some(term),
+                Err(()) if super::body_grammar(kind) == super::BodyGrammar::AbstractionRelation => {
+                    None
+                }
+                Err(()) => {
+                    return Err(malformed(
+                        at.clone().key("body"),
+                        CheckedPackageRefusalCause::InvalidValue,
+                    ));
+                }
+            });
             let mut successors = Vec::new();
             let Some(&semantic_type) = positions.get(&node.semantic_type) else {
                 return Err(malformed(
@@ -2277,6 +2290,7 @@ impl ContractPackageWireV1 {
         super::structural::validate_structural_nodes(
             &self.semantic_graph.nodes,
             &kinds,
+            &terms,
             &positions,
         )?;
         super::operations::validate_application_keys(

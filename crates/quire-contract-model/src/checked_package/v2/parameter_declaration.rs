@@ -1,6 +1,6 @@
 //! Typed declared name and level of an admitted `value`/`parameter` node.
 
-use super::structural::parameter_binding;
+use super::structural::typed_parameter_binding;
 use super::{CheckedNodeId, CheckedNodeKind, CheckedPackageV2, ValueForm};
 use thiserror::Error;
 
@@ -52,7 +52,15 @@ impl CheckedPackageV2 {
         if kind_of(node) != Some(CheckedNodeKind::Value(ValueForm::Parameter)) {
             return Err(Error::NotParameter);
         }
-        let (name, level) = parameter_binding(&found.body, &kind_of).ok_or(Error::MalformedBody)?;
+        let position = *self
+            .node_index
+            .get(&found.node_id)
+            .ok_or(Error::UnknownNode)?;
+        let (name, level) = self
+            .terms
+            .get(position)
+            .and_then(|term| typed_parameter_binding(term, &kind_of))
+            .ok_or(Error::MalformedBody)?;
         Ok(CheckedParameterDeclaration {
             node: node.clone(),
             name: name.into(),
@@ -65,7 +73,9 @@ impl CheckedPackageV2 {
 mod tests {
     use super::*;
     use crate::checked_package::v2::test_support::{id, node_id};
-    use crate::checked_package::v2::{CheckedNodeTag, CheckedPackageWireV2, RetainedModels};
+    use crate::checked_package::v2::{
+        CheckedNodeTag, CheckedPackageWireV2, CheckedTerm, RetainedModels,
+    };
     use ix_trace_rs::trace;
     use serde_json::{json, Value};
 
@@ -82,7 +92,7 @@ mod tests {
         ]})
     }
 
-    /// The accessor reads only the semantic graph. This private fixture has
+    /// The accessor reads the retained typed terms. This private fixture has
     /// the other wire members needed to construct a package, then tests may
     /// mutate the graph in states admission would ordinarily reject. The
     /// package is never admitted (its keys are not derived); only the shapes
@@ -134,11 +144,17 @@ mod tests {
                 CheckedNodeKind::decode(tag, &node.semantic_form).expect("fixture form")
             })
             .collect();
+        let terms = wire
+            .semantic_graph
+            .nodes
+            .iter()
+            .map(|node| CheckedTerm::decode_admitted(&node.body).expect("fixture body"))
+            .collect();
         CheckedPackageV2 {
             node_index: super::super::retained_node_index(&wire),
             lowering_facts: Vec::new(),
             wire,
-            terms: Vec::new(),
+            terms,
             kinds,
             bytes: 1 << 20,
             models: RetainedModels::default(),
@@ -170,6 +186,19 @@ mod tests {
         }
     }
 
+    #[trace("TC-048", "FR-349-AC-2")]
+    #[test]
+    fn admitted_parameter_lookup_reads_the_retained_typed_body() {
+        let mut package = fixture_package();
+        package.terms[2] = CheckedTerm::Reference {
+            target: node_id('4'),
+        };
+        assert_eq!(
+            package.parameter_declaration(&node_id('3')),
+            Err(CheckedParameterDeclarationError::MalformedBody)
+        );
+    }
+
     #[trace("TC-048", "FR-038-AC-259")]
     #[test]
     fn tc_048_post_admission_body_mutations_refuse_malformed_body() {
@@ -196,9 +225,10 @@ mod tests {
                 }),
             ),
             (
-                "members under a body that is not an aggregate",
+                "body is a reference",
                 Box::new(|package| {
-                    package.wire.semantic_graph.nodes[2].body["term"] = json!("reference");
+                    package.wire.semantic_graph.nodes[2].body =
+                        json!({"term": "reference", "target": id('4')});
                 }),
             ),
             (
@@ -268,6 +298,9 @@ mod tests {
         for (label, mutate) in mutations {
             let mut package = fixture_package();
             mutate(&mut package);
+            package.terms[2] =
+                CheckedTerm::decode_admitted(&package.wire.semantic_graph.nodes[2].body)
+                    .expect("mutated fixture retains a grammar-admitted term");
             assert_eq!(
                 package.parameter_declaration(&node_id('3')),
                 Err(CheckedParameterDeclarationError::MalformedBody),

@@ -59,14 +59,14 @@ use super::model_members::{
 };
 use super::operation_catalog::{operation_catalog, OperationCatalog, OperationCatalogEntry};
 use super::structural::{
-    aggregate_members, binding, union_type_body, union_value_body, UnionMember,
+    aggregate_members, binding, typed_union_type_body, typed_union_value_body, UnionMember,
 };
 use super::temporal::member_is_well_formed;
 use super::{
     ApplicationOperator, BodyTerm, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId,
-    CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedSemanticNodeV2, ClaimForm,
-    CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, LawRole, LiteralKind,
-    ModelForm, NominalIdentityPreimage, OperationConstraintKind, OperationMemberKind,
+    CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedSemanticNodeV2, CheckedTerm,
+    ClaimForm, CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, LawRole,
+    LiteralKind, ModelForm, NominalIdentityPreimage, OperationConstraintKind, OperationMemberKind,
     OperationModeKind, ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm,
     ValueForm, WorkMeter,
 };
@@ -285,6 +285,7 @@ pub(super) fn validate_operations(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
+    terms: &[Option<CheckedTerm>],
     lock: &CheckedPackageLockV2,
     owners: &ModelOwners<'_>,
     dependencies: &SuppliedDependencies<'_>,
@@ -294,6 +295,7 @@ pub(super) fn validate_operations(
         nodes,
         kinds,
         index,
+        terms,
     };
     let references = DependencyReferences::new(dependencies);
     for &position in index.values() {
@@ -482,6 +484,7 @@ struct Graph<'g> {
     nodes: &'g [CheckedSemanticNodeV2],
     kinds: &'g [CheckedNodeKind],
     index: &'g BTreeMap<&'g CheckedNodeId, usize>,
+    terms: &'g [Option<CheckedTerm>],
 }
 
 /// Structural forwarding already paid for by one application's operation check.
@@ -620,6 +623,7 @@ fn operation_defect(
         nodes,
         kinds,
         index,
+        ..
     } = *graph;
     let node = application.node;
     let Some(body) = node.body.as_object() else {
@@ -1376,6 +1380,7 @@ fn check_operands(
         nodes,
         kinds,
         index,
+        ..
     } = *graph;
     let required = entry.operands.len();
     // `None` names the `arguments` array itself (an arity defect); `Some`
@@ -1585,7 +1590,11 @@ fn union_type<'g>(
     if kind != CheckedNodeKind::CompositeType(CompositeTypeForm::Union) {
         return Ok(None);
     }
-    Ok(union_type_body(&graph.nodes[position].body))
+    Ok(graph
+        .terms
+        .get(position)
+        .and_then(Option::as_ref)
+        .and_then(typed_union_type_body))
 }
 
 /// QSpec FR-440's `union_arms` constraint: the arguments past the scrutinee
@@ -1610,6 +1619,7 @@ fn union_arms_hold(
         nodes,
         kinds,
         index,
+        ..
     } = *graph;
     let type_id = arguments
         .get(scrutinee)
@@ -1750,6 +1760,7 @@ fn union_defect(
         nodes,
         kinds,
         index,
+        ..
     } = *graph;
     let node = &nodes[position];
     let refuse = |code, cause| {
@@ -1762,7 +1773,12 @@ fn union_defect(
     };
     let kind = kinds[position];
     if kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Union) {
-        let Some(members) = union_type_body(&node.body) else {
+        let Some(members) = graph
+            .terms
+            .get(position)
+            .and_then(Option::as_ref)
+            .and_then(typed_union_type_body)
+        else {
             return Ok(None);
         };
         let mut names = BTreeSet::new();
@@ -1790,7 +1806,12 @@ fn union_defect(
         }));
     }
     if kind == CheckedNodeKind::Value(ValueForm::UnionValue) {
-        let Some((name, payload)) = union_value_body(&node.body) else {
+        let Some((name, payload)) = graph
+            .terms
+            .get(position)
+            .and_then(Option::as_ref)
+            .and_then(typed_union_value_body)
+        else {
             return Ok(None);
         };
         // A `semantic_type` that is no node of the graph is the generic edge
@@ -1807,7 +1828,12 @@ fn union_defect(
         if kinds[declared] != CheckedNodeKind::CompositeType(CompositeTypeForm::Union) {
             return Ok(mismatch());
         }
-        let Some(members) = union_type_body(&nodes[declared].body) else {
+        let Some(members) = graph
+            .terms
+            .get(declared)
+            .and_then(Option::as_ref)
+            .and_then(typed_union_type_body)
+        else {
             return Ok(None);
         };
         let Some(member) = members.iter().find(|member| member.name == name) else {
@@ -1820,7 +1846,7 @@ fn union_defect(
         for (term, expected) in payload.iter().zip(&member.payload) {
             if !conforms_to_type(
                 &expected.digest,
-                operand_type_node(term, nodes, kinds, index).as_ref(),
+                operand_type_node_typed(term, nodes, kinds, index).as_ref(),
                 graph,
                 owners,
                 meter,
@@ -1892,6 +1918,7 @@ fn body_root_defect(
         nodes,
         kinds,
         index,
+        ..
     } = *graph;
     let node = &nodes[position];
     let tag = kinds[position].tag();
@@ -1945,6 +1972,7 @@ fn check_function_call(
         nodes,
         kinds,
         index,
+        ..
     } = *graph;
     let ineligible = |path: JsonPointer| {
         Ok(Some(application.refuse(
@@ -2689,13 +2717,38 @@ fn operand_type_node(
         | BodyTerm::AbstractionRelation => return None,
     }
     let target = reference_term_target(argument)?;
+    referenced_operand_type(&target, nodes, kinds, index)
+}
+
+fn referenced_operand_type(
+    target: &CheckedNodeId,
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+) -> Option<CheckedNodeId> {
     let position = *index.get(&target)?;
     let target_node = &nodes[position];
     if is_type_shaped(*kinds.get(position)?) {
-        Some(target)
+        Some(target.clone())
     } else {
         Some(target_node.semantic_type.clone())
     }
+}
+
+/// The admitted-term form of `operand_type_node` for union payloads.
+fn operand_type_node_typed(
+    argument: &CheckedTerm,
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+) -> Option<CheckedNodeId> {
+    let target = match argument {
+        CheckedTerm::Literal { type_id, .. } => return Some(type_id.clone()),
+        CheckedTerm::Application { result_type, .. } => return Some(result_type.clone()),
+        CheckedTerm::Reference { target } => target,
+        _ => return None,
+    };
+    referenced_operand_type(target, nodes, kinds, index)
 }
 
 /// The value a type node's own declaration pins for a type-pinned mode kind
@@ -3057,6 +3110,7 @@ struct LeafWalk<'g, 'm> {
     nodes: &'g [CheckedSemanticNodeV2],
     kinds: &'g [CheckedNodeKind],
     index: &'g BTreeMap<&'g CheckedNodeId, usize>,
+    terms: &'g [Option<CheckedTerm>],
     meter: &'m mut WorkMeter,
     structural: &'m mut StructuralTypes,
     at: JsonPointer,
@@ -3101,6 +3155,7 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
             nodes: graph.nodes,
             kinds: graph.kinds,
             index: graph.index,
+            terms: graph.terms,
             meter,
             structural,
             at,
@@ -3182,7 +3237,11 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
             // member's payload, even for a single payload), then the segments
             // into the payload type.
             CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => {
-                let edges = union_type_body(&self.nodes[position].body)?
+                let edges = self
+                    .terms
+                    .get(position)
+                    .and_then(Option::as_ref)
+                    .and_then(typed_union_type_body)?
                     .into_iter()
                     .flat_map(|member| {
                         member
@@ -3226,6 +3285,7 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
             nodes: self.nodes,
             kinds: self.kinds,
             index: self.index,
+            terms: self.terms,
         };
         let (position, kind) = self
             .structural
@@ -3681,6 +3741,7 @@ fn check_leaf_count(
         nodes,
         kinds,
         index,
+        ..
     } = *graph;
     let Some(source) = entry.leaves.as_deref() else {
         return Ok(None);
@@ -3874,6 +3935,13 @@ mod tests {
     use crate::checked_package::v2::encode::APPLICATION_NODE_VERSION;
     use ix_trace_rs::trace;
 
+    fn decoded_terms(nodes: &[CheckedSemanticNodeV2]) -> Vec<Option<super::CheckedTerm>> {
+        nodes
+            .iter()
+            .map(|node| super::CheckedTerm::decode_admitted(&node.body).ok())
+            .collect()
+    }
+
     fn pointer(text: &str) -> JsonPointer {
         JsonPointer::parse(text).expect("test pointer")
     }
@@ -4035,8 +4103,10 @@ mod tests {
             .enumerate()
             .map(|(at, node)| (&node.node_id, at))
             .collect();
+        let terms = decoded_terms(&nodes);
         let graph = Graph {
             nodes: &nodes,
+            terms: &terms,
             kinds: &kinds,
             index: &index,
         };
@@ -4440,10 +4510,12 @@ mod tests {
         let lock = empty_lock();
         let mut meter = WorkMeter::new(1_000);
         let kinds = kinds_of(nodes);
+        let terms = decoded_terms(nodes);
         operation_defect(
             Application { node, position: 0 },
             &Graph {
                 nodes,
+                terms: &terms,
                 kinds: &kinds,
                 index: &index,
             },
@@ -4519,6 +4591,7 @@ mod tests {
         }
         let mut meter = WorkMeter::new(limit);
         let kinds = kinds_of(&nodes);
+        let terms = decoded_terms(&nodes);
         let result = operation_defect(
             Application {
                 node: &nodes[0],
@@ -4526,6 +4599,7 @@ mod tests {
             },
             &Graph {
                 nodes: &nodes,
+                terms: &terms,
                 kinds: &kinds,
                 index: &index,
             },
@@ -6333,8 +6407,10 @@ mod tests {
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
             .collect();
+        let terms = decoded_terms(&nodes);
         let graph = Graph {
             nodes: &nodes,
+            terms: &terms,
             kinds: &kinds,
             index: &index,
         };
@@ -6392,8 +6468,10 @@ mod tests {
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
             .collect();
+        let terms = decoded_terms(&nodes);
         let graph = Graph {
             nodes: &nodes,
+            terms: &terms,
             kinds: &kinds,
             index: &index,
         };
@@ -6501,8 +6579,10 @@ mod tests {
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
             .collect();
+        let terms = decoded_terms(&nodes);
         let graph = Graph {
             nodes: &nodes,
+            terms: &terms,
             kinds: &kinds,
             index: &index,
         };
@@ -6559,8 +6639,10 @@ mod tests {
                 .enumerate()
                 .map(|(position, node)| (&node.node_id, position))
                 .collect();
+            let terms = decoded_terms(&nodes);
             let graph = Graph {
                 nodes: &nodes,
+                terms: &terms,
                 kinds: &kinds,
                 index: &index,
             };
@@ -6612,8 +6694,10 @@ mod tests {
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
             .collect();
+        let terms = decoded_terms(&nodes);
         let graph = Graph {
             nodes: &nodes,
+            terms: &terms,
             kinds: &kinds,
             index: &index,
         };
@@ -7843,6 +7927,7 @@ mod tests {
         }
         let mut meter = WorkMeter::new(1_000_000);
         let kinds = kinds_of(&nodes);
+        let terms = decoded_terms(&nodes);
         let result = operation_defect(
             Application {
                 node: &nodes[0],
@@ -7850,6 +7935,7 @@ mod tests {
             },
             &Graph {
                 nodes: &nodes,
+                terms: &terms,
                 kinds: &kinds,
                 index: &index,
             },
@@ -8578,10 +8664,12 @@ mod tests {
                 .enumerate()
                 .map(|(position, node)| (&node.node_id, position))
                 .collect();
+            let terms = decoded_terms(&nodes);
             let result = super::validate_operations(
                 &nodes,
                 &kinds,
                 &index,
+                &terms,
                 &empty_lock(),
                 &ModelOwners::default(),
                 &SuppliedDependencies::default(),
