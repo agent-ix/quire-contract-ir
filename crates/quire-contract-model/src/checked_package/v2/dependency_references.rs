@@ -21,13 +21,11 @@
 //! application and names a `function` declaration of the dependency whose
 //! signature types are package-independent: no node in the transitive
 //! closure of the signature type nodes carries a `declaration` or a
-//! `ModelOwner`. FR-322 does not say which nodes of a dependency's `function`
-//! node are its signature, so this reader takes the function node's own
-//! `semantic_type` (the result type) and, from its `dependencies`, each
-//! `parameter` node's `semantic_type` and each type node listed directly. The
-//! closure follows `dependencies`, `semantic_type` and the `reference` terms
-//! of each node's body, and a `model` or `relation` node is a `ModelOwner`
-//! carrier.
+//! `ModelOwner`. The signature takes the function node's own
+//! `semantic_type` (the result type) and the `semantic_type` of each
+//! `value`/`parameter` node referenced by its body's `parameters` binding.
+//! The closure follows those type nodes' `dependencies`; a `model` or
+//! `relation` node is a `ModelOwner` carrier.
 //!
 //! Documented limits, inherited from the reader's operation stage (see
 //! `operations.rs`): a call's `result_type` and `semantic_type` are not
@@ -37,6 +35,7 @@
 //! `function` node of the supplied dependency whose signature is
 //! package-independent.
 
+use super::structural::{aggregate_members, binding, reference_target};
 use super::{
     BodyTerm, CheckedDependencySelection, CheckedNodeKind, CheckedNodeTag, CheckedPackageV2,
     CheckedSemanticNodeV2, NominalIdentityPreimage, NominalOwner, ValueForm, WorkMeter,
@@ -54,7 +53,6 @@ use crate::checked_package::terms::{subterms, visit_terms, At, Cursor};
 use quire_walk::{walk, Children, Walk};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use std::convert::Infallible;
 use std::ops::ControlFlow;
 
 /// The operation whose callee (argument 0) a `dependency_reference` may be.
@@ -387,7 +385,7 @@ impl<'a> DependencyReferences<'a> {
         if is_callee && is_function {
             let closure = signature_closure(supplied, position);
             // The closure walk is charged at the term: one unit per node
-            // visited and per body term walked.
+            // visited, including each parameter node.
             meter.charge(closure.work, || at.clone())?;
             if closure.independent {
                 return Ok(());
@@ -493,39 +491,30 @@ fn signature_closure(supplied: &SuppliedDependency<'_>, function: usize) -> Clos
     };
     let mut work = 1_u64;
     let mut pending: Vec<CheckedNodeId> = vec![function.semantic_type.clone()];
-    // The function's signature is what its `dependencies` list and what its
-    // body references: a non-application function body need not list them.
-    let mut listed: Vec<CheckedNodeId> = function.dependencies.clone();
-    work = work.saturating_add(body_reference_targets(&function.body, &mut listed));
-    for id in &listed {
-        let Some((node, kind)) = node_of(id) else {
-            continue;
+    let members = aggregate_members(&function.body);
+    let parameters = members.and_then(|members| {
+        members
+            .first()
+            .and_then(|first| binding(first, "parameters"))
+    });
+    if let Some(parameters) = parameters {
+        let Some(entries) = aggregate_members(parameters) else {
+            return Closure {
+                independent: false,
+                work,
+            };
         };
-        match kind {
-            CheckedNodeKind::Value(ValueForm::Parameter) => {
-                pending.push(node.semantic_type.clone());
-            }
-            CheckedNodeKind::ScalarType(_)
-            | CheckedNodeKind::CompositeType(_)
-            | CheckedNodeKind::BoundedDomain(_) => pending.push(id.clone()),
-            CheckedNodeKind::Value(
-                ValueForm::Literal
-                | ValueForm::EnumValue
-                | ValueForm::CollectionValue
-                | ValueForm::RecordValue
-                | ValueForm::TupleValue
-                | ValueForm::UnionValue
-                | ValueForm::OptionValue,
-            )
-            | CheckedNodeKind::Expression(_)
-            | CheckedNodeKind::Function(_)
-            | CheckedNodeKind::Model(_)
-            | CheckedNodeKind::Relation(_)
-            | CheckedNodeKind::State(_)
-            | CheckedNodeKind::Temporal(_)
-            | CheckedNodeKind::Protocol(_)
-            | CheckedNodeKind::Claim(_)
-            | CheckedNodeKind::Correspondence(_) => {}
+        for entry in entries {
+            let Some((node, CheckedNodeKind::Value(ValueForm::Parameter))) =
+                reference_target(entry).as_ref().and_then(&node_of)
+            else {
+                return Closure {
+                    independent: false,
+                    work,
+                };
+            };
+            work = work.saturating_add(1);
+            pending.push(node.semantic_type.clone());
         }
     }
     let mut seen = BTreeSet::new();
@@ -544,8 +533,6 @@ fn signature_closure(supplied: &SuppliedDependency<'_>, function: usize) -> Clos
             };
         }
         pending.extend(node.dependencies.iter().cloned());
-        pending.push(node.semantic_type.clone());
-        work = work.saturating_add(body_reference_targets(&node.body, &mut pending));
     }
     Closure {
         independent: true,
@@ -565,24 +552,6 @@ fn carries_declaration_or_owner(node: &CheckedSemanticNodeV2, kind: CheckedNodeK
                 .and_then(NominalIdentityPreimage::owner),
             Some(NominalOwner::Model { .. })
         )
-}
-
-/// Every `reference` term target in `body`, at any depth, and the number of
-/// terms walked.
-fn body_reference_targets(body: &Value, out: &mut Vec<CheckedNodeId>) -> u64 {
-    let mut walked = 0_u64;
-    let walked_all = visit_terms(body, |term| -> ControlFlow<Infallible> {
-        walked = walked.saturating_add(1);
-        if body_term(term) == Some(BodyTerm::Reference) {
-            out.extend(
-                term.get("target")
-                    .and_then(|target| serde_json::from_value(target.clone()).ok()),
-            );
-        }
-        ControlFlow::Continue(())
-    });
-    let ControlFlow::Continue(()) = walked_all;
-    walked
 }
 
 /// Selected package/key pairs retained in an admitted body's dependency

@@ -13,8 +13,8 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
-    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    read_checked_package, CheckedOccurrenceRole, CheckedPackageDispatchResult,
+    CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult, ExpressionForm, NominalIdentityPreimage,
 };
@@ -46,6 +46,62 @@ fn refused_bytes(bytes: &[u8], evidence: &CheckedPackageEvidence) -> CheckedPack
         CheckedPackageV2ReadResult::Refused(refusal) => refusal,
         other => panic!("expected V2 refusal, got {other:?}"),
     }
+}
+
+/// Reader-only FR-038-AC-4 subcase: the fixture supplies the ordinal and
+/// source row, and the reader preserves them while checking their binding.
+/// Compiler derivation from step order is covered separately by AC-87.
+#[trace("TC-048", "FR-038-AC-4")]
+#[test]
+fn generated_occurrence_ordinal_and_source_region_survive_reading() {
+    let mut package = v2_all_families();
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["occurrences"][0]["role"] == "generated")
+        .expect("generated node");
+    let id = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+    let map_position = package["source_map"]
+        .as_array()
+        .expect("source map")
+        .iter()
+        .position(|entry| entry["node_id"] == id && entry["role"] == "generated")
+        .expect("generated source map entry");
+    package["semantic_graph"]["nodes"][position]["occurrences"][0]["ordinal"] = json!(1);
+    package["source_map"][map_position]["ordinal"] = json!(1);
+    let first = admitted(&package);
+    assert_eq!(
+        first.graph().nodes[position].occurrences[0].role,
+        CheckedOccurrenceRole::Generated
+    );
+    assert_eq!(first.graph().nodes[position].occurrences[0].ordinal, 1);
+    assert_eq!(first.source_map()[map_position].ordinal, 1);
+
+    // A different producer-supplied row region leaves the ordinal and
+    // semantic node unchanged.
+    let mut reordered_source = package.clone();
+    reordered_source["source_map"][map_position]["regions"][0]["start"] = json!(1000);
+    reordered_source["source_map"][map_position]["regions"][0]["end"] = json!(1001);
+    let reordered = admitted(&reordered_source);
+    assert_eq!(reordered.package_id(), first.package_id());
+    assert_eq!(
+        reordered.graph().nodes[position].node_id,
+        first.graph().nodes[position].node_id
+    );
+    assert_eq!(reordered.graph().nodes[position].occurrences[0].ordinal, 1);
+    assert_eq!(reordered.source_map()[map_position].ordinal, 1);
+    assert_eq!(reordered.source_map()[map_position].regions[0].start, 1000);
+    assert_eq!(reordered.source_map()[map_position].regions[0].end, 1001);
+
+    let mut mismatched = package;
+    mismatched["source_map"][map_position]["ordinal"] = json!(0);
+    let refusal = refused(&mismatched, &evidence_for(&mismatched));
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidSourceMap);
+    assert_eq!(
+        refusal.path,
+        Some(support_pointer(&format!("/source_map/{map_position}")))
+    );
 }
 
 /// Replaces every occurrence of `from` inside `value` with `to`.

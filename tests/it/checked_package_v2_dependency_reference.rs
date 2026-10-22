@@ -15,7 +15,7 @@ use crate::support::checked_package::{
     admitted_dependency, canonical, domain_package_digest, domain_package_document, family_key,
     mint_ungrouped_structural_keys, node_id, nominal_package, over_body, pointer,
     read_with_dependencies, rebuild_source_map, refresh_identity, rekey, rekey_application_node,
-    rename_node, sha256_hex, source_owner, structural_key, v2_all_families, v2_nominal,
+    rename_node, settle, sha256_hex, source_owner, structural_key, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -136,18 +136,8 @@ fn dependency_document(edit: impl FnOnce(&mut Vec<Value>)) -> Value {
     package["semantic_graph"]["nodes"] = Value::Array(nodes);
     rename_node(&mut package, &family_key("8080"), &function_key());
     mint_ungrouped_structural_keys(&mut package);
-    for position in 0..package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .len()
-    {
-        if package["semantic_graph"]["nodes"][position]["body"]["term"] == "application" {
-            rekey_application_node(&mut package, position);
-        }
-    }
     mint_ungrouped_structural_keys(&mut package);
-    rebuild_source_map(&mut package);
-    refresh_identity(&mut package);
+    settle(&mut package);
     package
 }
 
@@ -675,6 +665,48 @@ fn tc_048_the_selected_dependency_is_supplied_and_binds_to_its_entry() {
     );
 }
 
+#[trace("TC-048", "FR-038-AC-37")]
+#[test]
+fn dependency_selection_checks_presence_then_binding_in_lock_order() {
+    let dependency = build_dependency(|_| {});
+    let mut second = selection(&"f".repeat(64));
+    second["identity"] = json!("test/other");
+    let package = importing(
+        vec![selection(&dependency.digest), second],
+        dependency_term(&dependency.digest, &dependency.function_key),
+    );
+    for (supplied, code, cause, path) in [
+        (
+            None,
+            CheckedPackageRefusalCode::MissingImport,
+            CheckedPackageRefusalCause::MissingSelection,
+            "/lock/dependency_selections/0",
+        ),
+        (
+            Some(&dependency.package),
+            CheckedPackageRefusalCode::MissingImport,
+            CheckedPackageRefusalCause::MissingSelection,
+            "/lock/dependency_selections/1",
+        ),
+    ] {
+        let dependencies = supplied.map_or_else(Vec::new, |dep| vec![(LIBRARY, dep)]);
+        expect_refusal(
+            &refused(read_with_dependencies(&package, &dependencies)),
+            code,
+            Some(cause),
+            path,
+        );
+    }
+    let (_, stale) =
+        admitted_dependency(&crate::support::checked_package::positive_operation_identities());
+    expect_refusal(
+        &refused(read_with_dependencies(&package, &[(LIBRARY, &stale)])),
+        CheckedPackageRefusalCode::StaleDependency,
+        Some(CheckedPackageRefusalCause::ContentMismatch),
+        "/lock/dependency_selections/0/package_id/digest",
+    );
+}
+
 /// ACs: FR-038-AC-37
 #[trace("TC-048", "FR-038-AC-37")]
 #[test]
@@ -727,9 +759,8 @@ fn tc_048_a_reference_resolves_in_the_order_selection_name_operator() {
     );
 }
 
-/// The function `twice`'s signature after `edit` added type nodes to the
-/// graph: `signature` is what its `dependencies` list, `result` its
-/// `semantic_type`.
+/// The function `twice` with parameter types in its body binding and a result
+/// in its `semantic_type`.
 fn signature(signature: &[&str], result: &str, edit: impl FnOnce(&mut Vec<Value>)) -> Dependency {
     build_dependency(|nodes| {
         nodes.push(node(
@@ -746,7 +777,35 @@ fn signature(signature: &[&str], result: &str, edit: impl FnOnce(&mut Vec<Value>
             .find(|node| node["node_id"]["digest"] == function_key())
             .expect("the function");
         function["semantic_type"] = node_id(result);
-        function["dependencies"] = Value::Array(signature.iter().map(|key| node_id(key)).collect());
+        let parameter_keys: Vec<_> = signature
+            .iter()
+            .map(|type_key| {
+                let parameter = parameter(type_key, &family_key("a1a1"), &family_key("a3a3"));
+                let key = parameter["node_id"]["digest"]
+                    .as_str()
+                    .expect("parameter key")
+                    .to_owned();
+                nodes.push(parameter);
+                key
+            })
+            .collect();
+        if !parameter_keys.is_empty() {
+            let call = nodes
+                .iter_mut()
+                .find(|node| node["body"]["term"] == "application")
+                .expect("the fixture call");
+            let arguments = call["body"]["arguments"].as_array_mut().expect("arguments");
+            arguments.extend(parameter_keys.iter().map(|key| reference_to(key)));
+            let function = nodes
+                .iter_mut()
+                .find(|node| node["node_id"]["digest"] == function_key())
+                .expect("the function");
+            function["body"] = json!({"term": "aggregate", "members": [{
+                "term": "binding", "name": "parameters", "value": {
+                    "term": "aggregate", "members": parameter_keys.iter().map(|key| reference_to(key)).collect::<Vec<_>>()
+                }
+            }]});
+        }
     })
 }
 
@@ -851,9 +910,9 @@ fn parameter(semantic_type: &str, text: &str, integer: &str) -> Value {
     with_body(node, body)
 }
 
-/// The dependency function with `parameter` as a parameter node, its type
-/// the declared record, listed as the caller says.
-fn parameter_dependency(listed: bool, referenced: bool) -> Dependency {
+/// The dependency function with a parameter node outside its declared
+/// `parameters` binding.
+fn unbound_parameter_dependency(listed: bool, referenced: bool) -> Dependency {
     // The fixture already holds the anonymous `Text` and `Integer` nodes.
     let (text, integer) = (family_key("a1a1"), family_key("a3a3"));
     let parameter = parameter(&record_key(), &text, &integer);
@@ -861,8 +920,15 @@ fn parameter_dependency(listed: bool, referenced: bool) -> Dependency {
         .as_str()
         .expect("parameter key")
         .to_owned();
-    let signed: &[&str] = if listed { &[&parameter_key] } else { &[] };
-    signature(signed, &boolean_key(), |nodes| {
+    build_dependency(|nodes| {
+        nodes.push(node(
+            &record_key(),
+            "composite_type",
+            "record",
+            &boolean_key(),
+            &[&boolean_key()],
+            Some(&["R"]),
+        ));
         nodes.push(parameter);
         let function = nodes
             .iter_mut()
@@ -873,37 +939,31 @@ fn parameter_dependency(listed: bool, referenced: bool) -> Dependency {
                 "term": "aggregate", "members": [reference_to(&parameter_key)],
             });
         }
+        if listed {
+            function["dependencies"] = json!([node_id(&parameter_key)]);
+        }
     })
 }
 
-/// ACs: FR-038-AC-38
 #[trace("TC-048", "FR-038-AC-38")]
 #[test]
-fn tc_048_a_parameter_of_a_declared_type_refuses_however_the_function_reaches_it() {
-    // Listed in `dependencies` only, referenced from the body only (a
-    // non-application function body need not list what it references), and
-    // both.
-    for (name, listed, referenced) in [
-        ("listed", true, false),
-        ("body reference", false, true),
-        ("both", true, true),
-    ] {
-        let dependency = parameter_dependency(listed, referenced);
+fn unbound_parameter_type_is_outside_the_signature() {
+    for (listed, referenced) in [(true, false), (false, true), (true, true)] {
+        let dependency = unbound_parameter_dependency(listed, referenced);
         let package = calling(&dependency, &dependency.function_key);
-        expect_refusal(
-            &refused(read(&package, &dependency)),
-            CheckedPackageRefusalCode::IllTyped,
-            Some(CheckedPackageRefusalCause::OperatorIneligible),
-            &call_path(&package, "/arguments/0"),
+        assert!(
+            matches!(
+                read(&package, &dependency),
+                CheckedPackageV2ReadResult::Admitted(_)
+            ),
+            "a parameter node outside the binding is not a signature parameter"
         );
-        assert!(!name.is_empty());
     }
 }
 
-/// ACs: FR-038-AC-38
 #[trace("TC-048", "FR-038-AC-38")]
 #[test]
-fn tc_048_the_signature_closure_follows_body_references_and_semantic_types() {
+fn signature_type_closure_follows_dependencies_only() {
     let by_type = structural_key(
         "composite_type",
         "tuple",
@@ -931,14 +991,43 @@ fn tc_048_the_signature_closure_follows_body_references_and_semantic_types() {
     });
     for (name, dependency) in [("body reference", body), ("semantic type", typed)] {
         let package = calling(&dependency, &dependency.function_key);
-        let refusal = refused(read(&package, &dependency));
-        assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped, "{name}");
-        assert_eq!(
-            refusal.path,
-            Some(pointer(&call_path(&package, "/arguments/0"))),
-            "{name}"
+        assert!(
+            matches!(
+                read(&package, &dependency),
+                CheckedPackageV2ReadResult::Admitted(_)
+            ),
+            "a signature type's {name} is outside its dependency closure"
         );
     }
+}
+
+#[trace("TC-048", "FR-038-AC-38")]
+#[test]
+fn dependency_function_body_reference_outside_signature_is_eligible() {
+    let dependency = build_dependency(|nodes| {
+        nodes.push(node(
+            &record_key(),
+            "composite_type",
+            "record",
+            &boolean_key(),
+            &[&boolean_key()],
+            Some(&["R"]),
+        ));
+        let function = nodes
+            .iter_mut()
+            .find(|node| node["node_id"]["digest"] == function_key())
+            .expect("the function");
+        function["dependencies"] = json!([node_id(&record_key())]);
+        function["body"] = json!({
+            "term": "aggregate", "members": [reference_to(&record_key())]
+        });
+    });
+    let package = calling(&dependency, &dependency.function_key);
+    let result = read(&package, &dependency);
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+        "a body-only declared record is outside the dependency function signature: {result:?}"
+    );
 }
 
 /// A dependency package built on the recorded nominal package: its
