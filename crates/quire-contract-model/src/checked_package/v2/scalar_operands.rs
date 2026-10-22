@@ -340,11 +340,17 @@ mod tests {
             "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"}, "entries": []},
         }))
         .expect("private package fixture");
+        let terms = wire
+            .semantic_graph
+            .nodes
+            .iter()
+            .map(|node| super::super::CheckedTerm::decode_admitted(&node.body).expect("term"))
+            .collect();
         CheckedPackageV2 {
             node_index: super::super::retained_node_index(&wire),
             lowering_facts: Vec::new(),
             wire,
-            terms: Vec::new(),
+            terms,
             kinds: Vec::new(),
             bytes: 1 << 20,
             models: RetainedModels::default(),
@@ -385,6 +391,25 @@ mod tests {
         assert_eq!(
             package.scalar_application_operands(&application, &occurrence),
             Err(CheckedScalarOperandError::UnknownOperator)
+        );
+    }
+
+    #[trace("FR-349-AC-2")]
+    #[test]
+    fn admitted_scalar_arguments_use_retained_terms_after_raw_body_changes() {
+        let mut package = fixture_package();
+        let application: CheckedNodeId = serde_json::from_value(id('4')).expect("id");
+        let occurrence = CheckedOccurrence {
+            role: super::super::CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let expected = package
+            .scalar_application_operands(&application, &occurrence)
+            .expect("original operands");
+        package.wire.semantic_graph.nodes[3].body = json!({"term": "aggregate", "members": []});
+        assert_eq!(
+            package.scalar_application_operands(&application, &occurrence),
+            Ok(expected)
         );
     }
 }
