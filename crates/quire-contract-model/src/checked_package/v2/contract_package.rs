@@ -2300,6 +2300,7 @@ impl ContractPackageWireV1 {
         super::operations::validate_application_keys(
             &self.semantic_graph.nodes,
             &kinds,
+            &terms,
             &positions,
             &mut *meter,
             limits.bytes,
@@ -2307,6 +2308,7 @@ impl ContractPackageWireV1 {
         super::derived_keys::validate_derived_keys(
             &self.semantic_graph.nodes,
             &kinds,
+            &terms,
             &positions,
             &[],
             &mut *meter,

@@ -5,7 +5,7 @@
 //! pre-read API share the preimage construction here and the encoder in `encode`.
 
 use super::encode::{ApplicationNodePreimage, GroupPlace};
-use super::{structural, BodyTerm, CheckedNodeId, CheckedSemanticNodeV2};
+use super::{structural, BodyTerm, CheckedNodeId, CheckedSemanticNodeV2, CheckedTerm};
 use crate::checked_package::common::{body_term, NODE_DOMAIN};
 use quire_walk::{walk, Children, Walk};
 use serde_json::{json, Value};
@@ -258,6 +258,14 @@ pub(super) fn application_preimage<'a>(
     node: &'a CheckedSemanticNodeV2,
     group: ApplicationGroup<'_>,
 ) -> Result<ApplicationNodePreimage<'a>, ApplicationIdentityError> {
+    application_preimage_with_term(node, None, group)
+}
+
+fn application_preimage_with_term<'a>(
+    node: &'a CheckedSemanticNodeV2,
+    admitted: Option<&CheckedTerm>,
+    group: ApplicationGroup<'_>,
+) -> Result<ApplicationNodePreimage<'a>, ApplicationIdentityError> {
     let index_error = || ApplicationIdentityError::ContextIndexOutOfRange {
         node_id: node.node_id.clone(),
     };
@@ -282,7 +290,10 @@ pub(super) fn application_preimage<'a>(
         semantic_type: &node.semantic_type,
         declaration: node.declaration.as_ref(),
         recursion,
-        body: group_references(&node.body, group),
+        body: admitted.map_or_else(
+            || group_references(&node.body, group),
+            |term| group_references_admitted(&node.body, term, group),
+        ),
     })
 }
 
@@ -291,8 +302,95 @@ pub(super) fn application_digest(
     group: ApplicationGroup<'_>,
     bytes: u64,
 ) -> Result<String, ApplicationIdentityError> {
-    let preimage = application_preimage(node, group)?;
+    application_digest_with_term(node, None, group, bytes)
+}
+
+/// Reader path: the already-decoded admitted term selects every reference
+/// and child, while the retained raw body supplies the exact wire preimage.
+pub(super) fn application_digest_admitted(
+    node: &CheckedSemanticNodeV2,
+    term: &CheckedTerm,
+    group: ApplicationGroup<'_>,
+    bytes: u64,
+) -> Result<String, ApplicationIdentityError> {
+    application_digest_with_term(node, Some(term), group, bytes)
+}
+
+fn application_digest_with_term(
+    node: &CheckedSemanticNodeV2,
+    term: Option<&CheckedTerm>,
+    group: ApplicationGroup<'_>,
+    bytes: u64,
+) -> Result<String, ApplicationIdentityError> {
+    let preimage = match term {
+        Some(term) => application_preimage_with_term(node, Some(term), group)?,
+        None => application_preimage(node, group)?,
+    };
     Ok(quire_canonical::sha256(&preimage, quire_canonical::Limits::new(bytes))?.to_string())
+}
+
+fn group_references_admitted<'a>(
+    body: &'a Value,
+    term: &CheckedTerm,
+    group: ApplicationGroup<'_>,
+) -> Cow<'a, Value> {
+    if group.is_empty() {
+        return Cow::Borrowed(body);
+    }
+    let mut rewritten = OwnedJson(copy_value(body));
+    let ControlFlow::Continue(()) =
+        walk(&mut TypedGroupRewrite { group }, (term, &mut rewritten.0));
+    Cow::Owned(rewritten.take())
+}
+
+struct TypedGroupRewrite<'a> {
+    group: ApplicationGroup<'a>,
+}
+
+impl<'t> Walk for TypedGroupRewrite<'t> {
+    type Node = (&'t CheckedTerm, &'t mut Value);
+    type Frame = ();
+    type Stop = Infallible;
+
+    fn enter(
+        &mut self,
+        (term, raw): Self::Node,
+        children: &mut Children<'_, Self::Node>,
+    ) -> ControlFlow<Infallible> {
+        match term {
+            CheckedTerm::Reference { target } => {
+                if let Some(ordinal) = self.group.ordinal(target) {
+                    let replacement = json!({ "term": "group_reference", "ordinal": ordinal });
+                    quire_canonical::drop_value(std::mem::replace(raw, replacement));
+                }
+            }
+            CheckedTerm::Application { arguments, .. } => {
+                if let Some(Value::Array(values)) = raw.get_mut("arguments") {
+                    children.extend(arguments.iter().zip(values.iter_mut()));
+                }
+            }
+            CheckedTerm::Aggregate { members } => {
+                if let Some(Value::Array(values)) = raw.get_mut("members") {
+                    children.extend(members.iter().zip(values.iter_mut()));
+                }
+            }
+            CheckedTerm::Binding { value, .. } => {
+                if let Some(raw) = raw.get_mut("value") {
+                    children.push((value.as_ref(), raw));
+                }
+            }
+            CheckedTerm::Literal { .. }
+            | CheckedTerm::DependencyReference { .. }
+            | CheckedTerm::Frame { .. }
+            | CheckedTerm::AbstractionRelation { .. }
+            | CheckedTerm::ExtensionForm { .. } => {}
+        }
+        ControlFlow::Continue(())
+    }
+
+    fn exit(&mut self, (): ()) -> ControlFlow<Infallible> {
+        ControlFlow::Continue(())
+    }
 }
 
 fn group_references<'a>(term: &'a Value, group: ApplicationGroup<'_>) -> Cow<'a, Value> {
