@@ -823,6 +823,42 @@ fn tc_048_a_semantic_ir_document_reads_inherited_members_and_conformance() {
     );
 }
 
+/// Native type references become closed selected metadata during the domain
+/// document read; member typing does not reinterpret their wire spellings.
+#[trace("TC-048", "FR-038-AC-29")]
+#[test]
+fn tc_048_selected_native_type_refs_are_retained_for_member_typing() {
+    let model = read(&document(vec![object_type(
+        WIDGET,
+        &[],
+        vec![
+            field(WIDGET, "flag", "ix://quire/native/Boolean"),
+            field(WIDGET, "count", "ix://quire/native/Integer"),
+            field(WIDGET, "label", "ix://quire/native/String"),
+            field(WIDGET, "key", "ix://quire/native/UUID"),
+            field(WIDGET, "when", "ix://quire/native/Timestamp"),
+            field(WIDGET, "ratio", "ix://quire/native/Rational"),
+        ],
+    )]))
+    .expect("all declared native references admit");
+    for (name, native, expected) in [
+        ("flag", NativeTypeRef::Boolean, Some(MemberType::Boolean)),
+        ("count", NativeTypeRef::Integer, Some(MemberType::Integer)),
+        ("label", NativeTypeRef::String, Some(MemberType::String)),
+        ("key", NativeTypeRef::Uuid, Some(MemberType::Uuid)),
+        ("when", NativeTypeRef::Timestamp, Some(MemberType::Timestamp)),
+        ("ratio", NativeTypeRef::Rational, None),
+    ] {
+        let Resolved::Field(field) =
+            resolve(&model, WIDGET, MemberKind::Field, name).expect("field resolves")
+        else {
+            panic!("expected a field");
+        };
+        assert_eq!(field.slot.type_ref, SelectedTypeRef::Native(native), "{name}");
+        assert_eq!(model.field_type(field), expected, "{name}");
+    }
+}
+
 /// An FCD value type `scalar: integer` with `min` and `max` constraints is
 /// the element type `Int[lo, hi]`.
 #[trace("TC-048", "FR-038-AC-29")]
