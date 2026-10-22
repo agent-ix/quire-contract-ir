@@ -93,7 +93,7 @@ impl CheckedTerm {
     /// Decodes only a body that the reader's flat and closed-shape checks
     /// already accepted. This is deliberately not a public Deserialize impl:
     /// an arbitrary recursive wire term has no standalone depth bound.
-    pub(super) fn from_validated(value: &Value) -> Result<Self, ()> {
+    pub(super) fn decode_admitted(value: &Value) -> Result<Self, ()> {
         fn field<T: DeserializeOwned>(value: &Value, name: &str) -> Result<T, ()> {
             serde_json::from_value(value.get(name).ok_or(())?.clone()).map_err(|_| ())
         }
@@ -104,7 +104,7 @@ impl CheckedTerm {
                 .and_then(Value::as_array)
                 .ok_or(())?
                 .iter()
-                .map(CheckedTerm::from_validated)
+                .map(CheckedTerm::decode_admitted)
                 .collect()
         }
 
@@ -129,7 +129,7 @@ impl CheckedTerm {
             }),
             Some(BodyTerm::Binding) => Ok(Self::Binding {
                 name: field(value, "name")?,
-                value: Box::new(Self::from_validated(value.get("value").ok_or(())?)?),
+                value: Box::new(Self::decode_admitted(value.get("value").ok_or(())?)?),
             }),
             Some(BodyTerm::DependencyReference) => Ok(Self::DependencyReference {
                 package: field(value, "package")?,
@@ -207,7 +207,8 @@ pub struct CheckedAbstractionObject {
     #[serde(rename = "type")]
     pub type_id: CheckedNodeId,
     /// Rust type path.
-    pub rust_type: Vec<Box<str>>,
+    #[serde(rename = "rust_type")]
+    pub type_path: Vec<Box<str>>,
     /// Field mappings.
     pub fields: Vec<CheckedAbstractionField>,
 }
@@ -219,7 +220,8 @@ pub struct CheckedAbstractionField {
     /// Model field.
     pub name: Box<str>,
     /// Rust field.
-    pub rust_field: Box<str>,
+    #[serde(rename = "rust_field")]
+    pub field_ident: Box<str>,
 }
 
 /// One abstraction population mapping.
@@ -255,7 +257,8 @@ pub struct CheckedAbstractionParameter {
     /// Model parameter.
     pub name: Box<str>,
     /// Rust parameter.
-    pub rust_parameter: Box<str>,
+    #[serde(rename = "rust_parameter")]
+    pub parameter_ident: Box<str>,
 }
 
 #[cfg(test)]
@@ -309,7 +312,7 @@ mod tests {
             (abstraction, "abstraction_relation"),
             (extension, "extension_form"),
         ] {
-            let term = CheckedTerm::from_validated(&body).expect("closed term");
+            let term = CheckedTerm::decode_admitted(&body).expect("closed term");
             let actual = match &term {
                 CheckedTerm::Literal { .. } => "literal",
                 CheckedTerm::Reference { .. } => "reference",
@@ -336,7 +339,7 @@ mod tests {
             assert_eq!(serde_json::to_value(term).expect("term serializes"), body);
         }
         assert!(
-            CheckedTerm::from_validated(&json!({"term":"group_reference","ordinal":0})).is_err(),
+            CheckedTerm::decode_admitted(&json!({"term":"group_reference","ordinal":0})).is_err(),
             "a preimage-only group reference cannot become a wire term"
         );
     }

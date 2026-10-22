@@ -958,7 +958,7 @@ impl CheckedPackageV2 {
             .iter()
             .enumerate()
             .map(|(position, node)| {
-                CheckedTerm::from_validated(&node.body).map_err(|_| {
+                CheckedTerm::decode_admitted(&node.body).map_err(|_| {
                     refuse(
                         CheckedPackageRefusalCode::MalformedWire,
                         node_pointer(position).key("body"),
