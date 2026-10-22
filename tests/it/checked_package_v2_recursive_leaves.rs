@@ -1219,7 +1219,7 @@ fn node_types() -> Vec<Typed> {
     ]
 }
 
-#[trace("FR-035-AC-4", "FR-035-AC-5")]
+#[trace("FR-035-AC-4", "FR-035-AC-5", "FR-035-AC-19")]
 #[test]
 fn recursive_group_round_trips_with_original_node_keys() {
     let [some, payload] = some_segments();
@@ -1268,6 +1268,29 @@ fn recursive_group_round_trips_with_original_node_keys() {
     let ContractPackageReadResult::Admitted(decoded) = outcome else {
         panic!("lowered recursion group must strict-read: {outcome:?}");
     };
+    let producer = result.package.wire().expect("producer package");
+    for node in &decoded.wire().semantic_graph.nodes {
+        let position = admitted
+            .graph()
+            .nodes
+            .iter()
+            .position(|source| source.node_id == node.node_id)
+            .expect("represented source node");
+        let kind = admitted.node_kinds()[position];
+        assert_eq!(producer.node_kind(&node.node_id), Some(kind));
+        assert_eq!(decoded.node_kind(&node.node_id), Some(kind));
+    }
+    let ContractRootViewV1::Lowered(closure) = decoded.reached_closure(&root).expect("closure")
+    else {
+        panic!("lowered root");
+    };
+    assert_eq!(
+        closure.root_kind,
+        decoded.node_kind(&root).expect("root kind")
+    );
+    for reached in &closure.nodes {
+        assert_eq!(Some(reached.kind), decoded.node_kind(&reached.node.node_id));
+    }
     let emitted_group = decoded
         .wire()
         .semantic_graph

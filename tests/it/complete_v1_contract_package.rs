@@ -9,7 +9,7 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedNodeTag, CheckedPackageLimit, CheckedPackageReadLimits,
+    CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedPackageLimit, CheckedPackageReadLimits,
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, CheckedPackageV2,
     CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
     ContractDependencies, ContractDispositionV1, ContractPackageReadResult, ContractPackageWireV1,
@@ -699,6 +699,109 @@ fn one_call_emits_one_six_field_package_with_total_accounting_and_source_map() {
     );
 }
 
+#[trace("TC-047", "FR-035-AC-19", "FR-035-AC-20", "FR-035-AC-21")]
+#[test]
+fn retained_typed_views_match_source_and_strict_reader_without_changing_wire() {
+    let admitted = admit(&mixed_fixture());
+    let result = admitted.lower(&request(), &profile());
+    let producer = result.package.wire().expect("producer package");
+    let ContractPackageReadResult::Admitted(reader) = read(bytes(&result)) else {
+        panic!("emitted package must admit");
+    };
+    assert_eq!(producer.wire(), reader.wire());
+    assert_eq!(producer.identity(), reader.identity());
+    for node in &producer.wire().semantic_graph.nodes {
+        let source_position = admitted
+            .graph()
+            .nodes
+            .iter()
+            .position(|source| source.node_id == node.node_id)
+            .expect("source node");
+        let expected = admitted.node_kinds()[source_position];
+        assert_eq!(producer.node_kind(&node.node_id), Some(expected));
+        assert_eq!(reader.node_kind(&node.node_id), Some(expected));
+    }
+    for package in [producer, reader.as_ref()] {
+        let ContractRootViewV1::Lowered(view) =
+            package.reached_closure(&id("dddd")).expect("closure")
+        else {
+            panic!("lowered root");
+        };
+        assert_eq!(
+            view.root_kind,
+            package.node_kind(&view.root.node_id).expect("root kind")
+        );
+        for entry in &view.nodes {
+            assert_eq!(
+                entry.kind,
+                package
+                    .node_kind(&entry.node.node_id)
+                    .expect("reached kind")
+            );
+        }
+    }
+    assert_eq!(producer.node_kind(&id("1010")), None);
+    assert_eq!(producer.node_kind(&id("7070")), None);
+    assert_eq!(producer.node_kind(&missing()), None);
+    for (index, record) in result.records.iter().enumerate() {
+        let expected = match record {
+            CompleteLoweringRecordV2::Unsupported { node_tag, .. } => Some(*node_tag),
+            _ => None,
+        };
+        assert_eq!(producer.unsupported_tag_at(index), expected);
+        assert_eq!(reader.unsupported_tag_at(index), expected);
+    }
+    assert_eq!(producer.unsupported_tag_at(result.records.len()), None);
+    assert_eq!(reader.unsupported_tag_at(result.records.len()), None);
+    assert_eq!(
+        producer.unsupported_tag_at(2),
+        Some(CheckedNodeTag::Correspondence)
+    );
+    assert!(!producer
+        .wire()
+        .semantic_graph
+        .nodes
+        .iter()
+        .any(|node| node.node_id == id("7070")));
+    assert!(matches!(
+        producer.node_kind(&id("dddd")),
+        Some(CheckedNodeKind::Value(_))
+    ));
+}
+
+#[trace("TC-047", "FR-035-AC-21")]
+#[test]
+fn retained_views_preserve_kind_and_tag_refusal_before_identity_and_limit() {
+    let result = lower(&mixed_fixture(), &request());
+    let original = bytes(&result);
+    let mut bad_kind: Value = serde_json::from_slice(original).expect("package json");
+    bad_kind["semantic_graph"]["nodes"][0]["semantic_form"] = json!("not_a_form");
+    let ContractPackageReadResult::Refused(kind_refusal) = read(&canonical(&bad_kind)) else {
+        panic!("invalid kind must refuse");
+    };
+    assert_eq!(kind_refusal.code, Code::InvalidSemanticGraph);
+    assert_eq!(
+        kind_refusal.path.expect("kind path").as_str(),
+        "/semantic_graph/nodes/0/semantic_form"
+    );
+    let mut bad_tag: Value = serde_json::from_slice(original).expect("package json");
+    bad_tag["feature_accounting"][2]["node_tag"] = json!("not_a_tag");
+    let ContractPackageReadResult::Refused(tag_refusal) = read(&canonical(&bad_tag)) else {
+        panic!("invalid unsupported tag must refuse");
+    };
+    assert_eq!(tag_refusal.code, Code::InvalidPackage);
+    assert_eq!(
+        tag_refusal.path.expect("tag path").as_str(),
+        "/feature_accounting/2/node_tag"
+    );
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.nodes = 0;
+    assert!(matches!(
+        read_with_limits(original, limits),
+        ContractPackageReadResult::Incomplete(_)
+    ));
+}
+
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
 fn identity_covers_exact_semantic_projection_and_excludes_valid_source_coordinates() {
@@ -1174,7 +1277,7 @@ fn duplicate_member_and_noncanonical_bytes_refuse_before_identity() {
     );
 }
 
-#[trace("TC-047", "FR-035-AC-5")]
+#[trace("TC-047", "FR-035-AC-5", "FR-035-AC-19")]
 #[test]
 fn selected_dependencies_are_bound_by_library_identity_before_graph_checks() {
     use quire_contract_model::{
@@ -1190,10 +1293,17 @@ fn selected_dependencies_are_bound_by_library_identity_before_graph_checks() {
             package: &dependency,
         },
     );
-    assert!(matches!(
-        ContractPackageWireV1::read(&bytes, CheckedPackageReadLimits::bounded(), &supplied),
-        ContractPackageReadResult::Admitted(_)
-    ));
+    let ContractPackageReadResult::Admitted(package) =
+        ContractPackageWireV1::read(&bytes, CheckedPackageReadLimits::bounded(), &supplied)
+    else {
+        panic!("selected dependency must admit");
+    };
+    assert!(dependency
+        .graph()
+        .nodes
+        .iter()
+        .any(|node| node.node_id == id("7070")));
+    assert_eq!(package.node_kind(&id("7070")), None);
     let ContractPackageReadResult::Refused(missing) = read(&bytes) else {
         panic!("selection requires input");
     };

@@ -28,7 +28,7 @@ use super::lower::{
     CONTRACT_PACKAGE_VERSION,
 };
 use super::{
-    CheckedNodeTag, CheckedPackageLockV2, CheckedPackageV2, CheckedSelectionRole,
+    CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedPackageV2, CheckedSelectionRole,
     CheckedSemanticNodeV2,
 };
 use crate::checked_package::common::{
@@ -352,6 +352,8 @@ pub struct ContractPackageWireV1 {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractPackageV1 {
     wire: ContractPackageWireV1,
+    node_kinds: Vec<CheckedNodeKind>,
+    unsupported_tags: Vec<Option<CheckedNodeTag>>,
 }
 
 pub(super) struct GuardContextWork {
@@ -483,6 +485,8 @@ impl<'a> ContractPackageTraversalIndex<'a> {
 pub struct ContractReachedNodeV1<'a> {
     /// The admitted semantic node, addressed by its existing typed key.
     pub node: &'a CheckedSemanticNodeV2,
+    /// The node's admitted typed family and form.
+    pub kind: CheckedNodeKind,
     /// Every admitted source-map occurrence for that node.
     pub sources: &'a [CheckedSourceMapEntry],
 }
@@ -501,6 +505,8 @@ pub struct ContractSelectedReferenceV1 {
 pub struct ContractReachedClosureV1<'a> {
     /// Requested root, also present in `nodes`.
     pub root: &'a CheckedSemanticNodeV2,
+    /// The requested root's admitted typed family and form.
+    pub root_kind: CheckedNodeKind,
     /// Reached local nodes once each, in ascending typed-key order.
     pub nodes: Vec<ContractReachedNodeV1<'a>>,
     /// Selected external package/key pairs, never flattened into `nodes`.
@@ -580,11 +586,10 @@ impl ContractPackageV1 {
                 .map_err(ContractRootViewError::Incomplete)?;
             pending.push_back(node.semantic_type.clone());
             pending.extend(node.dependencies.iter().cloned());
-            let at = JsonPointer::root()
-                .key("semantic_graph")
-                .key("nodes")
-                .index(position);
-            let kind = super::decode_node_kind(node, |member| at.clone().key(member))?;
+            let kind = *self
+                .node_kinds
+                .get(position)
+                .ok_or(ContractRootViewError::Inconsistent)?;
             let steps = [
                 Step::Key("semantic_graph"),
                 Step::Key("nodes"),
@@ -625,22 +630,29 @@ impl ContractPackageV1 {
                     .ok_or(ContractRootViewError::Inconsistent)?;
                 work.charge(1_u64.saturating_add(u64::try_from(sources.len()).unwrap_or(u64::MAX)))
                     .map_err(ContractRootViewError::Incomplete)?;
-                Ok(ContractReachedNodeV1 { node, sources })
+                let kind = *self
+                    .node_kinds
+                    .get(*position)
+                    .ok_or(ContractRootViewError::Inconsistent)?;
+                Ok(ContractReachedNodeV1 {
+                    node,
+                    kind,
+                    sources,
+                })
             })
             .collect::<Result<Vec<_>, ContractRootViewError>>()?;
         work.charge(u64::try_from(reached.len()).unwrap_or(u64::MAX))
             .map_err(ContractRootViewError::Incomplete)?;
         let classified = reached
             .iter()
-            .map(|entry| {
-                let tag = CheckedNodeTag::from_wire(&entry.node.node_tag)
-                    .ok_or(ContractRootViewError::Inconsistent)?;
-                Ok((&entry.node.node_id, tag))
-            })
-            .collect::<Result<Vec<_>, ContractRootViewError>>()?;
+            .map(|entry| (&entry.node.node_id, entry.kind.tag()));
         let (bounds, claims) = super::lower::classify_reached_keys(requested, classified);
         Ok(ContractRootViewV1::Lowered(ContractReachedClosureV1 {
             root,
+            root_kind: *self
+                .node_kinds
+                .get(root_position)
+                .ok_or(ContractRootViewError::Inconsistent)?,
             nodes: reached,
             selected_references: selected_references.into_iter().collect(),
             bounds,
@@ -651,6 +663,24 @@ impl ContractPackageV1 {
     /// The exact six-field wire, available for read-only inspection.
     pub fn wire(&self) -> &ContractPackageWireV1 {
         &self.wire
+    }
+
+    /// The retained kind of a represented local node, if present.
+    pub fn node_kind(&self, key: &CheckedNodeId) -> Option<CheckedNodeKind> {
+        self.wire
+            .semantic_graph
+            .nodes
+            .iter()
+            .position(|node| &node.node_id == key)
+            .and_then(|position| self.node_kinds.get(position).copied())
+    }
+
+    /// The retained unsupported family at a `feature_accounting` index.
+    pub fn unsupported_tag_at(&self, accounting_index: usize) -> Option<CheckedNodeTag> {
+        self.unsupported_tags
+            .get(accounting_index)
+            .copied()
+            .flatten()
     }
 
     /// Remove one admitted source-map node to exercise defensive query errors.
@@ -839,6 +869,24 @@ impl ContractPackageWireV1 {
                 .iter()
                 .filter(|node| nodes.contains(&node.node_id)),
         );
+        let source_kinds = source
+            .graph()
+            .nodes
+            .iter()
+            .zip(source.node_kinds())
+            .map(|(node, kind)| (&node.node_id, *kind))
+            .collect::<BTreeMap<_, _>>();
+        let node_kinds = nodes
+            .iter()
+            .map(|node| source_kinds[&node.node_id])
+            .collect();
+        let unsupported_tags = records
+            .iter()
+            .map(|record| match record {
+                CompleteLoweringRecordV2::Unsupported { node_tag, .. } => Some(*node_tag),
+                _ => None,
+            })
+            .collect();
         let node_sources = nodes
             .iter()
             .map(|node_id| ContractNodeSourcesV1 {
@@ -903,7 +951,14 @@ impl ContractPackageWireV1 {
             },
         };
         let bytes = canonical(&wire, ceiling)?.into_boxed_slice();
-        Ok((ContractPackageV1 { wire }, bytes))
+        Ok((
+            ContractPackageV1 {
+                wire,
+                node_kinds,
+                unsupported_tags,
+            },
+            bytes,
+        ))
     }
 }
 
@@ -915,9 +970,7 @@ impl ContractPackageWireV1 {
         dependencies: &ContractDependencies<'_>,
     ) -> ContractPackageReadResult {
         match Self::admit(bytes, limits, dependencies) {
-            Ok(value) => {
-                ContractPackageReadResult::Admitted(Box::new(ContractPackageV1 { wire: value }))
-            }
+            Ok(value) => ContractPackageReadResult::Admitted(Box::new(value)),
             Err(ValidationFailure::Refused(refusal)) => {
                 ContractPackageReadResult::Refused(*refusal)
             }
@@ -931,7 +984,7 @@ impl ContractPackageWireV1 {
         bytes: &[u8],
         limits: CheckedPackageReadLimits,
         dependencies: &ContractDependencies<'_>,
-    ) -> Result<Self, ValidationFailure> {
+    ) -> Result<ContractPackageV1, ValidationFailure> {
         if let Err(failure) = read_typed_prefix(bytes, limits) {
             return Err(match failure {
                 ValidationFailure::Refused(refusal)
@@ -969,13 +1022,17 @@ impl ContractPackageWireV1 {
             )
         })?;
         let mut work_meter = super::WorkMeter::new(limits.work);
-        wire.validate_values(limits, &mut work_meter)?;
+        let (node_kinds, unsupported_tags) = wire.validate_values(limits, &mut work_meter)?;
         wire.validate_correspondence(limits)?;
         wire.validate_accounting()?;
         wire.validate_identity(limits.bytes)?;
         wire.validate_dependencies(dependencies, &mut work_meter)?;
         wire.validate_references(dependencies, limits, &mut work_meter)?;
-        Ok(wire)
+        Ok(ContractPackageV1 {
+            wire,
+            node_kinds,
+            unsupported_tags,
+        })
     }
 }
 
@@ -1473,7 +1530,7 @@ impl ContractPackageWireV1 {
         &self,
         limits: CheckedPackageReadLimits,
         work_meter: &mut super::WorkMeter,
-    ) -> Result<(), ValidationFailure> {
+    ) -> Result<(Vec<CheckedNodeKind>, Vec<Option<CheckedNodeTag>>), ValidationFailure> {
         let source = &self.package.source;
         let package_id = &source.package_id;
         if package_id.domain.as_ref() != super::PACKAGE_DOMAIN_V2
@@ -1637,6 +1694,7 @@ impl ContractPackageWireV1 {
         let canonical = canonical_node_order(nodes.iter());
         let mut seen = BTreeSet::new();
         let mut edges = 0_u64;
+        let mut node_kinds = Vec::with_capacity(nodes.len());
         for (index, node) in nodes.iter().enumerate() {
             let at = JsonPointer::root()
                 .key("semantic_graph")
@@ -1660,6 +1718,7 @@ impl ContractPackageWireV1 {
                 ));
             }
             let kind = super::decode_node_kind(node, |member| at.clone().key(member))?;
+            node_kinds.push(kind);
             let steps = [
                 Step::Key("semantic_graph"),
                 Step::Key("nodes"),
@@ -1680,6 +1739,7 @@ impl ContractPackageWireV1 {
                 ));
             }
         }
+        let mut unsupported_tags = Vec::with_capacity(self.feature_accounting.len());
         for (index, record) in self.feature_accounting.iter().enumerate() {
             if !valid_node_id(record.node_id()) {
                 return Err(malformed(
@@ -1690,17 +1750,21 @@ impl ContractPackageWireV1 {
                     CheckedPackageRefusalCause::InvalidValue,
                 ));
             }
-            if let ContractFeatureRecordV1::Unsupported { node_tag, .. } = record {
-                if CheckedNodeTag::from_wire(node_tag).is_none() {
-                    return Err(malformed(
-                        JsonPointer::root()
-                            .key("feature_accounting")
-                            .index(index)
-                            .key("node_tag"),
-                        CheckedPackageRefusalCause::InvalidValue,
-                    ));
+            let unsupported_tag = match record {
+                ContractFeatureRecordV1::Unsupported { node_tag, .. } => {
+                    Some(CheckedNodeTag::from_wire(node_tag).ok_or_else(|| {
+                        malformed(
+                            JsonPointer::root()
+                                .key("feature_accounting")
+                                .index(index)
+                                .key("node_tag"),
+                            CheckedPackageRefusalCause::InvalidValue,
+                        )
+                    })?)
                 }
-            }
+                _ => None,
+            };
+            unsupported_tags.push(unsupported_tag);
         }
         if self.identity.domain.as_ref() != CONTRACT_IR_SEMANTIC_DOMAIN {
             return Err(malformed(
@@ -1714,7 +1778,7 @@ impl ContractPackageWireV1 {
                 CheckedPackageRefusalCause::InvalidValue,
             ));
         }
-        Ok(())
+        Ok((node_kinds, unsupported_tags))
     }
 
     fn validate_correspondence(
