@@ -31,6 +31,8 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 thread_local! {
     pub(super) static BODY_WALKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static SHARED_CLOSURE_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static LOWERING_GRAPH_INDEX_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static LOWERING_SOURCE_INDEX_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// Identity domain of a lowered Contract IR node.
@@ -527,6 +529,8 @@ pub(super) struct NodeSourceMaps<'a>(BTreeMap<&'a CheckedNodeId, Vec<&'a Checked
 
 impl<'a> NodeSourceMaps<'a> {
     fn new(source_map: &'a [CheckedSourceMapEntry]) -> Self {
+        #[cfg(test)]
+        LOWERING_SOURCE_INDEX_BUILDS.with(|builds| builds.set(builds.get() + 1));
         let mut grouped: BTreeMap<&CheckedNodeId, Vec<&CheckedSourceMapEntry>> = BTreeMap::new();
         for entry in source_map {
             grouped.entry(&entry.node_id).or_default().push(entry);
@@ -602,6 +606,8 @@ impl CheckedPackageV2 {
         NodeSourceMaps<'a>,
         Vec<CompleteLoweringRecordV2>,
     ) {
+        #[cfg(test)]
+        LOWERING_GRAPH_INDEX_BUILDS.with(|builds| builds.set(builds.get() + 1));
         let index = self
             .graph()
             .nodes
