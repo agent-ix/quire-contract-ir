@@ -336,6 +336,19 @@ impl AsRef<str> for JsonPointer {
     }
 }
 
+/// Clause information carried by an extension reader refusal.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedExtensionRefusalDetail {
+    /// The clause or first absent member.
+    pub member: Box<str>,
+    /// The required type, when a clause type differs.
+    pub expected_type: Option<Box<str>>,
+    /// The encountered type, when a clause type differs.
+    pub actual_type: Option<Box<str>>,
+    /// The referenced subnode's exact semantic type identity at a mismatch.
+    pub actual_semantic_type: Option<CheckedNodeId>,
+}
+
 /// A typed refusal with a stable code and the location of the value it is
 /// about.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -357,17 +370,16 @@ pub struct CheckedPackageRefusal {
     /// The `contract_version` string the reader read, present exactly when
     /// `code` is [`CheckedPackageRefusalCode::UnknownContractVersion`].
     pub contract_version: Option<Box<str>>,
-    /// The RFC 6901 pointer into a supplied domain package document of the
-    /// number the refusal is about, present exactly when a selected model
-    /// document holds a number whose text denotes a magnitude past 2^53
-    /// (`noncanonical_wire` at the selection row's `digest`). `path` then
-    /// locates the row; this pointer resolves in the supplied document, not in
-    /// the package.
+    /// The RFC 6901 pointer supplied by a requirement in addition to `path`:
+    /// into a selected model document for its noncanonical number, or into
+    /// the checked package for an unheld extension definition (FR-469).
     pub document_pointer: Option<JsonPointer>,
     /// Selected or pinned identity in a content or byte digest mismatch.
     pub expected: Option<CheckedSemanticId>,
     /// Recomputed identity in a content or byte digest mismatch.
     pub actual: Option<CheckedSemanticId>,
+    /// Extension clause information at a missing-member or type-mismatch refusal.
+    pub extension_detail: Option<Box<CheckedExtensionRefusalDetail>>,
     /// The key already derived at a stale-node-key refusal site, when one
     /// exists. It is meaningful only with the original reader-returned locus.
     expected_node_id: Option<Box<CheckedNodeId>>,
@@ -396,6 +408,7 @@ impl CheckedPackageRefusal {
             document_pointer: fields.document_pointer,
             expected: None,
             actual: None,
+            extension_detail: None,
             expected_node_id: None,
         }
     }

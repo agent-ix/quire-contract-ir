@@ -1,6 +1,8 @@
 //! Authoritative evidence consulted by the version dispatcher and V2 reader.
 
+use super::shared::CheckedArtifactRef;
 use super::v2::CheckedPackageV2;
+use serde::{Deserialize, Serialize};
 use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
 use std::sync::Arc;
 use thiserror::Error;
@@ -8,6 +10,14 @@ use thiserror::Error;
 /// A repeated evidence declaration conflicts with the retained first value.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum CheckedPackageEvidenceInsertionError {
+    /// Different extension definition under an occupied exact reference.
+    #[error("conflicting extension definition under {authority}/{identity}")]
+    ExtensionDefinitionConflict {
+        /// Definition authority.
+        authority: Box<str>,
+        /// Definition identity.
+        identity: Box<str>,
+    },
     /// Different document bytes were supplied under an occupied exact key.
     #[error("conflicting domain document under {digest}")]
     DomainDocumentConflict {
@@ -20,6 +30,66 @@ pub enum CheckedPackageEvidenceInsertionError {
         /// The exact supplied library identity.
         identity: Box<str>,
     },
+}
+
+/// A caller-validated FR-467 extension definition. The reader uses the typed
+/// schema and retains the grammar schema for exact evidence equality.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedExtensionDefinition {
+    /// The validated grammar schema.
+    pub grammar_schema: CheckedExtensionGrammarSchema,
+    /// The validated typed-node schema.
+    pub typed_node_schema: CheckedExtensionTypedNodeSchema,
+}
+
+/// Grammar productions of a validated FR-467 extension definition.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedExtensionGrammarSchema {
+    /// One or more declaration productions.
+    pub productions: Vec<CheckedExtensionProduction>,
+}
+
+/// One source declaration keyword and its ordered clause names.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedExtensionProduction {
+    /// Leading keyword.
+    pub keyword: Box<str>,
+    /// Clause names in source order.
+    pub clauses: Vec<Box<str>>,
+}
+
+/// Typed node entries of a validated extension definition.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedExtensionTypedNodeSchema {
+    /// One entry per extension production.
+    pub nodes: Vec<CheckedExtensionNodeSchema>,
+}
+
+/// One extension node kind and its ordered clauses.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedExtensionNodeSchema {
+    /// Leading source keyword.
+    pub keyword: Box<str>,
+    /// Checked node kind name.
+    pub node_kind: Box<str>,
+    /// Ordered clause types.
+    pub clauses: Vec<CheckedExtensionClauseSchema>,
+}
+
+/// One clause of a validated extension production.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedExtensionClauseSchema {
+    /// Clause name.
+    pub name: Box<str>,
+    /// Core type-ref or extension node kind.
+    #[serde(rename = "type")]
+    pub type_ref: Box<str>,
 }
 
 /// Domain package documents, dependency packages and reader-supported
@@ -39,10 +109,39 @@ pub enum CheckedPackageEvidenceInsertionError {
 pub struct CheckedPackageEvidence {
     domain_packages: BTreeMap<Box<str>, Box<[u8]>>,
     dependency_packages: BTreeMap<Box<str>, Arc<CheckedPackageV2>>,
+    extension_definitions: BTreeMap<CheckedArtifactRef, CheckedExtensionDefinition>,
     supported_features: BTreeSet<Box<str>>,
 }
 
 impl CheckedPackageEvidence {
+    /// Supplies a caller-validated extension definition under its exact ref.
+    /// Equal repeats retain the first definition; conflicting repeats fail.
+    pub fn insert_extension_definition(
+        &mut self,
+        reference: CheckedArtifactRef,
+        definition: CheckedExtensionDefinition,
+    ) -> Result<(), CheckedPackageEvidenceInsertionError> {
+        match self.extension_definitions.entry(reference) {
+            Entry::Vacant(entry) => {
+                entry.insert(definition);
+                Ok(())
+            }
+            Entry::Occupied(entry) if entry.get() == &definition => Ok(()),
+            Entry::Occupied(entry) => Err(
+                CheckedPackageEvidenceInsertionError::ExtensionDefinitionConflict {
+                    authority: entry.key().authority.clone(),
+                    identity: entry.key().identity.clone(),
+                },
+            ),
+        }
+    }
+
+    pub(super) fn extension_definition(
+        &self,
+        reference: &CheckedArtifactRef,
+    ) -> Option<&CheckedExtensionDefinition> {
+        self.extension_definitions.get(reference)
+    }
     /// Starts with no documents, no dependency packages and no supported features.
     pub fn new() -> Self {
         Self::default()

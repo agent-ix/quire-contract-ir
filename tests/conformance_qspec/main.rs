@@ -25,13 +25,17 @@
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
 use quire_contract_model::{
-    CheckedPackageEvidence, CheckedPackageIdentityPreimageV2, CheckedPackageLockV2,
-    CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
-    CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedArtifactRef, CheckedExtensionClauseSchema, CheckedExtensionDefinition,
+    CheckedExtensionGrammarSchema, CheckedExtensionNodeSchema, CheckedExtensionProduction,
+    CheckedExtensionTypedNodeSchema, CheckedPackageEvidence, CheckedPackageEvidenceInsertionError,
+    CheckedPackageIdentityPreimageV2, CheckedPackageLockV2, CheckedPackageReadLimits,
+    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, CheckedPackageV2,
+    CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
+mod extension;
 mod reaches_population;
 
 /// The environment variable naming the root of a `quire-specification` checkout.
@@ -128,9 +132,139 @@ fn read_package_with_document(
     name: &str,
     domain_document: &Path,
 ) -> Result<CheckedPackageV2ReadResult, String> {
+    read_package_with_document_and_extensions(package, name, domain_document, true)
+}
+
+fn retention_definition() -> CheckedExtensionDefinition {
+    CheckedExtensionDefinition {
+        grammar_schema: CheckedExtensionGrammarSchema {
+            productions: vec![CheckedExtensionProduction {
+                keyword: "retention".into(),
+                clauses: vec!["subject".into(), "days".into()],
+            }],
+        },
+        typed_node_schema: CheckedExtensionTypedNodeSchema {
+            nodes: vec![CheckedExtensionNodeSchema {
+                keyword: "retention".into(),
+                node_kind: "retention".into(),
+                clauses: vec![
+                    CheckedExtensionClauseSchema {
+                        name: "subject".into(),
+                        type_ref: "Text".into(),
+                    },
+                    CheckedExtensionClauseSchema {
+                        name: "days".into(),
+                        type_ref: "Int[1, 3650]".into(),
+                    },
+                ],
+            }],
+        },
+    }
+}
+
+fn quota_definition() -> CheckedExtensionDefinition {
+    CheckedExtensionDefinition {
+        grammar_schema: CheckedExtensionGrammarSchema {
+            productions: vec![CheckedExtensionProduction {
+                keyword: "quota".into(),
+                clauses: vec!["limit".into()],
+            }],
+        },
+        typed_node_schema: CheckedExtensionTypedNodeSchema {
+            nodes: vec![CheckedExtensionNodeSchema {
+                keyword: "quota".into(),
+                node_kind: "quota".into(),
+                clauses: vec![CheckedExtensionClauseSchema {
+                    name: "limit".into(),
+                    type_ref: "Int[1, 100]".into(),
+                }],
+            }],
+        },
+    }
+}
+
+fn policy_definition() -> CheckedExtensionDefinition {
+    CheckedExtensionDefinition {
+        grammar_schema: CheckedExtensionGrammarSchema {
+            productions: vec![CheckedExtensionProduction {
+                keyword: "policy".into(),
+                clauses: vec!["retain".into()],
+            }],
+        },
+        typed_node_schema: CheckedExtensionTypedNodeSchema {
+            nodes: vec![CheckedExtensionNodeSchema {
+                keyword: "policy".into(),
+                node_kind: "policy".into(),
+                clauses: vec![CheckedExtensionClauseSchema {
+                    name: "retain".into(),
+                    type_ref: "retention".into(),
+                }],
+            }],
+        },
+    }
+}
+
+fn read_package_with_document_and_extensions(
+    package: &Value,
+    name: &str,
+    domain_document: &Path,
+    hold_retention: bool,
+) -> Result<CheckedPackageV2ReadResult, String> {
     // The reader takes canonical bytes; the published files are indented.
     let bytes = serde_json::to_vec(package).map_err(|error| error.to_string())?;
     let mut evidence = CheckedPackageEvidence::new();
+    if hold_retention
+        && package["lock"]["definition_selections"]
+            .as_array()
+            .is_some_and(|rows| {
+                rows.iter()
+                    .any(|row| row["authority"] == "example" && row["identity"] == "retention")
+            })
+    {
+        evidence
+            .insert_extension_definition(
+                CheckedArtifactRef {
+                    authority: "example".into(),
+                    identity: "retention".into(),
+                },
+                retention_definition(),
+            )
+            .map_err(|error| error.to_string())?;
+    }
+    if package["lock"]["definition_selections"]
+        .as_array()
+        .is_some_and(|rows| {
+            rows.iter()
+                .any(|row| row["authority"] == "example" && row["identity"] == "quota")
+        })
+    {
+        evidence
+            .insert_extension_definition(
+                CheckedArtifactRef {
+                    authority: "example".into(),
+                    identity: "quota".into(),
+                },
+                quota_definition(),
+            )
+            .map_err(|error| error.to_string())?;
+    }
+    if package["lock"]["definition_selections"]
+        .as_array()
+        .is_some_and(|rows| {
+            rows.iter()
+                .any(|row| row["authority"] == "example" && row["identity"] == "policy")
+        })
+    {
+        evidence
+            .insert_extension_definition(
+                CheckedArtifactRef {
+                    authority: "example".into(),
+                    identity: "policy".into(),
+                },
+                policy_definition(),
+            )
+            .map_err(|error| error.to_string())?;
+    }
     for feature in package["lock"]["required_features"]
         .as_array()
         .ok_or("lock.required_features is not an array")?

@@ -16,6 +16,7 @@ mod contract_package;
 mod dependency_references;
 mod derived_keys;
 pub(in crate::checked_package) mod encode;
+mod extension;
 mod flat_wire;
 mod frame;
 mod identity;
@@ -1076,7 +1077,8 @@ fn validate(
         models,
         dependencies,
     } = validate_lock(wire, evidence, &mut meter, limits.bytes)?;
-    let (kinds, index) = validate_graph(wire, limits, &mut meter, &models, &dependencies)?;
+    let (kinds, index) =
+        validate_graph(wire, limits, &mut meter, &models, &dependencies, evidence)?;
     validate_source_map_entries(
         wire.semantic_graph
             .nodes
@@ -1086,6 +1088,7 @@ fn validate(
         &wire.lock.sources,
         limits,
     )?;
+    extension::validate_source_regions(wire, &kinds)?;
     validate_capabilities(wire, evidence)?;
     validate_diagnostics(wire, limits, &mut meter)?;
     Ok((kinds, RetainedModels::new(index, models)))
@@ -1526,6 +1529,7 @@ fn validate_declaration(
 fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
     use CheckedNodeKind as K;
     match kind {
+        K::Extension(_) => false,
         K::ScalarType(
             ScalarTypeForm::Boolean
             | ScalarTypeForm::Integer
@@ -1661,12 +1665,12 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
     }
 }
 
-/// Minimal structural admission for one node body. Every node validates as
-/// the closed `SemanticTerm` grammar, except a `state`/`frame` node, whose
-/// `BodyBindingRules`-selected shape is [`frame::read_frame_body`]'s, and a
-/// `correspondence`/`abstraction_relation` node, whose body is scanned for
-/// applications by [`abstraction::scan_body`] and read as its flat shape by
-/// the abstraction step. A frame or abstraction relation body reports no
+/// Minimal structural admission for one node body. Most nodes use the closed
+/// `SemanticTerm` grammar. Extension nodes use [`extension::read_body`],
+/// `state`/`frame` nodes use [`frame::read_frame_body`], and
+/// `correspondence`/`abstraction_relation` nodes are scanned for applications
+/// by [`abstraction::scan_body`] and read at the abstraction step. The graph
+/// loop collects extension clause targets directly. Frame and abstraction bodies report no
 /// reference targets to the caller: its entries are joined to the node's
 /// `dependencies` by the frame and abstraction steps
 /// ([`frame::validate_frame_semantics`],
@@ -1691,6 +1695,9 @@ fn validate_body(
         ));
     }
     match body_grammar(kind) {
+        BodyGrammar::Extension => {
+            extension::read_body(body, at.pointer()).map(|body| extension::body_work(&body))
+        }
         BodyGrammar::Frame => frame::read_frame_body(body, at).map(|(_, work)| work),
         BodyGrammar::AbstractionRelation => abstraction::scan_body(body, at, visit),
         // `body` is the node's own top-level term, never a nested one, so
@@ -1700,11 +1707,14 @@ fn validate_body(
 }
 
 /// The grammar a node's `body` is validated against (QSpec FR-322
-/// `BodyBindingRules`): a `state`/`frame` node's body is the frame reference
-/// triple, a `correspondence`/`abstraction_relation` node's body is the flat
-/// shape of FR-346, and every other node's body is a `SemanticTerm`.
+/// `BodyBindingRules`): extension nodes use FR-469's declaration body,
+/// `state`/`frame` nodes use the frame reference triple,
+/// `correspondence`/`abstraction_relation` nodes use FR-346's flat shape,
+/// and every other node's body is a `SemanticTerm`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum BodyGrammar {
+    /// The closed extension declaration body.
+    Extension,
     /// The closed `SemanticTerm` grammar.
     Term,
     /// The frame body of FR-040.
@@ -1713,11 +1723,12 @@ enum BodyGrammar {
     AbstractionRelation,
 }
 
-/// Exactly one kind has each of the two flat grammars. Every form is listed,
+/// Exactly one kind has each of the three flat grammars. Every form is listed,
 /// so a new form is a compile error until its grammar is decided.
 fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
     use CheckedNodeKind as K;
     match kind {
+        K::Extension(_) => BodyGrammar::Extension,
         K::ScalarType(
             ScalarTypeForm::Boolean
             | ScalarTypeForm::Integer
@@ -2033,6 +2044,7 @@ fn validate_graph(
     meter: &mut WorkMeter,
     models: &[DomainModel],
     dependencies: &SuppliedDependencies<'_>,
+    evidence: &CheckedPackageEvidence,
 ) -> Result<(Vec<CheckedNodeKind>, DeclarationIndex), ValidationFailure> {
     let graph = &wire.semantic_graph;
     check_graph_version(graph)?;
@@ -2103,6 +2115,19 @@ fn validate_graph(
             Step::Key("body"),
         ];
         let work = match body_grammar(kind) {
+            BodyGrammar::Extension => {
+                let body = extension::read_body(&node.body, at("body"))?;
+                for target in extension::targets(&body) {
+                    targets.push((
+                        target.clone(),
+                        ReferenceSite {
+                            member: ReferenceMember::Target,
+                            is_body_root: false,
+                        },
+                    ));
+                }
+                extension::body_work(&body)
+            }
             BodyGrammar::Frame => {
                 let (body, work) = frame::read_frame_body(&node.body, &Trail::Base(&body_steps))?;
                 frames.push((&node.node_id, position, body));
@@ -2180,6 +2205,7 @@ fn validate_graph(
             member_pointer(&["lock", "model_selections"]).index(selection)
         })
     })?;
+    extension::validate(wire, &kinds, &index, evidence, &owners, meter)?;
     let declarations = owners.index();
     frame::validate_frame_semantics(frames, &graph.nodes, &kinds, &index, &owners, meter)?;
     state::validate_state(&graph.nodes, &kinds, &index, &owners, meter)?;
