@@ -37,3 +37,7 @@ Ticket: IR-943. Planless diff-scoped trace audit of the changed reader, its test
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | On PR #502 head 19bfa7f2a36b29c08a84972dc6ad2cbe37a2ba0d, the test's trace cites FR-322-AC-14 and its comment explicitly confines the assertion to reader preservation. It no longer claims compiler derivation under FR-322-AC-87. |
+
+## Follow-up review at PR head 23ad3392bb8c79daecdf6fbae346bec8041dc73b
+
+**PASS.** Changed tests now cite local FR-038-AC-4/37/38. The generated-occurrence reader test cites FR-038-AC-4 only for the source-map region's exclusion from package identity and still states that compiler step-order derivation is separate. The dependency-reference tests cite FR-038-AC-37 for missing/stale supply and refusal loci, and FR-038-AC-38 for eligible and ineligible signatures. No changed test carries an external QSpec FR-322 trace ID. The original FND-001 fixed disposition remains effective; no new trace finding. Plan completion: not assessed.

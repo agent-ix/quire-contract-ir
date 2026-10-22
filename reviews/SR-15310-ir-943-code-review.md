@@ -28,3 +28,7 @@ Ticket: IR-943. Reviewed the three-file PR diff at exact head 95483029112d50a0f7
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | low | No findings (placeholder) | - |
+
+## Follow-up review at PR head 23ad3392bb8c79daecdf6fbae346bec8041dc73b
+
+**PASS.** The production reader is byte-identical to the prior reviewed head. The added commit only changes test trace tags from external QSpec IDs to IR's FR-038-AC-4/37/38 and updates the companion FR-038 description. The FR-038-AC-4 test asserts package-id stability under a changed source-map region, the AC-37 tests assert the specified missing/stale dependency and refusal loci, and the AC-38 tests assert its named adverse and positive signatures. No new Rust or code-test finding.

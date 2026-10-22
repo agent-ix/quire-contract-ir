@@ -28,3 +28,7 @@ Ticket: IR-943. Base spec review of merged QSpec FR-322-AC-84..87 as the governi
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | low | No findings (placeholder) | - |
+
+## Follow-up review at PR head 23ad3392bb8c79daecdf6fbae346bec8041dc73b
+
+**PASS.** This later head edits one IR specification paragraph in `spec/checked_package/functional/FR-038-consume-checked-package-v2.md` under “Dependency references.” Its signature roots now match merged QSpec FR-322-AC-86: the function result `semantic_type` and the `semantic_type` of each node in the first `parameters` binding. It excludes unrelated function dependencies and body references, and follows only type-node `dependencies`, matching the reviewed source. The work-accounting sentence names the charged parameter references and visited type nodes. FR-038-AC-4/37/38 existed unchanged on the PR base and state the local behaviors to which the tests now trace. No new criterion, relationship edge, or digest/pin claim is introduced. The prior summary above describes the earlier review head; this follow-up records the newly added IR spec text.
