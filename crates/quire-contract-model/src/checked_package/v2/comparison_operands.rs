@@ -882,4 +882,16 @@ mod tests {
             assert_eq!((range.lower, range.upper), (value, value));
         }
     }
+
+    #[trace("FR-349-AC-2")]
+    #[test]
+    fn comparison_uses_retained_terms_after_raw_condition_body_changes() {
+        let (mut package, clause, claim) = fixture();
+        package.wire.semantic_graph.nodes[3].body = json!({"term": "aggregate", "members": []});
+        let error = package
+            .direct_integer_comparison(&clause, &claim)
+            .expect_err("two retained inline literals still have no read");
+        assert_eq!(error.kind, CheckedComparisonRefusal::NoRead);
+        assert_eq!(error.path, CheckedComparisonPath::Comparison);
+    }
 }
