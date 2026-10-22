@@ -1318,6 +1318,15 @@ mod tests {
         )
     }
 
+    #[trace("FR-349-AC-2")]
+    #[test]
+    fn composite_uses_retained_application_after_raw_body_changes() {
+        let mut package = package();
+        let expected = read(&package).expect("admitted composite operands");
+        package.wire.semantic_graph.nodes[5].body = json!({"term": "aggregate", "members": []});
+        assert_eq!(read(&package), Ok(expected));
+    }
+
     #[trace("TC-048", "FR-038-AC-180")]
     #[test]
     fn ieee_type_walk_keeps_authored_whole_sources_without_claiming_comparison_admission() {
