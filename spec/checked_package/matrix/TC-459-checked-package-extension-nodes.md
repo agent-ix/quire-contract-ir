@@ -22,9 +22,12 @@ held-definition evidence and read QSpec's positive extension fixtures. Check
 the admitted node, clause references, types, declaration, owner, occurrence,
 source region, structural key and package identity. Supply a second node kind
 under the same tag/form. Change each keyed member and the source region in
-turn, recomputing fixture identities where required. Then run QSpec's
-X01..X17 controls through the public reader: check admission and identity for
-each positive branch, and the exact first refusal for each adverse branch.
+turn, recomputing fixture identities where required. For TC-951 X02, compare
+the changed node and package identities through the published preimage rule;
+only the owner-change branch needs a reader admission check. Run each other
+X01..X17 control through the public reader where TC-951 specifies an
+admission or refusal outcome; check identity for admitted branches and the
+exact first refusal for adverse branches.
 Repeat with no held definition, with no selected definition, with
 conflicting evidence, and with simultaneous faults in different reader stages.
 
