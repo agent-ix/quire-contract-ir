@@ -421,6 +421,17 @@ pub(super) mod tests {
         &mut package.wire.semantic_graph.nodes[position].body["operation"]
     }
 
+    #[trace("FR-349-AC-2")]
+    #[test]
+    fn relationship_end_uses_retained_operation_after_raw_body_changes() {
+        let (mut package, ids) = admitted();
+        let expected = package.relationship_end(&ids[&'7']).expect("admitted end");
+        let position = at(&package, &ids[&'7']);
+        package.wire.semantic_graph.nodes[position].body =
+            json!({"term": "aggregate", "members": []});
+        assert_eq!(package.relationship_end(&ids[&'7']), Ok(expected));
+    }
+
     /// The admitted application resolves to the retained destination end, and
     /// the retained record is outside package equality.
     #[trace("TC-048", "FR-038-AC-266")]
