@@ -359,6 +359,86 @@ fn shared_closure_body_walks_scale_with_nodes_not_requests() {
     }
 }
 
+/// Independent record lowering keeps one shared closure calculation while preserving each
+/// request's one-item result.
+#[trace("TC-050", "FR-038-AC-309")]
+#[test]
+fn independently_lowered_records_share_one_closure_and_equal_single_requests() {
+    let (package, requests) = shared_closure_package(4, 8);
+    BODY_WALKS.with(|walks| walks.set(0));
+    SHARED_CLOSURE_BUILDS.with(|builds| builds.set(0));
+    LOWERING_GRAPH_INDEX_BUILDS.with(|builds| builds.set(0));
+    LOWERING_SOURCE_INDEX_BUILDS.with(|builds| builds.set(0));
+    let records = package.lower_independent_records(&requests, &profile());
+    assert_eq!(records.len(), requests.len());
+    assert_eq!(
+        BODY_WALKS.with(std::cell::Cell::get),
+        0,
+        "admission retained body facts"
+    );
+    assert_eq!(SHARED_CLOSURE_BUILDS.with(std::cell::Cell::get), 1);
+    assert_eq!(LOWERING_GRAPH_INDEX_BUILDS.with(std::cell::Cell::get), 1);
+    assert_eq!(LOWERING_SOURCE_INDEX_BUILDS.with(std::cell::Cell::get), 1);
+    for (request, record) in requests.iter().zip(records) {
+        let single = package.lower(std::slice::from_ref(request), &profile());
+        assert_eq!(record, single.records[0]);
+    }
+}
+
+/// The grouped package may exceed the retained byte ceiling even when each one-item
+/// package fits; independent records keep their separate byte outcomes.
+#[trace("TC-048", "FR-038-AC-309")]
+#[test]
+fn independently_lowered_records_do_not_inherit_a_union_package_byte_failure() {
+    let requests = requested();
+    let unlimited = package(u64::MAX);
+    let single_max = requests
+        .iter()
+        .map(|request| {
+            unlimited
+                .lower(std::slice::from_ref(request), &profile())
+                .package
+                .canonical_bytes()
+                .expect("one-item package bytes")
+                .len() as u64
+        })
+        .max()
+        .expect("requested items");
+    let union_len = unlimited
+        .lower(&requests, &profile())
+        .package
+        .canonical_bytes()
+        .expect("union package bytes")
+        .len() as u64;
+    assert!(union_len > single_max);
+
+    let limited = package(single_max);
+    let grouped = limited.lower(&requests, &profile());
+    assert!(grouped.records.iter().all(|record| matches!(
+        record,
+        CompleteLoweringRecordV2::Failed {
+            limit_kind: CheckedPackageLimit::Bytes,
+            ..
+        }
+    )));
+    let expected = requests
+        .iter()
+        .map(|request| {
+            limited
+                .lower(std::slice::from_ref(request), &profile())
+                .records
+                .into_iter()
+                .next()
+                .expect("one record")
+        })
+        .collect::<Vec<_>>();
+    let actual = limited.lower_independent_records(&requests, &profile());
+    assert_eq!(actual, expected);
+    assert!(actual
+        .iter()
+        .any(|record| matches!(record, CompleteLoweringRecordV2::Lowered { .. })));
+}
+
 /// Tracing: FR-038-AC-308
 #[trace("TC-050", "FR-038-AC-308")]
 #[test]

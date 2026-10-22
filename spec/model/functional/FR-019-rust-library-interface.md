@@ -168,7 +168,8 @@ These are the required items for the `quire_contract_model` crate root in a
 default-feature build, grouped by the module that defines them. Planned
 exceptions are marked in their row. An item's own
 public fields, variants, associated constants and inherent methods are part
-of the item and are not listed separately.
+of the item and are not listed separately unless an independent public
+operation has its own owning requirement, as listed below.
 
 | Module | Public items | Owning requirement |
 | --- | --- | --- |
@@ -205,6 +206,9 @@ of the item and are not listed separately.
 
 With the `fault-injection` feature the crate root also exports
 `MappingAllocationPoint`; that item is outside the stable surface.
+
+The public `CheckedPackageV2::lower_independent_records` method is defined on
+the `CheckedPackageV2` type listed above; it is not a separate crate-root export.
 
 The table records the compiled public surface. `SourceAuthoredCriterionId`
 identifies a Quire-authored acceptance criterion, and
