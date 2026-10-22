@@ -565,12 +565,18 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
     }))
     .expect("wire");
     let kinds = vec![CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean); nodes_len(&wire)];
+    let terms = wire
+        .semantic_graph
+        .nodes
+        .iter()
+        .map(|node| super::super::CheckedTerm::decode_admitted(&node.body).expect("fixture term"))
+        .collect();
     Fixture {
         package: CheckedPackageV2 {
             node_index: super::super::retained_node_index(&wire),
             lowering_facts: Vec::new(),
             wire,
-            terms: Vec::new(),
+            terms,
             kinds,
             bytes: BYTES,
             models: RetainedModels::new(index, vec![model]),
@@ -686,6 +692,18 @@ fn tc_227_the_accessor_does_not_read_a_node_body_it_was_not_passed() {
             "bounds replaced with 0 and {upper}"
         );
     }
+}
+
+#[trace("FR-349-AC-2", "FR-038-AC-140")]
+#[test]
+fn admitted_model_fields_use_retained_declaration_term() {
+    let mut fixture = build_fixture(&ledger(), &[("Ledger", DeclarationForm::ObjectType)]);
+    let ledger = id_at(&fixture, 0);
+    let expected = fixture.package.model_object_fields(&ledger).expect("admitted fields");
+    fixture.package.wire.semantic_graph.nodes[0].body = json!({"term":"aggregate","members":[
+        {"term":"reference","target": ledger}
+    ]});
+    assert_eq!(fixture.package.model_object_fields(&ledger), Ok(expected));
 }
 
 /// `UnknownNode` and `NotModelObjectType` are distinct; the passed node's own
