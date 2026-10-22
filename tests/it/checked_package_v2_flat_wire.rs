@@ -20,7 +20,7 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageEvidence, CheckedPackageLimit,
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm,
     CompleteLoweringProfileV2, CompleteLoweringRecordV2,
 };
 use serde_json::{json, Value};
@@ -327,6 +327,42 @@ fn tc_048_a_body_inside_the_strata_is_admitted() {
     // Each composite subterm as its own node, reached by `reference`: the
     // fixture's own call node names its argument by `reference`.
     admitted(&v2_all_families());
+}
+
+#[trace("FR-349-AC-5")]
+#[test]
+fn deepest_admitted_typed_term_obeys_the_exact_byte_limit_on_a_small_stack() {
+    let deepest = aggregate(vec![binding(aggregate(vec![aggregate(vec![binding(
+        leaf(),
+    )])]))]);
+    let (fixture, position) = settled(host_position, |node| node["body"] = deepest);
+    let bytes = canonical(&fixture);
+    let evidence = evidence_for(&fixture);
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.bytes = u64::try_from(bytes.len()).expect("fixture length");
+    on_small_stack(move || {
+        let admitted = match CheckedPackageV2::read(&bytes, limits, &evidence) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("exact bytes must admit: {other:?}"),
+        };
+        let node = &admitted.graph().nodes[position];
+        assert!(matches!(
+            admitted.term(&node.node_id),
+            Some(CheckedTerm::Aggregate { .. })
+        ));
+        let over_limit = CheckedPackageReadLimits {
+            bytes: limits.bytes - 1,
+            ..limits
+        };
+        match CheckedPackageV2::read(&bytes, over_limit, &evidence) {
+            CheckedPackageV2ReadResult::Incomplete(incomplete) => {
+                assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Bytes);
+                assert_eq!(incomplete.limit, over_limit.bytes);
+                assert_eq!(incomplete.path, None);
+            }
+            other => panic!("one byte over the ceiling must be incomplete: {other:?}"),
+        }
+    });
 }
 
 /// FR-038-AC-114: the same meaning written with each composite subterm as its own

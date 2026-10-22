@@ -254,7 +254,7 @@ fn tc_459_unheld_extension_refuses_at_its_definition() {
     );
 }
 
-#[trace("TC-459", "FR-348-AC-1", "FR-348-AC-8", "FR-349-AC-2", "FR-349-AC-4")]
+#[trace("TC-459", "FR-348-AC-1", "FR-348-AC-8", "FR-349-AC-2")]
 #[test]
 fn tc_459_held_extension_fixtures_admit() {
     for name in [
@@ -752,7 +752,7 @@ fn tc_459_extension_clause_targets_are_typed_and_present() {
     );
 }
 
-#[trace("TC-459", "FR-348-AC-6")]
+#[trace("TC-459", "FR-348-AC-6", "FR-349-AC-4")]
 #[test]
 fn tc_459_extension_wire_and_dependency_shape_refuse_early() {
     let (mut package, position) = extension_fixture();

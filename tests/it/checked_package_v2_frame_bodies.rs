@@ -66,7 +66,7 @@ fn frame_index(package: &Value) -> usize {
         .expect("base fixture carries exactly one frame node")
 }
 
-#[trace("FR-349-AC-2", "FR-349-AC-4")]
+#[trace("FR-349-AC-2")]
 #[test]
 fn admitted_frame_body_is_typed_without_changing_the_wire() {
     let fixture = v2_all_families();
@@ -133,7 +133,7 @@ fn tc_053_process_in_creates_and_object_type_in_deletes_are_admitted() {
 /// meaning-join defect to win: `invalid_model_binding`/`malformed-declaration`
 /// located at `object_type`, never `invalid_semantic_graph` at the frame
 /// node for the `deletes` misorder.
-#[trace("TC-053", "FR-038-AC-14")]
+#[trace("TC-053", "FR-038-AC-14", "FR-349-AC-4")]
 #[test]
 fn tc_053_meaning_join_defect_outranks_a_co_occurring_order_defect() {
     let base = v2_all_families();

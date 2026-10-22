@@ -569,7 +569,7 @@ fn at_node(position: usize, suffix: &str) -> String {
 // AC-1.
 
 /// ACs: FR-346-AC-1
-#[trace("TC-225", "FR-346-AC-1", "FR-349-AC-2", "FR-349-AC-4")]
+#[trace("TC-225", "FR-346-AC-1", "FR-349-AC-2")]
 #[test]
 fn tc_225_the_minimal_abstraction_relation_body_admits_with_its_computed_key() {
     let minimal = minimal();
@@ -733,7 +733,7 @@ fn application(operator: &str, identity: &str) -> Value {
 }
 
 /// ACs: FR-346-AC-2
-#[trace("TC-225", "FR-346-AC-2")]
+#[trace("TC-225", "FR-346-AC-2", "FR-349-AC-4")]
 #[test]
 fn tc_225_a_body_off_its_closed_shape_refuses_without_a_cause() {
     type Edit = Box<dyn Fn(&mut Value)>;

@@ -370,18 +370,22 @@ pub(super) fn validate_structural_nodes(
                     None
                 }
             }
-            Some(StructuralForm::Parameter) => parameter_defect(node, &graph),
-            Some(StructuralForm::CompoundUnit) => compound_unit_defect(node, &graph),
-            Some(StructuralForm::OperationAnchor) => {
-                anchor_body(&node.body).is_none().then_some(Defect::Body)
-            }
-            Some(StructuralForm::StateClause) => {
-                clause_body(&node.body).is_none().then_some(Defect::Body)
-            }
-            Some(StructuralForm::UnionType) => union_type_body(&node.body)
+            Some(StructuralForm::Parameter) => parameter_defect(node, term, &graph),
+            Some(StructuralForm::CompoundUnit) => compound_unit_defect(node, term, &graph),
+            Some(StructuralForm::OperationAnchor) => term
+                .and_then(typed_anchor_body)
                 .is_none()
                 .then_some(Defect::Body),
-            Some(StructuralForm::UnionValue) => union_value_body(&node.body)
+            Some(StructuralForm::StateClause) => term
+                .and_then(typed_clause_body)
+                .is_none()
+                .then_some(Defect::Body),
+            Some(StructuralForm::UnionType) => term
+                .and_then(typed_union_type_body)
+                .is_none()
+                .then_some(Defect::Body),
+            Some(StructuralForm::UnionValue) => term
+                .and_then(typed_union_value_body)
                 .is_none()
                 .then_some(Defect::Body),
             Some(StructuralForm::ProtocolReference) => protocol_reference_defect(node, term),
@@ -430,7 +434,11 @@ fn protocol_reference_defect(
 
 /// The first rule a `value`/`parameter` node breaks, as the member it breaks
 /// it at.
-fn parameter_defect(node: &CheckedSemanticNodeV2, graph: &Graph<'_>) -> Option<Defect> {
+fn parameter_defect(
+    node: &CheckedSemanticNodeV2,
+    term: Option<&super::CheckedTerm>,
+    graph: &Graph<'_>,
+) -> Option<Defect> {
     let is_binder_type = node.semantic_type != node.node_id
         && graph
             .node(&node.semantic_type)
@@ -452,13 +460,86 @@ fn parameter_defect(node: &CheckedSemanticNodeV2, graph: &Graph<'_>) -> Option<D
     if !is_binder_type {
         return Some(Defect::SemanticType);
     }
-    if parameter_binding(&node.body, &|id| graph.kind(id)).is_none() {
+    if term
+        .and_then(|term| typed_parameter_binding(term, &|id| graph.kind(id)))
+        .is_none()
+    {
         return Some(Defect::Body);
     }
     if !node.dependencies.is_empty() {
         return Some(Defect::Dependencies);
     }
     None
+}
+
+fn typed_aggregate(term: &super::CheckedTerm) -> Option<&[super::CheckedTerm]> {
+    match term {
+        super::CheckedTerm::Aggregate { members } => Some(members),
+        _ => None,
+    }
+}
+
+fn typed_binding<'a>(term: &'a super::CheckedTerm, name: &str) -> Option<&'a super::CheckedTerm> {
+    match term {
+        super::CheckedTerm::Binding { name: found, value } if found.as_ref() == name => Some(value),
+        _ => None,
+    }
+}
+
+fn typed_reference(term: &super::CheckedTerm) -> Option<&CheckedNodeId> {
+    match term {
+        super::CheckedTerm::Reference { target }
+            if target.domain.as_ref() == NODE_DOMAIN && is_digest(&target.digest) =>
+        {
+            Some(target)
+        }
+        _ => None,
+    }
+}
+
+fn typed_literal<'a>(
+    term: &'a super::CheckedTerm,
+    value_kind: LiteralKind,
+    type_form: ScalarTypeForm,
+    kind_of: &impl Fn(&CheckedNodeId) -> Option<CheckedNodeKind>,
+) -> Option<&'a Value> {
+    match term {
+        super::CheckedTerm::Literal {
+            type_id,
+            value_kind: found,
+            value,
+        } if *found == value_kind
+            && kind_of(type_id) == Some(CheckedNodeKind::ScalarType(type_form)) =>
+        {
+            Some(value)
+        }
+        _ => None,
+    }
+}
+
+fn typed_parameter_binding<'a>(
+    body: &'a super::CheckedTerm,
+    kind_of: &impl Fn(&CheckedNodeId) -> Option<CheckedNodeKind>,
+) -> Option<(&'a str, &'a str)> {
+    let [name, level] = typed_aggregate(body)? else {
+        return None;
+    };
+    let name = typed_binding(name, "name")
+        .and_then(|value| typed_literal(value, LiteralKind::Text, ScalarTypeForm::Text, kind_of))
+        .and_then(Value::as_str)
+        .filter(|name| is_identifier(name))?;
+    let level = typed_binding(level, "level")
+        .and_then(|value| {
+            typed_literal(
+                value,
+                LiteralKind::Integer,
+                ScalarTypeForm::Integer,
+                kind_of,
+            )
+        })
+        .and_then(Value::as_str)
+        .filter(|level| is_non_negative_integer(level))?;
+    Some((name, level))
 }
 
 /// The declared `(name, level)` text of a `value`/`parameter` body, when the
@@ -493,16 +574,20 @@ pub(super) fn parameter_binding<'a>(
 
 /// The first rule a `scalar_type`/`compound_unit` node breaks, as the member
 /// it breaks it at.
-fn compound_unit_defect(node: &CheckedSemanticNodeV2, graph: &Graph<'_>) -> Option<Defect> {
+fn compound_unit_defect(
+    node: &CheckedSemanticNodeV2,
+    term: Option<&super::CheckedTerm>,
+    graph: &Graph<'_>,
+) -> Option<Defect> {
     if node.semantic_type != node.node_id {
         return Some(Defect::SemanticType);
     }
-    let Some(terms) = aggregate_members(&node.body) else {
+    let Some(terms) = term.and_then(typed_aggregate) else {
         return Some(Defect::Body);
     };
     let mut units: Vec<CheckedNodeId> = Vec::with_capacity(terms.len());
     for (index, term) in terms.iter().enumerate() {
-        let Some(unit) = compound_unit_term(term, graph) else {
+        let Some(unit) = typed_compound_unit_term(term, graph) else {
             return Some(Defect::BodyMember(index));
         };
         // Strictly ascending: canonical order and no repeated unit.
@@ -517,17 +602,14 @@ fn compound_unit_defect(node: &CheckedSemanticNodeV2, graph: &Graph<'_>) -> Opti
     None
 }
 
-/// One compound-unit term's root unit key, when the term has exactly the
-/// closed term shape.
-fn compound_unit_term(term: &Value, graph: &Graph<'_>) -> Option<CheckedNodeId> {
-    let Some([unit, exponent]) = aggregate_members(term) else {
+fn typed_compound_unit_term(term: &super::CheckedTerm, graph: &Graph<'_>) -> Option<CheckedNodeId> {
+    let [unit, exponent] = typed_aggregate(term)? else {
         return None;
     };
-    let unit = binding(unit, "unit").and_then(reference_target)?;
-    // QSL requires each term to name its dimension's canonical root unit.
-    // A unit whose preimage has no target unit is that root: the nominal
-    // stage admits exactly one per dimension.
-    let is_root_unit = graph.node(&unit).is_some_and(|(node, kind)| {
+    let unit = typed_binding(unit, "unit").and_then(typed_reference)?;
+    // A dimension's canonical root unit has no target unit in its nominal
+    // preimage; the nominal stage admits exactly one such unit.
+    let is_root_unit = graph.node(unit).is_some_and(|(node, kind)| {
         kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
             && matches!(
                 &node.nominal_identity_preimage,
@@ -535,9 +617,9 @@ fn compound_unit_term(term: &Value, graph: &Graph<'_>) -> Option<CheckedNodeId> 
                     if preimage.target_unit_node_id.is_none()
             )
     });
-    let exponent_ok = binding(exponent, "exponent")
+    let exponent_ok = typed_binding(exponent, "exponent")
         .and_then(|value| {
-            literal(
+            typed_literal(
                 value,
                 LiteralKind::Integer,
                 ScalarTypeForm::Integer,
@@ -546,7 +628,7 @@ fn compound_unit_term(term: &Value, graph: &Graph<'_>) -> Option<CheckedNodeId> 
         })
         .and_then(Value::as_str)
         .is_some_and(is_nonzero_integer);
-    (is_root_unit && exponent_ok).then_some(unit)
+    (is_root_unit && exponent_ok).then(|| unit.clone())
 }
 
 /// A `state`/`operation_anchor` body (QSpec FR-342).
@@ -572,6 +654,30 @@ pub(super) fn anchor_body(body: &Value) -> Option<AnchorBody<'_>> {
             .and_then(Value::as_str)
             .filter(|name| is_identifier(name))?,
         frame: binding(frame, "frame").and_then(reference_target)?,
+    })
+}
+
+fn typed_anchor_body(body: &super::CheckedTerm) -> Option<AnchorBody<'_>> {
+    let [context, operation, frame] = typed_aggregate(body)? else {
+        return None;
+    };
+    let operation = typed_binding(operation, "operation")?;
+    let super::CheckedTerm::Literal {
+        value_kind: LiteralKind::Text,
+        value,
+        ..
+    } = operation
+    else {
+        return None;
+    };
+    Some(AnchorBody {
+        context: typed_binding(context, "context")
+            .and_then(typed_reference)?
+            .clone(),
+        operation: value.as_str().filter(|name| is_identifier(name))?,
+        frame: typed_binding(frame, "frame")
+            .and_then(typed_reference)?
+            .clone(),
     })
 }
 
@@ -636,6 +742,50 @@ pub(super) fn clause_body(body: &Value) -> Option<ClauseBody> {
     })
 }
 
+fn typed_clause_body(body: &super::CheckedTerm) -> Option<ClauseBody> {
+    let super::CheckedTerm::Application {
+        operator: ApplicationOperator::StateClause,
+        operation,
+        arguments,
+        ..
+    } = body
+    else {
+        return None;
+    };
+    if operation.get("identity")?.as_str()? != STATE_CLAUSE_OPERATION {
+        return None;
+    }
+    let member = operation.get("member")?.as_object()?;
+    if !exact_members(member, &["kind", "clause"])
+        || member
+            .get("kind")
+            .and_then(Value::as_str)
+            .and_then(OperationMemberKind::from_wire)
+            != Some(OperationMemberKind::StateClause)
+    {
+        return None;
+    }
+    let clause = StateClauseKind::from_wire(member.get("clause")?.as_str()?)?;
+    let [parameters, anchor, _condition] = arguments.as_slice() else {
+        return None;
+    };
+    let parameters = typed_aggregate(parameters)?
+        .iter()
+        .map(typed_reference)
+        .collect::<Option<Vec<_>>>()?
+        .into_iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    if parameters.is_empty() {
+        return None;
+    }
+    Some(ClauseBody {
+        clause,
+        parameters,
+        anchor: typed_reference(anchor)?.clone(),
+    })
+}
+
 /// A `composite_type`/`reference` type node's target: its body is exactly
 /// `aggregate{[reference(target)]}`.
 pub(super) fn reference_type_target(node: &CheckedSemanticNodeV2) -> Option<CheckedNodeId> {
@@ -675,6 +825,29 @@ pub(super) fn union_type_body(body: &Value) -> Option<Vec<UnionMember<'_>>> {
     (!members.is_empty()).then_some(members)
 }
 
+fn typed_union_type_body(body: &super::CheckedTerm) -> Option<Vec<UnionMember<'_>>> {
+    let members = typed_aggregate(body)?
+        .iter()
+        .map(|member| {
+            let super::CheckedTerm::Binding { name, value } = member else {
+                return None;
+            };
+            if !is_identifier(name) {
+                return None;
+            }
+            let payload = typed_aggregate(value)?
+                .iter()
+                .map(typed_reference)
+                .collect::<Option<Vec<_>>>()?
+                .into_iter()
+                .cloned()
+                .collect();
+            Some(UnionMember { name, payload })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    (!members.is_empty()).then_some(members)
+}
+
 /// The active member and payload terms a `value`/`union_value` body holds, or
 /// `None` for any other shape: an `aggregate` of exactly one `binding`, named
 /// by an identifier and valued by an `aggregate` (QSpec's `UnionValueBody`).
@@ -687,6 +860,19 @@ pub(super) fn union_value_body(body: &Value) -> Option<(&str, &[Value])> {
         .and_then(Value::as_str)
         .filter(|name| is_identifier(name))?;
     Some((name, aggregate_members(binding(member, name)?)?))
+}
+
+fn typed_union_value_body(body: &super::CheckedTerm) -> Option<(&str, &[super::CheckedTerm])> {
+    let [member] = typed_aggregate(body)? else {
+        return None;
+    };
+    let super::CheckedTerm::Binding { name, value } = member else {
+        return None;
+    };
+    if !is_identifier(name) {
+        return None;
+    }
+    Some((name, typed_aggregate(value)?))
 }
 
 /// FR-322's dependency join for a body that contains an `application` term

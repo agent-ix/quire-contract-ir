@@ -931,7 +931,12 @@ impl CheckedPackageV2 {
             .map_err(classify_owner_shape)?;
         intake::check_lossless_source(bytes, &wire)?;
         validate_owner_schema(&wire)?;
-        let (kinds, terms, models, lowering_facts) = validate(&wire, limits, evidence)?;
+        let ValidatedPackage {
+            kinds,
+            terms,
+            models,
+            lowering_facts,
+        } = validate(&wire, limits, evidence)?;
         let direct_dependencies = wire
             .lock
             .dependency_selections
@@ -1047,19 +1052,25 @@ fn check_package_header(wire: &CheckedPackageWireV2) -> Result<(), ValidationFai
     Ok(())
 }
 
+struct ValidatedPackage {
+    kinds: Vec<CheckedNodeKind>,
+    terms: Vec<CheckedTerm>,
+    models: RetainedModels,
+    lowering_facts: Vec<lower::LoweringNodeFacts>,
+}
+
+struct ValidatedGraph {
+    kinds: Vec<CheckedNodeKind>,
+    terms: Vec<CheckedTerm>,
+    declarations: DeclarationIndex,
+    lowering_facts: Vec<lower::LoweringNodeFacts>,
+}
+
 fn validate(
     wire: &CheckedPackageWireV2,
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
-) -> Result<
-    (
-        Vec<CheckedNodeKind>,
-        Vec<CheckedTerm>,
-        RetainedModels,
-        Vec<lower::LoweringNodeFacts>,
-    ),
-    ValidationFailure,
-> {
+) -> Result<ValidatedPackage, ValidationFailure> {
     check_package_header(wire)?;
     // The body grammar is strict wire validation: a body outside it refuses
     // here, before any identity is recomputed (FR-038-AC-116).
@@ -1097,8 +1108,12 @@ fn validate(
         models,
         dependencies,
     } = validate_lock(wire, evidence, &mut meter, limits.bytes)?;
-    let (kinds, terms, index, lowering_facts) =
-        validate_graph(wire, limits, &mut meter, &models, &dependencies, evidence)?;
+    let ValidatedGraph {
+        kinds,
+        terms,
+        declarations,
+        lowering_facts,
+    } = validate_graph(wire, limits, &mut meter, &models, &dependencies, evidence)?;
     validate_source_map_entries(
         wire.semantic_graph
             .nodes
@@ -1111,12 +1126,12 @@ fn validate(
     extension::validate_source_regions(wire, &kinds)?;
     validate_capabilities(wire, evidence)?;
     validate_diagnostics(wire, limits, &mut meter)?;
-    Ok((
+    Ok(ValidatedPackage {
         kinds,
         terms,
-        RetainedModels::new(index, models),
+        models: RetainedModels::new(declarations, models),
         lowering_facts,
-    ))
+    })
 }
 
 /// The pointer of the first lock value that differs from its mirror in the
@@ -2072,15 +2087,7 @@ fn validate_graph(
     models: &[DomainModel],
     dependencies: &SuppliedDependencies<'_>,
     evidence: &CheckedPackageEvidence,
-) -> Result<
-    (
-        Vec<CheckedNodeKind>,
-        Vec<CheckedTerm>,
-        DeclarationIndex,
-        Vec<lower::LoweringNodeFacts>,
-    ),
-    ValidationFailure,
-> {
+) -> Result<ValidatedGraph, ValidationFailure> {
     let graph = &wire.semantic_graph;
     check_graph_version(graph)?;
     if graph.nodes.is_empty() {
@@ -2385,18 +2392,22 @@ fn validate_graph(
     let terms = terms
         .into_iter()
         .enumerate()
-        .map(|(position, term)| {
-            term.map(Ok).unwrap_or_else(|| {
-                CheckedTerm::decode_admitted(&graph.nodes[position].body).map_err(|_| {
-                    refuse(
-                        CheckedPackageRefusalCode::MalformedWire,
-                        node_pointer(position).key("body"),
-                    )
-                })
-            })
+        .map(|(position, term)| match term {
+            Some(term) => Ok(term),
+            None => CheckedTerm::decode_admitted(&graph.nodes[position].body).map_err(|_| {
+                refuse(
+                    CheckedPackageRefusalCode::MalformedWire,
+                    node_pointer(position).key("body"),
+                )
+            }),
         })
         .collect::<Result<Vec<_>, _>>()?;
-    Ok((kinds, terms, declarations, lowering_facts))
+    Ok(ValidatedGraph {
+        kinds,
+        terms,
+        declarations,
+        lowering_facts,
+    })
 }
 
 /// Joins the already keyed protocol-reference carriers to this graph alone.
