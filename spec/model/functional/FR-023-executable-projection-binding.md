@@ -41,6 +41,9 @@ prove source-language correctness.
 The published Draft 7 projection schema owns this envelope and references the
 existing package and expression-input schemas. Clients consume that IR-owned
 schema and decoder; they never import IR-private Rust wire structs.
+The decoder compiles this fixed embedded schema once per process and reuses it
+for later projections. Each decode indexes its declaration population once;
+lookups by declaration name use that index while preserving diagnostic order.
 
 ## Behavior
 
@@ -133,3 +136,4 @@ A `BoundPackage` exposing read-only accessors, or structured IR diagnostics.
 | FR-023-AC-4 | Unknown format/members, trailing JSON, invalid UTF-8 and byte/depth/node/collection overruns are refused without panic; aggregate limits cannot be multiplied by adding bindings. | Test (TC-035) |
 | FR-023-AC-5 | An external integration test consumes public BoundPackage/BoundClause accessors without private wire imports or a codegen-owned package schema; normative projection schema positive and negative controls agree with the decoder. | Test (TC-035) |
 | FR-023-AC-6 | A projection whose package source revision, package requirement revision, binding clause reference revision, expression source-identity revision or expression byte offset is 9007199254740993 (and, for each, `u64::MAX`) is refused `invalid_wire_format` at path `projection`, with no partial BoundPackage, and never `invalid_requirement_revision`, `invalid_source_revision` or `invalid_source_span`; the same projection with that member at 9007199254740992 binds. | Test (TC-035) |
+| FR-023-AC-7 | Across repeated valid and invalid projection decodes, the fixed embedded schema is compiled once per process, and a decode with D declarations and B binding/declaration lookups performs at most D+B declaration search visits; the same inputs yield byte-identical bound identities or the same ordered diagnostics as before caching and indexing. | Test (TC-035) |

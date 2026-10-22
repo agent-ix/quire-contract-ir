@@ -68,3 +68,16 @@ parameters typed at a bounded type.
 The first four return `requires_bound` naming the `unit` or `compound_unit`
 node, the fourth the `unit` node and not the domain. The requested nodes, the
 annotation-only record and the application lower.
+
+## Shared closure work (FR-038-AC-308)
+
+Admit a graph with K distinct requested leaves over one shared R-node closure.
+Use at least three values each for K and R, including K=2,4,8 and R=4,8,16.
+Count body grammar validations during admission and lowering separately from
+the contractual per-request work meter. Admission validates each body once;
+lowering validates none again and reuses the retained graph. Compare each
+record's outcome, consumed work, dependencies, bounds, claims and canonical
+bytes against the equivalent single-request result and the unchanged golden
+output. Repeat with a grouped recursion component and a work limit that stops
+inside the shared closure. The cache may reduce parsing but must not discount
+any request's charged node, term or edge work.
