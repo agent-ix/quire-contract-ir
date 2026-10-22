@@ -2198,7 +2198,6 @@ fn validate_graph(
     // FR-038 "The timed interval form" stage 2: the last graph check of the
     // nodes before the frame step.
     validate_timed_bounds_reduced(&graph.nodes, &index, meter)?;
-    extension::validate(wire, &kinds, &index, evidence)?;
     // FR-322 step 2: each selected declaration's model declaration node key,
     // one validation visit apiece, charged at the selection it belongs to.
     let owners = ModelOwners::new(models, |selection| {
@@ -2206,6 +2205,7 @@ fn validate_graph(
             member_pointer(&["lock", "model_selections"]).index(selection)
         })
     })?;
+    extension::validate(wire, &kinds, &index, evidence, &owners, meter)?;
     let declarations = owners.index();
     frame::validate_frame_semantics(frames, &graph.nodes, &kinds, &index, &owners, meter)?;
     state::validate_state(&graph.nodes, &kinds, &index, &owners, meter)?;

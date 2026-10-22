@@ -1,7 +1,10 @@
 //! FR-348 extension form body and declaration joins.
 
 use super::identity::is_identifier;
-use super::{CheckedNodeKind, CheckedPackageWireV2, CheckedSemanticNodeV2, ScalarTypeForm};
+use super::model_members::{Budget, DeclarationForm, ModelOwners};
+use super::{
+    CheckedNodeKind, CheckedPackageWireV2, CheckedSemanticNodeV2, ScalarTypeForm, WorkMeter,
+};
 use crate::checked_package::common::{is_digest, node_pointer, ValidationFailure, NODE_DOMAIN};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
@@ -129,6 +132,8 @@ pub(super) fn validate(
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
     evidence: &CheckedPackageEvidence,
+    owners: &ModelOwners<'_>,
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let nodes = &wire.semantic_graph.nodes;
     for &position in index.values() {
@@ -210,7 +215,9 @@ pub(super) fn validate(
                 kinds[target_position],
                 nodes,
                 index,
-            ) {
+                owners,
+                meter,
+            )? {
                 return Err(with_detail(
                     fail(Code::IllTyped, Some(Cause::TypeMismatch), pointer),
                     &clause.name,
@@ -230,22 +237,24 @@ fn type_matches(
     kind: CheckedNodeKind,
     nodes: &[CheckedSemanticNodeV2],
     index: &BTreeMap<&CheckedNodeId, usize>,
-) -> bool {
+    owners: &ModelOwners<'_>,
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
     if !matches!(
         kind,
         CheckedNodeKind::Value(_) | CheckedNodeKind::Expression(_) | CheckedNodeKind::Extension(_)
     ) {
-        return false;
+        return Ok(false);
     }
     if let Some(bound) = expected
         .strip_prefix("Int[")
         .and_then(|tail| tail.strip_suffix(']'))
     {
         let Some((lo, hi)) = bound.split_once(',') else {
-            return false;
+            return Ok(false);
         };
         let Some(&position) = index.get(&target.semantic_type) else {
-            return false;
+            return Ok(false);
         };
         let type_node = &nodes[position];
         let members = type_node.body.get("members").and_then(Value::as_array);
@@ -256,9 +265,9 @@ fn type_matches(
                 && members[1]["name"] == "max"
                 && members[1]["value"]["value"].as_str() == Some(hi.trim())
         });
-        return matches!(type_node.node_tag.as_ref(), "bounded_domain")
+        return Ok(matches!(type_node.node_tag.as_ref(), "bounded_domain")
             && type_node.semantic_form.as_ref() == "integer_range"
-            && bounds_match;
+            && bounds_match);
     }
     let scalar = match expected {
         "Boolean" => Some(ScalarTypeForm::Boolean),
@@ -274,34 +283,35 @@ fn type_matches(
         _ => None,
     };
     if let Some(form) = scalar {
-        return index
+        return Ok(index
             .get(&target.semantic_type)
             .and_then(|&position| nodes.get(position))
             .is_some_and(|type_node| {
                 type_node.node_tag.as_ref() == "scalar_type"
                     && type_node.semantic_form.as_ref() == form.as_wire()
-            });
+            }));
     }
     if let Some(type_node) = index
         .get(&target.semantic_type)
         .and_then(|&position| nodes.get(position))
     {
-        if matches!(
-            (
-                type_node.node_tag.as_ref(),
-                type_node.semantic_form.as_ref()
-            ),
-            ("composite_type", "record") | ("model", "record_value_type")
-        ) && type_node
-            .declaration
-            .as_ref()
-            .is_some_and(|declaration| declaration.qualified_name.join(".") == expected)
+        if type_node.node_tag.as_ref() == "model"
+            && type_node.semantic_form.as_ref() == "record_value_type"
         {
-            return true;
+            if let Ok(actual) = owners.recover(type_node) {
+                if actual.form == DeclarationForm::RecordValueType
+                    && actual.package.record_types.contains_key(expected)
+                {
+                    let mut budget = Budget::new(meter, actual.selection, actual.package.bytes);
+                    return actual
+                        .package
+                        .conforms_to(actual.node, expected, &mut budget);
+                }
+            }
         }
     }
-    matches!(kind, CheckedNodeKind::Extension(_))
-        && target.body.get("node_kind").and_then(Value::as_str) == Some(expected)
+    Ok(matches!(kind, CheckedNodeKind::Extension(_))
+        && target.body.get("node_kind").and_then(Value::as_str) == Some(expected))
 }
 
 fn actual_type(

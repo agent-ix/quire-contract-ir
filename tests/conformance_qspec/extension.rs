@@ -5,6 +5,215 @@
 
 use super::*;
 
+fn read_with_retention_definition(
+    package: &Value,
+    document: &Value,
+    definition: CheckedExtensionDefinition,
+) -> CheckedPackageV2ReadResult {
+    let mut evidence = CheckedPackageEvidence::new();
+    for feature in package["lock"]["required_features"]
+        .as_array()
+        .expect("features")
+    {
+        evidence.support_feature(feature.as_str().expect("feature"));
+    }
+    for selection in package["lock"]["model_selections"]
+        .as_array()
+        .expect("model selections")
+    {
+        evidence
+            .insert_domain_package_document(
+                selection["digest"].as_str().expect("model digest"),
+                serde_json::to_vec(document).expect("domain document bytes"),
+            )
+            .expect("domain evidence");
+    }
+    evidence
+        .insert_extension_definition(
+            CheckedArtifactRef {
+                authority: "example".into(),
+                identity: "retention".into(),
+            },
+            definition,
+        )
+        .expect("extension evidence");
+    CheckedPackageV2::read(
+        &serde_json::to_vec(package).expect("package bytes"),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    )
+}
+
+fn replace_extension_subject(package: &mut Value, form: usize, target: Value) {
+    package["semantic_graph"]["nodes"][form]["body"]["clauses"][0]["value"]["target"] = target;
+    let mut dependencies = package["semantic_graph"]["nodes"][form]["body"]["clauses"]
+        .as_array()
+        .expect("clauses")
+        .iter()
+        .map(|clause| clause["value"]["target"].clone())
+        .collect::<Vec<_>>();
+    dependencies.sort_by_key(|id| id["digest"].as_str().unwrap_or_default().to_owned());
+    dependencies.dedup();
+    package["semantic_graph"]["nodes"][form]["dependencies"] = json!(dependencies);
+    refresh_extension(package, form);
+}
+
+fn record_extension_case(actual: &str) -> (Value, Value, usize) {
+    let mut package =
+        read_json(&fixtures_dir().join("positive-all-families.json")).expect("published package");
+    let mut document = read_json(&proposal_dir_of(&fixtures_dir()).join(DOMAIN_DOCUMENT))
+        .expect("published selected document");
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind":{"module":"acme/orders","name":"record"},
+            "construct":{"meaning":"quire.meaning.model.record-value-type/v1"}
+        }));
+    for (name, supertypes) in [
+        ("Base", vec![]),
+        ("Child", vec!["ix://acme/orders/Base"]),
+        ("Unrelated", vec![]),
+    ] {
+        document["types"]
+            .as_array_mut()
+            .expect("types")
+            .push(json!({
+                "identity":format!("ix://acme/orders/{name}"), "displayName":name,
+                "kind":{"module":"acme/orders","name":"record"},
+                "roles":[], "constraints":[], "extensions":[], "unknownPolicy":"reject",
+                "supertypes":supertypes, "fields":[], "operations":[]
+            }));
+    }
+    let digest = quire_canonical::sha256(&document, Limits::new(DERIVATION_CEILING))
+        .expect("selected document digest")
+        .to_string();
+    package["lock"]["model_selections"][0]["digest"] = json!(digest);
+    package["identity_preimage"]["model_selections"][0]["digest"] = json!(digest);
+
+    let mut actual_id = Value::Null;
+    for (offset, name) in ["Base", "Child", "Unrelated"].iter().enumerate() {
+        let position = append_structural_node(
+            &mut package,
+            16,
+            ['a', 'b', 'c'][offset],
+            310 + 20 * offset as u64,
+        );
+        let provisional = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+        let node = &mut package["semantic_graph"]["nodes"][position];
+        node.as_object_mut()
+            .expect("model node")
+            .remove("declaration");
+        node["owner"] = json!({"kind":"model","identity":"acme/orders","node":format!("ix://acme/orders/{name}")});
+        node["semantic_type"] = provisional;
+        node["occurrences"] = json!([{"role":"type","ordinal":0}]);
+        refresh_extension(&mut package, position);
+        package["source_map"]
+            .as_array_mut()
+            .expect("source map")
+            .last_mut()
+            .expect("new model source")["role"] = json!("type");
+        if *name == actual {
+            actual_id = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+        }
+    }
+    let parameter = append_structural_node(&mut package, 27, 'd', 390);
+    package["semantic_graph"]["nodes"][parameter]["semantic_type"] = actual_id;
+    refresh_extension(&mut package, parameter);
+    let form = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "extension" && node["body"]["node_kind"] == "retention"
+        })
+        .expect("retention form");
+    let target = package["semantic_graph"]["nodes"][parameter]["node_id"].clone();
+    replace_extension_subject(&mut package, form, target);
+    (package, document, form)
+}
+
+#[trace("TC-459", "FR-348-AC-5")]
+#[test]
+fn tc_459_extension_record_clause_uses_selected_model_directional_conformance() {
+    let mut definition = retention_definition();
+    definition.typed_node_schema.nodes[0].clauses[0].type_ref = "ix://acme/orders/Base".into();
+    for actual in ["Base", "Child"] {
+        let (package, document, _) = record_extension_case(actual);
+        let read = read_with_retention_definition(&package, &document, definition.clone());
+        assert!(
+            matches!(read, CheckedPackageV2ReadResult::Admitted(_)),
+            "{actual}: {read:?}"
+        );
+    }
+    let (package, document, form) = record_extension_case("Unrelated");
+    let read = read_with_retention_definition(&package, &document, definition);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read else {
+        panic!("unrelated record must refuse: {read:?}");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::IllTyped, Some(Cause::TypeMismatch))
+    );
+    assert_eq!(
+        refusal.path.expect("path").to_string(),
+        format!("/semantic_graph/nodes/{form}/body/clauses/0/value")
+    );
+
+    let (package, document, form) = record_extension_case("Base");
+    let mut reverse = retention_definition();
+    reverse.typed_node_schema.nodes[0].clauses[0].type_ref = "ix://acme/orders/Child".into();
+    let read = read_with_retention_definition(&package, &document, reverse);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read else {
+        panic!("ancestor at descendant must refuse: {read:?}");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::IllTyped, Some(Cause::TypeMismatch))
+    );
+    assert_eq!(
+        refusal.path.expect("path").to_string(),
+        format!("/semantic_graph/nodes/{form}/body/clauses/0/value")
+    );
+}
+
+#[trace("TC-459", "FR-348-AC-5")]
+#[test]
+fn tc_459_extension_composite_record_name_is_not_selected_model_type() {
+    let mut package =
+        read_json(&fixtures_dir().join("positive-all-families.json")).expect("published package");
+    let form = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "extension" && node["body"]["node_kind"] == "retention"
+        })
+        .expect("retention form");
+    let parameter = append_structural_node(&mut package, 27, 'e', 310);
+    package["semantic_graph"]["nodes"][parameter]["semantic_type"] =
+        package["semantic_graph"]["nodes"][1]["node_id"].clone();
+    refresh_extension(&mut package, parameter);
+    let target = package["semantic_graph"]["nodes"][parameter]["node_id"].clone();
+    replace_extension_subject(&mut package, form, target);
+    let mut definition = retention_definition();
+    definition.typed_node_schema.nodes[0].clauses[0].type_ref = "Example.Point".into();
+    let document =
+        read_json(&proposal_dir_of(&fixtures_dir()).join(DOMAIN_DOCUMENT)).expect("document");
+    let read = read_with_retention_definition(&package, &document, definition);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read else {
+        panic!("composite record must refuse: {read:?}");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::IllTyped, Some(Cause::TypeMismatch))
+    );
+    assert_eq!(
+        refusal.path.expect("path").to_string(),
+        format!("/semantic_graph/nodes/{form}/body/clauses/0/value")
+    );
+}
+
 #[trace("TC-459", "FR-348-AC-3")]
 #[test]
 fn tc_459_unheld_extension_refuses_at_its_definition() {
