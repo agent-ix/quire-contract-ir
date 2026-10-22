@@ -239,7 +239,7 @@ fn select_admitted(
     let Some(maximum) = package.term(&selector.binding).and_then(population_maximum) else {
         return CheckedSelectedPopulationOutcome::NotPopulation(selector);
     };
-    let Some(object_type) = population_object_type(node, |id| package.node(id)) else {
+    let Some(object_type) = population_object_type_typed(node, |id| package.term(id)) else {
         return CheckedSelectedPopulationOutcome::NotPopulation(selector);
     };
     CheckedSelectedPopulationOutcome::Finite(CheckedSelectedPopulation {
@@ -321,13 +321,71 @@ pub(super) fn population_object_type<'a>(
     serde_json::from_value(object_id.clone()).ok()
 }
 
+/// Resolve the selected population's object type from the retained admitted terms.
+fn population_object_type_typed<'a>(
+    population: &super::v2::CheckedSemanticNodeV2,
+    term: impl Fn(&CheckedNodeId) -> Option<&'a CheckedTerm>,
+) -> Option<CheckedNodeId> {
+    let first_reference = |id: &CheckedNodeId| {
+        let CheckedTerm::Aggregate { members } = term(id)? else {
+            return None;
+        };
+        let CheckedTerm::Reference { target } = members.first()? else {
+            return None;
+        };
+        Some(target)
+    };
+    first_reference(first_reference(&population.semantic_type)?).cloned()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::population_maximum;
-    use crate::checked_package::v2::{CheckedTerm, LiteralKind};
+    use super::{population_maximum, population_object_type_typed};
+    use crate::checked_package::v2::{CheckedSemanticNodeV2, CheckedTerm, LiteralKind};
     use crate::checked_package::CheckedNodeId;
     use ix_trace_rs::trace;
     use serde_json::json;
+
+    #[trace("FR-349-AC-2", "FR-053-AC-3")]
+    #[test]
+    fn admitted_population_object_type_uses_retained_reference_chain() {
+        let id = |digit: char| CheckedNodeId {
+            domain: "quire.checked-semantic-node/v1".into(),
+            digest: digit.to_string().repeat(64).into(),
+        };
+        let set = id('1');
+        let reference = id('2');
+        let object = id('3');
+        let population: CheckedSemanticNodeV2 = serde_json::from_value(json!({
+            "node_id": id('4'), "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "bounded_domain", "semantic_form": "model_population",
+            "semantic_type": set, "dependencies": [], "occurrences": [],
+            "body": {"term": "aggregate", "members": []}
+        }))
+        .expect("population node");
+        let set_term = CheckedTerm::Aggregate {
+            members: vec![CheckedTerm::Reference {
+                target: reference.clone(),
+            }],
+        };
+        let reference_term = CheckedTerm::Aggregate {
+            members: vec![CheckedTerm::Reference {
+                target: object.clone(),
+            }],
+        };
+        assert_eq!(
+            population_object_type_typed(&population, |node| {
+                if node == &set {
+                    Some(&set_term)
+                } else if node == &reference {
+                    Some(&reference_term)
+                } else {
+                    None
+                }
+            }),
+            Some(object)
+        );
+    }
 
     #[trace("FR-349-AC-2", "FR-053-AC-3")]
     #[test]
