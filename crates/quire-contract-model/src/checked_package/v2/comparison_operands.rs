@@ -928,4 +928,16 @@ mod tests {
         assert_eq!(error.kind, CheckedComparisonRefusal::NoRead);
         assert_eq!(error.path, CheckedComparisonPath::Comparison);
     }
+
+    #[trace("FR-349-AC-2")]
+    #[test]
+    fn comparison_uses_retained_clause_condition_after_raw_body_changes() {
+        let (mut package, clause, claim) = fixture();
+        package.wire.semantic_graph.nodes[4].body["arguments"][2] = reference('9');
+        let error = package
+            .direct_integer_comparison(&clause, &claim)
+            .expect_err("two retained inline literals still have no read");
+        assert_eq!(error.kind, CheckedComparisonRefusal::NoRead);
+        assert_eq!(error.path, CheckedComparisonPath::Comparison);
+    }
 }
