@@ -3,7 +3,7 @@
 
 //! FR-053: project one exact admitted population binding and Type occurrence.
 
-use super::v2::{CheckedTerm, LiteralKind};
+use super::v2::{BoundedDomainForm, CheckedNodeKind, CheckedTerm, LiteralKind};
 use super::{
     CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageV2, CheckedSemanticId,
     CheckedSourceRef, CheckedSourceRegion,
@@ -229,7 +229,11 @@ fn select_admitted(
     }) else {
         return CheckedSelectedPopulationOutcome::MissingOccurrence(selector);
     };
-    if !is_model_population(node) {
+    if package.node_kind(&selector.binding)
+        != Some(CheckedNodeKind::BoundedDomain(
+            BoundedDomainForm::ModelPopulation,
+        ))
+    {
         return CheckedSelectedPopulationOutcome::NotPopulation(selector);
     }
     let Some(maximum) = package.term(&selector.binding).and_then(population_maximum) else {

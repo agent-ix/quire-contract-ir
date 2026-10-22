@@ -2,9 +2,9 @@
 //! application.
 
 use super::relationship_end::ReachesLookup;
-use super::{CheckedNodeId, CheckedPackageV2};
+use super::{BoundedDomainForm, CheckedNodeId, CheckedNodeKind, CheckedPackageV2};
 use crate::checked_package::selected_population::{
-    is_model_population, least_type_occurrence, CheckedSelectedPopulationSelector,
+    least_type_occurrence, CheckedSelectedPopulationSelector,
 };
 use thiserror::Error;
 
@@ -54,7 +54,12 @@ impl CheckedPackageV2 {
             serde_json::from_value(named.clone()).map_err(|_| Error::UnresolvedPopulation)?;
         let population = self
             .node(&binding)
-            .filter(|node| is_model_population(node))
+            .filter(|_| {
+                self.node_kind(&binding)
+                    == Some(CheckedNodeKind::BoundedDomain(
+                        BoundedDomainForm::ModelPopulation,
+                    ))
+            })
             .ok_or(Error::UnresolvedPopulation)?;
         let occurrence = least_type_occurrence(population)
             .cloned()
@@ -100,6 +105,14 @@ mod tests {
             .node_index
             .insert(id.clone(), package.wire.semantic_graph.nodes.len());
         package.wire.semantic_graph.nodes.push(population);
+        package
+            .kinds
+            .push(super::super::CheckedNodeKind::BoundedDomain(
+                super::super::BoundedDomainForm::ModelPopulation,
+            ));
+        package
+            .terms
+            .push(super::super::CheckedTerm::Aggregate { members: vec![] });
         let position = package.node_index[&ids[&'7']];
         let super::super::CheckedTerm::Application { operation, .. } = &mut package.terms[position]
         else {
@@ -156,6 +169,19 @@ mod tests {
                 "{label}"
             );
         }
+    }
+
+    #[trace("FR-349-AC-2")]
+    #[test]
+    fn reaches_population_uses_retained_kind_after_raw_node_tag_changes() {
+        let (mut package, ids, population) = naming_a_population();
+        let position = package.node_index[&population];
+        package.wire.semantic_graph.nodes[position].node_tag = "scalar_type".into();
+        let selected = package
+            .reaches_population(&ids[&'7'])
+            .expect("retained population kind")
+            .expect("selected population");
+        assert_eq!(selected.binding, population);
     }
 
     fn raw_node_id(digit: char) -> CheckedNodeId {
