@@ -13,12 +13,10 @@ use super::structural::{
     aggregate_members, binding, is_integer_bound, is_non_negative_integer, reference_target,
 };
 use super::{
-    BodyTerm, BoundedDomainForm, CheckedNodeKind, CheckedSemanticNodeV2, CompositeTypeForm,
+    BoundedDomainForm, CheckedNodeKind, CheckedSemanticNodeV2, CheckedTerm, CompositeTypeForm,
     LiteralKind, ScalarTypeForm, WorkMeter,
 };
-use crate::checked_package::common::{
-    body_term, literal_kind, node_pointer, ValidationFailure, NODE_DOMAIN,
-};
+use crate::checked_package::common::{literal_kind, node_pointer, ValidationFailure, NODE_DOMAIN};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
@@ -298,47 +296,31 @@ pub(super) fn node_preimage<'a>(
 
 /// Charges each actual term visit before inspecting or scheduling its children.
 fn charge_terms(
-    body: &Value,
+    body: &CheckedTerm,
     position: usize,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let mut pending = vec![(body, node_pointer(position).key("body"))];
     while let Some((term, at)) = pending.pop() {
         meter.charge(1, || at.clone())?;
-        if term.get("term").and_then(Value::as_str) == Some("extension_form") {
-            if let Some(clauses) = term.get("clauses").and_then(Value::as_array) {
-                for (ordinal, clause) in clauses.iter().enumerate().rev() {
-                    pending.push((clause, at.clone().key("clauses").index(ordinal)));
-                }
+        let children = match term {
+            CheckedTerm::Aggregate { members } => Some(("members", members.as_slice())),
+            CheckedTerm::Application { arguments, .. } => Some(("arguments", arguments.as_slice())),
+            CheckedTerm::ExtensionForm { clauses, .. } => Some(("clauses", clauses.as_slice())),
+            CheckedTerm::Binding { value, .. } => {
+                pending.push((value.as_ref(), at.clone().key("value")));
+                None
             }
-            continue;
-        }
-        match body_term(term) {
-            Some(BodyTerm::Aggregate | BodyTerm::Application) => {
-                let name = if body_term(term) == Some(BodyTerm::Aggregate) {
-                    "members"
-                } else {
-                    "arguments"
-                };
-                if let Some(items) = term.get(name).and_then(Value::as_array) {
-                    for (ordinal, item) in items.iter().enumerate().rev() {
-                        pending.push((item, at.clone().key(name).index(ordinal)));
-                    }
-                }
+            CheckedTerm::Literal { .. }
+            | CheckedTerm::Reference { .. }
+            | CheckedTerm::DependencyReference { .. }
+            | CheckedTerm::Frame { .. }
+            | CheckedTerm::AbstractionRelation { .. } => None,
+        };
+        if let Some((name, children)) = children {
+            for (ordinal, child) in children.iter().enumerate().rev() {
+                pending.push((child, at.clone().key(name).index(ordinal)));
             }
-            Some(BodyTerm::Binding) => {
-                if let Some(value) = term.get("value") {
-                    pending.push((value, at.key("value")));
-                }
-            }
-            Some(
-                BodyTerm::Literal
-                | BodyTerm::Reference
-                | BodyTerm::DependencyReference
-                | BodyTerm::Frame
-                | BodyTerm::AbstractionRelation,
-            )
-            | None => {}
         }
     }
     Ok(())
@@ -372,6 +354,7 @@ fn stale(at: JsonPointer, node: &CheckedNodeId, derived: Option<String>) -> Vali
 pub(super) fn validate_derived_keys(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
+    terms: &[Option<super::CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
     _references: &[Vec<super::BodyReference>],
     meter: &mut WorkMeter,
@@ -402,7 +385,10 @@ pub(super) fn validate_derived_keys(
             continue;
         };
         if node.nominal_identity_preimage.is_some()
-            || super::operations::has_application_key(node, kind)
+            || super::operations::has_application_key_admitted(
+                terms.get(position).and_then(Option::as_ref),
+                kind,
+            )
             || kind
                 == CheckedNodeKind::Correspondence(super::CorrespondenceForm::AbstractionRelation)
         {
@@ -431,7 +417,10 @@ pub(super) fn validate_derived_keys(
             .recursion_group
             .as_deref()
             .and_then(|label| groups.get(label));
-        charge_terms(&node.body, position, meter)?;
+        let Some(term) = terms.get(position).and_then(Option::as_ref) else {
+            return Err(encoder_failure(node_pointer(position).key("body")));
+        };
+        charge_terms(term, position, meter)?;
         meter.charge(1, at)?;
         let derived = structural_key(
             &node_preimage(node, group, node.recursion_group.as_deref()),
@@ -451,18 +440,23 @@ pub(super) fn validate_derived_keys(
             let Some(node) = nodes.get(position) else {
                 continue;
             };
-            charge_terms(&node.body, position, meter)?;
+            let Some(term) = terms.get(position).and_then(Option::as_ref) else {
+                return Err(encoder_failure(node_pointer(position).key("body")));
+            };
+            charge_terms(term, position, meter)?;
             meter.charge(1, || node_pointer(position).key("node_id"))?;
-            let digest = if kinds
-                .get(position)
-                .is_some_and(|&kind| super::operations::has_application_key(node, kind))
-            {
+            let digest = if kinds.get(position).is_some_and(|&kind| {
+                super::operations::has_application_key_admitted(
+                    terms.get(position).and_then(Option::as_ref),
+                    kind,
+                )
+            }) {
                 let members: Vec<_> = group
                     .members
                     .iter()
                     .filter_map(|&member| nodes.get(member).map(|node| &node.node_id))
                     .collect();
-                super::operations::application_local_digest(node, position, &members, bytes)?
+                super::operations::application_local_digest(node, term, position, &members, bytes)?
             } else {
                 structural_key(&node_preimage(node, Some(group), None), bytes)
                     .map_err(|_| encoder_failure(node_pointer(position).key("node_id")))?
@@ -509,6 +503,13 @@ mod tests {
     const BYTES: u64 = 1 << 20;
     const I128_MIN: i128 = i128::MIN;
     const I128_MAX: i128 = i128::MAX;
+
+    fn decoded_terms(nodes: &[CheckedSemanticNodeV2]) -> Vec<Option<super::super::CheckedTerm>> {
+        nodes
+            .iter()
+            .map(|node| super::super::CheckedTerm::decode_admitted(&node.body).ok())
+            .collect()
+    }
 
     fn id(digest: &str) -> Value {
         json!({"domain": "quire.checked-semantic-node/v1", "digest": digest})
@@ -681,10 +682,17 @@ mod tests {
             .collect();
         let mut meter = WorkMeter::new(u64::MAX);
         let no_references = vec![Vec::new(); graph.len()];
-        assert!(
-            validate_derived_keys(&graph, &kinds, &index, &no_references, &mut meter, BYTES)
-                .is_ok()
-        );
+        let terms = decoded_terms(&graph);
+        assert!(validate_derived_keys(
+            &graph,
+            &kinds,
+            &terms,
+            &index,
+            &no_references,
+            &mut meter,
+            BYTES
+        )
+        .is_ok());
         let mut tampered = graph.clone();
         tampered[1].body = over(&"ab".repeat(32));
         let index: BTreeMap<&CheckedNodeId, usize> = tampered
@@ -693,9 +701,11 @@ mod tests {
             .map(|(position, node)| (&node.node_id, position))
             .collect();
         let mut meter = WorkMeter::new(u64::MAX);
+        let terms = decoded_terms(&tampered);
         assert!(validate_derived_keys(
             &tampered,
             &kinds,
+            &terms,
             &index,
             &no_references,
             &mut meter,
@@ -730,10 +740,18 @@ mod tests {
         node.recursion_group = Some(label.into());
         let graph = [node];
         let index = BTreeMap::from([(&graph[0].node_id, 0)]);
+        let terms = decoded_terms(&graph);
         let mut meter = WorkMeter::new(9);
-        assert!(
-            validate_derived_keys(&graph, &[kind], &index, &[vec![]], &mut meter, BYTES).is_ok()
-        );
+        assert!(validate_derived_keys(
+            &graph,
+            &[kind],
+            &terms,
+            &index,
+            &[vec![]],
+            &mut meter,
+            BYTES
+        )
+        .is_ok());
         assert_eq!(
             meter.consumed(),
             9,
@@ -741,7 +759,15 @@ mod tests {
         );
         let mut unpaid = WorkMeter::new(8);
         assert!(matches!(
-            validate_derived_keys(&graph, &[kind], &index, &[vec![]], &mut unpaid, BYTES),
+            validate_derived_keys(
+                &graph,
+                &[kind],
+                &terms,
+                &index,
+                &[vec![]],
+                &mut unpaid,
+                BYTES
+            ),
             Err(ValidationFailure::Incomplete(_))
         ));
     }
@@ -828,14 +854,22 @@ mod tests {
             .map(|(position, node)| (&node.node_id, position))
             .collect::<BTreeMap<_, _>>();
         let references = vec![Vec::new(); graph.len()];
+        let terms = decoded_terms(&graph);
 
         // Three memberships; first-pass Tree/Sequence/bounds/Integer charges
         // are 5+4+8+3; second-pass local charges are 4+3+6 and one group digest.
         const TREE_WORK: u64 = 3 + (5 + 4 + 8 + 3) + (4 + 3 + 6 + 1);
         let mut exact = WorkMeter::new(TREE_WORK);
-        assert!(
-            validate_derived_keys(&graph, &kinds, &index, &references, &mut exact, BYTES).is_ok()
-        );
+        assert!(validate_derived_keys(
+            &graph,
+            &kinds,
+            &terms,
+            &index,
+            &references,
+            &mut exact,
+            BYTES
+        )
+        .is_ok());
         assert_eq!(exact.consumed(), TREE_WORK);
 
         // The first local body term is unpaid. Sequence, bounds and the group
@@ -843,9 +877,16 @@ mod tests {
         // the meter and fails the exact consumed/pointer assertion below.
         const BEFORE_LOCAL: u64 = 3 + (5 + 4 + 8 + 3);
         let mut denied = WorkMeter::new(BEFORE_LOCAL);
-        let failure =
-            validate_derived_keys(&graph, &kinds, &index, &references, &mut denied, BYTES)
-                .expect_err("the first local term is unpaid");
+        let failure = validate_derived_keys(
+            &graph,
+            &kinds,
+            &terms,
+            &index,
+            &references,
+            &mut denied,
+            BYTES,
+        )
+        .expect_err("the first local term is unpaid");
         let ValidationFailure::Incomplete(report) = failure else {
             panic!("expected work-incomplete, got {failure:?}");
         };
