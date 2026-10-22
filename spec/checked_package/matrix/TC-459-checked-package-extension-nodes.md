@@ -22,9 +22,10 @@ held-definition evidence and read QSpec's positive extension fixtures. Check
 the admitted node, clause references, types, declaration, owner, occurrence,
 source region, structural key and package identity. Supply a second node kind
 under the same tag/form. Change each keyed member and the source region in
-turn, recomputing fixture identities where required. Then run each QSpec
-X01..X17 control through the public reader, checking the exact first
-refusal. Repeat with no held definition, with no selected definition, with
+turn, recomputing fixture identities where required. Then run QSpec's
+X01..X17 controls through the public reader: check admission and identity for
+each positive branch, and the exact first refusal for each adverse branch.
+Repeat with no held definition, with no selected definition, with
 conflicting evidence, and with simultaneous faults in different reader stages.
 
 ## Expected Results
