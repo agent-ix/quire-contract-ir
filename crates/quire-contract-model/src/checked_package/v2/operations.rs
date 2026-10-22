@@ -2432,7 +2432,11 @@ fn check_relationship_member(
         .filter(|node| {
             is_model_population(node)
                 && least_type_occurrence(node).is_some()
-                && population_maximum(&node.body).is_some()
+                && CheckedTerm::decode_admitted(&node.body)
+                    .ok()
+                    .as_ref()
+                    .and_then(population_maximum)
+                    .is_some()
         });
     let Some(population) = linked else {
         return ineligible(member_at("population"));

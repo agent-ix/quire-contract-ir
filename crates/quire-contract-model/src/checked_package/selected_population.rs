@@ -3,11 +3,11 @@
 
 //! FR-053: project one exact admitted population binding and Type occurrence.
 
+use super::v2::{CheckedTerm, LiteralKind};
 use super::{
     CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageV2, CheckedSemanticId,
     CheckedSourceRef, CheckedSourceRegion,
 };
-use serde_json::Value;
 
 /// The exact admitted binding and occurrence requested by a graph consumer.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -232,7 +232,7 @@ fn select_admitted(
     if !is_model_population(node) {
         return CheckedSelectedPopulationOutcome::NotPopulation(selector);
     }
-    let Some(maximum) = population_maximum(&node.body) else {
+    let Some(maximum) = package.term(&selector.binding).and_then(population_maximum) else {
         return CheckedSelectedPopulationOutcome::NotPopulation(selector);
     };
     let Some(object_type) = population_object_type(node, |id| package.node(id)) else {
@@ -265,37 +265,32 @@ pub(super) fn least_type_occurrence(
         .min_by_key(|occurrence| occurrence.ordinal)
 }
 
-/// The inclusive maximum of a population node's `max` member, when FR-053 can
-/// read one.
-///
-/// The body is untyped here. On a package the V2 reader admitted every body
-/// member is a valid term and only a `binding` carries a `name`, so the
-/// `binding` term check below can fail only for a body that did not come from
-/// admission.
-pub(super) fn population_maximum(body: &Value) -> Option<u64> {
-    let mut maximum_members = body
-        .get("members")?
-        .as_array()?
-        .iter()
-        .filter(|member| member.get("name").and_then(Value::as_str) == Some("max"));
+/// The inclusive maximum of a population node's admitted `max` binding.
+pub(super) fn population_maximum(body: &CheckedTerm) -> Option<u64> {
+    let CheckedTerm::Aggregate { members } = body else {
+        return None;
+    };
+    let mut maximum_members = members.iter().filter(
+        |member| matches!(member, CheckedTerm::Binding { name, .. } if name.as_ref() == "max"),
+    );
     let maximum_member = maximum_members.next()?;
     if maximum_members.next().is_some() {
         return None;
     }
-    if maximum_member.get("term")?.as_str()? != "binding" {
+    let CheckedTerm::Binding { value, .. } = maximum_member else {
         return None;
-    }
-    let maximum = maximum_member.get("value")?;
-    if maximum.get("term")?.as_str()? != "literal"
-        || maximum.get("value_kind")?.as_str()? != "integer"
-    {
+    };
+    let CheckedTerm::Literal {
+        value_kind: LiteralKind::Integer,
+        value,
+        ..
+    } = value.as_ref()
+    else {
         return None;
-    }
-    maximum.get("value").and_then(|value| {
-        value
-            .as_u64()
-            .or_else(|| value.as_str()?.parse::<u64>().ok())
-    })
+    };
+    value
+        .as_u64()
+        .or_else(|| value.as_str()?.parse::<u64>().ok())
 }
 
 /// The object type a population node's `semantic_type` chain names, resolving
@@ -355,46 +350,58 @@ mod tests {
         assert_eq!(population_maximum(&duplicate), None);
     }
 
+    #[trace("FR-053-AC-3")]
     #[test]
     fn maximum_requires_the_selected_integer_literal_binding() {
+        let id = CheckedNodeId {
+            domain: "quire.checked-semantic-node/v1".into(),
+            digest: "0".repeat(64).into(),
+        };
+        let literal = |kind, value| CheckedTerm::Literal {
+            type_id: id.clone(),
+            value_kind: kind,
+            value,
+        };
+        let binding = |name: &str, value| CheckedTerm::Binding {
+            name: name.into(),
+            value: Box::new(value),
+        };
+        let aggregate = |members| CheckedTerm::Aggregate { members };
         assert_eq!(
-            population_maximum(&json!({
-                "members": [{
-                    "name": "max",
-                    "term": "binding",
-                    "value": {"term": "literal", "value_kind": "integer", "value": "0"}
-                }]
-            })),
+            population_maximum(&aggregate(vec![binding(
+                "max",
+                literal(LiteralKind::Integer, json!("0"))
+            )])),
             Some(0)
         );
         for body in [
-            json!({"members": []}),
-            json!({"members": [
-                {"name": "max", "term": "binding", "value": {
-                    "term": "literal", "value_kind": "integer", "value": "3"
-                }},
-                {"name": "max", "term": "binding", "value": {
-                    "term": "literal", "value_kind": "integer", "value": "5"
-                }}
-            ]}),
-            json!({"members": [{"name": "min", "term": "binding", "value": {
-                "term": "literal", "value_kind": "integer", "value": "99"
-            }}]}),
-            json!({"members": [{"name": "max", "term": "literal", "value": "99"}]}),
-            json!({"members": [{"name": "max", "term": "binding", "value": {
-                "term": "literal", "value_kind": "string", "value": "99"
-            }}]}),
-            json!({"members": [{"name": "max", "term": "binding", "value": {
-                "term": "closure", "value": "99"
-            }}]}),
-            json!({"members": [{"name": "max", "term": "binding", "value": {
-                "term": "literal", "value_kind": "integer", "value": "-1"
-            }}]}),
+            aggregate(vec![]),
+            aggregate(vec![
+                binding("max", literal(LiteralKind::Integer, json!("3"))),
+                binding("max", literal(LiteralKind::Integer, json!("5"))),
+            ]),
+            aggregate(vec![binding(
+                "min",
+                literal(LiteralKind::Integer, json!("99")),
+            )]),
+            aggregate(vec![literal(LiteralKind::Integer, json!("99"))]),
+            aggregate(vec![binding(
+                "max",
+                literal(LiteralKind::String, json!("99")),
+            )]),
+            aggregate(vec![binding(
+                "max",
+                CheckedTerm::Reference { target: id.clone() },
+            )]),
+            aggregate(vec![binding(
+                "max",
+                literal(LiteralKind::Integer, json!("-1")),
+            )]),
         ] {
             assert_eq!(
                 population_maximum(&body),
                 None,
-                "unexpected max from {body}"
+                "unexpected max from {body:?}"
             );
         }
     }
