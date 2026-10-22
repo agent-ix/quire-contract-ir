@@ -9,8 +9,9 @@ use super::structural::{
     reference_target, reference_type_target, typed_anchor_body, typed_clause_body,
 };
 use super::{
-    CheckedMemberType, CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageV2,
-    CheckedScalarOperandRange, CheckedSemanticNodeV2, StateClauseKind,
+    ApplicationOperator, CheckedMemberType, CheckedNodeId, CheckedOccurrence,
+    CheckedOccurrenceRole, CheckedPackageV2, CheckedScalarOperandRange, CheckedSemanticNodeV2,
+    CheckedTerm, LiteralKind, StateClauseKind,
 };
 use serde_json::Value;
 use thiserror::Error;
@@ -322,16 +323,34 @@ impl CheckedPackageV2 {
             .pointer("/arguments/2")
             .and_then(reference_target)
             .ok_or_else(|| context.error(Refusal::MissingComparison, Path::Condition, None))?;
-        let comparison = context.node(&condition).ok_or_else(|| {
+        context.node(&condition).ok_or_else(|| {
             context.error(
                 Refusal::MissingComparison,
                 Path::Condition,
                 Some(condition.clone()),
             )
         })?;
-        let identity = comparison
-            .body
-            .pointer("/operation/identity")
+        let CheckedTerm::Application {
+            operator: operator_class,
+            operation,
+            arguments,
+            ..
+        } = self.term(&condition).ok_or_else(|| {
+            context.error(
+                Refusal::InvalidComparisonShape,
+                Path::Comparison,
+                Some(condition.clone()),
+            )
+        })?
+        else {
+            return Err(context.error(
+                Refusal::InvalidComparisonShape,
+                Path::Comparison,
+                Some(condition.clone()),
+            ));
+        };
+        let identity = operation
+            .get("identity")
             .and_then(Value::as_str)
             .ok_or_else(|| {
                 context.error(
@@ -354,26 +373,13 @@ impl CheckedPackageV2 {
                 Some(condition.clone()),
             )
         })?;
-        if comparison.body.get("term").and_then(Value::as_str) != Some("application")
-            || comparison.body.get("operator").and_then(Value::as_str) != Some("binary")
-        {
+        if *operator_class != ApplicationOperator::Binary {
             return Err(context.error(
                 Refusal::InvalidComparisonShape,
                 Path::Comparison,
                 Some(condition.clone()),
             ));
         }
-        let arguments = comparison
-            .body
-            .get("arguments")
-            .and_then(Value::as_array)
-            .ok_or_else(|| {
-                context.error(
-                    Refusal::InvalidComparisonShape,
-                    Path::Comparison,
-                    Some(condition.clone()),
-                )
-            })?;
         let [first, second] = arguments.as_slice() else {
             return Err(context.error(
                 Refusal::InvalidComparisonShape,
@@ -402,7 +408,7 @@ impl CheckedPackageV2 {
 fn project_operand(
     context: &Context<'_>,
     comparison: &CheckedNodeId,
-    argument: &Value,
+    argument: &CheckedTerm,
     ordinal: u8,
 ) -> Result<CheckedComparisonOperand, CheckedComparisonError> {
     use CheckedComparisonOperandIdentity as Identity;
@@ -411,9 +417,11 @@ fn project_operand(
     use CheckedComparisonRefusal as Refusal;
     let path = Path::Operand(ordinal);
     let fail = |kind, child| context.error(kind, path, child);
-    let (identity, kind, range) = match argument.get("term").and_then(Value::as_str) {
-        Some("literal") => {
-            let range = literal_range(argument).map_err(|kind| fail(kind, None))?;
+    let (identity, kind, range) = match argument {
+        CheckedTerm::Literal {
+            value_kind, value, ..
+        } => {
+            let range = typed_literal_range(*value_kind, value).map_err(|kind| fail(kind, None))?;
             (
                 Identity::InlineLiteral {
                     comparison: comparison.clone(),
@@ -425,8 +433,8 @@ fn project_operand(
                 range,
             )
         }
-        Some("reference") => {
-            let id = reference_target(argument).ok_or_else(|| fail(Refusal::MissingChild, None))?;
+        CheckedTerm::Reference { target } => {
+            let id = target.clone();
             let child = context
                 .node(&id)
                 .ok_or_else(|| fail(Refusal::MissingChild, Some(id.clone())))?;
@@ -620,10 +628,24 @@ fn literal_range(term: &Value) -> Result<CheckedScalarOperandRange, CheckedCompa
     if term.get("value_kind").and_then(Value::as_str) != Some("integer") {
         return Err(Refusal::IneligibleOperand);
     }
-    let text = term
-        .get("value")
-        .and_then(Value::as_str)
-        .ok_or(Refusal::IneligibleOperand)?;
+    integer_value_range(term.get("value").ok_or(Refusal::IneligibleOperand)?)
+}
+
+fn typed_literal_range(
+    kind: LiteralKind,
+    value: &Value,
+) -> Result<CheckedScalarOperandRange, CheckedComparisonRefusal> {
+    if kind != LiteralKind::Integer {
+        return Err(CheckedComparisonRefusal::IneligibleOperand);
+    }
+    integer_value_range(value)
+}
+
+fn integer_value_range(
+    value: &Value,
+) -> Result<CheckedScalarOperandRange, CheckedComparisonRefusal> {
+    use CheckedComparisonRefusal as Refusal;
+    let text = value.as_str().ok_or(Refusal::IneligibleOperand)?;
     let value = text.parse::<i128>().map_err(|_| Refusal::RangeOutOfI128)?;
     Ok(CheckedScalarOperandRange {
         lower: value,
@@ -730,6 +752,11 @@ mod tests {
         (package, clause, claim)
     }
 
+    fn sync_comparison_term(package: &mut CheckedPackageV2) {
+        package.terms[3] = CheckedTerm::decode_admitted(&package.wire.semantic_graph.nodes[3].body)
+            .expect("mutated synthetic comparison remains a body term");
+    }
+
     #[trace("FR-038-AC-207")]
     #[test]
     fn tc_445_first_refusal_and_locus_survive_post_admission_defects() {
@@ -794,6 +821,7 @@ mod tests {
 
         package.wire.semantic_graph.nodes[3].body["operation"]["identity"] =
             json!("quire.op.integer.unknown");
+        sync_comparison_term(&mut package);
         let failure = package
             .direct_integer_comparison(&clause, &claim)
             .expect_err("unknown catalog operation");
@@ -809,6 +837,7 @@ mod tests {
         assert_eq!((&failure.clause, &failure.claim), (&clause, &claim));
         package.wire.semantic_graph.nodes[3].body["operation"]["identity"] =
             json!("quire.op.integer.add");
+        sync_comparison_term(&mut package);
         let failure = package
             .direct_integer_comparison(&clause, &claim)
             .expect_err("ineligible operation");
@@ -819,6 +848,7 @@ mod tests {
         package.wire.semantic_graph.nodes[3].body["operation"]["identity"] =
             json!("quire.op.integer.eq");
         package.wire.semantic_graph.nodes[3].body["arguments"] = json!([literal("0")]);
+        sync_comparison_term(&mut package);
         let failure = package
             .direct_integer_comparison(&clause, &claim)
             .expect_err("invalid binary arity");
@@ -833,6 +863,7 @@ mod tests {
         assert_eq!((&failure.clause, &failure.claim), (&clause, &claim));
         package.wire.semantic_graph.nodes[3].body["arguments"] =
             json!([{"term": "aggregate", "members": []}, literal("1")]);
+        sync_comparison_term(&mut package);
         let failure = package
             .direct_integer_comparison(&clause, &claim)
             .expect_err("malformed operand shape");
@@ -845,6 +876,7 @@ mod tests {
             reference('9'),
             literal("340282366920938463463374607431768211456")
         ]);
+        sync_comparison_term(&mut package);
         let failure = package
             .direct_integer_comparison(&clause, &claim)
             .expect_err("operand zero first");
@@ -856,6 +888,7 @@ mod tests {
             literal("0"),
             literal("340282366920938463463374607431768211456")
         ]);
+        sync_comparison_term(&mut package);
         let failure = package
             .direct_integer_comparison(&clause, &claim)
             .expect_err("literal outside i128");
@@ -865,6 +898,7 @@ mod tests {
         );
         package.wire.semantic_graph.nodes[3].body["arguments"] =
             json!([literal("0"), literal("1")]);
+        sync_comparison_term(&mut package);
         let failure = package
             .direct_integer_comparison(&clause, &claim)
             .expect_err("two literals");
