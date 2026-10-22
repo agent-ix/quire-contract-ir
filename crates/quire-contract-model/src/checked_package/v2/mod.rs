@@ -931,7 +931,7 @@ impl CheckedPackageV2 {
             .map_err(classify_owner_shape)?;
         intake::check_lossless_source(bytes, &wire)?;
         validate_owner_schema(&wire)?;
-        let (kinds, models, lowering_facts) = validate(&wire, limits, evidence)?;
+        let (kinds, terms, models, lowering_facts) = validate(&wire, limits, evidence)?;
         let direct_dependencies = wire
             .lock
             .dependency_selections
@@ -952,20 +952,6 @@ impl CheckedPackageV2 {
         let closure_index =
             ClosureIndex::from_direct(&wire.lock.dependency_selections, &direct_dependencies);
         let node_index = retained_node_index(&wire);
-        let terms = wire
-            .semantic_graph
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(position, node)| {
-                CheckedTerm::decode_admitted(&node.body).map_err(|_| {
-                    refuse(
-                        CheckedPackageRefusalCode::MalformedWire,
-                        node_pointer(position).key("body"),
-                    )
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
             wire,
             kinds,
@@ -1068,6 +1054,7 @@ fn validate(
 ) -> Result<
     (
         Vec<CheckedNodeKind>,
+        Vec<CheckedTerm>,
         RetainedModels,
         Vec<lower::LoweringNodeFacts>,
     ),
@@ -1110,7 +1097,7 @@ fn validate(
         models,
         dependencies,
     } = validate_lock(wire, evidence, &mut meter, limits.bytes)?;
-    let (kinds, index, lowering_facts) =
+    let (kinds, terms, index, lowering_facts) =
         validate_graph(wire, limits, &mut meter, &models, &dependencies, evidence)?;
     validate_source_map_entries(
         wire.semantic_graph
@@ -1124,7 +1111,12 @@ fn validate(
     extension::validate_source_regions(wire, &kinds)?;
     validate_capabilities(wire, evidence)?;
     validate_diagnostics(wire, limits, &mut meter)?;
-    Ok((kinds, RetainedModels::new(index, models), lowering_facts))
+    Ok((
+        kinds,
+        terms,
+        RetainedModels::new(index, models),
+        lowering_facts,
+    ))
 }
 
 /// The pointer of the first lock value that differs from its mirror in the
@@ -2083,6 +2075,7 @@ fn validate_graph(
 ) -> Result<
     (
         Vec<CheckedNodeKind>,
+        Vec<CheckedTerm>,
         DeclarationIndex,
         Vec<lower::LoweringNodeFacts>,
     ),
@@ -2112,6 +2105,7 @@ fn validate_graph(
     let mut kinds = Vec::with_capacity(graph.nodes.len());
     let mut references: Vec<Vec<BodyReference>> = Vec::with_capacity(graph.nodes.len());
     let mut body_terms = Vec::with_capacity(graph.nodes.len());
+    let mut terms = Vec::with_capacity(graph.nodes.len());
     // Each frame node's typed body, read once here and joined by the frame step.
     let mut frames = Vec::new();
     let mut edges = 0_u64;
@@ -2206,8 +2200,19 @@ fn validate_graph(
                 at("occurrences").index(repeat),
             ));
         }
+        // FR-346 owns the abstraction body's first shape refusal later in
+        // this graph stage. Its flat scan accepts shapes that the relation
+        // step deliberately reports as InvalidSemanticGraph, so a failed
+        // typed decode cannot preempt that step.
+        terms.push(match CheckedTerm::decode_admitted(&node.body) {
+            Ok(term) => Some(term),
+            Err(()) if body_grammar(kind) == BodyGrammar::AbstractionRelation => None,
+            Err(()) => {
+                return Err(refuse(CheckedPackageRefusalCode::MalformedWire, at("body")));
+            }
+        });
     }
-    validate_owner_joins(wire, &kinds, models, meter)?;
+    validate_owner_joins(wire, &kinds, &terms, models, meter)?;
     // Graph-shape body and dependency rules FR-322 orders before the
     // stale-key stage: the structural forms' bodies and occurrence roles and
     // the application-node dependency join. Then, in reader order, the
@@ -2216,7 +2221,7 @@ fn validate_graph(
     // so an entry, anchor or clause reference naming no node is the step's
     // own `missing_declaration` refusal rather than the generic
     // unresolved-reference `invalid_semantic_graph`.
-    validate_structural_nodes(&graph.nodes, &kinds, &index)?;
+    validate_structural_nodes(&graph.nodes, &kinds, &terms, &index)?;
     validate_application_keys(&graph.nodes, &kinds, &index, meter, limits.bytes)?;
     // FR-038-AC-127: the derived-shape key stage, after the application keys
     // and before the nominal keys.
@@ -2249,7 +2254,7 @@ fn validate_graph(
             member_pointer(&["lock", "model_selections"]).index(selection)
         })
     })?;
-    extension::validate(wire, &kinds, &index, evidence, &owners, meter)?;
+    extension::validate(wire, &kinds, &terms, &index, evidence, &owners, meter)?;
     let declarations = owners.index();
     frame::validate_frame_semantics(frames, &graph.nodes, &kinds, &index, &owners, meter)?;
     state::validate_state(&graph.nodes, &kinds, &index, &owners, meter)?;
@@ -2377,7 +2382,21 @@ fn validate_graph(
         };
         return Err(refuse(CheckedPackageRefusalCode::StaleDependency, path));
     }
-    Ok((kinds, declarations, lowering_facts))
+    let terms = terms
+        .into_iter()
+        .enumerate()
+        .map(|(position, term)| {
+            term.map(Ok).unwrap_or_else(|| {
+                CheckedTerm::decode_admitted(&graph.nodes[position].body).map_err(|_| {
+                    refuse(
+                        CheckedPackageRefusalCode::MalformedWire,
+                        node_pointer(position).key("body"),
+                    )
+                })
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((kinds, terms, declarations, lowering_facts))
 }
 
 /// Joins the already keyed protocol-reference carriers to this graph alone.

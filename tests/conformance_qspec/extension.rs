@@ -254,7 +254,7 @@ fn tc_459_unheld_extension_refuses_at_its_definition() {
     );
 }
 
-#[trace("TC-459", "FR-348-AC-1", "FR-348-AC-8")]
+#[trace("TC-459", "FR-348-AC-1", "FR-348-AC-8", "FR-349-AC-2", "FR-349-AC-4")]
 #[test]
 fn tc_459_held_extension_fixtures_admit() {
     for name in [
@@ -329,9 +329,19 @@ fn tc_459_held_extension_fixtures_admit() {
             46
         );
         let read = read_package(&package).expect("production read");
-        assert!(
-            matches!(read, CheckedPackageV2ReadResult::Admitted(_)),
-            "{name}: {read:?}"
+        let CheckedPackageV2ReadResult::Admitted(admitted) = read else {
+            panic!("{name}: {read:?}");
+        };
+        let node_id = serde_json::from_value(form["node_id"].clone()).expect("form node id");
+        let Some(quire_contract_model::CheckedTerm::ExtensionForm { clauses, .. }) =
+            admitted.term(&node_id)
+        else {
+            panic!("{name}: admitted extension form has typed body");
+        };
+        assert_eq!(clauses.len(), 2);
+        assert_eq!(
+            serde_json::to_value(admitted.term(&node_id)).expect("typed extension serializes"),
+            form["body"]
         );
     }
 }

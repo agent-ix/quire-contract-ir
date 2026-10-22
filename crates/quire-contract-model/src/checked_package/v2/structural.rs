@@ -77,12 +77,9 @@ use crate::checked_package::common::{
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCode, JsonPointer,
 };
-use crate::checked_package::terms::visit_terms;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use std::convert::Infallible;
-use std::ops::ControlFlow;
 
 /// The member of one node a structural defect is about.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -312,6 +309,7 @@ impl StructuralForm {
 pub(super) fn validate_structural_nodes(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
+    terms: &[Option<super::CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Result<(), ValidationFailure> {
     let graph = Graph {
@@ -332,11 +330,34 @@ pub(super) fn validate_structural_nodes(
             )
         };
         let form = StructuralForm::of(kind);
+        let term = terms.get(position).and_then(Option::as_ref);
         let defect = match form {
             Some(StructuralForm::Extension) => {
-                let body =
-                    super::extension::read_body(&node.body, node_pointer(position).key("body"))?;
-                let expected: BTreeSet<_> = super::extension::targets(&body).collect();
+                let Some(super::CheckedTerm::ExtensionForm { clauses, .. }) = term else {
+                    return Err(ValidationFailure::refused(
+                        CheckedPackageRefusalCode::MalformedWire,
+                        node_pointer(position).key("body"),
+                    ));
+                };
+                if clauses.iter().any(|clause| {
+                    !matches!(clause, super::CheckedTerm::Binding { value, .. }
+                        if matches!(value.as_ref(), super::CheckedTerm::Reference { .. }))
+                }) {
+                    return Err(ValidationFailure::refused(
+                        CheckedPackageRefusalCode::MalformedWire,
+                        node_pointer(position).key("body"),
+                    ));
+                }
+                let expected = clauses
+                    .iter()
+                    .filter_map(|clause| match clause {
+                        super::CheckedTerm::Binding { value, .. } => match value.as_ref() {
+                            super::CheckedTerm::Reference { target } => Some(target),
+                            _ => None,
+                        },
+                        _ => None,
+                    })
+                    .collect::<BTreeSet<_>>();
                 if node.semantic_type != node.node_id {
                     Some(Defect::SemanticType)
                 } else if node.recursion_group.is_some() {
@@ -363,7 +384,7 @@ pub(super) fn validate_structural_nodes(
             Some(StructuralForm::UnionValue) => union_value_body(&node.body)
                 .is_none()
                 .then_some(Defect::Body),
-            Some(StructuralForm::ProtocolReference) => protocol_reference_defect(node),
+            Some(StructuralForm::ProtocolReference) => protocol_reference_defect(node, term),
             // The per-node body loop already read the frame body; the
             // abstraction step (FR-346) reads its own, so only the role is
             // this stage's.
@@ -378,7 +399,7 @@ pub(super) fn validate_structural_nodes(
         if let Some(defect) = defect.or(role) {
             return Err(refuse(defect));
         }
-        if let Some(expected) = application_dependencies(&node.body) {
+        if let Some(expected) = term.and_then(application_dependencies) {
             if !node.dependencies.iter().eq(expected.iter()) {
                 return Err(refuse(Defect::Dependencies));
             }
@@ -388,14 +409,20 @@ pub(super) fn validate_structural_nodes(
 }
 
 /// Carrier-only members and the local edge shape, checked before keys or target resolution.
-fn protocol_reference_defect(node: &CheckedSemanticNodeV2) -> Option<Defect> {
+fn protocol_reference_defect(
+    node: &CheckedSemanticNodeV2,
+    term: Option<&super::CheckedTerm>,
+) -> Option<Defect> {
     if node.occurrences.is_empty() {
         return Some(Defect::Occurrences);
     }
-    let Some(target) = reference_target(&node.body) else {
+    let Some(super::CheckedTerm::Reference { target }) = term else {
         return Some(Defect::Body);
     };
-    if node.dependencies.as_slice() != std::slice::from_ref(&target) {
+    if target.domain.as_ref() != NODE_DOMAIN || !is_digest(&target.digest) {
+        return Some(Defect::Body);
+    }
+    if node.dependencies.as_slice() != std::slice::from_ref(target) {
         return Some(Defect::Dependencies);
     }
     None
@@ -668,21 +695,24 @@ pub(super) fn union_value_body(body: &Value) -> Option<(&str, &[Value])> {
 /// `population` of a reaches or navigate application. A member `declaration` or
 /// `population` that is not a node key is skipped here: the operation stage
 /// owns that refusal and its path.
-fn application_dependencies(body: &Value) -> Option<BTreeSet<CheckedNodeId>> {
+fn application_dependencies(body: &super::CheckedTerm) -> Option<BTreeSet<CheckedNodeId>> {
+    use super::CheckedTerm;
     let mut contains_application = false;
     let mut join = BTreeSet::new();
-    let walked = visit_terms(body, |term| -> ControlFlow<Infallible> {
-        match body_term(term) {
-            Some(BodyTerm::Reference) => {
-                if let Some(target) = reference_target(term) {
-                    join.insert(target);
-                }
+    let mut pending = vec![body];
+    while let Some(term) = pending.pop() {
+        match term {
+            CheckedTerm::Reference { target } => {
+                join.insert(target.clone());
             }
-            Some(BodyTerm::Application) => {
+            CheckedTerm::Application {
+                operation,
+                arguments,
+                ..
+            } => {
                 contains_application = true;
-                let member = term
-                    .get("operation")
-                    .and_then(|operation| operation.get("member"));
+                pending.extend(arguments);
+                let member = operation.get("member");
                 let member_id = |key: &str| {
                     member.and_then(|member| member.get(key)).and_then(|value| {
                         serde_json::from_value::<CheckedNodeId>(value.clone()).ok()
@@ -690,9 +720,8 @@ fn application_dependencies(body: &Value) -> Option<BTreeSet<CheckedNodeId>> {
                 };
                 join.extend(member_id("declaration"));
                 // Only a relationship application names a population.
-                let relationship = term
-                    .get("operation")
-                    .and_then(|operation| operation.get("identity"))
+                let relationship = operation
+                    .get("identity")
                     .and_then(Value::as_str)
                     .is_some_and(|identity| {
                         matches!(
@@ -704,24 +733,16 @@ fn application_dependencies(body: &Value) -> Option<BTreeSet<CheckedNodeId>> {
                     join.extend(member_id("population"));
                 }
             }
-            // A literal names only its type annotation, which is not a
-            // dependency; a `dependency_reference` names a node of another
-            // package and is never listed in `dependencies`; an aggregate and
-            // a binding hold terms the walk enters; a frame is never a nested
-            // term; a tag outside the vocabulary is refused before this stage.
-            Some(
-                BodyTerm::Literal
-                | BodyTerm::DependencyReference
-                | BodyTerm::Aggregate
-                | BodyTerm::Binding
-                | BodyTerm::Frame
-                | BodyTerm::AbstractionRelation,
-            )
-            | None => {}
+            CheckedTerm::Aggregate { members } => pending.extend(members),
+            CheckedTerm::Binding { value, .. } => pending.push(value),
+            // These bodies do not contribute local application dependencies.
+            CheckedTerm::Literal { .. }
+            | CheckedTerm::DependencyReference { .. }
+            | CheckedTerm::Frame { .. }
+            | CheckedTerm::AbstractionRelation { .. }
+            | CheckedTerm::ExtensionForm { .. } => {}
         }
-        ControlFlow::Continue(())
-    });
-    let ControlFlow::Continue(()) = walked;
+    }
     contains_application.then_some(join)
 }
 

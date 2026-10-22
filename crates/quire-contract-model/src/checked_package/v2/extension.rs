@@ -3,7 +3,8 @@
 use super::identity::is_identifier;
 use super::model_members::{Budget, DeclarationForm, ModelOwners};
 use super::{
-    CheckedNodeKind, CheckedPackageWireV2, CheckedSemanticNodeV2, ScalarTypeForm, WorkMeter,
+    CheckedNodeKind, CheckedPackageWireV2, CheckedSemanticNodeV2, CheckedTerm, ScalarTypeForm,
+    WorkMeter,
 };
 use crate::checked_package::common::{is_digest, node_pointer, ValidationFailure, NODE_DOMAIN};
 use crate::checked_package::evidence::CheckedPackageEvidence;
@@ -130,6 +131,7 @@ fn with_detail(
 pub(super) fn validate(
     wire: &CheckedPackageWireV2,
     kinds: &[CheckedNodeKind],
+    terms: &[Option<CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
     evidence: &CheckedPackageEvidence,
     owners: &ModelOwners<'_>,
@@ -142,17 +144,35 @@ pub(super) fn validate(
         }
         let node = &nodes[position];
         let at = node_pointer(position).key("body");
-        let body = read_body(&node.body, at.clone())?;
+        let Some(CheckedTerm::ExtensionForm {
+            definition,
+            node_kind,
+            clauses,
+        }) = terms.get(position).and_then(Option::as_ref)
+        else {
+            return Err(ValidationFailure::refused(Code::MalformedWire, at));
+        };
+        let clauses = clauses
+            .iter()
+            .map(|clause| match clause {
+                CheckedTerm::Binding { name, value } => match value.as_ref() {
+                    CheckedTerm::Reference { target } => Some((name.as_ref(), target)),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| ValidationFailure::refused(Code::MalformedWire, at.clone()))?;
         let def_at = at.clone().key("definition");
         let fail = |code, cause, pointer| refusal(node, pointer, code, cause);
-        if !wire.lock.definition_selections.contains(&body.definition) {
+        if !wire.lock.definition_selections.contains(definition) {
             return Err(fail(
                 Code::MissingDeclaration,
                 Some(Cause::MissingSelection),
                 def_at,
             ));
         }
-        let Some(definition) = evidence.extension_definition(&body.definition) else {
+        let Some(definition) = evidence.extension_definition(definition) else {
             return Err(ValidationFailure::unknown_extension_definition(
                 def_at,
                 node.node_id.clone(),
@@ -162,7 +182,7 @@ pub(super) fn validate(
             .typed_node_schema
             .nodes
             .iter()
-            .find(|entry| entry.node_kind == body.node_kind)
+            .find(|entry| entry.node_kind.as_ref() == node_kind.as_ref())
         else {
             return Err(fail(
                 Code::MissingDeclaration,
@@ -170,8 +190,8 @@ pub(super) fn validate(
                 at.key("node_kind"),
             ));
         };
-        for (ordinal, (clause, expected)) in body.clauses.iter().zip(&schema.clauses).enumerate() {
-            if clause.name != expected.name {
+        for (ordinal, ((name, _), expected)) in clauses.iter().zip(&schema.clauses).enumerate() {
+            if *name != expected.name.as_ref() {
                 return Err(fail(
                     Code::InvalidPackage,
                     Some(Cause::InvalidValue),
@@ -179,29 +199,31 @@ pub(super) fn validate(
                 ));
             }
         }
-        if body.clauses.len() > schema.clauses.len() {
+        if clauses.len() > schema.clauses.len() {
             return Err(fail(
                 Code::InvalidPackage,
                 Some(Cause::InvalidValue),
                 at.clone().key("clauses").index(schema.clauses.len()),
             ));
         }
-        if body.clauses.len() < schema.clauses.len() {
+        if clauses.len() < schema.clauses.len() {
             return Err(with_detail(
                 fail(
                     Code::InvalidPackage,
                     Some(Cause::MissingMember),
                     at.clone().key("clauses"),
                 ),
-                &schema.clauses[body.clauses.len()].name,
+                &schema.clauses[clauses.len()].name,
                 None,
                 None,
                 None,
             ));
         }
-        for (ordinal, (clause, expected)) in body.clauses.iter().zip(&schema.clauses).enumerate() {
+        for (ordinal, ((name, target_id), expected)) in
+            clauses.iter().zip(&schema.clauses).enumerate()
+        {
             let pointer = at.clone().key("clauses").index(ordinal).key("value");
-            let Some(&target_position) = index.get(&clause.value.target) else {
+            let Some(&target_position) = index.get(target_id) else {
                 return Err(fail(
                     Code::MissingDeclaration,
                     Some(Cause::MissingName),
@@ -220,7 +242,7 @@ pub(super) fn validate(
             )? {
                 return Err(with_detail(
                     fail(Code::IllTyped, Some(Cause::TypeMismatch), pointer),
-                    &clause.name,
+                    name,
                     Some(&expected.type_ref),
                     Some(actual_type(target, kinds[target_position], nodes, index)),
                     Some(target.semantic_type.clone()),

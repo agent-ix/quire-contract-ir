@@ -1,8 +1,9 @@
 //! Typed admitted V2 body vocabulary.
 //!
-//! The wire reader validates the flat QSpec grammar and all semantic joins
-//! before decoding this representation. The flat grammar has bounded term
-//! depth, so serde's recursion here is independent of input byte length.
+//! The wire reader validates the flat QSpec grammar and each body before
+//! decoding this representation for admitted graph joins. The flat grammar
+//! has bounded term depth, so serde's recursion here is independent of input
+//! byte length.
 
 use super::{ApplicationOperator, BodyTerm, LiteralKind};
 use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedSemanticId};

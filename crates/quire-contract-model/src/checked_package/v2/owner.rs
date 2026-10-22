@@ -2,7 +2,7 @@
 
 use super::{
     CheckedDeclaration, CheckedNodeKind, CheckedNodeOwner, CheckedPackageWireV2,
-    CheckedSemanticNodeV2, DomainModel, WorkMeter,
+    CheckedSemanticNodeV2, CheckedTerm, DomainModel, LiteralKind, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -150,28 +150,31 @@ pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), V
     Ok(())
 }
 
-fn clause_kind(body: &Value) -> Option<&str> {
-    if body.get("term")?.as_str()? != "aggregate" {
+fn clause_kind(body: &CheckedTerm) -> Option<&str> {
+    let CheckedTerm::Aggregate { members } = body else {
         return None;
-    }
-    let mut clauses = body.get("members")?.as_array()?.iter().filter(|member| {
-        member.get("term").and_then(Value::as_str) == Some("binding")
-            && member.get("name").and_then(Value::as_str) == Some("clause")
+    };
+    let mut clauses = members.iter().filter_map(|member| match member {
+        CheckedTerm::Binding { name, value } if name.as_ref() == "clause" => Some(value.as_ref()),
+        _ => None,
     });
     let clause = clauses.next()?;
     if clauses.next().is_some() {
         return None;
     }
-    let value = clause.get("value")?;
-    if value.get("term")?.as_str()? != "literal" || value.get("value_kind")?.as_str()? != "text" {
-        return None;
+    match clause {
+        CheckedTerm::Literal {
+            value_kind: LiteralKind::Text,
+            value,
+            ..
+        } => value.as_str(),
+        _ => None,
     }
-    value.get("value")?.as_str()
 }
 
 fn model_kind_matches(
     kind: CheckedNodeKind,
-    node: &CheckedSemanticNodeV2,
+    term: &CheckedTerm,
     model: &DomainModel,
     declared: &str,
     operations: &BTreeSet<&str>,
@@ -197,7 +200,7 @@ fn model_kind_matches(
         CheckedNodeKind::Relation(super::RelationForm::Population) => {
             model.populations.contains(declared)
         }
-        CheckedNodeKind::Function(_) => match clause_kind(&node.body) {
+        CheckedNodeKind::Function(_) => match clause_kind(term) {
             Some("invariant") => {
                 model
                     .object_types
@@ -225,6 +228,7 @@ fn missing_owner(node: &CheckedSemanticNodeV2, at: JsonPointer) -> ValidationFai
 pub(super) fn validate_owner_joins(
     wire: &CheckedPackageWireV2,
     kinds: &[CheckedNodeKind],
+    terms: &[Option<CheckedTerm>],
     models: &[DomainModel],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -311,7 +315,12 @@ pub(super) fn validate_owner_joins(
                 let operations = model_operations.get(identity.as_ref());
                 if !kinds.get(position).is_some_and(|kind| {
                     operations.is_some_and(|operations| {
-                        model_kind_matches(*kind, node, model, declared, operations)
+                        terms
+                            .get(position)
+                            .and_then(Option::as_ref)
+                            .is_some_and(|term| {
+                                model_kind_matches(*kind, term, model, declared, operations)
+                            })
                     })
                 }) {
                     return Err(missing_owner(node, at));

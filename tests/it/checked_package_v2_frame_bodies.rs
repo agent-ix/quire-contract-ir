@@ -13,7 +13,7 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult,
+    CheckedPackageV2ReadResult, CheckedTerm,
 };
 use serde_json::{json, Value};
 
@@ -64,6 +64,31 @@ fn frame_index(package: &Value) -> usize {
         .iter()
         .position(|node| node["node_tag"] == "state" && node["semantic_form"] == "frame")
         .expect("base fixture carries exactly one frame node")
+}
+
+#[trace("FR-349-AC-2", "FR-349-AC-4")]
+#[test]
+fn admitted_frame_body_is_typed_without_changing_the_wire() {
+    let fixture = v2_all_families();
+    let package = admitted(&fixture);
+    let position = frame_index(&fixture);
+    let node = &package.graph().nodes[position];
+    let Some(CheckedTerm::Frame {
+        modifies,
+        creates,
+        deletes,
+        ..
+    }) = package.term(&node.node_id)
+    else {
+        panic!("admitted frame must have a typed frame body");
+    };
+    assert!(!modifies.is_empty());
+    assert!(!creates.is_empty());
+    assert!(!deletes.is_empty());
+    assert_eq!(
+        serde_json::to_value(package.term(&node.node_id)).expect("typed frame serializes"),
+        node.body
+    );
 }
 
 /// The `v2_all_families()` frame node already exercises `object_type` in
