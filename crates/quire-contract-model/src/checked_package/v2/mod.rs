@@ -601,6 +601,8 @@ pub struct CheckedPackageV2 {
     kinds: Vec<CheckedNodeKind>,
     /// Admission-derived lookup; excluded from content equality.
     node_index: BTreeMap<CheckedNodeId, usize>,
+    /// Body terms and resolved lowering edges, retained from graph admission.
+    lowering_facts: Vec<lower::LoweringNodeFacts>,
     /// The byte limit this package was read under: the ceiling of every
     /// encode its lowering makes.
     bytes: u64,
@@ -926,7 +928,7 @@ impl CheckedPackageV2 {
             .map_err(classify_owner_shape)?;
         intake::check_lossless_source(bytes, &wire)?;
         validate_owner_schema(&wire)?;
-        let (kinds, models) = validate(&wire, limits, evidence)?;
+        let (kinds, models, lowering_facts) = validate(&wire, limits, evidence)?;
         let direct_dependencies = wire
             .lock
             .dependency_selections
@@ -951,6 +953,7 @@ impl CheckedPackageV2 {
             wire,
             kinds,
             node_index,
+            lowering_facts,
             bytes: limits.bytes,
             models,
             direct_dependencies,
@@ -1039,7 +1042,14 @@ fn validate(
     wire: &CheckedPackageWireV2,
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
-) -> Result<(Vec<CheckedNodeKind>, RetainedModels), ValidationFailure> {
+) -> Result<
+    (
+        Vec<CheckedNodeKind>,
+        RetainedModels,
+        Vec<lower::LoweringNodeFacts>,
+    ),
+    ValidationFailure,
+> {
     check_package_header(wire)?;
     // The body grammar is strict wire validation: a body outside it refuses
     // here, before any identity is recomputed (FR-038-AC-116).
@@ -1077,7 +1087,7 @@ fn validate(
         models,
         dependencies,
     } = validate_lock(wire, evidence, &mut meter, limits.bytes)?;
-    let (kinds, index) =
+    let (kinds, index, lowering_facts) =
         validate_graph(wire, limits, &mut meter, &models, &dependencies, evidence)?;
     validate_source_map_entries(
         wire.semantic_graph
@@ -1091,7 +1101,7 @@ fn validate(
     extension::validate_source_regions(wire, &kinds)?;
     validate_capabilities(wire, evidence)?;
     validate_diagnostics(wire, limits, &mut meter)?;
-    Ok((kinds, RetainedModels::new(index, models)))
+    Ok((kinds, RetainedModels::new(index, models), lowering_facts))
 }
 
 /// The pointer of the first lock value that differs from its mirror in the
@@ -1683,6 +1693,8 @@ fn validate_body(
     at: &Trail<'_>,
     visit: &mut ReferenceVisitor<'_>,
 ) -> Result<u64, ValidationFailure> {
+    #[cfg(test)]
+    lower::BODY_WALKS.with(|walks| walks.set(walks.get() + 1));
     if kind == CheckedNodeKind::Protocol(ProtocolForm::ProtocolReference)
         && !body.as_object().is_some_and(|object| {
             super::common::exact_members(object, &["term", "target"])
@@ -2045,7 +2057,14 @@ fn validate_graph(
     models: &[DomainModel],
     dependencies: &SuppliedDependencies<'_>,
     evidence: &CheckedPackageEvidence,
-) -> Result<(Vec<CheckedNodeKind>, DeclarationIndex), ValidationFailure> {
+) -> Result<
+    (
+        Vec<CheckedNodeKind>,
+        DeclarationIndex,
+        Vec<lower::LoweringNodeFacts>,
+    ),
+    ValidationFailure,
+> {
     let graph = &wire.semantic_graph;
     check_graph_version(graph)?;
     if graph.nodes.is_empty() {
@@ -2069,6 +2088,7 @@ fn validate_graph(
     let mut index = BTreeMap::new();
     let mut kinds = Vec::with_capacity(graph.nodes.len());
     let mut references: Vec<Vec<BodyReference>> = Vec::with_capacity(graph.nodes.len());
+    let mut body_terms = Vec::with_capacity(graph.nodes.len());
     // Each frame node's typed body, read once here and joined by the frame step.
     let mut frames = Vec::new();
     let mut edges = 0_u64;
@@ -2144,6 +2164,7 @@ fn validate_graph(
             .map_err(|failure| with_node_locus(failure, &node.node_id))?,
         };
         meter.charge(work, || at("body"))?;
+        body_terms.push(work);
         references.push(targets);
         let mut occurrences = BTreeSet::new();
         if node.occurrences.is_empty() {
@@ -2229,6 +2250,7 @@ fn validate_graph(
         meter,
     )?;
     let mut adjacency = Vec::with_capacity(graph.nodes.len());
+    let mut lowering_facts = Vec::with_capacity(graph.nodes.len());
     let reference_pointer = |position: usize, reference: usize| match (
         graph.nodes.get(position),
         kinds.get(position),
@@ -2245,16 +2267,30 @@ fn validate_graph(
         };
         let at = |member: &str| node_pointer(position).key(member);
         let semantic_type = resolve(&node.semantic_type, &|| at("semantic_type"))?;
+        let mut lowering_successors = vec![(semantic_type, lower::EdgeRole::Typing)];
         let mut successors = Vec::new();
         if semantic_type != position {
             successors.push((semantic_type, EdgeSite::SemanticType));
         }
         for (dependency_index, dependency) in node.dependencies.iter().enumerate() {
             let target = resolve(dependency, &|| at("dependencies").index(dependency_index))?;
+            lowering_successors.push((target, lower::EdgeRole::Typing));
             successors.push((target, EdgeSite::Dependency(dependency_index)));
         }
         for (reference_index, (target, site)) in targets.iter().enumerate() {
             let target = resolve(target, &|| reference_pointer(position, reference_index))?;
+            let role = match site.member {
+                ReferenceMember::Type => lower::EdgeRole::Annotation,
+                ReferenceMember::Target
+                | ReferenceMember::ResultType
+                | ReferenceMember::FrameEntry => lower::EdgeRole::Typing,
+            };
+            // The extension reader uses its targets for graph admission, but
+            // the lowering body grammar charges no extension-body reference
+            // edges. Preserve that existing per-request closure and budget.
+            if kinds.get(position).copied().map(body_grammar) != Some(BodyGrammar::Extension) {
+                lowering_successors.push((target, role));
+            }
             // Only a self-typed node's own top-level `literal.type` — the
             // literal that *is* the node body — may name itself from its body
             // without counting as a reference cycle requiring
@@ -2274,6 +2310,15 @@ fn validate_graph(
             }
         }
         adjacency.push(successors);
+        let terms = body_terms
+            .get(position)
+            .copied()
+            .ok_or_else(|| refuse(CheckedPackageRefusalCode::InvalidSemanticGraph, at("body")))?;
+        lowering_facts.push(lower::LoweringNodeFacts {
+            terms: Ok(terms),
+            successors: lowering_successors,
+            component: position,
+        });
     }
     let edge_pointer = |vertex: usize, site: EdgeSite| match site {
         EdgeSite::SemanticType => node_pointer(vertex).key("semantic_type"),
@@ -2283,6 +2328,7 @@ fn validate_graph(
         EdgeSite::Reference(reference) => reference_pointer(vertex, reference),
     };
     validate_recursion(&graph.nodes, &adjacency, meter, &edge_pointer)?;
+    lower::assign_components(&mut lowering_facts);
     // Each node's projection is built and compared one at a time, so no copy
     // of every node is held beside the graph.
     let retained = &wire.identity_preimage.identity_projection;
@@ -2308,7 +2354,7 @@ fn validate_graph(
         };
         return Err(refuse(CheckedPackageRefusalCode::StaleDependency, path));
     }
-    Ok((kinds, declarations))
+    Ok((kinds, declarations, lowering_facts))
 }
 
 /// Joins the already keyed protocol-reference carriers to this graph alone.

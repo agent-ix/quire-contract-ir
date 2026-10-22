@@ -698,6 +698,7 @@ mod tests {
         .expect("synthetic wire shape");
         let package = CheckedPackageV2 {
             node_index: super::super::retained_node_index(&wire),
+            lowering_facts: Vec::new(),
             wire,
             kinds: Vec::new(),
             bytes: 1 << 20,
