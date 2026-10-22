@@ -568,6 +568,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
     Fixture {
         package: CheckedPackageV2 {
             node_index: super::super::retained_node_index(&wire),
+            lowering_facts: Vec::new(),
             wire,
             kinds,
             bytes: BYTES,

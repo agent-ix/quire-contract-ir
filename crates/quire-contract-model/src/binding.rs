@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::sync::OnceLock;
 
 use quire_canonical::{FixedShape, Limits};
 use serde::{
@@ -264,6 +265,7 @@ impl BoundPackage {
             ContractPackage::from_json_value(&projection.package, ValidationOptions::strict())?;
         let mut nodes = 0;
         let mut expected = BTreeMap::new();
+        let mut clauses_by_ref = BTreeMap::new();
         let mut informational = Vec::new();
         for requirement in package.requirements() {
             budget(&mut nodes, 1)?;
@@ -277,6 +279,7 @@ impl BoundPackage {
                     }
                 }
                 let identity = package.clause_ref(requirement, clause);
+                clauses_by_ref.insert(identity.clone(), clause);
                 if clause.kind().executable() {
                     expected.insert(identity, clause);
                 } else {
@@ -304,9 +307,12 @@ impl BoundPackage {
         informational.sort();
         let mut bound = BTreeMap::new();
         for binding in projection.bindings {
-            let clause = package
-                .resolve_clause(&binding.clause, None)
-                .map_err(|diagnostic| vec![diagnostic])?;
+            let clause = match clauses_by_ref.get(&binding.clause).copied() {
+                Some(clause) => clause,
+                None => package
+                    .resolve_clause(&binding.clause, None)
+                    .map_err(|diagnostic| vec![diagnostic])?,
+            };
             if !clause.kind().executable() {
                 return Err(failure(
                     DiagnosticCode::InformationalClauseAnchored,
@@ -421,25 +427,54 @@ impl BoundPackage {
     }
 }
 
+static COMPILED_PROJECTION_SCHEMA: OnceLock<Result<jsonschema::JSONSchema, &'static str>> =
+    OnceLock::new();
+
+fn compiled_projection_schema() -> Result<&'static jsonschema::JSONSchema, Vec<Diagnostic>> {
+    COMPILED_PROJECTION_SCHEMA
+        .get_or_init(|| {
+            let schema: Value = serde_json::from_str(EXECUTABLE_PROJECTION_SCHEMA)
+                .map_err(|_| "invalid embedded projection schema")?;
+            let package: Value = serde_json::from_str(include_str!(
+                "../../../schemas/contract-package-reference-v1.schema.json"
+            ))
+            .map_err(|_| "invalid embedded package schema")?;
+            let conformance: Value = serde_json::from_str(include_str!(
+                "../../../schemas/contract-conformance-fixture-v1.schema.json"
+            ))
+            .map_err(|_| "invalid embedded expression schema")?;
+            jsonschema::JSONSchema::options()
+                .with_draft(jsonschema::Draft::Draft7)
+                .with_document(PACKAGE_SCHEMA_ID.to_owned(), package)
+                .with_document(CONFORMANCE_SCHEMA_ID.to_owned(), conformance)
+                .compile(&schema)
+                .map_err(|_| "cannot compile embedded projection schema")
+        })
+        .as_ref()
+        .map_err(|message| invalid(message))
+}
+
 fn validate_schema(value: &Value) -> Result<(), Vec<Diagnostic>> {
-    let schema: Value = serde_json::from_str(EXECUTABLE_PROJECTION_SCHEMA)
-        .map_err(|_| invalid("invalid embedded projection schema"))?;
-    let package: Value = serde_json::from_str(include_str!(
-        "../../../schemas/contract-package-reference-v1.schema.json"
-    ))
-    .map_err(|_| invalid("invalid embedded package schema"))?;
-    let conformance: Value = serde_json::from_str(include_str!(
-        "../../../schemas/contract-conformance-fixture-v1.schema.json"
-    ))
-    .map_err(|_| invalid("invalid embedded expression schema"))?;
-    let compiled = jsonschema::JSONSchema::options()
-        .with_draft(jsonschema::Draft::Draft7)
-        .with_document(PACKAGE_SCHEMA_ID.to_owned(), package)
-        .with_document(CONFORMANCE_SCHEMA_ID.to_owned(), conformance)
-        .compile(&schema)
-        .map_err(|_| invalid("cannot compile embedded projection schema"))?;
+    let compiled = compiled_projection_schema()?;
     if !compiled.is_valid(value) {
         return Err(invalid("projection does not satisfy its normative schema"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod schema_cache_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+
+    /// Tracing: FR-023-AC-7
+    #[trace("FR-023-AC-7")]
+    #[test]
+    fn projection_schema_is_one_compiled_value_across_decodes() {
+        let first = compiled_projection_schema().expect("embedded schema");
+        let second = compiled_projection_schema().expect("same embedded schema");
+        assert!(std::ptr::eq(first, second));
+        let invalid = serde_json::json!({});
+        assert!(validate_schema(&invalid).is_err());
+    }
 }

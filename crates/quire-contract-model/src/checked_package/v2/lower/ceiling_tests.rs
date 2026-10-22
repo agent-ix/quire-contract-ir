@@ -243,15 +243,25 @@ fn package(bytes: u64) -> CheckedPackageV2 {
     }))
     .expect("wire");
     let kinds = vec![CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean); 4];
-    CheckedPackageV2 {
+    let mut package = CheckedPackageV2 {
         node_index: super::super::retained_node_index(&wire),
+        lowering_facts: Vec::new(),
         wire,
         kinds,
         bytes,
         models: Default::default(),
         direct_dependencies: Vec::new(),
         closure_index: Default::default(),
-    }
+    };
+    let index = package
+        .graph()
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(position, node)| (&node.node_id, position))
+        .collect();
+    package.lowering_facts = package.scan_lowering_facts(&index);
+    package
 }
 
 fn profile() -> CompleteLoweringProfileV2 {
@@ -264,6 +274,155 @@ fn profile() -> CompleteLoweringProfileV2 {
         require_bounds: false,
         work_limit: u64::MAX,
     }
+}
+
+fn shared_closure_package(roots: usize, shared: usize) -> (CheckedPackageV2, Vec<CheckedNodeId>) {
+    let mut package = package(u64::MAX);
+    let id = |number: usize| {
+        json!({
+            "domain": "quire.checked-semantic-node/v1",
+            "digest": format!("{number:064x}"),
+        })
+    };
+    let nodes = (0..shared + roots)
+        .map(|position| {
+            let parent = if position == 0 {
+                0
+            } else if position < shared {
+                position - 1
+            } else {
+                shared - 1
+            };
+            json!({
+                "node_id": id(position),
+                "schema_version": "quire.checked-semantic-graph/v2",
+                "node_tag": "scalar_type",
+                "semantic_form": "boolean",
+                "semantic_type": id(parent),
+                "dependencies": [],
+                "occurrences": [],
+                "body": {"term": "aggregate", "members": []},
+            })
+        })
+        .collect::<Vec<_>>();
+    package.wire.semantic_graph.nodes = serde_json::from_value(json!(nodes)).expect("nodes");
+    package.kinds = vec![CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean); shared + roots];
+    BODY_WALKS.with(|walks| walks.set(0));
+    let index = package
+        .graph()
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(position, node)| (&node.node_id, position))
+        .collect();
+    package.lowering_facts = package.scan_lowering_facts(&index);
+    let requests = (shared..shared + roots)
+        .map(|position| serde_json::from_value(id(position)).expect("request"))
+        .collect();
+    (package, requests)
+}
+
+/// The same shared closure is parsed once per call, independent of the number
+/// of requested leaves. Each request's work meter still charges its full closure.
+///
+/// Tracing: FR-038-AC-308
+#[trace("TC-050", "FR-038-AC-308")]
+#[test]
+fn shared_closure_body_walks_scale_with_nodes_not_requests() {
+    let mut measured = Vec::new();
+    for roots in [2, 4, 8] {
+        for shared in [4, 8, 16] {
+            let (package, requests) = shared_closure_package(roots, shared);
+            SHARED_CLOSURE_BUILDS.with(|builds| builds.set(0));
+            let lowered = package.lower(&requests, &profile());
+            assert_eq!(lowered.records.len(), roots);
+            let walks = BODY_WALKS.with(std::cell::Cell::get);
+            let closure_builds = SHARED_CLOSURE_BUILDS.with(std::cell::Cell::get);
+            assert_eq!(closure_builds, 1, "one shared SCC closure per call");
+            for (request, batch_record) in requests.iter().zip(&lowered.records) {
+                let single = package.lower(std::slice::from_ref(request), &profile());
+                assert_eq!(batch_record, &single.records[0]);
+            }
+            let mut stopped = profile();
+            stopped.work_limit = 4;
+            let batch_stopped = package.lower(&requests, &stopped);
+            for (request, batch_record) in requests.iter().zip(&batch_stopped.records) {
+                let single = package.lower(std::slice::from_ref(request), &stopped);
+                assert_eq!(batch_record, &single.records[0]);
+            }
+            measured.push((roots, shared, walks));
+        }
+    }
+    for (roots, shared, walks) in measured {
+        assert_eq!(walks, shared + roots, "roots={roots}, shared={shared}");
+    }
+}
+
+/// Tracing: FR-038-AC-308
+#[trace("TC-050", "FR-038-AC-308")]
+#[test]
+fn grouped_recursive_shared_closure_keeps_independent_records() {
+    let (mut package, requests) = shared_closure_package(3, 4);
+    package.wire.semantic_graph.nodes[0].semantic_type =
+        serde_json::from_value(serde_json::json!({
+            "domain": "quire.checked-semantic-node/v1",
+            "digest": format!("{:064x}", 1),
+        }))
+        .expect("cycle target");
+    package.wire.semantic_graph.nodes[0].recursion_group = Some("shared".into());
+    package.wire.semantic_graph.nodes[1].recursion_group = Some("shared".into());
+    let index = package
+        .graph()
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(position, node)| (&node.node_id, position))
+        .collect();
+    package.lowering_facts = package.scan_lowering_facts(&index);
+    assert_eq!(
+        package.lowering_facts[0].component,
+        package.lowering_facts[1].component
+    );
+    let batch = package.lower(&requests, &profile());
+    assert_eq!(batch.records.len(), 3);
+    for (request, record) in requests.iter().zip(&batch.records) {
+        let single = package.lower(std::slice::from_ref(request), &profile());
+        assert_eq!(record, &single.records[0]);
+    }
+    let mut stopped = profile();
+    stopped.work_limit = 4;
+    let batch_stopped = package.lower(&requests, &stopped);
+    for (request, record) in requests.iter().zip(&batch_stopped.records) {
+        let single = package.lower(std::slice::from_ref(request), &stopped);
+        assert_eq!(record, &single.records[0]);
+    }
+}
+
+#[trace("TC-050", "FR-038-AC-308")]
+#[test]
+fn lowering_components_exclude_admission_only_extension_edges() {
+    let mut facts = vec![
+        LoweringNodeFacts {
+            terms: Ok(1),
+            successors: vec![(0, EdgeRole::Typing)],
+            component: usize::MAX,
+        },
+        LoweringNodeFacts {
+            terms: Ok(1),
+            successors: vec![(0, EdgeRole::Typing)],
+            component: usize::MAX,
+        },
+    ];
+    // Admission may also see 0 -> 1 as an extension target. Lowering omits
+    // it, so a request for 0 must not inherit 1 through an admission SCC.
+    assign_components(&mut facts);
+    assert_ne!(facts[0].component, facts[1].component);
+    let mut closure = SccClosureIndex::new(&facts);
+    assert_eq!(closure.reachable(facts[0].component), BTreeSet::from([0]));
+    assert_eq!(
+        closure.reachable(facts[1].component),
+        BTreeSet::from([0, 1])
+    );
 }
 
 /// `x`, `y` and `z` of [`package`]: a long node, a short one, and one that

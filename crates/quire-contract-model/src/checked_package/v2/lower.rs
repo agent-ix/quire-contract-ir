@@ -14,9 +14,11 @@ use super::encode::{encoded, member};
 use super::{
     BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, CheckedPackageV2, CheckedSemanticNodeV2,
     ClaimForm, CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm,
-    ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm, ValueForm,
+    ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm, ValidationFailure,
+    ValueForm,
 };
-use crate::checked_package::common::{ReferenceMember, Step, Trail, ValidationFailure};
+#[cfg(test)]
+use super::{ReferenceMember, Step, Trail};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageRefusal,
     CheckedSemanticId, CheckedSourceMapEntry,
@@ -24,6 +26,12 @@ use crate::checked_package::shared::{
 use quire_canonical::{Encode, Error, FixedShape, LimitKind, Limits, Sink, Writer};
 use serde::{Deserialize, Serialize, Serializer};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+
+#[cfg(test)]
+thread_local! {
+    static BODY_WALKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static SHARED_CLOSURE_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 /// Identity domain of a lowered Contract IR node.
 pub const CONTRACT_IR_SEMANTIC_DOMAIN: &str = "quire.contract-ir.semantic/v1";
@@ -33,11 +41,182 @@ pub const CONTRACT_PACKAGE_VERSION: &str = "quire.contract-package/v1";
 
 /// How an edge of the lowering closure reaches its target.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum EdgeRole {
+pub(super) enum EdgeRole {
     /// The target is a type or dependency of the source node.
     Typing,
     /// The target is only a `literal.type` annotation in the source's body.
     Annotation,
+}
+
+/// Admission-derived facts in the same graph order as `CheckedPackageV2::kinds`.
+/// An edge remains present even when it names the source node: lowering charges
+/// that successor, whereas recursion validation may omit a self-typed edge.
+#[derive(Clone, Debug)]
+pub(super) struct LoweringNodeFacts {
+    pub(super) terms: Result<u64, ValidationFailure>,
+    pub(super) successors: Vec<(usize, EdgeRole)>,
+    pub(super) component: usize,
+}
+
+/// Assign SCCs from the exact lowering edges. Graph admission also validates
+/// extension-body targets, but lowering does not follow those targets; using
+/// the admission SCCs would add nodes to a lowering closure in that case.
+pub(super) fn assign_components(facts: &mut [LoweringNodeFacts]) {
+    let size = facts.len();
+    let mut reversed = vec![Vec::new(); size];
+    for (source, fact) in facts.iter().enumerate() {
+        for &(target, _) in &fact.successors {
+            if let Some(incoming) = reversed.get_mut(target) {
+                incoming.push(source);
+            }
+        }
+    }
+    let mut seen = vec![false; size];
+    let mut postorder = Vec::with_capacity(size);
+    for root in 0..size {
+        if seen[root] {
+            continue;
+        }
+        seen[root] = true;
+        let mut pending = vec![(root, 0)];
+        while let Some((vertex, edge)) = pending.last_mut() {
+            if let Some(&(target, _)) = facts[*vertex].successors.get(*edge) {
+                *edge += 1;
+                if !seen[target] {
+                    seen[target] = true;
+                    pending.push((target, 0));
+                }
+            } else {
+                postorder.push(*vertex);
+                pending.pop();
+            }
+        }
+    }
+    let mut assigned = vec![false; size];
+    let mut component = 0;
+    for root in postorder.into_iter().rev() {
+        if assigned[root] {
+            continue;
+        }
+        assigned[root] = true;
+        let mut pending = vec![root];
+        while let Some(vertex) = pending.pop() {
+            facts[vertex].component = component;
+            for &source in &reversed[vertex] {
+                if !assigned[source] {
+                    assigned[source] = true;
+                    pending.push(source);
+                }
+            }
+        }
+        component += 1;
+    }
+}
+
+/// The admitted SCC condensation. Shared successor components retain their
+/// reachable positions once, while every item still pays its own ordered
+/// node, term and edge charges in `lower_one`.
+struct SccClosureIndex {
+    members: BTreeMap<usize, Vec<usize>>,
+    successors: BTreeMap<usize, BTreeSet<usize>>,
+    shared: BTreeSet<usize>,
+    memo: BTreeMap<usize, Vec<usize>>,
+    uncacheable: BTreeSet<usize>,
+    memo_positions: usize,
+    memo_limit: usize,
+}
+
+impl SccClosureIndex {
+    fn new(facts: &[LoweringNodeFacts]) -> Self {
+        let mut members: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+        let mut successors: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
+        let mut predecessors: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
+        for (position, fact) in facts.iter().enumerate() {
+            members.entry(fact.component).or_default().push(position);
+            for &(target, _) in &fact.successors {
+                let Some(target_fact) = facts.get(target) else {
+                    continue;
+                };
+                if target_fact.component != fact.component {
+                    successors
+                        .entry(fact.component)
+                        .or_default()
+                        .insert(target_fact.component);
+                    predecessors
+                        .entry(target_fact.component)
+                        .or_default()
+                        .insert(fact.component);
+                }
+            }
+        }
+        let shared = predecessors
+            .into_iter()
+            .filter_map(|(component, from)| (from.len() > 1).then_some(component))
+            .collect();
+        Self {
+            members,
+            successors,
+            shared,
+            memo: BTreeMap::new(),
+            uncacheable: BTreeSet::new(),
+            memo_positions: 0,
+            memo_limit: facts.len().saturating_mul(4),
+        }
+    }
+
+    fn closure_from(&self, start: usize) -> Vec<usize> {
+        let mut components = BTreeSet::new();
+        let mut pending = vec![start];
+        let mut positions = Vec::new();
+        while let Some(component) = pending.pop() {
+            if !components.insert(component) {
+                continue;
+            }
+            if let Some(members) = self.members.get(&component) {
+                positions.extend(members);
+            }
+            if let Some(next) = self.successors.get(&component) {
+                pending.extend(next.iter().copied());
+            }
+        }
+        positions.sort_unstable();
+        positions
+    }
+
+    fn reachable(&mut self, start: usize) -> BTreeSet<usize> {
+        let mut components = BTreeSet::new();
+        let mut pending = vec![start];
+        let mut positions = BTreeSet::new();
+        while let Some(component) = pending.pop() {
+            if !components.insert(component) {
+                continue;
+            }
+            if self.shared.contains(&component) && !self.uncacheable.contains(&component) {
+                if !self.memo.contains_key(&component) {
+                    #[cfg(test)]
+                    SHARED_CLOSURE_BUILDS.with(|builds| builds.set(builds.get() + 1));
+                    let closure = self.closure_from(component);
+                    if self.memo_positions.saturating_add(closure.len()) <= self.memo_limit {
+                        self.memo_positions += closure.len();
+                        self.memo.insert(component, closure);
+                    } else {
+                        self.uncacheable.insert(component);
+                    }
+                }
+                if let Some(cached) = self.memo.get(&component) {
+                    positions.extend(cached.iter().copied());
+                    continue;
+                }
+            }
+            if let Some(members) = self.members.get(&component) {
+                positions.extend(members.iter().copied());
+            }
+            if let Some(next) = self.successors.get(&component) {
+                pending.extend(next.iter().copied());
+            }
+        }
+        positions
+    }
 }
 
 /// The explicit I12 lowering-profile reference, separate from source profiles.
@@ -392,9 +571,21 @@ impl CheckedPackageV2 {
             .map(|(position, node)| (&node.node_id, position))
             .collect::<BTreeMap<_, _>>();
         let source_maps = NodeSourceMaps::new(self.source_map());
+        let facts = &self.lowering_facts;
+        let mut closure_index = SccClosureIndex::new(facts);
         let records = requested
             .iter()
-            .map(|request| self.lower_one(request, profile, &index, &source_maps, ceiling))
+            .map(|request| {
+                self.lower_one(
+                    request,
+                    profile,
+                    &index,
+                    facts,
+                    &mut closure_index,
+                    &source_maps,
+                    ceiling,
+                )
+            })
             .collect::<Vec<_>>();
         match self.assemble(profile, &records, &index, &source_maps, ceiling) {
             Ok(package) => CompleteLoweringResultV2 { records, package },
@@ -475,11 +666,71 @@ impl CheckedPackageV2 {
         })
     }
 
+    // Hand-built internal test packages use the same facts shape the admitted
+    // reader retains. No production lower call needs to revisit a node body.
+    #[cfg(test)]
+    fn scan_lowering_facts(
+        &self,
+        index: &BTreeMap<&CheckedNodeId, usize>,
+    ) -> Vec<LoweringNodeFacts> {
+        let mut facts: Vec<_> = self
+            .graph()
+            .nodes
+            .iter()
+            .zip(self.node_kinds())
+            .enumerate()
+            .map(|(position, (node, kind))| {
+                let mut successors = Vec::new();
+                if let Some(&target) = index.get(&node.semantic_type) {
+                    successors.push((target, EdgeRole::Typing));
+                }
+                for dependency in &node.dependencies {
+                    if let Some(&target) = index.get(dependency) {
+                        successors.push((target, EdgeRole::Typing));
+                    }
+                }
+                let body_steps = [
+                    Step::Key("semantic_graph"),
+                    Step::Key("nodes"),
+                    Step::Index(position),
+                    Step::Key("body"),
+                ];
+                #[cfg(test)]
+                BODY_WALKS.with(|walks| walks.set(walks.get() + 1));
+                let terms = super::validate_body(
+                    *kind,
+                    &node.body,
+                    &Trail::Base(&body_steps),
+                    &mut |target, site, _at| {
+                        if let Some(&resolved) = index.get(target) {
+                            let role = match site.member {
+                                ReferenceMember::Type => EdgeRole::Annotation,
+                                ReferenceMember::Target
+                                | ReferenceMember::ResultType
+                                | ReferenceMember::FrameEntry => EdgeRole::Typing,
+                            };
+                            successors.push((resolved, role));
+                        }
+                    },
+                );
+                LoweringNodeFacts {
+                    terms,
+                    successors,
+                    component: position,
+                }
+            })
+            .collect();
+        assign_components(&mut facts);
+        facts
+    }
+
     fn lower_one(
         &self,
         request: &CheckedNodeId,
         profile: &CompleteLoweringProfileV2,
         index: &BTreeMap<&CheckedNodeId, usize>,
+        facts: &[LoweringNodeFacts],
+        closure_index: &mut SccClosureIndex,
         source_maps: &NodeSourceMaps<'_>,
         ceiling: u64,
     ) -> CompleteLoweringRecordV2 {
@@ -521,68 +772,41 @@ impl CheckedPackageV2 {
             let Some((node, kind)) = nodes.get(position).zip(kinds.get(position).copied()) else {
                 continue;
             };
-            let mut successors = vec![(node.semantic_type.clone(), EdgeRole::Typing)];
-            successors.extend(
-                node.dependencies
-                    .iter()
-                    .map(|target| (target.clone(), EdgeRole::Typing)),
-            );
-            // The walk reports the body's term count and every reference
-            // target; a failure is terminal for this request. `validate_body`
-            // is the same admission dispatch the reader used, so a package it
-            // admitted re-walks identically here.
-            let body_steps = [
-                Step::Key("semantic_graph"),
-                Step::Key("nodes"),
-                Step::Index(position),
-                Step::Key("body"),
-            ];
-            let walked = super::validate_body(
-                kind,
-                &node.body,
-                &Trail::Base(&body_steps),
-                &mut |target, site, _at| {
-                    let role = match site.member {
-                        ReferenceMember::Type => EdgeRole::Annotation,
-                        ReferenceMember::Target
-                        | ReferenceMember::ResultType
-                        | ReferenceMember::FrameEntry => EdgeRole::Typing,
-                    };
-                    successors.push((target.clone(), role));
-                },
-            );
-            let terms = match walked {
-                Ok(terms) => terms,
+            let Some(fact) = facts.get(position) else {
+                continue;
+            };
+            let terms = match &fact.terms {
+                Ok(terms) => *terms,
                 Err(ValidationFailure::Refused(refusal)) => {
                     return CompleteLoweringRecordV2::InvalidBody {
                         node_id: request.clone(),
                         body_node_id: node.node_id.clone(),
-                        refusal: *refusal,
+                        refusal: (**refusal).clone(),
                     };
                 }
                 Err(ValidationFailure::Incomplete(incomplete)) => {
                     return CompleteLoweringRecordV2::BodyIncomplete {
                         node_id: request.clone(),
                         body_node_id: node.node_id.clone(),
-                        incomplete,
+                        incomplete: incomplete.clone(),
                     };
                 }
             };
-            let edges = u64::try_from(successors.len()).unwrap_or(u64::MAX);
+            let edges = u64::try_from(fact.successors.len()).unwrap_or(u64::MAX);
             work = work.saturating_add(terms).saturating_add(edges);
             if work > profile.work_limit {
                 return failed(work);
             }
             let composite = kind.tag() == CheckedNodeTag::CompositeType;
             let parameter = matches!(kind, CheckedNodeKind::Value(ValueForm::Parameter));
-            for (edge, (successor, role)) in successors.into_iter().enumerate() {
-                if let Some(&next) = index.get(&successor) {
+            for (edge, &(next, role)) in fact.successors.iter().enumerate() {
+                if let Some(successor) = nodes.get(next).map(|target| &target.node_id) {
                     if role == EdgeRole::Typing && next != position {
                         // Edge 0 is the node's own `semantic_type`.
                         if composite || (parameter && edge == 0) {
                             positions.insert(successor.clone());
                         }
-                        typed.insert(successor);
+                        typed.insert(successor.clone());
                     }
                     if visited.insert(next) {
                         queue.push_back(next);
@@ -590,7 +814,13 @@ impl CheckedPackageV2 {
                 }
             }
         }
-        let reachable = visited
+        let Some(component) = facts.get(start).map(|fact| fact.component) else {
+            return CompleteLoweringRecordV2::InvalidInput {
+                node_id: request.clone(),
+            };
+        };
+        let reached_positions = closure_index.reachable(component);
+        let reachable = reached_positions
             .iter()
             .filter_map(|position| Some((nodes.get(*position)?, *kinds.get(*position)?)))
             .collect::<Vec<_>>();
@@ -622,13 +852,19 @@ impl CheckedPackageV2 {
                 .map(|(candidate, kind)| (&candidate.node_id, kind.tag())),
         );
         if profile.require_bounds {
+            let bounded_types = ordered
+                .iter()
+                .filter(|(_, kind)| kind.tag() == CheckedNodeTag::BoundedDomain)
+                .map(|(domain, _)| &domain.semantic_type)
+                .collect::<BTreeSet<_>>();
             let quantities = quantity_position_ends(&positions, &ordered);
             if let Some((node, _)) = ordered.iter().find(|(node, kind)| {
                 is_recursive_type(node, *kind)
                     || quantities.contains(&node.node_id)
                     || (requires_bound(*kind)
                         && (positions.contains(&node.node_id)
-                            || (typed.contains(&node.node_id) && !is_bounded(node, &ordered))))
+                            || (typed.contains(&node.node_id)
+                                && !bounded_types.contains(&node.node_id))))
             }) {
                 return CompleteLoweringRecordV2::RequiresBound {
                     node_id: request.clone(),
@@ -714,17 +950,6 @@ pub(super) fn classify_reached_keys<'a>(
 
 fn wire_tag<S: Serializer>(tag: &CheckedNodeTag, serializer: S) -> Result<S::Ok, S::Error> {
     serializer.serialize_str(tag.as_wire())
-}
-
-/// Whether the closure holds a `bounded_domain` whose `semantic_type` is
-/// `node`.
-fn is_bounded(
-    node: &CheckedSemanticNodeV2,
-    closure: &[(&CheckedSemanticNodeV2, CheckedNodeKind)],
-) -> bool {
-    closure.iter().any(|(domain, kind)| {
-        kind.tag() == CheckedNodeTag::BoundedDomain && domain.semantic_type == node.node_id
-    })
 }
 
 /// Whether a node is a scalar or composite type declared as a member of a

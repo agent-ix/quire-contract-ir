@@ -561,6 +561,12 @@ pub struct DeclarationEnvironment {
     types: Vec<TypeDeclaration>,
     values: Vec<ValueDeclaration>,
     functions: Vec<PureFunctionDeclaration>,
+    #[serde(skip)]
+    type_index: BTreeMap<SymbolName, usize>,
+    #[serde(skip)]
+    value_index: BTreeMap<SymbolName, usize>,
+    #[serde(skip)]
+    function_index: BTreeMap<SymbolName, usize>,
 }
 
 impl DeclarationEnvironment {
@@ -570,15 +576,36 @@ impl DeclarationEnvironment {
         values: Vec<ValueDeclaration>,
         functions: Vec<PureFunctionDeclaration>,
     ) -> Result<Self, Vec<Diagnostic>> {
-        let candidate = Self {
+        let mut candidate = Self {
             owner,
             types,
             values,
             functions,
+            type_index: BTreeMap::new(),
+            value_index: BTreeMap::new(),
+            function_index: BTreeMap::new(),
         };
         if let Some(diagnostic) = candidate.preflight_semantic_input() {
             return Err(vec![diagnostic]);
         }
+        candidate.type_index = candidate
+            .types
+            .iter()
+            .enumerate()
+            .map(|(position, declaration)| (declaration.name().clone(), position))
+            .collect();
+        candidate.value_index = candidate
+            .values
+            .iter()
+            .enumerate()
+            .map(|(position, declaration)| (declaration.name.clone(), position))
+            .collect();
+        candidate.function_index = candidate
+            .functions
+            .iter()
+            .enumerate()
+            .map(|(position, declaration)| (declaration.name.clone(), position))
+            .collect();
         let diagnostics = candidate.validate();
         if diagnostics.is_empty() {
             Ok(candidate)
@@ -832,9 +859,9 @@ impl DeclarationEnvironment {
     }
 
     fn type_declaration(&self, name: &SymbolName) -> Option<&TypeDeclaration> {
-        self.types
-            .iter()
-            .find(|declaration| declaration.name() == name)
+        self.type_index
+            .get(name)
+            .and_then(|&position| self.types.get(position))
     }
 
     fn record_declaration(&self, name: &SymbolName) -> Option<&RecordDeclaration> {
@@ -852,15 +879,15 @@ impl DeclarationEnvironment {
     }
 
     fn value_declaration(&self, name: &SymbolName) -> Option<&ValueDeclaration> {
-        self.values
-            .iter()
-            .find(|declaration| &declaration.name == name)
+        self.value_index
+            .get(name)
+            .and_then(|&position| self.values.get(position))
     }
 
     fn function_declaration(&self, name: &SymbolName) -> Option<&PureFunctionDeclaration> {
-        self.functions
-            .iter()
-            .find(|declaration| &declaration.name == name)
+        self.function_index
+            .get(name)
+            .and_then(|&position| self.functions.get(position))
     }
 
     pub fn check_expression(

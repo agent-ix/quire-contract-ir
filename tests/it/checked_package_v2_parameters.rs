@@ -334,7 +334,7 @@ fn invalid_at(package: &Value, position: usize, member: &str) -> ExpectedRefusal
     )
 }
 
-#[trace("TC-048", "FR-038-AC-22", "FR-038-AC-23")]
+#[trace("TC-048", "TC-050", "FR-038-AC-22", "FR-038-AC-23", "FR-038-AC-308")]
 #[test]
 fn tc_048_a_function_with_parameters_reads_and_lowers() {
     let package = parameters_package();
@@ -359,23 +359,32 @@ fn tc_048_a_function_with_parameters_reads_and_lowers() {
         .iter()
         .map(|node| node.node_id.clone())
         .collect::<Vec<_>>();
-    let lowered = admitted.lower(
-        &every_node,
-        &CompleteLoweringProfileV2 {
-            reference: quire_contract_model::LoweringProfileRef {
-                authority: "quire".into(),
-                identity: "complete-v1".into(),
-            },
-            supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
-            require_bounds: false,
-            work_limit: 10_000,
+    let profile = CompleteLoweringProfileV2 {
+        reference: quire_contract_model::LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "complete-v1".into(),
         },
-    );
+        supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
+        require_bounds: false,
+        work_limit: 10_000,
+    };
+    let lowered = admitted.lower(&every_node, &profile);
     for record in &lowered.records {
         assert!(
             matches!(record, CompleteLoweringRecordV2::Lowered { .. }),
             "{record:?}"
         );
+    }
+    for (request, record) in every_node.iter().zip(&lowered.records) {
+        let single = admitted.lower(std::slice::from_ref(request), &profile);
+        assert_eq!(record, &single.records[0]);
+    }
+    let mut stopped = profile;
+    stopped.work_limit = 4;
+    let batch_stopped = admitted.lower(&every_node, &stopped);
+    for (request, record) in every_node.iter().zip(&batch_stopped.records) {
+        let single = admitted.lower(std::slice::from_ref(request), &stopped);
+        assert_eq!(record, &single.records[0]);
     }
 }
 
