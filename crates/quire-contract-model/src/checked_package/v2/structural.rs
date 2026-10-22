@@ -862,21 +862,6 @@ pub(super) fn reference_selector(term: &Value) -> Option<CheckedNodeId> {
     CheckedNodeId::deserialize(object.get("target")?).ok()
 }
 
-/// The original checked identity available in a body member, without repairing
-/// malformed domains, digests or fields. Both reference and inline metadata
-/// consumers use this one borrowed decoder.
-pub(super) fn checked_node_identity(value: &Value) -> Option<CheckedNodeId> {
-    if value.get("domain").and_then(Value::as_str) != Some(NODE_DOMAIN)
-        || !value
-            .get("digest")
-            .and_then(Value::as_str)
-            .is_some_and(is_digest)
-    {
-        return None;
-    }
-    CheckedNodeId::deserialize(value).ok()
-}
-
 /// `^(0|[1-9][0-9]*)$`.
 pub(super) fn is_non_negative_integer(value: &str) -> bool {
     value == "0" || is_positive_integer(value)
