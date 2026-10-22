@@ -634,7 +634,7 @@ fn literal_range(term: &Value) -> Result<CheckedScalarOperandRange, CheckedCompa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::checked_package::v2::{CheckedPackageWireV2, RetainedModels};
+    use crate::checked_package::v2::{CheckedPackageWireV2, CheckedTerm, RetainedModels};
     use ix_trace_rs::trace;
     use serde_json::json;
 
@@ -705,11 +705,17 @@ mod tests {
             "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"}, "entries": []},
         }))
         .expect("synthetic wire shape");
+        let terms = wire
+            .semantic_graph
+            .nodes
+            .iter()
+            .map(|node| CheckedTerm::decode_admitted(&node.body).expect("fixture body"))
+            .collect();
         let package = CheckedPackageV2 {
             node_index: super::super::retained_node_index(&wire),
             lowering_facts: Vec::new(),
             wire,
-            terms: Vec::new(),
+            terms,
             kinds: Vec::new(),
             bytes: 1 << 20,
             models: RetainedModels::default(),
