@@ -995,6 +995,11 @@ impl CheckedPackageV2 {
         &self.kinds
     }
 
+    /// The retained admitted family and form of one graph node.
+    pub(crate) fn node_kind(&self, id: &CheckedNodeId) -> Option<CheckedNodeKind> {
+        self.kinds.get(*self.node_index.get(id)?).copied()
+    }
+
     /// The typed body of an admitted node.
     pub fn term(&self, id: &CheckedNodeId) -> Option<&CheckedTerm> {
         self.terms.get(*self.node_index.get(id)?)

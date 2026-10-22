@@ -471,21 +471,24 @@ fn parameter_defect(
     None
 }
 
-fn typed_aggregate(term: &super::CheckedTerm) -> Option<&[super::CheckedTerm]> {
+pub(super) fn typed_aggregate(term: &super::CheckedTerm) -> Option<&[super::CheckedTerm]> {
     match term {
         super::CheckedTerm::Aggregate { members } => Some(members),
         _ => None,
     }
 }
 
-fn typed_binding<'a>(term: &'a super::CheckedTerm, name: &str) -> Option<&'a super::CheckedTerm> {
+pub(super) fn typed_binding<'a>(
+    term: &'a super::CheckedTerm,
+    name: &str,
+) -> Option<&'a super::CheckedTerm> {
     match term {
         super::CheckedTerm::Binding { name: found, value } if found.as_ref() == name => Some(value),
         _ => None,
     }
 }
 
-fn typed_reference(term: &super::CheckedTerm) -> Option<&CheckedNodeId> {
+pub(super) fn typed_reference(term: &super::CheckedTerm) -> Option<&CheckedNodeId> {
     match term {
         super::CheckedTerm::Reference { target }
             if target.domain.as_ref() == NODE_DOMAIN && is_digest(&target.digest) =>
@@ -860,21 +863,6 @@ pub(super) fn reference_selector(term: &Value) -> Option<CheckedNodeId> {
         return None;
     }
     CheckedNodeId::deserialize(object.get("target")?).ok()
-}
-
-/// The original checked identity available in a body member, without repairing
-/// malformed domains, digests or fields. Both reference and inline metadata
-/// consumers use this one borrowed decoder.
-pub(super) fn checked_node_identity(value: &Value) -> Option<CheckedNodeId> {
-    if value.get("domain").and_then(Value::as_str) != Some(NODE_DOMAIN)
-        || !value
-            .get("digest")
-            .and_then(Value::as_str)
-            .is_some_and(is_digest)
-    {
-        return None;
-    }
-    CheckedNodeId::deserialize(value).ok()
 }
 
 /// `^(0|[1-9][0-9]*)$`.

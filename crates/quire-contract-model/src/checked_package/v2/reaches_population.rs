@@ -2,9 +2,9 @@
 //! application.
 
 use super::relationship_end::ReachesLookup;
-use super::{CheckedNodeId, CheckedPackageV2};
+use super::{BoundedDomainForm, CheckedNodeId, CheckedNodeKind, CheckedPackageV2};
 use crate::checked_package::selected_population::{
-    is_model_population, least_type_occurrence, CheckedSelectedPopulationSelector,
+    least_type_occurrence, CheckedSelectedPopulationSelector,
 };
 use thiserror::Error;
 
@@ -41,20 +41,25 @@ impl CheckedPackageV2 {
     ) -> Result<Option<CheckedSelectedPopulationSelector>, CheckedReachesPopulationError> {
         use CheckedReachesPopulationError as Error;
 
-        let found = self
+        let operation = self
             .reaches_application(application)
             .map_err(|lookup| match lookup {
                 ReachesLookup::Unknown => Error::UnknownNode,
                 ReachesLookup::NotReaches => Error::NotReachesApplication,
             })?;
-        let Some(named) = found.body.pointer("/operation/member/population") else {
+        let Some(named) = operation.pointer("/member/population") else {
             return Ok(None);
         };
         let binding: CheckedNodeId =
             serde_json::from_value(named.clone()).map_err(|_| Error::UnresolvedPopulation)?;
         let population = self
             .node(&binding)
-            .filter(|node| is_model_population(node))
+            .filter(|_| {
+                self.node_kind(&binding)
+                    == Some(CheckedNodeKind::BoundedDomain(
+                        BoundedDomainForm::ModelPopulation,
+                    ))
+            })
             .ok_or(Error::UnresolvedPopulation)?;
         let occurrence = least_type_occurrence(population)
             .cloned()
@@ -100,9 +105,20 @@ mod tests {
             .node_index
             .insert(id.clone(), package.wire.semantic_graph.nodes.len());
         package.wire.semantic_graph.nodes.push(population);
+        package
+            .kinds
+            .push(super::super::CheckedNodeKind::BoundedDomain(
+                super::super::BoundedDomainForm::ModelPopulation,
+            ));
+        package
+            .terms
+            .push(super::super::CheckedTerm::Aggregate { members: vec![] });
         let position = package.node_index[&ids[&'7']];
-        package.wire.semantic_graph.nodes[position].body["operation"]["member"]["population"] =
-            json!(id);
+        let super::super::CheckedTerm::Application { operation, .. } = &mut package.terms[position]
+        else {
+            panic!("admitted reaches application term");
+        };
+        operation["member"]["population"] = json!(id);
         (package, ids, id)
     }
 
@@ -155,6 +171,19 @@ mod tests {
         }
     }
 
+    #[trace("FR-349-AC-2")]
+    #[test]
+    fn reaches_population_uses_retained_kind_after_raw_node_tag_changes() {
+        let (mut package, ids, population) = naming_a_population();
+        let position = package.node_index[&population];
+        package.wire.semantic_graph.nodes[position].node_tag = "scalar_type".into();
+        let selected = package
+            .reaches_population(&ids[&'7'])
+            .expect("retained population kind")
+            .expect("selected population");
+        assert_eq!(selected.binding, population);
+    }
+
     fn raw_node_id(digit: char) -> CheckedNodeId {
         serde_json::from_value(raw_id(digit)).expect("node id")
     }
@@ -165,7 +194,10 @@ mod tests {
         value: Value,
     ) {
         let position = package.node_index[&ids[&'7']];
-        package.wire.semantic_graph.nodes[position].body["operation"]["member"]["population"] =
-            value;
+        let super::super::CheckedTerm::Application { operation, .. } = &mut package.terms[position]
+        else {
+            panic!("admitted reaches application term");
+        };
+        operation["member"]["population"] = value;
     }
 }
