@@ -9,9 +9,9 @@ use super::structural::{
     reference_type_target, typed_anchor_body, typed_clause_body, typed_reference,
 };
 use super::{
-    ApplicationOperator, CheckedMemberType, CheckedNodeId, CheckedOccurrence,
+    ApplicationOperator, CheckedMemberType, CheckedNodeId, CheckedNodeKind, CheckedOccurrence,
     CheckedOccurrenceRole, CheckedPackageV2, CheckedScalarOperandRange, CheckedSemanticNodeV2,
-    CheckedTerm, LiteralKind, StateClauseKind,
+    CheckedTerm, LiteralKind, StateClauseKind, StateForm, ValueForm,
 };
 use serde_json::Value;
 use thiserror::Error;
@@ -274,7 +274,7 @@ impl CheckedPackageV2 {
         let node = context
             .node(clause)
             .ok_or_else(|| context.error(Refusal::UnknownClause, Path::Clause, None))?;
-        if node.node_tag.as_ref() != "state" || node.semantic_form.as_ref() != "state_clause" {
+        if self.node_kind(clause) != Some(CheckedNodeKind::State(StateForm::StateClause)) {
             return Err(context.error(Refusal::NotStateClause, Path::Clause, Some(clause.clone())));
         }
         if claim.role != CheckedOccurrenceRole::Claim || !node.occurrences.contains(claim) {
@@ -447,8 +447,8 @@ fn project_operand(
             let child = context
                 .node(&id)
                 .ok_or_else(|| fail(Refusal::MissingChild, Some(id.clone())))?;
-            let (kind, range) = if child.node_tag.as_ref() == "value"
-                && child.semantic_form.as_ref() == "literal"
+            let (kind, range) = if context.package.node_kind(&id)
+                == Some(CheckedNodeKind::Value(ValueForm::Literal))
             {
                 let range = match context.package.term(&id) {
                     Some(CheckedTerm::Literal {
@@ -491,8 +491,8 @@ fn read_range(
         .position(|id| id == &child.node_id)
     {
         if position == 0
-            || child.node_tag.as_ref() != "value"
-            || child.semantic_form.as_ref() != "parameter"
+            || context.package.node_kind(&child.node_id)
+                != Some(CheckedNodeKind::Value(ValueForm::Parameter))
         {
             return Err(fail(Refusal::IneligibleOperand));
         }
