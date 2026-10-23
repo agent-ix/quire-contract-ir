@@ -4,7 +4,9 @@
 //! Closed timed-model node wire shapes checked before identity validation.
 
 use super::{CheckedNodeId, CheckedSemanticNodeV2, TimedModelForm};
-use crate::checked_package::common::{exact_members, node_pointer, ValidationFailure};
+use crate::checked_package::common::{
+    exact_members, is_digest, node_pointer, ValidationFailure, NODE_DOMAIN,
+};
 use crate::checked_package::shared::{
     CheckedOccurrenceRole, CheckedPackageRefusalCode, JsonPointer,
 };
@@ -55,12 +57,17 @@ fn bindings<'a>(
         .collect()
 }
 
+fn node_key(value: &Value) -> bool {
+    serde_json::from_value::<CheckedNodeId>(value.clone())
+        .is_ok_and(|key| key.domain.as_ref() == NODE_DOMAIN && is_digest(&key.digest))
+}
+
 fn reference(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
     if value
         .as_object()
         .is_some_and(|o| exact_members(o, &["term", "target"]))
         && value["term"] == "reference"
-        && serde_json::from_value::<CheckedNodeId>(value["target"].clone()).is_ok()
+        && node_key(&value["target"])
     {
         Ok(())
     } else {
@@ -78,7 +85,7 @@ fn literal<'a>(
         .is_some_and(|o| exact_members(o, &["term", "type", "value_kind", "value"]))
         || value["term"] != "literal"
         || value["value_kind"] != kind
-        || serde_json::from_value::<CheckedNodeId>(value["type"].clone()).is_err()
+        || !node_key(&value["type"])
     {
         return Err(malformed(at.clone()));
     }
