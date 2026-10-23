@@ -28,7 +28,9 @@
 //! [`crate::checked_package::common::validate_term`]'s, later.
 
 use super::temporal::{interval_bound_outside_pattern, timed_upper_is_null};
-use super::{body_grammar, BodyGrammar, CheckedNodeId, CheckedNodeKind, CheckedNodeTag};
+use super::{
+    body_grammar, BodyGrammar, CheckedNodeId, CheckedNodeKind, HybridForm, TemporalForm, ValueForm,
+};
 use super::{ApplicationOperator, BodyTerm, CheckedPackageWireV2};
 use crate::checked_package::common::{
     application_operator, body_term, Step, Trail, ValidationFailure,
@@ -63,6 +65,7 @@ enum Place {
 /// Closed node headers refuse before hashing the single shipped graph, using
 /// the same header decoder as the graph stage.
 pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
+    let mut kinds = Vec::with_capacity(wire.semantic_graph.nodes.len());
     for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
         if node.node_tag.as_ref() == "extension" && node.semantic_form.as_ref() != "extension_form"
         {
@@ -144,6 +147,7 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
             }
         };
         checked.map_err(|failure| super::with_node_locus(failure, &node.node_id))?;
+        kinds.push(kind);
     }
     for (entry_index, entry) in wire.diagnostics.entries.iter().enumerate() {
         for (detail_index, detail) in entry.details.iter().enumerate() {
@@ -157,7 +161,7 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
             check_term(detail, &Trail::Base(&steps), Place::Member, true)?;
         }
     }
-    check_interval_bounds(wire)
+    check_interval_bounds(wire, &kinds)
 }
 
 /// A `temporal_interval` bound outside its form's pattern (FR-038 "The timed
@@ -166,14 +170,12 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
 /// first in member order and in node position order, after the nested-application
 /// refusals above (the spec is silent on the order of the two wire checks, an IR
 /// reading). One flat loop over the nodes: no recursion.
-fn check_interval_bounds(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
+fn check_interval_bounds(
+    wire: &CheckedPackageWireV2,
+    kinds: &[CheckedNodeKind],
+) -> Result<(), ValidationFailure> {
     let mut hybrid_formulas = None;
-    for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
-        let Some(kind) = CheckedNodeTag::from_wire(&node.node_tag)
-            .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
-        else {
-            continue;
-        };
+    for (position, (node, &kind)) in wire.semantic_graph.nodes.iter().zip(kinds).enumerate() {
         if matches!(
             body_grammar(kind),
             BodyGrammar::Frame
@@ -188,7 +190,7 @@ fn check_interval_bounds(wire: &CheckedPackageWireV2) -> Result<(), ValidationFa
         let outside_pattern = operation.and_then(interval_bound_outside_pattern);
         let nonhybrid_open_upper = operation.is_some_and(timed_upper_is_null)
             && !hybrid_formulas
-                .get_or_insert_with(|| hybrid_formula_nodes(wire))
+                .get_or_insert_with(|| hybrid_formula_nodes(wire, kinds))
                 .contains(&node.node_id);
         if let Some(bound) = outside_pattern.or(nonhybrid_open_upper.then_some("upper")) {
             let steps = [
@@ -220,7 +222,10 @@ fn reference_target(value: &Value) -> Option<CheckedNodeId> {
 /// Formula nodes reached by a claim whose over parameter is typed by a
 /// hybrid model. This classification uses the raw graph only to decide the
 /// timed-null wire exception; authenticated identity and joins run later.
-fn hybrid_formula_nodes(wire: &CheckedPackageWireV2) -> BTreeSet<CheckedNodeId> {
+fn hybrid_formula_nodes(
+    wire: &CheckedPackageWireV2,
+    kinds: &[CheckedNodeKind],
+) -> BTreeSet<CheckedNodeId> {
     let nodes = &wire.semantic_graph.nodes;
     let positions = nodes
         .iter()
@@ -228,9 +233,8 @@ fn hybrid_formula_nodes(wire: &CheckedPackageWireV2) -> BTreeSet<CheckedNodeId> 
         .map(|(position, node)| (&node.node_id, position))
         .collect::<BTreeMap<_, _>>();
     let mut pending = Vec::new();
-    for node in nodes {
-        if node.node_tag.as_ref() != "temporal" || node.semantic_form.as_ref() != "temporal_clause"
-        {
+    for (position, node) in nodes.iter().enumerate() {
+        if kinds.get(position) != Some(&CheckedNodeKind::Temporal(TemporalForm::TemporalClause)) {
             continue;
         }
         let Some(arguments) = node.body.get("arguments").and_then(Value::as_array) else {
@@ -239,23 +243,19 @@ fn hybrid_formula_nodes(wire: &CheckedPackageWireV2) -> BTreeSet<CheckedNodeId> 
         let Some(over) = arguments.first().and_then(reference_target) else {
             continue;
         };
-        let Some(over_node) = positions
-            .get(&over)
-            .and_then(|&position| nodes.get(position))
-        else {
+        let Some(&over_position) = positions.get(&over) else {
             continue;
         };
-        if over_node.node_tag.as_ref() != "value" || over_node.semantic_form.as_ref() != "parameter"
-        {
+        if kinds.get(over_position) != Some(&CheckedNodeKind::Value(ValueForm::Parameter)) {
             continue;
         }
-        let Some(model) = positions
-            .get(&over_node.semantic_type)
-            .and_then(|&position| nodes.get(position))
-        else {
+        let Some(over_node) = nodes.get(over_position) else {
             continue;
         };
-        if model.node_tag.as_ref() == "hybrid" && model.semantic_form.as_ref() == "hybrid_model" {
+        let Some(&model_position) = positions.get(&over_node.semantic_type) else {
+            continue;
+        };
+        if kinds.get(model_position) == Some(&CheckedNodeKind::Hybrid(HybridForm::Model)) {
             pending.extend(arguments.get(5).and_then(reference_target));
         }
     }
@@ -265,14 +265,14 @@ fn hybrid_formula_nodes(wire: &CheckedPackageWireV2) -> BTreeSet<CheckedNodeId> 
         if !seen.insert(key.clone()) {
             continue;
         }
-        let Some(node) = positions
-            .get(&key)
-            .and_then(|&position| nodes.get(position))
-        else {
+        let Some(&position) = positions.get(&key) else {
             continue;
         };
-        if node.node_tag.as_ref() == "temporal" && node.semantic_form.as_ref() == "formula" {
+        if kinds.get(position) == Some(&CheckedNodeKind::Temporal(TemporalForm::Formula)) {
             formulas.insert(key);
+            let Some(node) = nodes.get(position) else {
+                continue;
+            };
             if let Some(arguments) = node.body.get("arguments").and_then(Value::as_array) {
                 pending.extend(arguments.iter().filter_map(reference_target));
             }
