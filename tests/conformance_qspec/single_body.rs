@@ -355,3 +355,32 @@ fn published_shipped_empty_projection_refuses_at_the_first_wire_member() {
         "identity-preimage-ships-empty-projection",
     );
 }
+
+/// The selection object is closed for every immediate member, not just the
+/// retired projection; nested selection records retain their own refusal rules.
+#[trace("TC-048", "FR-038-AC-310")]
+#[test]
+fn unknown_wire_selection_member_refuses_at_that_member() {
+    for member in [
+        "future_selection",
+        "",
+        "future/selection",
+        "future~selection",
+    ] {
+        let mut package = fixture("positive-all-families.json");
+        package["identity_preimage"][member] = json!([]);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&package).unwrap() else {
+            panic!("the seven-member wire selection must stay closed");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::MalformedWire,
+            "{member:?}"
+        );
+        let expected = format!(
+            "/identity_preimage/{}",
+            member.replace('~', "~0").replace('/', "~1")
+        );
+        assert_eq!(refusal.path.unwrap().as_str(), expected, "{member:?}");
+    }
+}

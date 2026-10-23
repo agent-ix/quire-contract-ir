@@ -100,10 +100,11 @@ pub(super) fn decode_borrowed_wire(
             return failure;
         };
         if refusal.code == CheckedPackageRefusalCode::UnknownMember
-            && refusal
-                .path
-                .as_ref()
-                .is_some_and(|path| path.as_str() == "/identity_preimage/identity_projection")
+            && refusal.path.as_ref().is_some_and(|path| {
+                path.as_str()
+                    .strip_prefix("/identity_preimage/")
+                    .is_some_and(|member| !member.contains('/'))
+            })
         {
             refusal.code = CheckedPackageRefusalCode::MalformedWire;
         }
