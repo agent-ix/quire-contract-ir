@@ -733,4 +733,139 @@ mod tests {
             Ok(expected)
         );
     }
+
+    /// These private damaged states are not reader admissions. The indexed
+    /// retained type kind, rather than its raw spelling, controls projection.
+    #[trace("TC-048")]
+    #[test]
+    fn scalar_range_retained_type_kind_wins_over_raw_spelling_in_both_directions() {
+        let application = serde_json::from_value(id('4')).expect("application");
+        let occurrence = CheckedOccurrence {
+            role: super::super::CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let mut bounded = fixture_package();
+        let expected = bounded
+            .scalar_application_operands(&application, &occurrence)
+            .expect("private bounded baseline");
+        assert_eq!(expected.len(), 2);
+        assert_eq!(expected[0].ordinal, 0);
+        assert_eq!(
+            expected[0].range,
+            CheckedScalarOperandRange {
+                lower: 0,
+                upper: 1000
+            }
+        );
+        assert_eq!(expected[1].ordinal, 1);
+        assert_eq!(
+            expected[1].range,
+            CheckedScalarOperandRange { lower: 7, upper: 7 }
+        );
+        bounded.wire.semantic_graph.nodes[1].node_tag = "scalar_type".into();
+        bounded.wire.semantic_graph.nodes[1].semantic_form = "integer".into();
+        assert_eq!(
+            bounded.scalar_application_operands(&application, &occurrence),
+            Ok(expected),
+            "a raw scalar-integer spelling cannot erase retained finite bounds"
+        );
+
+        let mut unbounded = fixture_package();
+        unbounded.wire.semantic_graph.nodes[2].semantic_type =
+            serde_json::from_value(id('1')).expect("integer type");
+        assert_eq!(
+            unbounded.scalar_application_operands(&application, &occurrence),
+            Err(CheckedScalarOperandError::UnboundedRange),
+            "private unbounded baseline"
+        );
+        unbounded.wire.semantic_graph.nodes[0].node_tag = "bounded_domain".into();
+        unbounded.wire.semantic_graph.nodes[0].semantic_form = "integer_range".into();
+        unbounded.terms[0] = unbounded.terms[1].clone();
+        assert_eq!(
+            unbounded.scalar_application_operands(&application, &occurrence),
+            Err(CheckedScalarOperandError::UnboundedRange),
+            "raw bounded-range spelling and readable bounds cannot bound a retained integer"
+        );
+    }
+
+    /// Preserve the checked view's first argument error and the shared
+    /// iterator's ability to retain later positions when an own range fails.
+    #[trace("TC-048")]
+    #[test]
+    fn scalar_range_errors_remain_lazy_and_keep_their_distinct_dispositions() {
+        let application = serde_json::from_value(id('4')).expect("application");
+        let occurrence = CheckedOccurrence {
+            role: super::super::CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        for error in [
+            CheckedScalarOperandError::UnboundedRange,
+            CheckedScalarOperandError::MissingRange,
+            CheckedScalarOperandError::RangeOutOfI128,
+        ] {
+            let mut package = fixture_package();
+            match error {
+                CheckedScalarOperandError::UnboundedRange => {
+                    package.wire.semantic_graph.nodes[2].semantic_type =
+                        serde_json::from_value(id('1')).expect("integer type");
+                }
+                CheckedScalarOperandError::MissingRange => {
+                    package.terms[1] = CheckedTerm::Aggregate {
+                        members: Vec::new(),
+                    };
+                }
+                CheckedScalarOperandError::RangeOutOfI128 => {
+                    let CheckedTerm::Aggregate { members } = &mut package.terms[1] else {
+                        panic!("range body");
+                    };
+                    let CheckedTerm::Binding { value, .. } = &mut members[0] else {
+                        panic!("minimum binding");
+                    };
+                    let CheckedTerm::Literal { value, .. } = value.as_mut() else {
+                        panic!("minimum literal");
+                    };
+                    *value = json!("-170141183460469231731687303715884105729");
+                }
+                _ => unreachable!("the test varies only range dispositions"),
+            }
+            let node = &package.wire.semantic_graph.nodes[3];
+            let mut arguments = scalar_arguments(
+                &package.wire.semantic_graph.nodes,
+                &package.node_index,
+                &package.kinds,
+                node,
+                Some(&package.terms[3]),
+                Some(&package.terms),
+            )
+            .expect("scalar iterator");
+            let first = arguments
+                .next()
+                .expect("first position")
+                .expect("graph child");
+            assert_eq!(first.ordinal, 0);
+            assert_eq!(first.own_range, Err(error));
+            let second = arguments
+                .next()
+                .expect("second position")
+                .expect("inline literal");
+            assert_eq!(second.ordinal, 1);
+            assert_eq!(
+                second.own_range,
+                Ok(CheckedScalarOperandRange { lower: 7, upper: 7 })
+            );
+            assert!(arguments.next().is_none());
+
+            let CheckedTerm::Application { arguments, .. } = &mut package.terms[3] else {
+                panic!("application");
+            };
+            arguments[1] = CheckedTerm::Aggregate {
+                members: Vec::new(),
+            };
+            assert_eq!(
+                package.scalar_application_operands(&application, &occurrence),
+                Err(error),
+                "the first range error wins over the later malformed argument"
+            );
+        }
+    }
 }
