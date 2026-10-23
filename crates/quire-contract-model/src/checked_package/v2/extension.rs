@@ -417,3 +417,232 @@ fn actual_type(
             .unwrap_or_else(|| type_node.semantic_form.to_string()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::checked_package::evidence::CheckedExtensionDefinition;
+    use crate::checked_package::v2::{
+        test_support::node_id, BoundedDomainForm, ExtensionForm, ModelForm, ValueForm,
+    };
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    /// This graph enters the actual extension join directly. Its metadata/kind
+    /// mismatches are deliberately private states, not newly admitted packages.
+    struct Join {
+        wire: CheckedPackageWireV2,
+        kinds: Vec<CheckedNodeKind>,
+        terms: Vec<Option<CheckedTerm>>,
+        evidence: CheckedPackageEvidence,
+    }
+
+    impl Join {
+        fn new(expected: &str, kind: CheckedNodeKind) -> Self {
+            let definition = json!({"authority": "test", "identity": "open-extension"});
+            let edition = json!({"role": "edition", "definition": definition});
+            let mut wire: CheckedPackageWireV2 = serde_json::from_value(json!({
+                "contract_version": super::super::CHECKED_PACKAGE_V2,
+                "identity_preimage": {
+                    "version": "quire.checked-package-id/v2", "edition": edition,
+                    "profile_selections": [], "definition_selections": [], "model_selections": [],
+                    "required_features": [], "dependency_selections": []
+                },
+                "package_id": {"domain": super::super::PACKAGE_DOMAIN_V2,
+                    "algorithm": "sha256", "digest": "a".repeat(64)},
+                "lock": {"sources": [], "edition": edition, "profile_selections": [],
+                    "definition_selections": [definition], "model_selections": [],
+                    "required_features": [], "dependency_selections": []},
+                "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": []},
+                "source_map": [], "capability_report": [],
+                "diagnostics": {"catalog": definition, "entries": []}
+            }))
+            .expect("private join wire");
+            let node = |id: char, kind: CheckedNodeKind, ty: CheckedNodeId| {
+                serde_json::from_value(json!({
+                    "node_id": node_id(id), "schema_version": "quire.checked-semantic-graph/v2",
+                    "node_tag": kind.tag().as_wire(), "semantic_form": kind.form_wire(),
+                    "semantic_type": ty, "dependencies": [], "occurrences": [],
+                    "body": {"term": "aggregate", "members": []}
+                }))
+                .expect("private graph node")
+            };
+            wire.semantic_graph.nodes = vec![
+                node('0', kind, node_id('0')),
+                node(
+                    '1',
+                    CheckedNodeKind::Value(ValueForm::Parameter),
+                    node_id('0'),
+                ),
+                node(
+                    '2',
+                    CheckedNodeKind::Extension(ExtensionForm::ExtensionForm),
+                    node_id('2'),
+                ),
+            ];
+            let extension = CheckedTerm::ExtensionForm {
+                definition: serde_json::from_value(definition).expect("definition ref"),
+                node_kind: "open-kind".into(),
+                clauses: vec![CheckedTerm::Binding {
+                    name: "subject".into(),
+                    value: Box::new(CheckedTerm::Reference {
+                        target: node_id('1'),
+                    }),
+                }],
+            };
+            let mut evidence = CheckedPackageEvidence::new();
+            let schema: CheckedExtensionDefinition = serde_json::from_value(json!({
+                "grammar_schema": {"productions": [{"keyword": "open", "clauses": ["subject"]}]},
+                "typed_node_schema": {"nodes": [{"keyword": "open", "node_kind": "open-kind",
+                    "clauses": [{"name": "subject", "type": expected}]}]}
+            }))
+            .expect("held definition");
+            evidence
+                .insert_extension_definition(wire.lock.definition_selections[0].clone(), schema)
+                .expect("definition evidence");
+            Self {
+                wire,
+                kinds: vec![
+                    kind,
+                    CheckedNodeKind::Value(ValueForm::Parameter),
+                    CheckedNodeKind::Extension(ExtensionForm::ExtensionForm),
+                ],
+                terms: vec![
+                    Some(CheckedTerm::Aggregate { members: vec![] }),
+                    None,
+                    Some(extension),
+                ],
+                evidence,
+            }
+        }
+
+        fn run(&self) -> (Result<(), ValidationFailure>, u64) {
+            let owners = ModelOwners::new(&[], |_| Ok(())).expect("empty selected-model owners");
+            let index = self
+                .wire
+                .semantic_graph
+                .nodes
+                .iter()
+                .enumerate()
+                .map(|(position, node)| (&node.node_id, position))
+                .collect();
+            let mut meter = WorkMeter::new(100_000);
+            let result = validate(
+                &self.wire,
+                &self.kinds,
+                &self.terms,
+                &index,
+                &self.evidence,
+                &owners,
+                &mut meter,
+            );
+            (result, meter.consumed())
+        }
+
+        fn range(&mut self) {
+            let bound = |name: &str, text: &str| CheckedTerm::Binding {
+                name: name.into(),
+                value: Box::new(CheckedTerm::Literal {
+                    type_id: node_id('0'),
+                    value_kind: super::super::LiteralKind::Integer,
+                    value: json!(text),
+                }),
+            };
+            self.terms[0] = Some(CheckedTerm::Aggregate {
+                members: vec![bound("min", "1"), bound("max", "3650")],
+            });
+        }
+
+        fn mismatch(&self, expected: &str, actual: &str) {
+            let (result, work) = self.run();
+            let Err(ValidationFailure::Refused(refusal)) = result else {
+                panic!("expected extension mismatch, got {result:?}");
+            };
+            assert_eq!(
+                (refusal.code, refusal.cause),
+                (Code::IllTyped, Some(Cause::TypeMismatch))
+            );
+            assert_eq!(
+                refusal.path.expect("path").to_string(),
+                "/semantic_graph/nodes/2/body/clauses/0/value"
+            );
+            assert_eq!(refusal.locus, Some(node_id('2')));
+            assert_eq!(
+                serde_json::to_value(refusal.extension_detail.expect("detail"))
+                    .expect("detail json"),
+                json!({"member": "subject", "expected_type": expected, "actual_type": actual,
+                    "actual_semantic_type": self.wire.semantic_graph.nodes[1].semantic_type})
+            );
+            assert_eq!(
+                work, 0,
+                "native type checks charge no model-conformance work"
+            );
+        }
+    }
+
+    #[trace("TC-459")]
+    #[test]
+    fn extension_join_scalar_dispatch_uses_retained_type_kind() {
+        for (name, form) in [
+            ("Boolean", ScalarTypeForm::Boolean),
+            ("Integer", ScalarTypeForm::Integer),
+            ("Int", ScalarTypeForm::Integer),
+            ("Rational", ScalarTypeForm::Rational),
+            ("Decimal", ScalarTypeForm::Decimal),
+            ("Float32", ScalarTypeForm::Float32),
+            ("Float64", ScalarTypeForm::Float64),
+            ("Text", ScalarTypeForm::Text),
+            ("String", ScalarTypeForm::String),
+            ("UUID", ScalarTypeForm::Uuid),
+            ("Timestamp", ScalarTypeForm::Timestamp),
+        ] {
+            let mut join = Join::new(name, CheckedNodeKind::ScalarType(form));
+            let (baseline, work) = join.run();
+            assert!(baseline.is_ok(), "{name}: {baseline:?}");
+            join.wire.semantic_graph.nodes[0].node_tag = "model".into();
+            join.wire.semantic_graph.nodes[0].semantic_form = "record_value_type".into();
+            let (damaged, damaged_work) = join.run();
+            assert!(
+                damaged.is_ok(),
+                "retained {name} must match despite private raw damage: {damaged:?}"
+            );
+            assert_eq!(damaged_work, work);
+
+            let mut inverse = Join::new(name, CheckedNodeKind::ScalarType(form));
+            inverse.kinds[0] = CheckedNodeKind::Model(ModelForm::ObjectType);
+            inverse.mismatch(name, form.as_wire());
+        }
+    }
+
+    #[trace("TC-459")]
+    #[test]
+    fn extension_join_range_dispatch_and_diagnostic_use_retained_kind() {
+        let range = CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange);
+        let mut join = Join::new("Int[1, 3650]", range);
+        join.range();
+        assert!(join.run().0.is_ok());
+        join.wire.semantic_graph.nodes[0].node_tag = "scalar_type".into();
+        join.wire.semantic_graph.nodes[0].semantic_form = "text".into();
+        assert!(
+            join.run().0.is_ok(),
+            "private raw damage cannot change retained range"
+        );
+        let mut inverse = Join::new("Int[1, 3650]", range);
+        inverse.range();
+        inverse.kinds[0] = CheckedNodeKind::ScalarType(ScalarTypeForm::Text);
+        inverse.mismatch("Int[1, 3650]", "Text");
+        let mut diagnostic = Join::new("Boolean", range);
+        diagnostic.range();
+        diagnostic.wire.semantic_graph.nodes[0].node_tag = "scalar_type".into();
+        diagnostic.wire.semantic_graph.nodes[0].semantic_form = "text".into();
+        diagnostic.mismatch("Boolean", "Int[1, 3650]");
+    }
+
+    #[trace("TC-459")]
+    #[test]
+    fn extension_join_scalar_diagnostic_uses_retained_kind() {
+        let mut join = Join::new("Boolean", CheckedNodeKind::ScalarType(ScalarTypeForm::Text));
+        join.wire.semantic_graph.nodes[0].semantic_form = "integer".into();
+        join.mismatch("Boolean", "Text");
+    }
+}
