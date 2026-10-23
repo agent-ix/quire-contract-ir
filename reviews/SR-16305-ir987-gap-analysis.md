@@ -49,3 +49,16 @@ At PR #529 head `5a486dced38383d8f299992938d7c285f0e5b0ba`, same-reviewer round 
 ## Round 1 verdict
 
 CONDITIONAL; both findings remain open. The newly instrumented build counts and recorded base-run values are useful partial evidence, but the review cannot treat the candidate-visit and direct parity requirements as satisfied on this head.
+
+## Round 2 dispositions
+
+At PR #529 exact head `9706bfb40c98b7e9e4747bb867e0ee04245721a0`, same-reviewer round 2 inspected the 13-path delta from round 1, including the test-only `CheckedNodeId` comparison implementation, all four canonical JSON fixtures, and the three public parity tests. The four fixtures parse as package JSON and contain 5,169, 35,502, 12,736 and 23,002 bytes, respectively. They are checked byte-for-byte through `include_bytes!` against current canonical output; the PR does not change canonical encoding. The author's base-run provenance is recorded on IR-987 in comment `cccb5979`; that comment alone is not treated as test evidence.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The test-only `CheckedNodeId` Eq/Ord implementations count each actual identity comparison, including those in a vector `.iter().find`. K-by-R tests reset after index construction, assert fewer than K×R comparisons at R=64 for model/scalar and R=16 for the two source paths, and model/scalar run the retired last-element vector scan as a positive control that reaches the threshold. The production trait derives retain their prior semantics. Source-index build and entry counters remain in the actual production builders. |
+| FND-002 | fixed | The SHA256 Debug and byte snapshots were removed. Tests now assert typed model field, scalar child/range/ordinal, result conversion/bound and population extent/provenance plus missing outcomes; compare complete authored source maps in order; compare canonical bytes directly with the four base-captured same-repo fixtures; and check exact least-admitting work and one-below `consumed` values. The only identity digest comparisons are intrinsic package identity against the authored fixture's identity. |
+
+## Round 2 verdict
+
+PASS for the IR-987 acceptance evidence at this head. This is a narrow disposition, not an aggregate-gate result; the author retains the one final-head gate before merge.
