@@ -38,6 +38,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 mod extension;
+mod hybrid;
 mod reaches_population;
 mod single_body;
 
