@@ -35,24 +35,18 @@ enum HybridBindingRole {
     Kind,
     Trigger,
     Guard,
-    #[serde(other)]
-    Other,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 enum HybridActivationKind {
     Each,
-    #[serde(other)]
-    Other,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 enum HybridTemporalOperation {
     #[serde(rename = "quire.op.temporal.holds")]
     Holds,
-    #[serde(other)]
-    Other,
 }
 
 fn term_members(term: &CheckedTerm) -> &[CheckedTerm] {
