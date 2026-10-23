@@ -996,7 +996,7 @@ pub(super) fn classify_reached_keys<'a>(
             | CheckedNodeTag::Temporal
             | CheckedNodeTag::Protocol
             | CheckedNodeTag::Correspondence => {}
-            CheckedNodeTag::Extension | CheckedNodeTag::Hybrid => {}
+            CheckedNodeTag::Extension | CheckedNodeTag::Hybrid | CheckedNodeTag::TimedModel => {}
         }
     }
     (bounds, claims)
@@ -1032,7 +1032,7 @@ enum QuantityChain {
 fn quantity_chain(kind: CheckedNodeKind) -> QuantityChain {
     use CheckedNodeKind as K;
     match kind {
-        K::Extension(_) | K::Hybrid(_) => QuantityChain::Other,
+        K::Extension(_) | K::Hybrid(_) | K::TimedModel(_) => QuantityChain::Other,
         K::ScalarType(ScalarTypeForm::Unit | ScalarTypeForm::CompoundUnit) => {
             QuantityChain::Quantity
         }
@@ -1115,7 +1115,7 @@ fn quantity_position_ends(
 fn requires_bound(kind: CheckedNodeKind) -> bool {
     use CheckedNodeKind as K;
     match kind {
-        K::Extension(_) | K::Hybrid(_) => false,
+        K::Extension(_) | K::Hybrid(_) | K::TimedModel(_) => false,
         K::ScalarType(
             ScalarTypeForm::Integer
             | ScalarTypeForm::Rational

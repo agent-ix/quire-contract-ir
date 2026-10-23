@@ -43,6 +43,7 @@ mod fixture_support;
 mod hybrid;
 mod reaches_population;
 mod single_body;
+mod timed_model;
 
 /// The environment variable naming the root of a `quire-specification` checkout.
 const SPECIFICATION_DIR: &str = "QUIRE_SPECIFICATION_DIR";
@@ -388,6 +389,11 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::DuplicateMember => "duplicate-member",
         Cause::TypeMismatch => "type-mismatch",
         Cause::NonBooleanRoot => "non-boolean-root",
+        Cause::MissingTimedModel => "missing-timed-model",
+        Cause::TimedNodeReference => "timed-node-reference",
+        Cause::DuplicateClockPlace => "duplicate-clock-place",
+        Cause::MalformedClockPlace => "malformed-clock-place",
+        Cause::InvalidTimeQuantity => "invalid-time-quantity",
         Cause::UnsupportedSelection => "unsupported-selection",
         Cause::WrongSelectionRole => "wrong-selection-role",
         Cause::InexactInteger => "inexact-integer",
