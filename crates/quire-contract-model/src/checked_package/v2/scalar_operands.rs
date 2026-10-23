@@ -234,6 +234,7 @@ impl<'a> ScalarArguments<'a> {
                     type_range(
                         self.nodes,
                         self.positions,
+                        self.kinds,
                         self.retained_terms,
                         &child.semantic_type,
                     )
@@ -355,17 +356,18 @@ fn typed_literal_integer(term: &CheckedTerm) -> Result<BigInt, CheckedScalarOper
 fn type_range(
     nodes: &[super::CheckedSemanticNodeV2],
     positions: &BTreeMap<CheckedNodeId, usize>,
+    kinds: &[CheckedNodeKind],
     retained_terms: Option<&[CheckedTerm]>,
     ty: &CheckedNodeId,
 ) -> Result<CheckedScalarOperandRange, CheckedScalarOperandError> {
     use CheckedScalarOperandError as Error;
     let (position, node) = graph_node(nodes, positions, ty).ok_or(Error::MissingRange)?;
-    if node.node_tag.as_ref() == "scalar_type" && node.semantic_form.as_ref() == "integer" {
-        return Err(Error::UnboundedRange);
-    }
-    if node.node_tag.as_ref() != "bounded_domain" || node.semantic_form.as_ref() != "integer_range"
-    {
-        return Err(Error::MissingRange);
+    match kinds.get(position) {
+        Some(CheckedNodeKind::ScalarType(super::ScalarTypeForm::Integer)) => {
+            return Err(Error::UnboundedRange);
+        }
+        Some(CheckedNodeKind::BoundedDomain(super::BoundedDomainForm::IntegerRange)) => {}
+        _ => return Err(Error::MissingRange),
     }
     let term = graph_term(node, retained_terms.and_then(|terms| terms.get(position)))?;
     let CheckedTerm::Aggregate { members } = term.as_ref() else {
