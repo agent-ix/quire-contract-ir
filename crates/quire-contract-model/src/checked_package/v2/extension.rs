@@ -518,6 +518,13 @@ mod tests {
 
         fn run(&self) -> (Result<(), ValidationFailure>, u64) {
             let owners = ModelOwners::new(&[], |_| Ok(())).expect("empty selected-model owners");
+            self.run_with_owners(&owners)
+        }
+
+        fn run_with_owners(
+            &self,
+            owners: &ModelOwners<'_>,
+        ) -> (Result<(), ValidationFailure>, u64) {
             let index = self
                 .wire
                 .semantic_graph
@@ -533,7 +540,7 @@ mod tests {
                 &self.terms,
                 &index,
                 &self.evidence,
-                &owners,
+                owners,
                 &mut meter,
             );
             (result, meter.consumed())
@@ -567,11 +574,13 @@ mod tests {
                 "/semantic_graph/nodes/2/body/clauses/0/value"
             );
             assert_eq!(refusal.locus, Some(node_id('2')));
+            let detail = refusal.extension_detail.expect("detail");
+            assert_eq!(detail.member.as_ref(), "subject");
+            assert_eq!(detail.expected_type.as_deref(), Some(expected));
+            assert_eq!(detail.actual_type.as_deref(), Some(actual));
             assert_eq!(
-                serde_json::to_value(refusal.extension_detail.expect("detail"))
-                    .expect("detail json"),
-                json!({"member": "subject", "expected_type": expected, "actual_type": actual,
-                    "actual_semantic_type": self.wire.semantic_graph.nodes[1].semantic_type})
+                detail.actual_semantic_type,
+                Some(self.wire.semantic_graph.nodes[1].semantic_type.clone())
             );
             assert_eq!(
                 work, 0,
@@ -644,5 +653,103 @@ mod tests {
         let mut join = Join::new("Boolean", CheckedNodeKind::ScalarType(ScalarTypeForm::Text));
         join.wire.semantic_graph.nodes[0].semantic_form = "integer".into();
         join.mismatch("Boolean", "Text");
+    }
+    #[trace("TC-459")]
+    #[test]
+    fn extension_join_selected_record_dispatch_preserves_owner_conformance() {
+        use crate::checked_package::v2::model_members::{declaration_key, tests as model_tests};
+        let base = "ix://acme/orders/Base";
+        let child = "ix://acme/orders/Child";
+        let mut types = vec![
+            model_tests::object_type(base, &[], vec![]),
+            model_tests::object_type(child, &[base], vec![]),
+        ];
+        for ty in &mut types {
+            ty["kind"]["name"] = json!("record");
+        }
+        let mut document = model_tests::document(types);
+        document["constructs"]
+            .as_array_mut()
+            .expect("constructs")
+            .push(json!({
+                "kind": {"module": "acme/orders", "name": "record"},
+                "construct": {"meaning": "quire.meaning.model.record-value-type/v1"}
+            }));
+        let model = model_tests::read(&document).expect("genuine selected record document");
+        let owners = ModelOwners::new(std::slice::from_ref(&model), |_| Ok(())).expect("owners");
+        let mut join = Join::new(base, CheckedNodeKind::Model(ModelForm::RecordValueType));
+        let key = declaration_key(
+            "acme/orders",
+            DeclarationForm::RecordValueType,
+            child,
+            model_tests::BYTES,
+        )
+        .expect("child declaration key");
+        let ty = &mut join.wire.semantic_graph.nodes[0];
+        ty.node_id.digest = key.into();
+        ty.semantic_type = ty.node_id.clone();
+        ty.owner = Some(
+            serde_json::from_value(json!({
+                "kind": "model", "identity": "acme/orders", "node": child
+            }))
+            .expect("owner"),
+        );
+        join.wire.semantic_graph.nodes[1].semantic_type = ty.node_id.clone();
+        let (baseline, baseline_work) = join.run_with_owners(&owners);
+        assert!(
+            baseline.is_ok(),
+            "directional record conformance: {baseline:?}"
+        );
+        assert!(
+            baseline_work > 0,
+            "real owner conformance must charge actual work"
+        );
+        join.kinds[0] = CheckedNodeKind::Model(ModelForm::ObjectType);
+        let (result, work) = join.run_with_owners(&owners);
+        let Err(ValidationFailure::Refused(refusal)) = result else {
+            panic!("nonrecord retained kind cannot enter record conformance: {result:?}");
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::IllTyped, Some(Cause::TypeMismatch))
+        );
+        assert_eq!(
+            refusal.path.expect("path").to_string(),
+            "/semantic_graph/nodes/2/body/clauses/0/value"
+        );
+        assert_eq!(
+            work, 0,
+            "ineligible kind must not charge owner-conformance work"
+        );
+        println!("extension_record baseline_work={baseline_work} retained_nonrecord_work={work}");
+    }
+
+    #[trace("TC-459")]
+    #[test]
+    fn extension_join_preserves_open_kind_names_and_selection_precedence() {
+        let kind = CheckedNodeKind::Extension(ExtensionForm::ExtensionForm);
+        let mut join = Join::new("future-kind", kind);
+        join.kinds[1] = kind;
+        join.terms[1] = Some(CheckedTerm::ExtensionForm {
+            definition: join.wire.lock.definition_selections[0].clone(),
+            node_kind: "future-kind".into(),
+            clauses: vec![],
+        });
+        assert!(join.run().0.is_ok(), "open extension name must remain data");
+        join.wire.lock.definition_selections.clear();
+        join.terms[1] = None;
+        let (result, work) = join.run();
+        let Err(ValidationFailure::Refused(refusal)) = result else {
+            panic!("missing selection must precede target typing: {result:?}");
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::MissingDeclaration, Some(Cause::MissingSelection))
+        );
+        assert_eq!(
+            refusal.path.expect("path").to_string(),
+            "/semantic_graph/nodes/2/body/definition"
+        );
+        assert_eq!(work, 0);
     }
 }
