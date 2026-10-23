@@ -675,13 +675,7 @@ fn retained_node_index(wire: &CheckedPackageWireV2) -> BTreeMap<CheckedNodeId, u
 fn retained_source_index(
     wire: &CheckedPackageWireV2,
 ) -> BTreeMap<(CheckedNodeId, CheckedOccurrenceRole, u64), usize> {
-    let mut positions = BTreeMap::new();
-    for (position, entry) in wire.source_map.iter().enumerate() {
-        positions
-            .entry((entry.node_id.clone(), entry.role.clone(), entry.ordinal))
-            .or_insert(position);
-    }
-    positions
+    super::selected_population::source_index(&wire.source_map)
 }
 
 /// Cumulative validation work against one caller limit.
@@ -889,6 +883,10 @@ impl CheckedPackageV2 {
             .semantic_graph
             .nodes
             .get(position)
+            .inspect(|_| {
+                #[cfg(test)]
+                model_fields::probe::node_visited();
+            })
             .filter(|candidate| &candidate.node_id == id)
     }
 

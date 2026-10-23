@@ -23,6 +23,8 @@ mod source_probe {
 
     thread_local! {
         static CANDIDATES: Cell<u64> = const { Cell::new(0) };
+        static BUILDS: Cell<u64> = const { Cell::new(0) };
+        static BUILD_ENTRIES: Cell<u64> = const { Cell::new(0) };
     }
 
     pub(super) fn visited() {
@@ -31,11 +33,45 @@ mod source_probe {
 
     pub(super) fn reset() {
         CANDIDATES.with(|count| count.set(0));
+        BUILDS.with(|count| count.set(0));
+        BUILD_ENTRIES.with(|count| count.set(0));
+    }
+
+    pub(super) fn reset_candidates() {
+        CANDIDATES.with(|count| count.set(0));
     }
 
     pub(super) fn count() -> u64 {
         CANDIDATES.with(Cell::get)
     }
+
+    pub(super) fn built() {
+        BUILDS.with(|count| count.set(count.get() + 1));
+    }
+
+    pub(super) fn build_entry() {
+        BUILD_ENTRIES.with(|count| count.set(count.get() + 1));
+    }
+
+    pub(super) fn builds() -> u64 {
+        BUILDS.with(Cell::get)
+    }
+
+    pub(super) fn build_entries() -> u64 {
+        BUILD_ENTRIES.with(Cell::get)
+    }
+}
+
+pub(super) fn source_index(entries: &[ContractNodeSourcesV1]) -> BTreeMap<CheckedNodeId, usize> {
+    #[cfg(test)]
+    source_probe::built();
+    let mut positions = BTreeMap::new();
+    for (position, entry) in entries.iter().enumerate() {
+        #[cfg(test)]
+        source_probe::build_entry();
+        positions.entry(entry.node_id.clone()).or_insert(position);
+    }
+    positions
 }
 
 fn source_occurrences<'a>(
@@ -43,11 +79,13 @@ fn source_occurrences<'a>(
     positions: &BTreeMap<CheckedNodeId, usize>,
     key: &CheckedNodeId,
 ) -> Option<&'a [CheckedSourceMapEntry]> {
-    #[cfg(test)]
-    source_probe::visited();
     let position = *positions.get(key)?;
     entries
         .get(position)
+        .inspect(|_| {
+            #[cfg(test)]
+            source_probe::visited();
+        })
         .filter(|entry| &entry.node_id == key)
         .map(|entry| entry.occurrences.as_slice())
 }
@@ -302,14 +340,13 @@ mod tests {
                     occurrences: Vec::new(),
                 })
                 .collect();
-            let positions = sources
-                .iter()
-                .enumerate()
-                .map(|(position, entry)| (entry.node_id.clone(), position))
-                .collect();
+            source_probe::reset();
+            let positions = source_index(&sources);
+            assert_eq!(source_probe::builds(), 1);
+            assert_eq!(source_probe::build_entries(), entries as u64);
             let selected = id(entries - 1);
             for requests in [2, 4, 8] {
-                source_probe::reset();
+                source_probe::reset_candidates();
                 for _ in 0..requests {
                     assert_eq!(
                         source_occurrences(&sources, &positions, &selected),
@@ -317,6 +354,8 @@ mod tests {
                     );
                 }
                 let visits = source_probe::count();
+                assert_eq!(source_probe::builds(), 1);
+                assert_eq!(source_probe::build_entries(), entries as u64);
                 println!("result_sources K={requests} R={entries} candidates={visits}");
                 measured.push((entries, requests, visits));
             }

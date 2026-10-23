@@ -1026,3 +1026,114 @@ fn tc_447_shared_expression_uses_each_supplied_occurrence_and_direct_narrow() {
     assert_eq!(result(&add, &second), second_result);
     assert_eq!(result(&application_one, &first), first_result);
 }
+
+/// Golden values measured on pre-change IR main 0a63033 with the same public fixture.
+#[trace("TC-447", "FR-049-AC-5")]
+#[test]
+fn ir987_scalar_and_result_results_bytes_and_work_match_before_change() {
+    let wire = fixture();
+    let bytes = canonical(&wire);
+    let checked = admit(&wire);
+    let add = by_operation(&checked, "quire.op.integer.add");
+    let narrow = by_operation(&checked, "quire.op.numeric.narrow");
+    let occurrence = quire_contract_model::CheckedOccurrence {
+        role: CheckedOccurrenceRole::Expression,
+        ordinal: 0,
+    };
+    let scalar = checked.scalar_application_operands(&add.node_id, &occurrence);
+    assert_eq!(
+        sha256_hex(format!("{scalar:?}").as_bytes()),
+        "6b6c4c3e23ab7d9154a7ae6f7238f3e1ace82585c09f558e3c5e500205870e3e"
+    );
+    let missing: CheckedNodeId =
+        serde_json::from_value(node_id(&"f".repeat(64))).expect("missing id");
+    let missing_scalar = checked.scalar_application_operands(&missing, &occurrence);
+    assert_eq!(
+        sha256_hex(format!("{missing_scalar:?}").as_bytes()),
+        "7f3af4d2f45dc5cb33f1b0ba10cff24bd000395a910de6a32dbd067f1aea9f1a"
+    );
+    assert_eq!(
+        sha256_hex(&bytes),
+        "a852694c292c18230d2d379c2f47deffc507e6e3d572ddcb2764113880468421"
+    );
+    assert_eq!(
+        checked.package_id().digest.as_ref(),
+        "f349cfacca3beb68ecae318097a7ab80e2d443da373c3688be302f8ca0dd82d0"
+    );
+    let evidence = evidence_for(&wire);
+    let mut low = 0;
+    let mut high = CheckedPackageReadLimits::bounded().work;
+    while low + 1 < high {
+        let middle = low + (high - low) / 2;
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = middle;
+        match CheckedPackageV2::read(&bytes, limits, &evidence) {
+            CheckedPackageV2ReadResult::Admitted(_) => high = middle,
+            CheckedPackageV2ReadResult::Incomplete(_) => low = middle,
+            other => panic!("baseline work: {other:?}"),
+        }
+    }
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = high - 1;
+    let CheckedPackageV2ReadResult::Incomplete(incomplete) =
+        CheckedPackageV2::read(&bytes, limits, &evidence)
+    else {
+        panic!("work boundary");
+    };
+    assert_eq!((high, incomplete.consumed), (263, 263));
+
+    let contract = package(&checked, &[add.node_id.clone(), narrow.node_id.clone()]);
+    let result = contract.result_context(
+        &add.node_id,
+        &add,
+        Some(&narrow),
+        BoundedDomainForm::IntegerRange,
+    );
+    assert_eq!(
+        sha256_hex(format!("{result:?}").as_bytes()),
+        "67dbb62a9ac7a30370586064ee9b6076dadcf4f97df18e688d9b76d8df2ea61c"
+    );
+    let missing_conversion = ContractOccurrenceKeyV1 {
+        ordinal: 99,
+        ..narrow.clone()
+    };
+    let missing_result = contract.result_context(
+        &add.node_id,
+        &add,
+        Some(&missing_conversion),
+        BoundedDomainForm::IntegerRange,
+    );
+    assert_eq!(
+        sha256_hex(format!("{missing_result:?}").as_bytes()),
+        "60d2184d1887b0c136b478f56a9b837c7251bdf51ee317dfe4a2900e70454d2c"
+    );
+    let contract_bytes = canonical(&serde_json::to_value(contract.wire()).expect("wire"));
+    assert_eq!(
+        sha256_hex(&contract_bytes),
+        "ee59eb9d8cdae93c8c2a7f91d18cf207c40a85392d536fbfa8444c744067c95e"
+    );
+    assert_eq!(
+        contract.identity().digest.as_ref(),
+        "d764e1f7cda1a237fb6bf2d2abb55527222d637ed261ec7479d8f8a2514ed58a"
+    );
+    let mut low = 0;
+    let mut high = CheckedPackageReadLimits::bounded().work;
+    while low + 1 < high {
+        let middle = low + (high - low) / 2;
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = middle;
+        match ContractPackageWireV1::read(&contract_bytes, limits, &ContractDependencies::new()) {
+            ContractPackageReadResult::Admitted(_) => high = middle,
+            ContractPackageReadResult::Incomplete(_) => low = middle,
+            other => panic!("baseline contract work: {other:?}"),
+        }
+    }
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = high - 1;
+    let ContractPackageReadResult::Incomplete(incomplete) =
+        ContractPackageWireV1::read(&contract_bytes, limits, &ContractDependencies::new())
+    else {
+        panic!("contract work boundary");
+    };
+    assert_eq!((high, incomplete.consumed), (74, 74));
+}

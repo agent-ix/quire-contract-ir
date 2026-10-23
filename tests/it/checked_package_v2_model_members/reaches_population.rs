@@ -893,3 +893,51 @@ fn tc_048_the_population_check_follows_every_earlier_check() {
         unlisted.assert_refused(BAD_GRAPH, "/semantic_graph/nodes/6/dependencies");
     }
 }
+
+/// Golden values measured on pre-change IR main 0a63033 with the same public fixture.
+#[trace("TC-048", "FR-038-AC-277")]
+#[test]
+fn ir987_population_results_bytes_and_work_match_before_change() {
+    let (scenario, population) = linked(ORDER, "3", &[2, 0]);
+    let bytes = canonical(&scenario.package);
+    let package = scenario.admitted();
+    let selected = reaches_id(&package);
+    let result = package.reaches_population(&selected);
+    assert_eq!(
+        sha256_hex(format!("{result:?}").as_bytes()),
+        "bad777647255c01ef12989622b780e75dfde0693f8a9de548da75bc9dcd9aaac"
+    );
+    let missing = Selector {
+        package_id: package.package_id().clone(),
+        binding: typed_id(&population),
+        occurrence: CheckedOccurrence {
+            role: CheckedOccurrenceRole::Type,
+            ordinal: 99,
+        },
+    };
+    let missing_result = select_population(Source::Admitted {
+        package: &package,
+        selector: missing,
+    });
+    assert_eq!(
+        sha256_hex(format!("{missing_result:?}").as_bytes()),
+        "e5cfbb64067e4c2529a116f9162d53c80fa348dfff9bb91716157eb7702ee854"
+    );
+    assert_eq!(
+        sha256_hex(&bytes),
+        "794c88a496d80df83d9d4b7c0137b0660f72027a72b09abd0900709f272b1f62"
+    );
+    assert_eq!(
+        package.package_id().digest.as_ref(),
+        "d9cc262c7919842b45fbeddf06efb0aeec340c34f6337645c02c92de7395aacb"
+    );
+    let high = least_admitting_work(&scenario);
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = high - 1;
+    let CheckedPackageV2ReadResult::Incomplete(incomplete) =
+        CheckedPackageV2::read(&bytes, limits, &scenario.evidence)
+    else {
+        panic!("work boundary");
+    };
+    assert_eq!((high, incomplete.consumed), (183, 183));
+}

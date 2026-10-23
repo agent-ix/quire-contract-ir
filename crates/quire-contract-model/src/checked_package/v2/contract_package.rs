@@ -359,14 +359,6 @@ pub struct ContractPackageV1 {
     unsupported_tags: Vec<Option<CheckedNodeTag>>,
 }
 
-fn retained_source_index(wire: &ContractPackageWireV1) -> BTreeMap<CheckedNodeId, usize> {
-    let mut positions = BTreeMap::new();
-    for (position, entry) in wire.source_map.nodes.iter().enumerate() {
-        positions.entry(entry.node_id.clone()).or_insert(position);
-    }
-    positions
-}
-
 pub(super) struct GuardContextWork {
     limit: Option<u64>,
     consumed: u64,
@@ -979,7 +971,7 @@ impl ContractPackageWireV1 {
         let bytes = canonical(&wire, ceiling)?.into_boxed_slice();
         Ok((
             ContractPackageV1 {
-                source_index: retained_source_index(&wire),
+                source_index: result_context::source_index(&wire.source_map.nodes),
                 wire,
                 node_kinds,
                 terms,
@@ -1065,7 +1057,7 @@ impl ContractPackageWireV1 {
             .map(|(position, node)| (node.node_id.clone(), position))
             .collect();
         Ok(ContractPackageV1 {
-            source_index: retained_source_index(&wire),
+            source_index: result_context::source_index(&wire.source_map.nodes),
             wire,
             node_kinds,
             terms,

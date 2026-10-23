@@ -16,6 +16,8 @@ mod source_probe {
 
     thread_local! {
         static CANDIDATES: Cell<u64> = const { Cell::new(0) };
+        static BUILDS: Cell<u64> = const { Cell::new(0) };
+        static BUILD_ENTRIES: Cell<u64> = const { Cell::new(0) };
     }
 
     pub(super) fn visited() {
@@ -23,12 +25,50 @@ mod source_probe {
     }
 
     pub(super) fn reset() {
+        reset_candidates();
+        BUILDS.with(|count| count.set(0));
+        BUILD_ENTRIES.with(|count| count.set(0));
+    }
+
+    pub(super) fn reset_candidates() {
         CANDIDATES.with(|count| count.set(0));
     }
 
     pub(super) fn count() -> u64 {
         CANDIDATES.with(Cell::get)
     }
+
+    pub(super) fn built() {
+        BUILDS.with(|count| count.set(count.get() + 1));
+    }
+
+    pub(super) fn build_entry() {
+        BUILD_ENTRIES.with(|count| count.set(count.get() + 1));
+    }
+
+    pub(super) fn builds() -> u64 {
+        BUILDS.with(Cell::get)
+    }
+
+    pub(super) fn build_entries() -> u64 {
+        BUILD_ENTRIES.with(Cell::get)
+    }
+}
+
+pub(in crate::checked_package) fn source_index(
+    entries: &[CheckedSourceMapEntry],
+) -> BTreeMap<(CheckedNodeId, CheckedOccurrenceRole, u64), usize> {
+    #[cfg(test)]
+    source_probe::built();
+    let mut positions = BTreeMap::new();
+    for (position, entry) in entries.iter().enumerate() {
+        #[cfg(test)]
+        source_probe::build_entry();
+        positions
+            .entry((entry.node_id.clone(), entry.role.clone(), entry.ordinal))
+            .or_insert(position);
+    }
+    positions
 }
 
 fn selected_source<'a>(
@@ -37,11 +77,13 @@ fn selected_source<'a>(
     binding: &CheckedNodeId,
     ordinal: u64,
 ) -> Option<&'a CheckedSourceMapEntry> {
-    #[cfg(test)]
-    source_probe::visited();
     positions
         .get(&(binding.clone(), CheckedOccurrenceRole::Type, ordinal))
         .and_then(|position| entries.get(*position))
+        .inspect(|_| {
+            #[cfg(test)]
+            source_probe::visited();
+        })
         .filter(|entry| {
             &entry.node_id == binding
                 && entry.role == CheckedOccurrenceRole::Type
@@ -322,18 +364,12 @@ mod source_index_tests {
                     regions: Vec::new(),
                 })
                 .collect();
-            let positions =
-                sources
-                    .iter()
-                    .enumerate()
-                    .fold(BTreeMap::new(), |mut index, (position, entry)| {
-                        index
-                            .entry((entry.node_id.clone(), entry.role.clone(), entry.ordinal))
-                            .or_insert(position);
-                        index
-                    });
+            source_probe::reset();
+            let positions = source_index(&sources);
+            assert_eq!(source_probe::builds(), 1);
+            assert_eq!(source_probe::build_entries(), entries as u64);
             for requests in [2, 4, 8] {
-                source_probe::reset();
+                source_probe::reset_candidates();
                 for _ in 0..requests {
                     assert_eq!(
                         selected_source(&sources, &positions, &selected, (entries - 1) as u64),
@@ -341,6 +377,8 @@ mod source_index_tests {
                     );
                 }
                 let visits = source_probe::count();
+                assert_eq!(source_probe::builds(), 1);
+                assert_eq!(source_probe::build_entries(), entries as u64);
                 println!("population_sources K={requests} R={entries} candidates={visits}");
                 measured.push((entries, requests, visits));
             }

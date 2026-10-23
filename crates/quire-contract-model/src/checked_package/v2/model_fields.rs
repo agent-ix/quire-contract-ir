@@ -833,8 +833,6 @@ impl CheckedPackageV2 {
         &self,
         node: &CheckedNodeId,
     ) -> Result<CheckedModelObjectFields, CheckedModelFieldsError> {
-        #[cfg(test)]
-        probe::node_visited();
         let found = self
             .node(node)
             .ok_or(CheckedModelFieldsError::UnknownNode)?;
@@ -872,7 +870,7 @@ pub(super) mod probe {
         static NODE_VISITS: Cell<u64> = const { Cell::new(0) };
     }
 
-    pub(super) fn node_visited() {
+    pub(in crate::checked_package::v2) fn node_visited() {
         NODE_VISITS.with(|visits| visits.set(visits.get().saturating_add(1)));
     }
 

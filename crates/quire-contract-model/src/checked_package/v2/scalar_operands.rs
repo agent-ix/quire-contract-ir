@@ -118,11 +118,13 @@ fn graph_node<'a>(
     positions: &BTreeMap<CheckedNodeId, usize>,
     id: &CheckedNodeId,
 ) -> Option<(usize, &'a CheckedSemanticNodeV2)> {
-    #[cfg(test)]
-    scan_probe::visited();
     let position = *positions.get(id)?;
     nodes
         .get(position)
+        .inspect(|_| {
+            #[cfg(test)]
+            scan_probe::visited();
+        })
         .filter(|node| &node.node_id == id)
         .map(|node| (position, node))
 }
@@ -270,9 +272,8 @@ impl CheckedPackageV2 {
         use CheckedScalarOperandError as Error;
 
         let nodes = &self.wire.semantic_graph.nodes;
-        #[cfg(test)]
-        scan_probe::visited();
-        let node = self.node(application).ok_or(Error::UnknownNode)?;
+        let (_, node) =
+            graph_node(nodes, &self.node_index, application).ok_or(Error::UnknownNode)?;
         let term = self.term(application).ok_or(Error::NotApplication)?;
         if !matches!(term, CheckedTerm::Application { .. }) {
             return Err(Error::NotApplication);
