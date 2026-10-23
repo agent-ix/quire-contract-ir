@@ -113,6 +113,7 @@ closed_vocabulary! {
         Correspondence => "correspondence",
         Extension => "extension",
         Hybrid => "hybrid",
+        TimedModel => "timed_model",
     }
 }
 
@@ -568,6 +569,20 @@ closed_vocabulary! {
     }
 }
 
+closed_vocabulary! {
+    /// The closed checked timed-model forms.
+    pub TimedModelForm {
+        Model => "timed_model",
+        Source => "time_source",
+        Place => "clock_place",
+        Reset => "clock_reset",
+        Guard => "clock_guard",
+        Invariant => "time_invariant",
+        Urgency => "urgency",
+        Constraint => "clock_constraint",
+    }
+}
+
 /// A node's family together with its form, decoded once at intake. The
 /// family fixes which form vocabulary applies, so a form of the wrong family
 /// is unrepresentable.
@@ -577,6 +592,8 @@ pub enum CheckedNodeKind {
     Extension(ExtensionForm),
     /// A checked hybrid model, mode or transition.
     Hybrid(HybridForm),
+    /// A checked timed model, source, place or clause.
+    TimedModel(TimedModelForm),
     /// A `scalar_type` node.
     ScalarType(ScalarTypeForm),
     /// A `composite_type` node.
@@ -613,6 +630,7 @@ impl CheckedNodeKind {
         match tag {
             CheckedNodeTag::Extension => ExtensionForm::from_wire(form).map(Self::Extension),
             CheckedNodeTag::Hybrid => HybridForm::from_wire(form).map(Self::Hybrid),
+            CheckedNodeTag::TimedModel => TimedModelForm::from_wire(form).map(Self::TimedModel),
             CheckedNodeTag::ScalarType => ScalarTypeForm::from_wire(form).map(Self::ScalarType),
             CheckedNodeTag::CompositeType => {
                 CompositeTypeForm::from_wire(form).map(Self::CompositeType)
@@ -640,6 +658,7 @@ impl CheckedNodeKind {
         match self {
             Self::Extension(_) => CheckedNodeTag::Extension,
             Self::Hybrid(_) => CheckedNodeTag::Hybrid,
+            Self::TimedModel(_) => CheckedNodeTag::TimedModel,
             Self::ScalarType(_) => CheckedNodeTag::ScalarType,
             Self::CompositeType(_) => CheckedNodeTag::CompositeType,
             Self::BoundedDomain(_) => CheckedNodeTag::BoundedDomain,
@@ -661,6 +680,7 @@ impl CheckedNodeKind {
         match self {
             Self::Extension(form) => form.as_wire(),
             Self::Hybrid(form) => form.as_wire(),
+            Self::TimedModel(form) => form.as_wire(),
             Self::ScalarType(form) => form.as_wire(),
             Self::CompositeType(form) => form.as_wire(),
             Self::BoundedDomain(form) => form.as_wire(),
@@ -689,6 +709,11 @@ impl CheckedNodeKind {
                         .iter()
                         .copied()
                         .map(Self::Extension)
+                        .collect(),
+                    CheckedNodeTag::TimedModel => TimedModelForm::ALL
+                        .iter()
+                        .copied()
+                        .map(Self::TimedModel)
                         .collect(),
                     CheckedNodeTag::Hybrid => {
                         HybridForm::ALL.iter().copied().map(Self::Hybrid).collect()
@@ -753,5 +778,34 @@ impl CheckedNodeKind {
                 }
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod timed_model_vocabulary_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+
+    #[trace("TC-048")]
+    #[test]
+    fn timed_model_vocabulary_matches_qspec_eight_forms() {
+        let tag = CheckedNodeTag::from_wire("timed_model").expect("timed-model family");
+        assert_eq!(tag, CheckedNodeTag::TimedModel);
+        for form in [
+            "timed_model",
+            "time_source",
+            "clock_place",
+            "clock_reset",
+            "clock_guard",
+            "time_invariant",
+            "urgency",
+            "clock_constraint",
+        ] {
+            let kind = CheckedNodeKind::decode(tag, form).expect("QSpec timed-model form");
+            assert_eq!(kind.tag(), tag);
+            assert_eq!(kind.form_wire(), form);
+        }
+        assert_eq!(CheckedNodeKind::decode(tag, "hybrid_mode"), None);
+        assert_eq!(CheckedNodeKind::decode(tag, "clock_rate"), None);
     }
 }

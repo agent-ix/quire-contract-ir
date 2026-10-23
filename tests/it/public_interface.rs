@@ -1390,3 +1390,13 @@ fn tc_058_structural_candidate_api_is_typed_and_closed() {
     };
     assert_eq!(kind, "repeated");
 }
+
+/// The timed form is available through the model's documented public root.
+#[trace("TC-058", "TC-048")]
+#[test]
+fn tc_058_timed_model_form_is_available_from_the_public_model_root() {
+    let kind = quire_contract_model::CheckedNodeKind::TimedModel(
+        quire_contract_model::TimedModelForm::Source,
+    );
+    assert_eq!(kind.tag(), quire_contract_model::CheckedNodeTag::TimedModel);
+}
