@@ -2354,24 +2354,24 @@ fn ir987_model_results_bytes_and_work_match_before_change() {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("baseline admission: {other:?}"),
     };
-    let result = admitted.model_object_fields(&declaration_id(ORDER));
-    assert_eq!(
-        sha256_hex(format!("{result:?}").as_bytes()),
-        "298563fe2c0005f6889658d6d49099a988593322f526a1c8b774d29d05b1ef63"
-    );
+    let result = admitted
+        .model_object_fields(&declaration_id(ORDER))
+        .expect("model fields");
+    let [string] = result.fields() else {
+        panic!("one model field")
+    };
+    assert_eq!(string.name(), "string");
+    assert_eq!(string.member_type(), Some(&CheckedMemberType::String));
     let missing = admitted.model_object_fields(&declaration_id("Absent"));
+    assert_eq!(missing, Err(CheckedModelFieldsError::UnknownNode));
+    assert_eq!(bytes, include_bytes!("../fixtures/ir987/model.json"));
     assert_eq!(
-        sha256_hex(format!("{missing:?}").as_bytes()),
-        "7f3af4d2f45dc5cb33f1b0ba10cff24bd000395a910de6a32dbd067f1aea9f1a"
+        *admitted.package_id(),
+        serde_json::from_value(wire["package_id"].clone()).expect("package identity")
     );
-    assert_eq!(
-        sha256_hex(&bytes),
-        "3b06891e1dd8a4797ef23a2a3a7ac7b1577161bb142cb1618e6d4d381deebe89"
-    );
-    assert_eq!(
-        admitted.package_id().digest.as_ref(),
-        "13d617ffeec3a1403d9bcb00d904db4bd9a8329eb4f672db071272cc21acdbcb"
-    );
+    let authored_sources: Vec<quire_contract_model::CheckedSourceMapEntry> =
+        serde_json::from_value(wire["source_map"].clone()).expect("authored sources");
+    assert_eq!(admitted.source_map(), authored_sources);
     let mut low = 0;
     let mut high = CheckedPackageReadLimits::bounded().work;
     while low + 1 < high {

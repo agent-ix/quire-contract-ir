@@ -902,10 +902,18 @@ fn ir987_population_results_bytes_and_work_match_before_change() {
     let bytes = canonical(&scenario.package);
     let package = scenario.admitted();
     let selected = reaches_id(&package);
-    let result = package.reaches_population(&selected);
+    let result = package
+        .reaches_population(&selected)
+        .expect("reaches result")
+        .expect("selected population");
+    assert_eq!(result.package_id, *package.package_id());
+    assert_eq!(result.binding, typed_id(&population));
     assert_eq!(
-        sha256_hex(format!("{result:?}").as_bytes()),
-        "bad777647255c01ef12989622b780e75dfde0693f8a9de548da75bc9dcd9aaac"
+        result.occurrence,
+        CheckedOccurrence {
+            role: CheckedOccurrenceRole::Type,
+            ordinal: 0
+        }
     );
     let missing = Selector {
         package_id: package.package_id().clone(),
@@ -917,19 +925,45 @@ fn ir987_population_results_bytes_and_work_match_before_change() {
     };
     let missing_result = select_population(Source::Admitted {
         package: &package,
-        selector: missing,
+        selector: missing.clone(),
     });
+    assert_eq!(missing_result, Outcome::MissingOccurrence(missing));
+    let Outcome::Finite(finite) = select_population(Source::Admitted {
+        package: &package,
+        selector: result,
+    }) else {
+        panic!("finite selected population")
+    };
+    assert_eq!(finite.package_id, *package.package_id());
+    assert_eq!(finite.binding, typed_id(&population));
     assert_eq!(
-        sha256_hex(format!("{missing_result:?}").as_bytes()),
-        "e5cfbb64067e4c2529a116f9162d53c80fa348dfff9bb91716157eb7702ee854"
+        finite.occurrence,
+        CheckedOccurrence {
+            role: CheckedOccurrenceRole::Type,
+            ordinal: 0
+        }
+    );
+    assert_eq!(finite.object_type, order_declaration_id());
+    assert_eq!((finite.minimum, finite.maximum), (0, 3));
+    let authored_sources: Vec<quire_contract_model::CheckedSourceMapEntry> =
+        serde_json::from_value(scenario.package["source_map"].clone()).expect("authored sources");
+    assert_eq!(package.source_map(), authored_sources);
+    let selected_source = authored_sources
+        .iter()
+        .find(|source| {
+            source.node_id == finite.binding
+                && source.role == CheckedOccurrenceRole::Type
+                && source.ordinal == 0
+        })
+        .expect("selected authored source");
+    assert_eq!(finite.provenance, selected_source.regions);
+    assert_eq!(
+        bytes,
+        include_bytes!("../../fixtures/ir987/population.json")
     );
     assert_eq!(
-        sha256_hex(&bytes),
-        "794c88a496d80df83d9d4b7c0137b0660f72027a72b09abd0900709f272b1f62"
-    );
-    assert_eq!(
-        package.package_id().digest.as_ref(),
-        "d9cc262c7919842b45fbeddf06efb0aeec340c34f6337645c02c92de7395aacb"
+        *package.package_id(),
+        serde_json::from_value(scenario.package["package_id"].clone()).expect("package identity")
     );
     let high = least_admitting_work(&scenario);
     let mut limits = CheckedPackageReadLimits::bounded();

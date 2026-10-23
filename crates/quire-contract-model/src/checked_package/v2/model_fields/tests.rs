@@ -609,7 +609,7 @@ fn id_at(fixture: &Fixture, position: usize) -> CheckedNodeId {
 #[test]
 fn repeated_model_field_reads_do_not_walk_the_whole_graph() {
     let mut measured = Vec::new();
-    for models in [4, 8, 16] {
+    for models in [4, 8, 16, 64] {
         let names: Vec<String> = (0..models).map(|i| format!("R{i}")).collect();
         let types = names
             .iter()
@@ -623,6 +623,7 @@ fn repeated_model_field_reads_do_not_walk_the_whole_graph() {
         let selected = id_at(&fixture, models - 1);
         for requests in [2, 4, 8] {
             super::probe::reset_node_visits();
+            crate::checked_package::shared::checked_node_comparisons::reset();
             for _ in 0..requests {
                 fixture
                     .package
@@ -630,8 +631,28 @@ fn repeated_model_field_reads_do_not_walk_the_whole_graph() {
                     .expect("fields");
             }
             let visits = super::probe::node_visits();
-            println!("model_fields K={requests} R={models} graph_candidates={visits}");
+            let comparisons = crate::checked_package::shared::checked_node_comparisons::count();
+            println!("model_fields K={requests} R={models} graph_candidates={visits} id_comparisons={comparisons}");
+            if models == 64 {
+                assert!(comparisons < requests * 64, "a full graph scan must fail");
+            }
             measured.push((models, requests, visits));
+        }
+        if models == 64 {
+            crate::checked_package::shared::checked_node_comparisons::reset();
+            for _ in 0..8 {
+                assert!(fixture
+                    .package
+                    .wire
+                    .semantic_graph
+                    .nodes
+                    .iter()
+                    .any(|candidate| candidate.node_id == selected));
+            }
+            assert!(
+                crate::checked_package::shared::checked_node_comparisons::count() >= 8 * 64,
+                "the retired full scan exceeds the bound"
+            );
         }
     }
     for (models, requests, visits) in measured {

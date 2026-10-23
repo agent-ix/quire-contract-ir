@@ -347,6 +347,7 @@ mod tests {
             let selected = id(entries - 1);
             for requests in [2, 4, 8] {
                 source_probe::reset_candidates();
+                crate::checked_package::shared::checked_node_comparisons::reset();
                 for _ in 0..requests {
                     assert_eq!(
                         source_occurrences(&sources, &positions, &selected),
@@ -354,9 +355,13 @@ mod tests {
                     );
                 }
                 let visits = source_probe::count();
+                let comparisons = crate::checked_package::shared::checked_node_comparisons::count();
                 assert_eq!(source_probe::builds(), 1);
                 assert_eq!(source_probe::build_entries(), entries as u64);
-                println!("result_sources K={requests} R={entries} candidates={visits}");
+                println!("result_sources K={requests} R={entries} candidates={visits} id_comparisons={comparisons}");
+                if entries == 16 {
+                    assert!(comparisons < requests * 16, "a full source scan must fail");
+                }
                 measured.push((entries, requests, visits));
             }
         }

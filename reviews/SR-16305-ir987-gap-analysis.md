@@ -36,3 +36,16 @@ Planless, diff-scoped reconciliation of the ticket's four acceptance checks with
 ## Verdict
 
 CONDITIONAL while FND-001 and FND-002 remain open. Production code inspection found no remaining whole-graph/source scan in the five changed owner paths; the gap is that the tests do not prove the stated measurement and before/after parity.
+
+## Dispositions
+
+At PR #529 head `5a486dced38383d8f299992938d7c285f0e5b0ba`, same-reviewer round 1 inspected the exact 11-file delta from the original reviewed head and the author's pre-change baseline evidence comment `08d58aac`. No author branch edits or full gates were made by this reviewer.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | still-open | The new `BUILDS` and `BUILD_ENTRIES` probes do count the two source-index construction loops, but each read probe remains after `entries.get(position)` or `nodes.get(position)` (and the model probe after `self.node`). Replacing that read with `entries.iter().find(...).inspect(...)` or `nodes.iter().find(...).inspect(...)` still increments once for the returned element, so the K-by-R assertions continue to pass while the whole-vector candidate scan regresses. The probes count successful returned items, not all candidate visits. |
+| FND-002 | still-open | The added base-run comment and fixed current-branch assertions provide provenance and admission work-boundary numbers, but the tests hash `format!("{result:?}")` and canonical bytes into new SHA256 snapshot constants instead of comparing complete typed results and canonical bytes directly. This is a new use of tracking digests prohibited by this repository's AGENTS.md and CLAUDE.md (only canonical proof identity digests are retained). A Debug digest also does not assert individual typed fields or source occurrence order, so the required complete result parity is still not established. |
+
+## Round 1 verdict
+
+CONDITIONAL; both findings remain open. The newly instrumented build counts and recorded base-run values are useful partial evidence, but the review cannot treat the candidate-visit and direct parity requirements as satisfied on this head.

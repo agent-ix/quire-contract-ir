@@ -1041,25 +1041,59 @@ fn ir987_scalar_and_result_results_bytes_and_work_match_before_change() {
         ordinal: 0,
     };
     let scalar = checked.scalar_application_operands(&add.node_id, &occurrence);
+    let scalar = scalar.expect("scalar operands");
+    let [parameter, literal] = scalar.as_slice() else {
+        panic!("two scalar operands")
+    };
+    assert_eq!(parameter.ordinal, 0);
     assert_eq!(
-        sha256_hex(format!("{scalar:?}").as_bytes()),
-        "6b6c4c3e23ab7d9154a7ae6f7238f3e1ace82585c09f558e3c5e500205870e3e"
+        parameter.range,
+        quire_contract_model::CheckedScalarOperandRange { lower: 0, upper: 9 }
+    );
+    let parameter_key: CheckedNodeId = serde_json::from_value(
+        wire["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("authored nodes")
+            .iter()
+            .find(|node| {
+                node["node_id"] == serde_json::to_value(&add.node_id).expect("application id")
+            })
+            .expect("authored application")["body"]["arguments"][0]["target"]
+            .clone(),
+    )
+    .expect("parameter key");
+    assert_eq!(
+        parameter.child,
+        quire_contract_model::CheckedScalarOperandChild::GraphChild(parameter_key)
+    );
+    assert_eq!(literal.ordinal, 1);
+    assert_eq!(
+        literal.range,
+        quire_contract_model::CheckedScalarOperandRange { lower: 1, upper: 1 }
+    );
+    assert_eq!(
+        literal.child,
+        quire_contract_model::CheckedScalarOperandChild::InlineLiteral {
+            application: add.node_id.clone(),
+            occurrence: occurrence.clone(),
+            ordinal: 1
+        }
     );
     let missing: CheckedNodeId =
         serde_json::from_value(node_id(&"f".repeat(64))).expect("missing id");
     let missing_scalar = checked.scalar_application_operands(&missing, &occurrence);
     assert_eq!(
-        sha256_hex(format!("{missing_scalar:?}").as_bytes()),
-        "7f3af4d2f45dc5cb33f1b0ba10cff24bd000395a910de6a32dbd067f1aea9f1a"
+        missing_scalar,
+        Err(quire_contract_model::CheckedScalarOperandError::UnknownNode)
     );
+    assert_eq!(bytes, include_bytes!("../fixtures/ir987/scalar.json"));
     assert_eq!(
-        sha256_hex(&bytes),
-        "a852694c292c18230d2d379c2f47deffc507e6e3d572ddcb2764113880468421"
+        *checked.package_id(),
+        serde_json::from_value(wire["package_id"].clone()).expect("package identity")
     );
-    assert_eq!(
-        checked.package_id().digest.as_ref(),
-        "f349cfacca3beb68ecae318097a7ab80e2d443da373c3688be302f8ca0dd82d0"
-    );
+    let authored_sources: Vec<quire_contract_model::CheckedSourceMapEntry> =
+        serde_json::from_value(wire["source_map"].clone()).expect("authored sources");
+    assert_eq!(checked.source_map(), authored_sources);
     let evidence = evidence_for(&wire);
     let mut low = 0;
     let mut high = CheckedPackageReadLimits::bounded().work;
@@ -1089,10 +1123,25 @@ fn ir987_scalar_and_result_results_bytes_and_work_match_before_change() {
         Some(&narrow),
         BoundedDomainForm::IntegerRange,
     );
-    assert_eq!(
-        sha256_hex(format!("{result:?}").as_bytes()),
-        "67dbb62a9ac7a30370586064ee9b6076dadcf4f97df18e688d9b76d8df2ea61c"
-    );
+    let ContractResultViewV1::Lowered(view) = result.expect("result context") else {
+        panic!("lowered")
+    };
+    assert_eq!(view.application, add);
+    assert_eq!(view.conversion, Some(narrow.clone()));
+    assert_eq!(view.identity, contract.identity());
+    assert_eq!(view.provenance, &contract.wire().package);
+    let ContractResultContextV1::Narrowed {
+        conversion,
+        conversion_sources,
+        bound,
+    } = view.context
+    else {
+        panic!("selected direct narrow")
+    };
+    assert_eq!(conversion.node_id, narrow.node_id);
+    assert_eq!(conversion_sources, sources_for(&contract, &narrow.node_id));
+    assert_eq!(bound.node.body, bounds_body("0", "10"));
+    assert_eq!(bound.sources, sources_for(&contract, &bound.node.node_id));
     let missing_conversion = ContractOccurrenceKeyV1 {
         ordinal: 99,
         ..narrow.clone()
@@ -1103,19 +1152,20 @@ fn ir987_scalar_and_result_results_bytes_and_work_match_before_change() {
         Some(&missing_conversion),
         BoundedDomainForm::IntegerRange,
     );
+    let ContractResultViewV1::Lowered(missing_view) = missing_result.expect("missing result")
+    else {
+        panic!("lowered")
+    };
     assert_eq!(
-        sha256_hex(format!("{missing_result:?}").as_bytes()),
-        "60d2184d1887b0c136b478f56a9b837c7251bdf51ee317dfe4a2900e70454d2c"
+        missing_view.context,
+        ContractResultContextV1::IncompleteContext
     );
     let contract_bytes = canonical(&serde_json::to_value(contract.wire()).expect("wire"));
     assert_eq!(
-        sha256_hex(&contract_bytes),
-        "ee59eb9d8cdae93c8c2a7f91d18cf207c40a85392d536fbfa8444c744067c95e"
+        contract_bytes,
+        include_bytes!("../fixtures/ir987/context.json")
     );
-    assert_eq!(
-        contract.identity().digest.as_ref(),
-        "d764e1f7cda1a237fb6bf2d2abb55527222d637ed261ec7479d8f8a2514ed58a"
-    );
+    assert_eq!(contract.identity(), &contract.wire().identity);
     let mut low = 0;
     let mut high = CheckedPackageReadLimits::bounded().work;
     while low + 1 < high {

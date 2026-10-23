@@ -503,10 +503,11 @@ mod tests {
             ordinal: 0,
         };
         let mut measured = Vec::new();
-        for graph_nodes in [4, 8, 16] {
+        for graph_nodes in [4, 8, 16, 64] {
             let package = padded_package(graph_nodes);
             for requests in [2, 4, 8] {
                 scan_probe::reset();
+                crate::checked_package::shared::checked_node_comparisons::reset();
                 for _ in 0..requests {
                     assert_eq!(
                         package
@@ -517,8 +518,27 @@ mod tests {
                     );
                 }
                 let visits = scan_probe::count();
-                println!("scalar_operands K={requests} R={graph_nodes} graph_candidates={visits}");
+                let comparisons = crate::checked_package::shared::checked_node_comparisons::count();
+                println!("scalar_operands K={requests} R={graph_nodes} graph_candidates={visits} id_comparisons={comparisons}");
+                if graph_nodes == 64 {
+                    assert!(comparisons < requests * 64, "a full graph scan must fail");
+                }
                 measured.push((graph_nodes, requests, visits));
+            }
+            if graph_nodes == 64 {
+                crate::checked_package::shared::checked_node_comparisons::reset();
+                for _ in 0..8 {
+                    assert!(package
+                        .wire
+                        .semantic_graph
+                        .nodes
+                        .iter()
+                        .any(|candidate| candidate.node_id == application));
+                }
+                assert!(
+                    crate::checked_package::shared::checked_node_comparisons::count() >= 8 * 64,
+                    "the retired full scan exceeds the bound"
+                );
             }
         }
         for (graph_nodes, requests, visits) in measured {
