@@ -2,6 +2,8 @@
 // Copyright (C) 2026 Agent-IX
 
 //! Timed-model wire evidence read from the owning QSpec checkout.
+//! Suite-only traces retain the structural/round-trip and scoped refusal evidence;
+//! full timed semantic criterion qualification belongs to the follow-on slice.
 use super::*;
 use quire_contract_model::{encode_checked_package_v2, CheckedPackageIdentityPreimageRefV2};
 
@@ -10,7 +12,7 @@ fn published() -> Value {
         .expect("published timed model must be available")
 }
 
-#[trace("TC-048", "FR-038-AC-318", "FR-038-AC-320", "FR-038-AC-322")]
+#[trace("TC-048")]
 #[test]
 fn timed_model_published_fixture_round_trips_complete_nodes() {
     let wire = published();
@@ -76,7 +78,7 @@ fn timed_model_published_fixture_round_trips_complete_nodes() {
     assert_eq!(again.package_id(), package.package_id());
 }
 
-#[trace("TC-048", "FR-038-AC-318", "FR-038-AC-321")]
+#[trace("TC-048")]
 #[test]
 fn timed_model_published_schema_vectors_precede_stale_identity() {
     let vectors = read_json(&fixtures_dir().join("../timed-model-node-vectors.json")).unwrap();
@@ -122,7 +124,7 @@ fn timed_model_published_schema_vectors_precede_stale_identity() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-320", "FR-038-AC-321")]
+#[trace("TC-048")]
 #[test]
 fn timed_model_missing_root_precedes_later_quantity_validation() {
     let mut wire = published();
@@ -153,7 +155,7 @@ fn timed_model_missing_root_precedes_later_quantity_validation() {
     );
 }
 
-#[trace("TC-048", "FR-038-AC-320", "FR-038-AC-321")]
+#[trace("TC-048")]
 #[test]
 fn timed_model_repeated_place_precedes_later_quantity_validation() {
     let mut wire = published();
@@ -186,7 +188,7 @@ fn timed_model_repeated_place_precedes_later_quantity_validation() {
         .ends_with("/body/members/2/value/members/1"));
 }
 
-#[trace("TC-048", "FR-038-AC-320", "FR-038-AC-321")]
+#[trace("TC-048")]
 #[test]
 fn timed_model_rebuilt_semantic_defects_keep_paired_causes() {
     for (change, form, member, code, cause) in [
