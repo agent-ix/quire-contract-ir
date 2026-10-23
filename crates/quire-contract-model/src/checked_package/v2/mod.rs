@@ -40,6 +40,7 @@ mod state;
 mod structural;
 mod structural_candidates;
 mod temporal;
+mod timed_model;
 mod typed_terms;
 mod vocabulary;
 
@@ -1589,6 +1590,7 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
     use CheckedNodeKind as K;
     match kind {
         K::Extension(_) => false,
+        K::TimedModel(form) => form != TimedModelForm::Model,
         K::Hybrid(HybridForm::Model | HybridForm::Mode) => false,
         K::Hybrid(HybridForm::Transition) => true,
         K::ScalarType(
@@ -1765,7 +1767,7 @@ fn validate_body(
         BodyGrammar::AbstractionRelation => abstraction::scan_body(body, at, visit),
         // `body` is the node's own top-level term, never a nested one, so
         // this is the one call in the module that reports `is_body_root: true`.
-        BodyGrammar::Term | BodyGrammar::Hybrid => {
+        BodyGrammar::Term | BodyGrammar::TimedModel | BodyGrammar::Hybrid => {
             validate_term(body, TermGrammar::V2, true, at, visit)
         }
     }
@@ -1788,6 +1790,8 @@ enum BodyGrammar {
     AbstractionRelation,
     /// The closed nested hybrid model, mode or transition shape.
     Hybrid,
+    /// Closed timed-model bodies.
+    TimedModel,
 }
 
 /// Exactly one kind has each of the three flat grammars. Every form is listed,
@@ -1797,6 +1801,7 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
     match kind {
         K::Extension(_) => BodyGrammar::Extension,
         K::Hybrid(_) => BodyGrammar::Hybrid,
+        K::TimedModel(_) => BodyGrammar::TimedModel,
         K::ScalarType(
             ScalarTypeForm::Boolean
             | ScalarTypeForm::Integer
@@ -2203,17 +2208,18 @@ fn validate_graph(
                 frames.push((&node.node_id, position, body));
                 work
             }
-            BodyGrammar::Term | BodyGrammar::Hybrid | BodyGrammar::AbstractionRelation => {
-                validate_body(
-                    kind,
-                    &node.body,
-                    &Trail::Base(&body_steps),
-                    &mut |target, site, _target_at| {
-                        targets.push((target.clone(), site));
-                    },
-                )
-                .map_err(|failure| with_node_locus(failure, &node.node_id))?
-            }
+            BodyGrammar::Term
+            | BodyGrammar::TimedModel
+            | BodyGrammar::Hybrid
+            | BodyGrammar::AbstractionRelation => validate_body(
+                kind,
+                &node.body,
+                &Trail::Base(&body_steps),
+                &mut |target, site, _target_at| {
+                    targets.push((target.clone(), site));
+                },
+            )
+            .map_err(|failure| with_node_locus(failure, &node.node_id))?,
         };
         meter.charge(work, || at("body"))?;
         body_terms.push(work);

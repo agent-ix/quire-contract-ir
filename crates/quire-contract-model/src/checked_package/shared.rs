@@ -219,6 +219,16 @@ pub enum CheckedPackageRefusalCause {
     TypeMismatch,
     /// `non-boolean-root`: a hybrid invariant, guard or initial condition is not Boolean.
     NonBooleanRoot,
+    /// `missing-timed-model`: timed clauses have no root.
+    MissingTimedModel,
+    /// `timed-node-reference`: unresolved or wrong-form timed target.
+    TimedNodeReference,
+    /// `duplicate-clock-place`: a model repeats a clock place.
+    DuplicateClockPlace,
+    /// `malformed-clock-place`: a clock path is not canonical.
+    MalformedClockPlace,
+    /// `invalid-time-quantity`: a clock quantity is not exact nonnegative time.
+    InvalidTimeQuantity,
     /// `unsupported-selection`: a clause's `temporal_profile` law names an
     /// identity that is no member of QSpec FR-250's Values table and that the
     /// package's own lock selects under no other role; paired with

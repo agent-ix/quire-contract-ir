@@ -168,7 +168,7 @@ impl StructuralForm {
         use CheckedNodeKind as K;
         match kind {
             K::Extension(_) => Some(Self::Extension),
-            K::Hybrid(_) => Some(Self::Hybrid),
+            K::Hybrid(_) | K::TimedModel(_) => Some(Self::Hybrid),
             K::Value(ValueForm::Parameter) => Some(Self::Parameter),
             K::ScalarType(ScalarTypeForm::CompoundUnit) => Some(Self::CompoundUnit),
             K::ScalarType(
