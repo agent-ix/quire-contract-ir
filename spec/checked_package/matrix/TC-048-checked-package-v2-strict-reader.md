@@ -19,6 +19,8 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/TC-948
     type: references
+  - target: ix://agent-ix/quire-specification/TC-966
+    type: references
 ---
 # TC-048: CheckedPackage V2 strict reader re-derives package and nominal identities
 
@@ -78,6 +80,11 @@ quantity, aggregate, same-family, literal-kind and rounding-mode rules.
 FR-038-AC-222 and FR-038-AC-223 have tagged public-reader controls for the
 IEEE literal-family and catalog-result rules of QSpec FR-322-AC-23; IR-742's
 tagged reader tests passed.
+FR-038-AC-311 through FR-038-AC-317 specify QSpec FR-481's hybrid tag,
+structural identity and ordered hybrid reader step. Their public-reader
+evidence consumes QSpec TC-966's published vectors from the selected checkout
+and compares exact code, cause and locus; QSpec's provider and host trace
+checks remain QSpec evidence.
 FR-038-AC-242 through FR-038-AC-245 have tagged public-reader controls for
 QSpec FR-322-AC-31/67's distinct native String, UUID and Timestamp types,
 six comparisons, canonical literal payloads and typed refusals; IR-800's
@@ -2602,3 +2609,29 @@ without those rows is refused `invalid_source_map` before any population check. 
 on a clone and compare results, package equality and work. An external fixture
 exhaustively matches the error enum and binds the result type (AC-278). Do not
 take the expected values from the accessor under test.
+
+## Hybrid nodes and claims (FR-038-AC-311 through FR-038-AC-317)
+
+Read `hybrid-node-vectors.json` and `fixtures/positive-all-families.json` from
+the selected QSpec checkout, without copying either into this repository.
+Feed the valid `Braking`/`SlowEnough`, `Braking2`/`Slows`/`Recent` and `Tank`
+graphs through the public V2 reader. Check the admitted typed family/form,
+node and package keys, body references, semantic types and dependencies;
+`Tank` must admit a variable-to-variable rate and reset value and a
+`hybrid`-classed variable with a literal-one rate. Rekey the rate mutation
+through the reference path and check the changed and unchanged identities.
+
+Apply QSpec TC-966's strict-wire mutations without rekeying and assert
+`malformed_wire` at strict wire validation before body checks. For each
+semantic mutation, rebuild dependencies, node keys and package id before
+reading it. Assert the exact code, cause and RFC 6901 locus for repeated
+modes, wrong variable type or level, rate count and type, mode and reset
+indices, reset conflict, initial entry, foreign read, clock class, orphan
+transition, interval/profile mismatch and malformed claim read or fairness.
+In a combined-defect package, check precedence of strict wire, graph/key,
+temporal, model checks 1 through 6, orphan nodes, claim checks 7 through 9,
+protocol and operation. Verify that an unchanged valid hybrid node retains
+its key and that the reader never supplies a missing graph node or a second
+spelling for the default initial state. The process provider and host trace
+checks HY-15 and HY-16 remain QSpec TC-966's evidence, outside this IR
+reader test.
