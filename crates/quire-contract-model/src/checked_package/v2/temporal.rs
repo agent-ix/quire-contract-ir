@@ -316,11 +316,9 @@ fn interval_object(operation: &Value) -> Option<&serde_json::Map<String, Value>>
 /// all fail; for every other member set, the integer form's included, the
 /// schema's non-negative integer-string pattern `^(0|[1-9][0-9]*)$`: a negative
 /// bound, a malformed one (`"1.5"`, `"01"`, `"+1"`, `""`, `"3x"`) and a bound
-/// that is no string. An `upper` of `null` is the lower-bounded form's, not a
-/// bound, outside the timed form. Strict wire validation
-/// (`flat_wire::check_interval_bounds`) refuses it `invalid-value` at that
-/// bound, ahead of every identity check and never `operation-member-mismatch`
-/// (merged QSpec FR-370).
+/// that is no string. A timed `upper` of `null` is admitted only for a formula
+/// reached by a hybrid claim; `flat_wire::check_interval_bounds` refuses it
+/// `invalid-value` for every other formula before identity validation.
 pub(super) fn interval_bound_outside_pattern(operation: &Value) -> Option<&'static str> {
     let interval = interval_object(operation)?;
     let timed = IntervalForm::of(interval) == Some(IntervalForm::Timed);
@@ -342,6 +340,14 @@ pub(super) fn interval_bound_outside_pattern(operation: &Value) -> Option<&'stat
             .as_str()
             .and_then(IntegerString::parse)
             .is_some_and(|bound| !bound.negative)
+    })
+}
+
+/// Whether a timed interval spells the hybrid-only unbounded upper end.
+pub(super) fn timed_upper_is_null(operation: &Value) -> bool {
+    interval_object(operation).is_some_and(|interval| {
+        IntervalForm::of(interval) == Some(IntervalForm::Timed)
+            && interval.get("upper").is_some_and(Value::is_null)
     })
 }
 

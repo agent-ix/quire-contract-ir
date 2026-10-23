@@ -557,6 +557,35 @@ fn qspec_hybrid_timed_open_upper_admits_under_timed_profile() {
     );
 }
 
+#[trace("TC-048", "FR-038-AC-315")]
+#[test]
+fn qspec_hybrid_package_keeps_nonhybrid_timed_null_wire_refusal() {
+    let mut package = braking_package();
+    let formula = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "temporal"
+                && node["semantic_form"] == "formula"
+                && node["body"]["operation"]["identity"] == "quire.op.temporal.eventually"
+                && node["body"]["operation"]["member"]["interval"]["upper"] == "3"
+        })
+        .expect("published nonhybrid formula");
+    package["semantic_graph"]["nodes"][formula]["body"]["operation"]["member"]["interval"] = json!({"lower":{"numerator":"0","denominator":"1"}, "upper":null,
+               "lower_end":"closed", "upper_end":"open"});
+    let read = read_package(&package).expect("QSpec package");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read else {
+        panic!("nonhybrid timed null admitted: {read:?}")
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::InvalidValue)),
+        "{refusal:?}"
+    );
+    assert_locus(&refusal, formula, "/body/operation/member/interval/upper");
+}
+
 #[trace("TC-048", "FR-038-AC-316")]
 #[test]
 fn qspec_hybrid_claim_refuses_clock_outside_model_vocabulary() {

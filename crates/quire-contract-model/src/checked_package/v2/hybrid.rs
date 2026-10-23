@@ -776,7 +776,6 @@ pub(super) fn validate_claims(
             continue;
         }
         let claim = &nodes[position];
-        meter.charge(1, || node_pointer(position))?;
         let Some(arguments) = claim.body.get("arguments").and_then(Value::as_array) else {
             continue;
         };
@@ -792,6 +791,7 @@ pub(super) fn validate_claims(
         if kinds.get(model_position) != Some(&CheckedNodeKind::Hybrid(HybridForm::Model)) {
             continue;
         }
+        meter.charge(1, || node_pointer(position))?;
         if arguments.len() != 6 {
             continue;
         }
