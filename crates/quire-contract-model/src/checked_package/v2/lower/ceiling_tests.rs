@@ -334,11 +334,26 @@ fn shared_closure_body_walks_scale_with_nodes_not_requests() {
         for shared in [4, 8, 16] {
             let (package, requests) = shared_closure_package(roots, shared);
             SHARED_CLOSURE_BUILDS.with(|builds| builds.set(0));
+            let admission_walks = BODY_WALKS.with(std::cell::Cell::get);
+            let start = std::time::Instant::now();
             let lowered = package.lower(&requests, &profile());
+            let lower_elapsed_ns = start.elapsed().as_nanos();
             assert_eq!(lowered.records.len(), roots);
             let walks = BODY_WALKS.with(std::cell::Cell::get);
             let closure_builds = SHARED_CLOSURE_BUILDS.with(std::cell::Cell::get);
             assert_eq!(closure_builds, 1, "one shared SCC closure per call");
+            println!(
+                "{}",
+                json!({
+                    "stage": "after_retained_facts_and_lower",
+                    "K": roots,
+                    "R": shared,
+                    "lowering_fact_scan_body_validations": admission_walks,
+                    "additional_lower_body_validations": walks - admission_walks,
+                    "shared_closure_builds": closure_builds,
+                    "lower_elapsed_ns": lower_elapsed_ns.to_string(),
+                })
+            );
             for (request, batch_record) in requests.iter().zip(&lowered.records) {
                 let single = package.lower(std::slice::from_ref(request), &profile());
                 assert_eq!(batch_record, &single.records[0]);
