@@ -695,7 +695,10 @@ fn integer_value_range(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::checked_package::v2::{CheckedPackageWireV2, CheckedTerm, RetainedModels};
+    use crate::checked_package::v2::{
+        CheckedNodeKind, CheckedPackageWireV2, CheckedTerm, ExpressionForm, ModelForm,
+        RetainedModels, ScalarTypeForm, StateForm, ValueForm,
+    };
     use ix_trace_rs::trace;
     use serde_json::json;
 
@@ -778,7 +781,13 @@ mod tests {
             lowering_facts: Vec::new(),
             wire,
             terms,
-            kinds: Vec::new(),
+            kinds: vec![
+                CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean),
+                CheckedNodeKind::Value(ValueForm::Parameter),
+                CheckedNodeKind::Model(ModelForm::ObjectType),
+                CheckedNodeKind::Expression(ExpressionForm::Binary),
+                CheckedNodeKind::State(StateForm::StateClause),
+            ],
             bytes: 1 << 20,
             models: RetainedModels::default(),
             direct_dependencies: Vec::new(),
@@ -823,6 +832,7 @@ mod tests {
             (Refusal::MissingClaimOccurrence, Path::Clause)
         );
         package.wire.semantic_graph.nodes[4].semantic_form = "other_form".into();
+        package.kinds[4] = CheckedNodeKind::State(StateForm::Frame);
         let failure = package
             .direct_integer_comparison(&clause, &claim)
             .expect_err("wrong clause form");
@@ -832,6 +842,7 @@ mod tests {
         );
         assert_eq!((&failure.clause, &failure.claim), (&clause, &claim));
         package.wire.semantic_graph.nodes[4].semantic_form = "state_clause".into();
+        package.kinds[4] = CheckedNodeKind::State(StateForm::StateClause);
         let CheckedTerm::Application { operation, .. } = &mut package.terms[4] else {
             panic!("fixture clause term");
         };
@@ -993,5 +1004,220 @@ mod tests {
             .expect_err("two retained inline literals still have no read");
         assert_eq!(error.kind, CheckedComparisonRefusal::NoRead);
         assert_eq!(error.path, CheckedComparisonPath::Comparison);
+    }
+    fn expect_failure(
+        package: &CheckedPackageV2,
+        clause: &CheckedNodeId,
+        claim: &CheckedOccurrence,
+        kind: CheckedComparisonRefusal,
+        path: CheckedComparisonPath,
+        child: Option<CheckedNodeId>,
+    ) {
+        assert_eq!(
+            package
+                .direct_integer_comparison(clause, claim)
+                .expect_err("private comparison defect"),
+            CheckedComparisonError {
+                kind,
+                clause: clause.clone(),
+                claim: claim.clone(),
+                path,
+                child
+            }
+        );
+    }
+
+    fn append_private_child(
+        package: &mut CheckedPackageV2,
+        kind: CheckedNodeKind,
+        body: Value,
+    ) -> CheckedNodeId {
+        let child: CheckedSemanticNodeV2 = serde_json::from_value(node(
+            '6',
+            kind.tag().as_wire(),
+            kind.form_wire(),
+            body,
+            "expression",
+        ))
+        .expect("private comparison child");
+        let id = child.node_id.clone();
+        package
+            .node_index
+            .insert(id.clone(), package.wire.semantic_graph.nodes.len());
+        package
+            .terms
+            .push(CheckedTerm::decode_admitted(&child.body).expect("private child term"));
+        package.kinds.push(kind);
+        package.wire.semantic_graph.nodes.push(child);
+        id
+    }
+
+    /// The existing synthetic fixture enters the actual public accessor. These
+    /// paired raw/kind mismatches are private damaged states, not reader admission.
+    #[trace("TC-445")]
+    #[test]
+    fn comparison_clause_dispatch_uses_retained_kind_at_the_caller() {
+        use CheckedComparisonPath as Path;
+        use CheckedComparisonRefusal as Refusal;
+        let (mut package, clause, claim) = fixture();
+        let comparison: CheckedNodeId = serde_json::from_value(id('4')).expect("comparison id");
+        expect_failure(
+            &package,
+            &clause,
+            &claim,
+            Refusal::NoRead,
+            Path::Comparison,
+            Some(comparison.clone()),
+        );
+        package.wire.semantic_graph.nodes[4].node_tag = "value".into();
+        package.wire.semantic_graph.nodes[4].semantic_form = "parameter".into();
+        expect_failure(
+            &package,
+            &clause,
+            &claim,
+            Refusal::NoRead,
+            Path::Comparison,
+            Some(comparison),
+        );
+        package.wire.semantic_graph.nodes[4].node_tag = "state".into();
+        package.wire.semantic_graph.nodes[4].semantic_form = "state_clause".into();
+        package.kinds[4] = CheckedNodeKind::Value(ValueForm::Parameter);
+        expect_failure(
+            &package,
+            &clause,
+            &claim,
+            Refusal::NotStateClause,
+            Path::Clause,
+            Some(clause.clone()),
+        );
+        let absent_claim = CheckedOccurrence {
+            role: CheckedOccurrenceRole::Claim,
+            ordinal: 1,
+        };
+        expect_failure(
+            &package,
+            &clause,
+            &absent_claim,
+            Refusal::NotStateClause,
+            Path::Clause,
+            Some(clause.clone()),
+        );
+    }
+
+    #[trace("TC-445")]
+    #[test]
+    fn comparison_graph_literal_dispatch_uses_retained_kind_at_the_caller() {
+        use CheckedComparisonPath as Path;
+        use CheckedComparisonRefusal as Refusal;
+        let (mut package, clause, claim) = fixture();
+        let child = append_private_child(
+            &mut package,
+            CheckedNodeKind::Value(ValueForm::Literal),
+            literal(&i128::MIN.to_string()),
+        );
+        package.wire.semantic_graph.nodes[3].body["arguments"] =
+            json!([reference('6'), literal("1")]);
+        sync_comparison_term(&mut package);
+        let comparison: CheckedNodeId = serde_json::from_value(id('4')).expect("comparison id");
+        expect_failure(
+            &package,
+            &clause,
+            &claim,
+            Refusal::NoRead,
+            Path::Comparison,
+            Some(comparison.clone()),
+        );
+        package.wire.semantic_graph.nodes[5].semantic_form = "parameter".into();
+        expect_failure(
+            &package,
+            &clause,
+            &claim,
+            Refusal::NoRead,
+            Path::Comparison,
+            Some(comparison),
+        );
+        package.wire.semantic_graph.nodes[5].semantic_form = "literal".into();
+        package.kinds[5] = CheckedNodeKind::Value(ValueForm::Parameter);
+        expect_failure(
+            &package,
+            &clause,
+            &claim,
+            Refusal::IneligibleOperand,
+            Path::Operand(0),
+            Some(child.clone()),
+        );
+        package.kinds[5] = CheckedNodeKind::Value(ValueForm::Literal);
+        package.terms[5] =
+            CheckedTerm::decode_admitted(&literal("340282366920938463463374607431768211456"))
+                .expect("arbitrary integer term");
+        package.wire.semantic_graph.nodes[3].body["arguments"] = json!([
+            reference('6'),
+            literal("340282366920938463463374607431768211456")
+        ]);
+        sync_comparison_term(&mut package);
+        expect_failure(
+            &package,
+            &clause,
+            &claim,
+            Refusal::RangeOutOfI128,
+            Path::Operand(0),
+            Some(child),
+        );
+    }
+
+    #[trace("TC-445")]
+    #[test]
+    fn comparison_parameter_dispatch_uses_retained_kind_at_the_caller() {
+        use CheckedComparisonPath as Path;
+        use CheckedComparisonRefusal as Refusal;
+        let (mut package, clause, claim) = fixture();
+        let child = append_private_child(
+            &mut package,
+            CheckedNodeKind::Value(ValueForm::Parameter),
+            json!({"term": "aggregate", "members": []}),
+        );
+        let CheckedTerm::Application { arguments, .. } = &mut package.terms[4] else {
+            panic!("clause");
+        };
+        let CheckedTerm::Aggregate { members } = &mut arguments[0] else {
+            panic!("parameters");
+        };
+        members.push(CheckedTerm::Reference {
+            target: child.clone(),
+        });
+        package.wire.semantic_graph.nodes[3].body["arguments"] = json!([
+            reference('6'),
+            literal("340282366920938463463374607431768211456")
+        ]);
+        sync_comparison_term(&mut package);
+        // This private invariant has no selected operation context. An eligible
+        // input reaches MissingRange before the later overflowing literal.
+        expect_failure(
+            &package,
+            &clause,
+            &claim,
+            Refusal::MissingRange,
+            Path::Operand(0),
+            Some(child.clone()),
+        );
+        package.wire.semantic_graph.nodes[5].semantic_form = "literal".into();
+        expect_failure(
+            &package,
+            &clause,
+            &claim,
+            Refusal::MissingRange,
+            Path::Operand(0),
+            Some(child.clone()),
+        );
+        package.wire.semantic_graph.nodes[5].semantic_form = "parameter".into();
+        package.kinds[5] = CheckedNodeKind::Expression(ExpressionForm::Binary);
+        expect_failure(
+            &package,
+            &clause,
+            &claim,
+            Refusal::IneligibleOperand,
+            Path::Operand(0),
+            Some(child),
+        );
     }
 }
