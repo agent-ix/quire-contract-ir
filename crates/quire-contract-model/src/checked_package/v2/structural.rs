@@ -135,6 +135,7 @@ impl Graph<'_> {
 enum StructuralForm {
     Extension,
     Hybrid,
+    TimedModel,
     Parameter,
     CompoundUnit,
     Frame,
@@ -158,7 +159,11 @@ impl StructuralForm {
             Self::StateClause => Some(CheckedOccurrenceRole::Claim),
             Self::AbstractionRelation => Some(CheckedOccurrenceRole::Declaration),
             Self::ProtocolReference => Some(CheckedOccurrenceRole::Expression),
-            Self::Hybrid | Self::CompoundUnit | Self::UnionType | Self::UnionValue => None,
+            Self::Hybrid
+            | Self::TimedModel
+            | Self::CompoundUnit
+            | Self::UnionType
+            | Self::UnionValue => None,
         }
     }
 
@@ -168,7 +173,8 @@ impl StructuralForm {
         use CheckedNodeKind as K;
         match kind {
             K::Extension(_) => Some(Self::Extension),
-            K::Hybrid(_) | K::TimedModel(_) => Some(Self::Hybrid),
+            K::Hybrid(_) => Some(Self::Hybrid),
+            K::TimedModel(_) => Some(Self::TimedModel),
             K::Value(ValueForm::Parameter) => Some(Self::Parameter),
             K::ScalarType(ScalarTypeForm::CompoundUnit) => Some(Self::CompoundUnit),
             K::ScalarType(
@@ -371,7 +377,7 @@ pub(super) fn validate_structural_nodes(
                     None
                 }
             }
-            Some(StructuralForm::Hybrid) => {
+            Some(StructuralForm::Hybrid | StructuralForm::TimedModel) => {
                 let Some(term) = term else {
                     return Err(ValidationFailure::refused(
                         CheckedPackageRefusalCode::MalformedWire,
