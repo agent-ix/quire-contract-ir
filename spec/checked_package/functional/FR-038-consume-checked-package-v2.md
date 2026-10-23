@@ -17,6 +17,12 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-66
     type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-120
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-121
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-122
+    type: references
   - target: ix://agent-ix/quire-specification/FR-330-AC-4
     type: references
   - target: ix://agent-ix/quire-specification/FR-152
@@ -42,6 +48,8 @@ relationships:
   - target: ix://agent-ix/quire-specification/FR-370
     type: references
   - target: ix://agent-ix/quire-specification/FR-481
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-415
     type: references
   - target: ix://agent-ix/quire-specification/FR-440
     type: references
@@ -1667,6 +1675,48 @@ negative vectors by code, cause and locus. It SHALL neither copy those
 artifacts into this repository nor claim the process-provider or result-trace
 checks owned by QSpec FR-481 as IR reader evidence.
 
+### Timed-model nodes and reader step
+
+The V2 reader SHALL admit the `timed_model` node family and exactly the
+`timed_model`, `time_source`, `clock_place`, `clock_reset`, `clock_guard`,
+`time_invariant`, `urgency` and `clock_constraint` forms owned by QSpec
+FR-322-AC-120. The published QSpec schema fixes each form's closed wire
+shape and occurrence roles; each timed node's outer `semantic_type` is its
+own key, while the structural preimage carries a null `semantic_type`, as
+FR-322-AC-122 states. The IR reader SHALL
+decode the family and form once with the other node kinds. Strict wire
+validation SHALL refuse an unknown form or malformed member before identity
+or body validation. The canonical writer SHALL emit each complete timed node
+once in `semantic_graph.nodes`, without a second body in the wire identity
+preimage.
+
+Graph-shape validation SHALL compare each timed node's dependency set with
+its body references before the key stage. The structural-key stage SHALL
+derive its `quire.structural-node/v1` key from the published QSpec preimage,
+including the owner where present, declaration and complete body; the derived
+package identity SHALL include that node with only source occurrences
+excluded. A stale key or dependency mismatch SHALL refuse at the existing
+key or graph-shape stage before the timed-model body step. Reordering only
+source occurrences SHALL leave both identities unchanged.
+
+The timed-model body step SHALL run after the hybrid step and before the
+protocol step. It SHALL visit timed nodes in ascending retained node-id
+digest order and reconstruct each selected model from its one root, source,
+places and timed clauses. It SHALL check root presence, ownership, every
+target's presence and form, place uniqueness and canonical path, and exact
+time quantity and unit validity. It SHALL use QSpec FR-322's paired causes:
+`invalid_package`/`missing-timed-model`, `invalid_package`/
+`timed-node-reference`, `invalid_package`/`duplicate-clock-place`,
+`invalid_package`/`malformed-clock-place`, and `ill_typed`/
+`invalid-time-quantity`, with the failing node and member pointer. A timed
+defect SHALL win over a protocol or later operation defect; a hybrid or
+earlier body-step defect SHALL win over a timed defect. The writer SHALL
+preserve the admitted source's node order, exact quantity data and selected
+model identity on read-back.
+The reader tests SHALL use QSpec's `positive-timed-model-nodes.json` and
+`timed-model-node-vectors.json` through `QUIRE_SPECIFICATION_DIR`, without storing a copy
+of either fixture in this repository.
+
 ### Protocol node bodies and reader step
 
 When a V2 package contains a `protocol` node other than the
@@ -1697,8 +1747,8 @@ record refuses `invalid_semantic_graph`. Node keys SHALL continue to derive
 from the authored application preimage, including exact declaration paths and
 reference targets, rather than from source order or occurrences.
 
-After the state, temporal, abstraction, terminal, step-relation and hybrid
-steps and before the operation step, the reader SHALL run the protocol step
+After the state, temporal, abstraction, terminal, step-relation, hybrid and
+timed-model steps and before the operation step, the reader SHALL run the protocol step
 in QSpec FR-464 order: placement;
 operator and law; declarations; member nodes; membership; then clauses.
 Within a clause it SHALL check references, activation and captures, the
@@ -5151,6 +5201,11 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-315 | The temporal step precedes the hybrid step: a hybrid claim's integer or timed interval is admitted only under its matching FR-370 profile, including timed `[q, *]` under `quire.temporal.timed/v1` and integer `[2, *]` under `quire.temporal.infinite-trace/v1`. A wrong interval form refuses `invalid_package`/`operation-member-mismatch` there before a fairness defect. The surviving `SlowEnough`, `Slows` and `Recent` claims are read from their published graph nodes with their respective clock, activation, capture, fairness and read levels. | Test (TC-048) |
 | FR-038-AC-316 | After all models and orphan modes/transitions, hybrid claims are checked in node-id digest order for clock/activation/guard/capture form, fairness, then model-variable/activation/capture reads. TC-966's `wall` clock, mistyped `each` trigger, fairness member naming `Halted`, `holds` reading `h` and `holds` reading a parameter at the wrong level refuse with FR-481's code, cause and locus; a valid claim and a later protocol defect yield the protocol refusal, while a hybrid defect and a protocol defect yield the hybrid refusal. | Test (TC-048) |
 | FR-038-AC-317 | TC-048 reads QSpec TC-966's published `hybrid-node-vectors.json` and `positive-all-families.json` from the selected QSpec checkout, without a local copy. Strict-wire cases are checked before identity, rebuilt-key semantic cases after it, with exact code, cause and locus. The IR reader does not substitute its own process-provider or host trace checks for QSpec's HY-15 and HY-16. | Test (TC-048) |
+| FR-038-AC-318 | The public reader admits exactly QSpec FR-322-AC-120's eight `timed_model` forms. Each admitted form retains its published semantic type, occurrence roles, owner, declaration and complete body; an unknown form or malformed outer/body member refuses at strict wire validation before any timed-model body check. The writer emits one complete body per node and no wire identity projection. | Test (TC-048) |
+| FR-038-AC-319 | For a timed model with source, place, reset, guard, invariant, urgency and constraint nodes, graph-shape and structural-key checks compare each node's exact dependencies and QSpec preimage before the timed-model step. Changing one meaning-bearing body or owner member and rebuilding dependent keys changes the affected node and package identities; keeping a stale key or dependency list refuses at the earlier stage. Reordering only source occurrences changes neither identity. | Test (TC-048) |
+| FR-038-AC-320 | The timed-model step reconstructs the selected model from exactly one root and its referenced nodes. A missing root, dangling or wrong-form target, repeated place, noncanonical path, and invalid or non-time quantity each refuse with FR-322-AC-120's paired code and cause at the failing member, visiting timed nodes in ascending node-id digest order. The valid QSpec TC-367 CK-25 model admits and retains its normalized constraints. | Test (TC-048) |
+| FR-038-AC-321 | A package with both a timed-model defect and a protocol or operation defect reports the timed defect; one with a hybrid defect and a timed defect reports the hybrid defect. Strict-wire, graph-shape and stale-key defects continue to precede either body step. | Test (TC-048) |
+| FR-038-AC-322 | The public V2 writer round-trips an admitted timed model through the reader with the same complete node order, semantic identities, selected model and exact normalized quantities, and emits no `identity_preimage.identity_projection` member. | Test (TC-048) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
