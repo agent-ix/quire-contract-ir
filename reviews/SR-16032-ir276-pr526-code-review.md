@@ -28,3 +28,9 @@ The added `Instant` surrounds only `package.lower`; it excludes fixture construc
 ## Scope
 
 Examined FR-038-AC-308 and FR-038-AC-309, with IR-276 AC-1, AC-2 and AC-6 as ticket context. The changed test file is the entire PR diff. The raw nine-cell stdout is present in IR-276 comment 7ef9f105; the attached archive was not independently accessible.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At exact PR head `2fb983ad8c8e95a7f21d6f81a9a7e6f4add67b72`, the JSON key is `"lowering_fact_scan_body_validations": admission_walks,` and accurately names the direct fixture scan. The other reporting fields and existing assertions are unchanged. |
