@@ -4105,6 +4105,32 @@ mod tests {
         CheckedPackageRefusalCause,
         String,
     )> {
+        relationship_member_outcome_with_graph(
+            relation,
+            role,
+            receiver_type,
+            operation_identity,
+            result_key,
+            |_, _, _| {},
+        )
+        .0
+    }
+
+    fn relationship_member_outcome_with_graph(
+        relation: Value,
+        role: &str,
+        receiver_type: &str,
+        operation_identity: &str,
+        result_key: &str,
+        configure: impl FnOnce(&mut Vec<CheckedSemanticNodeV2>, &mut Vec<CheckedNodeKind>, &mut Value),
+    ) -> (
+        Option<(
+            CheckedPackageRefusalCode,
+            CheckedPackageRefusalCause,
+            String,
+        )>,
+        u64,
+    ) {
         use crate::checked_package::v2::model_members::{
             declaration_key, tests as model_tests, DeclarationForm, MemberType,
         };
@@ -4205,7 +4231,7 @@ mod tests {
             json!({"term": "aggregate", "members": []}),
         );
         parameter.node_id.digest = dummy_digest('r').into();
-        let nodes = [
+        let mut nodes = vec![
             application,
             object(widget_key, widget),
             object(gadget_key, gadget),
@@ -4213,7 +4239,9 @@ mod tests {
             reference_node,
             parameter,
         ];
-        let kinds = kinds_of(&nodes);
+        let mut kinds = kinds_of(&nodes);
+        configure(&mut nodes, &mut kinds, &mut operation);
+        nodes[0].body["operation"] = operation.clone();
         let index: BTreeMap<_, _> = nodes
             .iter()
             .enumerate()
@@ -4227,7 +4255,7 @@ mod tests {
             index: &index,
         };
         let operation: super::OperationWire = serde_json::from_value(operation).expect("operation");
-        super::check_relationship_member(
+        let outcome = super::check_relationship_member(
             Application {
                 node: &nodes[0],
                 position: 0,
@@ -4245,7 +4273,93 @@ mod tests {
                 refusal.path.expect("path").to_string(),
             ),
             other => panic!("expected refusal, got {other:?}"),
-        })
+        });
+        (outcome, meter.consumed())
+    }
+
+    /// Exercise the real caller with a checked selected model and its real owners.
+    /// Only this private graph's retained kind/raw metadata are damaged below;
+    /// the mismatched states do not claim package admission.
+    #[trace("TC-048")]
+    #[test]
+    fn tc_048_relationship_population_caller_uses_retained_kind() {
+        use crate::checked_package::v2::model_members::{tests as model_tests, MemberType};
+        use crate::checked_package::v2::{BoundedDomainForm, CompositeTypeForm};
+        let mut relation = model_tests::relationship();
+        relation["targetEnd"]["type"] = json!("ix://acme/orders/Widget");
+        let boolean = MemberType::Boolean
+            .node_key(model_tests::BYTES)
+            .expect("boolean key");
+        let run = |raw_population: bool, typed_population: bool| {
+            relationship_member_outcome_with_graph(
+                relation.clone(),
+                "links",
+                "ix://acme/orders/Widget",
+                "quire.op.model.reaches",
+                &boolean,
+                |nodes, kinds, operation| {
+                    let set = graph_node(
+                        'c',
+                        "composite_type",
+                        "set",
+                        &node_id('c'),
+                        json!({"term": "aggregate", "members": [
+                            {"term": "reference", "target": nodes[4].node_id}
+                        ]}),
+                    );
+                    let mut population = graph_node(
+                        'd',
+                        "bounded_domain",
+                        "model_population",
+                        &set.node_id,
+                        json!({"term": "aggregate", "members": [
+                            {"term": "binding", "name": "max", "value": {
+                                "term": "literal", "type": node_id('f'),
+                                "value_kind": "integer", "value": "3"
+                            }}
+                        ]}),
+                    );
+                    population.occurrences = serde_json::from_value(json!([
+                        {"role": "type", "ordinal": 0}
+                    ]))
+                    .expect("type occurrence");
+                    operation["member"]["population"] = json!(population.node_id);
+                    let population_kind = if typed_population {
+                        CheckedNodeKind::BoundedDomain(BoundedDomainForm::ModelPopulation)
+                    } else {
+                        CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange)
+                    };
+                    if !raw_population {
+                        population.node_tag = "scalar_type".into();
+                        population.semantic_form = "integer".into();
+                    }
+                    kinds.push(CheckedNodeKind::CompositeType(CompositeTypeForm::Set));
+                    kinds.push(population_kind);
+                    nodes.extend([set, population]);
+                },
+            )
+        };
+        let baseline = run(true, true);
+        assert_eq!(
+            baseline.0, None,
+            "matching population must reach the valid-use path"
+        );
+        let raw_nonpopulation = run(false, true);
+        assert_eq!(
+            raw_nonpopulation, baseline,
+            "retained population kind preserves result and actual work"
+        );
+        let typed_nonpopulation = run(true, false);
+        assert_eq!(
+            typed_nonpopulation.0,
+            Some((
+                CheckedPackageRefusalCode::IllTyped,
+                CheckedPackageRefusalCause::OperatorIneligible,
+                "/semantic_graph/nodes/0/body/operation/member/population".into(),
+            ))
+        );
+        println!("relationship_population_caller baseline_work={} raw_mismatch_work={} typed_mismatch_work={}",
+            baseline.1, raw_nonpopulation.1, typed_nonpopulation.1);
     }
 
     #[trace(
