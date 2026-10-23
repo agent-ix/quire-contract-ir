@@ -494,7 +494,8 @@ mod tests {
             let schema: CheckedExtensionDefinition = serde_json::from_value(json!({
                 "grammar_schema": {"productions": [{"keyword": "open", "clauses": ["subject"]}]},
                 "typed_node_schema": {"nodes": [{"keyword": "open", "node_kind": "open-kind",
-                    "clauses": [{"name": "subject", "type": expected}]}]}
+                    "clauses": [{"name": "subject", "type": expected}]},
+                        {"keyword": "future", "node_kind": "future-kind", "clauses": []}]}
             }))
             .expect("held definition");
             evidence
@@ -728,7 +729,10 @@ mod tests {
     #[test]
     fn extension_join_preserves_open_kind_names_and_selection_precedence() {
         let kind = CheckedNodeKind::Extension(ExtensionForm::ExtensionForm);
-        let mut join = Join::new("future-kind", kind);
+        let mut join = Join::new(
+            "future-kind",
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Text),
+        );
         join.kinds[1] = kind;
         join.terms[1] = Some(CheckedTerm::ExtensionForm {
             definition: join.wire.lock.definition_selections[0].clone(),
