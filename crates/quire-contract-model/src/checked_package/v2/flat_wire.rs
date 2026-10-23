@@ -29,7 +29,8 @@
 
 use super::temporal::{interval_bound_outside_pattern, timed_upper_is_null};
 use super::{
-    body_grammar, BodyGrammar, CheckedNodeId, CheckedNodeKind, HybridForm, TemporalForm, ValueForm,
+    body_grammar, BodyGrammar, CheckedNodeId, CheckedNodeKind, CheckedNodeTag, HybridForm,
+    TemporalForm, ValueForm,
 };
 use super::{ApplicationOperator, BodyTerm, CheckedPackageWireV2};
 use crate::checked_package::common::{
@@ -67,31 +68,27 @@ enum Place {
 pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
     let mut kinds = Vec::with_capacity(wire.semantic_graph.nodes.len());
     for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
-        if node.node_tag.as_ref() == "extension" && node.semantic_form.as_ref() != "extension_form"
-        {
-            return Err(ValidationFailure::refused(
-                CheckedPackageRefusalCode::MalformedWire,
-                crate::checked_package::common::node_pointer(position).key("semantic_form"),
-            ));
-        }
-        if node.node_tag.as_ref() == "hybrid"
-            && super::HybridForm::from_wire(&node.semantic_form).is_none()
-        {
-            return Err(ValidationFailure::refused(
-                CheckedPackageRefusalCode::MalformedWire,
-                crate::checked_package::common::node_pointer(position).key("semantic_form"),
-            ));
-        }
-        if node.node_tag.as_ref() == "timed_model"
-            && super::TimedModelForm::from_wire(&node.semantic_form).is_none()
-        {
-            return Err(ValidationFailure::refused(
-                CheckedPackageRefusalCode::MalformedWire,
-                crate::checked_package::common::node_pointer(position).key("semantic_form"),
-            ));
-        }
         let kind = super::decode_node_kind(node, |member| {
             crate::checked_package::common::node_pointer(position).key(member)
+        })
+        .map_err(|failure| {
+            // These families' malformed forms precede even a bad schema
+            // version. Decode the successful header only once; inspect the
+            // typed vocabulary again solely to preserve that refusal order.
+            let malformed_form = CheckedNodeTag::from_wire(&node.node_tag).is_some_and(|tag| {
+                matches!(
+                    tag,
+                    CheckedNodeTag::Extension | CheckedNodeTag::Hybrid | CheckedNodeTag::TimedModel
+                ) && CheckedNodeKind::decode(tag, &node.semantic_form).is_none()
+            });
+            if malformed_form {
+                ValidationFailure::refused(
+                    CheckedPackageRefusalCode::MalformedWire,
+                    crate::checked_package::common::node_pointer(position).key("semantic_form"),
+                )
+            } else {
+                failure
+            }
         })?;
         let steps = [
             Step::Key("semantic_graph"),
