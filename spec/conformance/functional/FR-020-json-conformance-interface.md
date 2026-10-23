@@ -9,6 +9,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/ix-cli-kit/FR-006
     type: depends_on
+  - target: ix://agent-ix/ix-cli-kit/FR-003
+    type: depends_on
   - target: ix://agent-ix/quire-contract-ir/FR-028
     type: depends_on
 ---
@@ -193,12 +195,13 @@ and exits 0 without reading a corpus.
 | FR-020-AC-16 | The root binary uses the authoritative kit's caller-owned exit API for statuses 0, 1 and 2; matched corpus and version invocations exit 0, complete mismatches exit 1, and every existing operational code, including invalid invocation, exits 2. No route requests 5 or implicitly terminates through the kit's pass-through error. | Test |
 | FR-020-AC-17 | Shared compact serialization preserves the exact existing result and diagnostic envelopes, serialized field order and one-newline framing; result serialization errors discard the private buffer, while stdout write/flush failure retains exit 2 and `fixture_io` at `stdout`. Existing fallback diagnostics are retained. | Test |
 | FR-020-AC-18 | Only the root bridge package depends on `ix-cli-kit`, from its authoritative Git source with the selection in Cargo.lock; the model has no kit dependency, and no kit implementation or alternative argv grammar is copied into the repository. | Inspection |
-| FR-020-AC-19 | Adoption leaves all published conformance inputs, expectations, schemas and canonical files unchanged; process tests retain the closed argv rejection cases, exact version line, byte-identical repeated corpus output and complete mismatch payload behavior. | Test |
+| FR-020-AC-19 | Adoption leaves all published conformance inputs, expectations, schemas and canonical files unchanged; process tests retain the closed argv rejection cases, exact version line, byte-identical repeated corpus output and complete mismatch payload behavior. | Inspection, Test |
 
 ## Dependencies
 
 FR-018 defines corpus content. FR-028 preserves the cycle-free model boundary.
 `ix://agent-ix/ix-cli-kit/FR-017` owns caller-exit pass-through and reserved-status
-handling. `ix://agent-ix/ix-cli-kit/FR-006` owns compact JSON writing. The kit's
-stream helper supplies primary-byte delivery; IR retains its existing protocol,
+handling. `ix://agent-ix/ix-cli-kit/FR-006` owns compact JSON writing.
+`ix://agent-ix/ix-cli-kit/FR-003` owns stream discipline and the
+`streams::write_primary_stdout` helper for primary-byte delivery. IR retains its existing protocol,
 argument parser and operational classifications.
