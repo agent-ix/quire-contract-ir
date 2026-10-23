@@ -348,7 +348,7 @@ fn shared_closure_body_walks_scale_with_nodes_not_requests() {
                     "stage": "after_retained_facts_and_lower",
                     "K": roots,
                     "R": shared,
-                    "admission_body_validations": admission_walks,
+                    "lowering_fact_scan_body_validations": admission_walks,
                     "additional_lower_body_validations": walks - admission_walks,
                     "shared_closure_builds": closure_builds,
                     "lower_elapsed_ns": lower_elapsed_ns.to_string(),
