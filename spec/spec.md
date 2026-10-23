@@ -58,6 +58,14 @@ tools emit native structured results.
 
 ## Requirements Architecture
 
+[FR-056](core/functional/FR-056-consume-authoritative-string-edge-scan.md)
+defines planned consumption of the authoritative external string-edge scanner,
+with [TC-460](core/matrix/TC-460-string-edge-consumer-gate.md) controlling
+post-intake wire dispatch, genuine neutral markers, open-key handling and gate
+failure propagation. Its actual-source clean-scan criterion remains unqualified
+until the owning migrations resolve all reported occurrences; it does not claim
+AD-004 Q-6 globally.
+
 StR-001 through StR-003, FR-011 through FR-020, FR-023 and FR-028, alongside
 NFR-001 through NFR-003, define the semantic substrate.
 [TC-456](core/matrix/TC-456-public-name-portability.md) guards the public-name
