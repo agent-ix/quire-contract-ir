@@ -236,6 +236,15 @@ fn timed_model_rebuilt_semantic_defects_keep_paired_causes() {
             _ => unreachable!("test case list is closed"),
         }
         fixture_support::mint_ungrouped_structural_keys(&mut wire);
+        for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
+            node["dependencies"]
+                .as_array_mut()
+                .unwrap()
+                .sort_by(|left, right| {
+                    (left["domain"].as_str(), left["digest"].as_str())
+                        .cmp(&(right["domain"].as_str(), right["digest"].as_str()))
+                });
+        }
         fixture_support::refresh_identity(&mut wire);
         let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
             panic!("{change} must refuse");
