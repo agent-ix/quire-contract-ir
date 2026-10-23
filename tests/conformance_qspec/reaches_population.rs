@@ -169,18 +169,6 @@ fn candidate(base: &Value, case: &Value) -> Value {
         let new = canonical_digest(&union_value_preimage(node));
         rewrite_digest(&mut package, &old, &new);
     }
-    package["identity_preimage"]["identity_projection"] = Value::Array(
-        package["semantic_graph"]["nodes"]
-            .as_array()
-            .expect("nodes")
-            .iter()
-            .cloned()
-            .map(|mut node| {
-                node.as_object_mut().expect("node").remove("occurrences");
-                node
-            })
-            .collect(),
-    );
     package["package_id"]["digest"] =
         json!(derived_with(&package, None).expect("package identity"));
     package

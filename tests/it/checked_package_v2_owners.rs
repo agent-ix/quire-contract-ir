@@ -555,21 +555,6 @@ fn tc_229_population_reference_requires_owner_and_selected_population() {
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
 
-    let mut ownerless_projection = base.clone();
-    ownerless_projection["identity_preimage"]["identity_projection"][position]
-        .as_object_mut()
-        .unwrap()
-        .remove("owner");
-    ownerless_projection["package_id"]["digest"] = json!(sha256_hex(&canonical(
-        &ownerless_projection["identity_preimage"]
-    )));
-    let CheckedPackageV2ReadResult::Refused(refusal) =
-        read_with_model(&ownerless_projection, &document)
-    else {
-        panic!("ownerless population projection must refuse");
-    };
-    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
-
     let mut wrong_shape = base.clone();
     wrong_shape["semantic_graph"]["nodes"][position]["body"] = json!({
         "term":"aggregate","members":[{"term":"binding","name":"max",
@@ -1167,12 +1152,13 @@ fn tc_228_declared_record_tuple_and_function_carry_their_source_owner() {
             .expect("nodes")
             .last()
             .expect("record");
-        let projection = package["identity_preimage"]["identity_projection"]
-            .as_array()
-            .expect("projection")
-            .last()
-            .expect("record projection");
-        assert_eq!(node["owner"], projection["owner"]);
+        assert_eq!(
+            node["owner"],
+            json!({
+                "kind": "source", "authority": package["lock"]["sources"][0]["authority"],
+                "identity": package["lock"]["sources"][0]["identity"],
+            })
+        );
         assert!(matches!(
             read(&package),
             CheckedPackageV2ReadResult::Admitted(_)
@@ -1187,9 +1173,6 @@ fn tc_228_anonymous_locus_nominal_and_application_nodes_are_owner_free() {
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes");
-    let projection = package["identity_preimage"]["identity_projection"]
-        .as_array()
-        .expect("projection");
     for (name, find) in [
         ("anonymous type", ("scalar_type", "boolean")),
         ("source locus", ("correspondence", "source_locus")),
@@ -1199,27 +1182,21 @@ fn tc_228_anonymous_locus_nominal_and_application_nodes_are_owner_free() {
             .position(|node| node["node_tag"] == find.0 && node["semantic_form"] == find.1)
             .expect(name);
         assert!(nodes[position].get("owner").is_none(), "{name}");
-        assert!(projection[position].get("owner").is_none(), "{name}");
     }
     let nominal_package = v2_nominal();
     let nominal_nodes = nominal_package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nominal nodes");
-    let nominal_projection = nominal_package["identity_preimage"]["identity_projection"]
-        .as_array()
-        .expect("nominal projection");
     let nominal = nominal_nodes
         .iter()
         .position(|node| node.get("nominal_identity_preimage").is_some())
         .expect("nominal node");
     assert!(nominal_nodes[nominal].get("owner").is_none());
-    assert!(nominal_projection[nominal].get("owner").is_none());
     let application = nodes
         .iter()
         .position(|node| node["body"]["term"] == "application")
         .expect("application-keyed node");
     assert!(nodes[application].get("owner").is_none());
-    assert!(projection[application].get("owner").is_none());
     assert!(matches!(
         read(&package),
         CheckedPackageV2ReadResult::Admitted(_)
@@ -1240,7 +1217,6 @@ fn tc_228_required_and_forbidden_owner_shapes_refuse_before_identity() {
         .len()
         - 1;
     let node_path = format!("/semantic_graph/nodes/{position}");
-    let projection_path = format!("/identity_preimage/identity_projection/{position}");
 
     let mut missing_node = base.clone();
     missing_node["semantic_graph"]["nodes"][position]
@@ -1251,17 +1227,6 @@ fn tc_228_required_and_forbidden_owner_shapes_refuse_before_identity() {
         &missing_node,
         CheckedPackageRefusalCode::MalformedWire,
         &node_path,
-    );
-
-    let mut missing_projection = base.clone();
-    missing_projection["identity_preimage"]["identity_projection"][position]
-        .as_object_mut()
-        .expect("projection")
-        .remove("owner");
-    refused(
-        &missing_projection,
-        CheckedPackageRefusalCode::MalformedWire,
-        &projection_path,
     );
 
     let mut null_owner = base.clone();
@@ -1289,65 +1254,19 @@ fn tc_228_required_and_forbidden_owner_shapes_refuse_before_identity() {
         CheckedPackageRefusalCode::MalformedWire,
         "/semantic_graph/nodes/0/owner",
     );
-
-    let mut forbidden_projection = base.clone();
-    forbidden_projection["identity_preimage"]["identity_projection"][0]["owner"] =
-        json!({"kind": "source", "authority": "test", "identity": "test"});
-    refused(
-        &forbidden_projection,
-        CheckedPackageRefusalCode::MalformedWire,
-        "/identity_preimage/identity_projection/0/owner",
-    );
-
-    let mut different = base;
-    different["identity_preimage"]["identity_projection"][position]["owner"]["identity"] =
-        json!("other");
-    refresh_package_id(&mut different);
-    let CheckedPackageV2ReadResult::Refused(refusal) = read(&different) else {
-        panic!("different projection source owner must refuse");
-    };
-    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
-    assert_eq!(
-        refusal.cause,
-        Some(CheckedPackageRefusalCause::InvalidValue)
-    );
-    assert_eq!(
-        refusal.path.expect("path").as_str(),
-        format!("{projection_path}/owner")
-    );
 }
 
-fn refresh_package_id(package: &mut Value) {
-    package["package_id"]["digest"] = json!(crate::support::checked_package::sha256_hex(
-        &canonical(&package["identity_preimage"])
-    ));
-}
-
-#[trace("TC-228", "FR-038-AC-154")]
+#[trace("TC-228", "FR-038-AC-310")]
 #[test]
-fn tc_228_projection_model_owner_difference_refuses_at_owner_before_join() {
+fn tc_228_shipped_model_owner_projection_refuses_before_join() {
     let mut package = v2_all_families();
-    let position = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .position(|node| node["node_tag"] == "relation" && node["semantic_form"] == "relationship")
-        .expect("relationship node");
-    package["identity_preimage"]["identity_projection"][position]["owner"]["node"] =
-        json!("ix://acme/orders/Order");
-    refresh_package_id(&mut package);
-
-    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
-        panic!("different projection model owner must refuse");
-    };
-    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
-    assert_eq!(
-        refusal.cause,
-        Some(CheckedPackageRefusalCause::InvalidValue)
-    );
-    assert_eq!(
-        refusal.path.expect("path").as_str(),
-        format!("/identity_preimage/identity_projection/{position}/owner")
+    package["identity_preimage"]["identity_projection"] = json!([{
+        "owner": {"kind":"model", "identity":"unselected", "node":"absent"}
+    }]);
+    refused(
+        &package,
+        CheckedPackageRefusalCode::MalformedWire,
+        "/identity_preimage/identity_projection",
     );
 }
 
@@ -1812,43 +1731,21 @@ fn tc_228_owner_defects_use_digest_order_ahead_of_a_lower_stale_key() {
 
 #[trace("TC-228", "FR-038-AC-154")]
 #[test]
-fn tc_228_model_owner_is_closed_and_required_in_both_wire_positions() {
+fn tc_228_model_owner_is_closed_and_required_on_the_graph_node() {
     let (base, _) = model_package();
-    let position = base["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .len()
-        - 1;
-    for projection in [false, true] {
-        let prefix = if projection {
-            "/identity_preimage/identity_projection"
-        } else {
-            "/semantic_graph/nodes"
-        };
-        let mut absent = base.clone();
-        let node = if projection {
-            &mut absent["identity_preimage"]["identity_projection"][position]
-        } else {
-            &mut absent["semantic_graph"]["nodes"][position]
-        };
-        node.as_object_mut().expect("node").remove("owner");
-        refused(
-            &absent,
-            CheckedPackageRefusalCode::MalformedWire,
-            &format!("{prefix}/{position}"),
-        );
-
-        let mut versioned = base.clone();
-        let owner = if projection {
-            &mut versioned["identity_preimage"]["identity_projection"][position]["owner"]
-        } else {
-            &mut versioned["semantic_graph"]["nodes"][position]["owner"]
-        };
-        owner["version"] = json!("1.0.0");
-        refused(
-            &versioned,
-            CheckedPackageRefusalCode::MalformedWire,
-            &format!("{prefix}/{position}/owner"),
-        );
-    }
+    let position = base["semantic_graph"]["nodes"].as_array().unwrap().len() - 1;
+    let prefix = format!("/semantic_graph/nodes/{position}");
+    let mut absent = base.clone();
+    absent["semantic_graph"]["nodes"][position]
+        .as_object_mut()
+        .unwrap()
+        .remove("owner");
+    refused(&absent, CheckedPackageRefusalCode::MalformedWire, &prefix);
+    let mut versioned = base;
+    versioned["semantic_graph"]["nodes"][position]["owner"]["version"] = json!("1.0.0");
+    refused(
+        &versioned,
+        CheckedPackageRefusalCode::MalformedWire,
+        &format!("{prefix}/owner"),
+    );
 }

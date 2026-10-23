@@ -273,8 +273,9 @@ fn tc_048_lock_and_identity_preimage_dependency_selections_must_match() {
     ] {
         let mut mismatched = package.clone();
         mismatched["identity_preimage"]["dependency_selections"] = Value::Array(preimage_entries);
-        mismatched["package_id"]["digest"] =
-            json!(sha256_hex(&canonical(&mismatched["identity_preimage"])));
+        mismatched["package_id"]["digest"] = json!(sha256_hex(&canonical(
+            &crate::support::checked_package::identity_input(&mismatched)
+        )));
         let refusal = refused(&mismatched);
         assert_eq!(
             refusal.code,

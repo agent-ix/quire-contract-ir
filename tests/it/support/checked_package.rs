@@ -188,22 +188,31 @@ pub fn v2_reference_chain(length: usize) -> (Vec<u8>, String) {
             .push(json!(text));
     };
     marker(&mut package, "/semantic_graph/nodes", NODES);
-    marker(
-        &mut package,
-        "/identity_preimage/identity_projection",
-        PROJECTION,
+    let mut hash_input = package["identity_preimage"].clone();
+    hash_input["identity_projection"] = Value::Array(
+        package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .filter(|node| node.is_object())
+            .map(|node| {
+                let mut node = node.clone();
+                node.as_object_mut().expect("node").remove("occurrences");
+                node
+            })
+            .collect(),
     );
+    marker(&mut hash_input, "/identity_projection", PROJECTION);
     marker(&mut package, "/source_map", SOURCE_MAP);
     let splice = |text: String, marker: &str, entries: &[String]| {
         let quoted = serde_json::to_string(marker).expect("marker");
         text.replace(&quoted, &entries.join(","))
     };
-    let preimage = String::from_utf8(canonical(&package["identity_preimage"])).expect("utf-8");
+    let preimage = String::from_utf8(canonical(&hash_input)).expect("utf-8");
     let preimage = splice(preimage, PROJECTION, &projection);
     package["package_id"]["digest"] = json!(sha256_hex(preimage.as_bytes()));
     let text = String::from_utf8(canonical(&package)).expect("utf-8");
     let text = splice(text, NODES, &nodes);
-    let text = splice(text, PROJECTION, &projection);
     let text = splice(text, SOURCE_MAP, &source_map);
     (text.into_bytes(), previous)
 }
@@ -342,6 +351,24 @@ pub fn read_with_dependencies(
     )
 }
 
+/// Independent logical hash input; this derived value is never shipped.
+pub fn identity_input(package: &Value) -> Value {
+    let mut input = package["identity_preimage"].clone();
+    input["identity_projection"] = Value::Array(
+        package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .map(|node| {
+                let mut node = node.clone();
+                node.as_object_mut().expect("node").remove("occurrences");
+                node
+            })
+            .collect(),
+    );
+    input
+}
+
 /// Rebuilds the identity projection from the graph and re-derives the package id.
 pub fn refresh_identity(package: &mut Value) {
     let projection = package["semantic_graph"]["nodes"]
@@ -356,7 +383,7 @@ pub fn refresh_identity(package: &mut Value) {
             node
         })
         .collect::<Vec<_>>();
-    package["identity_preimage"]["identity_projection"] = Value::Array(projection);
+
     for key in [
         "edition",
         "profile_selections",
@@ -367,7 +394,9 @@ pub fn refresh_identity(package: &mut Value) {
     ] {
         package["identity_preimage"][key] = package["lock"][key].clone();
     }
-    package["package_id"]["digest"] = json!(sha256_hex(&canonical(&package["identity_preimage"])));
+    let mut hash_input = package["identity_preimage"].clone();
+    hash_input["identity_projection"] = Value::Array(projection);
+    package["package_id"]["digest"] = json!(sha256_hex(&canonical(&hash_input)));
 }
 
 /// Nesting depth counted the way the reader charges it (scalars are one).
@@ -1717,7 +1746,7 @@ fn source_map_for(nodes: &[Value], source: &Value) -> Value {
 /// A structurally valid but not-yet-derived `identity_preimage`/`package_id`
 /// pair: every member [`refresh_identity`] does not itself overwrite
 /// (`version`, `domain`, `algorithm`) is set to its real closed-schema value
-/// here; every member it does overwrite (`identity_projection` and the six
+/// here; every member it does overwrite (the six
 /// lock-mirrored fields, plus `package_id.digest`) is a placeholder,
 /// replaced by the `refresh_identity(&mut package)` call every builder below
 /// makes as its last step.
@@ -1730,7 +1759,6 @@ fn placeholder_identity_preimage() -> Value {
         "model_selections": Value::Array(Vec::new()),
         "required_features": Value::Array(Vec::new()),
         "dependency_selections": Value::Array(Vec::new()),
-        "identity_projection": Value::Array(Vec::new()),
     })
 }
 

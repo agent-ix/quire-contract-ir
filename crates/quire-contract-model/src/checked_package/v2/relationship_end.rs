@@ -371,11 +371,16 @@ pub(super) mod tests {
             "model_selections": model_selections, "required_features": [],
             "dependency_selections": [], "identity_projection": projection,
         });
+        let mut wire_selection = preimage.clone();
+        wire_selection
+            .as_object_mut()
+            .expect("selection")
+            .remove("identity_projection");
         let wire = json!({
             "contract_version": "quire.checked-package/v2",
             "package_id": {"domain": "quire.package.semantic/v2", "algorithm": "sha256",
                 "digest": digest_of(&preimage)},
-            "identity_preimage": preimage,
+            "identity_preimage": wire_selection,
             "lock": {"sources": [source], "edition": edition, "profile_selections": [],
                 "definition_selections": [], "model_selections": model_selections,
                 "required_features": [], "dependency_selections": []},

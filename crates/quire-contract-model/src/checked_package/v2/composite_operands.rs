@@ -1227,7 +1227,7 @@ mod tests {
             "contract_version":"quire.checked-package/v2",
             "identity_preimage":{"version":"quire.checked-package-id/v2",
                 "edition":{"role":"edition","definition":{"authority":"test","identity":"edition"}},
-                "profile_selections":[],"definition_selections":[],"model_selections":[],"required_features":[],"dependency_selections":[],"identity_projection":[]},
+                "profile_selections":[],"definition_selections":[],"model_selections":[],"required_features":[],"dependency_selections":[]},
             "package_id":{"domain":"quire.package.semantic/v2","algorithm":"sha256","digest":"a".repeat(64)},
             "lock":{"sources":[],"edition":{"role":"edition","definition":{"authority":"test","identity":"edition"}},
                 "profile_selections":[],"definition_selections":[],"model_selections":[],"required_features":[],"dependency_selections":[]},
@@ -1273,8 +1273,9 @@ mod tests {
                 "regions":[{"source":source,"start":position,"end":position+1}]})).collect::<Vec<_>>());
             let mut projection = wire["semantic_graph"]["nodes"].as_array().expect("nodes").clone();
             for node in &mut projection { node.as_object_mut().expect("node").remove("occurrences"); }
-            wire["identity_preimage"]["identity_projection"] = json!(projection);
-            wire["package_id"]["digest"] = json!(quire_canonical::sha256(&wire["identity_preimage"],quire_canonical::Limits::new(1<<20)).expect("package key").to_string());
+            let mut hash_input = wire["identity_preimage"].clone();
+            hash_input["identity_projection"] = json!(projection);
+            wire["package_id"]["digest"] = json!(quire_canonical::sha256(&hash_input,quire_canonical::Limits::new(1<<20)).expect("package key").to_string());
             (wire,ids)
         })
     }

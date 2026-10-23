@@ -154,6 +154,48 @@ fn read_with_limits(bytes: &[u8], limits: CheckedPackageReadLimits) -> ContractP
     ContractPackageWireV1::read(bytes, limits, &ContractDependencies::new())
 }
 
+#[trace("TC-047", "FR-035-AC-22")]
+#[test]
+fn lowered_package_retains_typed_terms_by_admitted_node_key() {
+    let source = admit(&mixed_fixture());
+    let output = source.lower(&request(), &profile());
+    let producer = output.package.wire().expect("complete package");
+    let ContractPackageReadResult::Admitted(reader) = read(bytes(&output)) else {
+        panic!("canonical package must admit");
+    };
+    assert_eq!(reader.wire(), producer.wire());
+
+    let mut typed_terms = 0;
+    for node in &producer.wire().semantic_graph.nodes {
+        let key = &node.node_id;
+        let source_term = source.term(key);
+        assert_eq!(producer.term(key), source_term);
+        assert_eq!(reader.term(key), source_term);
+        assert_eq!(producer.node(key), Some(node));
+        assert_eq!(reader.node(key), Some(node));
+        if let Some(term) = source_term {
+            typed_terms += 1;
+            assert_eq!(serde_json::to_value(term).expect("term json"), node.body);
+        }
+    }
+    assert!(typed_terms > 0, "fixture must exercise typed terms");
+    for unrepresented in [id("1010"), id("7070")] {
+        assert!(source
+            .graph()
+            .nodes
+            .iter()
+            .any(|node| node.node_id == unrepresented));
+        assert_eq!(producer.term(&unrepresented), None);
+        assert_eq!(reader.term(&unrepresented), None);
+        assert_eq!(producer.node(&unrepresented), None);
+        assert_eq!(reader.node(&unrepresented), None);
+    }
+    assert_eq!(producer.term(&missing()), None);
+    assert_eq!(reader.term(&missing()), None);
+    assert_eq!(producer.node(&missing()), None);
+    assert_eq!(reader.node(&missing()), None);
+}
+
 #[trace("TC-047", "FR-035-AC-12")]
 #[test]
 fn reader_refuses_each_missing_required_top_level_member() {

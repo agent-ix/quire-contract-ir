@@ -229,14 +229,6 @@ impl ContractPackageV1 {
         }
     }
 
-    fn node(&self, key: &CheckedNodeId) -> Option<&CheckedSemanticNodeV2> {
-        self.wire
-            .semantic_graph
-            .nodes
-            .iter()
-            .find(|node| &node.node_id == key)
-    }
-
     pub(super) fn sources(&self, key: &CheckedNodeId) -> Option<&[CheckedSourceMapEntry]> {
         self.wire
             .source_map
