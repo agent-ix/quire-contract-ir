@@ -268,6 +268,15 @@ mod tests {
     use ix_trace_rs::trace;
     use serde_json::json;
 
+    #[trace("TC-048")]
+    #[test]
+    fn checked_term_conversion_causes_distinguish_invalid_inputs() {
+        let missing = CheckedTerm::decode_admitted(&json!({})).expect_err("missing term");
+        let unknown = CheckedTerm::decode_admitted(&json!({"term":"not_a_term"}))
+            .expect_err("unknown term");
+        assert_ne!(missing, unknown, "missing and unknown term causes differ");
+    }
+
     #[trace("FR-349-AC-1")]
     #[test]
     fn checked_term_variants_round_trip_the_closed_wire_arms() {
