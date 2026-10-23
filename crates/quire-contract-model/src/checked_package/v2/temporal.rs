@@ -35,8 +35,8 @@ use super::structural::reference_target;
 use super::{
     member_pointer, ApplicationOperator, BodyTerm, CheckedDiagnosticV2, CheckedNodeKind,
     CheckedPackageLockV2, CheckedSelectionRole, CheckedSemanticNodeV2, FairnessGranularity,
-    FairnessKind, IntervalEnd, IntervalFit, LawRole, ModelForm, OperationMemberKind, TemporalForm,
-    TemporalProfile, ValueForm, WorkMeter,
+    FairnessKind, HybridForm, IntervalEnd, IntervalFit, LawRole, ModelForm, OperationMemberKind,
+    TemporalForm, TemporalProfile, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{
     application_operator, body_term, node_pointer, ValidationFailure,
@@ -223,7 +223,7 @@ pub(in crate::checked_package) enum Interval {
     /// `{lower, upper, lower_end, upper_end}`: the timed form.
     Timed {
         lower: Rational,
-        upper: Rational,
+        upper: Option<Rational>,
         lower_end: IntervalEnd,
         upper_end: IntervalEnd,
     },
@@ -287,7 +287,10 @@ fn read_interval_member(member: &Value) -> Option<Interval> {
         }
         IntervalForm::Timed => Some(Interval::Timed {
             lower: Rational::read(interval.get("lower")?)?,
-            upper: Rational::read(interval.get("upper")?)?,
+            upper: match interval.get("upper")? {
+                Value::Null => None,
+                value => Some(Rational::read(value)?),
+            },
             lower_end: IntervalEnd::from_wire(interval.get("lower_end")?.as_str()?)?,
             upper_end: IntervalEnd::from_wire(interval.get("upper_end")?.as_str()?)?,
         }),
@@ -327,6 +330,9 @@ pub(super) fn interval_bound_outside_pattern(operation: &Value) -> Option<&'stat
             return false;
         };
         if timed {
+            if *bound == "upper" && value.is_null() {
+                return false;
+            }
             return Rational::read(value).is_none();
         }
         if *bound == "upper" && value.is_null() {
@@ -702,10 +708,15 @@ fn check_bounds(
             upper,
             lower_end,
             upper_end,
-        } => match lower.compare(upper, meter, &at_body)? {
-            Ordering::Greater => true,
-            Ordering::Equal => *lower_end == IntervalEnd::Open || *upper_end == IntervalEnd::Open,
-            Ordering::Less => false,
+        } => match upper {
+            Some(upper) => match lower.compare(upper, meter, &at_body)? {
+                Ordering::Greater => true,
+                Ordering::Equal => {
+                    *lower_end == IntervalEnd::Open || *upper_end == IntervalEnd::Open
+                }
+                Ordering::Less => false,
+            },
+            None => *upper_end != IntervalEnd::Open,
         },
     };
     if defective {
@@ -758,6 +769,18 @@ fn check_clause(
     let at_node = node_pointer(position);
     let at_body = at_node.clone().key("body");
     let arguments: Vec<&Value> = terms(&node.body, "arguments").collect();
+    let hybrid_claim = arguments
+        .first()
+        .copied()
+        .and_then(reference_target)
+        .is_some_and(|over| {
+            graph.node(&over).is_some_and(|(parameter, kind)| {
+                kind == CheckedNodeKind::Value(ValueForm::Parameter)
+                    && graph
+                        .node(&parameter.semantic_type)
+                        .is_some_and(|(_, kind)| kind == CheckedNodeKind::Hybrid(HybridForm::Model))
+            })
+        });
 
     // The profile identity, first: it decides the interval fit. Only a clause
     // whose `laws` is exactly one `temporal_profile` law has a profile to
@@ -826,6 +849,9 @@ fn check_clause(
         let Some((fair, member)) = fairness_member(reference, graph) else {
             continue;
         };
+        if hybrid_claim {
+            continue;
+        }
         if let Err(failure) = resolve_fairness(&member, graph, meter)? {
             return Err(ValidationFailure::refused_at(
                 failure.refusal.code,
@@ -850,7 +876,9 @@ fn check_clause(
     if let Some(profile) = profile {
         let fit = profile.interval_fit();
         for (formula, interval) in &intervals {
-            if !interval_fits(fit, interval) {
+            if !interval_fits(fit, interval)
+                || matches!(interval, Interval::Timed { upper: None, .. }) && !hybrid_claim
+            {
                 return Err(ValidationFailure::refused_at(
                     CheckedPackageRefusalCode::InvalidPackage,
                     node_pointer(*formula).key("body"),

@@ -70,6 +70,14 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
                 crate::checked_package::common::node_pointer(position).key("semantic_form"),
             ));
         }
+        if node.node_tag.as_ref() == "hybrid"
+            && super::HybridForm::from_wire(&node.semantic_form).is_none()
+        {
+            return Err(ValidationFailure::refused(
+                CheckedPackageRefusalCode::MalformedWire,
+                crate::checked_package::common::node_pointer(position).key("semantic_form"),
+            ));
+        }
         let kind = super::decode_node_kind(node, |member| {
             crate::checked_package::common::node_pointer(position).key(member)
         })?;
@@ -106,6 +114,12 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
             // term of the closed grammar, placed by the abstraction step.
             BodyGrammar::Frame => scan_members(&node.body, &at).map(|_| ()),
             BodyGrammar::Term => check_term(&node.body, &at, Place::BodyRoot, false),
+            BodyGrammar::Hybrid => {
+                let super::CheckedNodeKind::Hybrid(form) = kind else {
+                    unreachable!("hybrid grammar is selected only for hybrid nodes")
+                };
+                super::hybrid::check_wire(node, form, position)
+            }
             BodyGrammar::AbstractionRelation => {
                 if body_term(&node.body) == Some(BodyTerm::Application) {
                     check_term(&node.body, &at, Place::BodyRoot, false)
@@ -146,7 +160,7 @@ fn check_interval_bounds(wire: &CheckedPackageWireV2) -> Result<(), ValidationFa
         };
         if matches!(
             body_grammar(kind),
-            BodyGrammar::Frame | BodyGrammar::Extension
+            BodyGrammar::Frame | BodyGrammar::Extension | BodyGrammar::Hybrid
         ) || body_term(&node.body) != Some(BodyTerm::Application)
         {
             continue;

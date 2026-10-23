@@ -134,6 +134,7 @@ impl Graph<'_> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum StructuralForm {
     Extension,
+    Hybrid,
     Parameter,
     CompoundUnit,
     Frame,
@@ -157,7 +158,7 @@ impl StructuralForm {
             Self::StateClause => Some(CheckedOccurrenceRole::Claim),
             Self::AbstractionRelation => Some(CheckedOccurrenceRole::Declaration),
             Self::ProtocolReference => Some(CheckedOccurrenceRole::Expression),
-            Self::CompoundUnit | Self::UnionType | Self::UnionValue => None,
+            Self::Hybrid | Self::CompoundUnit | Self::UnionType | Self::UnionValue => None,
         }
     }
 
@@ -167,6 +168,7 @@ impl StructuralForm {
         use CheckedNodeKind as K;
         match kind {
             K::Extension(_) => Some(Self::Extension),
+            K::Hybrid(_) => Some(Self::Hybrid),
             K::Value(ValueForm::Parameter) => Some(Self::Parameter),
             K::ScalarType(ScalarTypeForm::CompoundUnit) => Some(Self::CompoundUnit),
             K::ScalarType(
@@ -369,6 +371,38 @@ pub(super) fn validate_structural_nodes(
                     None
                 }
             }
+            Some(StructuralForm::Hybrid) => {
+                let Some(term) = term else {
+                    return Err(ValidationFailure::refused(
+                        CheckedPackageRefusalCode::MalformedWire,
+                        node_pointer(position).key("body"),
+                    ));
+                };
+                let mut pending = vec![term];
+                let mut targets = BTreeSet::new();
+                while let Some(next) = pending.pop() {
+                    match next {
+                        super::CheckedTerm::Reference { target } => {
+                            targets.insert(target);
+                        }
+                        super::CheckedTerm::Aggregate { members } => pending.extend(members),
+                        super::CheckedTerm::Binding { value, .. } => pending.push(value),
+                        super::CheckedTerm::Literal { .. } => {}
+                        _ => return Err(refuse(Defect::Body)),
+                    }
+                }
+                if node.semantic_type != node.node_id {
+                    Some(Defect::SemanticType)
+                } else if node.recursion_group.is_some() {
+                    Some(Defect::RecursionGroup)
+                } else if node.nominal_identity_preimage.is_some() {
+                    Some(Defect::NominalIdentityPreimage)
+                } else if !node.dependencies.iter().eq(targets) {
+                    Some(Defect::Dependencies)
+                } else {
+                    None
+                }
+            }
             Some(StructuralForm::Parameter) => parameter_defect(node, term, &graph),
             Some(StructuralForm::CompoundUnit) => compound_unit_defect(node, term, &graph),
             Some(StructuralForm::OperationAnchor) => term
@@ -444,6 +478,7 @@ fn parameter_defect(
             .is_some_and(|(type_node, kind)| {
                 // A binder may also be typed at a selected model value declaration.
                 kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
+                    || kind == CheckedNodeKind::Hybrid(super::HybridForm::Model)
                     || (kind == CheckedNodeKind::Model(ModelForm::VariantType)
                         && matches!(
                             type_node.owner.as_ref(),

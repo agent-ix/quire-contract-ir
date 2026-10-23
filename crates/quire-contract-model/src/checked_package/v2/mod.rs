@@ -19,6 +19,7 @@ pub(in crate::checked_package) mod encode;
 mod extension;
 mod flat_wire;
 mod frame;
+mod hybrid;
 mod identity;
 mod intake;
 mod lossless;
@@ -1572,6 +1573,8 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
     use CheckedNodeKind as K;
     match kind {
         K::Extension(_) => false,
+        K::Hybrid(HybridForm::Model | HybridForm::Mode) => false,
+        K::Hybrid(HybridForm::Transition) => true,
         K::ScalarType(
             ScalarTypeForm::Boolean
             | ScalarTypeForm::Integer
@@ -1746,7 +1749,9 @@ fn validate_body(
         BodyGrammar::AbstractionRelation => abstraction::scan_body(body, at, visit),
         // `body` is the node's own top-level term, never a nested one, so
         // this is the one call in the module that reports `is_body_root: true`.
-        BodyGrammar::Term => validate_term(body, TermGrammar::V2, true, at, visit),
+        BodyGrammar::Term | BodyGrammar::Hybrid => {
+            validate_term(body, TermGrammar::V2, true, at, visit)
+        }
     }
 }
 
@@ -1765,6 +1770,8 @@ enum BodyGrammar {
     Frame,
     /// The abstraction relation body of FR-346.
     AbstractionRelation,
+    /// The closed nested hybrid model, mode or transition shape.
+    Hybrid,
 }
 
 /// Exactly one kind has each of the three flat grammars. Every form is listed,
@@ -1773,6 +1780,7 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
     use CheckedNodeKind as K;
     match kind {
         K::Extension(_) => BodyGrammar::Extension,
+        K::Hybrid(_) => BodyGrammar::Hybrid,
         K::ScalarType(
             ScalarTypeForm::Boolean
             | ScalarTypeForm::Integer
@@ -2179,15 +2187,17 @@ fn validate_graph(
                 frames.push((&node.node_id, position, body));
                 work
             }
-            BodyGrammar::Term | BodyGrammar::AbstractionRelation => validate_body(
-                kind,
-                &node.body,
-                &Trail::Base(&body_steps),
-                &mut |target, site, _target_at| {
-                    targets.push((target.clone(), site));
-                },
-            )
-            .map_err(|failure| with_node_locus(failure, &node.node_id))?,
+            BodyGrammar::Term | BodyGrammar::Hybrid | BodyGrammar::AbstractionRelation => {
+                validate_body(
+                    kind,
+                    &node.body,
+                    &Trail::Base(&body_steps),
+                    &mut |target, site, _target_at| {
+                        targets.push((target.clone(), site));
+                    },
+                )
+                .map_err(|failure| with_node_locus(failure, &node.node_id))?
+            }
         };
         meter.charge(work, || at("body"))?;
         body_terms.push(work);
@@ -2253,7 +2263,6 @@ fn validate_graph(
         limits.bytes,
     )?;
     validate_declaration_names(&graph.nodes, &index)?;
-    validate_protocol_references(&graph.nodes, &kinds, &index)?;
     // FR-038 "The timed interval form" stage 2: the last graph check of the
     // nodes before the frame step.
     validate_timed_bounds_reduced(&graph.nodes, &index, meter)?;
@@ -2278,6 +2287,9 @@ fn validate_graph(
         meter,
     )?;
     abstraction::validate_abstraction(&graph.nodes, &kinds, &index, &owners, limits.bytes, meter)?;
+    hybrid::validate_models(&graph.nodes, &kinds, &index, meter)?;
+    hybrid::validate_claims(&graph.nodes, &kinds, &index, meter)?;
+    validate_protocol_references(&graph.nodes, &kinds, &index)?;
     validate_operations(
         &graph.nodes,
         &kinds,
@@ -2390,7 +2402,7 @@ fn validate_graph(
 }
 
 /// Joins the already keyed protocol-reference carriers to this graph alone.
-/// This declaration-stage check precedes frame and operation validation.
+/// This protocol check follows the hybrid step and precedes operation validation.
 fn validate_protocol_references(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],

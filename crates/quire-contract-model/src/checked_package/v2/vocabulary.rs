@@ -112,6 +112,7 @@ closed_vocabulary! {
         Claim => "claim",
         Correspondence => "correspondence",
         Extension => "extension",
+        Hybrid => "hybrid",
     }
 }
 
@@ -558,6 +559,15 @@ closed_vocabulary! {
     }
 }
 
+closed_vocabulary! {
+    /// The closed checked hybrid-model forms.
+    pub HybridForm {
+        Model => "hybrid_model",
+        Mode => "hybrid_mode",
+        Transition => "hybrid_transition",
+    }
+}
+
 /// A node's family together with its form, decoded once at intake. The
 /// family fixes which form vocabulary applies, so a form of the wrong family
 /// is unrepresentable.
@@ -565,6 +575,8 @@ closed_vocabulary! {
 pub enum CheckedNodeKind {
     /// An extension declaration form.
     Extension(ExtensionForm),
+    /// A checked hybrid model, mode or transition.
+    Hybrid(HybridForm),
     /// A `scalar_type` node.
     ScalarType(ScalarTypeForm),
     /// A `composite_type` node.
@@ -600,6 +612,7 @@ impl CheckedNodeKind {
     pub fn decode(tag: CheckedNodeTag, form: &str) -> Option<Self> {
         match tag {
             CheckedNodeTag::Extension => ExtensionForm::from_wire(form).map(Self::Extension),
+            CheckedNodeTag::Hybrid => HybridForm::from_wire(form).map(Self::Hybrid),
             CheckedNodeTag::ScalarType => ScalarTypeForm::from_wire(form).map(Self::ScalarType),
             CheckedNodeTag::CompositeType => {
                 CompositeTypeForm::from_wire(form).map(Self::CompositeType)
@@ -626,6 +639,7 @@ impl CheckedNodeKind {
     pub const fn tag(self) -> CheckedNodeTag {
         match self {
             Self::Extension(_) => CheckedNodeTag::Extension,
+            Self::Hybrid(_) => CheckedNodeTag::Hybrid,
             Self::ScalarType(_) => CheckedNodeTag::ScalarType,
             Self::CompositeType(_) => CheckedNodeTag::CompositeType,
             Self::BoundedDomain(_) => CheckedNodeTag::BoundedDomain,
@@ -646,6 +660,7 @@ impl CheckedNodeKind {
     pub const fn form_wire(self) -> &'static str {
         match self {
             Self::Extension(form) => form.as_wire(),
+            Self::Hybrid(form) => form.as_wire(),
             Self::ScalarType(form) => form.as_wire(),
             Self::CompositeType(form) => form.as_wire(),
             Self::BoundedDomain(form) => form.as_wire(),
@@ -675,6 +690,9 @@ impl CheckedNodeKind {
                         .copied()
                         .map(Self::Extension)
                         .collect(),
+                    CheckedNodeTag::Hybrid => {
+                        HybridForm::ALL.iter().copied().map(Self::Hybrid).collect()
+                    }
                     CheckedNodeTag::ScalarType => ScalarTypeForm::ALL
                         .iter()
                         .copied()

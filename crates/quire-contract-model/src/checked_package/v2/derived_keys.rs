@@ -79,7 +79,8 @@ impl Shape {
                 | BoundedDomainForm::TextBounds
                 | BoundedDomainForm::ModelPopulation => None,
             },
-            CheckedNodeKind::Value(_)
+            CheckedNodeKind::Hybrid(_)
+            | CheckedNodeKind::Value(_)
             | CheckedNodeKind::Extension(_)
             | CheckedNodeKind::Expression(_)
             | CheckedNodeKind::Function(_)
