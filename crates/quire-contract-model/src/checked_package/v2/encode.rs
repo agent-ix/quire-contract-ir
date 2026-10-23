@@ -259,8 +259,33 @@ impl Encode for CheckedPackageIdentityPreimageV2 {
         member(writer, "model_selections", &self.model_selections)?;
         member(writer, "required_features", &self.required_features)?;
         member(writer, "dependency_selections", &self.dependency_selections)?;
-        elements(writer, "identity_projection", &self.identity_projection)?;
         writer.end_object()
+    }
+}
+
+/// The seven wire selections; graph nodes are only encoded under semantic_graph.
+#[derive(serde::Serialize, FixedShape)]
+pub(super) struct SelectionFields<'a> {
+    version: &'a str,
+    edition: &'a crate::checked_package::shared::CheckedSelection,
+    profile_selections: &'a [crate::checked_package::shared::CheckedSelection],
+    definition_selections: &'a [crate::checked_package::shared::CheckedArtifactRef],
+    model_selections: &'a [super::CheckedDomainPackageRef],
+    required_features: &'a [Box<str>],
+    dependency_selections: &'a [super::CheckedDependencySelection],
+}
+
+impl<'a> From<&CheckedPackageIdentityPreimageRefV2<'a>> for SelectionFields<'a> {
+    fn from(value: &CheckedPackageIdentityPreimageRefV2<'a>) -> Self {
+        Self {
+            version: value.version,
+            edition: value.edition,
+            profile_selections: value.profile_selections,
+            definition_selections: value.definition_selections,
+            model_selections: value.model_selections,
+            required_features: value.required_features,
+            dependency_selections: value.dependency_selections,
+        }
     }
 }
 

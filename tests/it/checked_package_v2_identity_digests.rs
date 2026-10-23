@@ -585,13 +585,12 @@ fn tc_048_the_checked_package_source_holds_no_encoder_of_its_own() {
     }
     // `serde_json::to_value` is left in exactly the places that do not reach a
     // digest, a key, a preimage or a term order: the first-difference pointer
-    // of the reader (`v2/mod.rs`: the lock and preimage mirrors, the projection
-    // comparison) and the literal-`type` comparison of an enum member body
+    // of the reader (`v2/mod.rs`: the lock and selection comparison) and the literal-`type` comparison of an enum member body
     // (`v2/identity.rs`). The lossless intake walks borrowed source slices
     // and typed serialization without constructing a Value tree.
     // Any other call, or another in those files, fails.
     let expected: [(&str, usize); 3] =
-        [("v2/mod.rs", 4), ("v2/intake.rs", 0), ("v2/identity.rs", 1)];
+        [("v2/mod.rs", 2), ("v2/intake.rs", 0), ("v2/identity.rs", 1)];
     for (path, text) in &sources {
         let hits = text.matches("serde_json::to_value").count();
         let allowed = expected

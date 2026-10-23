@@ -3194,14 +3194,14 @@ fn tc_048_a_bound_outside_the_pattern_is_refused_ahead_of_every_identity_check()
         (package, root)
     };
     // With a good bound the stale identities refuse at the first identity check.
-    let (good, good_root) = stale_with(timed_closed(whole("0"), whole("3")));
+    let (good, _good_root) = stale_with(timed_closed(whole("0"), whole("3")));
     let ((code, cause, path), _) = refusal_of("a stale package with a good bound", &good);
     assert_eq!(
         (code, cause, path),
         (
-            Code::InvalidPackage,
-            Some(Cause::StaleNodeKey),
-            Some(at_node(good_root, "/node_id"))
+            Code::StaleDependency,
+            Some(Cause::ContentMismatch),
+            Some("/package_id/digest".to_owned())
         )
     );
     // The `package_id` alone stale (every node key settled) with a bad bound.

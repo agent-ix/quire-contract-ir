@@ -1,7 +1,7 @@
 //! The closed-schema decode of the package document, without a recursion that
 //! follows the nesting of a term or a copy of the document that follows its size.
 //!
-//! A node `body`, an identity-projection `body` and a diagnostic's `details`
+//! A node `body` and a diagnostic's `details`
 //! entry may nest as deep as the strict parser's limit of 128. The outer typed
 //! decode borrows each such term as a raw source slice, then decodes it into a
 //! `Value` only after that outer frame has returned. This keeps an adverse
@@ -12,16 +12,15 @@
 //! time, so no second copy of the whole document is built.
 
 use super::{
-    CheckedDeclaration, CheckedDependencySelection, CheckedDiagnosticCause, CheckedDiagnosticCode,
-    CheckedDiagnosticStage, CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedDomainPackageRef,
-    CheckedNodeOwner, CheckedNodeProjectionV2, CheckedPackageEnvelope,
+    CheckedDeclaration, CheckedDiagnosticCause, CheckedDiagnosticCode, CheckedDiagnosticStage,
+    CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeOwner, CheckedPackageEnvelope,
     CheckedPackageIdentityPreimageV2, CheckedPackageLockV2, CheckedPackageWireV2,
     CheckedSemanticGraphV2, CheckedSemanticNodeV2, NominalIdentityPreimage, ValidationFailure,
 };
 use crate::checked_package::common::{decode_closed_bytes, strict_parse};
 use crate::checked_package::shared::{
-    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedSelection,
-    CheckedSemanticId, CheckedSourceMapEntry, CheckedSourceRegion,
+    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedSemanticId,
+    CheckedSourceMapEntry, CheckedSourceRegion,
 };
 use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
 use serde::Deserialize;
@@ -35,7 +34,7 @@ use std::collections::BTreeMap;
 // member is decoded by the same public type as the admitted wire.
 type BorrowedWire<'a> = CheckedPackageEnvelope<
     Box<str>,
-    BorrowedPreimage<'a>,
+    CheckedPackageIdentityPreimageV2,
     CheckedSemanticId,
     CheckedPackageLockV2,
     BorrowedGraph<'a>,
@@ -43,20 +42,6 @@ type BorrowedWire<'a> = CheckedPackageEnvelope<
     Vec<CheckedCapability>,
     BorrowedDiagnostics<'a>,
 >;
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct BorrowedPreimage<'a> {
-    version: Box<str>,
-    edition: CheckedSelection,
-    profile_selections: Vec<CheckedSelection>,
-    definition_selections: Vec<CheckedArtifactRef>,
-    model_selections: Vec<CheckedDomainPackageRef>,
-    required_features: Vec<Box<str>>,
-    dependency_selections: Vec<CheckedDependencySelection>,
-    #[serde(borrow)]
-    identity_projection: Vec<BorrowedProjection<'a>>,
-}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -76,27 +61,6 @@ struct BorrowedNode<'a> {
     semantic_type: CheckedNodeId,
     dependencies: Vec<CheckedNodeId>,
     occurrences: Vec<CheckedOccurrence>,
-    #[serde(default)]
-    recursion_group: Option<Box<str>>,
-    #[serde(default)]
-    nominal_identity_preimage: Option<NominalIdentityPreimage>,
-    #[serde(default)]
-    declaration: Option<CheckedDeclaration>,
-    #[serde(default)]
-    owner: Option<CheckedNodeOwner>,
-    #[serde(borrow)]
-    body: &'a RawValue,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct BorrowedProjection<'a> {
-    node_id: CheckedNodeId,
-    schema_version: Box<str>,
-    node_tag: Box<str>,
-    semantic_form: Box<str>,
-    semantic_type: CheckedNodeId,
-    dependencies: Vec<CheckedNodeId>,
     #[serde(default)]
     recursion_group: Option<Box<str>>,
     #[serde(default)]
@@ -131,40 +95,25 @@ struct BorrowedDiagnostic<'a> {
 pub(super) fn decode_borrowed_wire(
     bytes: &[u8],
 ) -> Result<CheckedPackageWireV2, ValidationFailure> {
-    let wire: BorrowedWire<'_> = decode_closed_bytes(bytes)?;
-    let preimage = wire.identity_preimage;
+    let wire: BorrowedWire<'_> = decode_closed_bytes(bytes).map_err(|failure| {
+        let ValidationFailure::Refused(mut refusal) = failure else {
+            return failure;
+        };
+        if refusal.code == CheckedPackageRefusalCode::UnknownMember
+            && refusal
+                .path
+                .as_ref()
+                .is_some_and(|path| path.as_str() == "/identity_preimage/identity_projection")
+        {
+            refusal.code = CheckedPackageRefusalCode::MalformedWire;
+        }
+        ValidationFailure::Refused(refusal)
+    })?;
     let graph = wire.semantic_graph;
     let diagnostics = wire.diagnostics;
     Ok(CheckedPackageEnvelope {
         contract_version: wire.contract_version,
-        identity_preimage: CheckedPackageIdentityPreimageV2 {
-            version: preimage.version,
-            edition: preimage.edition,
-            profile_selections: preimage.profile_selections,
-            definition_selections: preimage.definition_selections,
-            model_selections: preimage.model_selections,
-            required_features: preimage.required_features,
-            dependency_selections: preimage.dependency_selections,
-            identity_projection: preimage
-                .identity_projection
-                .into_iter()
-                .map(|node| {
-                    Ok(CheckedNodeProjectionV2 {
-                        node_id: node.node_id,
-                        schema_version: node.schema_version,
-                        node_tag: node.node_tag,
-                        semantic_form: node.semantic_form,
-                        semantic_type: node.semantic_type,
-                        dependencies: node.dependencies,
-                        recursion_group: node.recursion_group,
-                        nominal_identity_preimage: node.nominal_identity_preimage,
-                        declaration: node.declaration,
-                        owner: node.owner,
-                        body: strict_parse(node.body.get().as_bytes())?,
-                    })
-                })
-                .collect::<Result<Vec<_>, ValidationFailure>>()?,
-        },
+        identity_preimage: wire.identity_preimage,
         package_id: wire.package_id,
         lock: wire.lock,
         semantic_graph: CheckedSemanticGraphV2 {
@@ -260,13 +209,6 @@ pub(super) fn check_lossless_source(
         raw_member(root.get("semantic_graph").copied(), "nodes"),
         &["semantic_graph", "nodes"],
     )?;
-    let projection = raw_array(
-        raw_member(
-            root.get("identity_preimage").copied(),
-            "identity_projection",
-        ),
-        &["identity_preimage", "identity_projection"],
-    )?;
     let source_map = raw_array(root.get("source_map").copied(), &["source_map"])?;
     let diagnostic_entries = raw_array(
         raw_member(root.get("diagnostics").copied(), "entries"),
@@ -280,21 +222,10 @@ pub(super) fn check_lossless_source(
     compare_root(&root, "capability_report", &wire.capability_report, &[])?;
     compare_root(&root, "contract_version", &wire.contract_version, &[])?;
     compare_root(&root, "diagnostics", &wire.diagnostics, &["entries"])?;
-    compare_root(
-        &root,
-        "identity_preimage",
-        &wire.identity_preimage,
-        &["identity_projection"],
-    )?;
+    compare_root(&root, "identity_preimage", &wire.identity_preimage, &[])?;
     compare_root(&root, "lock", &wire.lock, &[])?;
     compare_root(&root, "package_id", &wire.package_id, &[])?;
     compare_root(&root, "semantic_graph", &wire.semantic_graph, &["nodes"])?;
-    compare_items(
-        &["identity_preimage", "identity_projection"],
-        &projection,
-        &wire.identity_preimage.identity_projection,
-        &["body"],
-    )?;
     compare_items(
         &["semantic_graph", "nodes"],
         &nodes,

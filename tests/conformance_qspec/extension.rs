@@ -426,12 +426,6 @@ fn refresh_extension(package: &mut Value, position: usize) {
     if node["semantic_type"] == old {
         package["semantic_graph"]["nodes"][position]["semantic_type"] = id.clone();
     }
-    let mut projection = package["semantic_graph"]["nodes"][position].clone();
-    projection
-        .as_object_mut()
-        .expect("node object")
-        .remove("occurrences");
-    package["identity_preimage"]["identity_projection"][position] = projection;
     for entry in package["source_map"].as_array_mut().expect("source map") {
         if entry["node_id"] == old {
             entry["node_id"] = id.clone();
@@ -462,13 +456,6 @@ fn append_structural_node(
         .as_array_mut()
         .expect("nodes")
         .push(node.clone());
-    node.as_object_mut()
-        .expect("node object")
-        .remove("occurrences");
-    package["identity_preimage"]["identity_projection"]
-        .as_array_mut()
-        .expect("projection")
-        .push(node);
     let mut source = package["source_map"]
         .as_array()
         .expect("source map")
@@ -623,8 +610,6 @@ fn tc_459_stale_extension_key_refuses_before_definition_join() {
     let (mut package, position) = extension_fixture();
     package["semantic_graph"]["nodes"][position]["body"]["definition"]["identity"] =
         json!("different");
-    package["identity_preimage"]["identity_projection"][position]["body"] =
-        package["semantic_graph"]["nodes"][position]["body"].clone();
     package["package_id"]["digest"] =
         json!(derived_with(&package, None).expect("package identity"));
     assert_extension_refusal(
@@ -782,6 +767,8 @@ fn tc_459_extension_wire_and_dependency_shape_refuse_early() {
         .as_array_mut()
         .expect("dependencies")
         .pop();
+    package["package_id"]["digest"] =
+        json!(derived_with(&package, None).expect("package identity"));
     assert_extension_refusal(
         &package,
         Code::InvalidSemanticGraph,
@@ -1037,6 +1024,8 @@ fn tc_459_extension_refusal_order_follows_graph_stages_then_node_digest() {
 
     let mut bad_graph = package.clone();
     bad_graph["semantic_graph"]["nodes"][quota]["dependencies"] = json!([]);
+    bad_graph["package_id"]["digest"] =
+        json!(derived_with(&bad_graph, None).expect("package identity"));
     assert_extension_refusal(
         &bad_graph,
         Code::InvalidSemanticGraph,
@@ -1046,8 +1035,6 @@ fn tc_459_extension_refusal_order_follows_graph_stages_then_node_digest() {
 
     let mut stale = package;
     stale["semantic_graph"]["nodes"][quota]["body"]["node_kind"] = json!("stale");
-    stale["identity_preimage"]["identity_projection"][quota]["body"] =
-        stale["semantic_graph"]["nodes"][quota]["body"].clone();
     stale["package_id"]["digest"] = json!(derived_with(&stale, None).expect("package identity"));
     assert_extension_refusal(
         &stale,

@@ -63,9 +63,9 @@ envelope value or builder result.
   caller's `Limits`. The reader SHALL use the same declaration instantiated with owned member types. The intake SHALL use it with its existing raw-term borrowed member types.
   The refactor shall replace the current separate top-level field lists in
   `v2/mod.rs` (`CheckedPackageWireV2`) and `v2/intake.rs` (`BorrowedWire`)
-  with this one private declaration. The intake's nested `BorrowedPreimage`,
-  `BorrowedGraph`, and `BorrowedDiagnostics` remain its delayed raw-term decode
-  types; they are not an output envelope. The encoder SHALL borrow the graph,
+  with this one private declaration. Intake reuses the seven-field owned
+  selection type; only `BorrowedGraph` and `BorrowedDiagnostics` require delayed
+  raw-term decoding. They are not an output envelope. The encoder SHALL borrow the graph,
   preimage and other supplied members without cloning them. The envelope
   declaration SHALL generate the serde reader/intake struct and canonical
   `Encode` field dispatch from its one top-level field list. The encoder SHALL
@@ -80,10 +80,9 @@ envelope value or builder result.
   borrowed path SHALL NOT collect owned projections or clone node bodies.
 - The complete envelope SHALL encode only the seven selection members under
   `identity_preimage`; no producer-supplied projection appears on the wire.
-  The graph SHALL preserve its supplied node order and bodies. The function
-  SHALL preserve the caller's selection values and package identity without
-  hashing, admission, synthesis or rewriting. A digest minted for a different
-  graph is preserved as supplied, then refused by the reader.
+- The graph SHALL preserve its supplied node order and bodies.
+- The function SHALL preserve the caller's selection values and package identity without hashing, admission, synthesis or rewriting.
+  A digest minted for a different graph is preserved as supplied, then refused by the reader.
 - If canonical encoding refuses any supplied value or reaches the caller's
   ceiling, the function SHALL return the encoder's typed error and no partial
   bytes. It shall not inspect display text to classify an error.

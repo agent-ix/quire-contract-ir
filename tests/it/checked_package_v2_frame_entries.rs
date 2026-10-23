@@ -126,6 +126,7 @@ fn tc_056_scoped_frame_shape_refusals_precede_frame_semantics() {
         .as_object_mut()
         .expect("body")
         .remove("deletes_scoped");
+    refresh_identity(&mut missing);
     expect(
         "missing deletes_scoped",
         &missing,
@@ -152,6 +153,7 @@ fn tc_056_scoped_frame_shape_refusals_precede_frame_semantics() {
     ] {
         let mut package = base.clone();
         package["semantic_graph"]["nodes"][frame]["body"]["modifies"][0] = entry;
+        refresh_identity(&mut package);
         expect(
             case,
             &package,
@@ -168,6 +170,7 @@ fn tc_056_scoped_frame_shape_refusals_precede_frame_semantics() {
     ] {
         let mut package = base.clone();
         package["semantic_graph"]["nodes"][frame]["body"]["deletes_scoped"] = json!([entry]);
+        refresh_identity(&mut package);
         expect(
             "invalid scoped delete",
             &package,
@@ -180,6 +183,7 @@ fn tc_056_scoped_frame_shape_refusals_precede_frame_semantics() {
     let mut repeated = base.clone();
     repeated["semantic_graph"]["nodes"][frame]["body"]["deletes_scoped"] =
         json!([{"kind": "receiver"}, {"kind": "receiver"}]);
+    refresh_identity(&mut repeated);
     expect(
         "repeated scoped deletion",
         &repeated,

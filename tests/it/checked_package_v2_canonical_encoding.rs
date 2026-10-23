@@ -138,13 +138,37 @@ fn graph_of(package: &Value) -> CheckedSemanticGraphV2 {
     typed(&package["semantic_graph"])
 }
 
-/// Replaces `body` with `replacement` in the first projection of `preimage`.
-fn with_projection_body(
-    mut preimage: CheckedPackageIdentityPreimageV2,
-    replacement: Value,
-) -> CheckedPackageIdentityPreimageV2 {
-    preimage.identity_projection[0].body = replacement;
-    preimage
+fn hash_input(package: &Value) -> Value {
+    let mut input = package["identity_preimage"].clone();
+    input["identity_projection"] = Value::Array(
+        package["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|node| {
+                let mut node = node.clone();
+                node.as_object_mut().unwrap().remove("occurrences");
+                node
+            })
+            .collect(),
+    );
+    input
+}
+
+fn borrowed<'a>(
+    selection: &'a CheckedPackageIdentityPreimageV2,
+    graph: &'a CheckedSemanticGraphV2,
+) -> CheckedPackageIdentityPreimageRefV2<'a> {
+    CheckedPackageIdentityPreimageRefV2 {
+        version: &selection.version,
+        edition: &selection.edition,
+        profile_selections: &selection.profile_selections,
+        definition_selections: &selection.definition_selections,
+        model_selections: &selection.model_selections,
+        required_features: &selection.required_features,
+        dependency_selections: &selection.dependency_selections,
+        identity_projection: &graph.nodes,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -158,7 +182,10 @@ fn tc_048_preimage_bytes_equal_serde_json_and_hash_to_the_package_id() {
     for (name, package) in fixtures() {
         let preimage = preimage_of(&package);
         assert_same_bytes(name, &preimage);
-        let digest = quire_canonical::sha256(&preimage, Limits::new(FIXTURE_CEILING))
+        let graph = graph_of(&package);
+        let input = borrowed(&preimage, &graph);
+        assert_eq!(quire_bytes(&input), canonical(&hash_input(&package)));
+        let digest = quire_canonical::sha256(&input, Limits::new(FIXTURE_CEILING))
             .expect("hashes")
             .to_string();
         assert_eq!(
@@ -169,20 +196,21 @@ fn tc_048_preimage_bytes_equal_serde_json_and_hash_to_the_package_id() {
         // The same bytes by a different route: hashing the written bytes.
         assert_eq!(
             digest,
-            crate::support::checked_package::sha256_hex(&quire_bytes(&preimage)),
+            crate::support::checked_package::sha256_hex(&quire_bytes(&input)),
             "{name}"
         );
         // A domain-labelled digest is another hash: `package_id` takes none.
         let labelled = quire_canonical::sha256_with_domain(
             b"quire.package.semantic/v2",
-            &preimage,
+            &input,
             Limits::new(FIXTURE_CEILING),
         )
         .expect("hashes")
         .to_string();
         assert_ne!(digest, labelled, "{name}");
         // Crafted projection bodies.
-        let crafted = with_projection_body(preimage, crafted_body());
+        let mut crafted = CheckedNodeProjectionV2::from(&graph.nodes[0]);
+        crafted.body = crafted_body();
         assert_same_bytes(name, &crafted);
     }
 }
@@ -197,7 +225,7 @@ fn tc_048_a_preimage_that_differs_from_the_one_the_package_id_covers_is_stale() 
         // computed over: its first projection's `dependencies` gain an entry.
         let mut stale = package.clone();
         let extra = stale["semantic_graph"]["nodes"][0]["node_id"].clone();
-        stale["identity_preimage"]["identity_projection"][0]["dependencies"]
+        stale["semantic_graph"]["nodes"][0]["dependencies"]
             .as_array_mut()
             .expect("dependencies")
             .push(extra);
@@ -409,18 +437,17 @@ impl Carrier for CheckedSemanticGraphV2 {
     const AROUND: (&'static str, &'static str) = ("\"body\":", "");
 }
 
-impl Carrier for CheckedPackageIdentityPreimageV2 {
+impl Carrier for CheckedNodeProjectionV2 {
     fn shallow() -> Self {
-        let mut preimage = preimage_of(&v2_all_families());
-        preimage.identity_projection.truncate(1);
-        preimage.identity_projection[0].body = Value::Null;
-        preimage
+        let mut projection = CheckedNodeProjectionV2::from(&graph_of(&v2_all_families()).nodes[0]);
+        projection.body = Value::Null;
+        projection
     }
     fn place(&mut self, body: Value) {
-        self.identity_projection[0].body = body;
+        self.body = body;
     }
     fn take(&mut self) -> Value {
-        std::mem::take(&mut self.identity_projection[0].body)
+        std::mem::take(&mut self.body)
     }
     const AROUND: (&'static str, &'static str) = ("\"body\":", "");
 }
@@ -575,7 +602,7 @@ fn tc_048_a_graph_body_nested_100000_deep_encodes_on_a_256_kib_stack() {
 #[trace("TC-048", "FR-038-AC-77", "FR-038-AC-78")]
 #[test]
 fn tc_048_a_preimage_projection_nested_100000_deep_encodes_on_a_256_kib_stack() {
-    deep_encodes_and_stays_under_a_byte_ceiling::<CheckedPackageIdentityPreimageV2>();
+    deep_encodes_and_stays_under_a_byte_ceiling::<CheckedNodeProjectionV2>();
 }
 
 /// ACs: FR-038-AC-77, FR-038-AC-78
@@ -631,9 +658,10 @@ fn tc_451_typed_envelope_encodes_deep_details_on_a_small_stack() {
 #[test]
 fn tc_451_deep_borrowed_projection_matches_owned_on_a_small_stack() {
     let value = v2_all_families();
-    let mut preimage = preimage_of(&value);
+    let preimage = preimage_of(&value);
+    let mut expected_input = hash_input(&value);
+    expected_input["identity_projection"][0]["body"] = nested(DEEP);
     let mut graph = graph_of(&value);
-    preimage.identity_projection[0].body = nested(DEEP);
     graph.nodes[0].body = nested(DEEP);
     let package_id: CheckedSemanticId = typed(&value["package_id"]);
     let lock: CheckedPackageLockV2 = typed(&value["lock"]);
@@ -655,9 +683,9 @@ fn tc_451_deep_borrowed_projection_matches_owned_on_a_small_stack() {
                 };
                 let limits = Limits::new(u64::MAX);
                 Ok((
-                    quire_canonical::to_vec(&preimage, limits)?,
+                    quire_canonical::to_vec(&expected_input, limits)?,
                     quire_canonical::to_vec(&borrowed, limits)?,
-                    quire_canonical::sha256(&preimage, limits)?,
+                    quire_canonical::sha256(&expected_input, limits)?,
                     quire_canonical::sha256(&borrowed, limits)?,
                     encode_checked_package_v2(
                         &borrowed,
@@ -671,7 +699,7 @@ fn tc_451_deep_borrowed_projection_matches_owned_on_a_small_stack() {
                     )?,
                 ))
             };
-            dismantle(&mut preimage.identity_projection[0].body);
+            dismantle(&mut expected_input["identity_projection"][0]["body"]);
             dismantle(&mut graph.nodes[0].body);
             result
         })
@@ -692,8 +720,7 @@ fn tc_451_deep_borrowed_projection_matches_owned_on_a_small_stack() {
 /// refusal, and its body is no semantic term, so it also earns a grammar one.
 fn package_with_body(body: Value) -> Value {
     let mut package = positive_operation_identities();
-    package["semantic_graph"]["nodes"][0]["body"] = body.clone();
-    package["identity_preimage"]["identity_projection"][0]["body"] = body;
+    package["semantic_graph"]["nodes"][0]["body"] = body;
     package
 }
 
@@ -759,7 +786,7 @@ fn tc_048_an_integer_spelled_past_the_64_bit_range_is_noncanonical() {
     ] {
         let package = package_with_body(json!({"term": "bogus", "n": 7_777_777}));
         let text = String::from_utf8(canonical(&package)).expect("UTF-8");
-        assert_eq!(text.matches("\"n\":7777777").count(), 2);
+        assert_eq!(text.matches("\"n\":7777777").count(), 1);
         let bytes = text.replace("\"n\":7777777", &format!("\"n\":{spelled}"));
         assert_eq!(
             read_bytes(bytes.as_bytes(), &package),
@@ -778,7 +805,7 @@ fn tc_048_an_integer_spelled_past_the_64_bit_range_is_noncanonical() {
 fn package_bytes_with_number(spelled: &str) -> (Vec<u8>, Value) {
     let package = package_with_body(json!({"term": "bogus", "n": 7_777_777}));
     let text = String::from_utf8(canonical(&package)).expect("UTF-8");
-    assert_eq!(text.matches("\"n\":7777777").count(), 2);
+    assert_eq!(text.matches("\"n\":7777777").count(), 1);
     let bytes = text.replace("\"n\":7777777", &format!("\"n\":{spelled}"));
     (bytes.into_bytes(), package)
 }
@@ -887,7 +914,7 @@ fn tc_048_members_in_utf16_code_unit_order_pass_the_canonical_bytes_check() {
     // The package id the reader recomputes: quire-canonical's digest of the
     // preimage, so the document gets past the identity comparison.
     package["package_id"]["digest"] = json!(quire_canonical::sha256(
-        &preimage_of(&package),
+        &hash_input(&package),
         Limits::new(FIXTURE_CEILING)
     )
     .expect("hashes")
@@ -895,7 +922,7 @@ fn tc_048_members_in_utf16_code_unit_order_pass_the_canonical_bytes_check() {
     let text = String::from_utf8(canonical(&package)).expect("UTF-8");
     let utf8_order = format!("\"{low}\":0,\"{high}\":0");
     let utf16_order = format!("\"{high}\":0,\"{low}\":0");
-    assert_eq!(text.matches(&utf8_order).count(), 2, "graph and projection");
+    assert_eq!(text.matches(&utf8_order).count(), 1, "single graph body");
     let bytes = text.replace(&utf8_order, &utf16_order).into_bytes();
     // Not canonical-bytes-refused; the closed body grammar decides the
     // document.
@@ -922,7 +949,7 @@ fn tc_048_direct_reader_refuses_noncanonical_scalar_spellings_before_a_stale_id(
         ("\"n\":1000", "\"n\":-0"),
         ("\"text\":\"é\"", "\"text\":\"\\u00e9\""),
     ] {
-        assert_eq!(canonical.matches(from).count(), 2, "graph and projection");
+        assert_eq!(canonical.matches(from).count(), 1, "single graph body");
         let bytes = canonical.replace(from, to);
         assert_eq!(
             read_bytes(bytes.as_bytes(), &package),
