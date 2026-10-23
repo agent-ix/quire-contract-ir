@@ -5,6 +5,18 @@
 
 use super::*;
 
+fn assert_locus(
+    refusal: &quire_contract_model::CheckedPackageRefusal,
+    position: usize,
+    suffix: &str,
+) {
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{position}{suffix}")),
+        "{refusal:?}"
+    );
+}
+
 fn published_hybrid_package() -> Value {
     let package = read_json(&fixtures_dir().join("positive-all-families.json"))
         .expect("QSpec published package");
@@ -40,17 +52,37 @@ fn qspec_hybrid_family_in_published_package_admits() {
 #[trace("TC-048", "FR-038-AC-311")]
 #[test]
 fn qspec_hybrid_schema_defects_refuse_before_identity() {
-    for (form, change) in [
-        ("hybrid_transition", "declaration"),
-        ("hybrid_mode", "occurrence_role"),
-        ("hybrid_model", "reordered_bindings"),
-        ("hybrid_model", "class"),
-        ("hybrid_transition", "reference_target_index"),
-        ("hybrid_mode", "empty_rates"),
-        ("hybrid_model", "unknown_form"),
-        ("hybrid_model", "missing_owner"),
-        ("hybrid_model", "empty_initial"),
-        ("hybrid_transition", "invalid_reset_relation"),
+    for (form, change, locus) in [
+        ("hybrid_transition", "declaration", ""),
+        ("hybrid_mode", "occurrence_role", "/occurrences/0/role"),
+        ("hybrid_model", "reordered_bindings", "/body/members/0"),
+        (
+            "hybrid_model",
+            "class",
+            "/body/members/0/value/members/0/members/1/value/value",
+        ),
+        (
+            "hybrid_transition",
+            "reference_target_index",
+            "/body/members/0/value",
+        ),
+        (
+            "hybrid_mode",
+            "empty_rates",
+            "/body/members/1/value/members",
+        ),
+        ("hybrid_model", "unknown_form", "/semantic_form"),
+        ("hybrid_model", "missing_owner", ""),
+        (
+            "hybrid_model",
+            "empty_initial",
+            "/body/members/2/value/members",
+        ),
+        (
+            "hybrid_transition",
+            "invalid_reset_relation",
+            "/body/members/2/value/members/0/members/2/value/value",
+        ),
     ] {
         let mut package = published_hybrid_package();
         let position = package["semantic_graph"]["nodes"]
@@ -91,10 +123,10 @@ fn qspec_hybrid_schema_defects_refuse_before_identity() {
             panic!("{form} {change} must refuse: {read:?}");
         };
         assert_eq!(refusal.code, Code::MalformedWire, "{form} {change}");
-        assert!(
-            refusal.path.as_ref().is_some_and(|path| path
-                .to_string()
-                .starts_with(&format!("/semantic_graph/nodes/{position}"))),
+        assert_eq!(refusal.cause, None, "{form} {change}");
+        assert_eq!(
+            refusal.path.as_ref().map(ToString::to_string),
+            Some(format!("/semantic_graph/nodes/{position}{locus}")),
             "{form} {change}: {refusal:?}"
         );
     }
@@ -355,6 +387,15 @@ fn qspec_hybrid_key_and_dependency_checks_precede_body_checks() {
             },
             "{change}: {refusal:?}"
         );
+        assert_locus(
+            &refusal,
+            model,
+            if change == "stale_key" {
+                "/node_id"
+            } else {
+                "/dependencies"
+            },
+        );
         assert_eq!(
             refusal.cause,
             if change == "stale_key" {
@@ -405,6 +446,42 @@ fn qspec_hybrid_capture_initializer_must_match_capture_type() {
     };
     assert_eq!(refusal.code, Code::IllTyped, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::TypeMismatch), "{refusal:?}");
+    assert_locus(&refusal, 88, "");
+}
+
+#[trace("TC-048", "FR-038-AC-316")]
+#[test]
+fn qspec_hybrid_capture_ignores_unrelated_same_name_and_level() {
+    let mut package = restored_package();
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let capture = nodes
+        .iter()
+        .find(|node| {
+            node["node_tag"] == "value"
+                && node["semantic_form"] == "parameter"
+                && node["body"]["members"][0]["value"]["value"] == "v0"
+                && node["body"]["members"][1]["value"]["value"] == "6"
+        })
+        .expect("published capture parameter");
+    let boolean = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "boolean")
+        .expect("Boolean scalar type")["node_id"]
+        .clone();
+    let mut unrelated = capture.clone();
+    unrelated["node_id"]["digest"] =
+        json!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    unrelated["semantic_type"] = boolean;
+    append_published_nodes(&mut package, &[unrelated]);
+    fixture_support::mint_ungrouped_structural_keys(&mut package);
+    fixture_support::refresh_identity(&mut package);
+    let read = read_package(&package).expect("QSpec package");
+    assert!(
+        matches!(read, CheckedPackageV2ReadResult::Admitted(_)),
+        "{read:?}"
+    );
 }
 
 fn timed_claim_position(package: &Value) -> usize {
@@ -425,9 +502,10 @@ fn timed_claim_position(package: &Value) -> usize {
 fn qspec_hybrid_braking_model_and_claim_admit_from_published_nodes() {
     let package = braking_package();
     let read = read_package(&package).expect("published evidence");
-    if let CheckedPackageV2ReadResult::Refused(refusal) = read {
-        panic!("Braking refused: {refusal:?}");
-    }
+    assert!(
+        matches!(read, CheckedPackageV2ReadResult::Admitted(_)),
+        "{read:?}"
+    );
 }
 
 #[trace("TC-048", "FR-038-AC-315", "FR-038-AC-317")]
@@ -435,9 +513,10 @@ fn qspec_hybrid_braking_model_and_claim_admit_from_published_nodes() {
 fn qspec_hybrid_restored_model_and_claims_admit_from_published_nodes() {
     let package = restored_package();
     let read = read_package(&package).expect("published evidence");
-    if let CheckedPackageV2ReadResult::Refused(refusal) = read {
-        panic!("Braking2 refused: {refusal:?}");
-    }
+    assert!(
+        matches!(read, CheckedPackageV2ReadResult::Admitted(_)),
+        "{read:?}"
+    );
 }
 
 #[trace("TC-048", "FR-038-AC-315")]
@@ -462,9 +541,10 @@ fn qspec_hybrid_timed_open_upper_admits_under_timed_profile() {
     fixture_support::rekey_application_node(&mut package, clause);
     fixture_support::refresh_identity(&mut package);
     let read = read_package(&package).expect("published evidence");
-    if let CheckedPackageV2ReadResult::Refused(refusal) = read {
-        panic!("hybrid timed open upper refused: {refusal:?}");
-    }
+    assert!(
+        matches!(read, CheckedPackageV2ReadResult::Admitted(_)),
+        "{read:?}"
+    );
 }
 
 #[trace("TC-048", "FR-038-AC-316")]
@@ -492,6 +572,7 @@ fn qspec_hybrid_claim_refuses_clock_outside_model_vocabulary() {
     };
     assert_eq!(refusal.code, Code::InvalidPackage, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::InvalidValue), "{refusal:?}");
+    assert_locus(&refusal, position, "/body/arguments/1");
 }
 
 #[trace("TC-048", "FR-038-AC-316")]
@@ -517,6 +598,7 @@ fn qspec_hybrid_claim_refuses_unknown_fairness_mode() {
     };
     assert_eq!(refusal.code, Code::MissingDeclaration, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::MissingName), "{refusal:?}");
+    assert_locus(&refusal, fair, "/body/operation/member/name");
 }
 
 #[trace("TC-048", "FR-038-AC-316")]
@@ -568,6 +650,7 @@ fn qspec_hybrid_claim_refuses_trigger_typed_as_scalar() {
     };
     assert_eq!(refusal.code, Code::IllTyped, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::TypeMismatch), "{refusal:?}");
+    assert_locus(&refusal, claim_position, "/body/arguments/2/members");
 }
 
 #[trace("TC-048", "FR-038-AC-316")]
@@ -610,6 +693,7 @@ fn qspec_hybrid_claim_refuses_holds_read_of_over_parameter() {
     };
     assert_eq!(refusal.code, Code::MissingDeclaration, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::MissingName), "{refusal:?}");
+    assert_locus(&refusal, holds, "");
 }
 
 #[trace("TC-048", "FR-038-AC-313", "FR-038-AC-314")]
@@ -646,6 +730,15 @@ fn qspec_hybrid_model_checks_duplicate_modes_and_clock_rates() {
                 Code::InvalidPackage
             },
             "{change}: {refusal:?}"
+        );
+        assert_locus(
+            &refusal,
+            position,
+            if change == "duplicate_mode" {
+                "/body/members/1/value/members/1"
+            } else {
+                "/body/members/0/value/members/0/members/1/value/value"
+            },
         );
     }
 }
@@ -727,6 +820,17 @@ fn qspec_hybrid_model_rebuilt_key_boundaries() {
             },
             "{change}: {refusal:?}"
         );
+        let (locus_node, suffix) = match change {
+            "variable_level" => (
+                model,
+                "/body/members/0/value/members/0/members/0/value/target",
+            ),
+            "rate_count" => (mode, "/body/members/1/value"),
+            "target_mode" => (transition, "/body/members/0/value"),
+            "orphan_transition" => (transition, ""),
+            _ => unreachable!("closed changes"),
+        };
+        assert_locus(&refusal, locus_node, suffix);
     }
 }
 
@@ -809,6 +913,17 @@ fn qspec_hybrid_initial_and_reset_checks_after_rekey() {
             expected,
             "{change}: {refusal:?}"
         );
+        let (locus_node, suffix) = match change {
+            "written_default" => (model, "/body/members/2/value"),
+            "initial_mode" => (model, "/body/members/2/value/members/0/members/0/value"),
+            "initial_type" => (
+                model,
+                "/body/members/2/value/members/0/members/1/value/target",
+            ),
+            "reset_conflict" => (transition, "/body/members/2/value/members/1"),
+            _ => unreachable!("closed changes"),
+        };
+        assert_locus(&refusal, locus_node, suffix);
     }
 }
 
@@ -879,4 +994,218 @@ fn qspec_hybrid_model_refuses_foreign_parameter_read() {
         (Code::MissingDeclaration, Some(Cause::MissingName)),
         "{refusal:?}"
     );
+    assert_locus(&refusal, mode, "/body/members/0/value");
+}
+
+#[trace("TC-048", "FR-038-AC-314")]
+#[test]
+fn qspec_hybrid_call_refuses_ineligible_function_signature() {
+    for defect in ["result", "parameter"] {
+        let mut package = published_hybrid_package();
+        let nodes = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes");
+        let text_type = nodes
+            .iter()
+            .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "text")
+            .expect("text type")["node_id"]
+            .clone();
+        let mut function = nodes
+            .iter()
+            .find(|node| {
+                node["node_tag"] == "function"
+                    && node["declaration"]["qualified_name"] == json!(["Example", "helper"])
+            })
+            .expect("published function")
+            .clone();
+        if defect == "parameter" {
+            let mut parameter = nodes
+                .iter()
+                .find(|node| node["node_tag"] == "value" && node["semantic_form"] == "parameter")
+                .expect("published parameter")
+                .clone();
+            parameter["node_id"]["digest"] =
+                json!("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
+            parameter["semantic_type"] = text_type.clone();
+            parameter["body"]["members"][0]["value"]["value"] = json!("hybrid_argument");
+            append_published_nodes(&mut package, &[parameter]);
+            fixture_support::mint_ungrouped_structural_keys(&mut package);
+            let key = package["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .last()
+                .expect("bad parameter")["node_id"]
+                .clone();
+            function["body"] = json!({"term":"aggregate", "members":[
+                {"term":"binding", "name":"parameters", "value":{
+                    "term":"aggregate", "members":[{"term":"reference", "target":key}]
+                }}
+            ]});
+            function["dependencies"] = json!([key]);
+        } else {
+            function["semantic_type"] = text_type;
+        }
+        function["node_id"]["digest"] =
+            json!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        function["declaration"]["qualified_name"] = json!(["Example", "hybrid_bad"]);
+        append_published_nodes(&mut package, &[function]);
+        fixture_support::mint_ungrouped_structural_keys(&mut package);
+        let bad_function = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .last()
+            .expect("bad function")["node_id"]
+            .clone();
+        let nodes = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes");
+        let mut call = nodes
+            .iter()
+            .find(|node| {
+                node["node_tag"] == "function"
+                    && node["declaration"]["qualified_name"] == json!(["Example", "run"])
+            })
+            .expect("published call body")
+            .clone();
+        call.as_object_mut().expect("call").remove("declaration");
+        call["node_tag"] = json!("expression");
+        call["semantic_form"] = json!("call");
+        call["occurrences"][0]["role"] = json!("expression");
+        call["node_id"]["digest"] =
+            json!("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        call["body"]["arguments"][0]["target"] = bad_function.clone();
+        call["dependencies"] = json!([bad_function]);
+        append_published_nodes(&mut package, &[call]);
+        let call_position = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .len()
+            - 1;
+        fixture_support::rekey_application_node(&mut package, call_position);
+        let mode_id = package["semantic_graph"]["nodes"][model_position(&package)]["body"]
+            ["members"][1]["value"]["members"][0]["target"]
+            .clone();
+        let mode = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .position(|node| node["node_id"] == mode_id)
+            .expect("Tank mode");
+        package["semantic_graph"]["nodes"][mode]["body"]["members"][0]["value"]["target"] =
+            package["semantic_graph"]["nodes"][call_position]["node_id"].clone();
+        refresh_tank_hybrid_keys(&mut package);
+        let read = read_package(&package).expect("QSpec package");
+        let CheckedPackageV2ReadResult::Refused(refusal) = read else {
+            panic!("bad function {defect} admitted: {read:?}")
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::IllTyped, Some(Cause::TypeMismatch)),
+            "{refusal:?}"
+        );
+        assert_locus(&refusal, mode, "/body/members/0/value");
+    }
+}
+
+#[trace("TC-048", "FR-038-AC-316")]
+#[test]
+fn qspec_hybrid_step_precedes_protocol_reference_join() {
+    let mut package = published_hybrid_package();
+    let boolean = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "boolean")
+        .expect("Boolean type")["node_id"]
+        .clone();
+    let body = json!({"term":"reference", "target":boolean});
+    let key = fixture_support::structural_key(
+        "protocol",
+        "protocol_reference",
+        boolean["digest"].as_str(),
+        &body,
+    );
+    let carrier = json!({
+        "node_id":fixture_support::node_id(&key),
+        "schema_version":"quire.checked-semantic-graph/v2",
+        "node_tag":"protocol", "semantic_form":"protocol_reference",
+        "semantic_type":boolean, "dependencies":[body["target"].clone()],
+        "occurrences":[{"role":"expression","ordinal":0}], "body":body,
+    });
+    append_published_nodes(&mut package, &[carrier]);
+    fixture_support::refresh_identity(&mut package);
+    let carrier_position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    let read = read_package(&package).expect("QSpec package");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read else {
+        panic!("bad protocol carrier admitted: {read:?}")
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::IllTyped, Some(Cause::OperatorIneligible)),
+        "{refusal:?}"
+    );
+    assert_locus(&refusal, carrier_position, "/body/target");
+
+    let model = model_position(&package);
+    package["semantic_graph"]["nodes"][model]["body"]["members"][0]["value"]["members"][0]
+        ["members"][1]["value"]["value"] = json!("clock");
+    rekey_model(&mut package, model);
+    let read = read_package(&package).expect("QSpec package");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read else {
+        panic!("hybrid defect admitted: {read:?}")
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::InvalidValue)),
+        "{refusal:?}"
+    );
+    assert_locus(
+        &refusal,
+        model,
+        "/body/members/0/value/members/0/members/1/value/value",
+    );
+}
+
+#[trace("TC-048", "FR-038-AC-315")]
+#[test]
+fn qspec_hybrid_wrong_interval_profile_precedes_fairness_defect() {
+    let mut package = restored_package();
+    let claim = timed_claim_position(&package);
+    let formula_id =
+        package["semantic_graph"]["nodes"][claim]["body"]["arguments"][5]["target"].clone();
+    let formula = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_id"] == formula_id)
+        .expect("timed formula");
+    package["semantic_graph"]["nodes"][formula]["body"]["operation"]["member"]["interval"] =
+        json!({"lower":"0", "upper":"2"});
+    fixture_support::rekey_application_node(&mut package, formula);
+    let fair = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "temporal" && node["semantic_form"] == "fairness")
+        .expect("fairness node");
+    package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["name"] =
+        json!("Halted");
+    fixture_support::rekey_application_node(&mut package, fair);
+    sort_dependencies(&mut package);
+    fixture_support::rekey_application_node(&mut package, claim);
+    fixture_support::refresh_identity(&mut package);
+    let read = read_package(&package).expect("QSpec package");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read else {
+        panic!("bad interval admitted: {read:?}")
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::OperationMemberMismatch)),
+        "{refusal:?}"
+    );
+    assert_locus(&refusal, formula, "/body");
 }

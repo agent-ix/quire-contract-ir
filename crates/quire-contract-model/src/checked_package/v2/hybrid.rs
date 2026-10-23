@@ -91,26 +91,27 @@ fn numeric_or_boolean_type(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
-) -> bool {
-    let mut current = type_id;
-    for _ in 0..=nodes.len() {
-        let Some((position, node)) = node_at(current, nodes, index) else {
-            return false;
-        };
-        match kinds.get(position) {
-            Some(CheckedNodeKind::ScalarType(
-                ScalarTypeForm::Boolean
-                | ScalarTypeForm::Integer
-                | ScalarTypeForm::Rational
-                | ScalarTypeForm::Decimal
-                | ScalarTypeForm::Float32
-                | ScalarTypeForm::Float64,
-            )) => return true,
-            Some(CheckedNodeKind::BoundedDomain(_)) => current = &node.semantic_type,
-            _ => return false,
-        }
-    }
-    false
+    meter: &mut WorkMeter,
+    at: &JsonPointer,
+) -> Result<bool, ValidationFailure> {
+    let base = scalar_base_type(type_id, nodes, kinds, index, meter, at)?;
+    Ok(base
+        .as_ref()
+        .and_then(|base| index.get(base))
+        .and_then(|&position| kinds.get(position))
+        .is_some_and(|kind| {
+            matches!(
+                kind,
+                CheckedNodeKind::ScalarType(
+                    ScalarTypeForm::Boolean
+                        | ScalarTypeForm::Integer
+                        | ScalarTypeForm::Rational
+                        | ScalarTypeForm::Decimal
+                        | ScalarTypeForm::Float32
+                        | ScalarTypeForm::Float64
+                )
+            )
+        }))
 }
 
 fn scalar_base_type(
@@ -118,17 +119,22 @@ fn scalar_base_type(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
-) -> Option<CheckedNodeId> {
+    meter: &mut WorkMeter,
+    at: &JsonPointer,
+) -> Result<Option<CheckedNodeId>, ValidationFailure> {
     let mut current = type_id;
     for _ in 0..=nodes.len() {
-        let (position, node) = node_at(current, nodes, index)?;
-        match kinds.get(position)? {
-            CheckedNodeKind::ScalarType(_) => return Some(current.clone()),
-            CheckedNodeKind::BoundedDomain(_) => current = &node.semantic_type,
-            _ => return None,
+        meter.charge(1, || at.clone())?;
+        let Some((position, node)) = node_at(current, nodes, index) else {
+            return Ok(None);
+        };
+        match kinds.get(position) {
+            Some(CheckedNodeKind::ScalarType(_)) => return Ok(Some(current.clone())),
+            Some(CheckedNodeKind::BoundedDomain(_)) => current = &node.semantic_type,
+            _ => return Ok(None),
         }
     }
-    None
+    Ok(None)
 }
 
 fn model_pointer(position: usize, binding: usize) -> JsonPointer {
@@ -146,9 +152,14 @@ fn parameter_name_level(node: &CheckedSemanticNodeV2) -> Option<(&str, usize)> {
     Some((name, level))
 }
 
+struct ReadScope {
+    variables: BTreeSet<CheckedNodeId>,
+    named_reads: BTreeMap<(String, usize), CheckedNodeId>,
+}
+
 fn reads_allowed(
     start: &CheckedNodeId,
-    allowed: &BTreeSet<CheckedNodeId>,
+    allowed: &ReadScope,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
@@ -174,13 +185,37 @@ fn reads_allowed(
         };
         match kinds.get(position) {
             Some(CheckedNodeKind::Value(ValueForm::Parameter)) => {
-                if !allowed.contains(key) {
-                    return Err(issue(
-                        Code::MissingDeclaration,
-                        Some(Cause::MissingName),
-                        at,
-                        source,
-                    ));
+                if !allowed.variables.contains(key) {
+                    let expected = parameter_name_level(node).and_then(|(name, level)| {
+                        allowed.named_reads.get(&(name.to_owned(), level))
+                    });
+                    match expected {
+                        Some(expected)
+                            if scalar_base_type(
+                                &node.semantic_type,
+                                nodes,
+                                kinds,
+                                index,
+                                meter,
+                                &at,
+                            )? == Some(expected.clone()) => {}
+                        Some(_) => {
+                            return Err(issue(
+                                Code::IllTyped,
+                                Some(Cause::TypeMismatch),
+                                at,
+                                source,
+                            ));
+                        }
+                        None => {
+                            return Err(issue(
+                                Code::MissingDeclaration,
+                                Some(Cause::MissingName),
+                                at,
+                                source,
+                            ));
+                        }
+                    }
                 }
                 // Parameter metadata contains its name and index literals; they
                 // are not terms read by the enclosing hybrid expression.
@@ -189,21 +224,38 @@ fn reads_allowed(
             Some(CheckedNodeKind::Function(_)) => {
                 // A called function is checked at its call; its own body does not
                 // read the enclosing model's parameters.
-                if !numeric_or_boolean_type(&node.semantic_type, nodes, kinds, index)
-                    || node.dependencies.iter().any(|parameter| {
-                        node_at(parameter, nodes, index).is_some_and(|(position, node)| {
-                            kinds.get(position)
-                                == Some(&CheckedNodeKind::Value(ValueForm::Parameter))
-                                && !numeric_or_boolean_type(
-                                    &node.semantic_type,
-                                    nodes,
-                                    kinds,
-                                    index,
-                                )
-                        })
-                    })
-                {
+                if !numeric_or_boolean_type(&node.semantic_type, nodes, kinds, index, meter, &at)? {
                     return Err(issue(Code::IllTyped, Some(Cause::TypeMismatch), at, source));
+                }
+                let parameters = members(&node.body)
+                    .first()
+                    .filter(|member| member["name"] == "parameters")
+                    .map(|member| members(&member["value"]))
+                    .unwrap_or(&[]);
+                for parameter in parameters {
+                    meter.charge(1, || at.clone())?;
+                    if let Some((position, parameter_node)) =
+                        target(parameter).and_then(|key| node_at(&key, nodes, index))
+                    {
+                        if kinds.get(position)
+                            == Some(&CheckedNodeKind::Value(ValueForm::Parameter))
+                            && !numeric_or_boolean_type(
+                                &parameter_node.semantic_type,
+                                nodes,
+                                kinds,
+                                index,
+                                meter,
+                                &at,
+                            )?
+                        {
+                            return Err(issue(
+                                Code::IllTyped,
+                                Some(Cause::TypeMismatch),
+                                at,
+                                source,
+                            ));
+                        }
+                    }
                 }
                 continue;
             }
@@ -534,6 +586,10 @@ pub(super) fn validate_models(
         }
         // QSpec FR-481 reader check 5: the referenced term and its dependency
         // closure may read only this model's continuous variables.
+        let model_scope = ReadScope {
+            variables: variables.clone(),
+            named_reads: BTreeMap::new(),
+        };
         for mode_ref in mode_refs {
             let Some(mode_position) = target(mode_ref).and_then(|key| index.get(&key).copied())
             else {
@@ -550,7 +606,7 @@ pub(super) fn validate_models(
                     if let Some(key) = target(term) {
                         reads_allowed(
                             &key,
-                            &variables,
+                            &model_scope,
                             nodes,
                             kinds,
                             index,
@@ -577,7 +633,7 @@ pub(super) fn validate_models(
                 if let Some(guard) = target(bound(&transition.body, 1)) {
                     reads_allowed(
                         &guard,
-                        &variables,
+                        &model_scope,
                         nodes,
                         kinds,
                         index,
@@ -592,7 +648,7 @@ pub(super) fn validate_models(
                     if let Some(value) = target(bound(reset, 1)) {
                         reads_allowed(
                             &value,
-                            &variables,
+                            &model_scope,
                             nodes,
                             kinds,
                             index,
@@ -611,7 +667,7 @@ pub(super) fn validate_models(
                 if let Some(key) = target(bound(initial, 1)) {
                     reads_allowed(
                         &key,
-                        &variables,
+                        &model_scope,
                         nodes,
                         kinds,
                         index,
@@ -756,7 +812,10 @@ pub(super) fn validate_claims(
             .iter()
             .filter_map(|entry| target(bound(entry, 0)))
             .collect::<BTreeSet<_>>();
-        let mut allowed = variables.clone();
+        let mut allowed = ReadScope {
+            variables,
+            named_reads: BTreeMap::new(),
+        };
         if each {
             for (slot, entry) in variable_entries.iter().enumerate() {
                 let Some(variable) = target(bound(entry, 0)) else {
@@ -768,16 +827,10 @@ pub(super) fn validate_claims(
                 let Some((name, _)) = parameter_name_level(variable_node) else {
                     continue;
                 };
-                for (&candidate, &candidate_position) in index {
-                    let read = &nodes[candidate_position];
-                    if kinds.get(candidate_position)
-                        == Some(&CheckedNodeKind::Value(ValueForm::Parameter))
-                        && read.semantic_type == variable_node.semantic_type
-                        && parameter_name_level(read) == Some((name, variable_entries.len() + slot))
-                    {
-                        allowed.insert(candidate.clone());
-                    }
-                }
+                allowed.named_reads.insert(
+                    (name.to_owned(), variable_entries.len() + slot),
+                    variable_node.semantic_type.clone(),
+                );
             }
         }
         if let Some((slot, guard)) = activation
@@ -795,18 +848,6 @@ pub(super) fn validate_claims(
         }
         let captures = members(&arguments[3]);
         for (slot, capture) in captures.iter().enumerate() {
-            let name = capture["name"].as_str().unwrap_or_default();
-            for (&candidate, &candidate_position) in index {
-                let read = &nodes[candidate_position];
-                if kinds.get(candidate_position)
-                    == Some(&CheckedNodeKind::Value(ValueForm::Parameter))
-                    && parameter_name_level(read) == Some((name, 2 * variable_entries.len() + slot))
-                {
-                    allowed.insert(candidate.clone());
-                }
-            }
-        }
-        for (slot, capture) in captures.iter().enumerate() {
             let Some(value) = target(&capture["value"]) else {
                 continue;
             };
@@ -823,20 +864,23 @@ pub(super) fn validate_claims(
             }) {
                 return Err(issue(Code::IllTyped, Some(Cause::TypeMismatch), at, claim));
             }
-            let initializer_type = initializer
-                .and_then(|(_, node)| scalar_base_type(&node.semantic_type, nodes, kinds, index));
-            let capture_name = capture["name"].as_str().unwrap_or_default();
-            let capture_level = 2 * variable_entries.len() + slot;
-            if index.iter().any(|(_, &candidate_position)| {
-                let candidate = &nodes[candidate_position];
-                kinds.get(candidate_position) == Some(&CheckedNodeKind::Value(ValueForm::Parameter))
-                    && parameter_name_level(candidate) == Some((capture_name, capture_level))
-                    && scalar_base_type(&candidate.semantic_type, nodes, kinds, index)
-                        != initializer_type
-            }) {
+            let Some(initializer_type) = initializer
+                .map(|(_, node)| {
+                    scalar_base_type(&node.semantic_type, nodes, kinds, index, meter, &at)
+                })
+                .transpose()?
+                .flatten()
+            else {
                 return Err(issue(Code::IllTyped, Some(Cause::TypeMismatch), at, claim));
-            }
+            };
             reads_allowed(&value, &allowed, nodes, kinds, index, at, claim, meter)?;
+            allowed.named_reads.insert(
+                (
+                    capture["name"].as_str().unwrap_or_default().to_owned(),
+                    2 * variable_entries.len() + slot,
+                ),
+                initializer_type,
+            );
         }
         let mode_keys = members(bound(&model.body, 1))
             .iter()
