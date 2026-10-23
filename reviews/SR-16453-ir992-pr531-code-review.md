@@ -29,3 +29,9 @@ CONDITIONAL. The finding requires an author fix or a documented scope decision b
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | The duplicate-place set is keyed by target node position. Two clock_place nodes can have the same model and canonical path but different guards, so their node ids and positions differ and both are admitted. Repeated places must be compared by the authored place path, and a distinct-node same-path control is needed. | crates/quire-contract-model/src/checked_package/v2/timed_model.rs:570-580 |
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | At PR #531 exact head cbdda705620fb030f9616db6a7bfef29ab06aee5, Clock-place duplicates now compare retained typed `(model, path)` rather than the node position; guards are excluded. A new authenticated distinct-node/same-path/different-guards test asserts the exact `duplicate-clock-place` refusal and locus. |

@@ -33,3 +33,9 @@ CONDITIONAL. The finding requires an author fix or a documented scope decision b
 ## Coverage
 
 Plan completion: not assessed. Incremental matrix inspection: the only new FR-038 AC trace is the vocabulary test for AC-318; five timed conformance tests carry suite-only TC-048. Full-repository matrix parity was not reclassified in this diff-scoped review.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | At PR #531 exact head cbdda705620fb030f9616db6a7bfef29ab06aee5, The vocabulary-only test now has suite-only `TC-048` trace and no FR-038-AC-318 tag. The conformance tests remain suite-only; the full criterion is not claimed by this PR. |
