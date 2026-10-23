@@ -185,7 +185,7 @@ fn shipped_projection_vector_refuses_at_the_first_wire_member(selected: &str) {
     );
 }
 
-#[trace("TC-233", "FR-038-AC-4")]
+#[trace("TC-048", "FR-038-AC-4")]
 #[test]
 fn derived_identity_binds_a_nominal_body_and_node_order_but_excludes_occurrences() {
     let base = fixture("positive-nominal-identities.json");
@@ -259,7 +259,7 @@ fn producer_digest(package: &Value) -> String {
         .to_string()
 }
 
-#[trace("TC-233", "FR-038-AC-4", "FR-038-AC-310")]
+#[trace("TC-048", "FR-038-AC-4", "FR-038-AC-310")]
 #[test]
 fn published_selection_schema_and_producer_identity_agree_for_every_fixture() {
     let schema = read_json(&fixtures_dir().join("../schema.json")).unwrap();
@@ -298,7 +298,7 @@ fn published_selection_schema_and_producer_identity_agree_for_every_fixture() {
     }
 }
 
-#[trace("TC-233", "FR-038-AC-4")]
+#[trace("TC-048", "FR-038-AC-4")]
 #[test]
 fn producer_identity_covers_full_nominal_body_and_order_excluding_occurrences() {
     let base = fixture("positive-nominal-identities.json");
@@ -340,7 +340,7 @@ fn producer_identity_covers_full_nominal_body_and_order_excluding_occurrences() 
     assert_eq!(producer_digest(&relocated), original);
 }
 
-#[trace("TC-233", "FR-038-AC-310")]
+#[trace("TC-048", "FR-038-AC-310")]
 #[test]
 fn published_shipped_derived_projection_refuses_at_the_first_wire_member() {
     shipped_projection_vector_refuses_at_the_first_wire_member(
@@ -348,7 +348,7 @@ fn published_shipped_derived_projection_refuses_at_the_first_wire_member() {
     );
 }
 
-#[trace("TC-233", "FR-038-AC-310")]
+#[trace("TC-048", "FR-038-AC-310")]
 #[test]
 fn published_shipped_empty_projection_refuses_at_the_first_wire_member() {
     shipped_projection_vector_refuses_at_the_first_wire_member(
