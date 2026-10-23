@@ -37,6 +37,7 @@ use std::path::{Path, PathBuf};
 
 mod extension;
 mod reaches_population;
+mod single_body;
 
 /// The environment variable naming the root of a `quire-specification` checkout.
 const SPECIFICATION_DIR: &str = "QUIRE_SPECIFICATION_DIR";
