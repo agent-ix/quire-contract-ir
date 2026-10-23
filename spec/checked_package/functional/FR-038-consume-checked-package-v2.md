@@ -17,6 +17,12 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-66
     type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-120
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-121
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-122
+    type: references
   - target: ix://agent-ix/quire-specification/FR-330-AC-4
     type: references
   - target: ix://agent-ix/quire-specification/FR-152
@@ -1674,8 +1680,10 @@ checks owned by QSpec FR-481 as IR reader evidence.
 The V2 reader SHALL admit the `timed_model` node family and exactly the
 `timed_model`, `time_source`, `clock_place`, `clock_reset`, `clock_guard`,
 `time_invariant`, `urgency` and `clock_constraint` forms owned by QSpec
-FR-322-AC-120. The QSpec checked-package schema SHALL determine each form's
-closed wire shape, occurrence roles and semantic type; the IR reader SHALL
+FR-322-AC-120. The published QSpec schema fixes each form's closed wire
+shape and occurrence roles; each timed node's outer `semantic_type` is its
+own key, while the structural preimage carries a null `semantic_type`, as
+FR-322-AC-122 states. The IR reader SHALL
 decode the family and form once with the other node kinds. Strict wire
 validation SHALL refuse an unknown form or malformed member before identity
 or body validation. The canonical writer SHALL emit each complete timed node
@@ -1685,7 +1693,7 @@ preimage.
 Graph-shape validation SHALL compare each timed node's dependency set with
 its body references before the key stage. The structural-key stage SHALL
 derive its `quire.structural-node/v1` key from the published QSpec preimage,
-including the node's owner, declaration and complete body; the derived
+including the owner where present, declaration and complete body; the derived
 package identity SHALL include that node with only source occurrences
 excluded. A stale key or dependency mismatch SHALL refuse at the existing
 key or graph-shape stage before the timed-model body step. Reordering only
@@ -1705,6 +1713,9 @@ defect SHALL win over a protocol or later operation defect; a hybrid or
 earlier body-step defect SHALL win over a timed defect. The writer SHALL
 preserve the admitted source's node order, exact quantity data and selected
 model identity on read-back.
+The reader tests SHALL use QSpec's `positive-timed-model-nodes.json` and
+`timed-model-node-vectors.json` through `QSPEC_DIR`, without storing a copy
+of either fixture in this repository.
 
 ### Protocol node bodies and reader step
 
