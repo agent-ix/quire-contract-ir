@@ -492,7 +492,8 @@ mod tests {
             };
             let mut evidence = CheckedPackageEvidence::new();
             let schema: CheckedExtensionDefinition = serde_json::from_value(json!({
-                "grammar_schema": {"productions": [{"keyword": "open", "clauses": ["subject"]}]},
+                "grammar_schema": {"productions": [{"keyword": "open", "clauses": ["subject"]},
+                    {"keyword": "future", "clauses": []}]},
                 "typed_node_schema": {"nodes": [{"keyword": "open", "node_kind": "open-kind",
                     "clauses": [{"name": "subject", "type": expected}]},
                         {"keyword": "future", "node_kind": "future-kind", "clauses": []}]}
@@ -742,6 +743,7 @@ mod tests {
         assert!(join.run().0.is_ok(), "open extension name must remain data");
         join.wire.lock.definition_selections.clear();
         join.terms[1] = None;
+        join.kinds[1] = CheckedNodeKind::Value(ValueForm::Parameter);
         let (result, work) = join.run();
         let Err(ValidationFailure::Refused(refusal)) = result else {
             panic!("missing selection must precede target typing: {result:?}");
