@@ -55,3 +55,7 @@ At PR #528 head `48fb6f96e1b776f7a72835e498a6efc3f2665aea`, same-reviewer round 
 ## Final head confirmation
 
 PR #528 head `d6292182a9a00f2f5a5c55fe26378fcb66f90b6b` adds a combined capture type and fairness defect case. The capture refusal wins with exact code, cause, and locus, as FR-038-AC-316 requires. All 20 focused QSpec hybrid tests pass. The round-1 dispositions remain fixed; no new gap finding in this delta. Gap analysis: PASS at this head. The author retains the final aggregate gate.
+
+## Gate-fix head confirmation
+
+At PR #528 head `a3522ad7528d64f7f4d0c4f41331be462c463165`, TC-226's exact work-boundary test, TC-048's nonhybrid timed-bound refusal, TC-058's public-item inventory test and the 21 QSpec hybrid tests pass. The new mixed-package test checks the nonhybrid timed-null refusal with exact code, cause and locus. FR-019-AC-5 is tagged in the computed matrix. No new gap finding in the six-file delta; PASS at this head. The final aggregate gate remains author-owned.

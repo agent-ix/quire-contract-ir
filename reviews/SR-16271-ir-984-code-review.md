@@ -52,3 +52,7 @@ At PR #528 head `48fb6f96e1b776f7a72835e498a6efc3f2665aea`, same-reviewer round 
 ## Final head confirmation
 
 PR #528 head `d6292182a9a00f2f5a5c55fe26378fcb66f90b6b` adds a metered traversal rooted in this claim's formula and capture initializers. It checks reachable capture parameter types at the capture binding before the fairness step. The combined capture mismatch and fairness defect test asserts `IllTyped`/`TypeMismatch` at `/body/arguments/3/members/0`. This preserves the round-1 FND-001/002 fixes. Focused QSpec hybrid tests pass 20/20; `git diff --check` is clean. No new finding in this delta. Code/Rust review: PASS at this head. The author retains the final aggregate gate.
+
+## Gate-fix head confirmation
+
+PR #528 head `a3522ad7528d64f7f4d0c4f41331be462c463165` changes only six files over the reviewed custody head `2663d2968a8e2f837e101836d5e9023ca93dd224`. Hybrid claim work is charged after classification, restoring TC-226's exact work boundary. The flat-wire timed-null exception is limited to raw formula references reachable from a hybrid claim; a nonhybrid formula still refuses at its upper bound. `HybridForm` is exported from the model root and matched by FR-019's implemented inventory. The TC-226 boundary, TC-048 timed-bound, TC-058 inventory and 21 QSpec hybrid focused tests all pass. `git diff --check` is clean. No new code or Rust finding; PASS at this head. The final aggregate gate remains author-owned.
