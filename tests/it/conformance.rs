@@ -240,6 +240,7 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
     assert_eq!(mismatch.status.code(), Some(1));
     assert!(mismatch.stderr.is_empty());
     let mismatch_rows = rows(&mismatch);
+    assert_eq!(mismatch_rows.len(), input_count(&scratch.0));
     let package_row = mismatch_rows
         .iter()
         .find(|row| row["fixture_id"] == "package-constructs")
