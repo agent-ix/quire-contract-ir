@@ -41,6 +41,8 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-370
     type: references
+  - target: ix://agent-ix/quire-specification/FR-481
+    type: references
   - target: ix://agent-ix/quire-specification/FR-440
     type: references
   - target: ix://agent-ix/quire-specification/FR-464
@@ -280,6 +282,15 @@ operation member's `kind`, a mode's `kind`) is not one of these enums: the
 body validators read it from the JSON at the wire edge. Admission retains the
 validated body-reference adjacency and term counts for lowering; lowering
 uses those admitted facts rather than parsing a body again for each request.
+
+The node-family vocabulary includes `hybrid` with exactly the
+`hybrid_model`, `hybrid_mode` and `hybrid_transition` forms of QSpec FR-481.
+The typed family/form decoder admits those three combinations. The strict
+published hybrid schema refuses `hybrid_flow` and any form outside this
+three-form set as `malformed_wire` before the hybrid body step; it does not
+infer a form from the body. The checked package's public
+typed wire exposes the new `HybridForm` enum; FR-019 lists that type in its
+public-item inventory. No separate hybrid accessor is introduced.
 
 The reader SHALL recompute `package_id` as the SHA-256 of the RFC 8785
 canonical bytes of the seven-member wire `identity_preimage` with one derived
@@ -1559,6 +1570,103 @@ same pointer. The locus is the carrier's typed node key under this reader's
 ordinary node-refusal convention. Generic unresolved-reference validation
 SHALL NOT precede this carrier join.
 
+### Hybrid node bodies and reader step
+
+The reader SHALL admit QSpec FR-481's `hybrid`/`hybrid_model`,
+`hybrid`/`hybrid_mode` and `hybrid`/`hybrid_transition` nodes, and a hybrid
+claim as a `temporal`/`temporal_clause` node whose `over` parameter is typed
+by a hybrid model. The published QSpec schema owns their closed wire layouts,
+including ordered bindings, required and forbidden owner/declaration fields,
+occurrence roles, minimum nonempty lists, literal kinds and allowed class and
+reset-relation spellings. Strict wire validation SHALL refuse a layout defect
+as `malformed_wire` at the defective member before any body step. A model's
+continuous variables are `value`/`parameter` nodes typed
+`scalar_type`/`rational`; the class literal is producer-attested and is not
+reconstructed from the rational rate value. The reader SHALL retain the exact
+body references and ordering of variables, modes, initial entries, rates,
+transitions and resets. It SHALL NOT synthesize a missing node or infer an
+unstated initial entry other than FR-481's single default.
+
+Before this body step, the existing graph-shape check SHALL compare each
+hybrid node's `dependencies` with the unique digest-ascending set of its
+body's reference targets and refuse a mismatch as `invalid_semantic_graph`
+at `/dependencies`. The derived-shape key stage SHALL check each hybrid node
+against QSpec FR-481's `quire.structural-node/v1` preimage: the node is its
+own `semantic_type`, has no recursion group or nominal preimage, and its key
+includes the exact declaration, owner and body (null declaration and absent
+owner for a transition). A stale key refuses `invalid_package`/
+`stale-node-key` before the hybrid step. The complete nodes enter the
+package's derived identity projection, so changing a mode, rate, guard,
+reset, variable class or initial entry changes the containing model,
+model-typed `over` parameter, claim and package identities along their
+reference paths.
+
+The hybrid body step SHALL run after the step-relation step and before the
+protocol step, as QSpec FR-322 "Body steps" orders them. It visits models
+in ascending node-id digest order. For each model, it SHALL stop at the first
+defect in this order, at the member or target the check names:
+
+1. A repeated mode reference or an explicitly written default `initial`
+   refuses `invalid_semantic_graph` at the later mode entry or `initial`.
+2. Variable targets in variable order must be distinct rational parameters
+   at their positional levels; a wrong type, level or repeated name refuses
+   `invalid_model_binding`/`malformed-declaration` at the target.
+3. Mode targets in body order must be `hybrid_mode` nodes declared under the
+   model's qualified name. A mismatch refuses
+   `invalid_model_binding`/`malformed-declaration` at the target. For each
+   mode in that order, the rate count must equal the variable count; then
+   the invariant must be Boolean, each rate rational or one of the model's
+   variable nodes, and each transition target a `hybrid_transition` node.
+   These checks refuse at `rates`, the invariant or rate target, or the
+   transition target with FR-481's respective `invalid_model_binding` or
+   `ill_typed` code and cause. Each transition in body order then checks
+   target-mode and reset-variable indices, Boolean guard, conflicting reset
+   entries, and rational or model-variable reset values, with FR-481's
+   `missing_declaration`/`missing-name`, `ill_typed`/
+   `non-boolean-root`, `invalid_package`/`conflicting-definition`, or
+   `ill_typed`/`type-mismatch` at the named target, guard or entry.
+4. Initial entries in body order check the mode index, then Boolean
+   condition, refusing `missing_declaration`/`missing-name` or
+   `ill_typed`/`non-boolean-root` at the binding.
+5. Parameter reads in model terms must resolve to the model's variable
+   nodes, outside called function bodies, and called functions must use
+   Boolean or numeric parameter and result types. A foreign read refuses
+   `missing_declaration`/`missing-name` at the term's binding; a wrong
+   function type refuses `ill_typed`/`type-mismatch` at the call.
+6. A `clock` variable must have the literal rational `1` as its rate in
+   every mode; the first failure in variable order refuses
+   `invalid_package`/`invalid-value` at its class literal. A model with no
+   `hybrid` variable refuses the same at `variables`. The converse is not
+   checked: a variable classed `hybrid` may have literal-one rates.
+
+After all model checks, an unreferenced hybrid mode or transition refuses
+`invalid_semantic_graph` at that node in ascending node-id digest order.
+Then hybrid claims are visited in ascending node-id digest order. The
+temporal step has already checked their temporal placement, profile and
+interval fit, including FR-481's timed `[q, *]` only under
+`quire.temporal.timed/v1`; a profile mismatch refuses there before the
+hybrid step. For each surviving claim, the hybrid step SHALL check, in
+order: (7) `model-time` or `model-steps` clock, typed `each` trigger, and
+Boolean guard and correctly typed capture initializers; (8) fairness
+members naming a mode or transition in this model; (9) parameter reads in
+`holds`, guards and captures restricted to the model variables and the
+claim's specified activation and capture levels. These checks SHALL use
+FR-481's codes, causes and loci: an invalid clock is
+`invalid_package`/`invalid-value` at `/body/arguments/1`, a mistyped
+trigger/guard/capture is `ill_typed`/`type-mismatch` at that term, and
+unresolved fairness or reads are `missing_declaration`/`missing-name` at
+the member or formula node. A model or claim defect SHALL win over a
+protocol-step defect; an earlier body-step defect SHALL win over a hybrid
+defect.
+
+The reader SHALL consume QSpec TC-966's published hybrid vectors from the
+selected QSpec checkout. It SHALL admit the positive `Braking` and `Tank`
+graphs, including a variable-to-variable rate or reset and a
+`hybrid`-classed literal-one rate, and match the strict-wire and rebuilt-key
+negative vectors by code, cause and locus. It SHALL neither copy those
+artifacts into this repository nor claim the process-provider or result-trace
+checks owned by QSpec FR-481 as IR reader evidence.
+
 ### Protocol node bodies and reader step
 
 When a V2 package contains a `protocol` node other than the
@@ -1589,15 +1697,16 @@ record refuses `invalid_semantic_graph`. Node keys SHALL continue to derive
 from the authored application preimage, including exact declaration paths and
 reference targets, rather than from source order or occurrences.
 
-After the state, temporal and abstraction steps and before the operation
-step, the reader SHALL run the protocol step in QSpec FR-464 order: placement;
+After the state, temporal, abstraction, terminal, step-relation and hybrid
+steps and before the operation step, the reader SHALL run the protocol step
+in QSpec FR-464 order: placement;
 operator and law; declarations; member nodes; membership; then clauses.
 Within a clause it SHALL check references, activation and captures, the
 derived causal relation and progress, then slots. Within a slot it SHALL
 check forbidden `over` and model-state reads before binder scope and
 decision facts. The step SHALL use the typed refusal code, cause, pointer
-and node locus that QSpec FR-464 through FR-466 state; an earlier state,
-temporal or abstraction defect SHALL win over a protocol defect, and a
+and node locus that QSpec FR-464 through FR-466 state; an earlier body-step
+defect SHALL win over a protocol defect, and a
 protocol defect SHALL win over an operation-step defect.
 
 ### Dependency references
@@ -5035,6 +5144,13 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-308 | For an admitted graph with K distinct requested leaves over one shared R-node closure, at K=2,4,8 and R=4,8,16, the reader validates each body once and retains the resolved adjacency and body-term count; lowering performs no further body grammar validation, reuses closure reachability per strongly connected component, and does not scan the full closure separately to decide each candidate bound. Per-request node, term and edge charges, the consumed value at a work-limit stop, each record and the complete package canonical bytes equal the independently lowered baseline. Admission performs R+K body grammar validations for the R shared nodes and K distinct leaves, and lowering performs zero additional validations; a grouped recursive component and a stop within the shared closure preserve the same outcomes. | Test (TC-050) |
 | FR-038-AC-309 | `CheckedPackageV2::lower_independent_records` returns one record per requested key in input order, each byte-for-byte equal to the record from `lower` called with only that key and the same profile and retained byte ceiling. For a shared R-node closure under K requests, graph/source indexes and component closures are built once and body validation is not repeated. When every one-key package fits but their union exceeds the byte ceiling, this method retains each one-key record while `lower` on the union reports its existing whole-call `failed` result. | Test (TC-048, TC-050) |
 | FR-038-AC-310 | Both published QSpec shipped_projection_cases (complete occurrence-free graph and empty array) fail the schema and refuse malformed_wire at /identity_preimage/identity_projection, before identity validation. Every other extra immediate member of the seven-field wire selection object refuses malformed_wire at that member's pointer; nested selection records retain their own rules. Removing that member admits the published package with its recorded package_id. Reader and canonical writer ship each complete body once in semantic_graph.nodes; the hash preimage includes every complete node except occurrences in graph order. | Test |
+| FR-038-AC-311 | The typed V2 node-family/form vocabulary admits exactly `hybrid`/`hybrid_model`, `hybrid`/`hybrid_mode` and `hybrid`/`hybrid_transition` under the `hybrid` tag. QSpec TC-966's transition with a declaration, mode occurrence of role `claim`, reordered model bindings, class `continuous`, reference target index, mode with no rates, unknown `hybrid_flow` form and ownerless model each refuse `malformed_wire` at strict wire validation, before hybrid body checks; the valid `Braking` and `Tank` nodes reach those checks. | Test (TC-048) |
+| FR-038-AC-312 | The reader admits TC-966's `Braking` model, modes, transition and `SlowEnough` claim with their published structural keys, self semantic types and exact dependencies; a rebuilt rate-term edit changes the referenced mode, model, model-typed `over` parameter, claim and package identities, while rekeying an unchanged node preserves its key. A stale hybrid node key or mismatched dependency list refuses at the prior key or graph-shape stage, before a hybrid body defect. | Test (TC-048) |
+| FR-038-AC-313 | With dependencies, keys and package id rebuilt after each edit, the reader runs QSpec FR-481 model checks 1 through 4 in order: repeated mode/default initial, variable type/level/name, mode declaration/rate count/term types/transition index and reset conflict, then initial mode and condition. TC-966's HY-03 through HY-08, HY-17's rebuilt-key initial-entry cases and HY-18's rebuilt-key reset-conflict case match their published code, cause and locus; when two model checks fail, the earlier check wins. HY-11's repeated declared mode name is refused by earlier name validation, and HY-18's invalid `eq` relation is refused by strict wire validation, both before these model checks. | Test (TC-048) |
+| FR-038-AC-314 | Model term reads and called-function types are checked after initial entries; clock rates and the required hybrid variable are checked after reads. TC-966's foreign `w` read, nonliteral clock rate, all-clock `Braking` and all-clock `Timer` refuse with the published code, cause and locus. TC-966's `Tank`, whose rate and reset value reference another variable and whose `hybrid` variable has a literal-one rate, admits. An unreferenced hybrid transition refuses after all model checks and before claim checks. | Test (TC-048) |
+| FR-038-AC-315 | The temporal step precedes the hybrid step: a hybrid claim's integer or timed interval is admitted only under its matching FR-370 profile, including timed `[q, *]` under `quire.temporal.timed/v1` and integer `[2, *]` under `quire.temporal.infinite-trace/v1`. A wrong interval form refuses `invalid_package`/`operation-member-mismatch` there before a fairness defect. The surviving `SlowEnough`, `Slows` and `Recent` claims are read from their published graph nodes with their respective clock, activation, capture, fairness and read levels. | Test (TC-048) |
+| FR-038-AC-316 | After all models and orphan modes/transitions, hybrid claims are checked in node-id digest order for clock/activation/guard/capture form, fairness, then model-variable/activation/capture reads. TC-966's `wall` clock, mistyped `each` trigger, fairness member naming `Halted`, `holds` reading `h` and `holds` reading a parameter at the wrong level refuse with FR-481's code, cause and locus; a valid claim and a later protocol defect yield the protocol refusal, while a hybrid defect and a protocol defect yield the hybrid refusal. | Test (TC-048) |
+| FR-038-AC-317 | TC-048 reads QSpec TC-966's published `hybrid-node-vectors.json` and `positive-all-families.json` from the selected QSpec checkout, without a local copy. Strict-wire cases are checked before identity, rebuilt-key semantic cases after it, with exact code, cause and locus. The IR reader does not substitute its own process-provider or host trace checks for QSpec's HY-15 and HY-16. | Test (TC-048) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
