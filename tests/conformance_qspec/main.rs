@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! FR-038-AC-107, AC-112, AC-113, AC-154 and AC-176: QSpec's CheckedPackage V2 fixtures and
+//! FR-038-AC-107, AC-112, AC-113, AC-176 and AC-310: QSpec's CheckedPackage V2 fixtures and
 //! vectors against the production reader.
 //!
 //! AC-107: the positive fixtures admit end to end. AC-112: every mutation of
@@ -9,8 +9,9 @@
 //! listed expected failures, and each body-grammar `flattened` form is not
 //! refused `malformed_wire`. AC-113: the version-free dependency selections of
 //! `dependency-selection-vectors.json` derive the recorded `package_id`
-//! through the reader's own derivation. AC-154: the projection-owner adverse
-//! entries refuse with their recorded code, cause and path after identity refresh.
+//! through the reader's own derivation. AC-310: shipped identity projections
+//! and other extra selection members refuse `malformed_wire` at their exact
+//! pointers, while the single-body positives retain their recorded identity.
 //!
 //! The fixtures are QSpec's and are read from a `quire-specification` checkout
 //! named by `QUIRE_SPECIFICATION_DIR`; nothing of them is copied into this
