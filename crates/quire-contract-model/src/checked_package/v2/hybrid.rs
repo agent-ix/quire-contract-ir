@@ -10,7 +10,6 @@ use crate::checked_package::shared::{
     CheckedPackageRefusalCode as Code, JsonPointer,
 };
 use ix_trace_rs::string_edge;
-use num_bigint::BigInt;
 use serde::{
     de::{value::Error as WordError, value::StrDeserializer, DeserializeOwned},
     Deserialize,
@@ -108,18 +107,14 @@ fn reference_target(term: &CheckedTerm) -> Option<CheckedNodeId> {
 }
 
 fn is_rational_one(term: &CheckedTerm) -> bool {
-    let CheckedTerm::Literal {
-        value_kind: LiteralKind::Rational,
-        value: Value::String(value),
-        ..
-    } = term
-    else {
-        return false;
-    };
-    value
-        .parse::<BigInt>()
-        .ok()
-        .is_some_and(|number| number == BigInt::from(1) && value == &number.to_string())
+    matches!(
+        term,
+        CheckedTerm::Literal {
+            value_kind: LiteralKind::Rational,
+            value: Value::String(value),
+            ..
+        } if value.len() == 1 && value.as_bytes().first() == Some(&b'1')
+    )
 }
 
 fn members(value: &Value) -> &[Value] {
