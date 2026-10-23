@@ -266,3 +266,128 @@ fn timed_model_rebuilt_semantic_defects_keep_paired_causes() {
         );
     }
 }
+
+#[trace("TC-048")]
+#[test]
+fn timed_model_distinct_place_nodes_with_same_model_path_and_different_guards_refuse() {
+    let mut wire = published();
+    assert!(
+        matches!(
+            read_package(&wire).unwrap(),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "unchanged owner fixture must admit"
+    );
+    let original = wire["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["node_tag"] == "timed_model" && node["semantic_form"] == "clock_place")
+        .expect("published clock place")
+        .clone();
+    let mut alternate = original.clone();
+    let provisional = json!({"domain":"quire.checked-semantic-node/v1", "digest":"f".repeat(64)});
+    assert!(!wire["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|node| node["node_id"] == provisional));
+    alternate["node_id"] = provisional.clone();
+    alternate["semantic_type"] = provisional.clone();
+    let guards = alternate["body"]["members"][2]["value"]["members"]
+        .as_array_mut()
+        .unwrap();
+    assert_eq!(
+        guards.len(),
+        1,
+        "published place has a genuine Boolean guard"
+    );
+    guards.clear();
+    alternate["dependencies"] = json!([alternate["body"]["members"][0]["value"]["target"].clone()]);
+    assert_eq!(
+        original["body"]["members"][0],
+        alternate["body"]["members"][0]
+    );
+    assert_eq!(
+        original["body"]["members"][1],
+        alternate["body"]["members"][1]
+    );
+    assert_ne!(
+        original["body"]["members"][2],
+        alternate["body"]["members"][2]
+    );
+    let mut source = wire["source_map"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["node_id"] == original["node_id"])
+        .expect("published place provenance")
+        .clone();
+    source["node_id"] = provisional.clone();
+    wire["source_map"].as_array_mut().unwrap().push(source);
+    wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(alternate);
+    let root = wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|node| node["node_tag"] == "timed_model" && node["semantic_form"] == "timed_model")
+        .unwrap();
+    root["body"]["members"][2]["value"]["members"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"term":"reference", "target":provisional.clone()}));
+    root["dependencies"]
+        .as_array_mut()
+        .unwrap()
+        .push(provisional);
+    fixture_support::mint_ungrouped_structural_keys(&mut wire);
+    for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
+        node["dependencies"]
+            .as_array_mut()
+            .unwrap()
+            .sort_by(|left, right| {
+                (left["domain"].as_str(), left["digest"].as_str())
+                    .cmp(&(right["domain"].as_str(), right["digest"].as_str()))
+            });
+    }
+    fixture_support::refresh_identity(&mut wire);
+    let root_position = wire["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "timed_model" && node["semantic_form"] == "timed_model"
+        })
+        .unwrap();
+    let root = &wire["semantic_graph"]["nodes"][root_position];
+    let places = root["body"]["members"][2]["value"]["members"]
+        .as_array()
+        .unwrap();
+    assert_ne!(
+        places[0]["target"], places[1]["target"],
+        "different guards must produce distinct authenticated node keys"
+    );
+    let refusal = match read_package(&wire).unwrap() {
+        CheckedPackageV2ReadResult::Refused(refusal) => refusal,
+        CheckedPackageV2ReadResult::Admitted(_) => panic!(
+            "distinct authenticated place nodes with the same model/path were wrongly admitted"
+        ),
+        other => panic!("duplicate place must give a typed refusal: {other:?}"),
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::DuplicateClockPlace)),
+        "{refusal:?}"
+    );
+    assert_eq!(
+        refusal.path.unwrap().to_string(),
+        format!("/semantic_graph/nodes/{root_position}/body/members/2/value/members/1")
+    );
+    assert_eq!(
+        serde_json::to_value(refusal.locus).unwrap(),
+        root["node_id"]
+    );
+}

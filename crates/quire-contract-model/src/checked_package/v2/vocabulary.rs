@@ -786,7 +786,7 @@ mod timed_model_vocabulary_tests {
     use super::*;
     use ix_trace_rs::trace;
 
-    #[trace("FR-038-AC-318", "TC-048")]
+    #[trace("TC-048")]
     #[test]
     fn timed_model_vocabulary_matches_qspec_eight_forms() {
         let tag = CheckedNodeTag::from_wire("timed_model").expect("timed-model family");
