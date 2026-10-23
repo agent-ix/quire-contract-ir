@@ -833,12 +833,10 @@ impl CheckedPackageV2 {
         &self,
         node: &CheckedNodeId,
     ) -> Result<CheckedModelObjectFields, CheckedModelFieldsError> {
+        #[cfg(test)]
+        probe::node_visited();
         let found = self
-            .wire
-            .semantic_graph
-            .nodes
-            .iter()
-            .find(|candidate| candidate.node_id == *node)
+            .node(node)
             .ok_or(CheckedModelFieldsError::UnknownNode)?;
         let table = self
             .models
@@ -871,6 +869,19 @@ pub(super) mod probe {
 
     thread_local! {
         static BUILT: Cell<u64> = const { Cell::new(0) };
+        static NODE_VISITS: Cell<u64> = const { Cell::new(0) };
+    }
+
+    pub(super) fn node_visited() {
+        NODE_VISITS.with(|visits| visits.set(visits.get().saturating_add(1)));
+    }
+
+    pub(super) fn reset_node_visits() {
+        NODE_VISITS.with(|visits| visits.set(0));
+    }
+
+    pub(super) fn node_visits() -> u64 {
+        NODE_VISITS.with(Cell::get)
     }
 
     pub(super) fn built() {

@@ -546,6 +546,30 @@ fn fields_of(package: &CheckedPackageV2, short: &str) -> CheckedModelObjectField
         .expect("the object's fields")
 }
 
+/// Repeated public reads over reader-admitted packages preserve the exact
+/// field result and checked package identity as the graph grows.
+#[trace("TC-227", "FR-038-AC-139", "FR-038-AC-144")]
+#[test]
+fn admitted_model_field_queries_preserve_results_across_graph_sizes() {
+    for models in [4, 8, 16] {
+        let names: Vec<String> = (0..models).map(|number| format!("R{number}")).collect();
+        let types = names.iter().map(|name| object(name, &[], &[])).collect();
+        let declarations: Vec<_> = names.iter().map(|name| (name.as_str(), OBJECT)).collect();
+        let admitted = admit(&document(types), &declarations, &[]);
+        let selected = names.last().expect("selected model");
+        let expected = fields_of(&admitted, selected);
+        let identity = admitted.package_id().clone();
+        let sources = admitted.source_map().to_vec();
+        for requests in [2, 4, 8] {
+            for _ in 0..requests {
+                assert_eq!(fields_of(&admitted, selected), expected);
+            }
+        }
+        assert_eq!(admitted.package_id(), &identity);
+        assert_eq!(admitted.source_map(), sources);
+    }
+}
+
 const ORDER: &str = "Order";
 
 fn range(lower: i128, upper: i128) -> CheckedMemberType {
@@ -941,6 +965,14 @@ fn tc_048_scalar_operands_keep_argument_identity_and_exact_range() {
             .scalar_application_operands(&application, &occurrence)
             .expect("repeat")
     );
+    for requests in [2, 4, 8] {
+        for _ in 0..requests {
+            assert_eq!(
+                package.scalar_application_operands(&application, &occurrence),
+                Ok(entries.clone())
+            );
+        }
+    }
     assert_eq!(package, before);
     assert_eq!(
         consume_error(

@@ -605,6 +605,9 @@ pub struct CheckedPackageV2 {
     terms: Vec<CheckedTerm>,
     /// Admission-derived lookup; excluded from content equality.
     node_index: BTreeMap<CheckedNodeId, usize>,
+    /// Admission-derived position of each exact source occurrence.
+    pub(in crate::checked_package) source_index:
+        BTreeMap<(CheckedNodeId, CheckedOccurrenceRole, u64), usize>,
     /// Body terms and resolved lowering edges, retained from graph admission.
     lowering_facts: Vec<lower::LoweringNodeFacts>,
     /// The byte limit this package was read under: the ceiling of every
@@ -627,6 +630,7 @@ impl std::fmt::Debug for CheckedPackageV2 {
             .field("wire", &self.wire)
             .field("kinds", &self.kinds)
             .field("node_index", &self.node_index)
+            .field("source_index", &self.source_index)
             .field("bytes", &self.bytes)
             .field("models", &self.models)
             .field("direct_dependency_count", &self.direct_dependencies.len())
@@ -666,6 +670,18 @@ fn retained_node_index(wire: &CheckedPackageWireV2) -> BTreeMap<CheckedNodeId, u
         .enumerate()
         .map(|(position, node)| (node.node_id.clone(), position))
         .collect()
+}
+
+fn retained_source_index(
+    wire: &CheckedPackageWireV2,
+) -> BTreeMap<(CheckedNodeId, CheckedOccurrenceRole, u64), usize> {
+    let mut positions = BTreeMap::new();
+    for (position, entry) in wire.source_map.iter().enumerate() {
+        positions
+            .entry((entry.node_id.clone(), entry.role.clone(), entry.ordinal))
+            .or_insert(position);
+    }
+    positions
 }
 
 /// Cumulative validation work against one caller limit.
@@ -947,11 +963,13 @@ impl CheckedPackageV2 {
         let closure_index =
             ClosureIndex::from_direct(&wire.lock.dependency_selections, &direct_dependencies);
         let node_index = retained_node_index(&wire);
+        let source_index = retained_source_index(&wire);
         Ok(Self {
             wire,
             kinds,
             terms,
             node_index,
+            source_index,
             lowering_facts,
             bytes: limits.bytes,
             models,

@@ -341,6 +341,27 @@ fn tc_447_context_root_selects_authored_result_interval_without_rewriting_forwar
         .nodes
         .iter()
         .any(|entry| entry.node.body == bounds_body("0", "9")));
+    let expected = contextual
+        .result_context(
+            &add.node_id,
+            &add,
+            Some(&narrow),
+            BoundedDomainForm::IntegerRange,
+        )
+        .expect("admitted result context");
+    for requests in [2, 4, 8] {
+        for _ in 0..requests {
+            assert_eq!(
+                contextual.result_context(
+                    &add.node_id,
+                    &add,
+                    Some(&narrow),
+                    BoundedDomainForm::IntegerRange,
+                ),
+                Ok(expected.clone())
+            );
+        }
+    }
     assert_eq!(contextual.wire(), &before);
     assert_eq!(contextual.identity(), &before_identity);
 }

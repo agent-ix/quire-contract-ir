@@ -6,8 +6,48 @@
 use super::v2::{BoundedDomainForm, CheckedNodeKind, CheckedTerm, LiteralKind};
 use super::{
     CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageV2, CheckedSemanticId,
-    CheckedSourceRef, CheckedSourceRegion,
+    CheckedSourceMapEntry, CheckedSourceRef, CheckedSourceRegion,
 };
+use std::collections::BTreeMap;
+
+#[cfg(test)]
+mod source_probe {
+    use std::cell::Cell;
+
+    thread_local! {
+        static CANDIDATES: Cell<u64> = const { Cell::new(0) };
+    }
+
+    pub(super) fn visited() {
+        CANDIDATES.with(|count| count.set(count.get().saturating_add(1)));
+    }
+
+    pub(super) fn reset() {
+        CANDIDATES.with(|count| count.set(0));
+    }
+
+    pub(super) fn count() -> u64 {
+        CANDIDATES.with(Cell::get)
+    }
+}
+
+fn selected_source<'a>(
+    entries: &'a [CheckedSourceMapEntry],
+    positions: &BTreeMap<(CheckedNodeId, CheckedOccurrenceRole, u64), usize>,
+    binding: &CheckedNodeId,
+    ordinal: u64,
+) -> Option<&'a CheckedSourceMapEntry> {
+    #[cfg(test)]
+    source_probe::visited();
+    positions
+        .get(&(binding.clone(), CheckedOccurrenceRole::Type, ordinal))
+        .and_then(|position| entries.get(*position))
+        .filter(|entry| {
+            &entry.node_id == binding
+                && entry.role == CheckedOccurrenceRole::Type
+                && entry.ordinal == ordinal
+        })
+}
 
 /// The exact admitted binding and occurrence requested by a graph consumer.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -222,11 +262,12 @@ fn select_admitted(
     {
         return CheckedSelectedPopulationOutcome::MissingOccurrence(selector);
     }
-    let Some(source) = package.source_map().iter().find(|entry| {
-        entry.node_id == selector.binding
-            && entry.role == CheckedOccurrenceRole::Type
-            && entry.ordinal == selector.occurrence.ordinal
-    }) else {
+    let Some(source) = selected_source(
+        package.source_map(),
+        &package.source_index,
+        &selector.binding,
+        selector.occurrence.ordinal,
+    ) else {
         return CheckedSelectedPopulationOutcome::MissingOccurrence(selector);
     };
     if package.node_kind(&selector.binding)
@@ -251,6 +292,63 @@ fn select_admitted(
         maximum,
         provenance: source.regions.clone(),
     })
+}
+
+#[cfg(test)]
+mod source_index_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    fn id(number: usize) -> CheckedNodeId {
+        serde_json::from_value(json!({
+            "domain": "quire.checked-semantic-node/v1",
+            "digest": format!("{number:064x}"),
+        }))
+        .expect("node identity")
+    }
+
+    #[trace("TC-453", "FR-053-AC-2")]
+    #[test]
+    fn repeated_population_source_reads_stay_with_the_selected_node() {
+        let mut measured = Vec::new();
+        for entries in [4, 8, 16] {
+            let selected = id(0);
+            let sources: Vec<_> = (0..entries)
+                .map(|number| CheckedSourceMapEntry {
+                    node_id: selected.clone(),
+                    role: CheckedOccurrenceRole::Type,
+                    ordinal: number as u64,
+                    regions: Vec::new(),
+                })
+                .collect();
+            let positions =
+                sources
+                    .iter()
+                    .enumerate()
+                    .fold(BTreeMap::new(), |mut index, (position, entry)| {
+                        index
+                            .entry((entry.node_id.clone(), entry.role.clone(), entry.ordinal))
+                            .or_insert(position);
+                        index
+                    });
+            for requests in [2, 4, 8] {
+                source_probe::reset();
+                for _ in 0..requests {
+                    assert_eq!(
+                        selected_source(&sources, &positions, &selected, (entries - 1) as u64),
+                        sources.last()
+                    );
+                }
+                let visits = source_probe::count();
+                println!("population_sources K={requests} R={entries} candidates={visits}");
+                measured.push((entries, requests, visits));
+            }
+        }
+        for (entries, requests, visits) in measured {
+            assert_eq!(visits, requests, "entries={entries}, requests={requests}");
+        }
+    }
 }
 
 /// Whether `node` is a `bounded_domain` / `model_population` node.

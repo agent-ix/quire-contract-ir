@@ -48,6 +48,12 @@ impl SymbolName {
     }
 }
 
+impl std::borrow::Borrow<str> for SymbolName {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
 #[derive(
     Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize, FixedShape,
 )]
@@ -878,7 +884,8 @@ impl DeclarationEnvironment {
         }
     }
 
-    fn value_declaration(&self, name: &SymbolName) -> Option<&ValueDeclaration> {
+    /// Returns the admitted value declaration with this name from the retained index.
+    pub fn value_declaration(&self, name: &str) -> Option<&ValueDeclaration> {
         self.value_index
             .get(name)
             .and_then(|&position| self.values.get(position))
@@ -1972,7 +1979,7 @@ fn check_value_reference(
     execution_point: &ExecutionPoint,
     facts: &[Fact],
 ) -> Result<Checked, Vec<Diagnostic>> {
-    let Some(declaration) = environment.value_declaration(name) else {
+    let Some(declaration) = environment.value_declaration(name.as_str()) else {
         return Err(single(
             expression,
             DiagnosticCode::OrphanedValueReference,

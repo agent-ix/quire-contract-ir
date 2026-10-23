@@ -4,8 +4,8 @@
 //! FR-049: read-only result context for one QSL-checked application occurrence.
 
 use super::{
-    ContractDispositionV1, ContractFeatureRecordV1, ContractPackageV1, ContractProvenanceV1,
-    ContractReachedClosureV1, ContractRootViewError, ContractRootViewV1,
+    ContractDispositionV1, ContractFeatureRecordV1, ContractNodeSourcesV1, ContractPackageV1,
+    ContractProvenanceV1, ContractReachedClosureV1, ContractRootViewError, ContractRootViewV1,
 };
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedSemanticId, CheckedSourceMapEntry,
@@ -15,6 +15,42 @@ use crate::checked_package::v2::{
     CheckedTerm, ExpressionForm,
 };
 use serde::Deserialize;
+use std::collections::BTreeMap;
+
+#[cfg(test)]
+mod source_probe {
+    use std::cell::Cell;
+
+    thread_local! {
+        static CANDIDATES: Cell<u64> = const { Cell::new(0) };
+    }
+
+    pub(super) fn visited() {
+        CANDIDATES.with(|count| count.set(count.get().saturating_add(1)));
+    }
+
+    pub(super) fn reset() {
+        CANDIDATES.with(|count| count.set(0));
+    }
+
+    pub(super) fn count() -> u64 {
+        CANDIDATES.with(Cell::get)
+    }
+}
+
+fn source_occurrences<'a>(
+    entries: &'a [ContractNodeSourcesV1],
+    positions: &BTreeMap<CheckedNodeId, usize>,
+    key: &CheckedNodeId,
+) -> Option<&'a [CheckedSourceMapEntry]> {
+    #[cfg(test)]
+    source_probe::visited();
+    let position = *positions.get(key)?;
+    entries
+        .get(position)
+        .filter(|entry| &entry.node_id == key)
+        .map(|entry| entry.occurrences.as_slice())
+}
 
 /// A node key with the role and ordinal of one admitted source occurrence.
 ///
@@ -230,18 +266,63 @@ impl ContractPackageV1 {
     }
 
     pub(super) fn sources(&self, key: &CheckedNodeId) -> Option<&[CheckedSourceMapEntry]> {
-        self.wire
-            .source_map
-            .nodes
-            .iter()
-            .find(|entry| &entry.node_id == key)
-            .map(|entry| entry.occurrences.as_slice())
+        source_occurrences(&self.wire.source_map.nodes, &self.source_index, key)
     }
 
     fn has_lowered(&self, key: &CheckedNodeId) -> bool {
         self.wire.feature_accounting.iter().any(|record| {
             record.node_id() == key && record.disposition() == ContractDispositionV1::Lowered
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    fn id(number: usize) -> CheckedNodeId {
+        serde_json::from_value(json!({
+            "domain": "quire.checked-semantic-node/v1",
+            "digest": format!("{number:064x}"),
+        }))
+        .expect("node identity")
+    }
+
+    #[trace("TC-447", "FR-049-AC-5")]
+    #[test]
+    fn repeated_result_source_reads_use_one_local_lookup() {
+        let mut measured = Vec::new();
+        for entries in [4, 8, 16] {
+            let sources: Vec<_> = (0..entries)
+                .map(|number| ContractNodeSourcesV1 {
+                    node_id: id(number),
+                    occurrences: Vec::new(),
+                })
+                .collect();
+            let positions = sources
+                .iter()
+                .enumerate()
+                .map(|(position, entry)| (entry.node_id.clone(), position))
+                .collect();
+            let selected = id(entries - 1);
+            for requests in [2, 4, 8] {
+                source_probe::reset();
+                for _ in 0..requests {
+                    assert_eq!(
+                        source_occurrences(&sources, &positions, &selected),
+                        Some([].as_slice())
+                    );
+                }
+                let visits = source_probe::count();
+                println!("result_sources K={requests} R={entries} candidates={visits}");
+                measured.push((entries, requests, visits));
+            }
+        }
+        for (entries, requests, visits) in measured {
+            assert_eq!(visits, requests, "entries={entries}, requests={requests}");
+        }
     }
 }
 

@@ -559,4 +559,30 @@ mod schema_cache_tests {
         let second = compiled_projection_schema().expect("same embedded schema");
         assert!(std::ptr::eq(first, second));
     }
+
+    #[trace("TC-035", "FR-023-AC-7")]
+    #[test]
+    fn repeated_bound_value_lookups_reuse_the_admitted_index() {
+        let bound = decode(&fixture()).expect("valid projection");
+        let visits_after_admission = DECLARATION_VISITS.with(std::cell::Cell::get);
+        let clauses = bound.clauses();
+        for _ in 0..8 {
+            for clause in clauses {
+                for declaration in clause.environment().values() {
+                    let found = clause
+                        .environment()
+                        .value_declaration(declaration.name().as_str())
+                        .expect("admitted value declaration");
+                    assert!(std::ptr::eq(found, declaration));
+                }
+                assert!(clause.environment().value_declaration("absent").is_none());
+            }
+        }
+        assert_eq!(
+            DECLARATION_VISITS.with(std::cell::Cell::get),
+            visits_after_admission,
+            "querying K clauses must not revisit their R declarations"
+        );
+        assert_eq!(bound.digest(), decode(&fixture()).unwrap().digest());
+    }
 }

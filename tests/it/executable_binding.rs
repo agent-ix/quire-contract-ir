@@ -76,6 +76,15 @@ fn tc_035_public_consumer_preserves_complete_population() {
             clause.environment().owner(),
             clause.identity().requirement()
         );
+        for declaration in clause.environment().values() {
+            assert_eq!(
+                clause
+                    .environment()
+                    .value_declaration(declaration.name().as_str()),
+                Some(declaration)
+            );
+        }
+        assert!(clause.environment().value_declaration("absent").is_none());
         assert_eq!(
             clause.expression().value_type(),
             &quire_contract_model::ValueType::Boolean

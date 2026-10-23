@@ -573,6 +573,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
     Fixture {
         package: CheckedPackageV2 {
             node_index: super::super::retained_node_index(&wire),
+            source_index: super::super::retained_source_index(&wire),
             lowering_facts: Vec::new(),
             wire,
             terms,
@@ -600,6 +601,42 @@ fn id_at(fixture: &Fixture, position: usize) -> CheckedNodeId {
         .expect("a node")
         .node_id
         .clone()
+}
+
+/// Repeated field reads visit only their selected graph node, even when the
+/// admitted package contains other model declarations.
+#[trace("TC-227", "FR-038-AC-144")]
+#[test]
+fn repeated_model_field_reads_do_not_walk_the_whole_graph() {
+    let mut measured = Vec::new();
+    for models in [4, 8, 16] {
+        let names: Vec<String> = (0..models).map(|i| format!("R{i}")).collect();
+        let types = names
+            .iter()
+            .map(|name| object_type(&format!("{ORDERS}{name}"), &[], vec![]))
+            .collect();
+        let declarations: Vec<_> = names
+            .iter()
+            .map(|name| (name.as_str(), DeclarationForm::ObjectType))
+            .collect();
+        let fixture = build_fixture(&document(types), &declarations);
+        let selected = id_at(&fixture, models - 1);
+        for requests in [2, 4, 8] {
+            super::probe::reset_node_visits();
+            for _ in 0..requests {
+                fixture
+                    .package
+                    .model_object_fields(&selected)
+                    .expect("fields");
+            }
+            let visits = super::probe::node_visits();
+            println!("model_fields K={requests} R={models} graph_candidates={visits}");
+            measured.push((models, requests, visits));
+        }
+    }
+    for (models, requests, visits) in measured {
+        assert_eq!(visits, requests, "models={models}, requests={requests}");
+    }
 }
 
 /// Declared types for [`fixture`]'s documents: an object type with an

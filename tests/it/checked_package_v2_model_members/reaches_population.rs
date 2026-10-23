@@ -281,6 +281,25 @@ fn tc_048_reaches_population_returns_the_least_ordinal_type_occurrence() {
             occurrence: occurrence.clone(),
         }
     );
+    let expected = select_population(Source::Admitted {
+        package: &package,
+        selector: selector.clone(),
+    });
+    let identity = package.package_id().clone();
+    let sources = package.source_map().to_vec();
+    for requests in [2, 4, 8] {
+        for _ in 0..requests {
+            assert_eq!(
+                select_population(Source::Admitted {
+                    package: &package,
+                    selector: selector.clone(),
+                }),
+                expected
+            );
+        }
+    }
+    assert_eq!(package.package_id(), &identity);
+    assert_eq!(package.source_map(), sources);
     match select_population(Source::Admitted {
         package: &package,
         selector,

@@ -774,6 +774,7 @@ mod tests {
             .collect();
         let package = CheckedPackageV2 {
             node_index: super::super::retained_node_index(&wire),
+            source_index: super::super::retained_source_index(&wire),
             lowering_facts: Vec::new(),
             wire,
             terms,
