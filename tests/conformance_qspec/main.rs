@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! FR-038-AC-107, AC-112, AC-113, AC-154 and AC-176: QSpec's CheckedPackage V2 fixtures and
+//! FR-038-AC-107, AC-112, AC-113, AC-176 and AC-310: QSpec's CheckedPackage V2 fixtures and
 //! vectors against the production reader.
 //!
 //! AC-107: the positive fixtures admit end to end. AC-112: every mutation of
@@ -9,8 +9,9 @@
 //! listed expected failures, and each body-grammar `flattened` form is not
 //! refused `malformed_wire`. AC-113: the version-free dependency selections of
 //! `dependency-selection-vectors.json` derive the recorded `package_id`
-//! through the reader's own derivation. AC-154: the projection-owner adverse
-//! entries refuse with their recorded code, cause and path after identity refresh.
+//! through the reader's own derivation. AC-310: shipped identity projections
+//! and other extra selection members refuse `malformed_wire` at their exact
+//! pointers, while the single-body positives retain their recorded identity.
 //!
 //! The fixtures are QSpec's and are read from a `quire-specification` checkout
 //! named by `QUIRE_SPECIFICATION_DIR`; nothing of them is copied into this
@@ -28,15 +29,17 @@ use quire_contract_model::{
     CheckedArtifactRef, CheckedExtensionClauseSchema, CheckedExtensionDefinition,
     CheckedExtensionGrammarSchema, CheckedExtensionNodeSchema, CheckedExtensionProduction,
     CheckedExtensionTypedNodeSchema, CheckedPackageEvidence, CheckedPackageEvidenceInsertionError,
-    CheckedPackageIdentityPreimageV2, CheckedPackageLockV2, CheckedPackageReadLimits,
-    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, CheckedPackageV2,
-    CheckedPackageV2ReadResult,
+    CheckedPackageIdentityPreimageRefV2, CheckedPackageIdentityPreimageV2, CheckedPackageLockV2,
+    CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
+    CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedSemanticGraphV2,
 };
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 mod extension;
 mod reaches_population;
+mod single_body;
 
 /// The environment variable naming the root of a `quire-specification` checkout.
 const SPECIFICATION_DIR: &str = "QUIRE_SPECIFICATION_DIR";
@@ -536,7 +539,20 @@ fn derived_with(package: &Value, selections: Option<&Value>) -> Result<String, S
     if lock.dependency_selections != preimage.dependency_selections {
         return Err("the lock and the preimage hold different dependency_selections".into());
     }
-    quire_canonical::sha256(&preimage, Limits::new(DERIVATION_CEILING))
+    let graph: CheckedSemanticGraphV2 =
+        serde_json::from_value(package["semantic_graph"].clone())
+            .map_err(|error| format!("the graph is not a V2 graph: {error}"))?;
+    let input = CheckedPackageIdentityPreimageRefV2 {
+        version: &preimage.version,
+        edition: &preimage.edition,
+        profile_selections: &preimage.profile_selections,
+        definition_selections: &preimage.definition_selections,
+        model_selections: &preimage.model_selections,
+        required_features: &preimage.required_features,
+        dependency_selections: &preimage.dependency_selections,
+        identity_projection: &graph.nodes,
+    };
+    quire_canonical::sha256(&input, Limits::new(DERIVATION_CEILING))
         .map(|digest| digest.to_string())
         .map_err(|error| format!("the preimage does not encode: {error:?}"))
 }
@@ -753,8 +769,6 @@ fn tc_048_qspec_union_values_refuse_retained_structural_keys_and_body_changes() 
             changed["semantic_graph"]["nodes"][position]["body"]["members"][0]["name"] =
                 json!("Rect");
         }
-        changed["identity_preimage"]["identity_projection"][position]["body"] =
-            changed["semantic_graph"]["nodes"][position]["body"].clone();
         changed["package_id"]["digest"] = json!(derived_with(&changed, None).expect("package id"));
         let expected = canonical_digest(&union_value_preimage(
             &changed["semantic_graph"]["nodes"][position],
@@ -828,24 +842,16 @@ fn tc_048_qspec_all_positive_packages_and_owner_identities() {
         let nodes = wire["semantic_graph"]["nodes"]
             .as_array()
             .expect("published graph nodes");
-        let projections = wire["identity_preimage"]["identity_projection"]
-            .as_array()
-            .expect("published identity projection");
         assert_eq!(
             admitted.graph().nodes.len(),
             nodes.len(),
             "{name}: graph length"
         );
-        assert_eq!(projections.len(), nodes.len(), "{name}: projection length");
-        for ((node, published), projection) in
-            admitted.graph().nodes.iter().zip(nodes).zip(projections)
-        {
+        for (node, published) in admitted.graph().nodes.iter().zip(nodes) {
             let id = serde_json::to_value(&node.node_id).expect("typed node id");
             let owner = serde_json::to_value(&node.owner).expect("typed owner");
             assert_eq!(id, published["node_id"], "{name}: graph node id");
             assert_eq!(owner, published["owner"], "{name}: graph owner");
-            assert_eq!(id, projection["node_id"], "{name}: projection node id");
-            assert_eq!(owner, projection["owner"], "{name}: projection owner");
             if name.starts_with("positive-two-owners-") {
                 for declaration in ["Point", "List"] {
                     if published["declaration"]["qualified_name"] == json!([declaration]) {
@@ -969,31 +975,6 @@ fn derived_shape_mutations(dir: &Path, row: &Value) -> Result<Vec<(usize, Value)
                     replacement,
                 )?;
             }
-            let changed = package["semantic_graph"]["nodes"][position].clone();
-            let node_id = changed["node_id"].clone();
-            let projection = package["identity_preimage"]["identity_projection"]
-                .as_array()
-                .ok_or("identity_projection is not an array")?;
-            let mirrors = projection
-                .iter()
-                .enumerate()
-                .filter(|(_, node)| node["node_id"] == node_id)
-                .map(|(position, _)| position)
-                .collect::<Vec<_>>();
-            let [mirror] = mirrors.as_slice() else {
-                return Err(format!(
-                    "{base}: expected one identity mirror, found {}",
-                    mirrors.len()
-                ));
-            };
-            for member in ["body", "dependencies", "semantic_type"] {
-                let value = changed[member].clone();
-                replace_at(
-                    &mut package,
-                    &format!("/identity_preimage/identity_projection/{mirror}/{member}"),
-                    &value,
-                )?;
-            }
             let package_id = derived_with(&package, None)?;
             replace_at(&mut package, "/package_id/digest", &json!(package_id))?;
             Ok((position, package))
@@ -1001,104 +982,6 @@ fn derived_shape_mutations(dir: &Path, row: &Value) -> Result<Vec<(usize, Value)
         .collect()
 }
 
-/// Apply a recorded projection-owner patch to its selected node in a fresh
-/// QSpec package, preserving the graph node and refreshing only the package id.
-fn projection_owner_mutation(dir: &Path, row: &Value) -> Result<(Value, usize), String> {
-    let base = text_of(row, "base")?;
-    let mut package = read_json(&dir.join(format!("{base}.json")))?;
-    let tag = text_of(&row["node"], "node_tag")?;
-    let form = text_of(&row["node"], "semantic_form")?;
-    let nodes = package["semantic_graph"]["nodes"]
-        .as_array()
-        .ok_or("semantic_graph.nodes is not an array")?;
-    let matches = nodes
-        .iter()
-        .enumerate()
-        .filter(|(_, node)| node["node_tag"] == tag && node["semantic_form"] == form)
-        .map(|(position, _)| position)
-        .collect::<Vec<_>>();
-    let [position] = matches.as_slice() else {
-        return Err(format!(
-            "{base}: expected one {tag}/{form} node, found {}",
-            matches.len()
-        ));
-    };
-    let projection = package["identity_preimage"]["identity_projection"]
-        .as_array()
-        .ok_or("identity_projection is not an array")?;
-    let projected = projection
-        .get(*position)
-        .ok_or("selected node has no identity projection")?;
-    if projected["node_id"] != nodes[*position]["node_id"]
-        || projected["owner"] != nodes[*position]["owner"]
-    {
-        return Err("selected projection does not mirror its node before mutation".into());
-    }
-    let patches = row["projection_patch"]
-        .as_array()
-        .filter(|patches| !patches.is_empty())
-        .ok_or("mutation has no projection_patch entries")?;
-    for patch in patches {
-        if text_of(patch, "op")? != "replace" {
-            return Err("projection mutation uses an unsupported patch op".into());
-        }
-        let path = text_of(patch, "path")?;
-        if !path.starts_with("/owner/") {
-            return Err(format!("projection patch is outside owner: {path}"));
-        }
-        let replacement = patch.get("value").ok_or("projection patch has no value")?;
-        replace_at(
-            &mut package,
-            &format!("/identity_preimage/identity_projection/{position}{path}"),
-            replacement,
-        )?;
-    }
-    let package_id = derived_with(&package, None)?;
-    replace_at(&mut package, "/package_id/digest", &json!(package_id))?;
-    Ok((package, *position))
-}
-
-#[trace("TC-228", "FR-038-AC-154")]
-#[test]
-fn tc_228_qspec_projection_owner_mutations_refuse_at_owner() {
-    let dir = fixtures_dir();
-    let adverse = read_json(&dir.join(ADVERSE)).expect("QSpec adverse fixture");
-    let rows = mutations(&adverse, "projection_owner_mutations").expect("mutation rows");
-    let mut seen = std::collections::BTreeSet::new();
-    for row in rows {
-        let id = text_of(row, "id").expect("mutation id");
-        assert!(seen.insert(id), "duplicate projection-owner mutation {id}");
-        let (package, position) =
-            projection_owner_mutation(&dir, row).unwrap_or_else(|why| panic!("{id}: {why}"));
-        let expected_path = text_of(row, "expected_locus")
-            .expect("expected locus")
-            .replace("{index}", &position.to_string());
-        let CheckedPackageV2ReadResult::Refused(refusal) =
-            read_package(&package).unwrap_or_else(|why| panic!("{id}: {why}"))
-        else {
-            panic!("{id}: mutated QSpec package did not refuse");
-        };
-        assert_eq!(
-            code_word(refusal.code),
-            text_of(row, "expected_code").unwrap(),
-            "{id}"
-        );
-        assert_eq!(
-            refusal.cause.map(cause_word),
-            Some(text_of(row, "expected_cause").unwrap()),
-            "{id}"
-        );
-        assert_eq!(
-            refusal.path.as_ref().map(|path| path.as_str()),
-            Some(expected_path.as_str()),
-            "{id}"
-        );
-    }
-    assert!(seen.contains("projection-source-owner-differs-from-node"));
-    assert!(seen.contains("projection-model-owner-differs-from-node"));
-}
-
-/// QSpec's owner-free ungrouped tamper cases must reach the derived-key stage.
 #[trace("FR-038-AC-123", "FR-038-AC-133")]
 #[test]
 fn tc_226_qspec_ungrouped_derived_shape_mutations_refuse() {

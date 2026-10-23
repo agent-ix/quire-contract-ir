@@ -431,11 +431,10 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
                 v["semantic_graph"]["nodes"][1]["recursion_group"] = Value::Null;
                 refresh_identity(v);
             }),
-            // The identity projection's mirror of the null member is the
-            // first value the lossy decode dropped.
+            // The sole graph node contains the explicit null the decoder dropped.
             refusal(
                 CheckedPackageRefusalCode::MalformedWire,
-                "/identity_preimage/identity_projection/1/recursion_group",
+                "/semantic_graph/nodes/1/recursion_group",
             ),
         ),
         (
@@ -536,17 +535,13 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             ),
         ),
         (
-            "stale projection",
-            // Mutate the projection while keeping the graph's structural key
-            // valid, so the projection comparison remains the deciding stage.
+            "shipped projection",
             Box::new(|v| {
-                v["identity_preimage"]["identity_projection"][3]["body"]["members"] = json!([{"term": "literal", "type": v["semantic_graph"]["nodes"][3]
-                        ["semantic_type"], "value_kind": "boolean", "value": false}]);
-                v["package_id"]["digest"] = json!(sha256_hex(&canonical(&v["identity_preimage"])));
+                v["identity_preimage"]["identity_projection"] = json!([]);
             }),
             refusal(
-                CheckedPackageRefusalCode::StaleDependency,
-                "/identity_preimage/identity_projection/3/body/members",
+                CheckedPackageRefusalCode::MalformedWire,
+                "/identity_preimage/identity_projection",
             ),
         ),
         (
@@ -969,7 +964,9 @@ fn tc_048_package_id_covers_exactly_the_identity_preimage() {
                 assert_ne!(*package.package_id(), recorded, "{name}");
                 assert_eq!(
                     package.package_id().digest.as_ref(),
-                    sha256_hex(&canonical(&changed["identity_preimage"])),
+                    sha256_hex(&canonical(
+                        &crate::support::checked_package::identity_input(&changed)
+                    )),
                     "{name}"
                 );
             }
@@ -1096,8 +1093,8 @@ fn tc_048_nominal_preimage_schema_defects_refuse_as_invalid_semantic_graph() {
         refresh_identity(&mut package);
         refused(&package, &evidence_for(&package))
     };
-    // The identity projection mirrors the node and is decoded first.
-    let preimage = "/identity_preimage/identity_projection/1/nominal_identity_preimage";
+    // The nominal preimage occurs only on its graph node.
+    let preimage = "/semantic_graph/nodes/1/nominal_identity_preimage";
     assert_eq!(
         edited(&|preimage| {
             preimage.remove("members");
@@ -1332,7 +1329,7 @@ fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_ver
         refused(&versioned, &evidence_for(&versioned)),
         refusal(
             CheckedPackageRefusalCode::UnknownMember,
-            "/identity_preimage/identity_projection/0/nominal_identity_preimage/owner/version"
+            "/semantic_graph/nodes/0/nominal_identity_preimage/owner/version"
         )
     );
 
@@ -1411,9 +1408,8 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
                        "identity": "test/orders", "export": "Status"}),
                 json!([domain_package("test/orders")]),
             ),
-            // The decoder reads the identity projection's mirror of the node
-            // first, and names the first unknown member of its owner.
-            "/identity_preimage/identity_projection/0/nominal_identity_preimage/owner/authority",
+            // The decoder names the first unknown owner member on the graph node.
+            "/semantic_graph/nodes/0/nominal_identity_preimage/owner/authority",
         ),
         (
             "domain package owner with export",
@@ -1422,7 +1418,7 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
                        "node": "ix://test/orders/Status", "export": "Status"}),
                 json!([domain_package("test/orders")]),
             ),
-            "/identity_preimage/identity_projection/0/nominal_identity_preimage/owner/export",
+            "/semantic_graph/nodes/0/nominal_identity_preimage/owner/export",
         ),
         (
             "compiled-model lock reference",
@@ -2443,7 +2439,7 @@ fn tc_048_self_typed_body_references_refuse_at_authenticated_keys() {
 /// into the preimage changes nothing about which check fires first.
 #[trace("TC-048", "FR-038-AC-17")]
 #[test]
-fn tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare() {
+fn deleting_a_declared_wire_member_refuses_after_graph_identity_is_refreshed() {
     let base = positive_operation_identities();
     // The base fixture must itself be admissible before any of the deletion
     // cases below can say anything about which member's absence refuses it:
@@ -2530,30 +2526,15 @@ fn tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare(
     ];
 
     for (name, index, delete, expected) in cases {
-        // Left on the graph alone: the preimage still carries the member, so
-        // the package_id/preimage staleness check (which runs before the
-        // graph is walked) still passes unchanged, and it is the member-level
-        // check inside the graph walk that actually refuses.
-        let mut graph_only = base.clone();
-        delete(&mut graph_only, index);
+        // Recompute the graph-derived package identity so this control reaches
+        // the required-member check rather than failing earlier authentication.
+        let mut changed = base.clone();
+        delete(&mut changed, index);
+        refresh_identity(&mut changed);
         assert_eq!(
-            refused(&graph_only, &evidence_for(&graph_only)),
+            refused(&changed, &evidence_for(&changed)),
             expected,
-            "{name}: graph alone"
-        );
-
-        // Mirrored into identity_preimage.identity_projection: refreshing
-        // the identity after the same graph deletion re-derives a projection
-        // and package_id consistent with the mutated graph, so the member is
-        // absent from both. The outcome is identical, because the
-        // member-level check never consults the preimage.
-        let mut mirrored = base.clone();
-        delete(&mut mirrored, index);
-        refresh_identity(&mut mirrored);
-        assert_eq!(
-            refused(&mirrored, &evidence_for(&mirrored)),
-            expected,
-            "{name}: mirrored"
+            "{name}"
         );
     }
 }

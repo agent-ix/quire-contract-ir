@@ -298,7 +298,8 @@ pub struct CheckedPackageLockV2 {
     pub dependency_selections: Vec<CheckedDependencySelection>,
 }
 
-/// The non-circular V2 package identity preimage.
+/// The seven wire selections of the V2 package identity preimage.
+/// The graph projection is derived only when computing the package identity.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedPackageIdentityPreimageV2 {
@@ -316,15 +317,13 @@ pub struct CheckedPackageIdentityPreimageV2 {
     pub required_features: Vec<Box<str>>,
     /// Dependency selections: one per library identity, ascending.
     pub dependency_selections: Vec<CheckedDependencySelection>,
-    /// Ordered graph identity projection.
-    pub identity_projection: Vec<CheckedNodeProjectionV2>,
 }
 
 /// Borrowed producer view of the V2 package identity preimage.
 ///
 /// Its projection selects identity fields from graph nodes without retaining
-/// another owned copy of any node body. The owned preimage remains the reader's
-/// admitted representation.
+/// another owned copy of any node body. The reader retains the seven wire
+/// selections separately; the complete graph projection appears only in hash input.
 #[derive(Clone, Copy, Debug)]
 pub struct CheckedPackageIdentityPreimageRefV2<'a> {
     /// Must be `quire.checked-package-id/v2`.
@@ -500,7 +499,7 @@ macro_rules! checked_package_envelope {
 
         impl quire_canonical::Encode for CheckedPackageEnvelope<
             &str,
-            &CheckedPackageIdentityPreimageRefV2<'_>,
+            &encode::SelectionFields<'_>,
             &CheckedSemanticId,
             &CheckedPackageLockV2,
             &CheckedSemanticGraphV2,
@@ -567,9 +566,10 @@ pub fn encode_checked_package_v2(
     diagnostics: &CheckedDiagnosticsV2,
     limits: quire_canonical::Limits,
 ) -> Result<Vec<u8>, quire_canonical::Error> {
+    let selection = encode::SelectionFields::from(identity_preimage);
     let envelope = CheckedPackageEnvelope {
         contract_version: CHECKED_PACKAGE_V2,
-        identity_preimage,
+        identity_preimage: &selection,
         package_id,
         lock,
         semantic_graph,
@@ -832,12 +832,7 @@ fn classify_owner_shape(failure: ValidationFailure) -> ValidationFailure {
     };
     if refusal.code == CheckedPackageRefusalCode::UnknownMember
         && refusal.path.as_ref().is_some_and(|path| {
-            [
-                "/semantic_graph/nodes/",
-                "/identity_preimage/identity_projection/",
-            ]
-            .iter()
-            .any(|prefix| {
+            ["/semantic_graph/nodes/"].iter().any(|prefix| {
                 path.as_str().strip_prefix(prefix).is_some_and(|rest| {
                     rest.strip_suffix("/owner").is_some_and(|index| {
                         !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit())
@@ -851,19 +846,13 @@ fn classify_owner_shape(failure: ValidationFailure) -> ValidationFailure {
     ValidationFailure::Refused(refusal)
 }
 
-/// Whether `path` is one of the two positions the wire types a
-/// `nominal_identity_preimage` at: `/semantic_graph/nodes/{n}/…` or
-/// `/identity_preimage/identity_projection/{n}/…`. A member of that name
+/// Whether `path` is a graph node's typed `nominal_identity_preimage` at
+/// `/semantic_graph/nodes/{n}/…`. A member of that name
 /// anywhere else is not a preimage (an unknown member, say) and is never
 /// re-located.
 fn is_typed_preimage_position(path: &JsonPointer) -> bool {
     let text = path.as_str();
-    [
-        "/semantic_graph/nodes/",
-        "/identity_preimage/identity_projection/",
-    ]
-    .iter()
-    .any(|prefix| {
+    ["/semantic_graph/nodes/"].iter().any(|prefix| {
         text.strip_prefix(prefix)
             .and_then(|rest| rest.strip_suffix("/nominal_identity_preimage"))
             .is_some_and(|index| {
@@ -1084,11 +1073,19 @@ fn validate(
     // domain label hashed in. A document that passed intake holds only numbers
     // `quire-canonical` encodes and a preimage no longer than the byte limit,
     // so this refusal is not reachable from one.
-    let computed = quire_canonical::sha256(
-        &wire.identity_preimage,
-        quire_canonical::Limits::new(limits.bytes),
-    )
-    .map_err(|_| {
+    let selections = &wire.identity_preimage;
+    let preimage = CheckedPackageIdentityPreimageRefV2 {
+        version: &selections.version,
+        edition: &selections.edition,
+        profile_selections: &selections.profile_selections,
+        definition_selections: &selections.definition_selections,
+        model_selections: &selections.model_selections,
+        required_features: &selections.required_features,
+        dependency_selections: &selections.dependency_selections,
+        identity_projection: &wire.semantic_graph.nodes,
+    };
+    let computed = quire_canonical::sha256(&preimage, quire_canonical::Limits::new(limits.bytes))
+        .map_err(|_| {
         refuse(
             CheckedPackageRefusalCode::MalformedWire,
             member_pointer(&["identity_preimage"]),
@@ -2371,31 +2368,6 @@ fn validate_graph(
     };
     validate_recursion(&graph.nodes, &adjacency, meter, &edge_pointer)?;
     lower::assign_components(&mut lowering_facts);
-    // Each node's projection is built and compared one at a time, so no copy
-    // of every node is held beside the graph.
-    let retained = &wire.identity_preimage.identity_projection;
-    if retained.len() != graph.nodes.len()
-        || graph
-            .nodes
-            .iter()
-            .zip(retained)
-            .any(|(node, retained)| CheckedNodeProjectionV2::from(node) != *retained)
-    {
-        let projection = graph
-            .nodes
-            .iter()
-            .map(CheckedNodeProjectionV2::from)
-            .collect::<Vec<_>>();
-        let at = member_pointer(&["identity_preimage", "identity_projection"]);
-        let path = match (
-            serde_json::to_value(&wire.identity_preimage.identity_projection),
-            serde_json::to_value(&projection),
-        ) {
-            (Ok(retained), Ok(computed)) => first_difference(at, &retained, &computed),
-            _ => at,
-        };
-        return Err(refuse(CheckedPackageRefusalCode::StaleDependency, path));
-    }
     let terms = terms
         .into_iter()
         .enumerate()
@@ -2764,7 +2736,7 @@ mod tests {
             "identity_preimage": {
                 "version": "quire.checked-package-id/v2", "edition": edition,
                 "profile_selections": [], "definition_selections": [], "model_selections": [],
-                "required_features": [], "dependency_selections": [], "identity_projection": []
+                "required_features": [], "dependency_selections": []
             },
             "package_id": {"domain": super::PACKAGE_DOMAIN_V2, "algorithm": "sha256", "digest": "a".repeat(64)},
             "lock": {
@@ -2829,9 +2801,6 @@ mod tests {
             "semantic_type": node_id, "dependencies": [], "occurrences": [], "body": null
         }))
         .expect("shallow graph node");
-        wire.identity_preimage
-            .identity_projection
-            .push((&node).into());
         wire.semantic_graph.nodes.push(node);
 
         let (expected, actual) = std::thread::Builder::new()
@@ -2843,10 +2812,7 @@ mod tests {
                 // bodies without recursive serde serialization.
                 let mut private_wire_value =
                     serde_json::to_value(&wire).expect("private owned wire value");
-                private_wire_value["identity_preimage"]["identity_projection"][0]["body"] =
-                    nested(DEEP);
                 private_wire_value["semantic_graph"]["nodes"][0]["body"] = nested(DEEP);
-                wire.identity_preimage.identity_projection[0].body = nested(DEEP);
                 wire.semantic_graph.nodes[0].body = nested(DEEP);
 
                 let result = (|| {
@@ -2877,9 +2843,6 @@ mod tests {
                 })();
 
                 quire_canonical::drop_value(std::mem::take(&mut private_wire_value));
-                quire_canonical::drop_value(std::mem::take(
-                    &mut wire.identity_preimage.identity_projection[0].body,
-                ));
                 quire_canonical::drop_value(std::mem::take(&mut wire.semantic_graph.nodes[0].body));
                 result
             })

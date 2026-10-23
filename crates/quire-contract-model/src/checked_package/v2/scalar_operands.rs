@@ -386,7 +386,7 @@ mod tests {
                 "version": "quire.checked-package-id/v2",
                 "edition": {"role": "edition", "definition": {"authority": "test", "identity": "edition"}},
                 "profile_selections": [], "definition_selections": [], "model_selections": [],
-                "required_features": [], "dependency_selections": [], "identity_projection": [],
+                "required_features": [], "dependency_selections": [],
             },
             "package_id": {"domain": "quire.package.semantic/v2", "algorithm": "sha256",
                 "digest": "a".repeat(64)},

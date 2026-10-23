@@ -114,39 +114,6 @@ pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), V
             node_pointer(position),
         )?;
     }
-    for (position, projection) in wire
-        .identity_preimage
-        .identity_projection
-        .iter()
-        .enumerate()
-    {
-        let at = JsonPointer::root()
-            .key("identity_preimage")
-            .key("identity_projection")
-            .index(position);
-        check_one(
-            requirement(
-                &projection.node_tag,
-                &projection.semantic_form,
-                projection.declaration.as_ref(),
-                projection.nominal_identity_preimage.is_some(),
-                &projection.body,
-                projection.semantic_type == projection.node_id,
-                projection.owner.as_ref(),
-            ),
-            projection.owner.as_ref(),
-            at.clone(),
-        )?;
-        if let Some(node) = wire.semantic_graph.nodes.get(position) {
-            if projection.owner != node.owner {
-                return Err(ValidationFailure::refused_because(
-                    CheckedPackageRefusalCode::InvalidPackage,
-                    at.key("owner"),
-                    CheckedPackageRefusalCause::InvalidValue,
-                ));
-            }
-        }
-    }
     Ok(())
 }
 

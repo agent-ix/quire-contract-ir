@@ -537,7 +537,6 @@ fn tc_048_the_body_grammar_is_checked_ahead_of_every_identity() {
             .as_array_mut()
             .expect("arguments")
             .push(second);
-        package["identity_preimage"]["identity_projection"] = json!([]);
         package["package_id"]["digest"] = json!("0".repeat(64));
         (package, call)
     };
@@ -889,14 +888,11 @@ fn tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse() {
     assert_eq!((refusal.code, refusal.path), (Code::MalformedWire, None));
 }
 
-/// FR-038-AC-117: an identity-projection body, which the body grammar does not
-/// check, can nest as deep as the strict parse reads. A stale one, 61 aggregates
-/// (126 JSON levels) and one at the parse's limit of 127 levels, is compared with
-/// its node's body and refused `stale_dependency` at the first member that
-/// differs, on a 256 KiB debug stack, with no abort.
+/// A retired shipped projection nested near the strict parser's limit must
+/// refuse at the outer wire member on a 256 KiB stack, before identity work.
 #[trace("TC-048", "FR-038-AC-117")]
 #[test]
-fn tc_048_a_deep_stale_projection_body_is_refused_on_a_small_stack() {
+fn deep_shipped_projection_is_refused_at_the_outer_member_on_a_small_stack() {
     let evidence = evidence_for(&v2_all_families());
     let marker = "\u{1}deep";
     let quoted = serde_json::to_string(marker).expect("string");
@@ -910,6 +906,8 @@ fn tc_048_a_deep_stale_projection_body_is_refused_on_a_small_stack() {
     for deep in [aggregates(61, "[]"), aggregates(61, "[[]]")] {
         let mut package = v2_all_families();
         let host = host_position(&package);
+        package["identity_preimage"]["identity_projection"] =
+            package["semantic_graph"]["nodes"].clone();
         package["identity_preimage"]["identity_projection"][host]["body"] = json!(marker);
         let splice = |text: String| text.replace(&quoted, &deep);
         let preimage =
@@ -923,9 +921,9 @@ fn tc_048_a_deep_stale_projection_body_is_refused_on_a_small_stack() {
         assert_eq!(
             outcome(&refusal),
             (
-                Code::StaleDependency,
+                Code::MalformedWire,
                 None,
-                format!("/identity_preimage/identity_projection/{host}/body/members")
+                "/identity_preimage/identity_projection".to_owned()
             )
         );
     }

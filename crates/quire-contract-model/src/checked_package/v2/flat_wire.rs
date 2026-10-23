@@ -59,8 +59,8 @@ enum Place {
 
 /// Checks every node body and every `details` term of `wire` against the flat
 /// grammar, nodes first, in document order, then the diagnostics' `details`.
-/// A node whose family or form does not decode is left to the graph stage's
-/// own refusal of it.
+/// Closed node headers refuse before hashing the single shipped graph, using
+/// the same header decoder as the graph stage.
 pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
     for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
         if node.node_tag.as_ref() == "extension" && node.semantic_form.as_ref() != "extension_form"
@@ -70,11 +70,9 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
                 crate::checked_package::common::node_pointer(position).key("semantic_form"),
             ));
         }
-        let Some(kind) = CheckedNodeTag::from_wire(&node.node_tag)
-            .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
-        else {
-            continue;
-        };
+        let kind = super::decode_node_kind(node, |member| {
+            crate::checked_package::common::node_pointer(position).key(member)
+        })?;
         let steps = [
             Step::Key("semantic_graph"),
             Step::Key("nodes"),

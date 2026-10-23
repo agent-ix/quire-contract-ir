@@ -216,6 +216,15 @@ identifies a Quire-authored acceptance criterion, and
 and IR source. The neutral input retains the binding; synthetic census tests verify typed
 missing, foreign, and conflicting binding refusals under FR-052-AC-15.
 
+### Single-body V2 identity views
+
+`CheckedPackageIdentityPreimageV2` exposes the seven wire selection fields,
+without `identity_projection`. `CheckedPackageIdentityPreimageRefV2` remains
+the borrowed producer hash view over selections and graph nodes. The envelope
+encoder omits the derived projection while its canonical hash encoding
+includes complete occurrence-free graph nodes, as FR-038 and FR-051 specify.
+No compatibility field or old-wire admission path is exported.
+
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |

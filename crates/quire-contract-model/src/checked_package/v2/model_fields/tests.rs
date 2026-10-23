@@ -542,7 +542,6 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
             "model_selections": [],
             "required_features": [],
             "dependency_selections": [],
-            "identity_projection": [],
         },
         "package_id": {
             "domain": "quire.package.semantic/v2",
