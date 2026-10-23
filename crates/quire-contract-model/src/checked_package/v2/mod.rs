@@ -2309,8 +2309,8 @@ fn validate_graph(
         meter,
     )?;
     abstraction::validate_abstraction(&graph.nodes, &kinds, &index, &owners, limits.bytes, meter)?;
-    hybrid::validate_models(&graph.nodes, &kinds, &index, meter)?;
-    hybrid::validate_claims(&graph.nodes, &kinds, &index, meter)?;
+    hybrid::validate_models(&graph.nodes, &kinds, &terms, &index, meter)?;
+    hybrid::validate_claims(&graph.nodes, &kinds, &terms, &index, meter)?;
     timed_model::validate_models(&graph.nodes, &kinds, &terms, &index, meter)?;
     validate_protocol_references(&graph.nodes, &kinds, &index)?;
     validate_operations(

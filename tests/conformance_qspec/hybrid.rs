@@ -782,6 +782,59 @@ fn qspec_hybrid_model_checks_duplicate_modes_and_clock_rates() {
     }
 }
 
+/// A clock may use the exact rational one rate. A different rational value
+/// refuses at the selected variable class after the package keys are rebuilt.
+#[trace("TC-048", "FR-038-AC-314")]
+#[test]
+fn qspec_hybrid_clock_rate_requires_exact_rational_one() {
+    let mut package = published_hybrid_package();
+    let model = model_position(&package);
+    package["semantic_graph"]["nodes"][model]["body"]["members"][0]["value"]["members"][1]
+        ["members"][1]["value"]["value"] = json!("clock");
+    let mode_id = package["semantic_graph"]["nodes"][model]["body"]["members"][1]["value"]
+        ["members"][0]["target"]
+        .clone();
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let mode = nodes
+        .iter()
+        .position(|node| node["node_id"] == mode_id)
+        .expect("mode");
+    let rate_id = package["semantic_graph"]["nodes"][mode]["body"]["members"][1]["value"]
+        ["members"][1]["target"]
+        .clone();
+    let rate = nodes
+        .iter()
+        .position(|node| node["node_id"] == rate_id)
+        .expect("rate");
+    refresh_tank_hybrid_keys(&mut package);
+    assert!(matches!(
+        read_package(&package).expect("published evidence"),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    for value in ["2", "+1", "01"] {
+        let mut changed = package.clone();
+        changed["semantic_graph"]["nodes"][rate]["body"]["value"] = json!(value);
+        refresh_tank_hybrid_keys(&mut changed);
+        let read = read_package(&changed).expect("published evidence");
+        let CheckedPackageV2ReadResult::Refused(refusal) = read else {
+            panic!("{value:?} clock rate admitted: {read:?}");
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::InvalidPackage, Some(Cause::InvalidValue)),
+            "{value:?}: {refusal:?}"
+        );
+        assert_locus(
+            &refusal,
+            model,
+            "/body/members/0/value/members/1/members/1/value/value",
+        );
+    }
+}
+
 #[trace("TC-048", "FR-038-AC-313", "FR-038-AC-314")]
 #[test]
 fn qspec_hybrid_model_rebuilt_key_boundaries() {

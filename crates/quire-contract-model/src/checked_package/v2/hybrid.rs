@@ -1,19 +1,120 @@
 //! QSpec FR-481 hybrid node wire shapes and model joins.
 
 use super::{
-    CheckedNodeKind, CheckedSemanticNodeV2, HybridForm, ScalarTypeForm, TemporalForm, ValueForm,
-    WorkMeter,
+    CheckedNodeKind, CheckedSemanticNodeV2, CheckedTerm, HybridForm, LiteralKind, ScalarTypeForm,
+    TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{exact_members, node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCause as Cause,
     CheckedPackageRefusalCode as Code, JsonPointer,
 };
+use ix_trace_rs::string_edge;
+use serde::{
+    de::{value::Error as WordError, value::StrDeserializer, DeserializeOwned},
+    Deserialize,
+};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 fn malformed(at: JsonPointer) -> ValidationFailure {
     ValidationFailure::refused(Code::MalformedWire, at)
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+enum HybridVariableClass {
+    Clock,
+    Hybrid,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+enum HybridBindingRole {
+    Parameters,
+    Kind,
+    Trigger,
+    Guard,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+enum HybridActivationKind {
+    Each,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+enum HybridTemporalOperation {
+    #[serde(rename = "quire.op.temporal.holds")]
+    Holds,
+}
+
+fn term_members(term: &CheckedTerm) -> &[CheckedTerm] {
+    match term {
+        CheckedTerm::Aggregate { members } => members,
+        _ => &[],
+    }
+}
+
+fn term_value(term: &CheckedTerm) -> Option<&CheckedTerm> {
+    match term {
+        CheckedTerm::Binding { value, .. } => Some(value),
+        _ => None,
+    }
+}
+
+fn binding_role(term: &CheckedTerm) -> Option<HybridBindingRole> {
+    let CheckedTerm::Binding { name, .. } = term else {
+        return None;
+    };
+    decode_word(name)
+}
+
+fn decode_word<T: DeserializeOwned>(wire: &str) -> Option<T> {
+    T::deserialize(StrDeserializer::<WordError>::new(wire)).ok()
+}
+
+fn literal_word_as<T: DeserializeOwned>(term: &CheckedTerm) -> Option<T> {
+    let CheckedTerm::Literal {
+        value: Value::String(value),
+        ..
+    } = term
+    else {
+        return None;
+    };
+    decode_word(value)
+}
+
+fn model_variable_class(term: &CheckedTerm, slot: usize) -> Option<HybridVariableClass> {
+    let variables = term_members(term).first().and_then(term_value)?;
+    let variable = term_members(variables).get(slot)?;
+    let class = term_members(variable).get(1).and_then(term_value)?;
+    literal_word_as(class)
+}
+
+fn application_arguments(term: &CheckedTerm) -> Option<&[CheckedTerm]> {
+    match term {
+        CheckedTerm::Application { arguments, .. } => Some(arguments),
+        _ => None,
+    }
+}
+
+fn reference_target(term: &CheckedTerm) -> Option<CheckedNodeId> {
+    match term {
+        CheckedTerm::Reference { target } => Some(target.clone()),
+        _ => None,
+    }
+}
+
+fn is_rational_one(term: &CheckedTerm) -> bool {
+    matches!(
+        term,
+        CheckedTerm::Literal {
+            value_kind: LiteralKind::Rational,
+            value: Value::String(value),
+            ..
+        } if value.len() == 1 && value.as_bytes().first() == Some(&b'1')
+    )
 }
 
 fn members(value: &Value) -> &[Value] {
@@ -157,6 +258,12 @@ struct ReadScope {
     named_reads: BTreeMap<(String, usize), CheckedNodeId>,
 }
 
+#[derive(Clone, Copy)]
+struct DecodedNodes<'a> {
+    kinds: &'a [CheckedNodeKind],
+    terms: &'a [Option<CheckedTerm>],
+}
+
 fn claim_parameter_reads(
     roots: Vec<CheckedNodeId>,
     nodes: &[CheckedSemanticNodeV2],
@@ -193,12 +300,14 @@ fn reads_allowed(
     start: &CheckedNodeId,
     allowed: &ReadScope,
     nodes: &[CheckedSemanticNodeV2],
-    kinds: &[CheckedNodeKind],
+    decoded: DecodedNodes<'_>,
     index: &BTreeMap<&CheckedNodeId, usize>,
     at: JsonPointer,
     source: &CheckedSemanticNodeV2,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
+    let kinds = decoded.kinds;
+    let terms = decoded.terms;
     let mut seen = BTreeSet::new();
     let mut pending = vec![start];
     let mut invalid_term = false;
@@ -261,7 +370,14 @@ fn reads_allowed(
                 }
                 let parameters = members(&node.body)
                     .first()
-                    .filter(|member| member["name"] == "parameters")
+                    .filter(|_| {
+                        terms
+                            .get(position)
+                            .and_then(Option::as_ref)
+                            .and_then(|term| term_members(term).first())
+                            .and_then(binding_role)
+                            == Some(HybridBindingRole::Parameters)
+                    })
                     .map(|member| members(&member["value"]))
                     .unwrap_or(&[]);
                 for parameter in parameters {
@@ -349,9 +465,11 @@ fn reads_allowed(
 pub(super) fn validate_models(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
+    terms: &[Option<CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
+    let decoded = DecodedNodes { kinds, terms };
     let mut reached_modes = BTreeSet::new();
     let mut reached_transitions = BTreeSet::new();
     for &position in index.values() {
@@ -379,9 +497,15 @@ pub(super) fn validate_models(
                 let item = &members(initial)[0];
                 if let Some(condition) = target(bound(item, 1)) {
                     if number(bound(item, 0)) == Some(0)
-                        && node_at(&condition, nodes, index).is_some_and(|(_, node)| {
-                            node.body["value"] == Value::Bool(true)
-                                && node.body["value_kind"] == "boolean"
+                        && node_at(&condition, nodes, index).is_some_and(|(position, _)| {
+                            matches!(
+                                terms.get(position).and_then(Option::as_ref),
+                                Some(CheckedTerm::Literal {
+                                    value_kind: LiteralKind::Boolean,
+                                    value: Value::Bool(true),
+                                    ..
+                                })
+                            )
                         })
                     {
                         return Err(issue(
@@ -402,7 +526,10 @@ pub(super) fn validate_models(
             let Some(key) = target(bound(variable, 0)) else {
                 return Err(malformed(at));
             };
-            let class = bound(variable, 1)["value"].as_str().unwrap_or_default();
+            let class = terms
+                .get(position)
+                .and_then(Option::as_ref)
+                .and_then(|term| model_variable_class(term, slot));
             let valid = node_at(&key, nodes, index).is_some_and(|(target_position, node)| {
                 kinds.get(target_position) == Some(&CheckedNodeKind::Value(ValueForm::Parameter))
                     && index
@@ -424,7 +551,7 @@ pub(super) fn validate_models(
             }
             classes.push((
                 key,
-                class == "clock",
+                class == Some(HybridVariableClass::Clock),
                 at.key("members").index(1).key("value").key("value"),
             ));
         }
@@ -640,7 +767,7 @@ pub(super) fn validate_models(
                             &key,
                             &model_scope,
                             nodes,
-                            kinds,
+                            decoded,
                             index,
                             if binding_index == 0 {
                                 model_pointer(mode_position, 0)
@@ -667,7 +794,7 @@ pub(super) fn validate_models(
                         &guard,
                         &model_scope,
                         nodes,
-                        kinds,
+                        decoded,
                         index,
                         model_pointer(mode_position, 2)
                             .key("members")
@@ -682,7 +809,7 @@ pub(super) fn validate_models(
                             &value,
                             &model_scope,
                             nodes,
-                            kinds,
+                            decoded,
                             index,
                             model_pointer(transition_position, 2)
                                 .key("members")
@@ -701,7 +828,7 @@ pub(super) fn validate_models(
                         &key,
                         &model_scope,
                         nodes,
-                        kinds,
+                        decoded,
                         index,
                         model_pointer(position, 2).key("members").index(slot),
                         model,
@@ -713,10 +840,12 @@ pub(super) fn validate_models(
         for (slot, (_, clock, at)) in classes.iter().enumerate() {
             if *clock
                 && rates_by_mode.iter().any(|rates| {
-                    node_at(&rates[slot], nodes, index).is_none_or(|(position, rate)| {
+                    node_at(&rates[slot], nodes, index).is_none_or(|(position, _)| {
                         kinds.get(position) != Some(&CheckedNodeKind::Value(ValueForm::Literal))
-                            || rate.body["value"] != "1"
-                            || rate.body["value_kind"] != "rational"
+                            || !terms
+                                .get(position)
+                                .and_then(Option::as_ref)
+                                .is_some_and(is_rational_one)
                     })
                 })
             {
@@ -768,9 +897,11 @@ pub(super) fn validate_models(
 pub(super) fn validate_claims(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
+    terms: &[Option<CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
+    let decoded = DecodedNodes { kinds, terms };
     for &position in index.values() {
         if kinds.get(position) != Some(&CheckedNodeKind::Temporal(TemporalForm::TemporalClause)) {
             continue;
@@ -812,15 +943,24 @@ pub(super) fn validate_claims(
                 claim,
             ));
         }
-        let activation = members(&arguments[2]);
-        let each = activation
-            .first()
-            .is_some_and(|kind| kind["name"] == "kind" && kind["value"]["value"] == "each");
+        let activation = terms
+            .get(position)
+            .and_then(Option::as_ref)
+            .and_then(application_arguments)
+            .and_then(|arguments| arguments.get(2))
+            .map(term_members)
+            .unwrap_or(&[]);
+        let each = activation.first().is_some_and(|kind| {
+            binding_role(kind) == Some(HybridBindingRole::Kind)
+                && term_value(kind).and_then(literal_word_as::<HybridActivationKind>)
+                    == Some(HybridActivationKind::Each)
+        });
         if each {
             let trigger = activation
                 .iter()
-                .find(|member| member["name"] == "trigger")
-                .and_then(|member| target(&member["value"]));
+                .find(|member| binding_role(member) == Some(HybridBindingRole::Trigger))
+                .and_then(term_value)
+                .and_then(reference_target);
             let valid = trigger
                 .as_ref()
                 .and_then(|key| node_at(key, nodes, index))
@@ -868,14 +1008,14 @@ pub(super) fn validate_claims(
         if let Some((slot, guard)) = activation
             .iter()
             .enumerate()
-            .find(|(_, member)| member["name"] == "guard")
+            .find(|(_, member)| binding_role(member) == Some(HybridBindingRole::Guard))
         {
-            if let Some(key) = target(&guard["value"]) {
+            if let Some(key) = term_value(guard).and_then(reference_target) {
                 let at = argument_at(2).key("members").index(slot);
                 if !term_type(&key, ScalarTypeForm::Boolean, nodes, kinds, index) {
                     return Err(issue(Code::IllTyped, Some(Cause::TypeMismatch), at, claim));
                 }
-                reads_allowed(&key, &allowed, nodes, kinds, index, at, claim, meter)?;
+                reads_allowed(&key, &allowed, nodes, decoded, index, at, claim, meter)?;
             }
         }
         let captures = members(&arguments[3]);
@@ -931,7 +1071,7 @@ pub(super) fn validate_claims(
                     }
                 }
             }
-            reads_allowed(&value, &allowed, nodes, kinds, index, at, claim, meter)?;
+            reads_allowed(&value, &allowed, nodes, decoded, index, at, claim, meter)?;
             allowed
                 .named_reads
                 .insert((capture_name.to_owned(), capture_level), initializer_type);
@@ -1021,7 +1161,17 @@ pub(super) fn validate_claims(
             {
                 continue;
             }
-            if formula.body["operation"]["identity"] == "quire.op.temporal.holds" {
+            let operation = terms
+                .get(formula_position)
+                .and_then(Option::as_ref)
+                .and_then(|term| match term {
+                    CheckedTerm::Application { operation, .. } => operation
+                        .get("identity")
+                        .and_then(Value::as_str)
+                        .and_then(decode_word),
+                    _ => None,
+                });
+            if operation == Some(HybridTemporalOperation::Holds) {
                 if let Some(operand) = formula.body["arguments"]
                     .as_array()
                     .and_then(|arguments| arguments.first())
@@ -1031,7 +1181,7 @@ pub(super) fn validate_claims(
                         &operand,
                         &allowed,
                         nodes,
-                        kinds,
+                        decoded,
                         index,
                         node_pointer(formula_position),
                         formula,
@@ -1120,6 +1270,7 @@ fn literal<'a>(
         .ok_or_else(|| malformed(at.clone().key("value")))
 }
 
+#[string_edge]
 fn integer(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
     let text = literal(value, "integer", at)?;
     let digits = text.strip_prefix('-').unwrap_or(text);
