@@ -814,21 +814,25 @@ fn qspec_hybrid_clock_rate_requires_exact_rational_one() {
         CheckedPackageV2ReadResult::Admitted(_)
     ));
 
-    package["semantic_graph"]["nodes"][rate]["body"]["value"] = json!("2");
-    refresh_tank_hybrid_keys(&mut package);
-    let read = read_package(&package).expect("published evidence");
-    let CheckedPackageV2ReadResult::Refused(refusal) = read else {
-        panic!("non-unit clock rate admitted: {read:?}");
-    };
-    assert_eq!(
-        (refusal.code, refusal.cause),
-        (Code::InvalidPackage, Some(Cause::InvalidValue))
-    );
-    assert_locus(
-        &refusal,
-        model,
-        "/body/members/0/value/members/1/members/1/value/value",
-    );
+    for value in ["2", "+1", "01"] {
+        let mut changed = package.clone();
+        changed["semantic_graph"]["nodes"][rate]["body"]["value"] = json!(value);
+        refresh_tank_hybrid_keys(&mut changed);
+        let read = read_package(&changed).expect("published evidence");
+        let CheckedPackageV2ReadResult::Refused(refusal) = read else {
+            panic!("{value:?} clock rate admitted: {read:?}");
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::InvalidPackage, Some(Cause::InvalidValue)),
+            "{value:?}: {refusal:?}"
+        );
+        assert_locus(
+            &refusal,
+            model,
+            "/body/members/0/value/members/1/members/1/value/value",
+        );
+    }
 }
 
 #[trace("TC-048", "FR-038-AC-313", "FR-038-AC-314")]
