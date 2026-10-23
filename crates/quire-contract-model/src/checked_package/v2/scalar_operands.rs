@@ -738,7 +738,7 @@ mod tests {
     /// retained type kind, rather than its raw spelling, controls projection.
     #[trace("TC-048")]
     #[test]
-    fn scalar_range_retained_type_kind_wins_over_raw_spelling_in_both_directions() {
+    fn scalar_range_retained_bounds_cannot_be_erased_by_raw_integer_spelling() {
         let application = serde_json::from_value(id('4')).expect("application");
         let occurrence = CheckedOccurrence {
             role: super::super::CheckedOccurrenceRole::Expression,
@@ -769,7 +769,18 @@ mod tests {
             Ok(expected),
             "a raw scalar-integer spelling cannot erase retained finite bounds"
         );
+    }
 
+    /// The inverse private damaged-state control supplies readable finite
+    /// bounds, while the retained type kind remains an unbounded integer.
+    #[trace("TC-048")]
+    #[test]
+    fn scalar_range_retained_integer_cannot_be_bounded_by_raw_range_spelling() {
+        let application = serde_json::from_value(id('4')).expect("application");
+        let occurrence = CheckedOccurrence {
+            role: super::super::CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
         let mut unbounded = fixture_package();
         unbounded.wire.semantic_graph.nodes[2].semantic_type =
             serde_json::from_value(id('1')).expect("integer type");
