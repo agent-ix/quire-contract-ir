@@ -151,6 +151,7 @@ impl ContractPackageV1 {
         let arguments = scalar_arguments(
             &self.wire.semantic_graph.nodes,
             &self.node_index,
+            &self.node_kinds,
             reached.root,
             None,
             None,

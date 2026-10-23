@@ -2,8 +2,8 @@
 
 use super::operation_catalog::operation_catalog;
 use super::{
-    CheckedNodeId, CheckedOccurrence, CheckedPackageV2, CheckedSemanticNodeV2, CheckedTerm,
-    LiteralKind,
+    CheckedNodeId, CheckedNodeKind, CheckedOccurrence, CheckedPackageV2, CheckedSemanticNodeV2,
+    CheckedTerm, LiteralKind, ValueForm,
 };
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
@@ -137,6 +137,7 @@ fn graph_node<'a>(
 pub(super) fn scalar_arguments<'a>(
     nodes: &'a [CheckedSemanticNodeV2],
     positions: &'a BTreeMap<CheckedNodeId, usize>,
+    kinds: &'a [CheckedNodeKind],
     node: &'a CheckedSemanticNodeV2,
     retained: Option<&'a CheckedTerm>,
     retained_terms: Option<&'a [CheckedTerm]>,
@@ -180,6 +181,7 @@ pub(super) fn scalar_arguments<'a>(
     Ok(ScalarArguments {
         nodes,
         positions,
+        kinds,
         retained_terms,
         arguments,
         next: 0,
@@ -191,6 +193,7 @@ pub(super) fn scalar_arguments<'a>(
 pub(super) struct ScalarArguments<'a> {
     nodes: &'a [CheckedSemanticNodeV2],
     positions: &'a BTreeMap<CheckedNodeId, usize>,
+    kinds: &'a [CheckedNodeKind],
     retained_terms: Option<&'a [CheckedTerm]>,
     arguments: Cow<'a, [CheckedTerm]>,
     next: usize,
@@ -219,9 +222,8 @@ impl<'a> ScalarArguments<'a> {
             CheckedTerm::Reference { target } => {
                 let (child_position, child) =
                     graph_node(self.nodes, self.positions, target).ok_or(Error::MissingChild)?;
-                let range = if child.node_tag.as_ref() == "value"
-                    && child.semantic_form.as_ref() == "literal"
-                {
+                let kind = self.kinds.get(child_position).ok_or(Error::MissingRange)?;
+                let range = if *kind == CheckedNodeKind::Value(ValueForm::Literal) {
                     let term = graph_term(
                         child,
                         self.retained_terms
@@ -281,28 +283,33 @@ impl CheckedPackageV2 {
         if !node.occurrences.contains(occurrence) {
             return Err(Error::MissingOccurrence);
         }
-        scalar_arguments(nodes, &self.node_index, node, Some(term), Some(&self.terms))?
-            .map(|argument| {
-                let argument = argument?;
-                let child = match argument.child {
-                    ScalarArgumentChild::Graph(node) => {
-                        CheckedScalarOperandChild::GraphChild(node.node_id.clone())
-                    }
-                    ScalarArgumentChild::InlineInteger(_) => {
-                        CheckedScalarOperandChild::InlineLiteral {
-                            application: application.clone(),
-                            occurrence: occurrence.clone(),
-                            ordinal: argument.ordinal,
-                        }
-                    }
-                };
-                Ok(CheckedScalarOperand {
+        scalar_arguments(
+            nodes,
+            &self.node_index,
+            &self.kinds,
+            node,
+            Some(term),
+            Some(&self.terms),
+        )?
+        .map(|argument| {
+            let argument = argument?;
+            let child = match argument.child {
+                ScalarArgumentChild::Graph(node) => {
+                    CheckedScalarOperandChild::GraphChild(node.node_id.clone())
+                }
+                ScalarArgumentChild::InlineInteger(_) => CheckedScalarOperandChild::InlineLiteral {
+                    application: application.clone(),
+                    occurrence: occurrence.clone(),
                     ordinal: argument.ordinal,
-                    child,
-                    range: argument.own_range?,
-                })
+                },
+            };
+            Ok(CheckedScalarOperand {
+                ordinal: argument.ordinal,
+                child,
+                range: argument.own_range?,
             })
-            .collect()
+        })
+        .collect()
     }
 }
 
@@ -458,7 +465,14 @@ mod tests {
             lowering_facts: Vec::new(),
             wire,
             terms,
-            kinds: Vec::new(),
+            kinds: vec![
+                super::super::CheckedNodeKind::ScalarType(super::super::ScalarTypeForm::Integer),
+                super::super::CheckedNodeKind::BoundedDomain(
+                    super::super::BoundedDomainForm::IntegerRange,
+                ),
+                super::super::CheckedNodeKind::Value(super::super::ValueForm::Parameter),
+                super::super::CheckedNodeKind::Expression(super::super::ExpressionForm::Binary),
+            ],
             bytes: 1 << 20,
             models: RetainedModels::default(),
             direct_dependencies: Vec::new(),
@@ -476,6 +490,7 @@ mod tests {
             .pop()
             .expect("application");
         let application_term = package.terms.pop().expect("application term");
+        let application_kind = package.kinds.pop().expect("application kind");
         for offset in 0..(graph_nodes - 4) {
             let mut filler = package.wire.semantic_graph.nodes[0].clone();
             filler.node_id = serde_json::from_value(json!({
@@ -485,9 +500,11 @@ mod tests {
             .expect("filler identity");
             package.wire.semantic_graph.nodes.push(filler);
             package.terms.push(package.terms[0].clone());
+            package.kinds.push(package.kinds[0]);
         }
         package.wire.semantic_graph.nodes.push(application);
         package.terms.push(application_term);
+        package.kinds.push(application_kind);
         package.node_index = super::super::retained_node_index(&package.wire);
         package
     }
@@ -588,6 +605,94 @@ mod tests {
         assert_eq!(
             package.scalar_application_operands(&application, &occurrence),
             Err(CheckedScalarOperandError::UnknownOperator)
+        );
+    }
+
+    /// Private damaged-state discriminator only; this fixture is not a new
+    /// reader admission and provides no admission evidence.
+    #[trace("FR-038-AC-162", "FR-349-AC-2")]
+    #[test]
+    fn retained_parameter_kind_cannot_be_overridden_by_raw_literal_spelling() {
+        let mut package = fixture_package();
+        let application: CheckedNodeId = serde_json::from_value(id('4')).expect("application");
+        let occurrence = CheckedOccurrence {
+            role: super::super::CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let expected = package
+            .scalar_application_operands(&application, &occurrence)
+            .expect("private baseline");
+        assert_eq!(
+            expected[0].range,
+            CheckedScalarOperandRange {
+                lower: 0,
+                upper: 1000
+            }
+        );
+        package.wire.semantic_graph.nodes[2].semantic_form = "literal".into();
+        assert_eq!(
+            package.kinds[2],
+            super::super::CheckedNodeKind::Value(super::super::ValueForm::Parameter)
+        );
+        scan_probe::reset();
+        let actual = package.scalar_application_operands(&application, &occurrence);
+        assert_eq!(
+            actual,
+            Ok(expected),
+            "raw literal spelling cannot override the retained parameter kind"
+        );
+        assert_eq!(
+            scan_probe::count(),
+            3,
+            "application, selected child and its type only"
+        );
+    }
+
+    /// The inverse private discriminator retains a literal while only its
+    /// display metadata is damaged. It is not newly admitted input.
+    #[trace("FR-038-AC-162", "FR-349-AC-2")]
+    #[test]
+    fn retained_literal_kind_cannot_be_overridden_by_raw_parameter_spelling() {
+        let mut package = fixture_package();
+        let application: CheckedNodeId = serde_json::from_value(id('4')).expect("application");
+        let occurrence = CheckedOccurrence {
+            role: super::super::CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let value = CheckedTerm::Literal {
+            type_id: serde_json::from_value(id('1')).expect("integer type"),
+            value_kind: LiteralKind::Integer,
+            value: json!("13"),
+        };
+        package.terms[2] = value.clone();
+        package.wire.semantic_graph.nodes[2].body =
+            serde_json::to_value(value).expect("private literal body");
+        package.wire.semantic_graph.nodes[2].semantic_type =
+            serde_json::from_value(id('1')).expect("integer type");
+        package.wire.semantic_graph.nodes[2].semantic_form = "literal".into();
+        package.kinds[2] = super::super::CheckedNodeKind::Value(super::super::ValueForm::Literal);
+        let expected = package
+            .scalar_application_operands(&application, &occurrence)
+            .expect("private literal baseline");
+        assert_eq!(
+            expected[0].range,
+            CheckedScalarOperandRange {
+                lower: 13,
+                upper: 13
+            }
+        );
+        package.wire.semantic_graph.nodes[2].semantic_form = "parameter".into();
+        scan_probe::reset();
+        let actual = package.scalar_application_operands(&application, &occurrence);
+        assert_eq!(
+            actual,
+            Ok(expected),
+            "raw parameter spelling cannot override the retained literal kind"
+        );
+        assert_eq!(
+            scan_probe::count(),
+            2,
+            "application and selected literal only"
         );
     }
 

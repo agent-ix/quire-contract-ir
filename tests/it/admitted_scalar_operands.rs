@@ -370,3 +370,81 @@ fn tc_458_inconsistent_child_source_refuses_without_a_partial_vector() {
         ))
     );
 }
+
+#[trace("TC-458", "FR-054-AC-1", "FR-054-AC-5", "FR-038-AC-162")]
+#[test]
+fn admitted_graph_literal_keeps_its_singleton_range_in_both_package_views() {
+    let wire = revised(fixture(), |wire| {
+        let target = add_body_mut(wire)["arguments"][0]["target"].clone();
+        let integer = node_id(&family_key("a3a3"));
+        let literal = wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("fixture graph")
+            .iter_mut()
+            .find(|node| node["node_id"] == target)
+            .expect("selected graph child");
+        literal["semantic_form"] = json!("literal");
+        literal["semantic_type"] = integer.clone();
+        literal["body"] =
+            json!({"term":"literal", "type":integer, "value_kind":"integer", "value":"13"});
+    });
+    let checked = admit(&wire);
+    let add = by_operation(&checked, "quire.op.integer.add");
+    let child = match checked.term(&add.node_id).expect("admitted application") {
+        quire_contract_model::CheckedTerm::Application { arguments, .. } => match &arguments[0] {
+            quire_contract_model::CheckedTerm::Reference { target } => target.clone(),
+            _ => panic!("first operand must be a graph reference"),
+        },
+        _ => panic!("selected node must be an application"),
+    };
+    let source_operands = checked
+        .scalar_application_operands(
+            &add.node_id,
+            &quire_contract_model::CheckedOccurrence {
+                role: CheckedOccurrenceRole::Expression,
+                ordinal: add.ordinal,
+            },
+        )
+        .expect("source singleton operands");
+    assert_eq!(
+        source_operands[0].range,
+        quire_contract_model::CheckedScalarOperandRange {
+            lower: 13,
+            upper: 13
+        }
+    );
+    assert_eq!(
+        source_operands[0].child,
+        quire_contract_model::CheckedScalarOperandChild::GraphChild(child.clone())
+    );
+    let admitted = package(&checked, std::slice::from_ref(&add.node_id));
+    let before = admitted.wire().clone();
+    let ContractScalarOperandViewV1::Lowered(view) = admitted
+        .scalar_operands(&add.node_id, &add)
+        .expect("lowered singleton operands")
+    else {
+        panic!("selected add must lower");
+    };
+    assert_eq!(view.arguments.len(), 2);
+    assert_eq!(view.arguments[0].ordinal, 0);
+    assert_eq!(
+        view.arguments[0].own_range,
+        ContractScalarOwnRangeV1::Finite {
+            lower: 13,
+            upper: 13
+        }
+    );
+    let ContractScalarOperandChildV1::GraphReference { node_id, sources } =
+        &view.arguments[0].child
+    else {
+        panic!("literal remains a graph child");
+    };
+    assert_eq!(**node_id, child);
+    assert_eq!(*sources, sources_for(&admitted, &child));
+    assert_eq!(view.arguments[1].ordinal, 1);
+    assert_eq!(
+        view.arguments[1].own_range,
+        ContractScalarOwnRangeV1::Finite { lower: 1, upper: 1 }
+    );
+    assert_eq!(admitted.wire(), &before);
+}
