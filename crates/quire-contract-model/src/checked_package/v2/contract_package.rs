@@ -353,6 +353,8 @@ pub struct ContractPackageWireV1 {
 pub struct ContractPackageV1 {
     wire: ContractPackageWireV1,
     node_kinds: Vec<CheckedNodeKind>,
+    terms: Vec<Option<CheckedTerm>>,
+    node_index: BTreeMap<CheckedNodeId, usize>,
     unsupported_tags: Vec<Option<CheckedNodeTag>>,
 }
 
@@ -400,7 +402,7 @@ impl GuardContextWork {
 }
 
 pub(super) struct ContractPackageTraversalIndex<'a> {
-    positions: BTreeMap<&'a CheckedNodeId, usize>,
+    positions: &'a BTreeMap<CheckedNodeId, usize>,
     sources: BTreeMap<&'a CheckedNodeId, &'a [CheckedSourceMapEntry]>,
     accounting: BTreeMap<&'a CheckedNodeId, &'a ContractFeatureRecordV1>,
 }
@@ -444,14 +446,6 @@ impl<'a> ContractPackageTraversalIndex<'a> {
                 .saturating_add(accounting_count),
         )?;
 
-        let positions = package
-            .wire
-            .semantic_graph
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(position, node)| (&node.node_id, position))
-            .collect();
         let sources = package
             .wire
             .source_map
@@ -473,7 +467,7 @@ impl<'a> ContractPackageTraversalIndex<'a> {
                 .or_insert(record);
         }
         Ok(Self {
-            positions,
+            positions: &package.node_index,
             sources,
             accounting,
         })
@@ -605,9 +599,12 @@ impl ContractPackageV1 {
                 &Trail::Base(&steps),
                 &mut |target, _site, _at| pending.push_back(target.clone()),
             )?;
-            let body = CheckedTerm::decode_admitted(&node.body)
-                .map_err(|()| ContractRootViewError::Inconsistent)?;
-            let selected = super::dependency_references::selected_reference_targets(&body);
+            let body = self
+                .terms
+                .get(position)
+                .and_then(Option::as_ref)
+                .ok_or(ContractRootViewError::Inconsistent)?;
+            let selected = super::dependency_references::selected_reference_targets(body);
             for (package, node) in selected {
                 work.charge(1).map_err(ContractRootViewError::Incomplete)?;
                 selected_references.insert(ContractSelectedReferenceV1 { package, node });
@@ -666,14 +663,22 @@ impl ContractPackageV1 {
         &self.wire
     }
 
-    /// The retained kind of a represented local node, if present.
-    pub fn node_kind(&self, key: &CheckedNodeId) -> Option<CheckedNodeKind> {
+    /// A represented local node, addressed by its admitted typed key.
+    pub fn node(&self, key: &CheckedNodeId) -> Option<&CheckedSemanticNodeV2> {
         self.wire
             .semantic_graph
             .nodes
-            .iter()
-            .position(|node| &node.node_id == key)
-            .and_then(|position| self.node_kinds.get(position).copied())
+            .get(*self.node_index.get(key)?)
+    }
+
+    /// The admitted typed body of a represented local node, if it has one.
+    pub fn term(&self, key: &CheckedNodeId) -> Option<&CheckedTerm> {
+        self.terms.get(*self.node_index.get(key)?)?.as_ref()
+    }
+
+    /// The retained kind of a represented local node, if present.
+    pub fn node_kind(&self, key: &CheckedNodeId) -> Option<CheckedNodeKind> {
+        self.node_kinds.get(*self.node_index.get(key)?).copied()
     }
 
     /// The retained unsupported family at a `feature_accounting` index.
@@ -923,6 +928,17 @@ impl ContractPackageWireV1 {
             graph_version: source.graph().graph_version.clone(),
             nodes: nodes.into_iter().cloned().collect(),
         };
+        let terms = semantic_graph
+            .nodes
+            .iter()
+            .map(|node| source.term(&node.node_id).cloned())
+            .collect();
+        let node_index = semantic_graph
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (node.node_id.clone(), position))
+            .collect();
         let source_map = ContractSourceMapV1 {
             nodes: node_sources,
             requested_items,
@@ -956,6 +972,8 @@ impl ContractPackageWireV1 {
             ContractPackageV1 {
                 wire,
                 node_kinds,
+                terms,
+                node_index,
                 unsupported_tags,
             },
             bytes,
@@ -1028,10 +1046,19 @@ impl ContractPackageWireV1 {
         wire.validate_accounting()?;
         wire.validate_identity(limits.bytes)?;
         wire.validate_dependencies(dependencies, &mut work_meter)?;
-        wire.validate_references(dependencies, limits, &mut work_meter)?;
+        let terms = wire.validate_references(dependencies, limits, &mut work_meter)?;
+        let node_index = wire
+            .semantic_graph
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (node.node_id.clone(), position))
+            .collect();
         Ok(ContractPackageV1 {
             wire,
             node_kinds,
+            terms,
+            node_index,
             unsupported_tags,
         })
     }
@@ -2134,7 +2161,7 @@ impl ContractPackageWireV1 {
         dependencies: &ContractDependencies<'_>,
         limits: CheckedPackageReadLimits,
         meter: &mut super::WorkMeter,
-    ) -> Result<(), ValidationFailure> {
+    ) -> Result<Vec<Option<CheckedTerm>>, ValidationFailure> {
         let admitted: BTreeMap<&str, &CheckedPackageV2> = dependencies
             .iter()
             .map(|(identity, input)| (*identity, input.package))
@@ -2376,6 +2403,6 @@ impl ContractPackageWireV1 {
                 CheckedPackageRefusalCause::InvalidValue,
             ));
         }
-        Ok(())
+        Ok(terms)
     }
 }

@@ -209,6 +209,10 @@ With the `fault-injection` feature the crate root also exports
 
 The public `CheckedPackageV2::lower_independent_records` method is defined on
 the `CheckedPackageV2` type listed above; it is not a separate crate-root export.
+The public `ContractPackageV1::node` and `ContractPackageV1::term` keyed
+lookups are methods on the listed `ContractPackageV1` type, not separate
+crate-root exports. They expose the represented node and admitted typed body
+of the lowered package, including after strict reading.
 
 The table records the compiled public surface. `SourceAuthoredCriterionId`
 identifies a Quire-authored acceptance criterion, and
