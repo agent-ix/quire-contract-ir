@@ -6968,7 +6968,7 @@ mod tests {
             };
             let at = pointer("/semantic_graph/nodes/0/body/operation");
             let mut structural = StructuralTypes::default();
-            let mut meter = WorkMeter::new(paid);
+            let mut meter = WorkMeter::new(u64::MAX);
             assert_eq!(
                 structural.resolve(&node_id('a'), &graph, &mut meter, &at),
                 Ok(Some(found))
@@ -7055,7 +7055,7 @@ mod tests {
                 terms: &terms,
             };
             let at = pointer("/semantic_graph/nodes/0/body/operation/leaves");
-            let mut meter = WorkMeter::new(paid);
+            let mut meter = WorkMeter::new(u64::MAX);
             let mut structural = StructuralTypes::default();
             let mut walk = super::LeafWalk::new(
                 graph,
@@ -7182,6 +7182,71 @@ mod tests {
                 }
                 assert_eq!(walk.meter.consumed(), 1);
             }
+        }
+    }
+
+    #[trace("TC-048")]
+    #[test]
+    fn forwarding_dispatch_text_pin_cycles_missing_targets_and_self_types_cache_no_pin() {
+        for target in ['a', 'z', 'b'] {
+            let nodes = vec![
+                forwarding_node('a', "composite_type", "alias", 'b'),
+                forwarding_node('b', "bounded_domain", "text_bounds", target),
+            ];
+            let kinds = kinds_of(&nodes);
+            let index = nodes
+                .iter()
+                .enumerate()
+                .map(|(i, node)| (&node.node_id, i))
+                .collect();
+            let terms = decoded_terms(&nodes);
+            let graph = Graph {
+                nodes: &nodes,
+                kinds: &kinds,
+                index: &index,
+                terms: &terms,
+            };
+            let at = pointer("/semantic_graph/nodes/0/body/operation/leaves");
+            let mut meter = WorkMeter::new(2);
+            let mut structural = StructuralTypes::default();
+            let mut walk = super::LeafWalk::new(
+                graph,
+                &mut meter,
+                &mut structural,
+                at.clone(),
+                pointer("/semantic_graph/nodes/0/body/operation"),
+            );
+            for head in ['a', 'b', 'a'] {
+                let Ok(pin) = super::text_profile_pin(&node_id(head), &mut walk) else {
+                    panic!("a paid absent pin and its memo must resolve");
+                };
+                assert_eq!(pin, None);
+                assert_eq!(
+                    walk.meter.consumed(),
+                    2,
+                    "a revisited or missing target is not paid again"
+                );
+                assert_eq!(walk.pins, BTreeMap::from([(0, None), (1, None)]));
+            }
+            let mut short_meter = WorkMeter::new(1);
+            let mut short_structural = StructuralTypes::default();
+            let mut short = super::LeafWalk::new(
+                graph,
+                &mut short_meter,
+                &mut short_structural,
+                at.clone(),
+                pointer("/semantic_graph/nodes/0/body/operation"),
+            );
+            let result = super::text_profile_pin(&node_id('a'), &mut short);
+            let Err(super::LeafWalkEnd::Work(ValidationFailure::Incomplete(incomplete))) = result
+            else {
+                panic!("the second distinct node must be paid before termination");
+            };
+            assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+            assert_eq!(incomplete.limit, 1);
+            assert_eq!(incomplete.consumed, 2);
+            assert_eq!(incomplete.path, Some(at));
+            assert!(short.pins.is_empty());
         }
     }
 
