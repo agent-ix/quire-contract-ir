@@ -133,11 +133,11 @@ impl ContractPackageV1 {
             }
             ContractRootViewV1::Lowered(reached) => reached,
         };
-        let sources = self
-            .sources(application)
-            .ok_or(ContractScalarOperandErrorV1::View(
-                ContractRootViewError::Inconsistent,
-            ))?;
+        let sources =
+            self.source_occurrences(application)
+                .ok_or(ContractScalarOperandErrorV1::View(
+                    ContractRootViewError::Inconsistent,
+                ))?;
         if occurrence.node_id != *application
             || occurrence.role != CheckedOccurrenceRole::Expression
         {
@@ -171,24 +171,23 @@ impl ContractPackageV1 {
                 }
                 Err(other) => return Err(ContractScalarOperandErrorV1::Projection(other)),
             };
-            let child =
-                match argument.child {
-                    ScalarArgumentChild::Graph(node) => {
-                        let sources = self.sources(&node.node_id).ok_or(
-                            ContractScalarOperandErrorV1::View(ContractRootViewError::Inconsistent),
-                        )?;
-                        ContractScalarOperandChildV1::GraphReference {
-                            node_id: &node.node_id,
-                            sources,
-                        }
+            let child = match argument.child {
+                ScalarArgumentChild::Graph(node) => {
+                    let sources = self.source_occurrences(&node.node_id).ok_or(
+                        ContractScalarOperandErrorV1::View(ContractRootViewError::Inconsistent),
+                    )?;
+                    ContractScalarOperandChildV1::GraphReference {
+                        node_id: &node.node_id,
+                        sources,
                     }
-                    ScalarArgumentChild::InlineInteger(value) => {
-                        ContractScalarOperandChildV1::InlineInteger {
-                            value,
-                            occurrence: occurrence.clone(),
-                        }
+                }
+                ScalarArgumentChild::InlineInteger(value) => {
+                    ContractScalarOperandChildV1::InlineInteger {
+                        value,
+                        occurrence: occurrence.clone(),
                     }
-                };
+                }
+            };
             Ok(ContractScalarOperandV1 {
                 ordinal: argument.ordinal,
                 child,

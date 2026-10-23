@@ -223,14 +223,9 @@ pub(crate) fn sources_for<'a>(
     package: &'a ContractPackageV1,
     key: &CheckedNodeId,
 ) -> &'a [quire_contract_model::CheckedSourceMapEntry] {
-    &package
-        .wire()
-        .source_map
-        .nodes
-        .iter()
-        .find(|entry| &entry.node_id == key)
+    package
+        .source_occurrences(key)
         .expect("admitted source-map node")
-        .occurrences
 }
 
 pub(crate) fn by_operation(package: &CheckedPackageV2, identity: &str) -> ContractOccurrenceKeyV1 {
@@ -267,6 +262,20 @@ fn tc_447_context_root_selects_authored_result_interval_without_rewriting_forwar
     let narrow = by_operation(&input, "quire.op.numeric.narrow");
     let plain = package(&input, std::slice::from_ref(&add.node_id));
     let contextual = package(&input, &[add.node_id.clone(), narrow.node_id.clone()]);
+    let first_source = contextual
+        .wire()
+        .source_map
+        .nodes
+        .iter()
+        .find(|entry| entry.node_id == add.node_id)
+        .expect("selected application source");
+    assert_eq!(
+        contextual.source_occurrences(&add.node_id),
+        Some(first_source.occurrences.as_slice())
+    );
+    let missing: CheckedNodeId =
+        serde_json::from_value(node_id(&provisional('9'))).expect("missing node id");
+    assert!(contextual.source_occurrences(&missing).is_none());
     assert_eq!(plain.wire().feature_accounting.len(), 1);
     assert_eq!(contextual.wire().feature_accounting.len(), 2);
     assert!(matches!(

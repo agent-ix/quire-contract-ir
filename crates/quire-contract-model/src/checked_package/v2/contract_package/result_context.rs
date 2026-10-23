@@ -174,7 +174,7 @@ impl ContractPackageV1 {
         conversion: Option<&ContractOccurrenceKeyV1>,
         expected: BoundedDomainForm,
     ) -> Result<ContractResultContextV1<'a>, ContractRootViewError> {
-        let Some(expression_sources) = self.sources(expression) else {
+        let Some(expression_sources) = self.source_occurrences(expression) else {
             return Err(ContractRootViewError::Inconsistent);
         };
         if application.node_id != *expression
@@ -199,7 +199,7 @@ impl ContractPackageV1 {
             if selected.role != CheckedOccurrenceRole::Expression
                 || !self.has_lowered(&selected.node_id)
                 || !self
-                    .sources(&selected.node_id)
+                    .source_occurrences(&selected.node_id)
                     .is_some_and(|sources| sources.iter().any(|entry| selected.matches(entry)))
             {
                 return Ok(ContractResultContextV1::IncompleteContext);
@@ -240,7 +240,7 @@ impl ContractPackageV1 {
                 type_key: selected_type.clone(),
             });
         }
-        let Some(sources) = self.sources(selected_type) else {
+        let Some(sources) = self.source_occurrences(selected_type) else {
             return Err(ContractRootViewError::Inconsistent);
         };
         let bound = ContractResultBoundV1 {
@@ -253,7 +253,7 @@ impl ContractPackageV1 {
                 let Some(conversion_node) = self.node(&selected.node_id) else {
                     return Err(ContractRootViewError::Inconsistent);
                 };
-                let Some(conversion_sources) = self.sources(&selected.node_id) else {
+                let Some(conversion_sources) = self.source_occurrences(&selected.node_id) else {
                     return Err(ContractRootViewError::Inconsistent);
                 };
                 Ok(ContractResultContextV1::Narrowed {
@@ -265,7 +265,8 @@ impl ContractPackageV1 {
         }
     }
 
-    pub(super) fn sources(&self, key: &CheckedNodeId) -> Option<&[CheckedSourceMapEntry]> {
+    /// Source occurrences for the first admitted source-map entry matching this node.
+    pub fn source_occurrences(&self, key: &CheckedNodeId) -> Option<&[CheckedSourceMapEntry]> {
         source_occurrences(&self.wire.source_map.nodes, &self.source_index, key)
     }
 
