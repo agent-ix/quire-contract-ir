@@ -185,3 +185,73 @@ fn timed_model_repeated_place_precedes_later_quantity_validation() {
         .to_string()
         .ends_with("/body/members/2/value/members/1"));
 }
+
+#[trace("TC-048", "FR-038-AC-320", "FR-038-AC-321")]
+#[test]
+fn timed_model_rebuilt_semantic_defects_keep_paired_causes() {
+    for (change, form, member, code, cause) in [
+        (
+            "zero_period",
+            "time_source",
+            3,
+            Code::IllTyped,
+            Cause::InvalidTimeQuantity,
+        ),
+        (
+            "unreduced_bound",
+            "clock_constraint",
+            2,
+            Code::IllTyped,
+            Cause::InvalidTimeQuantity,
+        ),
+        (
+            "wrong_predicate",
+            "clock_guard",
+            0,
+            Code::InvalidPackage,
+            Cause::TimedNodeReference,
+        ),
+    ] {
+        let mut wire = published();
+        let scalar = wire["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "integer")
+            .expect("published integer type")["node_id"]
+            .clone();
+        let node = wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|node| node["node_tag"] == "timed_model" && node["semantic_form"] == form)
+            .expect("published timed form");
+        match change {
+            "zero_period" => node["body"]["members"][member]["value"]["value"] = json!("0/1"),
+            "unreduced_bound" => node["body"]["members"][member]["value"]["value"] = json!("6/4"),
+            "wrong_predicate" => {
+                node["body"]["members"][member]["value"]["target"] = scalar.clone();
+                node["dependencies"] = json!([scalar]);
+            }
+            _ => unreachable!("test case list is closed"),
+        }
+        fixture_support::mint_ungrouped_structural_keys(&mut wire);
+        fixture_support::refresh_identity(&mut wire);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
+            panic!("{change} must refuse");
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (code, Some(cause)),
+            "{change}: {refusal:?}"
+        );
+        assert!(
+            refusal
+                .path
+                .unwrap()
+                .to_string()
+                .contains(&format!("/body/members/{member}/value")),
+            "{change}"
+        );
+    }
+}
