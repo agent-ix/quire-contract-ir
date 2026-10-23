@@ -9,6 +9,7 @@ use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCause as Cause,
     CheckedPackageRefusalCode as Code, JsonPointer,
 };
+use ix_trace_rs::string_edge;
 use num_bigint::BigInt;
 use serde::{
     de::{value::Error as WordError, value::StrDeserializer, DeserializeOwned},
@@ -1274,6 +1275,7 @@ fn literal<'a>(
         .ok_or_else(|| malformed(at.clone().key("value")))
 }
 
+#[string_edge]
 fn integer(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
     let text = literal(value, "integer", at)?;
     let digits = text.strip_prefix('-').unwrap_or(text);
