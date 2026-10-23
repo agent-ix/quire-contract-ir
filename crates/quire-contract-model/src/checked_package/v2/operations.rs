@@ -571,8 +571,8 @@ impl StructuralTypes {
                 break None;
             };
             let forwards = kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Alias)
-                || (kind.tag() == CheckedNodeTag::BoundedDomain
-                    && node.semantic_form.as_ref() != "model_population");
+                || matches!(kind, CheckedNodeKind::BoundedDomain(form)
+                    if form != BoundedDomainForm::ModelPopulation);
             if !forwards {
                 break Some((position, kind));
             }
@@ -3028,8 +3028,8 @@ fn text_profile_pin(
             break None;
         };
         let forwards = kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Alias)
-            || (kind.tag() == CheckedNodeTag::BoundedDomain
-                && node.semantic_form.as_ref() != "model_population");
+            || matches!(kind, CheckedNodeKind::BoundedDomain(form)
+                if form != BoundedDomainForm::ModelPopulation);
         if !forwards || node.semantic_type == node.node_id {
             break None;
         }
