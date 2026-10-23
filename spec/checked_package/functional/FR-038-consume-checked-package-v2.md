@@ -1714,7 +1714,7 @@ earlier body-step defect SHALL win over a timed defect. The writer SHALL
 preserve the admitted source's node order, exact quantity data and selected
 model identity on read-back.
 The reader tests SHALL use QSpec's `positive-timed-model-nodes.json` and
-`timed-model-node-vectors.json` through `QSPEC_DIR`, without storing a copy
+`timed-model-node-vectors.json` through `QUIRE_SPECIFICATION_DIR`, without storing a copy
 of either fixture in this repository.
 
 ### Protocol node bodies and reader step
