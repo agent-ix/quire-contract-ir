@@ -190,6 +190,7 @@ pub(super) enum NativeTypeRef {
     String,
     Uuid,
     Timestamp,
+    Clock,
 }
 
 impl SelectedTypeRef {
@@ -223,6 +224,7 @@ impl NativeTypeRef {
             "String" => Self::String,
             "UUID" => Self::Uuid,
             "Timestamp" => Self::Timestamp,
+            "Clock" => Self::Clock,
             _ => return None,
         })
     }
@@ -658,6 +660,8 @@ pub(super) enum MemberType {
     String,
     Uuid,
     Timestamp,
+    /// The timed-model clock marker used by checked clock-place paths.
+    Clock,
     /// `Int[lo, hi]`.
     IntRange(IntegerBounds),
     /// `Reference<O>`, by the digest of `O`'s model declaration node.
@@ -707,6 +711,7 @@ impl MemberType {
                 StructuralBody::Empty,
                 bytes,
             ),
+            Self::Clock => anonymous("scalar_type", "clock", None, StructuralBody::Empty, bytes),
             Self::IntRange(range) => {
                 let integer = Self::Integer.node_key(bytes)?;
                 anonymous(
@@ -1151,6 +1156,7 @@ impl DomainModel {
                     NativeTypeRef::String => Some(MemberType::String),
                     NativeTypeRef::Uuid => Some(MemberType::Uuid),
                     NativeTypeRef::Timestamp => Some(MemberType::Timestamp),
+                    NativeTypeRef::Clock => Some(MemberType::Clock),
                     NativeTypeRef::Rational
                     | NativeTypeRef::Decimal
                     | NativeTypeRef::Float32

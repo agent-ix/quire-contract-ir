@@ -3,7 +3,7 @@
 
 //! Closed timed-model node wire shapes checked before identity validation.
 
-use super::{CheckedNodeId, CheckedSemanticNodeV2, TimedModelForm};
+use super::{CheckedNodeId, CheckedNodeOwner, CheckedSemanticNodeV2, TimedModelForm};
 use crate::checked_package::common::{
     exact_members, is_digest, node_pointer, ValidationFailure, NODE_DOMAIN,
 };
@@ -254,6 +254,7 @@ pub(super) fn check_wire(
                 &node.body,
                 &[
                     "model",
+                    "time_dimension",
                     "source",
                     "clock_places",
                     "resets",
@@ -266,7 +267,8 @@ pub(super) fn check_wire(
             )?;
             reference(b[0].0, &b[0].1)?;
             reference(b[1].0, &b[1].1)?;
-            for (value, at) in &b[2..] {
+            reference(b[2].0, &b[2].1)?;
+            for (value, at) in &b[3..] {
                 references(value, at)?;
             }
         }
@@ -285,21 +287,47 @@ pub(super) fn check_wire(
                 "tick" => {
                     let b = bindings(
                         &node.body,
-                        &["kind", "unit", "operation", "period"],
+                        &["kind", "unit", "model", "operation", "period"],
                         &body_at,
                     )?;
                     reference(b[1].0, &b[1].1)?;
                     reference(b[2].0, &b[2].1)?;
-                    magnitude(b[3].0, "rational", &b[3].1)?;
+                    reference(b[3].0, &b[3].1)?;
+                    magnitude(b[4].0, "rational", &b[4].1)?;
                 }
                 _ => return Err(malformed(kind_at.key("value"))),
             }
         }
         TimedModelForm::Place => {
-            let b = bindings(&node.body, &["model", "path", "guards"], &body_at)?;
+            let b = bindings(
+                &node.body,
+                &["model", "path", "resolved_path", "guards"],
+                &body_at,
+            )?;
             reference(b[0].0, &b[0].1)?;
             path(b[1].0, &b[1].1)?;
-            references(b[2].0, &b[2].1)?;
+            let rows = aggregate(b[2].0, &b[2].1)?;
+            for (index, row) in rows.iter().enumerate() {
+                let row_at = b[2].1.clone().key("members").index(index);
+                let fields = bindings(
+                    row,
+                    &[
+                        "path_step",
+                        "declaring_type",
+                        "member_identity",
+                        "member_type",
+                        "collection_kind",
+                        "minimum",
+                        "maximum",
+                    ],
+                    &row_at,
+                )?;
+                integer(fields[0].0, &fields[0].1)?;
+                for (value, at) in &fields[1..] {
+                    text(value, at)?;
+                }
+            }
+            references(b[3].0, &b[3].1)?;
         }
         TimedModelForm::Reset => {
             let b = bindings(&node.body, &["place", "value"], &body_at)?;
@@ -370,6 +398,146 @@ fn spelling(term: &CheckedTerm) -> Option<&str> {
         CheckedTerm::Literal { value, .. } => value.as_str(),
         _ => None,
     }
+}
+
+fn integer_value(term: &CheckedTerm) -> Option<u64> {
+    match term {
+        CheckedTerm::Literal {
+            value_kind: LiteralKind::Integer,
+            value,
+            ..
+        } => value.as_u64(),
+        _ => None,
+    }
+}
+
+fn scalar_text(term: &CheckedTerm) -> Option<String> {
+    match term {
+        CheckedTerm::Literal {
+            value_kind: LiteralKind::Integer,
+            value,
+            ..
+        } => Some(value.as_u64()?.to_string()),
+        CheckedTerm::Literal {
+            value_kind: LiteralKind::Text,
+            value,
+            ..
+        } => value.as_str().map(str::to_owned),
+        _ => None,
+    }
+}
+
+fn text_member(term: &CheckedTerm, index: usize) -> Option<&str> {
+    bound(term, index).and_then(spelling)
+}
+
+fn check_resolved_path(
+    graph: &Graph<'_>,
+    position: usize,
+    place: &CheckedTerm,
+    root_model: usize,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    use CheckedPackageRefusalCause as Cause;
+    let rows_at = binding_at(position, 2);
+    let steps = bound(place, 1).map(typed_members).unwrap_or_default();
+    let rows = bound(place, 2).map(typed_members).unwrap_or_default();
+    let fail = |at| graph.issue(position, Cause::MalformedClockPlace, at);
+    if steps.first().and_then(|step| text_member(step, 0)) == Some("slot") {
+        return Err(fail(
+            node_pointer(position).key("body").key("members").index(1),
+        ));
+    }
+    if rows.len() != steps.len() {
+        return Err(fail(rows_at.key("members")));
+    }
+    let model_node = &graph.nodes[root_model];
+    let model_name = model_node
+        .declaration
+        .as_ref()
+        .map(|declaration| {
+            declaration
+                .qualified_name
+                .iter()
+                .map(|part| part.as_ref())
+                .collect::<Vec<_>>()
+                .join("/")
+        })
+        .or_else(|| match model_node.owner.as_ref() {
+            Some(CheckedNodeOwner::Model { node, .. }) => Some(node.to_string()),
+            _ => None,
+        });
+    let mut expected_declaring = model_name;
+    for (index, (step, row)) in steps.iter().zip(rows).enumerate() {
+        let at = rows_at.clone().key("members").index(index);
+        meter.charge(1, || at.clone())?;
+        let step_kind = text_member(step, 0).unwrap_or_default();
+        let parent_type = expected_declaring.clone();
+        let declaring_expected = if step_kind == "slot" {
+            parent_type.as_deref().and_then(|ty| {
+                ["Sequence<", "Set<", "Bag<", "OrderedSet<"]
+                    .iter()
+                    .find_map(|prefix| ty.strip_prefix(prefix))
+                    .and_then(|inside| inside.strip_suffix('>'))
+                    .map(str::to_owned)
+            })
+        } else {
+            parent_type.clone()
+        };
+        let step_index = bound(row, 0).and_then(integer_value);
+        let declaring = text_member(row, 1);
+        let identity = text_member(row, 2);
+        let member_type = text_member(row, 3);
+        let collection = text_member(row, 4);
+        let minimum = text_member(row, 5);
+        let maximum = text_member(row, 6);
+        if step_index != Some(index as u64)
+            || declaring != declaring_expected.as_deref()
+            || identity.is_none()
+            || member_type.is_none()
+            || collection.is_none()
+            || minimum.is_none()
+            || maximum.is_none()
+        {
+            return Err(fail(at));
+        }
+        let expected_identity = match step_kind {
+            "field" => {
+                text_member(step, 1).map(|name| format!("{}/{name}", declaring.unwrap_or_default()))
+            }
+            "tuple" => text_member(step, 1)
+                .map(|slot| format!("{}/tuple/{slot}", declaring.unwrap_or_default())),
+            "union" => text_member(step, 1)
+                .map(|case| format!("{}/union/{case}", declaring.unwrap_or_default())),
+            "slot" => parent_type.as_ref().map(|name| format!("{name}[slot]")),
+            _ => None,
+        };
+        if expected_identity.as_deref() != identity {
+            return Err(fail(at));
+        }
+        let next_kind = steps.get(index + 1).and_then(|next| text_member(next, 0));
+        if next_kind == Some("slot") {
+            let next = &steps[index + 1];
+            let expected_collection = text_member(next, 1);
+            let expected_minimum = bound(next, 3).and_then(scalar_text);
+            let expected_maximum = bound(next, 4).and_then(scalar_text);
+            if collection != expected_collection
+                || minimum.map(str::to_owned) != expected_minimum
+                || maximum.map(str::to_owned) != expected_maximum
+            {
+                return Err(fail(at));
+            }
+        } else if collection != Some("none") || minimum != Some("") || maximum != Some("") {
+            return Err(fail(at));
+        }
+        expected_declaring = member_type.map(str::to_owned);
+    }
+    if rows.last().and_then(|row| text_member(row, 3)) != Some("ix://quire/native/Clock") {
+        return Err(fail(
+            rows_at.key("members").index(rows.len().saturating_sub(1)),
+        ));
+    }
+    Ok(())
 }
 
 struct Graph<'a> {
@@ -552,7 +720,7 @@ pub(super) fn validate_models<'a>(
         let body = graph.body(position)?;
         roots.push(position);
         represented.insert(&nodes[position].node_id);
-        for (member_index, member) in typed_members(body).iter().enumerate().skip(1) {
+        for (member_index, member) in typed_members(body).iter().enumerate().skip(2) {
             meter.charge(1, || binding_at(position, member_index))?;
             let CheckedTerm::Binding { value, .. } = member else {
                 continue;
@@ -577,7 +745,7 @@ pub(super) fn validate_models<'a>(
             return Err(graph.issue(
                 position,
                 Cause::MissingTimedModel,
-                node_pointer(position).key("body"),
+                JsonPointer::root().key("semantic_graph").key("nodes"),
             ));
         }
         if !represented.contains(&nodes[position].node_id) {
@@ -589,12 +757,67 @@ pub(super) fn validate_models<'a>(
         }
         match form {
             Form::Model => {
-                graph.target(position, bound(body, 0), binding_at(position, 0), |kind| {
-                    matches!(kind, CheckedNodeKind::Model(_))
-                })?;
-                graph.target(position, bound(body, 1), binding_at(position, 1), |kind| {
-                    kind == CheckedNodeKind::TimedModel(Form::Source)
-                })?;
+                let model =
+                    graph.target(position, bound(body, 0), binding_at(position, 0), |kind| {
+                        matches!(kind, CheckedNodeKind::Model(_))
+                    })?;
+                let dimension =
+                    graph.target(position, bound(body, 1), binding_at(position, 1), |kind| {
+                        kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Dimension)
+                    })?;
+                let source =
+                    graph.target(position, bound(body, 2), binding_at(position, 2), |kind| {
+                        kind == CheckedNodeKind::TimedModel(Form::Source)
+                    })?;
+                let source_body = graph.body(source)?;
+                let unit = graph.target(
+                    source,
+                    bound(source_body, 1),
+                    binding_at(source, 1),
+                    |kind| kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),
+                )?;
+                if nodes[unit].semantic_type != nodes[dimension].node_id {
+                    return Err(graph.issue(
+                        source,
+                        Cause::InvalidTimeQuantity,
+                        binding_at(source, 1),
+                    ));
+                }
+                if bound(source_body, 0).and_then(spelling) == Some("tick") {
+                    let source_model = graph.target(
+                        source,
+                        bound(source_body, 2),
+                        binding_at(source, 2).key("target"),
+                        |kind| matches!(kind, CheckedNodeKind::Model(_)),
+                    )?;
+                    if source_model != model {
+                        return Err(graph.issue(
+                            source,
+                            Cause::TimedNodeReference,
+                            binding_at(source, 2).key("target"),
+                        ));
+                    }
+                    let operation = graph.target(
+                        source,
+                        bound(source_body, 3),
+                        binding_at(source, 3).key("target"),
+                        |kind| kind == CheckedNodeKind::State(super::StateForm::OperationAnchor),
+                    )?;
+                    let operation_body = graph.body(operation)?;
+                    let context = graph.target(
+                        operation,
+                        bound(operation_body, 0),
+                        binding_at(operation, 0).key("target"),
+                        |kind| matches!(kind, CheckedNodeKind::Model(_)),
+                    )?;
+                    if context != source_model {
+                        return Err(graph.issue(
+                            source,
+                            Cause::TimedNodeReference,
+                            binding_at(source, 3).key("target"),
+                        ));
+                    }
+                }
                 for (member_index, expected) in [
                     Form::Place,
                     Form::Reset,
@@ -606,7 +829,7 @@ pub(super) fn validate_models<'a>(
                 .into_iter()
                 .enumerate()
                 {
-                    let member_index = member_index + 2;
+                    let member_index = member_index + 3;
                     let children = bound(body, member_index)
                         .map(typed_members)
                         .unwrap_or_default();
@@ -621,7 +844,7 @@ pub(super) fn validate_models<'a>(
                         })?;
                         if expected == Form::Place {
                             let place = graph.body(target)?;
-                            let model =
+                            let place_model =
                                 bound(place, 0).and_then(typed_target).ok_or_else(|| {
                                     graph.issue(
                                         target,
@@ -629,6 +852,21 @@ pub(super) fn validate_models<'a>(
                                         binding_at(target, 0),
                                     )
                                 })?;
+                            let place_model =
+                                index.get(&place_model).copied().ok_or_else(|| {
+                                    graph.issue(
+                                        target,
+                                        Cause::TimedNodeReference,
+                                        binding_at(target, 0),
+                                    )
+                                })?;
+                            if place_model != model {
+                                return Err(graph.issue(
+                                    target,
+                                    Cause::TimedNodeReference,
+                                    binding_at(target, 0),
+                                ));
+                            }
                             let path = bound(place, 1).ok_or_else(|| {
                                 graph.issue(
                                     target,
@@ -636,9 +874,10 @@ pub(super) fn validate_models<'a>(
                                     binding_at(target, 1),
                                 )
                             })?;
+                            check_resolved_path(&graph, target, place, model, meter)?;
                             for (seen_model, seen_path) in &seen_places {
                                 meter.charge(1, || at.clone())?;
-                                if *seen_model == model
+                                if *seen_model == &nodes[model].node_id
                                     && same_place_path(seen_path, path, meter, &at)?
                                 {
                                     return Err(graph.issue(
@@ -648,7 +887,7 @@ pub(super) fn validate_models<'a>(
                                     ));
                                 }
                             }
-                            seen_places.push((model, path));
+                            seen_places.push((&nodes[model].node_id, path));
                         }
                     }
                 }
@@ -658,18 +897,17 @@ pub(super) fn validate_models<'a>(
                     kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
                 })?;
                 if bound(body, 0).and_then(spelling) == Some("tick") {
-                    graph.target(position, bound(body, 2), binding_at(position, 2), |kind| {
-                        matches!(
-                            kind,
-                            CheckedNodeKind::Function(_)
-                                | CheckedNodeKind::State(super::StateForm::OperationAnchor)
-                        )
-                    })?;
-                    graph.exact(
+                    graph.target(
                         position,
                         bound(body, 3),
+                        binding_at(position, 3).key("target"),
+                        |kind| kind == CheckedNodeKind::State(super::StateForm::OperationAnchor),
+                    )?;
+                    graph.exact(
+                        position,
+                        bound(body, 4),
                         true,
-                        binding_at(position, 3),
+                        binding_at(position, 4).key("value"),
                         meter,
                     )?;
                 }
@@ -678,13 +916,13 @@ pub(super) fn validate_models<'a>(
                 graph.target(position, bound(body, 0), binding_at(position, 0), |kind| {
                     matches!(kind, CheckedNodeKind::Model(_))
                 })?;
-                for (child_index, child) in bound(body, 2)
+                for (child_index, child) in bound(body, 3)
                     .map(typed_members)
                     .unwrap_or_default()
                     .iter()
                     .enumerate()
                 {
-                    let at = binding_at(position, 2).key("members").index(child_index);
+                    let at = binding_at(position, 3).key("members").index(child_index);
                     meter.charge(1, || at.clone())?;
                     graph.boolean(position, Some(child), at)?;
                 }
