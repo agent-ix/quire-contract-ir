@@ -755,3 +755,32 @@ impl CheckedNodeKind {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod timed_model_vocabulary_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+
+    #[trace("FR-038-AC-318", "TC-048")]
+    #[test]
+    fn timed_model_vocabulary_matches_qspec_eight_forms() {
+        let tag = CheckedNodeTag::from_wire("timed_model").expect("timed-model family");
+        assert_eq!(tag, CheckedNodeTag::TimedModel);
+        for form in [
+            "timed_model",
+            "time_source",
+            "clock_place",
+            "clock_reset",
+            "clock_guard",
+            "time_invariant",
+            "urgency",
+            "clock_constraint",
+        ] {
+            let kind = CheckedNodeKind::decode(tag, form).expect("QSpec timed-model form");
+            assert_eq!(kind.tag(), tag);
+            assert_eq!(kind.form_wire(), form);
+        }
+        assert_eq!(CheckedNodeKind::decode(tag, "hybrid_mode"), None);
+        assert_eq!(CheckedNodeKind::decode(tag, "clock_rate"), None);
+    }
+}
