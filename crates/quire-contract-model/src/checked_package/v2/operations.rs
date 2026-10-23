@@ -416,7 +416,24 @@ fn literal_defect(
                         .is_ok_and(|parsed| parsed.to_string() == text)
                 })),
                 LiteralKind::Quantity => {
-                    Some(value.as_str().is_some_and(canonical_quantity_magnitude))
+                    // Timed reset/bound magnitudes have already passed their
+                    // own exact reduced-rational validation. Their published
+                    // grammar permits an explicit denominator of one.
+                    let timed_quantity = graph
+                        .index
+                        .get(&node.node_id)
+                        .and_then(|&position| graph.kinds.get(position))
+                        .is_some_and(|kind| {
+                            matches!(
+                                kind,
+                                CheckedNodeKind::TimedModel(
+                                    super::TimedModelForm::Reset
+                                        | super::TimedModelForm::Constraint
+                                )
+                            )
+                        });
+                    (!timed_quantity)
+                        .then(|| value.as_str().is_some_and(canonical_quantity_magnitude))
                 }
                 LiteralKind::Boolean
                 | LiteralKind::Integer

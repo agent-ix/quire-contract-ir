@@ -339,3 +339,330 @@ pub(super) fn check_wire(
     }
     Ok(())
 }
+
+use super::{CheckedNodeKind, CheckedTerm, LiteralKind, ScalarTypeForm, WorkMeter};
+use crate::checked_package::shared::CheckedPackageRefusalCause;
+use std::collections::{BTreeMap, BTreeSet};
+
+fn typed_members(term: &CheckedTerm) -> &[CheckedTerm] {
+    match term {
+        CheckedTerm::Aggregate { members } => members,
+        _ => &[],
+    }
+}
+
+fn bound(term: &CheckedTerm, index: usize) -> Option<&CheckedTerm> {
+    match typed_members(term).get(index)? {
+        CheckedTerm::Binding { value, .. } => Some(value),
+        _ => None,
+    }
+}
+
+fn typed_target(term: &CheckedTerm) -> Option<&CheckedNodeId> {
+    match term {
+        CheckedTerm::Reference { target } => Some(target),
+        _ => None,
+    }
+}
+
+fn spelling(term: &CheckedTerm) -> Option<&str> {
+    match term {
+        CheckedTerm::Literal { value, .. } => value.as_str(),
+        _ => None,
+    }
+}
+
+struct Graph<'a> {
+    nodes: &'a [CheckedSemanticNodeV2],
+    kinds: &'a [CheckedNodeKind],
+    terms: &'a [Option<CheckedTerm>],
+    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+}
+
+impl Graph<'_> {
+    fn issue(
+        &self,
+        position: usize,
+        cause: CheckedPackageRefusalCause,
+        at: JsonPointer,
+    ) -> ValidationFailure {
+        let code = if cause == CheckedPackageRefusalCause::InvalidTimeQuantity {
+            CheckedPackageRefusalCode::IllTyped
+        } else {
+            CheckedPackageRefusalCode::InvalidPackage
+        };
+        ValidationFailure::refused_at(code, at, Some(cause), self.nodes[position].node_id.clone())
+    }
+
+    fn body(&self, position: usize) -> Result<&CheckedTerm, ValidationFailure> {
+        self.terms
+            .get(position)
+            .and_then(Option::as_ref)
+            .ok_or_else(|| {
+                self.issue(
+                    position,
+                    CheckedPackageRefusalCause::TimedNodeReference,
+                    node_pointer(position).key("body"),
+                )
+            })
+    }
+
+    fn target(
+        &self,
+        position: usize,
+        term: Option<&CheckedTerm>,
+        at: JsonPointer,
+        accepts: impl FnOnce(CheckedNodeKind) -> bool,
+    ) -> Result<usize, ValidationFailure> {
+        let target = term
+            .and_then(typed_target)
+            .and_then(|key| self.index.get(key))
+            .copied();
+        match target {
+            Some(target) if self.kinds.get(target).is_some_and(|kind| accepts(*kind)) => Ok(target),
+            _ => Err(self.issue(position, CheckedPackageRefusalCause::TimedNodeReference, at)),
+        }
+    }
+
+    fn boolean(
+        &self,
+        position: usize,
+        term: Option<&CheckedTerm>,
+        at: JsonPointer,
+    ) -> Result<(), ValidationFailure> {
+        let target = self.target(position, term, at.clone(), |kind| {
+            matches!(
+                kind,
+                CheckedNodeKind::Expression(_) | CheckedNodeKind::Value(_)
+            )
+        })?;
+        let boolean = self
+            .index
+            .get(&self.nodes[target].semantic_type)
+            .and_then(|&p| self.kinds.get(p))
+            == Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean));
+        if boolean {
+            Ok(())
+        } else {
+            Err(self.issue(position, CheckedPackageRefusalCause::TimedNodeReference, at))
+        }
+    }
+
+    fn exact(
+        &self,
+        position: usize,
+        term: Option<&CheckedTerm>,
+        positive: bool,
+        at: JsonPointer,
+        meter: &mut WorkMeter,
+    ) -> Result<(), ValidationFailure> {
+        let invalid = || {
+            self.issue(
+                position,
+                CheckedPackageRefusalCause::InvalidTimeQuantity,
+                at.clone(),
+            )
+        };
+        let value = term.and_then(spelling).ok_or_else(invalid)?;
+        let (numerator, denominator) = value.split_once('/').unwrap_or((value, "1"));
+        // The strict shape has checked nonnegative decimal syntax. Shared
+        // natural arithmetic accounts for the exact reduction work.
+        if positive && numerator == "0"
+            || !super::natural::coprime(numerator, denominator, meter, &|| at.clone())?
+        {
+            return Err(invalid());
+        }
+        Ok(())
+    }
+}
+
+fn binding_at(position: usize, index: usize) -> JsonPointer {
+    node_pointer(position)
+        .key("body")
+        .key("members")
+        .index(index)
+        .key("value")
+}
+
+/// Join the retained timed roots, members and local typed targets in digest order.
+pub(super) fn validate_models<'a>(
+    nodes: &'a [CheckedSemanticNodeV2],
+    kinds: &'a [CheckedNodeKind],
+    terms: &'a [Option<CheckedTerm>],
+    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    use CheckedPackageRefusalCause as Cause;
+    use TimedModelForm as Form;
+    let graph = Graph {
+        nodes,
+        kinds,
+        terms,
+        index,
+    };
+    let mut roots = Vec::new();
+    let mut represented = BTreeSet::new();
+    for &position in index.values() {
+        if kinds.get(position) != Some(&CheckedNodeKind::TimedModel(Form::Model)) {
+            continue;
+        }
+        let body = graph.body(position)?;
+        roots.push(position);
+        represented.insert(&nodes[position].node_id);
+        for (member_index, member) in typed_members(body).iter().enumerate().skip(1) {
+            meter.charge(1, || binding_at(position, member_index))?;
+            let CheckedTerm::Binding { value, .. } = member else {
+                continue;
+            };
+            if let Some(key) = typed_target(value) {
+                represented.insert(key);
+            }
+            for child in typed_members(value) {
+                if let Some(key) = typed_target(child) {
+                    represented.insert(key);
+                }
+            }
+        }
+    }
+    for &position in index.values() {
+        let Some(CheckedNodeKind::TimedModel(form)) = kinds.get(position).copied() else {
+            continue;
+        };
+        meter.charge(1, || node_pointer(position))?;
+        let body = graph.body(position)?;
+        if roots.is_empty() {
+            return Err(graph.issue(
+                position,
+                Cause::MissingTimedModel,
+                node_pointer(position).key("body"),
+            ));
+        }
+        if !represented.contains(&nodes[position].node_id) {
+            return Err(graph.issue(
+                position,
+                Cause::TimedNodeReference,
+                node_pointer(position).key("body"),
+            ));
+        }
+        match form {
+            Form::Model => {
+                graph.target(position, bound(body, 0), binding_at(position, 0), |kind| {
+                    matches!(kind, CheckedNodeKind::Model(_))
+                })?;
+                graph.target(position, bound(body, 1), binding_at(position, 1), |kind| {
+                    kind == CheckedNodeKind::TimedModel(Form::Source)
+                })?;
+                for (member_index, expected) in [
+                    Form::Place,
+                    Form::Reset,
+                    Form::Guard,
+                    Form::Invariant,
+                    Form::Urgency,
+                    Form::Constraint,
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    let member_index = member_index + 2;
+                    let children = bound(body, member_index)
+                        .map(typed_members)
+                        .unwrap_or_default();
+                    let mut seen = BTreeSet::new();
+                    for (child_index, child) in children.iter().enumerate() {
+                        let at = binding_at(position, member_index)
+                            .key("members")
+                            .index(child_index);
+                        meter.charge(1, || at.clone())?;
+                        let target = graph.target(position, Some(child), at.clone(), |kind| {
+                            kind == CheckedNodeKind::TimedModel(expected)
+                        })?;
+                        if expected == Form::Place && !seen.insert(target) {
+                            return Err(graph.issue(position, Cause::DuplicateClockPlace, at));
+                        }
+                    }
+                }
+            }
+            Form::Source => {
+                graph.target(position, bound(body, 1), binding_at(position, 1), |kind| {
+                    kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
+                })?;
+                if bound(body, 0).and_then(spelling) == Some("tick") {
+                    graph.target(position, bound(body, 2), binding_at(position, 2), |kind| {
+                        matches!(
+                            kind,
+                            CheckedNodeKind::Function(_)
+                                | CheckedNodeKind::State(super::StateForm::OperationAnchor)
+                        )
+                    })?;
+                    graph.exact(
+                        position,
+                        bound(body, 3),
+                        true,
+                        binding_at(position, 3),
+                        meter,
+                    )?;
+                }
+            }
+            Form::Place => {
+                graph.target(position, bound(body, 0), binding_at(position, 0), |kind| {
+                    matches!(kind, CheckedNodeKind::Model(_))
+                })?;
+                for (child_index, child) in bound(body, 2)
+                    .map(typed_members)
+                    .unwrap_or_default()
+                    .iter()
+                    .enumerate()
+                {
+                    let at = binding_at(position, 2).key("members").index(child_index);
+                    meter.charge(1, || at.clone())?;
+                    graph.boolean(position, Some(child), at)?;
+                }
+            }
+            Form::Reset | Form::Constraint => {
+                graph.target(position, bound(body, 0), binding_at(position, 0), |kind| {
+                    kind == CheckedNodeKind::TimedModel(Form::Place)
+                })?;
+                let amount = if form == Form::Reset { 1 } else { 2 };
+                graph.exact(
+                    position,
+                    bound(body, amount),
+                    false,
+                    binding_at(position, amount),
+                    meter,
+                )?;
+                let unit = match bound(body, amount) {
+                    Some(CheckedTerm::Literal {
+                        type_id,
+                        value_kind: LiteralKind::Quantity,
+                        ..
+                    }) => Some(type_id),
+                    _ => None,
+                };
+                if !unit
+                    .and_then(|id| index.get(id))
+                    .and_then(|&p| kinds.get(p))
+                    .is_some_and(|kind| *kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
+                {
+                    return Err(graph.issue(
+                        position,
+                        Cause::InvalidTimeQuantity,
+                        binding_at(position, amount).key("type"),
+                    ));
+                }
+            }
+            Form::Guard | Form::Invariant => {
+                graph.boolean(position, bound(body, 0), binding_at(position, 0))?
+            }
+            Form::Urgency => {
+                if bound(body, 0).and_then(spelling) == Some("when") {
+                    graph.boolean(position, bound(body, 1), binding_at(position, 1))?;
+                } else {
+                    graph.target(position, bound(body, 1), binding_at(position, 1), |kind| {
+                        matches!(kind, CheckedNodeKind::Model(_))
+                    })?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
