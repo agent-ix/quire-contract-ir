@@ -5,6 +5,14 @@ type: FR
 relationships:
   - target: ix://agent-ix/quire-contract-ir/StR-002
     type: traces_to
+  - target: ix://agent-ix/ix-cli-kit/FR-017
+    type: depends_on
+  - target: ix://agent-ix/ix-cli-kit/FR-006
+    type: depends_on
+  - target: ix://agent-ix/ix-cli-kit/FR-003
+    type: depends_on
+  - target: ix://agent-ix/quire-contract-ir/FR-028
+    type: depends_on
 ---
 # FR-020: Expose versioned JSON and conformance-runner interfaces
 
@@ -73,6 +81,43 @@ protocol, closed code (`invalid_invocation`, `invalid_corpus`,
 `unsupported_profile`, `unsafe_path`, `fixture_io`, or `resource_exhausted`),
 and stable path; prose detail is non-comparable. Panics,
 partial JSON, and mixed stdout/stderr records are forbidden.
+
+### Shared CLI boundary
+
+The root bridge package SHALL consume `ix-cli-kit` from its authoritative
+`agent-ix/ix-cli-kit` Git source, with the selected dependency recorded in
+`Cargo.lock`. The cycle-free `quire-contract-model` package SHALL NOT depend on
+`ix-cli-kit`. The repository SHALL NOT copy the kit's implementation or introduce
+an alternate argument grammar to perform this adoption.
+
+The executable SHALL pass its caller-owned status through
+`ix_cli_kit::exit::caller_exit_code`, as specified by the kit's FR-017. Its only
+selected statuses remain 0, 1 and 2 with the meanings above, including exit 2
+for malformed invocation. These statuses SHALL NOT be reclassified through the
+kit's separate `Outcome` taxonomy: IR's completed mismatch and incomplete-run
+statuses retain their existing protocol meanings. No route SHALL request the
+reserved status 5. The kit's pass-through error SHALL be handled explicitly
+without Rust's `Result` termination emitting an additional diagnostic or selecting
+an implicit status.
+
+The executable SHALL serialize existing result and diagnostic envelopes with the
+kit's `json::write_compact`, retaining the serialized field order and appending
+one caller-owned newline. Result serialization SHALL finish in the existing
+private buffer before stdout delivery. The kit's writer can leave partial bytes
+on failure, so that failure SHALL discard the private result buffer and retain
+the existing `resource_exhausted` result-buffer error. This adoption SHALL NOT
+replace either envelope with a kit diagnostic record or sort its fields. Primary
+result bytes SHALL be delivered through the kit's `streams::write_primary_stdout`;
+a write or flush error retains `fixture_io`, path `stdout`, and exit 2. As with
+any output-device failure, this does not guarantee that already-written stdout
+bytes can be retracted. Diagnostic delivery remains best effort on stderr and
+retains the existing error-buffer fallback.
+
+The closed invocation, version line, six operational JSON codes, complete-run
+payload classification, corpus comparison and ordering, published schemas,
+fixtures, canonical bytes and vectors SHALL remain unchanged. In particular,
+no model error-cause discriminator is needed to map different resource failures
+to different process statuses: every incomplete run continues to select exit 2.
 
 The operational classification is exact: malformed, missing, repeated, or
 non-UTF-8 arguments map to `invalid_invocation`; a corpus with no fixtures, an
@@ -147,7 +192,16 @@ and exits 0 without reading a corpus.
 | FR-020-AC-13 | The published fixture schema rejects `0`, `1.0`, `"+1"`, `"01"`, `"-0"` and `""` in each of the eight integer members. | Test (TC-018) |
 | FR-020-AC-14 | The published package schema rejects a revision and a byte offset of `9007199254740993`. | Test (TC-018) |
 | FR-020-AC-15 | A successful `document_json` expression document that the published schema rejects makes the runner exit 2 with the code `invalid_corpus`. | Test (TC-018) |
+| FR-020-AC-16 | The root binary uses the authoritative kit's caller-owned exit API for statuses 0, 1 and 2; matched corpus and version invocations exit 0, complete mismatches exit 1, and every existing operational code, including invalid invocation, exits 2. No route requests 5 or implicitly terminates through the kit's pass-through error. | Test |
+| FR-020-AC-17 | Shared compact serialization preserves the exact existing result and diagnostic envelopes, serialized field order and one-newline framing; result serialization errors discard the private buffer, while stdout write/flush failure retains exit 2 and `fixture_io` at `stdout`. Existing fallback diagnostics are retained. | Test |
+| FR-020-AC-18 | Only the root bridge package depends on `ix-cli-kit`, from its authoritative Git source with the selection in Cargo.lock; the model has no kit dependency, and no kit implementation or alternative argv grammar is copied into the repository. | Inspection |
+| FR-020-AC-19 | Adoption leaves all published conformance inputs, expectations, schemas and canonical files unchanged; process tests retain the closed argv rejection cases, exact version line, byte-identical repeated corpus output and complete mismatch payload behavior. | Inspection, Test |
 
 ## Dependencies
 
-FR-018 defines corpus content.
+FR-018 defines corpus content. FR-028 preserves the cycle-free model boundary.
+`ix://agent-ix/ix-cli-kit/FR-017` owns caller-exit pass-through and reserved-status
+handling. `ix://agent-ix/ix-cli-kit/FR-006` owns compact JSON writing.
+`ix://agent-ix/ix-cli-kit/FR-003` owns stream discipline and the
+`streams::write_primary_stdout` helper for primary-byte delivery. IR retains its existing protocol,
+argument parser and operational classifications.
