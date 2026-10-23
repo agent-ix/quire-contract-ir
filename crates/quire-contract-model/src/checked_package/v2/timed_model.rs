@@ -476,6 +476,49 @@ impl Graph<'_> {
     }
 }
 
+/// Compare the retained path terms exactly, charging each actual term visit.
+/// Guards are a separate place binding and never enter this comparison.
+fn same_place_path(
+    left: &CheckedTerm,
+    right: &CheckedTerm,
+    meter: &mut WorkMeter,
+    at: &JsonPointer,
+) -> Result<bool, ValidationFailure> {
+    let mut pending = vec![(left, right)];
+    while let Some((left, right)) = pending.pop() {
+        meter.charge(1, || at.clone())?;
+        match (left, right) {
+            (
+                CheckedTerm::Aggregate { members: left },
+                CheckedTerm::Aggregate { members: right },
+            ) => {
+                if left.len() != right.len() {
+                    return Ok(false);
+                }
+                pending.extend(left.iter().zip(right));
+            }
+            (
+                CheckedTerm::Binding {
+                    name: left_name,
+                    value: left,
+                },
+                CheckedTerm::Binding {
+                    name: right_name,
+                    value: right,
+                },
+            ) => {
+                if left_name != right_name {
+                    return Ok(false);
+                }
+                pending.push((left, right));
+            }
+            _ if left != right => return Ok(false),
+            _ => {}
+        }
+    }
+    Ok(true)
+}
+
 fn binding_at(position: usize, index: usize) -> JsonPointer {
     node_pointer(position)
         .key("body")
@@ -567,7 +610,7 @@ pub(super) fn validate_models<'a>(
                     let children = bound(body, member_index)
                         .map(typed_members)
                         .unwrap_or_default();
-                    let mut seen = BTreeSet::new();
+                    let mut seen_places: Vec<(&CheckedNodeId, &CheckedTerm)> = Vec::new();
                     for (child_index, child) in children.iter().enumerate() {
                         let at = binding_at(position, member_index)
                             .key("members")
@@ -576,8 +619,36 @@ pub(super) fn validate_models<'a>(
                         let target = graph.target(position, Some(child), at.clone(), |kind| {
                             kind == CheckedNodeKind::TimedModel(expected)
                         })?;
-                        if expected == Form::Place && !seen.insert(target) {
-                            return Err(graph.issue(position, Cause::DuplicateClockPlace, at));
+                        if expected == Form::Place {
+                            let place = graph.body(target)?;
+                            let model =
+                                bound(place, 0).and_then(typed_target).ok_or_else(|| {
+                                    graph.issue(
+                                        target,
+                                        Cause::TimedNodeReference,
+                                        binding_at(target, 0),
+                                    )
+                                })?;
+                            let path = bound(place, 1).ok_or_else(|| {
+                                graph.issue(
+                                    target,
+                                    Cause::MalformedClockPlace,
+                                    binding_at(target, 1),
+                                )
+                            })?;
+                            for (seen_model, seen_path) in &seen_places {
+                                meter.charge(1, || at.clone())?;
+                                if *seen_model == model
+                                    && same_place_path(seen_path, path, meter, &at)?
+                                {
+                                    return Err(graph.issue(
+                                        position,
+                                        Cause::DuplicateClockPlace,
+                                        at,
+                                    ));
+                                }
+                            }
+                            seen_places.push((model, path));
                         }
                     }
                 }
