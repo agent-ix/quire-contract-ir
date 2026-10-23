@@ -121,3 +121,67 @@ fn timed_model_published_schema_vectors_precede_stale_identity() {
             .starts_with(&format!("/semantic_graph/nodes/{index}/body")));
     }
 }
+
+#[trace("TC-048", "FR-038-AC-320", "FR-038-AC-321")]
+#[test]
+fn timed_model_missing_root_precedes_later_quantity_validation() {
+    let mut wire = published();
+    let root = wire["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["node_tag"] == "timed_model" && node["semantic_form"] == "timed_model")
+        .expect("published root")["node_id"]
+        .clone();
+    wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|node| node["node_id"] != root);
+    wire["source_map"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|entry| entry["node_id"] != root);
+    fixture_support::refresh_identity(&mut wire);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
+        panic!("a timed clause without a root must refuse");
+    };
+    assert_eq!(refusal.code, Code::InvalidPackage, "{refusal:?}");
+    assert_eq!(refusal.cause, Some(Cause::MissingTimedModel), "{refusal:?}");
+    assert!(
+        refusal.locus.is_some(),
+        "missing root must retain affected node"
+    );
+}
+
+#[trace("TC-048", "FR-038-AC-320", "FR-038-AC-321")]
+#[test]
+fn timed_model_repeated_place_precedes_later_quantity_validation() {
+    let mut wire = published();
+    let root = wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|node| node["node_tag"] == "timed_model" && node["semantic_form"] == "timed_model")
+        .expect("published root");
+    let places = root["body"]["members"][2]["value"]["members"]
+        .as_array_mut()
+        .unwrap();
+    assert_eq!(places.len(), 1);
+    places.push(places[0].clone());
+    fixture_support::mint_ungrouped_structural_keys(&mut wire);
+    fixture_support::refresh_identity(&mut wire);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
+        panic!("repeated model place must refuse");
+    };
+    assert_eq!(refusal.code, Code::InvalidPackage, "{refusal:?}");
+    assert_eq!(
+        refusal.cause,
+        Some(Cause::DuplicateClockPlace),
+        "{refusal:?}"
+    );
+    assert!(refusal
+        .path
+        .unwrap()
+        .to_string()
+        .ends_with("/body/members/2/value/members/1"));
+}
