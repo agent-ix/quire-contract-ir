@@ -205,6 +205,15 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
                 wire["semantic_graph"]["nodes"][45]["body"]["members"][2]["value"]["members"][0]
                     ["members"][3]["value"]["value"] = json!("ix://quire/native/Integer")
             }
+            "coherent-forged-selected-chain" => {
+                let place = &mut wire["semantic_graph"]["nodes"][45]["body"]["members"];
+                place[1]["value"]["members"][1]["members"][1]["value"]["value"] = json!("sequence");
+                let rows = &mut place[2]["value"]["members"];
+                rows[0]["members"][3]["value"]["value"] = json!("Sequence<Evil>");
+                rows[0]["members"][4]["value"]["value"] = json!("sequence");
+                rows[1]["members"][1]["value"]["value"] = json!("Evil");
+                rows[1]["members"][2]["value"]["value"] = json!("Sequence<Evil>[slot]");
+            }
             "tick-model-context-mismatch" => {
                 let old = wire["semantic_graph"]["nodes"][44]["body"]["members"][2]["value"]
                     ["target"]
@@ -443,7 +452,15 @@ fn timed_model_distinct_place_nodes_with_same_model_path_and_different_guards_re
         "published place has a genuine Boolean guard"
     );
     guards.clear();
-    alternate["dependencies"] = json!([alternate["body"]["members"][0]["value"]["target"].clone()]);
+    alternate["dependencies"] = json!([
+        alternate["body"]["members"][0]["value"]["target"].clone(),
+        alternate["body"]["members"][1]["value"]["members"][1]["members"][2]["value"]["target"]
+            .clone()
+    ]);
+    alternate["dependencies"]
+        .as_array_mut()
+        .unwrap()
+        .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
     assert_eq!(
         original["body"]["members"][0],
         alternate["body"]["members"][0]

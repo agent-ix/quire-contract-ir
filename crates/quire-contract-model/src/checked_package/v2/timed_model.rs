@@ -3,6 +3,9 @@
 
 //! Closed timed-model node wire shapes checked before identity validation.
 
+use super::model_members::{
+    Budget, MemberKind, ModelFailure, ModelOwners, Resolved, SelectedTypeRef,
+};
 use super::{CheckedNodeId, CheckedNodeOwner, CheckedSemanticNodeV2, TimedModelForm};
 use crate::checked_package::common::{
     exact_members, is_digest, node_pointer, ValidationFailure, NODE_DOMAIN,
@@ -436,6 +439,7 @@ fn check_resolved_path(
     position: usize,
     place: &CheckedTerm,
     root_model: usize,
+    owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     use CheckedPackageRefusalCause as Cause;
@@ -475,6 +479,9 @@ fn check_resolved_path(
         let parent_type = expected_declaring.clone();
         let declaring_expected = if step_kind == "slot" {
             parent_type.as_deref().and_then(|ty| {
+                if ty.starts_with("Map<") && ty.ends_with('>') {
+                    return Some(ty.to_owned());
+                }
                 ["Sequence<", "Set<", "Bag<", "OrderedSet<"]
                     .iter()
                     .find_map(|prefix| ty.strip_prefix(prefix))
@@ -512,8 +519,80 @@ fn check_resolved_path(
             "slot" => parent_type.as_ref().map(|name| format!("{name}[slot]")),
             _ => None,
         };
+        if step_kind == "field" {
+            let path_at = binding_at(position, 1).key("members").index(index);
+            let model_owner = owners
+                .recover(model_node)
+                .map_err(|_| fail(path_at.clone()))?;
+            let declaration = expected_declaring.as_deref().unwrap_or_default();
+            let mut budget = Budget::new(meter, model_owner.selection, model_owner.package.bytes);
+            let resolved = model_owner
+                .package
+                .resolve(
+                    declaration,
+                    MemberKind::Field,
+                    text_member(step, 1).unwrap_or_default(),
+                    &mut budget,
+                )
+                .map_err(|failure| match failure {
+                    ModelFailure::Refused(_) => fail(path_at),
+                    ModelFailure::Limit(failure) => failure,
+                })?;
+            let Resolved::Field(field) = resolved else {
+                return Err(fail(at));
+            };
+            let actual_declaring = field.identity.rsplit_once('/').map(|(owner, _)| owner);
+            let actual_type = match field.slot.type_ref.as_ref() {
+                Some(SelectedTypeRef::Native(super::model_members::NativeTypeRef::Clock)) => {
+                    "ix://quire/native/Clock".to_owned()
+                }
+                Some(SelectedTypeRef::Native(super::model_members::NativeTypeRef::Text)) => {
+                    "ix://quire/native/Text".to_owned()
+                }
+                Some(SelectedTypeRef::Declared(name) | SelectedTypeRef::Unit(name)) => {
+                    name.to_string()
+                }
+                Some(SelectedTypeRef::Map(key, value)) => format!("Map<{key}, {value}>"),
+                _ => return Err(fail(at)),
+            };
+            if actual_declaring != declaring
+                || Some(field.identity.as_ref()) != identity
+                || actual_type != member_type.unwrap_or_default()
+            {
+                return Err(fail(at));
+            }
+        }
         if expected_identity.as_deref() != identity {
             return Err(fail(at));
+        }
+        if step_kind == "slot" && collection == Some("map") {
+            let Some(map_inner) = parent_type
+                .as_deref()
+                .and_then(|name| name.strip_prefix("Map<"))
+                .and_then(|name| name.strip_suffix('>'))
+            else {
+                return Err(fail(at));
+            };
+            let Some((key_type, value_type)) = map_inner.split_once(", ") else {
+                return Err(fail(at));
+            };
+            let text_node = graph
+                .kinds
+                .iter()
+                .position(|kind| *kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Text))
+                .ok_or_else(|| fail(at.clone()))?;
+            let selector_target = bound(step, 2).and_then(typed_target);
+            let selector_position = selector_target
+                .and_then(|key| graph.index.get(key))
+                .copied();
+            let text_node_id = &graph.nodes[text_node].node_id;
+            if key_type != "Text"
+                || value_type != member_type.unwrap_or_default()
+                || selector_position
+                    .is_none_or(|selector| graph.nodes[selector].semantic_type != *text_node_id)
+            {
+                return Err(fail(at));
+            }
         }
         let next_kind = steps.get(index + 1).and_then(|next| text_member(next, 0));
         if next_kind == Some("slot") {
@@ -701,6 +780,7 @@ pub(super) fn validate_models<'a>(
     kinds: &'a [CheckedNodeKind],
     terms: &'a [Option<CheckedTerm>],
     index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     use CheckedPackageRefusalCause as Cause;
@@ -874,7 +954,7 @@ pub(super) fn validate_models<'a>(
                                     binding_at(target, 1),
                                 )
                             })?;
-                            check_resolved_path(&graph, target, place, model, meter)?;
+                            check_resolved_path(&graph, target, place, model, owners, meter)?;
                             for (seen_model, seen_path) in &seen_places {
                                 meter.charge(1, || at.clone())?;
                                 if *seen_model == &nodes[model].node_id
