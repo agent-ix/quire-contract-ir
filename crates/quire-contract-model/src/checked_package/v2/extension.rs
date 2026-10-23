@@ -3,8 +3,8 @@
 use super::identity::is_identifier;
 use super::model_members::{Budget, DeclarationForm, ModelOwners};
 use super::{
-    CheckedNodeKind, CheckedPackageWireV2, CheckedSemanticNodeV2, CheckedTerm, ScalarTypeForm,
-    WorkMeter,
+    BoundedDomainForm, CheckedNodeKind, CheckedPackageWireV2, CheckedSemanticNodeV2, CheckedTerm,
+    ModelForm, ScalarTypeForm, WorkMeter,
 };
 use crate::checked_package::common::{is_digest, node_pointer, ValidationFailure, NODE_DOMAIN};
 use crate::checked_package::evidence::CheckedPackageEvidence;
@@ -249,6 +249,7 @@ pub(super) fn validate(
                         target,
                         kinds[target_position],
                         nodes,
+                        kinds,
                         terms,
                         target_position,
                         index,
@@ -312,14 +313,15 @@ fn type_matches(
         let Some(&position) = index.get(&target.semantic_type) else {
             return Ok(false);
         };
-        let type_node = &nodes[position];
         let bounds_match = terms
             .get(position)
             .and_then(Option::as_ref)
             .and_then(integer_range_bounds)
             .is_some_and(|(lower, upper)| lower == lo.trim() && upper == hi.trim());
-        return Ok(matches!(type_node.node_tag.as_ref(), "bounded_domain")
-            && type_node.semantic_form.as_ref() == "integer_range"
+        return Ok(kinds.get(position)
+            == Some(&CheckedNodeKind::BoundedDomain(
+                BoundedDomainForm::IntegerRange,
+            ))
             && bounds_match);
     }
     let scalar = match expected {
@@ -338,19 +340,14 @@ fn type_matches(
     if let Some(form) = scalar {
         return Ok(index
             .get(&target.semantic_type)
-            .and_then(|&position| nodes.get(position))
-            .is_some_and(|type_node| {
-                type_node.node_tag.as_ref() == "scalar_type"
-                    && type_node.semantic_form.as_ref() == form.as_wire()
-            }));
+            .and_then(|&position| nodes.get(position).zip(kinds.get(position)))
+            .is_some_and(|(_, kind)| *kind == CheckedNodeKind::ScalarType(form)));
     }
-    if let Some(type_node) = index
+    if let Some((type_node, type_kind)) = index
         .get(&target.semantic_type)
-        .and_then(|&position| nodes.get(position))
+        .and_then(|&position| nodes.get(position).zip(kinds.get(position)))
     {
-        if type_node.node_tag.as_ref() == "model"
-            && type_node.semantic_form.as_ref() == "record_value_type"
-        {
+        if *type_kind == CheckedNodeKind::Model(ModelForm::RecordValueType) {
             if let Ok(actual) = owners.recover(type_node) {
                 if actual.form == DeclarationForm::RecordValueType
                     && actual.package.record_types.contains_key(expected)
@@ -372,6 +369,7 @@ fn actual_type(
     target: &CheckedSemanticNodeV2,
     kind: CheckedNodeKind,
     nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
     target_position: usize,
     index: &BTreeMap<&CheckedNodeId, usize>,
@@ -385,12 +383,11 @@ fn actual_type(
     let Some(&type_position) = index.get(&target.semantic_type) else {
         return target.semantic_type.digest.to_string();
     };
-    let Some(type_node) = nodes.get(type_position) else {
+    let Some((type_node, type_kind)) = nodes.get(type_position).zip(kinds.get(type_position))
+    else {
         return target.semantic_type.digest.to_string();
     };
-    if type_node.node_tag.as_ref() == "bounded_domain"
-        && type_node.semantic_form.as_ref() == "integer_range"
-    {
+    if *type_kind == CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange) {
         if let Some((lo, hi)) = terms
             .get(type_position)
             .and_then(Option::as_ref)
@@ -399,17 +396,17 @@ fn actual_type(
             return format!("Int[{lo}, {hi}]");
         }
     }
-    match type_node.semantic_form.as_ref() {
-        "boolean" => "Boolean".into(),
-        "integer" => "Integer".into(),
-        "rational" => "Rational".into(),
-        "decimal" => "Decimal".into(),
-        "float32" => "Float32".into(),
-        "float64" => "Float64".into(),
-        "text" => "Text".into(),
-        "string" => "String".into(),
-        "uuid" => "UUID".into(),
-        "timestamp" => "Timestamp".into(),
+    match type_kind {
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean) => "Boolean".into(),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Integer) => "Integer".into(),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Rational) => "Rational".into(),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Decimal) => "Decimal".into(),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Float32) => "Float32".into(),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Float64) => "Float64".into(),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Text) => "Text".into(),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::String) => "String".into(),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Uuid) => "UUID".into(),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Timestamp) => "Timestamp".into(),
         _ => type_node
             .declaration
             .as_ref()
