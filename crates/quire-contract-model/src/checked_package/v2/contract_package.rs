@@ -1487,7 +1487,11 @@ fn cause_admitted(code: CheckedPackageRefusalCode, cause: CheckedPackageRefusalC
     use CheckedPackageRefusalCause as Cause;
     use CheckedPackageRefusalCode as Code;
     match cause {
-        Cause::MalformedJson
+        Cause::MissingTimedModel
+        | Cause::TimedNodeReference
+        | Cause::DuplicateClockPlace
+        | Cause::MalformedClockPlace
+        | Cause::MalformedJson
         | Cause::MissingMember
         | Cause::DuplicateMember
         | Cause::UnknownMember
@@ -1512,9 +1516,10 @@ fn cause_admitted(code: CheckedPackageRefusalCode, cause: CheckedPackageRefusalC
             code == Code::StaleDependency
         }
         Cause::InsufficientNextCharge => false,
-        Cause::OperatorIneligible | Cause::TypeMismatch | Cause::NonBooleanRoot => {
-            code == Code::IllTyped
-        }
+        Cause::OperatorIneligible
+        | Cause::TypeMismatch
+        | Cause::NonBooleanRoot
+        | Cause::InvalidTimeQuantity => code == Code::IllTyped,
         Cause::MissingName => code == Code::MissingDeclaration,
         Cause::MalformedDeclaration => code == Code::InvalidModelBinding,
         Cause::MissingSelection => matches!(code, Code::MissingImport | Code::MissingDeclaration),
