@@ -66,6 +66,11 @@ failure propagation. Its actual-source clean-scan criterion remains unqualified
 until the owning migrations resolve all reported occurrences; it does not claim
 AD-004 Q-6 globally.
 
+[FR-057](conformance/functional/FR-057-bind-cross-repository-conformance.md)
+proposes the IR contribution to the existing Engineering Assurance/Quoin
+cross-repository conformance mechanism. Shared-owner concurrence and the
+campaign decision remain pending; this is planned, not a campaign pass.
+
 StR-001 through StR-003, FR-011 through FR-020, FR-023 and FR-028, alongside
 NFR-001 through NFR-003, define the semantic substrate.
 [TC-456](core/matrix/TC-456-public-name-portability.md) guards the public-name

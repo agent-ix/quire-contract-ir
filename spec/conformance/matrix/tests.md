@@ -14,6 +14,8 @@ type: TestMatrix
 
 | FR-020 | FR-020-AC-16 through FR-020-AC-19 | TC-018 | 🚧 implemented with focused controls (IR-941): authoritative root-only shared CLI dependency, caller-owned exits, unchanged bytes/argv, prefix-failing serialization and actual output-device failure; unchanged published files require PR-diff inspection. Independent review and final aggregate remain pending; existing AC-1 through AC-15 remain implemented. |
 
+| FR-057 | FR-057-AC-1 through FR-057-AC-10 | Pending shared-owner verification allocation | 🚧 proposed/planned (IR-123): source/consumer/result association and adverse controls; shared owner concurrence and selected review set pending. Existing TC-018 producer checks are prerequisites only, not cross-repository acceptance evidence. |
+
 ## Test Case Summary
 
 | Test ID | Title | Type | Priority | Traces To | Status |
