@@ -157,6 +157,38 @@ struct ReadScope {
     named_reads: BTreeMap<(String, usize), CheckedNodeId>,
 }
 
+fn claim_parameter_reads(
+    roots: Vec<CheckedNodeId>,
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    meter: &mut WorkMeter,
+    at: &JsonPointer,
+) -> Result<BTreeMap<(String, usize), Vec<CheckedNodeId>>, ValidationFailure> {
+    let mut reads = BTreeMap::<(String, usize), Vec<CheckedNodeId>>::new();
+    let mut seen = BTreeSet::new();
+    let mut pending = roots;
+    while let Some(key) = pending.pop() {
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        meter.charge(1, || at.clone())?;
+        let Some((position, node)) = node_at(&key, nodes, index) else {
+            continue;
+        };
+        match kinds.get(position) {
+            Some(CheckedNodeKind::Value(ValueForm::Parameter)) => {
+                if let Some((name, level)) = parameter_name_level(node) {
+                    reads.entry((name.to_owned(), level)).or_default().push(key);
+                }
+            }
+            Some(CheckedNodeKind::Function(_)) => {}
+            _ => pending.extend(node.dependencies.iter().cloned()),
+        }
+    }
+    Ok(reads)
+}
+
 fn reads_allowed(
     start: &CheckedNodeId,
     allowed: &ReadScope,
@@ -847,6 +879,18 @@ pub(super) fn validate_claims(
             }
         }
         let captures = members(&arguments[3]);
+        let mut claim_roots = arguments
+            .get(5)
+            .and_then(target)
+            .into_iter()
+            .collect::<Vec<_>>();
+        claim_roots.extend(
+            captures
+                .iter()
+                .filter_map(|capture| target(&capture["value"])),
+        );
+        let parameter_reads =
+            claim_parameter_reads(claim_roots, nodes, kinds, index, meter, &argument_at(3))?;
         for (slot, capture) in captures.iter().enumerate() {
             let Some(value) = target(&capture["value"]) else {
                 continue;
@@ -873,14 +917,24 @@ pub(super) fn validate_claims(
             else {
                 return Err(issue(Code::IllTyped, Some(Cause::TypeMismatch), at, claim));
             };
+            let capture_name = capture["name"].as_str().unwrap_or_default();
+            let capture_level = 2 * variable_entries.len() + slot;
+            if let Some(reads) = parameter_reads.get(&(capture_name.to_owned(), capture_level)) {
+                for read in reads {
+                    let Some((_, read_node)) = node_at(read, nodes, index) else {
+                        continue;
+                    };
+                    if scalar_base_type(&read_node.semantic_type, nodes, kinds, index, meter, &at)?
+                        != Some(initializer_type.clone())
+                    {
+                        return Err(issue(Code::IllTyped, Some(Cause::TypeMismatch), at, claim));
+                    }
+                }
+            }
             reads_allowed(&value, &allowed, nodes, kinds, index, at, claim, meter)?;
-            allowed.named_reads.insert(
-                (
-                    capture["name"].as_str().unwrap_or_default().to_owned(),
-                    2 * variable_entries.len() + slot,
-                ),
-                initializer_type,
-            );
+            allowed
+                .named_reads
+                .insert((capture_name.to_owned(), capture_level), initializer_type);
         }
         let mode_keys = members(bound(&model.body, 1))
             .iter()

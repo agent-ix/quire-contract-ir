@@ -438,6 +438,16 @@ fn qspec_hybrid_capture_initializer_must_match_capture_type() {
         .expect("capture dependency");
     *dependency = boolean;
     dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    let fair = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "temporal" && node["semantic_form"] == "fairness")
+        .expect("fairness node");
+    package["semantic_graph"]["nodes"][fair]["body"]["operation"]["member"]["name"] =
+        json!("Halted");
+    fixture_support::rekey_application_node(&mut package, fair);
+    sort_dependencies(&mut package);
     fixture_support::rekey_application_node(&mut package, claim);
     fixture_support::refresh_identity(&mut package);
     let read = read_package(&package).expect("QSpec package");
@@ -446,7 +456,7 @@ fn qspec_hybrid_capture_initializer_must_match_capture_type() {
     };
     assert_eq!(refusal.code, Code::IllTyped, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::TypeMismatch), "{refusal:?}");
-    assert_locus(&refusal, 88, "");
+    assert_locus(&refusal, claim, "/body/arguments/3/members/0");
 }
 
 #[trace("TC-048", "FR-038-AC-316")]
