@@ -127,6 +127,8 @@ fn tc_018_failed_regeneration_preserves_the_existing_corpus() {
     "FR-019-AC-3",
     "FR-020-AC-1",
     "FR-020-AC-12",
+    "FR-020-AC-16",
+    "FR-020-AC-19",
     "NFR-001-AC-1",
     "StR-003-VC-1"
 )]
@@ -199,7 +201,14 @@ fn tc_018_the_corpus_runs_deterministically_and_every_fixture_matches() {
     assert_eq!(invalid_utf8[0].code, DiagnosticCode::InvalidWireFormat);
 }
 
-#[trace("TC-018", "FR-018-AC-1", "FR-018-AC-2", "FR-020-AC-2")]
+#[trace(
+    "TC-018",
+    "FR-018-AC-1",
+    "FR-018-AC-2",
+    "FR-020-AC-2",
+    "FR-020-AC-16",
+    "FR-020-AC-19"
+)]
 #[test]
 fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
     let scratch = Scratch::corpus("mismatch");
@@ -231,6 +240,7 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
     assert_eq!(mismatch.status.code(), Some(1));
     assert!(mismatch.stderr.is_empty());
     let mismatch_rows = rows(&mismatch);
+    assert_eq!(mismatch_rows.len(), input_count(&scratch.0));
     let package_row = mismatch_rows
         .iter()
         .find(|row| row["fixture_id"] == "package-constructs")
@@ -1503,4 +1513,51 @@ fn tc_018_a_successful_expression_document_is_checked_against_the_schema() {
         refused["actual"]["diagnostics"][0]["code"],
         "invalid_wire_format"
     );
+}
+
+#[trace("TC-018", "FR-020-AC-16", "FR-020-AC-19")]
+#[test]
+fn tc_018_shared_cli_preserves_version_and_closed_argv() {
+    let version = runner(&["--version"]);
+    assert_eq!(version.status.code(), Some(0));
+    assert!(version.stderr.is_empty());
+    assert_eq!(
+        version.stdout,
+        format!(
+            "quire-contract-ir {} quire.contract.conformance-jsonl/v1\n",
+            env!("CARGO_PKG_VERSION")
+        )
+        .as_bytes()
+    );
+    for arguments in [
+        vec![],
+        vec!["--help"],
+        vec!["--version", "--version"],
+        vec!["run", "--corpus", "a", "--schemas", "b", "--corpus", "c"],
+        vec!["run", "--schemas", "b", "--corpus", "a"],
+    ] {
+        assert_eq!(error_code(&runner(&arguments)), "invalid_invocation");
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[trace("TC-018", "FR-020-AC-16", "FR-020-AC-17")]
+#[test]
+fn tc_018_shared_cli_stdout_failure_preserves_the_existing_error_record() {
+    let output = Command::new(env!("CARGO_BIN_EXE_quire-contract-conformance"))
+        .arg("run")
+        .arg("--corpus")
+        .arg(corpus())
+        .arg("--schemas")
+        .arg(schemas())
+        .stdout(
+            fs::OpenOptions::new()
+                .write(true)
+                .open("/dev/full")
+                .unwrap(),
+        )
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(output.stderr, b"{\"protocol\":\"quire.contract.conformance-jsonl/v1\",\"code\":\"fixture_io\",\"path\":\"stdout\",\"detail\":\"result stream is unwritable\"}\n");
 }
