@@ -2247,8 +2247,8 @@ fn validate_graph(
         // typed decode cannot preempt that step.
         terms.push(match CheckedTerm::decode_admitted(&node.body) {
             Ok(term) => Some(term),
-            Err(()) if body_grammar(kind) == BodyGrammar::AbstractionRelation => None,
-            Err(()) => {
+            Err(_) if body_grammar(kind) == BodyGrammar::AbstractionRelation => None,
+            Err(_) => {
                 return Err(refuse(CheckedPackageRefusalCode::MalformedWire, at("body")));
             }
         });
