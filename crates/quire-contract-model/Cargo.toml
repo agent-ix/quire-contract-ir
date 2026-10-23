@@ -29,6 +29,7 @@ test = false
 fault-injection = []
 
 [dependencies]
+ix-trace-rs = { version = "0.1", git = "https://github.com/agent-ix/ix-trace-rs", branch = "main" }
 num-bigint = "0.4.8"
 num-integer = "0.1.47"
 num-traits = "0.2.19"
@@ -64,6 +65,3 @@ quire-walk = { git = "https://github.com/agent-ix/quire-walk", branch = "main" }
 # Unicode identifier tables and the NFC check FR-450's "Rust spellings" name.
 unicode-ident = "=1.0.24"
 unicode-normalization = "=0.1.25"
-
-[dev-dependencies]
-ix-trace-rs = { version = "0.1", git = "https://github.com/agent-ix/ix-trace-rs", branch = "main" }
