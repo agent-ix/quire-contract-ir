@@ -281,6 +281,25 @@ fn tc_048_reaches_population_returns_the_least_ordinal_type_occurrence() {
             occurrence: occurrence.clone(),
         }
     );
+    let expected = select_population(Source::Admitted {
+        package: &package,
+        selector: selector.clone(),
+    });
+    let identity = package.package_id().clone();
+    let sources = package.source_map().to_vec();
+    for requests in [2, 4, 8] {
+        for _ in 0..requests {
+            assert_eq!(
+                select_population(Source::Admitted {
+                    package: &package,
+                    selector: selector.clone(),
+                }),
+                expected
+            );
+        }
+    }
+    assert_eq!(package.package_id(), &identity);
+    assert_eq!(package.source_map(), sources);
     match select_population(Source::Admitted {
         package: &package,
         selector,
@@ -873,4 +892,86 @@ fn tc_048_the_population_check_follows_every_earlier_check() {
         unlisted.link(Some(node_id(&absent)), None);
         unlisted.assert_refused(BAD_GRAPH, "/semantic_graph/nodes/6/dependencies");
     }
+}
+
+/// Golden values measured on pre-change IR main 0a63033 with the same public fixture.
+#[trace("TC-048", "FR-038-AC-277")]
+#[test]
+fn ir987_population_results_bytes_and_work_match_before_change() {
+    let (scenario, population) = linked(ORDER, "3", &[2, 0]);
+    let bytes = canonical(&scenario.package);
+    let package = scenario.admitted();
+    let selected = reaches_id(&package);
+    let result = package
+        .reaches_population(&selected)
+        .expect("reaches result")
+        .expect("selected population");
+    assert_eq!(result.package_id, *package.package_id());
+    assert_eq!(result.binding, typed_id(&population));
+    assert_eq!(
+        result.occurrence,
+        CheckedOccurrence {
+            role: CheckedOccurrenceRole::Type,
+            ordinal: 0
+        }
+    );
+    let missing = Selector {
+        package_id: package.package_id().clone(),
+        binding: typed_id(&population),
+        occurrence: CheckedOccurrence {
+            role: CheckedOccurrenceRole::Type,
+            ordinal: 99,
+        },
+    };
+    let missing_result = select_population(Source::Admitted {
+        package: &package,
+        selector: missing.clone(),
+    });
+    assert_eq!(missing_result, Outcome::MissingOccurrence(missing));
+    let Outcome::Finite(finite) = select_population(Source::Admitted {
+        package: &package,
+        selector: result,
+    }) else {
+        panic!("finite selected population")
+    };
+    assert_eq!(finite.package_id, *package.package_id());
+    assert_eq!(finite.binding, typed_id(&population));
+    assert_eq!(
+        finite.occurrence,
+        CheckedOccurrence {
+            role: CheckedOccurrenceRole::Type,
+            ordinal: 0
+        }
+    );
+    assert_eq!(finite.object_type, order_declaration_id());
+    assert_eq!((finite.minimum, finite.maximum), (0, 3));
+    let authored_sources: Vec<quire_contract_model::CheckedSourceMapEntry> =
+        serde_json::from_value(scenario.package["source_map"].clone()).expect("authored sources");
+    assert_eq!(package.source_map(), authored_sources);
+    let selected_source = authored_sources
+        .iter()
+        .find(|source| {
+            source.node_id == finite.binding
+                && source.role == CheckedOccurrenceRole::Type
+                && source.ordinal == 0
+        })
+        .expect("selected authored source");
+    assert_eq!(finite.provenance, selected_source.regions);
+    assert_eq!(
+        bytes,
+        include_bytes!("../../fixtures/ir987/population.json")
+    );
+    assert_eq!(
+        *package.package_id(),
+        serde_json::from_value(scenario.package["package_id"].clone()).expect("package identity")
+    );
+    let high = least_admitting_work(&scenario);
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = high - 1;
+    let CheckedPackageV2ReadResult::Incomplete(incomplete) =
+        CheckedPackageV2::read(&bytes, limits, &scenario.evidence)
+    else {
+        panic!("work boundary");
+    };
+    assert_eq!((high, incomplete.consumed), (183, 183));
 }

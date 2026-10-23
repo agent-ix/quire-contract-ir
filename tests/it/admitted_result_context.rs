@@ -223,14 +223,9 @@ pub(crate) fn sources_for<'a>(
     package: &'a ContractPackageV1,
     key: &CheckedNodeId,
 ) -> &'a [quire_contract_model::CheckedSourceMapEntry] {
-    &package
-        .wire()
-        .source_map
-        .nodes
-        .iter()
-        .find(|entry| &entry.node_id == key)
+    package
+        .source_occurrences(key)
         .expect("admitted source-map node")
-        .occurrences
 }
 
 pub(crate) fn by_operation(package: &CheckedPackageV2, identity: &str) -> ContractOccurrenceKeyV1 {
@@ -267,6 +262,20 @@ fn tc_447_context_root_selects_authored_result_interval_without_rewriting_forwar
     let narrow = by_operation(&input, "quire.op.numeric.narrow");
     let plain = package(&input, std::slice::from_ref(&add.node_id));
     let contextual = package(&input, &[add.node_id.clone(), narrow.node_id.clone()]);
+    let first_source = contextual
+        .wire()
+        .source_map
+        .nodes
+        .iter()
+        .find(|entry| entry.node_id == add.node_id)
+        .expect("selected application source");
+    assert_eq!(
+        contextual.source_occurrences(&add.node_id),
+        Some(first_source.occurrences.as_slice())
+    );
+    let missing: CheckedNodeId =
+        serde_json::from_value(node_id(&provisional('9'))).expect("missing node id");
+    assert!(contextual.source_occurrences(&missing).is_none());
     assert_eq!(plain.wire().feature_accounting.len(), 1);
     assert_eq!(contextual.wire().feature_accounting.len(), 2);
     assert!(matches!(
@@ -341,6 +350,27 @@ fn tc_447_context_root_selects_authored_result_interval_without_rewriting_forwar
         .nodes
         .iter()
         .any(|entry| entry.node.body == bounds_body("0", "9")));
+    let expected = contextual
+        .result_context(
+            &add.node_id,
+            &add,
+            Some(&narrow),
+            BoundedDomainForm::IntegerRange,
+        )
+        .expect("admitted result context");
+    for requests in [2, 4, 8] {
+        for _ in 0..requests {
+            assert_eq!(
+                contextual.result_context(
+                    &add.node_id,
+                    &add,
+                    Some(&narrow),
+                    BoundedDomainForm::IntegerRange,
+                ),
+                Ok(expected.clone())
+            );
+        }
+    }
     assert_eq!(contextual.wire(), &before);
     assert_eq!(contextual.identity(), &before_identity);
 }
@@ -995,4 +1025,165 @@ fn tc_447_shared_expression_uses_each_supplied_occurrence_and_direct_narrow() {
     assert!([first_result.1.clone(), second_result.1.clone()].contains(&bounds_body("0", "1000")));
     assert_eq!(result(&add, &second), second_result);
     assert_eq!(result(&application_one, &first), first_result);
+}
+
+/// Golden values measured on pre-change IR main 0a63033 with the same public fixture.
+#[trace("TC-447", "FR-049-AC-5")]
+#[test]
+fn ir987_scalar_and_result_results_bytes_and_work_match_before_change() {
+    let wire = fixture();
+    let bytes = canonical(&wire);
+    let checked = admit(&wire);
+    let add = by_operation(&checked, "quire.op.integer.add");
+    let narrow = by_operation(&checked, "quire.op.numeric.narrow");
+    let occurrence = quire_contract_model::CheckedOccurrence {
+        role: CheckedOccurrenceRole::Expression,
+        ordinal: 0,
+    };
+    let scalar = checked.scalar_application_operands(&add.node_id, &occurrence);
+    let scalar = scalar.expect("scalar operands");
+    let [parameter, literal] = scalar.as_slice() else {
+        panic!("two scalar operands")
+    };
+    assert_eq!(parameter.ordinal, 0);
+    assert_eq!(
+        parameter.range,
+        quire_contract_model::CheckedScalarOperandRange { lower: 0, upper: 9 }
+    );
+    let parameter_key: CheckedNodeId = serde_json::from_value(
+        wire["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("authored nodes")
+            .iter()
+            .find(|node| {
+                node["node_id"] == serde_json::to_value(&add.node_id).expect("application id")
+            })
+            .expect("authored application")["body"]["arguments"][0]["target"]
+            .clone(),
+    )
+    .expect("parameter key");
+    assert_eq!(
+        parameter.child,
+        quire_contract_model::CheckedScalarOperandChild::GraphChild(parameter_key)
+    );
+    assert_eq!(literal.ordinal, 1);
+    assert_eq!(
+        literal.range,
+        quire_contract_model::CheckedScalarOperandRange { lower: 1, upper: 1 }
+    );
+    assert_eq!(
+        literal.child,
+        quire_contract_model::CheckedScalarOperandChild::InlineLiteral {
+            application: add.node_id.clone(),
+            occurrence: occurrence.clone(),
+            ordinal: 1
+        }
+    );
+    let missing: CheckedNodeId =
+        serde_json::from_value(node_id(&"f".repeat(64))).expect("missing id");
+    let missing_scalar = checked.scalar_application_operands(&missing, &occurrence);
+    assert_eq!(
+        missing_scalar,
+        Err(quire_contract_model::CheckedScalarOperandError::UnknownNode)
+    );
+    assert_eq!(bytes, include_bytes!("../fixtures/ir987/scalar.json"));
+    assert_eq!(
+        *checked.package_id(),
+        serde_json::from_value(wire["package_id"].clone()).expect("package identity")
+    );
+    let authored_sources: Vec<quire_contract_model::CheckedSourceMapEntry> =
+        serde_json::from_value(wire["source_map"].clone()).expect("authored sources");
+    assert_eq!(checked.source_map(), authored_sources);
+    let evidence = evidence_for(&wire);
+    let mut low = 0;
+    let mut high = CheckedPackageReadLimits::bounded().work;
+    while low + 1 < high {
+        let middle = low + (high - low) / 2;
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = middle;
+        match CheckedPackageV2::read(&bytes, limits, &evidence) {
+            CheckedPackageV2ReadResult::Admitted(_) => high = middle,
+            CheckedPackageV2ReadResult::Incomplete(_) => low = middle,
+            other => panic!("baseline work: {other:?}"),
+        }
+    }
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = high - 1;
+    let CheckedPackageV2ReadResult::Incomplete(incomplete) =
+        CheckedPackageV2::read(&bytes, limits, &evidence)
+    else {
+        panic!("work boundary");
+    };
+    assert_eq!((high, incomplete.consumed), (263, 263));
+
+    let contract = package(&checked, &[add.node_id.clone(), narrow.node_id.clone()]);
+    let result = contract.result_context(
+        &add.node_id,
+        &add,
+        Some(&narrow),
+        BoundedDomainForm::IntegerRange,
+    );
+    let ContractResultViewV1::Lowered(view) = result.expect("result context") else {
+        panic!("lowered")
+    };
+    assert_eq!(view.application, add);
+    assert_eq!(view.conversion, Some(narrow.clone()));
+    assert_eq!(view.identity, contract.identity());
+    assert_eq!(view.provenance, &contract.wire().package);
+    let ContractResultContextV1::Narrowed {
+        conversion,
+        conversion_sources,
+        bound,
+    } = view.context
+    else {
+        panic!("selected direct narrow")
+    };
+    assert_eq!(conversion.node_id, narrow.node_id);
+    assert_eq!(conversion_sources, sources_for(&contract, &narrow.node_id));
+    assert_eq!(bound.node.body, bounds_body("0", "10"));
+    assert_eq!(bound.sources, sources_for(&contract, &bound.node.node_id));
+    let missing_conversion = ContractOccurrenceKeyV1 {
+        ordinal: 99,
+        ..narrow.clone()
+    };
+    let missing_result = contract.result_context(
+        &add.node_id,
+        &add,
+        Some(&missing_conversion),
+        BoundedDomainForm::IntegerRange,
+    );
+    let ContractResultViewV1::Lowered(missing_view) = missing_result.expect("missing result")
+    else {
+        panic!("lowered")
+    };
+    assert_eq!(
+        missing_view.context,
+        ContractResultContextV1::IncompleteContext
+    );
+    let contract_bytes = canonical(&serde_json::to_value(contract.wire()).expect("wire"));
+    assert_eq!(
+        contract_bytes,
+        include_bytes!("../fixtures/ir987/context.json")
+    );
+    assert_eq!(contract.identity(), &contract.wire().identity);
+    let mut low = 0;
+    let mut high = CheckedPackageReadLimits::bounded().work;
+    while low + 1 < high {
+        let middle = low + (high - low) / 2;
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = middle;
+        match ContractPackageWireV1::read(&contract_bytes, limits, &ContractDependencies::new()) {
+            ContractPackageReadResult::Admitted(_) => high = middle,
+            ContractPackageReadResult::Incomplete(_) => low = middle,
+            other => panic!("baseline contract work: {other:?}"),
+        }
+    }
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = high - 1;
+    let ContractPackageReadResult::Incomplete(incomplete) =
+        ContractPackageWireV1::read(&contract_bytes, limits, &ContractDependencies::new())
+    else {
+        panic!("contract work boundary");
+    };
+    assert_eq!((high, incomplete.consumed), (74, 74));
 }

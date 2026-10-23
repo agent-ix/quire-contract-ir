@@ -133,11 +133,11 @@ impl ContractPackageV1 {
             }
             ContractRootViewV1::Lowered(reached) => reached,
         };
-        let sources = self
-            .sources(application)
-            .ok_or(ContractScalarOperandErrorV1::View(
-                ContractRootViewError::Inconsistent,
-            ))?;
+        let sources =
+            self.source_occurrences(application)
+                .ok_or(ContractScalarOperandErrorV1::View(
+                    ContractRootViewError::Inconsistent,
+                ))?;
         if occurrence.node_id != *application
             || occurrence.role != CheckedOccurrenceRole::Expression
         {
@@ -148,47 +148,53 @@ impl ContractPackageV1 {
             .find(|entry| occurrence.matches(entry))
             .ok_or(ContractScalarOperandErrorV1::InvalidOccurrence)?;
 
-        let arguments = scalar_arguments(&self.wire.semantic_graph.nodes, reached.root, None, None)
-            .map_err(ContractScalarOperandErrorV1::Projection)?
-            .map(|argument| {
-                let argument = argument.map_err(ContractScalarOperandErrorV1::Projection)?;
-                let own_range = match argument.own_range {
-                    Ok(range) => range.into(),
-                    Err(CheckedScalarOperandError::UnboundedRange) => {
-                        ContractScalarOwnRangeV1::Unbounded
+        let arguments = scalar_arguments(
+            &self.wire.semantic_graph.nodes,
+            &self.node_index,
+            reached.root,
+            None,
+            None,
+        )
+        .map_err(ContractScalarOperandErrorV1::Projection)?
+        .map(|argument| {
+            let argument = argument.map_err(ContractScalarOperandErrorV1::Projection)?;
+            let own_range = match argument.own_range {
+                Ok(range) => range.into(),
+                Err(CheckedScalarOperandError::UnboundedRange) => {
+                    ContractScalarOwnRangeV1::Unbounded
+                }
+                Err(CheckedScalarOperandError::MissingRange) => {
+                    ContractScalarOwnRangeV1::Unavailable
+                }
+                Err(CheckedScalarOperandError::RangeOutOfI128) => {
+                    ContractScalarOwnRangeV1::OutsideNative
+                }
+                Err(other) => return Err(ContractScalarOperandErrorV1::Projection(other)),
+            };
+            let child = match argument.child {
+                ScalarArgumentChild::Graph(node) => {
+                    let sources = self.source_occurrences(&node.node_id).ok_or(
+                        ContractScalarOperandErrorV1::View(ContractRootViewError::Inconsistent),
+                    )?;
+                    ContractScalarOperandChildV1::GraphReference {
+                        node_id: &node.node_id,
+                        sources,
                     }
-                    Err(CheckedScalarOperandError::MissingRange) => {
-                        ContractScalarOwnRangeV1::Unavailable
+                }
+                ScalarArgumentChild::InlineInteger(value) => {
+                    ContractScalarOperandChildV1::InlineInteger {
+                        value,
+                        occurrence: occurrence.clone(),
                     }
-                    Err(CheckedScalarOperandError::RangeOutOfI128) => {
-                        ContractScalarOwnRangeV1::OutsideNative
-                    }
-                    Err(other) => return Err(ContractScalarOperandErrorV1::Projection(other)),
-                };
-                let child = match argument.child {
-                    ScalarArgumentChild::Graph(node) => {
-                        let sources = self.sources(&node.node_id).ok_or(
-                            ContractScalarOperandErrorV1::View(ContractRootViewError::Inconsistent),
-                        )?;
-                        ContractScalarOperandChildV1::GraphReference {
-                            node_id: &node.node_id,
-                            sources,
-                        }
-                    }
-                    ScalarArgumentChild::InlineInteger(value) => {
-                        ContractScalarOperandChildV1::InlineInteger {
-                            value,
-                            occurrence: occurrence.clone(),
-                        }
-                    }
-                };
-                Ok(ContractScalarOperandV1 {
-                    ordinal: argument.ordinal,
-                    child,
-                    own_range,
-                })
+                }
+            };
+            Ok(ContractScalarOperandV1 {
+                ordinal: argument.ordinal,
+                child,
+                own_range,
             })
-            .collect::<Result<Vec<_>, ContractScalarOperandErrorV1>>()?;
+        })
+        .collect::<Result<Vec<_>, ContractScalarOperandErrorV1>>()?;
         Ok(ContractScalarOperandViewV1::Lowered(Box::new(
             ContractLoweredScalarOperandsV1 {
                 provenance: &self.wire.package,

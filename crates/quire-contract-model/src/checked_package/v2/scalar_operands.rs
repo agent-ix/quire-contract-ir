@@ -9,7 +9,29 @@ use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 use serde_json::Value;
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use thiserror::Error;
+
+#[cfg(test)]
+mod scan_probe {
+    use std::cell::Cell;
+
+    thread_local! {
+        static GRAPH_CANDIDATES: Cell<u64> = const { Cell::new(0) };
+    }
+
+    pub(super) fn visited() {
+        GRAPH_CANDIDATES.with(|count| count.set(count.get().saturating_add(1)));
+    }
+
+    pub(super) fn reset() {
+        GRAPH_CANDIDATES.with(|count| count.set(0));
+    }
+
+    pub(super) fn count() -> u64 {
+        GRAPH_CANDIDATES.with(Cell::get)
+    }
+}
 
 /// The inclusive finite range of one integer operand.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -91,6 +113,22 @@ pub(super) enum ScalarArgumentChild<'a> {
     InlineInteger(BigInt),
 }
 
+fn graph_node<'a>(
+    nodes: &'a [CheckedSemanticNodeV2],
+    positions: &BTreeMap<CheckedNodeId, usize>,
+    id: &CheckedNodeId,
+) -> Option<(usize, &'a CheckedSemanticNodeV2)> {
+    let position = *positions.get(id)?;
+    nodes
+        .get(position)
+        .inspect(|_| {
+            #[cfg(test)]
+            scan_probe::visited();
+        })
+        .filter(|node| &node.node_id == id)
+        .map(|node| (position, node))
+}
+
 /// Interpret the validated argument vector once, without requiring every own
 /// range to be finite. The checked-package view imposes that older policy;
 /// the admitted-package view retains each position when an own range is absent.
@@ -98,6 +136,7 @@ pub(super) enum ScalarArgumentChild<'a> {
 /// an early range is absent and a later argument is malformed.
 pub(super) fn scalar_arguments<'a>(
     nodes: &'a [CheckedSemanticNodeV2],
+    positions: &'a BTreeMap<CheckedNodeId, usize>,
     node: &'a CheckedSemanticNodeV2,
     retained: Option<&'a CheckedTerm>,
     retained_terms: Option<&'a [CheckedTerm]>,
@@ -140,6 +179,7 @@ pub(super) fn scalar_arguments<'a>(
     };
     Ok(ScalarArguments {
         nodes,
+        positions,
         retained_terms,
         arguments,
         next: 0,
@@ -150,6 +190,7 @@ pub(super) fn scalar_arguments<'a>(
 /// admitted application. It holds no second package body copy.
 pub(super) struct ScalarArguments<'a> {
     nodes: &'a [CheckedSemanticNodeV2],
+    positions: &'a BTreeMap<CheckedNodeId, usize>,
     retained_terms: Option<&'a [CheckedTerm]>,
     arguments: Cow<'a, [CheckedTerm]>,
     next: usize,
@@ -176,12 +217,8 @@ impl<'a> ScalarArguments<'a> {
         let ordinal = u64::try_from(position).map_err(|_| Error::MissingRange)?;
         let (child, own_range) = match argument {
             CheckedTerm::Reference { target } => {
-                let (child_position, child) = self
-                    .nodes
-                    .iter()
-                    .enumerate()
-                    .find(|(_, node)| node.node_id == *target)
-                    .ok_or(Error::MissingChild)?;
+                let (child_position, child) =
+                    graph_node(self.nodes, self.positions, target).ok_or(Error::MissingChild)?;
                 let range = if child.node_tag.as_ref() == "value"
                     && child.semantic_form.as_ref() == "literal"
                 {
@@ -192,7 +229,12 @@ impl<'a> ScalarArguments<'a> {
                     )?;
                     typed_literal_integer(&term).and_then(singleton_range)
                 } else {
-                    type_range(self.nodes, self.retained_terms, &child.semantic_type)
+                    type_range(
+                        self.nodes,
+                        self.positions,
+                        self.retained_terms,
+                        &child.semantic_type,
+                    )
                 };
                 (ScalarArgumentChild::Graph(child), range)
             }
@@ -230,10 +272,8 @@ impl CheckedPackageV2 {
         use CheckedScalarOperandError as Error;
 
         let nodes = &self.wire.semantic_graph.nodes;
-        let node = nodes
-            .iter()
-            .find(|node| &node.node_id == application)
-            .ok_or(Error::UnknownNode)?;
+        let (_, node) =
+            graph_node(nodes, &self.node_index, application).ok_or(Error::UnknownNode)?;
         let term = self.term(application).ok_or(Error::NotApplication)?;
         if !matches!(term, CheckedTerm::Application { .. }) {
             return Err(Error::NotApplication);
@@ -241,7 +281,7 @@ impl CheckedPackageV2 {
         if !node.occurrences.contains(occurrence) {
             return Err(Error::MissingOccurrence);
         }
-        scalar_arguments(nodes, node, Some(term), Some(&self.terms))?
+        scalar_arguments(nodes, &self.node_index, node, Some(term), Some(&self.terms))?
             .map(|argument| {
                 let argument = argument?;
                 let child = match argument.child {
@@ -307,15 +347,12 @@ fn typed_literal_integer(term: &CheckedTerm) -> Result<BigInt, CheckedScalarOper
 
 fn type_range(
     nodes: &[super::CheckedSemanticNodeV2],
+    positions: &BTreeMap<CheckedNodeId, usize>,
     retained_terms: Option<&[CheckedTerm]>,
     ty: &CheckedNodeId,
 ) -> Result<CheckedScalarOperandRange, CheckedScalarOperandError> {
     use CheckedScalarOperandError as Error;
-    let (position, node) = nodes
-        .iter()
-        .enumerate()
-        .find(|(_, node)| &node.node_id == ty)
-        .ok_or(Error::MissingRange)?;
+    let (position, node) = graph_node(nodes, positions, ty).ok_or(Error::MissingRange)?;
     if node.node_tag.as_ref() == "scalar_type" && node.semantic_form.as_ref() == "integer" {
         return Err(Error::UnboundedRange);
     }
@@ -417,6 +454,7 @@ mod tests {
             .collect();
         CheckedPackageV2 {
             node_index: super::super::retained_node_index(&wire),
+            source_index: super::super::retained_source_index(&wire),
             lowering_facts: Vec::new(),
             wire,
             terms,
@@ -425,6 +463,90 @@ mod tests {
             models: RetainedModels::default(),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
+        }
+    }
+
+    /// Vary graph size while keeping the same admitted scalar argument shape.
+    fn padded_package(graph_nodes: usize) -> CheckedPackageV2 {
+        let mut package = fixture_package();
+        let application = package
+            .wire
+            .semantic_graph
+            .nodes
+            .pop()
+            .expect("application");
+        let application_term = package.terms.pop().expect("application term");
+        for offset in 0..(graph_nodes - 4) {
+            let mut filler = package.wire.semantic_graph.nodes[0].clone();
+            filler.node_id = serde_json::from_value(json!({
+                "domain": "quire.checked-semantic-node/v1",
+                "digest": format!("{:064x}", offset + 5),
+            }))
+            .expect("filler identity");
+            package.wire.semantic_graph.nodes.push(filler);
+            package.terms.push(package.terms[0].clone());
+        }
+        package.wire.semantic_graph.nodes.push(application);
+        package.terms.push(application_term);
+        package.node_index = super::super::retained_node_index(&package.wire);
+        package
+    }
+
+    /// Graph candidate visits stay local to the selected application, child,
+    /// and type when one package answers repeated operand requests.
+    #[trace("TC-048", "FR-038-AC-162")]
+    #[test]
+    fn repeated_scalar_operand_reads_do_not_walk_the_whole_graph() {
+        let application: CheckedNodeId = serde_json::from_value(id('4')).expect("id");
+        let occurrence = CheckedOccurrence {
+            role: super::super::CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let mut measured = Vec::new();
+        for graph_nodes in [4, 8, 16, 64] {
+            let package = padded_package(graph_nodes);
+            for requests in [2, 4, 8] {
+                scan_probe::reset();
+                crate::checked_package::shared::checked_node_comparisons::reset();
+                for _ in 0..requests {
+                    assert_eq!(
+                        package
+                            .scalar_application_operands(&application, &occurrence)
+                            .expect("operands")
+                            .len(),
+                        2
+                    );
+                }
+                let visits = scan_probe::count();
+                let comparisons = crate::checked_package::shared::checked_node_comparisons::count();
+                println!("scalar_operands K={requests} R={graph_nodes} graph_candidates={visits} id_comparisons={comparisons}");
+                if graph_nodes == 64 {
+                    assert!(comparisons < requests * 64, "a full graph scan must fail");
+                }
+                measured.push((graph_nodes, requests, visits));
+            }
+            if graph_nodes == 64 {
+                crate::checked_package::shared::checked_node_comparisons::reset();
+                for _ in 0..8 {
+                    assert!(package
+                        .wire
+                        .semantic_graph
+                        .nodes
+                        .iter()
+                        .any(|candidate| candidate.node_id == application));
+                }
+                assert!(
+                    crate::checked_package::shared::checked_node_comparisons::count() >= 8 * 64,
+                    "the retired full scan exceeds the bound"
+                );
+            }
+        }
+        for (graph_nodes, requests, visits) in measured {
+            assert_eq!(
+                visits,
+                requests * 3,
+                "graph_nodes={graph_nodes}, requests={requests}"
+            );
         }
     }
 
@@ -444,7 +566,8 @@ mod tests {
                 .len(),
             2
         );
-        package.wire.semantic_graph.nodes.remove(2);
+        package.wire.semantic_graph.nodes[2].node_id =
+            serde_json::from_value(id('5')).expect("replacement identity");
         assert_eq!(
             package.scalar_application_operands(&application, &occurrence),
             Err(CheckedScalarOperandError::MissingChild)

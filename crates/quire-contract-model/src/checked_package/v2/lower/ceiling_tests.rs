@@ -244,6 +244,7 @@ fn package(bytes: u64) -> CheckedPackageV2 {
     let kinds = vec![CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean); 4];
     let mut package = CheckedPackageV2 {
         node_index: super::super::retained_node_index(&wire),
+        source_index: super::super::retained_source_index(&wire),
         lowering_facts: Vec::new(),
         wire,
         terms: Vec::new(),

@@ -4,8 +4,8 @@
 //! FR-049: read-only result context for one QSL-checked application occurrence.
 
 use super::{
-    ContractDispositionV1, ContractFeatureRecordV1, ContractPackageV1, ContractProvenanceV1,
-    ContractReachedClosureV1, ContractRootViewError, ContractRootViewV1,
+    ContractDispositionV1, ContractFeatureRecordV1, ContractNodeSourcesV1, ContractPackageV1,
+    ContractProvenanceV1, ContractReachedClosureV1, ContractRootViewError, ContractRootViewV1,
 };
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedSemanticId, CheckedSourceMapEntry,
@@ -15,6 +15,80 @@ use crate::checked_package::v2::{
     CheckedTerm, ExpressionForm,
 };
 use serde::Deserialize;
+use std::collections::BTreeMap;
+
+#[cfg(test)]
+mod source_probe {
+    use std::cell::Cell;
+
+    thread_local! {
+        static CANDIDATES: Cell<u64> = const { Cell::new(0) };
+        static BUILDS: Cell<u64> = const { Cell::new(0) };
+        static BUILD_ENTRIES: Cell<u64> = const { Cell::new(0) };
+    }
+
+    pub(super) fn visited() {
+        CANDIDATES.with(|count| count.set(count.get().saturating_add(1)));
+    }
+
+    pub(super) fn reset() {
+        CANDIDATES.with(|count| count.set(0));
+        BUILDS.with(|count| count.set(0));
+        BUILD_ENTRIES.with(|count| count.set(0));
+    }
+
+    pub(super) fn reset_candidates() {
+        CANDIDATES.with(|count| count.set(0));
+    }
+
+    pub(super) fn count() -> u64 {
+        CANDIDATES.with(Cell::get)
+    }
+
+    pub(super) fn built() {
+        BUILDS.with(|count| count.set(count.get() + 1));
+    }
+
+    pub(super) fn build_entry() {
+        BUILD_ENTRIES.with(|count| count.set(count.get() + 1));
+    }
+
+    pub(super) fn builds() -> u64 {
+        BUILDS.with(Cell::get)
+    }
+
+    pub(super) fn build_entries() -> u64 {
+        BUILD_ENTRIES.with(Cell::get)
+    }
+}
+
+pub(super) fn source_index(entries: &[ContractNodeSourcesV1]) -> BTreeMap<CheckedNodeId, usize> {
+    #[cfg(test)]
+    source_probe::built();
+    let mut positions = BTreeMap::new();
+    for (position, entry) in entries.iter().enumerate() {
+        #[cfg(test)]
+        source_probe::build_entry();
+        positions.entry(entry.node_id.clone()).or_insert(position);
+    }
+    positions
+}
+
+fn source_occurrences<'a>(
+    entries: &'a [ContractNodeSourcesV1],
+    positions: &BTreeMap<CheckedNodeId, usize>,
+    key: &CheckedNodeId,
+) -> Option<&'a [CheckedSourceMapEntry]> {
+    let position = *positions.get(key)?;
+    entries
+        .get(position)
+        .inspect(|_| {
+            #[cfg(test)]
+            source_probe::visited();
+        })
+        .filter(|entry| &entry.node_id == key)
+        .map(|entry| entry.occurrences.as_slice())
+}
 
 /// A node key with the role and ordinal of one admitted source occurrence.
 ///
@@ -138,7 +212,7 @@ impl ContractPackageV1 {
         conversion: Option<&ContractOccurrenceKeyV1>,
         expected: BoundedDomainForm,
     ) -> Result<ContractResultContextV1<'a>, ContractRootViewError> {
-        let Some(expression_sources) = self.sources(expression) else {
+        let Some(expression_sources) = self.source_occurrences(expression) else {
             return Err(ContractRootViewError::Inconsistent);
         };
         if application.node_id != *expression
@@ -163,7 +237,7 @@ impl ContractPackageV1 {
             if selected.role != CheckedOccurrenceRole::Expression
                 || !self.has_lowered(&selected.node_id)
                 || !self
-                    .sources(&selected.node_id)
+                    .source_occurrences(&selected.node_id)
                     .is_some_and(|sources| sources.iter().any(|entry| selected.matches(entry)))
             {
                 return Ok(ContractResultContextV1::IncompleteContext);
@@ -204,7 +278,7 @@ impl ContractPackageV1 {
                 type_key: selected_type.clone(),
             });
         }
-        let Some(sources) = self.sources(selected_type) else {
+        let Some(sources) = self.source_occurrences(selected_type) else {
             return Err(ContractRootViewError::Inconsistent);
         };
         let bound = ContractResultBoundV1 {
@@ -217,7 +291,7 @@ impl ContractPackageV1 {
                 let Some(conversion_node) = self.node(&selected.node_id) else {
                     return Err(ContractRootViewError::Inconsistent);
                 };
-                let Some(conversion_sources) = self.sources(&selected.node_id) else {
+                let Some(conversion_sources) = self.source_occurrences(&selected.node_id) else {
                     return Err(ContractRootViewError::Inconsistent);
                 };
                 Ok(ContractResultContextV1::Narrowed {
@@ -229,19 +303,71 @@ impl ContractPackageV1 {
         }
     }
 
-    pub(super) fn sources(&self, key: &CheckedNodeId) -> Option<&[CheckedSourceMapEntry]> {
-        self.wire
-            .source_map
-            .nodes
-            .iter()
-            .find(|entry| &entry.node_id == key)
-            .map(|entry| entry.occurrences.as_slice())
+    /// Source occurrences for the first admitted source-map entry matching this node.
+    pub fn source_occurrences(&self, key: &CheckedNodeId) -> Option<&[CheckedSourceMapEntry]> {
+        source_occurrences(&self.wire.source_map.nodes, &self.source_index, key)
     }
 
     fn has_lowered(&self, key: &CheckedNodeId) -> bool {
         self.wire.feature_accounting.iter().any(|record| {
             record.node_id() == key && record.disposition() == ContractDispositionV1::Lowered
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    fn id(number: usize) -> CheckedNodeId {
+        serde_json::from_value(json!({
+            "domain": "quire.checked-semantic-node/v1",
+            "digest": format!("{number:064x}"),
+        }))
+        .expect("node identity")
+    }
+
+    #[trace("TC-447", "FR-049-AC-5")]
+    #[test]
+    fn repeated_result_source_reads_use_one_local_lookup() {
+        let mut measured = Vec::new();
+        for entries in [4, 8, 16] {
+            let sources: Vec<_> = (0..entries)
+                .map(|number| ContractNodeSourcesV1 {
+                    node_id: id(number),
+                    occurrences: Vec::new(),
+                })
+                .collect();
+            source_probe::reset();
+            let positions = source_index(&sources);
+            assert_eq!(source_probe::builds(), 1);
+            assert_eq!(source_probe::build_entries(), entries as u64);
+            let selected = id(entries - 1);
+            for requests in [2, 4, 8] {
+                source_probe::reset_candidates();
+                crate::checked_package::shared::checked_node_comparisons::reset();
+                for _ in 0..requests {
+                    assert_eq!(
+                        source_occurrences(&sources, &positions, &selected),
+                        Some([].as_slice())
+                    );
+                }
+                let visits = source_probe::count();
+                let comparisons = crate::checked_package::shared::checked_node_comparisons::count();
+                assert_eq!(source_probe::builds(), 1);
+                assert_eq!(source_probe::build_entries(), entries as u64);
+                println!("result_sources K={requests} R={entries} candidates={visits} id_comparisons={comparisons}");
+                if entries == 16 {
+                    assert!(comparisons < requests * 16, "a full source scan must fail");
+                }
+                measured.push((entries, requests, visits));
+            }
+        }
+        for (entries, requests, visits) in measured {
+            assert_eq!(visits, requests, "entries={entries}, requests={requests}");
+        }
     }
 }
 

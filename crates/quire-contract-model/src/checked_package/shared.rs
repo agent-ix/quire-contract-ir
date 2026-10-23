@@ -505,13 +505,59 @@ pub struct CheckedSemanticId {
 }
 
 /// A checked semantic graph node identity.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Serialize, Deserialize, FixedShape)]
+#[cfg_attr(not(test), derive(Eq, PartialEq, Ord, PartialOrd))]
+#[cfg_attr(test, derive(Eq))]
 #[serde(deny_unknown_fields)]
 pub struct CheckedNodeId {
     /// Must be `quire.checked-semantic-node/v1`.
     pub domain: Box<str>,
     /// Lowercase SHA-256 digest.
     pub digest: Box<str>,
+}
+
+#[cfg(test)]
+impl PartialEq for CheckedNodeId {
+    fn eq(&self, other: &Self) -> bool {
+        checked_node_comparisons::visited();
+        self.domain == other.domain && self.digest == other.digest
+    }
+}
+
+#[cfg(test)]
+impl PartialOrd for CheckedNodeId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[cfg(test)]
+impl Ord for CheckedNodeId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        checked_node_comparisons::visited();
+        (&self.domain, &self.digest).cmp(&(&other.domain, &other.digest))
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod checked_node_comparisons {
+    use std::cell::Cell;
+
+    thread_local! {
+        static COUNT: Cell<u64> = const { Cell::new(0) };
+    }
+
+    pub(crate) fn visited() {
+        COUNT.with(|count| count.set(count.get().saturating_add(1)));
+    }
+
+    pub(crate) fn reset() {
+        COUNT.with(|count| count.set(0));
+    }
+
+    pub(crate) fn count() -> u64 {
+        COUNT.with(Cell::get)
+    }
 }
 
 /// A source occurrence role.

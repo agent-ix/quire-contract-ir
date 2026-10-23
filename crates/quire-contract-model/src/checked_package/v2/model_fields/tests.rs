@@ -573,6 +573,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
     Fixture {
         package: CheckedPackageV2 {
             node_index: super::super::retained_node_index(&wire),
+            source_index: super::super::retained_source_index(&wire),
             lowering_facts: Vec::new(),
             wire,
             terms,
@@ -600,6 +601,63 @@ fn id_at(fixture: &Fixture, position: usize) -> CheckedNodeId {
         .expect("a node")
         .node_id
         .clone()
+}
+
+/// Repeated field reads visit only their selected graph node, even when the
+/// admitted package contains other model declarations.
+#[trace("TC-227", "FR-038-AC-144")]
+#[test]
+fn repeated_model_field_reads_do_not_walk_the_whole_graph() {
+    let mut measured = Vec::new();
+    for models in [4, 8, 16, 64] {
+        let names: Vec<String> = (0..models).map(|i| format!("R{i}")).collect();
+        let types = names
+            .iter()
+            .map(|name| object_type(&format!("{ORDERS}{name}"), &[], vec![]))
+            .collect();
+        let declarations: Vec<_> = names
+            .iter()
+            .map(|name| (name.as_str(), DeclarationForm::ObjectType))
+            .collect();
+        let fixture = build_fixture(&document(types), &declarations);
+        let selected = id_at(&fixture, models - 1);
+        for requests in [2, 4, 8] {
+            super::probe::reset_node_visits();
+            crate::checked_package::shared::checked_node_comparisons::reset();
+            for _ in 0..requests {
+                fixture
+                    .package
+                    .model_object_fields(&selected)
+                    .expect("fields");
+            }
+            let visits = super::probe::node_visits();
+            let comparisons = crate::checked_package::shared::checked_node_comparisons::count();
+            println!("model_fields K={requests} R={models} graph_candidates={visits} id_comparisons={comparisons}");
+            if models == 64 {
+                assert!(comparisons < requests * 64, "a full graph scan must fail");
+            }
+            measured.push((models, requests, visits));
+        }
+        if models == 64 {
+            crate::checked_package::shared::checked_node_comparisons::reset();
+            for _ in 0..8 {
+                assert!(fixture
+                    .package
+                    .wire
+                    .semantic_graph
+                    .nodes
+                    .iter()
+                    .any(|candidate| candidate.node_id == selected));
+            }
+            assert!(
+                crate::checked_package::shared::checked_node_comparisons::count() >= 8 * 64,
+                "the retired full scan exceeds the bound"
+            );
+        }
+    }
+    for (models, requests, visits) in measured {
+        assert_eq!(visits, requests, "models={models}, requests={requests}");
+    }
 }
 
 /// Declared types for [`fixture`]'s documents: an object type with an

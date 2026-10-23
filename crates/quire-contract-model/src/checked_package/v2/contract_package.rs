@@ -355,6 +355,7 @@ pub struct ContractPackageV1 {
     node_kinds: Vec<CheckedNodeKind>,
     terms: Vec<Option<CheckedTerm>>,
     node_index: BTreeMap<CheckedNodeId, usize>,
+    source_index: BTreeMap<CheckedNodeId, usize>,
     unsupported_tags: Vec<Option<CheckedNodeTag>>,
 }
 
@@ -970,6 +971,7 @@ impl ContractPackageWireV1 {
         let bytes = canonical(&wire, ceiling)?.into_boxed_slice();
         Ok((
             ContractPackageV1 {
+                source_index: result_context::source_index(&wire.source_map.nodes),
                 wire,
                 node_kinds,
                 terms,
@@ -1055,6 +1057,7 @@ impl ContractPackageWireV1 {
             .map(|(position, node)| (node.node_id.clone(), position))
             .collect();
         Ok(ContractPackageV1 {
+            source_index: result_context::source_index(&wire.source_map.nodes),
             wire,
             node_kinds,
             terms,

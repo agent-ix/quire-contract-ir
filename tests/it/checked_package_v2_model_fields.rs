@@ -546,6 +546,30 @@ fn fields_of(package: &CheckedPackageV2, short: &str) -> CheckedModelObjectField
         .expect("the object's fields")
 }
 
+/// Repeated public reads over reader-admitted packages preserve the exact
+/// field result and checked package identity as the graph grows.
+#[trace("TC-227", "FR-038-AC-139", "FR-038-AC-144")]
+#[test]
+fn admitted_model_field_queries_preserve_results_across_graph_sizes() {
+    for models in [4, 8, 16] {
+        let names: Vec<String> = (0..models).map(|number| format!("R{number}")).collect();
+        let types = names.iter().map(|name| object(name, &[], &[])).collect();
+        let declarations: Vec<_> = names.iter().map(|name| (name.as_str(), OBJECT)).collect();
+        let admitted = admit(&document(types), &declarations, &[]);
+        let selected = names.last().expect("selected model");
+        let expected = fields_of(&admitted, selected);
+        let identity = admitted.package_id().clone();
+        let sources = admitted.source_map().to_vec();
+        for requests in [2, 4, 8] {
+            for _ in 0..requests {
+                assert_eq!(fields_of(&admitted, selected), expected);
+            }
+        }
+        assert_eq!(admitted.package_id(), &identity);
+        assert_eq!(admitted.source_map(), sources);
+    }
+}
+
 const ORDER: &str = "Order";
 
 fn range(lower: i128, upper: i128) -> CheckedMemberType {
@@ -941,6 +965,14 @@ fn tc_048_scalar_operands_keep_argument_identity_and_exact_range() {
             .scalar_application_operands(&application, &occurrence)
             .expect("repeat")
     );
+    for requests in [2, 4, 8] {
+        for _ in 0..requests {
+            assert_eq!(
+                package.scalar_application_operands(&application, &occurrence),
+                Ok(entries.clone())
+            );
+        }
+    }
     assert_eq!(package, before);
     assert_eq!(
         consume_error(
@@ -2310,4 +2342,54 @@ fn tc_227_the_struct_members_are_reached_through_accessors() {
     assert_eq!(balance.name(), "balance");
     assert_eq!(balance.member_type(), Some(&range(0, 1000)));
     assert_eq!(fields.field("balance"), Some(balance));
+}
+
+/// Golden values measured on pre-change IR main 0a63033 with the same public fixture.
+#[trace("TC-227", "FR-038-AC-139", "FR-038-AC-144")]
+#[test]
+fn ir987_model_results_bytes_and_work_match_before_change() {
+    let (wire, evidence) = record_project_control();
+    let bytes = canonical(&wire);
+    let admitted = match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("baseline admission: {other:?}"),
+    };
+    let result = admitted
+        .model_object_fields(&declaration_id(ORDER))
+        .expect("model fields");
+    let [string] = result.fields() else {
+        panic!("one model field")
+    };
+    assert_eq!(string.name(), "string");
+    assert_eq!(string.member_type(), Some(&CheckedMemberType::String));
+    let missing = admitted.model_object_fields(&declaration_id("Absent"));
+    assert_eq!(missing, Err(CheckedModelFieldsError::UnknownNode));
+    assert_eq!(bytes, include_bytes!("../fixtures/ir987/model.json"));
+    assert_eq!(
+        *admitted.package_id(),
+        serde_json::from_value(wire["package_id"].clone()).expect("package identity")
+    );
+    let authored_sources: Vec<quire_contract_model::CheckedSourceMapEntry> =
+        serde_json::from_value(wire["source_map"].clone()).expect("authored sources");
+    assert_eq!(admitted.source_map(), authored_sources);
+    let mut low = 0;
+    let mut high = CheckedPackageReadLimits::bounded().work;
+    while low + 1 < high {
+        let middle = low + (high - low) / 2;
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = middle;
+        match CheckedPackageV2::read(&bytes, limits, &evidence) {
+            CheckedPackageV2ReadResult::Admitted(_) => high = middle,
+            CheckedPackageV2ReadResult::Incomplete(_) => low = middle,
+            other => panic!("baseline work: {other:?}"),
+        }
+    }
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = high - 1;
+    let CheckedPackageV2ReadResult::Incomplete(incomplete) =
+        CheckedPackageV2::read(&bytes, limits, &evidence)
+    else {
+        panic!("work boundary");
+    };
+    assert_eq!((high, incomplete.consumed), (24, 24));
 }
