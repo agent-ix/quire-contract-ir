@@ -7,6 +7,66 @@ use crate::checked_package::shared::{
 use crate::checked_package::v2::DOMAIN_PACKAGE_DIGEST;
 use ix_trace_rs::trace;
 
+/// Preserve the actual native converter's closed outputs and typed refusal.
+#[trace("TC-460")]
+#[test]
+fn selected_model_intake_native_names_preserve_conversion_and_refusal() {
+    for (name, expected) in [
+        ("Boolean", NativeTypeRef::Boolean),
+        ("Integer", NativeTypeRef::Integer),
+        ("Rational", NativeTypeRef::Rational),
+        ("Decimal", NativeTypeRef::Decimal),
+        ("Float32", NativeTypeRef::Float32),
+        ("Float64", NativeTypeRef::Float64),
+        ("Text", NativeTypeRef::Text),
+        ("String", NativeTypeRef::String),
+        ("UUID", NativeTypeRef::Uuid),
+        ("Timestamp", NativeTypeRef::Timestamp),
+    ] {
+        assert_eq!(NativeTypeRef::from_name(name), Some(expected), "{name}");
+        assert_eq!(
+            SelectedTypeRef::from_admitted_name(&format!("{NATIVE_PREFIX}{name}")),
+            Some(SelectedTypeRef::Native(expected)),
+            "{name}: selected reference retains the typed native variant"
+        );
+    }
+    for unknown in ["", "Unknown", "integer", "Uuid"] {
+        assert_eq!(NativeTypeRef::from_name(unknown), None, "{unknown:?}");
+        assert_eq!(
+            SelectedTypeRef::from_admitted_name(&format!("{NATIVE_PREFIX}{unknown}")),
+            None,
+            "{unknown:?}: no unknown native fallback"
+        );
+    }
+}
+
+/// Open unit and declaration identities remain owned strings in their variants.
+#[trace("TC-460")]
+#[test]
+fn selected_model_intake_reference_classes_preserve_owned_values_and_empty_refusal() {
+    let unit = "ix://quire/unit/metre";
+    assert_eq!(
+        SelectedTypeRef::from_admitted_name(unit),
+        Some(SelectedTypeRef::Unit(unit.into()))
+    );
+    let declared = "ix://example/orders/Order";
+    assert_eq!(
+        SelectedTypeRef::from_admitted_name(declared),
+        Some(SelectedTypeRef::Declared(declared.into()))
+    );
+    assert_eq!(SelectedTypeRef::from_admitted_name(""), None);
+    let mut external = String::from("ix://example/orders/Mutable");
+    let converted = SelectedTypeRef::from_admitted_name(&external);
+    external.clear();
+    assert_eq!(
+        converted,
+        Some(SelectedTypeRef::Declared(
+            "ix://example/orders/Mutable".into()
+        )),
+        "conversion owns the caller's selected identity"
+    );
+}
+
 /// Compare every QSpec model-declaration golden with the exact key function
 /// used when the production reader admits selected domain declarations.
 /// Ordinary workspace tests have no QSpec checkout; the explicit conformance
