@@ -97,6 +97,7 @@ pub use vocabulary::*;
 use closure_index::ClosureIndex;
 use dependency_references::{admit_dependencies, check_derived_closure, SuppliedDependencies};
 use derived_keys::validate_derived_keys;
+use ix_trace_rs::string_edge;
 use operations::{validate_application_keys, validate_operations};
 use owner::{validate_owner_joins, validate_owner_schema};
 use structural::validate_structural_nodes;
@@ -2087,6 +2088,7 @@ fn check_graph_version(graph: &CheckedSemanticGraphV2) -> Result<(), ValidationF
 
 /// Checks a node's fixed schema version and decodes its tag and form once.
 // Intake: checks the fixed schema version and decodes the node tag and form.
+#[string_edge]
 fn decode_node_kind(
     node: &CheckedSemanticNodeV2,
     at: impl Fn(&str) -> JsonPointer,
