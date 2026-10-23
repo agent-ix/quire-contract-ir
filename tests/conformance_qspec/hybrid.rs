@@ -255,6 +255,158 @@ fn refresh_tank_hybrid_keys(package: &mut Value) {
     fixture_support::refresh_identity(package);
 }
 
+#[trace("TC-048", "FR-038-AC-312")]
+#[test]
+fn qspec_hybrid_rate_edit_propagates_identity_through_claim() {
+    let mut package = braking_package();
+    assert!(matches!(
+        read_package(&package).expect("QSpec package"),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    let model = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "hybrid"
+                && node["semantic_form"] == "hybrid_model"
+                && node["declaration"]["qualified_name"] == json!(["Braking"])
+        })
+        .expect("Braking model");
+    let mode_id = package["semantic_graph"]["nodes"][model]["body"]["members"][1]["value"]
+        ["members"][0]["target"]
+        .clone();
+    let mode = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_id"] == mode_id)
+        .expect("Moving mode");
+    let claim = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["body"]["operation"]["identity"] == "quire.op.temporal.clause"
+                && node["body"]["arguments"][0]["target"] != Value::Null
+                && node["body"]["arguments"][1]["value"] == "model-time"
+        })
+        .expect("SlowEnough claim");
+    let before = [
+        package["semantic_graph"]["nodes"][mode]["node_id"].clone(),
+        package["semantic_graph"]["nodes"][model]["node_id"].clone(),
+        package["semantic_graph"]["nodes"][claim]["body"]["arguments"][0]["target"].clone(),
+        package["semantic_graph"]["nodes"][claim]["node_id"].clone(),
+        package["package_id"].clone(),
+    ];
+    let replacement = package["semantic_graph"]["nodes"][mode]["body"]["members"][1]["value"]
+        ["members"][1]["target"]
+        .clone();
+    package["semantic_graph"]["nodes"][mode]["body"]["members"][1]["value"]["members"][0]
+        ["target"] = replacement;
+    refresh_hybrid_dependencies(&mut package);
+    fixture_support::mint_ungrouped_structural_keys(&mut package);
+    refresh_hybrid_dependencies(&mut package);
+    fixture_support::rekey_application_node(&mut package, claim);
+    fixture_support::refresh_identity(&mut package);
+    let after = [
+        package["semantic_graph"]["nodes"][mode]["node_id"].clone(),
+        package["semantic_graph"]["nodes"][model]["node_id"].clone(),
+        package["semantic_graph"]["nodes"][claim]["body"]["arguments"][0]["target"].clone(),
+        package["semantic_graph"]["nodes"][claim]["node_id"].clone(),
+        package["package_id"].clone(),
+    ];
+    for (old, new) in before.iter().zip(&after) {
+        assert_ne!(old, new, "rate edit must propagate through the claim");
+    }
+    let read = read_package(&package).expect("QSpec package");
+    assert!(
+        matches!(read, CheckedPackageV2ReadResult::Admitted(_)),
+        "{read:?}"
+    );
+}
+
+#[trace("TC-048", "FR-038-AC-312")]
+#[test]
+fn qspec_hybrid_key_and_dependency_checks_precede_body_checks() {
+    for change in ["stale_key", "dependency_mismatch"] {
+        let mut package = published_hybrid_package();
+        let model = model_position(&package);
+        if change == "stale_key" {
+            package["semantic_graph"]["nodes"][model]["body"]["members"][0]["value"]["members"]
+                [0]["members"][1]["value"]["value"] = json!("clock");
+        } else {
+            package["semantic_graph"]["nodes"][model]["dependencies"]
+                .as_array_mut()
+                .expect("dependencies")
+                .pop();
+        }
+        fixture_support::refresh_identity(&mut package);
+        let read = read_package(&package).expect("QSpec package");
+        let CheckedPackageV2ReadResult::Refused(refusal) = read else {
+            panic!("{change} admitted")
+        };
+        assert_eq!(
+            refusal.code,
+            if change == "stale_key" {
+                Code::InvalidPackage
+            } else {
+                Code::InvalidSemanticGraph
+            },
+            "{change}: {refusal:?}"
+        );
+        assert_eq!(
+            refusal.cause,
+            if change == "stale_key" {
+                Some(Cause::StaleNodeKey)
+            } else {
+                None
+            },
+            "{change}: {refusal:?}"
+        );
+    }
+}
+
+#[trace("TC-048", "FR-038-AC-316")]
+#[test]
+fn qspec_hybrid_capture_initializer_must_match_capture_type() {
+    let mut package = restored_package();
+    let claim = timed_claim_position(&package);
+    let old = package["semantic_graph"]["nodes"][claim]["body"]["arguments"][3]["members"][0]
+        ["value"]["target"]
+        .clone();
+    let boolean = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| {
+            node["node_tag"] == "value"
+                && node["semantic_form"] == "literal"
+                && node["body"]["value_kind"] == "boolean"
+        })
+        .expect("boolean literal")["node_id"]
+        .clone();
+    package["semantic_graph"]["nodes"][claim]["body"]["arguments"][3]["members"][0]["value"]
+        ["target"] = boolean.clone();
+    let dependencies = package["semantic_graph"]["nodes"][claim]["dependencies"]
+        .as_array_mut()
+        .expect("dependencies");
+    let dependency = dependencies
+        .iter_mut()
+        .find(|key| **key == old)
+        .expect("capture dependency");
+    *dependency = boolean;
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    fixture_support::rekey_application_node(&mut package, claim);
+    fixture_support::refresh_identity(&mut package);
+    let read = read_package(&package).expect("QSpec package");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read else {
+        panic!("wrong capture type admitted")
+    };
+    assert_eq!(refusal.code, Code::IllTyped, "{refusal:?}");
+    assert_eq!(refusal.cause, Some(Cause::TypeMismatch), "{refusal:?}");
+}
+
 fn timed_claim_position(package: &Value) -> usize {
     package["semantic_graph"]["nodes"]
         .as_array()

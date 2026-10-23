@@ -113,6 +113,24 @@ fn numeric_or_boolean_type(
     false
 }
 
+fn scalar_base_type(
+    type_id: &CheckedNodeId,
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+) -> Option<CheckedNodeId> {
+    let mut current = type_id;
+    for _ in 0..=nodes.len() {
+        let (position, node) = node_at(current, nodes, index)?;
+        match kinds.get(position)? {
+            CheckedNodeKind::ScalarType(_) => return Some(current.clone()),
+            CheckedNodeKind::BoundedDomain(_) => current = &node.semantic_type,
+            _ => return None,
+        }
+    }
+    None
+}
+
 fn model_pointer(position: usize, binding: usize) -> JsonPointer {
     node_pointer(position)
         .key("body")
@@ -793,7 +811,8 @@ pub(super) fn validate_claims(
                 continue;
             };
             let at = argument_at(3).key("members").index(slot);
-            if !node_at(&value, nodes, index).is_some_and(|(position, _)| {
+            let initializer = node_at(&value, nodes, index);
+            if !initializer.is_some_and(|(position, _)| {
                 matches!(
                     kinds.get(position),
                     Some(
@@ -801,6 +820,19 @@ pub(super) fn validate_claims(
                             | CheckedNodeKind::Value(ValueForm::Literal | ValueForm::Parameter)
                     )
                 )
+            }) {
+                return Err(issue(Code::IllTyped, Some(Cause::TypeMismatch), at, claim));
+            }
+            let initializer_type = initializer
+                .and_then(|(_, node)| scalar_base_type(&node.semantic_type, nodes, kinds, index));
+            let capture_name = capture["name"].as_str().unwrap_or_default();
+            let capture_level = 2 * variable_entries.len() + slot;
+            if index.iter().any(|(_, &candidate_position)| {
+                let candidate = &nodes[candidate_position];
+                kinds.get(candidate_position) == Some(&CheckedNodeKind::Value(ValueForm::Parameter))
+                    && parameter_name_level(candidate) == Some((capture_name, capture_level))
+                    && scalar_base_type(&candidate.semantic_type, nodes, kinds, index)
+                        != initializer_type
             }) {
                 return Err(issue(Code::IllTyped, Some(Cause::TypeMismatch), at, claim));
             }
