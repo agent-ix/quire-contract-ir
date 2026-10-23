@@ -50,6 +50,7 @@ use crate::checked_package::shared::{
     CheckedPackageLimit, CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticId,
     JsonPointer,
 };
+use ix_trace_rs::string_edge;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -192,6 +193,7 @@ pub(super) enum NativeTypeRef {
 }
 
 impl SelectedTypeRef {
+    #[string_edge]
     fn from_admitted_name(name: &str) -> Option<Self> {
         if name.starts_with("ix://quire/unit/") {
             return Some(Self::Unit(name.into()));
@@ -208,6 +210,7 @@ impl SelectedTypeRef {
 }
 
 impl NativeTypeRef {
+    #[string_edge]
     fn from_name(name: &str) -> Option<Self> {
         Some(match name {
             "Boolean" => Self::Boolean,

@@ -504,8 +504,8 @@ dependencies = [
 
 [[package]]
 name = "ix-trace-rs"
-version = "0.1.0"
-source = "git+https://github.com/agent-ix/ix-trace-rs?branch=main#83c970b53196c3fe8161706e6925ac7bf57d12ec"
+version = "0.1.2"
+source = "git+https://github.com/agent-ix/ix-trace-rs?branch=main#e29cc07f70394ff018884d12406c1e150bded5f4"
 
 [[package]]
 name = "js-sys"
