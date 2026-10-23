@@ -1139,6 +1139,7 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::InvalidValue => "invalid-value",
         Cause::DuplicateMember => "duplicate-member",
         Cause::TypeMismatch => "type-mismatch",
+        Cause::NonBooleanRoot => "non-boolean-root",
         Cause::UnsupportedSelection => "unsupported-selection",
         Cause::WrongSelectionRole => "wrong-selection-role",
         Cause::InexactInteger => "inexact-integer",

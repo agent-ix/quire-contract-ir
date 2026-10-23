@@ -27,8 +27,8 @@
 //! (FR-038 "The timed interval form" stage 1); the term's own closed shape is
 //! [`crate::checked_package::common::validate_term`]'s, later.
 
-use super::temporal::interval_bound_outside_pattern;
-use super::{body_grammar, BodyGrammar, CheckedNodeKind, CheckedNodeTag};
+use super::temporal::{interval_bound_outside_pattern, timed_upper_is_null};
+use super::{body_grammar, BodyGrammar, CheckedNodeId, CheckedNodeKind, CheckedNodeTag};
 use super::{ApplicationOperator, BodyTerm, CheckedPackageWireV2};
 use crate::checked_package::common::{
     application_operator, body_term, Step, Trail, ValidationFailure,
@@ -37,6 +37,7 @@ use crate::checked_package::shared::{CheckedPackageRefusalCause, CheckedPackageR
 use crate::checked_package::terms::{subterms, At, Cursor};
 use quire_walk::{walk, Children, Walk};
 use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::ControlFlow;
 
 /// Where a term stands, which fixes what it may be.
@@ -64,6 +65,14 @@ enum Place {
 pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
     for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
         if node.node_tag.as_ref() == "extension" && node.semantic_form.as_ref() != "extension_form"
+        {
+            return Err(ValidationFailure::refused(
+                CheckedPackageRefusalCode::MalformedWire,
+                crate::checked_package::common::node_pointer(position).key("semantic_form"),
+            ));
+        }
+        if node.node_tag.as_ref() == "hybrid"
+            && super::HybridForm::from_wire(&node.semantic_form).is_none()
         {
             return Err(ValidationFailure::refused(
                 CheckedPackageRefusalCode::MalformedWire,
@@ -106,6 +115,12 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
             // term of the closed grammar, placed by the abstraction step.
             BodyGrammar::Frame => scan_members(&node.body, &at).map(|_| ()),
             BodyGrammar::Term => check_term(&node.body, &at, Place::BodyRoot, false),
+            BodyGrammar::Hybrid => {
+                let super::CheckedNodeKind::Hybrid(form) = kind else {
+                    unreachable!("hybrid grammar is selected only for hybrid nodes")
+                };
+                super::hybrid::check_wire(node, form, position)
+            }
             BodyGrammar::AbstractionRelation => {
                 if body_term(&node.body) == Some(BodyTerm::Application) {
                     check_term(&node.body, &at, Place::BodyRoot, false)
@@ -138,6 +153,7 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
 /// refusals above (the spec is silent on the order of the two wire checks, an IR
 /// reading). One flat loop over the nodes: no recursion.
 fn check_interval_bounds(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
+    let mut hybrid_formulas = None;
     for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
         let Some(kind) = CheckedNodeTag::from_wire(&node.node_tag)
             .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
@@ -146,16 +162,18 @@ fn check_interval_bounds(wire: &CheckedPackageWireV2) -> Result<(), ValidationFa
         };
         if matches!(
             body_grammar(kind),
-            BodyGrammar::Frame | BodyGrammar::Extension
+            BodyGrammar::Frame | BodyGrammar::Extension | BodyGrammar::Hybrid
         ) || body_term(&node.body) != Some(BodyTerm::Application)
         {
             continue;
         }
-        if let Some(bound) = node
-            .body
-            .get("operation")
-            .and_then(interval_bound_outside_pattern)
-        {
+        let operation = node.body.get("operation");
+        let outside_pattern = operation.and_then(interval_bound_outside_pattern);
+        let nonhybrid_open_upper = operation.is_some_and(timed_upper_is_null)
+            && !hybrid_formulas
+                .get_or_insert_with(|| hybrid_formula_nodes(wire))
+                .contains(&node.node_id);
+        if let Some(bound) = outside_pattern.or(nonhybrid_open_upper.then_some("upper")) {
             let steps = [
                 Step::Key("semantic_graph"),
                 Step::Key("nodes"),
@@ -176,6 +194,74 @@ fn check_interval_bounds(wire: &CheckedPackageWireV2) -> Result<(), ValidationFa
         }
     }
     Ok(())
+}
+
+fn reference_target(value: &Value) -> Option<CheckedNodeId> {
+    serde_json::from_value(value.get("target")?.clone()).ok()
+}
+
+/// Formula nodes reached by a claim whose over parameter is typed by a
+/// hybrid model. This classification uses the raw graph only to decide the
+/// timed-null wire exception; authenticated identity and joins run later.
+fn hybrid_formula_nodes(wire: &CheckedPackageWireV2) -> BTreeSet<CheckedNodeId> {
+    let nodes = &wire.semantic_graph.nodes;
+    let positions = nodes
+        .iter()
+        .enumerate()
+        .map(|(position, node)| (&node.node_id, position))
+        .collect::<BTreeMap<_, _>>();
+    let mut pending = Vec::new();
+    for node in nodes {
+        if node.node_tag.as_ref() != "temporal" || node.semantic_form.as_ref() != "temporal_clause"
+        {
+            continue;
+        }
+        let Some(arguments) = node.body.get("arguments").and_then(Value::as_array) else {
+            continue;
+        };
+        let Some(over) = arguments.first().and_then(reference_target) else {
+            continue;
+        };
+        let Some(over_node) = positions
+            .get(&over)
+            .and_then(|&position| nodes.get(position))
+        else {
+            continue;
+        };
+        if over_node.node_tag.as_ref() != "value" || over_node.semantic_form.as_ref() != "parameter"
+        {
+            continue;
+        }
+        let Some(model) = positions
+            .get(&over_node.semantic_type)
+            .and_then(|&position| nodes.get(position))
+        else {
+            continue;
+        };
+        if model.node_tag.as_ref() == "hybrid" && model.semantic_form.as_ref() == "hybrid_model" {
+            pending.extend(arguments.get(5).and_then(reference_target));
+        }
+    }
+    let mut seen = BTreeSet::new();
+    let mut formulas = BTreeSet::new();
+    while let Some(key) = pending.pop() {
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        let Some(node) = positions
+            .get(&key)
+            .and_then(|&position| nodes.get(position))
+        else {
+            continue;
+        };
+        if node.node_tag.as_ref() == "temporal" && node.semantic_form.as_ref() == "formula" {
+            formulas.insert(key);
+            if let Some(arguments) = node.body.get("arguments").and_then(Value::as_array) {
+                pending.extend(arguments.iter().filter_map(reference_target));
+            }
+        }
+    }
+    formulas
 }
 
 /// Checks the term `root` at `at`, standing in `place`, and every term below

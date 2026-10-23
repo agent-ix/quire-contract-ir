@@ -38,6 +38,9 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 mod extension;
+#[path = "../it/support/checked_package.rs"]
+mod fixture_support;
+mod hybrid;
 mod reaches_population;
 mod single_body;
 
@@ -384,6 +387,7 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::InvalidValue => "invalid-value",
         Cause::DuplicateMember => "duplicate-member",
         Cause::TypeMismatch => "type-mismatch",
+        Cause::NonBooleanRoot => "non-boolean-root",
         Cause::UnsupportedSelection => "unsupported-selection",
         Cause::WrongSelectionRole => "wrong-selection-role",
         Cause::InexactInteger => "inexact-integer",

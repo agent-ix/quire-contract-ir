@@ -217,6 +217,8 @@ pub enum CheckedPackageRefusalCause {
     /// of a member of its union type (QSpec FR-440 reader join 2); paired with
     /// `ill_typed`.
     TypeMismatch,
+    /// `non-boolean-root`: a hybrid invariant, guard or initial condition is not Boolean.
+    NonBooleanRoot,
     /// `unsupported-selection`: a clause's `temporal_profile` law names an
     /// identity that is no member of QSpec FR-250's Values table and that the
     /// package's own lock selects under no other role; paired with

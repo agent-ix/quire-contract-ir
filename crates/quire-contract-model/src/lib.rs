@@ -169,10 +169,10 @@ pub use checked_package::{
     ContractScalarOperandV1, ContractScalarOperandViewV1, ContractScalarOwnRangeV1,
     ContractSelectedReferenceV1, ContractSemanticGraphV1, ContractSourceMapV1, ContractSourceV1,
     CorrespondenceForm, DimensionPreimage, DimensionTerm, EnumDeclarationPreimage,
-    EnumMemberPreimage, ExpressionForm, FunctionForm, JsonPointer, LoweringProfileRef, ModelForm,
-    NominalIdentityPreimage, NominalOwner, ProtocolForm, RelationForm, ScalarTypeForm, StateForm,
-    StructuralCandidateError, StructuralCandidates, TemporalForm, UnitPreimage, ValueForm,
-    CHECKED_PACKAGE_V2, CONTRACT_IR_SEMANTIC_DOMAIN, CONTRACT_PACKAGE_VERSION,
+    EnumMemberPreimage, ExpressionForm, FunctionForm, HybridForm, JsonPointer, LoweringProfileRef,
+    ModelForm, NominalIdentityPreimage, NominalOwner, ProtocolForm, RelationForm, ScalarTypeForm,
+    StateForm, StructuralCandidateError, StructuralCandidates, TemporalForm, UnitPreimage,
+    ValueForm, CHECKED_PACKAGE_V2, CONTRACT_IR_SEMANTIC_DOMAIN, CONTRACT_PACKAGE_VERSION,
     DOMAIN_PACKAGE_DIGEST, PACKAGE_DOMAIN_V2,
 };
 
