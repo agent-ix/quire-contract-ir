@@ -2445,16 +2445,18 @@ fn check_relationship_member(
     let node_of = |id: &CheckedNodeId| graph.index.get(id).map(|&at| &graph.nodes[at]);
     let linked = serde_json::from_value::<CheckedNodeId>(named.clone())
         .ok()
-        .and_then(|id| node_of(&id))
-        .filter(|node| {
-            is_model_population(node)
+        .and_then(|id| graph.index.get(&id).copied())
+        .and_then(|position| Some((graph.nodes.get(position)?, graph.kinds.get(position)?)))
+        .filter(|(node, kind)| {
+            is_model_population(**kind)
                 && least_type_occurrence(node).is_some()
                 && CheckedTerm::decode_admitted(&node.body)
                     .ok()
                     .as_ref()
                     .and_then(population_maximum)
                     .is_some()
-        });
+        })
+        .map(|(node, _)| node);
     let Some(population) = linked else {
         return ineligible(member_at("population"));
     };

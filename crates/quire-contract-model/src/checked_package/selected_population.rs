@@ -394,9 +394,9 @@ mod source_index_tests {
     }
 }
 
-/// Whether `node` is a `bounded_domain` / `model_population` node.
-pub(super) fn is_model_population(node: &super::v2::CheckedSemanticNodeV2) -> bool {
-    node.node_tag.as_ref() == "bounded_domain" && node.semantic_form.as_ref() == "model_population"
+/// Whether the retained kind identifies a population binding.
+pub(super) fn is_model_population(kind: CheckedNodeKind) -> bool {
+    kind == CheckedNodeKind::BoundedDomain(BoundedDomainForm::ModelPopulation)
 }
 
 /// The `Type` occurrence of `node` with the least ordinal: the one occurrence
@@ -481,11 +481,52 @@ fn population_object_type_typed<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::{population_maximum, population_object_type_typed};
+    use super::{is_model_population, population_maximum, population_object_type_typed};
     use crate::checked_package::v2::{CheckedSemanticNodeV2, CheckedTerm, LiteralKind};
     use crate::checked_package::CheckedNodeId;
     use ix_trace_rs::trace;
     use serde_json::json;
+
+    /// Private association discriminator, not a new admitted package. The
+    /// helper's input must be the retained kind at the selected node position.
+    #[trace("FR-038-AC-269", "FR-053-AC-2")]
+    #[test]
+    fn population_classifier_accepts_only_the_same_position_retained_kind() {
+        use crate::checked_package::v2::{BoundedDomainForm, CheckedNodeKind, ScalarTypeForm};
+        let id = |digit: char| CheckedNodeId {
+            domain: "quire.checked-semantic-node/v1".into(),
+            digest: digit.to_string().repeat(64).into(),
+        };
+        let metadata = |key: CheckedNodeId| -> CheckedSemanticNodeV2 {
+            serde_json::from_value(json!({
+                "node_id": key, "schema_version": "quire.checked-semantic-graph/v2",
+                "node_tag": "bounded_domain", "semantic_form": "model_population",
+                "semantic_type": id('3'), "dependencies": [], "occurrences": [],
+                "body": {"term": "aggregate", "members": []}
+            }))
+            .expect("private damaged-state metadata")
+        };
+        let selected = id('1');
+        let mut nodes = [metadata(selected.clone()), metadata(id('2'))];
+        let kinds = [
+            CheckedNodeKind::BoundedDomain(BoundedDomainForm::ModelPopulation),
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Integer),
+        ];
+        let positions = std::collections::BTreeMap::from([(selected.clone(), 0), (id('2'), 1)]);
+        let at = *positions.get(&selected).expect("selected exact key");
+        assert_eq!(nodes[at].node_id, selected);
+        nodes[at].node_tag = "expression".into();
+        nodes[at].semantic_form = "binary".into();
+        assert_eq!(nodes[at].semantic_form.as_ref(), "binary");
+        assert!(
+            is_model_population(kinds[at]),
+            "raw damaged spelling cannot override retained population kind"
+        );
+        assert!(
+            !is_model_population(kinds[1]),
+            "matching raw population spelling cannot override another node's integer kind"
+        );
+    }
 
     #[trace("FR-349-AC-2", "FR-053-AC-3")]
     #[test]
