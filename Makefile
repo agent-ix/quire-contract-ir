@@ -150,7 +150,7 @@ clean:
 # Supply chain & safety
 # =============================================================================
 
-# The released Quire CLI owns first-party Git lock coherence (FR-055).
+# The Quire CLI owns first-party Git lock coherence (FR-055).
 .PHONY: deny
 deny:
 	$(CARGO) deny check

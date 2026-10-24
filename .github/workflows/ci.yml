@@ -26,7 +26,12 @@ jobs:
       - name: Lint
         run: make lint
 
+      - name: Install Quire lock checker
+        run: cargo install --locked --git https://github.com/agent-ix/quire-cli --rev 374d50853331bf7bc86a991a2caa107a9a49442f --root "${{ runner.temp }}/quire-check-lock" quire-cli
+
       - name: Test
+        env:
+          QUIRE_LOCK_CHECKER: ${{ runner.temp }}/quire-check-lock/bin/quire
         run: make test
 
   supply-chain:
@@ -48,7 +53,9 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit
-      - name: cargo deny check
-        run: cargo deny check
+      - name: Install Quire lock checker
+        run: cargo install --locked --git https://github.com/agent-ix/quire-cli --rev 374d50853331bf7bc86a991a2caa107a9a49442f --root "${{ runner.temp }}/quire-check-lock" quire-cli
+      - name: Check dependency policy and lock coherence
+        run: make deny QUIRE="${{ runner.temp }}/quire-check-lock/bin/quire"
       - name: cargo audit
         run: cargo audit
