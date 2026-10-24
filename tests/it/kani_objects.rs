@@ -106,7 +106,7 @@ fn tc_042_graph_lowering_retains_exhaustion_as_non_boolean() {
         },
     )
     .expect_err("graph budget exhausts");
-    assert_eq!(exhausted.kind, KaniOutcomeKind::ResourceExhausted);
+    assert_eq!(exhausted.kind(), KaniOutcomeKind::ResourceExhausted);
     assert_eq!(exhausted.boolean_claim(), None);
 }
 
@@ -135,9 +135,9 @@ fn profile_refusal_retains_its_exact_cause_source_and_revision() {
         },
     )
     .expect_err("profile refusal precedes family lowering");
-    assert_eq!(failure.kind, KaniOutcomeKind::Refused);
-    assert_eq!(failure.code, cause);
-    assert_eq!(failure.source_id, "source:profile-refusal");
-    assert_eq!(failure.context, selection().revision);
+    assert_eq!(failure.kind(), KaniOutcomeKind::Refused);
+    assert_eq!(failure.code(), cause);
+    assert_eq!(failure.source_id(), "source:profile-refusal");
+    assert_eq!(failure.context(), selection().revision);
     assert_eq!(failure.boolean_claim(), None);
 }

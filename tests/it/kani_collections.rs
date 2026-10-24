@@ -100,7 +100,7 @@ fn tc_042_collection_bound_exhaustion_is_non_boolean() {
         },
     )
     .expect_err("bounded collection");
-    assert_eq!(failure.kind, KaniOutcomeKind::ResourceExhausted);
+    assert_eq!(failure.kind(), KaniOutcomeKind::ResourceExhausted);
     assert_eq!(failure.boolean_claim(), None);
 }
 
@@ -128,9 +128,9 @@ fn profile_refusal_retains_its_exact_cause_source_and_revision() {
         },
     )
     .expect_err("profile refusal precedes family lowering");
-    assert_eq!(failure.kind, KaniOutcomeKind::Refused);
-    assert_eq!(failure.code, cause);
-    assert_eq!(failure.source_id, "source:profile-refusal");
-    assert_eq!(failure.context, selection().revision);
+    assert_eq!(failure.kind(), KaniOutcomeKind::Refused);
+    assert_eq!(failure.code(), cause);
+    assert_eq!(failure.source_id(), "source:profile-refusal");
+    assert_eq!(failure.context(), selection().revision);
     assert_eq!(failure.boolean_claim(), None);
 }
