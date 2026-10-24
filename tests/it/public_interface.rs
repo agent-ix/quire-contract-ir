@@ -1454,10 +1454,11 @@ fn tc_055_nested_exported_macro_is_rejected_by_inventory() {
 #[trace("TC-055", "FR-039-AC-2", "FR-039-AC-3", "FR-037-AC-6")]
 #[test]
 fn tc_055_no_foreign_runtime_or_replay_surface_in_source() {
-    let mut pending = vec![
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src"),
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("crates/quire-contract-model/src"),
-    ];
+    let root_source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+    let model_source =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("crates/quire-contract-model/src");
+    let mut pending = vec![root_source.clone(), model_source.clone()];
+    let mut scanned = Vec::new();
     while let Some(dir) = pending.pop() {
         for entry in fs::read_dir(dir).expect("source directory") {
             let path = entry.expect("source entry").path();
@@ -1469,13 +1470,12 @@ fn tc_055_no_foreign_runtime_or_replay_surface_in_source() {
                 continue;
             }
             let source = fs::read_to_string(&path).expect("source file");
-            if path.starts_with(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")) {
+            let mut violations = Vec::new();
+            if path.starts_with(&root_source) {
                 let parsed = parse_model_source(&source, &path.display().to_string());
-                assert!(
-                    !exports_macro(&parsed),
-                    "{} exports an uninventoried macro",
-                    path.display()
-                );
+                if exports_macro(&parsed) {
+                    violations.push("exports an uninventoried macro".to_owned());
+                }
             }
             let code = source
                 .lines()
@@ -1488,11 +1488,9 @@ fn tc_055_no_foreign_runtime_or_replay_surface_in_source() {
                 "TerminalValue",
                 "replay_with_native_runtime",
             ] {
-                assert!(
-                    !code.contains(forbidden),
-                    "{} contains {forbidden}",
-                    path.display()
-                );
+                if code.contains(forbidden) {
+                    violations.push(format!("contains {forbidden}"));
+                }
             }
             let name = path
                 .file_name()
@@ -1501,21 +1499,41 @@ fn tc_055_no_foreign_runtime_or_replay_surface_in_source() {
             if path
                 .parent()
                 .is_some_and(|parent| parent.ends_with("src/kani"))
+                && [
+                    "replay.rs",
+                    "witness.rs",
+                    "arithmetic.rs",
+                    "collections.rs",
+                    "objects.rs",
+                ]
+                .contains(&name)
             {
-                assert!(
-                    ![
-                        "replay.rs",
-                        "witness.rs",
-                        "arithmetic.rs",
-                        "collections.rs",
-                        "objects.rs"
-                    ]
-                    .contains(&name),
-                    "retired Kani module {name}"
-                );
+                violations.push(format!("retired Kani module {name}"));
             }
+            scanned.push((path, violations));
         }
     }
+    assert!(
+        scanned
+            .iter()
+            .any(|(path, _)| path.starts_with(&root_source)),
+        "root source must be scanned"
+    );
+    assert!(
+        scanned
+            .iter()
+            .any(|(path, _)| path.starts_with(&model_source)),
+        "model source must be scanned"
+    );
+    let failures = scanned
+        .iter()
+        .flat_map(|(path, violations)| {
+            violations
+                .iter()
+                .map(move |violation| format!("{}: {violation}", path.display()))
+        })
+        .collect::<Vec<_>>();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[trace("TC-058", "FR-019-AC-5")]
