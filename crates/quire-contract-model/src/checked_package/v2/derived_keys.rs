@@ -13,10 +13,10 @@ use super::structural::{
     aggregate_members, binding, is_integer_bound, is_non_negative_integer, reference_target,
 };
 use super::{
-    BoundedDomainForm, CheckedNodeKind, CheckedTerm, CompositeTypeForm, LiteralKind,
-    RawSemanticNodeV2 as CheckedSemanticNodeV2, ScalarTypeForm, WorkMeter,
+    BoundedDomainForm, CheckedNodeKind, CheckedTerm, CheckedTermView, CompositeTypeForm,
+    LiteralKind, RawSemanticNodeV2 as CheckedSemanticNodeV2, ScalarTypeForm, WorkMeter,
 };
-use crate::checked_package::common::{literal_kind, node_pointer, ValidationFailure, NODE_DOMAIN};
+use crate::checked_package::common::{node_pointer, ValidationFailure, NODE_DOMAIN};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
@@ -238,15 +238,17 @@ fn bound<'a>(
     over: BoundsOver,
 ) -> Option<&'a str> {
     let literal = binding(term, name)?;
-    if literal_kind(literal) != Some(LiteralKind::Integer) {
+    let CheckedTermView::Literal {
+        type_id,
+        value_kind: LiteralKind::Integer,
+        value,
+    } = CheckedTerm::view(literal)?
+    else {
         return None;
-    }
-    let ty: CheckedNodeId = serde_json::from_value(literal.get("type")?.clone()).ok()?;
+    };
+    let ty: CheckedNodeId = serde_json::from_value(type_id.clone()).ok()?;
     typed_at_integer(&ty).then_some(())?;
-    literal
-        .get("value")?
-        .as_str()
-        .filter(|value| over.is_bound(value))
+    value.as_str().filter(|value| over.is_bound(value))
 }
 
 /// A labelled group's members and ordinals, retained in graph array order.

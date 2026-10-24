@@ -10,10 +10,10 @@ use super::model_members::{structural_key, MemberType};
 use super::operations::has_application_key;
 use super::structural::reference_selector;
 use super::{
-    BodyTerm, CheckedNodeKind, CheckedNodeTag, CorrespondenceForm,
+    BodyTerm, CheckedNodeKind, CheckedNodeTag, CheckedTerm, CheckedTermView, CorrespondenceForm,
     RawSemanticNodeV2 as CheckedSemanticNodeV2,
 };
-use crate::checked_package::common::{body_term, NODE_DOMAIN};
+use crate::checked_package::common::{term_tag, TermTag, NODE_DOMAIN};
 use crate::checked_package::shared::CheckedNodeId;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -215,26 +215,30 @@ fn charge_terms(
     let mut pending = vec![body];
     while let Some(term) = pending.pop() {
         work.charge(position)?;
-        match body_term(term) {
-            Some(BodyTerm::Aggregate | BodyTerm::Application) => {
-                let name = if body_term(term) == Some(BodyTerm::Aggregate) {
-                    "members"
-                } else {
-                    "arguments"
-                };
-                if let Some(items) = term.get(name).and_then(Value::as_array) {
-                    pending.extend(items.iter().rev());
-                }
+        match CheckedTerm::view(term) {
+            Some(CheckedTermView::Aggregate { members }) => pending.extend(members.iter().rev()),
+            Some(CheckedTermView::Application { arguments, .. }) => {
+                pending.extend(arguments.iter().rev());
             }
-            Some(BodyTerm::Binding) => pending.extend(term.get("value")),
-            Some(
-                BodyTerm::Literal
-                | BodyTerm::Reference
-                | BodyTerm::DependencyReference
-                | BodyTerm::Frame
-                | BodyTerm::AbstractionRelation,
-            )
-            | None => {}
+            Some(CheckedTermView::Binding { value, .. }) => pending.push(value),
+            Some(CheckedTermView::Reference { .. } | CheckedTermView::Literal { .. }) => {}
+            // Candidate charging precedes complete body admission. Keep the
+            // historical work count for a malformed parent so exhaustion
+            // still outranks its later closed-shape refusal.
+            None => match term_tag(term) {
+                TermTag::Known(BodyTerm::Aggregate) => {
+                    if let Some(items) = term.get("members").and_then(Value::as_array) {
+                        pending.extend(items.iter().rev());
+                    }
+                }
+                TermTag::Known(BodyTerm::Application) => {
+                    if let Some(items) = term.get("arguments").and_then(Value::as_array) {
+                        pending.extend(items.iter().rev());
+                    }
+                }
+                TermTag::Known(BodyTerm::Binding) => pending.extend(term.get("value")),
+                _ => {}
+            },
         }
     }
     Ok(())
@@ -428,4 +432,33 @@ fn derive_structural_candidates_raw(
         nodes: candidates,
         groups: labels.into_iter().map(|(_, label)| label).collect(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    #[trace("TC-048", "FR-048-AC-5")]
+    #[test]
+    fn tc_048_candidate_charges_a_malformed_parent_before_shape_refusal() {
+        let body = json!({
+            "term": "aggregate",
+            "members": [{"term": "reference", "target": "provisional"}],
+            "extra": true,
+        });
+        let mut work = Work {
+            limit: 1,
+            consumed: 0,
+        };
+        assert!(matches!(
+            charge_terms(&body, 0, &mut work),
+            Err(StructuralCandidateError::WorkExhausted {
+                limit: 1,
+                consumed: 1,
+                position: 0,
+            })
+        ));
+    }
 }
