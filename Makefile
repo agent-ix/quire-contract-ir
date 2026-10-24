@@ -150,12 +150,11 @@ clean:
 # Supply chain & safety
 # =============================================================================
 
-# One copy of every agent-ix git crate in Cargo.lock; see the header of
-# scripts/check_one_copy.awk.
+# The released Quire CLI owns first-party Git lock coherence (FR-055).
 .PHONY: deny
 deny:
 	$(CARGO) deny check
-	awk -f scripts/check_one_copy.awk Cargo.lock
+	$(QUIRE) check-lock Cargo.lock
 
 .PHONY: cargo-audit
 cargo-audit:
