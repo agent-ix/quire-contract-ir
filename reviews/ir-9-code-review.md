@@ -54,3 +54,13 @@ Reviewed the frozen PR #555 diff at 1970117b, including Rust semantics, markers,
 ## Current review state
 
 **CONDITIONAL** — original high findings are fixed at c75c9c9f; the untagged new tests need a fix round. The installed scanner and full aggregate gate remain unqualified here.
+
+## Dispositions (round 2)
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-003 | fixed | Both new retained-intake unit tests carry `#[trace("TC-460")]`, linked to the consumer controls test case; no executable source behavior changed in this fix round. |
+
+## Current review state (round 2)
+
+**PASS for the PR diff** — all recorded findings have latest disposition `fixed` at 7eaa7fc0. Repository-wide pre-existing matrix gaps, installed scanner availability, and aggregate gate qualification are separate gates and remain unclaimed by this review.
