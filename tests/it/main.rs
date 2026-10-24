@@ -70,6 +70,7 @@ mod kani_arithmetic;
 mod kani_collections;
 mod kani_objects;
 mod kani_outcome_construction;
+mod kani_outcome_tc223;
 mod kani_shared;
 mod lock_coherence;
 mod nfr003_invalid_input;

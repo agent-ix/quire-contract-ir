@@ -82,8 +82,8 @@ fn tc_042_profile_requires_one_known_entry_per_encountered_construct() {
     let refusal = profile()
         .classify(&["unbounded-quantifier".into()], "clause:demo")
         .expect_err("unknown construct refuses before lowering");
-    assert_eq!(refusal.kind, KaniOutcomeKind::Refused);
-    assert_eq!(refusal.code, Std001Code::KANI_CAPABILITY_MISSING);
+    assert_eq!(refusal.kind(), KaniOutcomeKind::Refused);
+    assert_eq!(refusal.code(), Std001Code::KANI_CAPABILITY_MISSING);
     assert_eq!(refusal.boolean_claim(), None);
 }
 
@@ -217,10 +217,10 @@ fn capability_census_preserves_request_order_and_entries_after_a_refusal() {
         let failure = decoded
             .classify(&constructs, "source:census")
             .expect_err("invalid request");
-        assert_eq!(failure.kind, KaniOutcomeKind::Refused);
-        assert_eq!(failure.code, Std001Code::KANI_CAPABILITY_REQUEST_INVALID);
-        assert_eq!(failure.source_id, "source:census");
-        assert_eq!(failure.context, selection().revision);
+        assert_eq!(failure.kind(), KaniOutcomeKind::Refused);
+        assert_eq!(failure.code(), Std001Code::KANI_CAPABILITY_REQUEST_INVALID);
+        assert_eq!(failure.source_id(), "source:census");
+        assert_eq!(failure.context(), selection().revision);
         assert_eq!(failure.boolean_claim(), None);
     }
 }
@@ -231,7 +231,7 @@ fn tc_042_invalid_and_incomplete_populations_are_not_assumed_away() {
     let incomplete = input(PopulationCompleteness::Incomplete)
         .validate()
         .expect_err("incomplete input is a result, not an assumption");
-    assert_eq!(incomplete.kind, KaniOutcomeKind::IncompleteInput);
+    assert_eq!(incomplete.kind(), KaniOutcomeKind::IncompleteInput);
     assert_eq!(incomplete.boolean_claim(), None);
 
     let mut duplicate = input(PopulationCompleteness::Complete);
@@ -239,7 +239,7 @@ fn tc_042_invalid_and_incomplete_populations_are_not_assumed_away() {
     let invalid = duplicate
         .validate()
         .expect_err("duplicate identity is invalid input");
-    assert_eq!(invalid.kind, KaniOutcomeKind::InvalidInput);
+    assert_eq!(invalid.kind(), KaniOutcomeKind::InvalidInput);
     assert_eq!(invalid.boolean_claim(), None);
 
     let mut duplicate_reference = input(PopulationCompleteness::Complete);
@@ -250,7 +250,7 @@ fn tc_042_invalid_and_incomplete_populations_are_not_assumed_away() {
     let invalid_reference = duplicate_reference
         .validate()
         .expect_err("duplicate reference edge is invalid input");
-    assert_eq!(invalid_reference.kind, KaniOutcomeKind::InvalidInput);
+    assert_eq!(invalid_reference.kind(), KaniOutcomeKind::InvalidInput);
 
     let mut scalar = input(PopulationCompleteness::Complete);
     scalar.references.clear();
@@ -264,7 +264,9 @@ fn tc_042_invalid_and_incomplete_populations_are_not_assumed_away() {
 #[test]
 fn tc_042_only_proof_and_counterexample_have_boolean_claims() {
     assert_eq!(
-        KaniOutcome::proved("clause:demo", "profile").boolean_claim(),
+        KaniOutcome::proved(1, "clause:demo", "profile")
+            .expect("one check")
+            .boolean_claim(),
         Some(true)
     );
     assert_eq!(
@@ -283,8 +285,13 @@ fn tc_042_only_proof_and_counterexample_have_boolean_claims() {
         },
         KaniOutcomeKind::Inconclusive,
     ] {
+        let code = match kind {
+            KaniOutcomeKind::Unavailable => Std001Code::KANI_CHECKER_ABSENT,
+            KaniOutcomeKind::Inconclusive => Std001Code::KANI_VACUOUS_PROOF,
+            _ => std001_code!("typed"),
+        };
         assert_eq!(
-            KaniOutcome::non_success(kind, std001_code!("typed"), "clause:demo", "profile")
+            KaniOutcome::non_success(kind, code, "clause:demo", "profile")
                 .expect("a non-success kind")
                 .boolean_claim(),
             None
@@ -318,7 +325,7 @@ fn kani_cancellation_sources_round_trip_in_the_kind() {
             })
         );
         let read: KaniOutcome = serde_json::from_value(wire).expect("outcome reads");
-        assert_eq!(read.kind, KaniOutcomeKind::Cancelled { source });
+        assert_eq!(read.kind(), KaniOutcomeKind::Cancelled { source });
         assert_eq!(read.boolean_claim(), None);
         assert_eq!(read, outcome);
     }
@@ -390,13 +397,19 @@ fn non_cancelled_kinds_retain_their_wire_and_claims() {
     ];
     for (kind, spelling, claim) in cases {
         let outcome = match kind {
-            KaniOutcomeKind::Proved => KaniOutcome::proved("clause:demo", "profile"),
+            KaniOutcomeKind::Proved => {
+                KaniOutcome::proved(1, "clause:demo", "profile").expect("one check")
+            }
             KaniOutcomeKind::Counterexample => {
                 KaniOutcome::counterexample("clause:demo", "profile")
             }
             other => KaniOutcome::non_success(
                 other,
-                std001_code!("kani_control"),
+                match other {
+                    KaniOutcomeKind::Unavailable => Std001Code::KANI_CHECKER_ABSENT,
+                    KaniOutcomeKind::Inconclusive => Std001Code::KANI_VACUOUS_PROOF,
+                    _ => std001_code!("kani_control"),
+                },
                 "clause:demo",
                 "profile",
             )
@@ -407,7 +420,7 @@ fn non_cancelled_kinds_retain_their_wire_and_claims() {
         assert!(wire.get("source").is_none());
         assert_eq!(outcome.boolean_claim(), claim);
         let read: KaniOutcome = serde_json::from_value(wire).expect("outcome reads");
-        assert_eq!(read.kind, outcome.kind);
+        assert_eq!(read.kind(), outcome.kind());
         assert_eq!(read.boolean_claim(), claim);
         assert_eq!(read, outcome);
     }
@@ -438,18 +451,19 @@ fn tc_042_dispatch_rejects_cross_family_or_duplicate_ownership() {
     ));
 }
 
-// Deliberately untraced: no acceptance criterion covers vacuous-proof
-// classification yet (FR-030-AC-1..3 say nothing about it), so this test
-// binds itself to no criterion rather than claim one it does not establish.
+// The focused TC-223 control covers the count and vacuous classification.
 #[test]
 fn a_proved_run_with_zero_success_checks_settles_inconclusive_as_vacuous() {
     let vacuous = KaniOutcome::proved_from_checks(0, "clause:demo", "profile");
-    assert_eq!(vacuous.kind, KaniOutcomeKind::Inconclusive);
-    assert_eq!(vacuous.code, Std001Code::KANI_VACUOUS_PROOF);
+    assert_eq!(vacuous.kind(), KaniOutcomeKind::Inconclusive);
+    assert_eq!(vacuous.code(), Std001Code::KANI_VACUOUS_PROOF);
     assert_eq!(vacuous.boolean_claim(), None);
 
     let genuine = KaniOutcome::proved_from_checks(1, "clause:demo", "profile");
-    assert_eq!(genuine, KaniOutcome::proved("clause:demo", "profile"));
+    assert_eq!(
+        genuine,
+        KaniOutcome::proved(1, "clause:demo", "profile").expect("one check")
+    );
     assert_eq!(genuine.boolean_claim(), Some(true));
 }
 
@@ -457,17 +471,17 @@ fn a_proved_run_with_zero_success_checks_settles_inconclusive_as_vacuous() {
 /// probes of the non-success constructor, which must fail to compile, are
 /// `compile_fail` doctests on `KaniOutcome::non_success`.
 ///
-/// The AC's `KaniOutcomeError` clause, for a `proved` request with a count of
-/// zero, is not delivered here: that request is FR-030-AC-4's and is not built.
-/// This test asserts what the error type does carry today, through the
-/// non-success constructor asked for a `proved` and for a `counterexample`
-/// outcome (an FR-030-AC-5 clause, not claimed): its registered code and the
-/// requested kind and cause.
+/// This test checks the error code and requested values on both constructor
+/// routes, including a zero-check proof request.
 #[trace("TC-443", "FR-030-AC-6")]
 #[test]
 fn tc_443_the_outcome_and_its_error_carry_a_typed_std001_code() {
+    let zero = KaniOutcome::proved(0, "clause:demo", "profile").expect_err("zero is not proved");
+    assert_eq!(zero.code(), Std001Code::KANI_OUTCOME_INVALID);
+    assert_eq!(zero.requested_kind(), &KaniOutcomeKind::Proved);
+    assert_eq!(zero.rejected_success_checks(), Some(0));
     let vacuous = KaniOutcome::proved_from_checks(0, "clause:demo", "profile");
-    assert_eq!(vacuous.code, Std001Code::KANI_VACUOUS_PROOF);
+    assert_eq!(vacuous.code(), Std001Code::KANI_VACUOUS_PROOF);
     let text = serde_json::to_string(&vacuous).expect("an outcome serializes");
     assert!(
         text.contains("\"code\":\"kani_vacuous_proof\""),
@@ -481,7 +495,7 @@ fn tc_443_the_outcome_and_its_error_carry_a_typed_std001_code() {
             Std001Code::KANI_COUNTEREXAMPLE,
         ),
     ] {
-        let error = KaniOutcome::non_success(kind.clone(), code, "clause:demo", "profile")
+        let error = KaniOutcome::non_success(kind, code, "clause:demo", "profile")
             .expect_err("a Boolean-claim outcome is not a non-success outcome");
         assert_eq!(error.code(), Std001Code::KANI_OUTCOME_INVALID);
         assert_eq!(error.requested_kind(), &kind);
