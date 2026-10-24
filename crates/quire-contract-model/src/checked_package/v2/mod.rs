@@ -598,12 +598,12 @@ macro_rules! checked_package_envelope {
             $($name: $parameter,)+
         }
 
-        impl quire_canonical::Encode for CheckedPackageEnvelope<
+        impl<Body: quire_canonical::Encode> quire_canonical::Encode for CheckedPackageEnvelope<
             &str,
             &encode::SelectionFields<'_>,
             &CheckedSemanticId,
             &CheckedPackageLockV2,
-            &CheckedSemanticGraphV2,
+            &CheckedSemanticGraphV2<Body>,
             &[CheckedSourceMapEntry],
             &[CheckedCapability],
             &CheckedDiagnosticsV2,
@@ -644,9 +644,10 @@ type CheckedPackageWireV2<Body = CheckedTerm> = CheckedPackageEnvelope<
 
 type RawCheckedPackageWireV2 = CheckedPackageWireV2<Value>;
 
-/// Canonically encodes a complete typed checked-package V2 envelope under the
-/// caller's byte limits. Identity construction and admission belong to the
-/// producer and reader respectively.
+/// Canonically encodes a complete checked-package V2 envelope under the
+/// caller's byte limits. The graph and borrowed projection must use the same
+/// body representation; typed producers use [`CheckedTerm`]. Identity
+/// construction and admission belong to the producer and reader respectively.
 ///
 /// The encoder requires the borrowed projection view; the owned reader
 /// preimage is not a producer argument.
@@ -659,11 +660,11 @@ type RawCheckedPackageWireV2 = CheckedPackageWireV2<Value>;
 ///     todo!(),
 /// );
 /// ```
-pub fn encode_checked_package_v2(
-    identity_preimage: &CheckedPackageIdentityPreimageRefV2<'_>,
+pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
+    identity_preimage: &CheckedPackageIdentityPreimageRefV2<'_, Body>,
     package_id: &CheckedSemanticId,
     lock: &CheckedPackageLockV2,
-    semantic_graph: &CheckedSemanticGraphV2,
+    semantic_graph: &CheckedSemanticGraphV2<Body>,
     source_map: &[CheckedSourceMapEntry],
     capability_report: &[CheckedCapability],
     diagnostics: &CheckedDiagnosticsV2,
@@ -2970,7 +2971,8 @@ mod tests {
             "node_id": node_id.clone(),
             "schema_version": "quire.checked-semantic-graph/v2",
             "node_tag": "test", "semantic_form": "test",
-            "semantic_type": node_id, "dependencies": [], "occurrences": [], "body": null
+            "semantic_type": node_id, "dependencies": [], "occurrences": [],
+            "body": {"term":"literal","type":node_id,"value_kind":"integer","value":null}
         }))
         .expect("shallow graph node");
         wire.semantic_graph.nodes.push(node);
@@ -2984,8 +2986,18 @@ mod tests {
                 // bodies without recursive serde serialization.
                 let mut private_wire_value =
                     serde_json::to_value(&wire).expect("private owned wire value");
-                private_wire_value["semantic_graph"]["nodes"][0]["body"] = nested(DEEP);
-                wire.semantic_graph.nodes[0].body = nested(DEEP);
+                let mut expected_body = serde_json::Map::new();
+                expected_body.insert("term".into(), json!("literal"));
+                expected_body.insert("type".into(), node_id.clone());
+                expected_body.insert("value_kind".into(), json!("integer"));
+                expected_body.insert("value".into(), nested(DEEP));
+                private_wire_value["semantic_graph"]["nodes"][0]["body"] =
+                    serde_json::Value::Object(expected_body);
+                wire.semantic_graph.nodes[0].body = super::CheckedTerm::Literal {
+                    type_id: super::test_support::node_id('b'),
+                    value_kind: super::LiteralKind::Integer,
+                    value: nested(DEEP),
+                };
 
                 let result = (|| {
                     let ceiling = 1_000_000;
@@ -3015,7 +3027,11 @@ mod tests {
                 })();
 
                 quire_canonical::drop_value(std::mem::take(&mut private_wire_value));
-                quire_canonical::drop_value(std::mem::take(&mut wire.semantic_graph.nodes[0].body));
+                if let super::CheckedTerm::Literal { value, .. } =
+                    &mut wire.semantic_graph.nodes[0].body
+                {
+                    quire_canonical::drop_value(std::mem::take(value));
+                }
                 result
             })
             .expect("small-stack thread spawns")
@@ -3067,7 +3083,7 @@ mod tests {
             assert_eq!(sites.len(), 1);
             let has_edge = reference_requires_cycle_edge(0, 0, 0, sites[0]);
             assert_eq!(has_edge, requires_edge);
-            let node: CheckedSemanticNodeV2 = serde_json::from_value(json!({
+            let node: super::RawSemanticNodeV2 = serde_json::from_value(json!({
                 "node_id":typed,
                 "schema_version":"quire.checked-semantic-graph/v2",
                 "node_tag":"expression",

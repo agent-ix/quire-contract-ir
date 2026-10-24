@@ -1434,7 +1434,10 @@ fn reached_view_visits_an_admitted_recursion_group_once() {
                 _ => {}
             }
         }
-        body_targets(&node.body, &mut pending);
+        body_targets(
+            &serde_json::to_value(&node.body).expect("typed body"),
+            &mut pending,
+        );
     }
     assert_eq!(keys.iter().cloned().collect::<BTreeSet<_>>(), independent);
     let grouped = view

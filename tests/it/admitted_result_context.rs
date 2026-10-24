@@ -18,6 +18,10 @@ use quire_contract_model::{
 };
 use serde_json::{json, Value};
 
+fn body_at(term: &quire_contract_model::CheckedTerm, path: &str) -> Option<Value> {
+    serde_json::to_value(term).ok()?.pointer(path).cloned()
+}
+
 fn provisional(letter: char) -> String {
     sha256_hex(format!("ir769/provisional/{letter}").as_bytes())
 }
@@ -234,8 +238,8 @@ pub(crate) fn by_operation(package: &CheckedPackageV2, identity: &str) -> Contra
         .nodes
         .iter()
         .find(|node| {
-            node.body
-                .pointer("/operation/identity")
+            body_at(&node.body, "/operation/identity")
+                .as_ref()
                 .and_then(Value::as_str)
                 == Some(identity)
         })
@@ -458,9 +462,8 @@ fn tc_447_none_and_invalid_occurrences_have_distinct_typed_outcomes() {
         .find(|node| {
             node.node_tag.as_ref() == "value"
                 && node.semantic_form.as_ref() == "parameter"
-                && node
-                    .body
-                    .pointer("/members/0/value/value")
+                && body_at(&node.body, "/members/0/value/value")
+                    .as_ref()
                     .and_then(Value::as_str)
                     == Some("a")
         })
@@ -612,8 +615,8 @@ fn tc_447_represented_wrong_conversion_shapes_refuse_without_a_bound() {
         .nodes
         .iter()
         .find(|node| {
-            node.body.pointer("/operation/identity") == Some(&json!("quire.op.integer.add"))
-                && node.body.pointer("/arguments/1/value") == Some(&json!("1"))
+            body_at(&node.body, "/operation/identity") == Some(json!("quire.op.integer.add"))
+                && body_at(&node.body, "/arguments/1/value") == Some(json!("1"))
         })
         .expect("original add");
     let other_add = input
@@ -621,8 +624,8 @@ fn tc_447_represented_wrong_conversion_shapes_refuse_without_a_bound() {
         .nodes
         .iter()
         .find(|node| {
-            node.body.pointer("/operation/identity") == Some(&json!("quire.op.integer.add"))
-                && node.body.pointer("/arguments/1/value") == Some(&json!("2"))
+            body_at(&node.body, "/operation/identity") == Some(json!("quire.op.integer.add"))
+                && body_at(&node.body, "/arguments/1/value") == Some(json!("2"))
         })
         .expect("other add");
     let other_narrow = input
@@ -630,9 +633,9 @@ fn tc_447_represented_wrong_conversion_shapes_refuse_without_a_bound() {
         .nodes
         .iter()
         .find(|node| {
-            node.body.pointer("/operation/identity") == Some(&json!("quire.op.numeric.narrow"))
-                && node.body.pointer("/arguments/0/target")
-                    == Some(&serde_json::to_value(&other_add.node_id).expect("typed key"))
+            body_at(&node.body, "/operation/identity") == Some(json!("quire.op.numeric.narrow"))
+                && body_at(&node.body, "/arguments/0/target")
+                    == Some(serde_json::to_value(&other_add.node_id).expect("typed key"))
         })
         .expect("direct narrow of another expression");
     let wrong_operation = input
@@ -640,7 +643,7 @@ fn tc_447_represented_wrong_conversion_shapes_refuse_without_a_bound() {
         .nodes
         .iter()
         .find(|node| {
-            node.body.pointer("/operation/identity") == Some(&json!("quire.op.numeric.convert"))
+            body_at(&node.body, "/operation/identity") == Some(json!("quire.op.numeric.convert"))
         })
         .expect("represented wrong operation");
     let occurrence = |node: &quire_contract_model::CheckedSemanticNodeV2| ContractOccurrenceKeyV1 {
@@ -827,7 +830,7 @@ fn tc_447_direct_bounded_expression_keeps_own_result_until_its_narrow_is_selecte
             node.node_tag.as_ref() == "expression"
                 && node.semantic_form.as_ref() == "binary"
                 && node.semantic_type.digest.as_ref() == input_bound.as_str()
-                && node.body.pointer("/arguments/0/target") == Some(&node_id(&parameter_key))
+                && body_at(&node.body, "/arguments/0/target") == Some(node_id(&parameter_key))
         })
         .expect("own-bounded expression");
     let narrow = input
@@ -835,9 +838,9 @@ fn tc_447_direct_bounded_expression_keeps_own_result_until_its_narrow_is_selecte
         .nodes
         .iter()
         .find(|node| {
-            node.body.pointer("/operation/identity") == Some(&json!("quire.op.numeric.narrow"))
-                && node.body.pointer("/arguments/0/target")
-                    == Some(&serde_json::to_value(&expression.node_id).expect("typed key"))
+            body_at(&node.body, "/operation/identity") == Some(json!("quire.op.numeric.narrow"))
+                && body_at(&node.body, "/arguments/0/target")
+                    == Some(serde_json::to_value(&expression.node_id).expect("typed key"))
         })
         .expect("direct narrow over own-bounded expression");
     let application = ContractOccurrenceKeyV1 {
@@ -950,8 +953,8 @@ fn tc_447_shared_expression_uses_each_supplied_occurrence_and_direct_narrow() {
         .nodes
         .iter()
         .filter(|node| {
-            node.body
-                .pointer("/operation/identity")
+            body_at(&node.body, "/operation/identity")
+                .as_ref()
                 .and_then(Value::as_str)
                 == Some("quire.op.numeric.narrow")
         })

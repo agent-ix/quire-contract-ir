@@ -235,8 +235,9 @@ fn tc_451_borrowed_projection_can_differ_from_the_supplied_graph() {
     let evidence = evidence_for(&value);
 
     let mut independent_nodes = graph.nodes.clone();
-    let changed_body = json!({"independent_projection": true});
-    independent_nodes[0].body = changed_body.clone();
+    let changed_body = json!({"term":"reference","target":independent_nodes[0].node_id});
+    independent_nodes[0].body =
+        serde_json::from_value(changed_body.clone()).expect("typed changed body");
     let borrowed = borrowed_preimage(&original, &independent_nodes);
     let different_digest = quire_canonical::sha256(&borrowed, Limits::new(u64::MAX))
         .unwrap()

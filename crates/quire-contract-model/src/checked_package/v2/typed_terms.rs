@@ -7,7 +7,7 @@
 
 use super::{ApplicationOperator, BodyTerm, LiteralKind};
 use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedSemanticId};
-use quire_canonical::{Encode, Error, Sink, Writer};
+use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{error::Category, Value};
 
@@ -356,10 +356,126 @@ impl CheckedTerm {
 
 impl Encode for CheckedTerm {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
-        let value = serde_json::to_value(self).map_err(|_| Error::Internal {
-            invariant: "checked term serializes",
-        })?;
-        value.encode_into(writer)
+        writer.begin_object()?;
+        match self {
+            Self::Literal {
+                type_id,
+                value_kind,
+                value,
+            } => {
+                writer.name("term")?;
+                writer.string("literal")?;
+                writer.name("type")?;
+                writer.serialize(type_id)?;
+                writer.name("value_kind")?;
+                writer.serialize(value_kind)?;
+                writer.name("value")?;
+                value.encode_into(writer)?;
+            }
+            Self::Reference { target } => {
+                writer.name("term")?;
+                writer.string("reference")?;
+                writer.name("target")?;
+                writer.serialize(target)?;
+            }
+            Self::Application {
+                operator,
+                operation,
+                result_type,
+                arguments,
+            } => {
+                writer.name("term")?;
+                writer.string("application")?;
+                writer.name("operator")?;
+                writer.serialize(operator)?;
+                writer.name("operation")?;
+                operation.encode_into(writer)?;
+                writer.name("result_type")?;
+                writer.serialize(result_type)?;
+                writer.name("arguments")?;
+                writer.begin_array()?;
+                for argument in arguments {
+                    argument.encode_into(writer)?;
+                }
+                writer.end_array()?;
+            }
+            Self::Aggregate { members } => {
+                writer.name("term")?;
+                writer.string("aggregate")?;
+                writer.name("members")?;
+                writer.begin_array()?;
+                for member in members {
+                    member.encode_into(writer)?;
+                }
+                writer.end_array()?;
+            }
+            Self::Binding { name, value } => {
+                writer.name("term")?;
+                writer.string("binding")?;
+                writer.name("name")?;
+                writer.string(name)?;
+                writer.name("value")?;
+                value.encode_into(writer)?;
+            }
+            Self::DependencyReference { package, node } => {
+                writer.name("term")?;
+                writer.string("dependency_reference")?;
+                writer.name("package")?;
+                writer.serialize(package)?;
+                writer.name("node")?;
+                writer.serialize(node)?;
+            }
+            Self::Frame {
+                modifies,
+                creates,
+                deletes,
+                deletes_scoped,
+            } => {
+                writer.name("term")?;
+                writer.string("frame")?;
+                writer.name("modifies")?;
+                writer.serialize(modifies)?;
+                writer.name("creates")?;
+                writer.serialize(creates)?;
+                writer.name("deletes")?;
+                writer.serialize(deletes)?;
+                writer.name("deletes_scoped")?;
+                writer.serialize(deletes_scoped)?;
+            }
+            Self::AbstractionRelation {
+                objects,
+                populations,
+                frames,
+            } => {
+                writer.name("term")?;
+                writer.string("abstraction_relation")?;
+                writer.name("objects")?;
+                writer.serialize(objects)?;
+                writer.name("populations")?;
+                writer.serialize(populations)?;
+                writer.name("frames")?;
+                writer.serialize(frames)?;
+            }
+            Self::ExtensionForm {
+                definition,
+                node_kind,
+                clauses,
+            } => {
+                writer.name("term")?;
+                writer.string("extension_form")?;
+                writer.name("definition")?;
+                writer.serialize(definition)?;
+                writer.name("node_kind")?;
+                writer.string(node_kind)?;
+                writer.name("clauses")?;
+                writer.begin_array()?;
+                for clause in clauses {
+                    clause.encode_into(writer)?;
+                }
+                writer.end_array()?;
+            }
+        }
+        writer.end_object()
     }
 }
 
@@ -388,7 +504,7 @@ fn replace_node_ids_in_value(value: &mut Value, old: &CheckedNodeId, new: &Check
 }
 
 /// One frame write grant.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CheckedFrameModification {
     /// A relationship declaration.
@@ -408,7 +524,7 @@ pub enum CheckedFrameModification {
 }
 
 /// The scope of one frame field grant.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(rename_all = "kebab-case")]
 pub enum CheckedFieldScope {
     /// Every object in the frame.
@@ -418,7 +534,7 @@ pub enum CheckedFieldScope {
 }
 
 /// One scoped deletion grant.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CheckedScopedDeletion {
     /// Delete the receiver.
@@ -431,7 +547,7 @@ pub enum CheckedScopedDeletion {
 }
 
 /// One abstraction object mapping.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedAbstractionObject {
     /// Model type node.
@@ -445,7 +561,7 @@ pub struct CheckedAbstractionObject {
 }
 
 /// One abstraction field mapping.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedAbstractionField {
     /// Model field.
@@ -456,7 +572,7 @@ pub struct CheckedAbstractionField {
 }
 
 /// One abstraction population mapping.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedAbstractionPopulation {
     /// Population node.
@@ -466,7 +582,7 @@ pub struct CheckedAbstractionPopulation {
 }
 
 /// One abstraction frame mapping.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedAbstractionFrame {
     /// Context node.
@@ -482,7 +598,7 @@ pub struct CheckedAbstractionFrame {
 }
 
 /// One abstraction parameter mapping.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedAbstractionParameter {
     /// Model parameter.

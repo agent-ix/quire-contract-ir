@@ -462,8 +462,16 @@ fn native_scalar_comparisons_keep_distinct_types_and_operands() {
             };
             let nodes = &admitted.graph().nodes;
             assert_ne!(nodes[at - 2].node_id, nodes[at - 1].node_id);
-            assert_eq!(nodes[at].body["arguments"][0]["target"], node_id(&left));
-            assert_eq!(nodes[at].body["arguments"][1]["target"], node_id(&right));
+            assert_eq!(
+                serde_json::to_value(&nodes[at].body).expect("typed body")["arguments"][0]
+                    ["target"],
+                node_id(&left)
+            );
+            assert_eq!(
+                serde_json::to_value(&nodes[at].body).expect("typed body")["arguments"][1]
+                    ["target"],
+                node_id(&right)
+            );
             for key in [
                 left.as_str(),
                 right.as_str(),
@@ -473,8 +481,14 @@ fn native_scalar_comparisons_keep_distinct_types_and_operands() {
                     entry.node_id.digest.as_ref() == key && !entry.regions.is_empty()
                 }));
             }
-            assert_eq!(nodes[at - 2].body["value"], equal);
-            assert_eq!(nodes[at - 1].body["value"], unequal);
+            assert_eq!(
+                serde_json::to_value(&nodes[at - 2].body).expect("typed body")["value"],
+                equal
+            );
+            assert_eq!(
+                serde_json::to_value(&nodes[at - 1].body).expect("typed body")["value"],
+                unequal
+            );
             let mut equal_package = package.clone();
             equal_package["semantic_graph"]["nodes"][at]["body"]["arguments"][1] = reference(&left);
             settle(&mut equal_package);
@@ -485,8 +499,10 @@ fn native_scalar_comparisons_keep_distinct_types_and_operands() {
                 );
             };
             assert_eq!(
-                equal_read.graph().nodes[at].body["arguments"][0]["target"],
-                equal_read.graph().nodes[at].body["arguments"][1]["target"]
+                serde_json::to_value(&equal_read.graph().nodes[at].body).expect("typed body")
+                    ["arguments"][0]["target"],
+                serde_json::to_value(&equal_read.graph().nodes[at].body).expect("typed body")
+                    ["arguments"][1]["target"]
             );
             assert_eq!(
                 admitted.node_kinds()[at - 2],
@@ -603,7 +619,10 @@ fn native_literal_payloads_are_canonical_after_type_validation() {
             panic!("native literal refused: {:?}", read(&package));
         };
         assert_eq!(admitted.graph().nodes[at].node_id.digest.as_ref(), key);
-        assert_eq!(admitted.graph().nodes[at].body["value"], good[0]);
+        assert_eq!(
+            serde_json::to_value(&admitted.graph().nodes[at].body).expect("typed body")["value"],
+            good[0]
+        );
         for value in good.iter().skip(1) {
             let mut changed = package.clone();
             change_native_literal_value(&mut changed, at, value.clone());

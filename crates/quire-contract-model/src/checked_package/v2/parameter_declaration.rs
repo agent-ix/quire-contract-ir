@@ -148,7 +148,7 @@ mod tests {
             .semantic_graph
             .nodes
             .iter()
-            .map(|node| CheckedTerm::decode_admitted(&node.body).expect("fixture body"))
+            .map(|node| node.body.clone())
             .collect();
         CheckedPackageV2 {
             node_index: super::super::retained_node_index(&wire),

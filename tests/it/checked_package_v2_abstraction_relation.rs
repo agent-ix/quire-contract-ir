@@ -583,7 +583,10 @@ fn tc_225_the_minimal_abstraction_relation_body_admits_with_its_computed_key() {
     let node = &package.graph().nodes[position];
     assert_eq!(node.node_id, typed_node_id(&digest_of(&minimal)));
     assert_eq!(node.semantic_type, node.node_id);
-    assert_eq!(node.body, minimal);
+    assert_eq!(
+        serde_json::to_value(&node.body).expect("typed relation body"),
+        minimal
+    );
     let Some(CheckedTerm::AbstractionRelation {
         objects,
         populations,
@@ -597,7 +600,7 @@ fn tc_225_the_minimal_abstraction_relation_body_admits_with_its_computed_key() {
     assert_eq!(frames.len(), 1);
     assert_eq!(
         serde_json::to_value(package.term(&node.node_id)).expect("typed relation serializes"),
-        node.body
+        serde_json::to_value(&node.body).expect("typed relation body")
     );
     assert_eq!(
         node.dependencies,
@@ -1236,18 +1239,21 @@ fn tc_225_a_frame_entry_binds_its_pair_with_or_without_a_frame_node() {
         let entry = graph
             .iter()
             .find(|node| node.semantic_form.as_ref() == "abstraction_relation")
-            .map(|node| &node.body["frames"][0])
+            .map(|node| serde_json::to_value(&node.body).expect("typed relation body"))
             .expect("the relation node");
         let anchor = graph
             .iter()
             .find(|node| node.semantic_form.as_ref() == "operation_anchor")
-            .map(|node| &node.body["members"])
+            .map(|node| serde_json::to_value(&node.body).expect("typed anchor body"))
             .expect("the anchor node");
         (
-            (entry["context"].clone(), entry["operation"].clone()),
             (
-                anchor[0]["value"]["target"].clone(),
-                anchor[1]["value"]["value"].clone(),
+                entry["frames"][0]["context"].clone(),
+                entry["frames"][0]["operation"].clone(),
+            ),
+            (
+                anchor["members"][0]["value"]["target"].clone(),
+                anchor["members"][1]["value"]["value"].clone(),
             ),
         )
     };

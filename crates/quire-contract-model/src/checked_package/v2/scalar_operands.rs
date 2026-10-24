@@ -462,7 +462,7 @@ mod tests {
             .semantic_graph
             .nodes
             .iter()
-            .map(|node| super::super::CheckedTerm::decode_admitted(&node.body).expect("term"))
+            .map(|node| node.body.clone())
             .collect();
         CheckedPackageV2 {
             node_index: super::super::retained_node_index(&wire),
@@ -670,8 +670,7 @@ mod tests {
             value: json!("13"),
         };
         package.terms[2] = value.clone();
-        package.wire.semantic_graph.nodes[2].body =
-            serde_json::to_value(value).expect("private literal body");
+        package.wire.semantic_graph.nodes[2].body = value;
         package.wire.semantic_graph.nodes[2].semantic_type =
             serde_json::from_value(id('1')).expect("integer type");
         package.wire.semantic_graph.nodes[2].semantic_form = "literal".into();
@@ -713,7 +712,7 @@ mod tests {
         let expected = package
             .scalar_application_operands(&application, &occurrence)
             .expect("original operands");
-        package.wire.semantic_graph.nodes[3].body = json!({"term": "aggregate", "members": []});
+        package.wire.semantic_graph.nodes[3].body = CheckedTerm::aggregate(Vec::new());
         assert_eq!(
             package.scalar_application_operands(&application, &occurrence),
             Ok(expected)
@@ -732,7 +731,7 @@ mod tests {
         let expected = package
             .scalar_application_operands(&application, &occurrence)
             .expect("original ranges");
-        package.wire.semantic_graph.nodes[1].body = json!({"term": "aggregate", "members": []});
+        package.wire.semantic_graph.nodes[1].body = CheckedTerm::aggregate(Vec::new());
         assert_eq!(
             package.scalar_application_operands(&application, &occurrence),
             Ok(expected)
