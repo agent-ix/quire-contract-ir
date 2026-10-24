@@ -14,6 +14,7 @@ use std::{
 #[path = "quire-contract-corpus-generator/ordered_json.rs"]
 mod ordered_json;
 use ordered_json::J;
+use quire_contract_model::ConformanceOperation;
 
 macro_rules! obj {
     ($($key:expr => $value:expr),* $(,)?) => {
@@ -163,16 +164,17 @@ fn run(runner: &Path, corpus: &Path, schemas: &Path) -> io::Result<Vec<J>> {
         .collect()
 }
 
-fn placeholder(operation: &str) -> J {
+fn placeholder(operation: ConformanceOperation) -> J {
     match operation {
-        "package" | "expression" => obj!(
+        ConformanceOperation::Package | ConformanceOperation::Expression => obj!(
             "valid" => false,
             "diagnostics" => Vec::<J>::new(),
             "canonical" => Vec::<J>::new(),
             "dependencies" => Vec::<J>::new()
         ),
-        "coverage" => obj!("diagnostics" => Vec::<J>::new(), "coverage" => J::Null),
-        _ => unreachable!("case builder emits only three operations"),
+        ConformanceOperation::Coverage => {
+            obj!("diagnostics" => Vec::<J>::new(), "coverage" => J::Null)
+        }
     }
 }
 

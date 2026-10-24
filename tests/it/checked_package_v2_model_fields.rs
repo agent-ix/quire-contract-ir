@@ -113,6 +113,7 @@ enum Ty {
     String,
     Uuid,
     Timestamp,
+    Clock,
     Range(i128, i128),
     /// `Reference<O>`, by the key of `O`'s model declaration node.
     Reference(String),
@@ -149,6 +150,7 @@ fn ty_of(member: &CheckedMemberType) -> Ty {
         CheckedMemberType::String => Ty::String,
         CheckedMemberType::Uuid => Ty::Uuid,
         CheckedMemberType::Timestamp => Ty::Timestamp,
+        CheckedMemberType::Clock => Ty::Clock,
         CheckedMemberType::IntRange { lower, upper } => Ty::Range(*lower, *upper),
         CheckedMemberType::Reference(target) => Ty::Reference(target.digest.to_string()),
         CheckedMemberType::Record(target) => Ty::Record(target.digest.to_string()),
@@ -189,13 +191,14 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
         key
     };
     match ty {
-        Ty::Boolean | Ty::Integer | Ty::String | Ty::Uuid | Ty::Timestamp => {
+        Ty::Boolean | Ty::Integer | Ty::String | Ty::Uuid | Ty::Timestamp | Ty::Clock => {
             let form = match ty {
                 Ty::Boolean => "boolean",
                 Ty::Integer => "integer",
                 Ty::String => "string",
                 Ty::Uuid => "uuid",
                 Ty::Timestamp => "timestamp",
+                Ty::Clock => "clock",
                 _ => unreachable!("matched scalar types"),
             };
             let key = structural("scalar_type", form, None, None, &empty());
@@ -1655,7 +1658,7 @@ fn perturbed(ty: &Ty, other: &str) -> Ty {
     match ty {
         Ty::Boolean => Ty::Integer,
         Ty::Integer => Ty::Boolean,
-        Ty::String | Ty::Uuid | Ty::Timestamp => Ty::Boolean,
+        Ty::String | Ty::Uuid | Ty::Timestamp | Ty::Clock => Ty::Boolean,
         Ty::Range(lower, upper) if upper > lower => Ty::Range(*lower, upper - 1),
         Ty::Range(lower, upper) if *lower < i128::MAX => Ty::Range(*lower, upper + 1),
         Ty::Range(lower, upper) => Ty::Range(lower - 1, *upper),
@@ -1930,6 +1933,7 @@ fn tc_227_the_public_shape_is_closed_and_takes_one_node_id() {
             CheckedMemberType::String => 8,
             CheckedMemberType::Uuid => 9,
             CheckedMemberType::Timestamp => 10,
+            CheckedMemberType::Clock => 12,
             CheckedMemberType::IntRange { .. } => 2,
             CheckedMemberType::Reference(_) => 3,
             CheckedMemberType::Record(_) => 6,

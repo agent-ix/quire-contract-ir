@@ -175,6 +175,8 @@ pub(super) enum SelectedTypeRef {
     Native(NativeTypeRef),
     Unit(Box<str>),
     Declared(Box<str>),
+    /// A map's value type; retained for timed clock-place resolution.
+    Map(Box<str>, Box<str>),
 }
 
 /// The closed native names accepted by the selected model grammar.
@@ -190,11 +192,19 @@ pub(super) enum NativeTypeRef {
     String,
     Uuid,
     Timestamp,
+    Clock,
 }
 
 impl SelectedTypeRef {
     #[string_edge]
     fn from_admitted_name(name: &str) -> Option<Self> {
+        if let Some(inner) = name.strip_prefix("Map<").and_then(|s| s.strip_suffix('>')) {
+            let (key, value) = inner.split_once(", ")?;
+            if key.is_empty() || value.is_empty() || value.contains(',') {
+                return None;
+            }
+            return Some(Self::Map(key.into(), value.into()));
+        }
         if name.starts_with("ix://quire/unit/") {
             return Some(Self::Unit(name.into()));
         }
@@ -223,6 +233,7 @@ impl NativeTypeRef {
             "String" => Self::String,
             "UUID" => Self::Uuid,
             "Timestamp" => Self::Timestamp,
+            "Clock" => Self::Clock,
             _ => return None,
         })
     }
@@ -658,6 +669,8 @@ pub(super) enum MemberType {
     String,
     Uuid,
     Timestamp,
+    /// The timed-model clock marker used by checked clock-place paths.
+    Clock,
     /// `Int[lo, hi]`.
     IntRange(IntegerBounds),
     /// `Reference<O>`, by the digest of `O`'s model declaration node.
@@ -707,6 +720,7 @@ impl MemberType {
                 StructuralBody::Empty,
                 bytes,
             ),
+            Self::Clock => anonymous("scalar_type", "clock", None, StructuralBody::Empty, bytes),
             Self::IntRange(range) => {
                 let integer = Self::Integer.node_key(bytes)?;
                 anonymous(
@@ -1141,6 +1155,7 @@ impl DomainModel {
     /// FR-322 step 4's element type of a declared `typeRef`.
     fn element_type(&self, type_ref: &SelectedTypeRef) -> Option<MemberType> {
         let type_ref = match type_ref {
+            SelectedTypeRef::Map(_, _) => return None,
             SelectedTypeRef::Unit(name) => {
                 return self.unit_refs.get(name).cloned().map(MemberType::Quantity);
             }
@@ -1151,6 +1166,7 @@ impl DomainModel {
                     NativeTypeRef::String => Some(MemberType::String),
                     NativeTypeRef::Uuid => Some(MemberType::Uuid),
                     NativeTypeRef::Timestamp => Some(MemberType::Timestamp),
+                    NativeTypeRef::Clock => Some(MemberType::Clock),
                     NativeTypeRef::Rational
                     | NativeTypeRef::Decimal
                     | NativeTypeRef::Float32
@@ -2528,6 +2544,19 @@ impl References<'_> {
     // Reads a selected domain package document's type reference prefix.
     fn check_type_ref(&self, type_ref: &str, path: &[Segment], defects: &mut Defects) {
         let path = joined(path, Segment::Name("typeRef"));
+        if let Some(inner) = type_ref
+            .strip_prefix("Map<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            if let Some((key, value)) = inner.split_once(", ") {
+                if key == "Text" && !value.is_empty() && !value.contains(',') {
+                    self.check_type_ref(value, &[], defects);
+                    return;
+                }
+            }
+            defects.push(Row::Meaning, &path, ModelRefusal::malformed());
+            return;
+        }
         if type_ref.starts_with("ix://quire/unit/") {
             if !self.model.unit_refs.contains_key(type_ref) {
                 defects.push(Row::Reference, &path, ModelRefusal::missing_name());
