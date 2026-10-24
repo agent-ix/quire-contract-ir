@@ -324,7 +324,7 @@ fn singleton_range(value: BigInt) -> Result<CheckedScalarOperandRange, CheckedSc
 
 fn decode_body<Body: serde::Serialize>(body: &Body) -> Result<CheckedTerm, ()> {
     let value = serde_json::to_value(body).map_err(|_| ())?;
-    CheckedTerm::decode_admitted(&value)
+    CheckedTerm::decode_admitted(&value).map_err(|_| ())
 }
 
 fn graph_term<'a, Body: serde::Serialize>(
