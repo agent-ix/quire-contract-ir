@@ -41,4 +41,9 @@ public signatures and invalid-operand diagnostics remain unchanged.
 
 ## Status
 
-Planned.
+Implemented in the private `CheckedValue` and typed `CheckedInteger` and
+`CheckedRational` operator
+inputs. `tests/it/expression.rs` contains a source-level representation and
+signature guard; TC-016 retains the public diagnostic and span controls.
+The verification method remains Inspection, so the source guard does not by
+itself mint a qualified Quire Inspection evidence row.

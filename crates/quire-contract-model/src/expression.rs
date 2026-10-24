@@ -930,7 +930,7 @@ impl DeclarationEnvironment {
                 }
             })
         }?;
-        if clause_root && checked.value_type != ValueType::Boolean {
+        if clause_root && checked.value_type() != ValueType::Boolean {
             return Err(vec![Diagnostic::error(
                 DiagnosticCode::NonBooleanClauseRoot,
                 "executable clause root must be Boolean",
@@ -938,7 +938,7 @@ impl DeclarationEnvironment {
             )
             .at_span(&expression.source)]);
         }
-        if &checked.value_type != expected {
+        if &checked.value_type() != expected {
             return Err(vec![Diagnostic::error(
                 DiagnosticCode::ResultTypeMismatch,
                 "expression result differs from expected type",
@@ -948,7 +948,7 @@ impl DeclarationEnvironment {
         }
         Ok(TypedExpression {
             expression: expression.clone(),
-            value_type: checked.value_type,
+            value_type: checked.value_type(),
             nodes: checked.nodes,
             obligations: checked.obligations,
             dependencies: checked.dependencies,
@@ -1374,23 +1374,231 @@ enum ScalarBound {
     Rational(i128, i128),
 }
 
-#[derive(Clone)]
-enum NumericRange {
-    Integer(Vec<(i128, i128)>),
-    Rational {
-        numerator_ranges: Vec<(i128, i128)>,
-        denominator_max: i128,
-        exact: Option<(i128, i128)>,
-    },
-}
-
 struct Checked {
-    value_type: ValueType,
-    range: Option<NumericRange>,
+    value: CheckedValue,
     range_proof: Option<RangeProof>,
     nodes: Vec<TypedNode>,
     obligations: Vec<DischargedObligation>,
     dependencies: BTreeSet<DependencyIdentity>,
+}
+
+/// A checked numeric value always owns its matching concrete type and range.
+/// Non-numeric variants cannot be populated with an integer or rational type.
+enum CheckedValue {
+    Boolean,
+    Integer {
+        value_type: IntegerType,
+        ranges: Vec<(i128, i128)>,
+    },
+    Rational {
+        value_type: RationalType,
+        range: RationalOperand,
+    },
+    Text,
+    Enum(SymbolName),
+    Record(SymbolName),
+    Option(Box<ValueType>),
+    Collection(CollectionType),
+}
+
+impl CheckedValue {
+    fn from_type(value_type: ValueType) -> Self {
+        match value_type {
+            ValueType::Boolean => Self::Boolean,
+            ValueType::Integer { value } => Self::Integer {
+                ranges: vec![(value.minimum, value.maximum)],
+                value_type: value,
+            },
+            ValueType::Rational { value } => Self::Rational {
+                range: RationalOperand {
+                    ranges: vec![(value.numerator_minimum, value.numerator_maximum)],
+                    denominator_max: value.maximum_denominator,
+                    exact: None,
+                },
+                value_type: value,
+            },
+            ValueType::Text => Self::Text,
+            ValueType::Enum { name } => Self::Enum(name),
+            ValueType::Record { name } => Self::Record(name),
+            ValueType::Option { value } => Self::Option(value),
+            ValueType::Collection { value } => Self::Collection(value),
+        }
+    }
+
+    fn value_type(&self) -> ValueType {
+        match self {
+            Self::Boolean => ValueType::Boolean,
+            Self::Integer { value_type, .. } => ValueType::integer(value_type.clone()),
+            Self::Rational { value_type, .. } => ValueType::rational(value_type.clone()),
+            Self::Text => ValueType::Text,
+            Self::Enum(name) => ValueType::Enum { name: name.clone() },
+            Self::Record(name) => ValueType::Record { name: name.clone() },
+            Self::Option(value) => ValueType::Option {
+                value: value.clone(),
+            },
+            Self::Collection(value) => ValueType::Collection {
+                value: value.clone(),
+            },
+        }
+    }
+
+    const fn is_numeric(&self) -> bool {
+        matches!(self, Self::Integer { .. } | Self::Rational { .. })
+    }
+
+    fn refine(&mut self, subject: &str, facts: &[Fact]) {
+        match self {
+            Self::Integer { ranges, .. } => {
+                *ranges = refine_integer_ranges(std::mem::take(ranges), subject, facts);
+            }
+            Self::Rational { range, .. } => {
+                range.ranges = refine_rational_ranges(
+                    std::mem::take(&mut range.ranges),
+                    range.denominator_max,
+                    subject,
+                    facts,
+                );
+                range.exact = range.exact.filter(|(numerator, _)| {
+                    range
+                        .ranges
+                        .iter()
+                        .any(|(minimum, maximum)| numerator >= minimum && numerator <= maximum)
+                });
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Checked {
+    fn value_type(&self) -> ValueType {
+        self.value.value_type()
+    }
+    fn integer_ranges(&self) -> Option<&[(i128, i128)]> {
+        match &self.value {
+            CheckedValue::Integer { ranges, .. } => Some(ranges),
+            _ => None,
+        }
+    }
+    fn refine(&mut self, subject: &str, facts: &[Fact]) {
+        self.value.refine(subject, facts);
+    }
+
+    fn into_integer(self) -> Option<CheckedInteger> {
+        let Self {
+            value,
+            range_proof,
+            nodes,
+            obligations,
+            dependencies,
+        } = self;
+        let CheckedValue::Integer { value_type, ranges } = value else {
+            return None;
+        };
+        Some(CheckedInteger {
+            value_type,
+            range: ranges,
+            parts: CheckedParts {
+                range_proof,
+                nodes,
+                obligations,
+                dependencies,
+            },
+        })
+    }
+
+    fn into_rational(self) -> Option<CheckedRational> {
+        let Self {
+            value,
+            range_proof,
+            nodes,
+            obligations,
+            dependencies,
+        } = self;
+        let CheckedValue::Rational { value_type, range } = value else {
+            return None;
+        };
+        Some(CheckedRational {
+            value_type,
+            range,
+            parts: CheckedParts {
+                range_proof,
+                nodes,
+                obligations,
+                dependencies,
+            },
+        })
+    }
+}
+
+struct CheckedParts {
+    range_proof: Option<RangeProof>,
+    nodes: Vec<TypedNode>,
+    obligations: Vec<DischargedObligation>,
+    dependencies: BTreeSet<DependencyIdentity>,
+}
+
+/// The integer operator input cannot carry a rational interval.
+struct CheckedInteger {
+    value_type: IntegerType,
+    range: Vec<(i128, i128)>,
+    parts: CheckedParts,
+}
+
+/// The rational operator input cannot carry an integer interval.
+struct CheckedRational {
+    value_type: RationalType,
+    range: RationalOperand,
+    parts: CheckedParts,
+}
+
+impl CheckedInteger {
+    fn into_checked(self) -> Checked {
+        let Self {
+            value_type,
+            range,
+            parts,
+        } = self;
+        let CheckedParts {
+            range_proof,
+            nodes,
+            obligations,
+            dependencies,
+        } = parts;
+        Checked {
+            value: CheckedValue::Integer {
+                value_type,
+                ranges: range,
+            },
+            range_proof,
+            nodes,
+            obligations,
+            dependencies,
+        }
+    }
+}
+
+impl CheckedRational {
+    fn into_checked(self) -> Checked {
+        let Self {
+            value_type,
+            range,
+            parts,
+        } = self;
+        let CheckedParts {
+            range_proof,
+            nodes,
+            obligations,
+            dependencies,
+        } = parts;
+        Checked {
+            value: CheckedValue::Rational { value_type, range },
+            range_proof,
+            nodes,
+            obligations,
+            dependencies,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -1438,7 +1646,7 @@ fn check_node(
         0,
         TypedNode {
             index,
-            value_type: checked.value_type.clone(),
+            value_type: checked.value_type(),
             source: expression.source.clone(),
         },
     );
@@ -1454,7 +1662,7 @@ fn check_kind(
     counter: &mut u32,
 ) -> Result<Checked, Vec<Diagnostic>> {
     match &expression.kind {
-        ExpressionKind::BooleanLiteral { .. } => Ok(leaf(ValueType::Boolean, None)),
+        ExpressionKind::BooleanLiteral { .. } => Ok(leaf_type(ValueType::Boolean)),
         ExpressionKind::IntegerLiteral { value, value_type } => {
             if *value < value_type.minimum || *value > value_type.maximum {
                 Err(single(
@@ -1464,10 +1672,10 @@ fn check_kind(
                 ))
             } else {
                 Ok(with_range_proof(
-                    leaf(
-                        ValueType::integer(value_type.clone()),
-                        Some(NumericRange::Integer(vec![(*value, *value)])),
-                    ),
+                    leaf(CheckedValue::Integer {
+                        value_type: value_type.clone(),
+                        ranges: vec![(*value, *value)],
+                    }),
                     declaration_range_proof(&expression.source),
                 ))
             }
@@ -1485,7 +1693,7 @@ fn check_kind(
                     "text literal exceeds the public scalar-value limit",
                 ))
             } else {
-                Ok(leaf(ValueType::Text, None))
+                Ok(leaf_type(ValueType::Text))
             }
         }
         ExpressionKind::EnumLiteral {
@@ -1493,7 +1701,7 @@ fn check_kind(
             variant,
         } => check_enum_literal(environment, expression, enumeration, variant),
         ExpressionKind::OptionNone { value_type } => match value_type {
-            ValueType::Option { .. } => Ok(leaf(value_type.clone(), None)),
+            ValueType::Option { .. } => Ok(leaf_type(value_type.clone())),
             _ => Err(single(
                 expression,
                 DiagnosticCode::IllTypedExpression,
@@ -1697,10 +1905,9 @@ fn check_kind(
     }
 }
 
-fn leaf(value_type: ValueType, range: Option<NumericRange>) -> Checked {
+fn leaf(value: CheckedValue) -> Checked {
     Checked {
-        value_type,
-        range,
+        value,
         range_proof: None,
         nodes: Vec::new(),
         obligations: Vec::new(),
@@ -1708,8 +1915,18 @@ fn leaf(value_type: ValueType, range: Option<NumericRange>) -> Checked {
     }
 }
 
+fn leaf_type(value_type: ValueType) -> Checked {
+    leaf(CheckedValue::from_type(value_type))
+}
+
+fn leaf_refined(value_type: ValueType, subject: &str, facts: &[Fact]) -> Checked {
+    let mut checked = leaf_type(value_type);
+    checked.refine(subject, facts);
+    checked
+}
+
 fn with_range_proof(mut checked: Checked, proof: RangeProof) -> Checked {
-    checked.range_proof = checked.range.as_ref().map(|_| proof);
+    checked.range_proof = checked.value.is_numeric().then_some(proof);
     checked
 }
 
@@ -1770,14 +1987,14 @@ fn check_rational_literal(
         ))
     } else {
         Ok(with_range_proof(
-            leaf(
-                ValueType::rational(value_type.clone()),
-                Some(NumericRange::Rational {
-                    numerator_ranges: vec![(normalized_numerator, normalized_numerator)],
+            leaf(CheckedValue::Rational {
+                value_type: value_type.clone(),
+                range: RationalOperand {
+                    ranges: vec![(normalized_numerator, normalized_numerator)],
                     denominator_max: normalized_denominator,
                     exact: Some((normalized_numerator, normalized_denominator)),
-                }),
-            ),
+                },
+            }),
             declaration_range_proof(&expression.source),
         ))
     }
@@ -1803,12 +2020,9 @@ fn check_enum_literal(
             "enum variant does not exist",
         ));
     }
-    let mut checked = leaf(
-        ValueType::Enum {
-            name: enumeration.clone(),
-        },
-        None,
-    );
+    let mut checked = leaf_type(ValueType::Enum {
+        name: enumeration.clone(),
+    });
     checked.dependencies.insert(dependency(
         environment,
         DependencyKind::EnumVariant,
@@ -1836,14 +2050,14 @@ fn check_option_some(
         ));
     };
     let child = check_node(environment, value, execution_point, locals, facts, counter)?;
-    if &child.value_type != inner.as_ref() {
+    if &child.value_type() != inner.as_ref() {
         return Err(single(
             expression,
             DiagnosticCode::IllTypedExpression,
             "option value type differs from its option type",
         ));
     }
-    Ok(with_children(value_type.clone(), None, [child]))
+    Ok(with_children_type(value_type.clone(), [child]))
 }
 
 fn check_record_literal(
@@ -1900,7 +2114,7 @@ fn check_record_literal(
             facts,
             counter,
         ) {
-            Ok(checked) if checked.value_type == declared.value_type => children.push(checked),
+            Ok(checked) if checked.value_type() == declared.value_type => children.push(checked),
             Ok(_) => diagnostics.extend(single(
                 &field.value,
                 DiagnosticCode::IllTypedExpression,
@@ -1912,11 +2126,10 @@ fn check_record_literal(
     if !diagnostics.is_empty() {
         return Err(diagnostics);
     }
-    let mut checked = with_child_vec(
+    let mut checked = with_child_vec_type(
         ValueType::Record {
             name: record.clone(),
         },
-        None,
         children,
     );
     for field in fields {
@@ -1951,7 +2164,7 @@ fn check_collection_literal(
     let mut diagnostics = Vec::new();
     for item in items {
         match check_node(environment, item, execution_point, locals, facts, counter) {
-            Ok(checked) if checked.value_type == *value_type.element => children.push(checked),
+            Ok(checked) if checked.value_type() == *value_type.element => children.push(checked),
             Ok(_) => diagnostics.extend(single(
                 item,
                 DiagnosticCode::IllTypedExpression,
@@ -1961,9 +2174,8 @@ fn check_collection_literal(
         }
     }
     if diagnostics.is_empty() {
-        Ok(with_child_vec(
+        Ok(with_child_vec_type(
             ValueType::collection(value_type.clone()),
-            None,
             children,
         ))
     } else {
@@ -2001,13 +2213,9 @@ fn check_value_reference(
         ValueDeclarationKind::Input => DependencyKind::Input,
         ValueDeclarationKind::State => DependencyKind::State,
     };
-    let mut checked = leaf(
-        declaration.value_type.clone(),
-        numeric_range(&declaration.value_type),
-    );
     let key = semantic_key(expression);
-    checked.range = refine_range(checked.range, &key, facts);
-    checked.range_proof = checked.range.as_ref().map(|_| {
+    let mut checked = leaf_refined(declaration.value_type.clone(), &key, facts);
+    checked.range_proof = checked.value.is_numeric().then(|| {
         range_fact_proof(facts, &key)
             .unwrap_or_else(|| declaration_range_proof(&declaration.source))
     });
@@ -2046,10 +2254,7 @@ fn check_local_reference(
     };
     let key = semantic_key(expression);
     Ok(with_range_proof(
-        leaf(
-            binding.value_type.clone(),
-            refine_range(numeric_range(&binding.value_type), &key, facts),
-        ),
+        leaf_refined(binding.value_type.clone(), &key, facts),
         range_fact_proof(facts, &key).unwrap_or_else(|| declaration_range_proof(&binding.source)),
     ))
 }
@@ -2065,7 +2270,7 @@ fn check_field_access(
     counter: &mut u32,
 ) -> Result<Checked, Vec<Diagnostic>> {
     let child = check_node(environment, base, execution_point, locals, facts, counter)?;
-    let ValueType::Record { name } = &child.value_type else {
+    let ValueType::Record { name } = child.value_type() else {
         return Err(single(
             expression,
             DiagnosticCode::IllTypedExpression,
@@ -2073,7 +2278,7 @@ fn check_field_access(
         ));
     };
     let record_name = name.clone();
-    let Some(declaration) = environment.record_declaration(name) else {
+    let Some(declaration) = environment.record_declaration(&name) else {
         return Err(vec![orphaned_type(&expression.source)]);
     };
     let Some(declared_field) = declaration
@@ -2088,16 +2293,8 @@ fn check_field_access(
         ));
     };
     let result_type = declared_field.value_type.clone();
-    let mut checked = with_children(
-        result_type.clone(),
-        refine_range(
-            numeric_range(&result_type),
-            &semantic_key(expression),
-            facts,
-        ),
-        [child],
-    );
-    checked.range_proof = checked.range.as_ref().map(|_| {
+    let mut checked = with_children_refined(result_type, &semantic_key(expression), facts, [child]);
+    checked.range_proof = checked.value.is_numeric().then(|| {
         range_fact_proof(facts, &semantic_key(expression))
             .unwrap_or_else(|| declaration_range_proof(&declared_field.source))
     });
@@ -2120,14 +2317,14 @@ fn check_is_present(
     counter: &mut u32,
 ) -> Result<Checked, Vec<Diagnostic>> {
     let child = check_node(environment, option, execution_point, locals, facts, counter)?;
-    if !matches!(child.value_type, ValueType::Option { .. }) {
+    if !matches!(child.value_type(), ValueType::Option { .. }) {
         return Err(single(
             expression,
             DiagnosticCode::IllTypedExpression,
             "is-present requires an option",
         ));
     }
-    Ok(with_children(ValueType::Boolean, None, [child]))
+    Ok(with_children_type(ValueType::Boolean, [child]))
 }
 
 fn check_unwrap(
@@ -2140,7 +2337,7 @@ fn check_unwrap(
     counter: &mut u32,
 ) -> Result<Checked, Vec<Diagnostic>> {
     let child = check_node(environment, option, execution_point, locals, facts, counter)?;
-    let ValueType::Option { value } = &child.value_type else {
+    let ValueType::Option { value } = child.value_type() else {
         return Err(single(
             expression,
             DiagnosticCode::IllTypedExpression,
@@ -2161,16 +2358,8 @@ fn check_unwrap(
         ));
     };
     let result_type = value.as_ref().clone();
-    let mut checked = with_children(
-        result_type.clone(),
-        refine_range(
-            numeric_range(&result_type),
-            &semantic_key(expression),
-            facts,
-        ),
-        [child],
-    );
-    checked.range_proof = checked.range.as_ref().map(|_| {
+    let mut checked = with_children_refined(result_type, &semantic_key(expression), facts, [child]);
+    checked.range_proof = checked.value.is_numeric().then(|| {
         range_fact_proof(facts, &semantic_key(expression)).unwrap_or_else(|| RangeProof {
             span: proof_span.clone(),
             guard_generation: None,
@@ -2203,7 +2392,7 @@ fn check_length(
         facts,
         counter,
     )?;
-    let ValueType::Collection { value } = &child.value_type else {
+    let ValueType::Collection { value } = child.value_type() else {
         return Err(single(
             expression,
             DiagnosticCode::IllTypedExpression,
@@ -2211,9 +2400,8 @@ fn check_length(
         ));
     };
     let value_type = ValueType::integer(value.index_type());
-    let range = refine_range(numeric_range(&value_type), &semantic_key(expression), facts);
-    let mut checked = with_children(value_type, range, [child]);
-    checked.range_proof = checked.range.as_ref().map(|_| {
+    let mut checked = with_children_refined(value_type, &semantic_key(expression), facts, [child]);
+    checked.range_proof = checked.value.is_numeric().then(|| {
         range_fact_proof(facts, &semantic_key(expression))
             .unwrap_or_else(|| declaration_range_proof(&collection.source))
     });
@@ -2240,14 +2428,14 @@ fn check_index(
     );
     let index_checked = check_node(environment, index, execution_point, locals, facts, counter);
     let (collection_checked, index_checked) = pair(collection_checked, index_checked)?;
-    let ValueType::Collection { value } = &collection_checked.value_type else {
+    let ValueType::Collection { value } = collection_checked.value_type() else {
         return Err(single(
             expression,
             DiagnosticCode::IllTypedExpression,
             "index requires a collection",
         ));
     };
-    if index_checked.value_type != ValueType::integer(value.index_type()) {
+    if index_checked.value_type() != ValueType::integer(value.index_type()) {
         return Err(single(
             index,
             DiagnosticCode::IllTypedExpression,
@@ -2256,12 +2444,10 @@ fn check_index(
     }
     let index_key = semantic_key(index);
     let collection_key = semantic_key(collection);
-    let static_bound = match (&collection.kind, &index_checked.range) {
-        (ExpressionKind::CollectionLiteral { items, .. }, Some(NumericRange::Integer(ranges))) => {
-            ranges
-                .iter()
-                .all(|(min, max)| *min >= 0 && *max < items.len() as i128)
-        }
+    let static_bound = match (&collection.kind, index_checked.integer_ranges()) {
+        (ExpressionKind::CollectionLiteral { items, .. }, Some(ranges)) => ranges
+            .iter()
+            .all(|(min, max)| *min >= 0 && *max < items.len() as i128),
         _ => false,
     };
     let proof = if static_bound {
@@ -2283,16 +2469,13 @@ fn check_index(
         ));
     };
     let result_type = value.element.as_ref().clone();
-    let mut checked = with_children(
-        result_type.clone(),
-        refine_range(
-            numeric_range(&result_type),
-            &semantic_key(expression),
-            facts,
-        ),
+    let mut checked = with_children_refined(
+        result_type,
+        &semantic_key(expression),
+        facts,
         [collection_checked, index_checked],
     );
-    checked.range_proof = checked.range.as_ref().map(|_| {
+    checked.range_proof = checked.value.is_numeric().then(|| {
         range_fact_proof(facts, &semantic_key(expression)).unwrap_or_else(|| RangeProof {
             span: proof_span.clone(),
             guard_generation: None,
@@ -2343,7 +2526,7 @@ fn check_call(
             facts,
             counter,
         ) {
-            Ok(checked) if checked.value_type == parameter.value_type => children.push(checked),
+            Ok(checked) if checked.value_type() == parameter.value_type => children.push(checked),
             Ok(_) => diagnostics.extend(single(
                 argument,
                 DiagnosticCode::IllTypedExpression,
@@ -2356,16 +2539,9 @@ fn check_call(
         return Err(diagnostics);
     }
     let result_type = declaration.result_type.clone();
-    let mut checked = with_child_vec(
-        result_type.clone(),
-        refine_range(
-            numeric_range(&result_type),
-            &semantic_key(expression),
-            facts,
-        ),
-        children,
-    );
-    checked.range_proof = checked.range.as_ref().map(|_| {
+    let mut checked =
+        with_child_vec_refined(result_type, &semantic_key(expression), facts, children);
+    checked.range_proof = checked.value.is_numeric().then(|| {
         range_fact_proof(facts, &semantic_key(expression))
             .unwrap_or_else(|| declaration_range_proof(&declaration.source))
     });
@@ -2404,51 +2580,27 @@ fn check_numeric(
         counter,
     );
     let (left_checked, right_checked) = pair(left_checked, right_checked)?;
-    if left_checked.value_type != right_checked.value_type {
+    if left_checked.value_type() != right_checked.value_type() {
         return Err(single(
             expression,
             DiagnosticCode::IllTypedExpression,
             "numeric operand types differ",
         ));
     }
-    // Type and range are read together here, so the operator bodies receive the operand ranges
-    // already in their typed shape and have no "impossible" case of their own.
-    let left_range = left_checked.range.clone();
-    let right_range = right_checked.range.clone();
-    match left_checked.value_type.clone() {
-        ValueType::Integer { value } => {
-            match (
-                left_range.and_then(NumericRange::into_integer),
-                right_range.and_then(NumericRange::into_integer),
-            ) {
-                (Some(left_ranges), Some(right_ranges)) => check_integer_operator(
-                    expression,
-                    operator,
-                    &value,
-                    (left_checked, left_ranges),
-                    (right_checked, right_ranges),
-                ),
-                // Guards an internal invariant break, not user input: every Integer `Checked`
-                // is built with an integer range. `range` is still `Option<NumericRange>`, so
-                // the compiler does not enforce this pairing (no structural CheckedNumeric).
+    match left_checked.value_type() {
+        ValueType::Integer { .. } => {
+            match (left_checked.into_integer(), right_checked.into_integer()) {
+                (Some(left), Some(right)) => {
+                    check_integer_operator(expression, operator, left, right)
+                }
                 _ => Err(operands_not_numeric(expression)),
             }
         }
-        ValueType::Rational { value } if operator != NumericOperator::Remainder => {
-            match (
-                left_range.and_then(NumericRange::into_rational),
-                right_range.and_then(NumericRange::into_rational),
-            ) {
-                (Some(left_operand), Some(right_operand)) => check_rational_operator(
-                    expression,
-                    operator,
-                    &value,
-                    (left_checked, left_operand),
-                    (right_checked, right_operand),
-                ),
-                // Guards an internal invariant break, not user input: every Rational `Checked`
-                // is built with a rational range. `range` is still `Option<NumericRange>`, so
-                // the compiler does not enforce this pairing (no structural CheckedNumeric).
+        ValueType::Rational { .. } if operator != NumericOperator::Remainder => {
+            match (left_checked.into_rational(), right_checked.into_rational()) {
+                (Some(left), Some(right)) => {
+                    check_rational_operator(expression, operator, left, right)
+                }
                 _ => Err(operands_not_numeric(expression)),
             }
         }
@@ -2465,62 +2617,45 @@ fn operands_not_numeric(expression: &Expression) -> Vec<Diagnostic> {
     )
 }
 
-/// A rational operand's interval set, taken out of its [`NumericRange`].
+/// A rational operand's interval set, paired with its concrete rational type.
+#[derive(Clone)]
 struct RationalOperand {
     ranges: Vec<(i128, i128)>,
     denominator_max: i128,
     exact: Option<(i128, i128)>,
 }
 
-impl NumericRange {
-    fn into_integer(self) -> Option<Vec<(i128, i128)>> {
-        match self {
-            Self::Integer(ranges) => Some(ranges),
-            Self::Rational { .. } => None,
-        }
-    }
-
-    fn into_rational(self) -> Option<RationalOperand> {
-        match self {
-            Self::Rational {
-                numerator_ranges,
-                denominator_max,
-                exact,
-            } => Some(RationalOperand {
-                ranges: numerator_ranges,
-                denominator_max,
-                exact,
-            }),
-            Self::Integer(_) => None,
-        }
-    }
-}
-
 fn check_integer_operator(
     expression: &Expression,
     operator: NumericOperator,
-    value_type: &IntegerType,
-    (left, left_ranges): (Checked, Vec<(i128, i128)>),
-    (right, right_ranges): (Checked, Vec<(i128, i128)>),
+    left: CheckedInteger,
+    right: CheckedInteger,
 ) -> Result<Checked, Vec<Diagnostic>> {
+    let value_type = &left.value_type;
+    let left_ranges = &left.range;
+    let right_ranges = &right.range;
     let right_proof = right
+        .parts
         .range_proof
         .as_ref()
         .map(|proof| proof.span.clone())
         .unwrap_or_else(|| expression.source.clone());
-    let range_proof = [left.range_proof.as_ref(), right.range_proof.as_ref()]
-        .into_iter()
-        .flatten()
-        .cloned()
-        .max_by(compare_range_proof)
-        .map(|proof| proof.span)
-        .unwrap_or_else(|| expression.source.clone());
+    let range_proof = [
+        left.parts.range_proof.as_ref(),
+        right.parts.range_proof.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    .cloned()
+    .max_by(compare_range_proof)
+    .map(|proof| proof.span)
+    .unwrap_or_else(|| expression.source.clone());
     let mut obligations = Vec::new();
     if matches!(
         operator,
         NumericOperator::Divide | NumericOperator::Remainder
     ) {
-        if contains_zero(&right_ranges) {
+        if contains_zero(right_ranges) {
             return Err(undefined(
                 expression,
                 DefinednessObligationKind::NonZeroDivisor,
@@ -2534,7 +2669,7 @@ fn check_integer_operator(
             right_proof,
         ));
     }
-    let Some(ranges) = integer_ranges(operator, &left_ranges, &right_ranges, value_type) else {
+    let Some(ranges) = integer_ranges(operator, left_ranges, right_ranges, value_type) else {
         return Err(undefined(
             expression,
             DefinednessObligationKind::CheckedRange,
@@ -2566,9 +2701,11 @@ fn check_integer_operator(
         vec![(value_type.minimum, value_type.maximum)]
     };
     let mut checked = with_children(
-        ValueType::integer(value_type.clone()),
-        Some(NumericRange::Integer(range)),
-        [left, right],
+        CheckedValue::Integer {
+            value_type: value_type.clone(),
+            ranges: range,
+        },
+        [left.into_checked(), right.into_checked()],
     );
     checked.obligations.extend(obligations);
     Ok(checked)
@@ -2703,34 +2840,38 @@ fn extrema(values: [i128; 4]) -> (i128, i128) {
 fn check_rational_operator(
     expression: &Expression,
     operator: NumericOperator,
-    value_type: &RationalType,
-    (left, left_operand): (Checked, RationalOperand),
-    (right, right_operand): (Checked, RationalOperand),
+    left: CheckedRational,
+    right: CheckedRational,
 ) -> Result<Checked, Vec<Diagnostic>> {
+    let value_type = &left.value_type;
     let RationalOperand {
         ranges: left_ranges,
         denominator_max: left_den,
         exact: left_exact,
-    } = left_operand;
+    } = &left.range;
     let right_proof = right
+        .parts
         .range_proof
         .as_ref()
         .map(|proof| proof.span.clone())
         .unwrap_or_else(|| expression.source.clone());
-    let range_proof = [left.range_proof.as_ref(), right.range_proof.as_ref()]
-        .into_iter()
-        .flatten()
-        .cloned()
-        .max_by(compare_range_proof)
-        .map(|proof| proof.span)
-        .unwrap_or_else(|| expression.source.clone());
+    let range_proof = [
+        left.parts.range_proof.as_ref(),
+        right.parts.range_proof.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    .cloned()
+    .max_by(compare_range_proof)
+    .map(|proof| proof.span)
+    .unwrap_or_else(|| expression.source.clone());
     let RationalOperand {
         ranges: right_ranges,
         denominator_max: right_den,
         exact: right_exact,
-    } = right_operand;
+    } = &right.range;
     let mut obligations = Vec::new();
-    if operator == NumericOperator::Divide && contains_zero(&right_ranges) {
+    if operator == NumericOperator::Divide && contains_zero(right_ranges) {
         return Err(undefined(
             expression,
             DefinednessObligationKind::NonZeroDivisor,
@@ -2745,7 +2886,7 @@ fn check_rational_operator(
             right_proof,
         ));
     }
-    let computed = match (left_exact, right_exact) {
+    let computed = match (*left_exact, *right_exact) {
         (Some(left), Some(right)) => {
             rational_exact_result(operator, left, right).map(|(numerator, denominator)| {
                 (
@@ -2755,7 +2896,7 @@ fn check_rational_operator(
                 )
             })
         }
-        _ => rational_range_results(operator, &left_ranges, left_den, &right_ranges, right_den)
+        _ => rational_range_results(operator, left_ranges, *left_den, right_ranges, *right_den)
             .map(|(ranges, denominator)| (ranges, denominator, None)),
     };
     let Some((numerator_ranges, denominator_max, exact)) = computed else {
@@ -2782,13 +2923,15 @@ fn check_rational_operator(
         range_proof,
     ));
     let mut checked = with_children(
-        ValueType::rational(value_type.clone()),
-        Some(NumericRange::Rational {
-            numerator_ranges,
-            denominator_max,
-            exact,
-        }),
-        [left, right],
+        CheckedValue::Rational {
+            value_type: value_type.clone(),
+            range: RationalOperand {
+                ranges: numerator_ranges,
+                denominator_max,
+                exact,
+            },
+        },
+        [left.into_checked(), right.into_checked()],
     );
     checked.obligations.extend(obligations);
     Ok(checked)
@@ -2949,10 +3092,11 @@ fn check_numeric_negate(
         .as_ref()
         .map(|proof| proof.span.clone())
         .unwrap_or_else(|| expression.source.clone());
-    match (&child.value_type, &child.range) {
-        (ValueType::Integer { value }, Some(NumericRange::Integer(ranges)))
-            if value.domain == IntegerDomain::Signed =>
-        {
+    match &child.value {
+        CheckedValue::Integer {
+            value_type: value,
+            ranges,
+        } if value.domain == IntegerDomain::Signed => {
             let overflow = value.overflow;
             let Some(mut result) = ranges
                 .iter()
@@ -2993,8 +3137,14 @@ fn check_numeric_negate(
                         .collect(),
                 );
             }
-            let ty = child.value_type.clone();
-            let mut checked = with_children(ty, Some(NumericRange::Integer(result)), [child]);
+            let value_type = value.clone();
+            let mut checked = with_children(
+                CheckedValue::Integer {
+                    value_type,
+                    ranges: result,
+                },
+                [child],
+            );
             if overflow == OverflowPolicy::Reject {
                 checked.obligations.push(obligation(
                     expression,
@@ -3005,14 +3155,15 @@ fn check_numeric_negate(
             }
             Ok(checked)
         }
-        (
-            ValueType::Rational { value },
-            Some(NumericRange::Rational {
-                numerator_ranges,
-                denominator_max,
-                exact,
-            }),
-        ) => {
+        CheckedValue::Rational {
+            value_type: value,
+            range:
+                RationalOperand {
+                    ranges: numerator_ranges,
+                    denominator_max,
+                    exact,
+                },
+        } => {
             let Some(negated_ranges) = numerator_ranges
                 .iter()
                 .map(|(minimum, maximum)| Some((maximum.checked_neg()?, minimum.checked_neg()?)))
@@ -3033,15 +3184,15 @@ fn check_numeric_negate(
                     "rational negation may exceed its named bounds",
                 ));
             }
-            let range = NumericRange::Rational {
-                numerator_ranges: negated_ranges,
+            let range = RationalOperand {
+                ranges: negated_ranges,
                 denominator_max: *denominator_max,
                 exact: exact.and_then(|(numerator, denominator)| {
                     numerator.checked_neg().map(|value| (value, denominator))
                 }),
             };
-            let ty = ValueType::rational(value.clone());
-            let mut checked = with_children(ty, Some(range), [child]);
+            let value_type = value.clone();
+            let mut checked = with_children(CheckedValue::Rational { value_type, range }, [child]);
             checked.obligations.push(obligation(
                 expression,
                 DefinednessObligationKind::CheckedRange,
@@ -3085,7 +3236,7 @@ fn check_compare(
             counter,
         ),
     )?;
-    if checked.0.value_type != checked.1.value_type {
+    if checked.0.value_type() != checked.1.value_type() {
         return Err(single(
             expression,
             DiagnosticCode::IllTypedExpression,
@@ -3093,7 +3244,7 @@ fn check_compare(
         ));
     }
     let ordered = matches!(
-        checked.0.value_type,
+        checked.0.value_type(),
         ValueType::Integer { .. } | ValueType::Rational { .. } | ValueType::Text
     );
     if !matches!(
@@ -3107,9 +3258,8 @@ fn check_compare(
             "ordering requires an ordered scalar",
         ));
     }
-    Ok(with_children(
+    Ok(with_children_type(
         ValueType::Boolean,
-        None,
         [checked.0, checked.1],
     ))
 }
@@ -3131,14 +3281,14 @@ fn check_boolean_not(
         facts,
         counter,
     )?;
-    if child.value_type != ValueType::Boolean {
+    if child.value_type() != ValueType::Boolean {
         Err(single(
             expression,
             DiagnosticCode::IllTypedExpression,
             "Boolean negate requires Boolean",
         ))
     } else {
-        Ok(with_children(ValueType::Boolean, None, [child]))
+        Ok(with_children_type(ValueType::Boolean, [child]))
     }
 }
 
@@ -3175,8 +3325,8 @@ fn check_boolean(
         counter,
     );
     let (left_checked, right_checked) = pair(left_checked, right_checked)?;
-    if left_checked.value_type != ValueType::Boolean
-        || right_checked.value_type != ValueType::Boolean
+    if left_checked.value_type() != ValueType::Boolean
+        || right_checked.value_type() != ValueType::Boolean
     {
         return Err(single(
             expression,
@@ -3184,9 +3334,8 @@ fn check_boolean(
             "Boolean operator requires Boolean operands",
         ));
     }
-    Ok(with_children(
+    Ok(with_children_type(
         ValueType::Boolean,
-        None,
         [left_checked, right_checked],
     ))
 }
@@ -3218,7 +3367,7 @@ fn check_quantifier(
         inputs.facts,
         counter,
     )?;
-    let ValueType::Collection { value } = &collection_checked.value_type else {
+    let ValueType::Collection { value } = collection_checked.value_type() else {
         return Err(single(
             expression,
             DiagnosticCode::IllTypedExpression,
@@ -3258,33 +3407,39 @@ fn check_quantifier(
         &nested_facts,
         counter,
     )?;
-    if predicate_checked.value_type != ValueType::Boolean {
+    if predicate_checked.value_type() != ValueType::Boolean {
         return Err(single(
             quantifier.predicate,
             DiagnosticCode::IllTypedExpression,
             "quantifier predicate must be Boolean",
         ));
     }
-    Ok(with_children(
+    Ok(with_children_type(
         ValueType::Boolean,
-        None,
         [collection_checked, predicate_checked],
     ))
 }
 
-fn with_children<const N: usize>(
-    value_type: ValueType,
-    range: Option<NumericRange>,
-    children: [Checked; N],
-) -> Checked {
-    with_child_vec(value_type, range, Vec::from(children))
+fn with_children<const N: usize>(value: CheckedValue, children: [Checked; N]) -> Checked {
+    with_child_vec(value, Vec::from(children))
 }
 
-fn with_child_vec(
+fn with_children_type<const N: usize>(value_type: ValueType, children: [Checked; N]) -> Checked {
+    with_children(CheckedValue::from_type(value_type), children)
+}
+
+fn with_children_refined<const N: usize>(
     value_type: ValueType,
-    range: Option<NumericRange>,
-    children: Vec<Checked>,
+    subject: &str,
+    facts: &[Fact],
+    children: [Checked; N],
 ) -> Checked {
+    let mut value = CheckedValue::from_type(value_type);
+    value.refine(subject, facts);
+    with_children(value, children)
+}
+
+fn with_child_vec(value: CheckedValue, children: Vec<Checked>) -> Checked {
     let mut nodes = Vec::new();
     let mut obligations = Vec::new();
     let mut dependencies = BTreeSet::new();
@@ -3299,13 +3454,27 @@ fn with_child_vec(
         dependencies.append(&mut child.dependencies);
     }
     Checked {
-        value_type,
-        range,
+        value,
         range_proof,
         nodes,
         obligations,
         dependencies,
     }
+}
+
+fn with_child_vec_type(value_type: ValueType, children: Vec<Checked>) -> Checked {
+    with_child_vec(CheckedValue::from_type(value_type), children)
+}
+
+fn with_child_vec_refined(
+    value_type: ValueType,
+    subject: &str,
+    facts: &[Fact],
+    children: Vec<Checked>,
+) -> Checked {
+    let mut value = CheckedValue::from_type(value_type);
+    value.refine(subject, facts);
+    with_child_vec(value, children)
 }
 
 fn compare_range_proof(left: &RangeProof, right: &RangeProof) -> std::cmp::Ordering {
@@ -3351,50 +3520,6 @@ fn dependency<const N: usize>(
         None => DependencyIdentity::new(environment.owner.clone(), kind, path),
     };
     result.map_err(|diagnostic| vec![diagnostic])
-}
-
-fn numeric_range(value_type: &ValueType) -> Option<NumericRange> {
-    match value_type {
-        ValueType::Integer { value } => {
-            Some(NumericRange::Integer(vec![(value.minimum, value.maximum)]))
-        }
-        ValueType::Rational { value } => Some(NumericRange::Rational {
-            numerator_ranges: vec![(value.numerator_minimum, value.numerator_maximum)],
-            denominator_max: value.maximum_denominator,
-            exact: None,
-        }),
-        _ => None,
-    }
-}
-
-fn refine_range(
-    range: Option<NumericRange>,
-    subject: &str,
-    facts: &[Fact],
-) -> Option<NumericRange> {
-    match range {
-        Some(NumericRange::Integer(ranges)) => Some(NumericRange::Integer(refine_integer_ranges(
-            ranges, subject, facts,
-        ))),
-        Some(NumericRange::Rational {
-            numerator_ranges,
-            denominator_max,
-            exact,
-        }) => {
-            let ranges = refine_rational_ranges(numerator_ranges, denominator_max, subject, facts);
-            let exact = exact.filter(|(numerator, _)| {
-                ranges
-                    .iter()
-                    .any(|(minimum, maximum)| numerator >= minimum && numerator <= maximum)
-            });
-            Some(NumericRange::Rational {
-                numerator_ranges: ranges,
-                denominator_max,
-                exact,
-            })
-        }
-        None => None,
-    }
 }
 
 fn refine_integer_ranges(
