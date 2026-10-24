@@ -49,8 +49,7 @@ fmt-check:
 
 .PHONY: lint
 lint:
-	$(CARGO) clippy $(LOCKED) --workspace --all-targets -- -D warnings
-	$(CARGO) clippy $(LOCKED) -p quire-contract-ir --features conformance-cli --bin quire-contract-conformance -- -D warnings
+	$(CARGO) clippy $(LOCKED) --workspace --all-targets --features conformance-cli -- -D warnings
 	# The workspace lane turns on the model's test-only fault-injection feature
 	# through the root dev-dependency; this lane checks the model as a consumer
 	# builds it, with the feature off.
@@ -70,8 +69,7 @@ spec:
 
 .PHONY: test
 test:
-	$(CARGO) test $(LOCKED) --workspace --all-targets -- --include-ignored
-	$(CARGO) test $(LOCKED) -p quire-contract-ir --features conformance-cli --bin quire-contract-conformance -- --include-ignored
+	$(CARGO) test $(LOCKED) --workspace --all-targets --features conformance-cli -- --include-ignored
 	# The model's own doctests with its test-only fault-injection feature off:
 	# they prove a default build does not export that surface (FR-019-AC-4).
 	$(CARGO) test $(LOCKED) -p quire-contract-model --doc

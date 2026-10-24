@@ -4,13 +4,18 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    path::{Path, PathBuf},
-    process::{Command, Output},
+    path::PathBuf,
+    process::Command,
 };
 
 use ix_trace_rs::trace;
+#[cfg(feature = "conformance-cli")]
 use quire_contract_model::{run_corpus, FixtureStatus, RunnerErrorCode};
 use serde_json::{json, Value};
+#[cfg(feature = "conformance-cli")]
+use std::path::Path;
+#[cfg(feature = "conformance-cli")]
+use std::process::Output;
 use syn::visit::{self, Visit};
 
 fn repository() -> PathBuf {
@@ -301,6 +306,7 @@ fn production_default_all_feature_and_msrv_builds() {
     }
 }
 
+#[cfg(feature = "conformance-cli")]
 fn runner(schemas: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_quire-contract-conformance"))
         .args(["run", "--corpus"])
@@ -311,6 +317,7 @@ fn runner(schemas: &Path) -> Output {
         .unwrap()
 }
 
+#[cfg(feature = "conformance-cli")]
 fn jsonl<T: serde::Serialize>(rows: &[T]) -> Vec<u8> {
     let mut bytes = Vec::new();
     for row in rows {
@@ -321,6 +328,7 @@ fn jsonl<T: serde::Serialize>(rows: &[T]) -> Vec<u8> {
 }
 
 #[trace("TC-041", "FR-028-AC-2")]
+#[cfg(feature = "conformance-cli")]
 #[test]
 fn model_and_root_runner_agree_on_schema_canonical_identity_diagnostic_and_corpus_results() {
     let schemas = repository().join("schemas");
@@ -408,7 +416,9 @@ fn model_and_root_runner_agree_on_schema_canonical_identity_diagnostic_and_corpu
     assert_ne!(changed, root_rows);
 }
 
+#[cfg(feature = "conformance-cli")]
 struct ScratchSchemas(PathBuf);
+#[cfg(feature = "conformance-cli")]
 impl Drop for ScratchSchemas {
     fn drop(&mut self) {
         fs::remove_dir_all(&self.0).unwrap();
@@ -416,6 +426,7 @@ impl Drop for ScratchSchemas {
 }
 
 #[trace("TC-041", "FR-028-AC-2")]
+#[cfg(feature = "conformance-cli")]
 #[test]
 fn both_paths_consume_and_refuse_a_changed_package_schema() {
     let scratch = ScratchSchemas(
