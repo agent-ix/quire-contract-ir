@@ -7,7 +7,7 @@ use quire_contract_model::{std001_code, Std001Code};
 #[trace("TC-223", "FR-030-AC-4")]
 #[test]
 fn proof_count_is_retained_and_zero_is_refused_or_classified_vacuous() {
-    let proved = KaniOutcome::proved(3, "clause:demo", "profile").expect("three checks");
+    let proved = KaniOutcome::proved_from_checks(3, "clause:demo", "profile");
     assert_eq!(proved.kind(), KaniOutcomeKind::Proved);
     assert_eq!(proved.success_checks(), Some(3));
     assert_eq!(proved.boolean_claim(), Some(true));

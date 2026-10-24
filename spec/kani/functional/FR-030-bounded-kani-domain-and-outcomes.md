@@ -137,11 +137,10 @@ Kani producer nor a QSL terminal mapper.
 The infallible methods shall use the same internal outcome-construction path
 as the existing fallible `non_success` method; they introduce no alternate
 wire envelope or compatibility layer. `non_success` remains the fallible
-entry point for callers holding a broad `KaniOutcomeKind`. This addition does
-not relax its existing rejection of `Proved` and `Counterexample`, and it
-does not claim that the planned AC-4/AC-5 constructor and field-validation
-work is implemented. In particular, adding fixed-cause infallible methods
-does not itself make invalid broad `non_success` cause requests refuse.
+entry point for callers holding a broad `KaniOutcomeKind`. The infallible
+methods retain its rejection of `Proved` and `Counterexample`. The AC-4/AC-5
+constructor and field-validation rules also make invalid broad `non_success`
+cause requests refuse.
 
 A `proved` outcome carries the number of SUCCESS checks the run's obligation completed with, and that number is at least one. When a Kani run reports a proof whose obligation completed with zero SUCCESS checks, the bounded-Kani boundary shall record `inconclusive` with the cause code `kani_vacuous_proof` and no Boolean claim, never `proved`; that classification is the one shared rule every caller that classifies a Kani run routes through.
 

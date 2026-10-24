@@ -153,6 +153,7 @@ impl TryFrom<KaniOutcomeKind> for NonSuccessKind {
 /// Its fields are private to the `kani` module so callers use validated constructors.
 ///
 /// ```compile_fail,E0451
+/// use std::num::NonZeroUsize;
 /// use quire_contract_ir::kani::{KaniOutcome, KaniOutcomeKind};
 /// use quire_contract_model::Std001Code;
 /// let _ = KaniOutcome {
@@ -160,7 +161,7 @@ impl TryFrom<KaniOutcomeKind> for NonSuccessKind {
 ///     code: Std001Code::KANI_PROVED,
 ///     source_id: "s".into(),
 ///     context: "p".into(),
-///     success_checks: Some(0),
+///     success_checks: Some(NonZeroUsize::MIN),
 /// };
 /// ```
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
