@@ -43,8 +43,8 @@ or canonicalization semantics.
 - Native/TL source parsing, native or TL semantic evaluation, solver execution
   or production monitoring; the temporal bridge constructs only the derived TL
   artifacts specified by FR-350 and owns neither language nor evaluator.
-- The Kani family lowerings for checked arithmetic, collections and objects,
-  which are the codegen backend adapter's.
+- Kani family lowerings, which are absent from Contract IR. Codegen retains
+  collection and graph lowerers; arithmetic was retired under FR-015-AC-109.
 
 ## System Overview
 
@@ -82,7 +82,8 @@ inventory separately from TC-019's determinism analysis. The registered-code
 allowance is removed; TC-456 backs NFR-002-AC-1 and TC-015 backs NFR-002-AC-3.
 FR-029 through FR-031 define the bounded-Kani extension boundary: the
 profile, finite input ABI, dispatch index and typed outcome. The
-family lowerings behind the dispatch index are the codegen backend adapter's.
+collection and graph lowerers are codegen's; arithmetic lowering was retired
+under FR-015-AC-109.
 Profile selection, the finite input/outcome firewall and module dispatch are
 implemented against the integrated codegen corpus.
 That implementation applies only to its exact selected finite profile and

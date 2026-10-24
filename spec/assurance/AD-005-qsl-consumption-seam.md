@@ -152,7 +152,8 @@ Local labels; the repository assigns requirement ids when one is authored.
 - D-3. No public item of either IR crate is a replay, witness, envelope, terminal-record or
   obligation-identity type. IR-347 removed `KaniProviderResult` and `KaniProviderRecord` from
   `src/kani/outcome.rs` and their re-exports from `src/kani/mod.rs` (FR-039-AC-3). The complete
-  TC-055 public-inventory check remains planned.
+  TC-055 public-inventory check is implemented; its TC-041 negative-corpus reference
+  remains unresolved (FR-039-AC-4).
 - D-4. Every public item QSL reads is exported by name from the model crate's root, with no
   glob (FR-019; implemented under IR-347).
 - D-5. A package QSL emits for each node family and semantic form QSL can produce is admitted at
@@ -169,8 +170,8 @@ What is measured today, what is open and with whom, and what is routed.
 - IR-347 replaced the model crate's seven root glob re-exports with the named FR-019 public
   inventory. QSL depends on that model package under the local name `quire-contract-ir`.
 - IR-347 removed the IR root crate's model re-export and the obsolete `tc_041` bridge test.
-  Codegen imports the model crate directly (AD-006). FR-039-AC-1 still needs TC-055's complete
-  root public-inventory check; removing the bridge alone does not back that criterion.
+  Codegen imports the model crate directly (AD-006). TC-055 now backs FR-039-AC-1's
+  complete root public-inventory check.
 - D-2 has no by-name check. AD-001 says runtime has no dependency in either direction with IR; codegen
   depends on IR and would close a cycle if IR depended on it. Today nothing in IR fails if an edge
   is added by name (`deny.toml` `[bans]` has no `deny` list); a git edge to the QSL, codegen or
@@ -215,6 +216,5 @@ Answered, no longer routed (QSL's answer as relayed by the IR planner, untrusted
 
 To QSpec: none added by this AD.
 
-IR-owned items (D-2 coverage; removal of the glob, the bridge, the exported `KaniProvider*` items and the
-Kani family lowerings) stay in this repository and are IR-347 scope (the planner's relayed decision);
-no new ticket is filed.
+IR-347 removed the root glob, bridge, exported `KaniProvider*` items and Kani family
+lowerings. D-2 dependency coverage remains IR-owned under IR-343; no new ticket is filed here.
