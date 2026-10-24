@@ -1,8 +1,8 @@
 //! QSpec FR-481 hybrid node wire shapes and model joins.
 
 use super::{
-    CheckedNodeKind, CheckedSemanticNodeV2, CheckedTerm, HybridForm, LiteralKind, ScalarTypeForm,
-    TemporalForm, ValueForm, WorkMeter,
+    CheckedNodeKind, CheckedTerm, HybridForm, LiteralKind,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, ScalarTypeForm, TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{exact_members, node_pointer, ValidationFailure};
 use crate::checked_package::shared::{

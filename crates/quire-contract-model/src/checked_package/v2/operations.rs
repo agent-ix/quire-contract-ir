@@ -62,11 +62,11 @@ use super::structural::{typed_union_type_body, typed_union_value_body, UnionMemb
 use super::temporal::member_is_well_formed;
 use super::{
     ApplicationOperator, BodyTerm, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId,
-    CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedSemanticNodeV2, CheckedTerm,
-    ClaimForm, CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, LawRole,
-    LiteralKind, ModelForm, NominalIdentityPreimage, OperationConstraintKind, OperationMemberKind,
-    OperationModeKind, ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm,
-    ValueForm, WorkMeter,
+    CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedTerm, ClaimForm,
+    CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, LawRole, LiteralKind,
+    ModelForm, NominalIdentityPreimage, OperationConstraintKind, OperationMemberKind,
+    OperationModeKind, ProtocolForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm,
+    ScalarTypeForm, StateForm, TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::common::{body_term, decoder_pointer, node_pointer, NODE_DOMAIN};
@@ -1354,11 +1354,14 @@ pub(super) enum FamilyResolution {
     Malformed(CheckedNodeId),
 }
 
-pub(super) fn resolve_family_with<'a, E>(
+pub(super) fn resolve_family_with<'a, E, Body: 'a>(
     type_id: &CheckedNodeId,
     mut visit: impl FnMut(
         FamilyVisit<'_>,
-    ) -> Result<Option<(&'a CheckedSemanticNodeV2, CheckedNodeKind)>, E>,
+    ) -> Result<
+        Option<(&'a super::CheckedSemanticNodeV2<Body>, CheckedNodeKind)>,
+        E,
+    >,
 ) -> Result<FamilyResolution, E> {
     let mut seen = BTreeSet::new();
     let mut current = type_id;

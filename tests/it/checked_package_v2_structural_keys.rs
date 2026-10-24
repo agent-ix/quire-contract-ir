@@ -27,10 +27,12 @@ use quire_contract_model::{
     ApplicationIdentityContext, ApplicationNodeDraft, CheckedPackageDispatchResult,
     CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CheckedSemanticNodeV2, StructuralCandidateError,
+    CheckedPackageV2ReadResult, StructuralCandidateError,
 };
 use serde_json::{json, Value};
 use std::collections::HashMap;
+
+type CheckedSemanticNodeV2 = quire_contract_model::CheckedSemanticNodeV2<Value>;
 
 const I128_MIN: &str = "-170141183460469231731687303715884105728";
 const I128_MAX: &str = "170141183460469231731687303715884105727";

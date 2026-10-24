@@ -155,7 +155,11 @@ fn tc_048_a_refusal_inside_a_string_value_records_the_encoders_required_count() 
 #[test]
 fn tc_048_a_refusal_that_is_not_the_byte_limit_records_one_above_the_limit() {
     let mut node = projection();
-    node.body = json!({"term": "literal", "value": 9_007_199_254_740_993_i64});
+    node.body = super::super::CheckedTerm::Literal {
+        type_id: node.semantic_type.clone(),
+        value_kind: super::super::LiteralKind::Integer,
+        value: json!(9_007_199_254_740_993_i64),
+    };
     let preimage = LoweredNodePreimage {
         version: LOWERED_NODE_PREIMAGE,
         node,

@@ -583,14 +583,14 @@ fn tc_048_the_checked_package_source_holds_no_encoder_of_its_own() {
             assert_eq!(hits, 0, "{}: `{symbol}` x{hits}", path.display());
         }
     }
-    // `serde_json::to_value` is left in exactly the places that do not reach a
-    // digest, a key, a preimage or a term order: the first-difference pointer
-    // of the reader (`v2/mod.rs`: the lock and selection comparison) and the literal-`type` comparison of an enum member body
-    // (`v2/identity.rs`). The lossless intake walks borrowed source slices
-    // and typed serialization without constructing a Value tree.
+    // `serde_json::to_value` is limited to the reader's first-difference
+    // pointer comparisons, the enum-member literal-type comparison, and one
+    // typed producer draft projection into the existing pre-read candidate
+    // algorithm. That projection is not used by admitted package identity or
+    // lossless intake; the candidate still uses quire-canonical for its digest.
     // Any other call, or another in those files, fails.
     let expected: [(&str, usize); 3] =
-        [("v2/mod.rs", 2), ("v2/intake.rs", 0), ("v2/identity.rs", 1)];
+        [("v2/mod.rs", 3), ("v2/intake.rs", 0), ("v2/identity.rs", 1)];
     for (path, text) in &sources {
         let hits = text.matches("serde_json::to_value").count();
         let allowed = expected

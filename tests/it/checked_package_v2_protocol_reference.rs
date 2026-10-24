@@ -122,10 +122,10 @@ fn protocol_reference_reads_both_protocol_target_forms_and_rekeys_on_retarget() 
     }));
     assert_eq!(
         first.graph().nodes[position].dependencies,
-        vec![
-            serde_json::from_value(first.graph().nodes[position].body["target"].clone())
-                .expect("typed target")
-        ]
+        vec![match &first.graph().nodes[position].body {
+            quire_contract_model::CheckedTerm::Reference { target } => target.clone(),
+            other => panic!("expected typed reference, got {other:?}"),
+        }]
     );
 
     let role = role_target(&mut package);

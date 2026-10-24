@@ -32,7 +32,7 @@ use super::{
     body_grammar, BodyGrammar, CheckedNodeId, CheckedNodeKind, CheckedNodeTag, HybridForm,
     TemporalForm, ValueForm,
 };
-use super::{ApplicationOperator, BodyTerm, CheckedPackageWireV2};
+use super::{ApplicationOperator, BodyTerm, RawCheckedPackageWireV2 as CheckedPackageWireV2};
 use crate::checked_package::common::{
     application_operator, body_term, Step, Trail, ValidationFailure,
 };
@@ -521,7 +521,7 @@ mod tests {
     use crate::checked_package::common::Trail;
     use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
     use crate::checked_package::v2::{
-        CheckedNodeTag, CheckedPackageWireV2, ExtensionForm, HybridForm, TimedModelForm,
+        CheckedNodeTag, ExtensionForm, HybridForm, RawCheckedPackageWireV2, TimedModelForm,
     };
     use ix_trace_rs::trace;
     use serde_json::{json, Map, Value};
@@ -547,7 +547,7 @@ mod tests {
         })
     }
 
-    fn header_wire(nodes: Vec<Value>) -> CheckedPackageWireV2 {
+    fn header_wire(nodes: Vec<Value>) -> RawCheckedPackageWireV2 {
         serde_json::from_value(json!({
             "contract_version": "quire.checked-package/v2",
             "identity_preimage": {

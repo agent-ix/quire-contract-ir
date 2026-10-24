@@ -20,10 +20,10 @@ fn typed<T: DeserializeOwned>(value: &Value) -> T {
     serde_json::from_value(value.clone()).expect("typed fixture member")
 }
 
-fn borrowed_preimage<'a>(
+fn borrowed_preimage<'a, Body>(
     owned: &'a CheckedPackageIdentityPreimageV2,
-    nodes: &'a [CheckedSemanticNodeV2],
-) -> CheckedPackageIdentityPreimageRefV2<'a> {
+    nodes: &'a [CheckedSemanticNodeV2<Body>],
+) -> CheckedPackageIdentityPreimageRefV2<'a, Body> {
     CheckedPackageIdentityPreimageRefV2 {
         version: &owned.version,
         edition: &owned.edition,
@@ -57,7 +57,7 @@ fn encode(value: &Value, limits: Limits) -> Result<Vec<u8>, Error> {
     let preimage: CheckedPackageIdentityPreimageV2 = typed(&value["identity_preimage"]);
     let package_id: CheckedSemanticId = typed(&value["package_id"]);
     let lock: CheckedPackageLockV2 = typed(&value["lock"]);
-    let graph: CheckedSemanticGraphV2 = typed(&value["semantic_graph"]);
+    let graph: CheckedSemanticGraphV2<Value> = typed(&value["semantic_graph"]);
     let source_map: Vec<CheckedSourceMapEntry> = typed(&value["source_map"]);
     let capabilities: Vec<CheckedCapability> = typed(&value["capability_report"]);
     let diagnostics: CheckedDiagnosticsV2 = typed(&value["diagnostics"]);
@@ -89,7 +89,7 @@ fn refused(
 fn tc_451_borrowed_projection_matches_owned_for_empty_nested_and_optional_cases() {
     fn assert_same(value: &Value) {
         let owned: CheckedPackageIdentityPreimageV2 = typed(&value["identity_preimage"]);
-        let graph: CheckedSemanticGraphV2 = typed(&value["semantic_graph"]);
+        let graph: CheckedSemanticGraphV2<Value> = typed(&value["semantic_graph"]);
         let borrowed = borrowed_preimage(&owned, &graph.nodes);
         let limits = Limits::new(u64::MAX);
         let expected_input = hash_input(value);
@@ -128,7 +128,7 @@ fn tc_451_borrowed_projection_matches_owned_for_empty_nested_and_optional_cases(
     }
 
     let value = v2_all_families();
-    let graph: CheckedSemanticGraphV2 = typed(&value["semantic_graph"]);
+    let graph: CheckedSemanticGraphV2<Value> = typed(&value["semantic_graph"]);
     assert!(graph.nodes.iter().any(|node| !node.occurrences.is_empty()));
     assert!(graph.nodes.iter().any(|node| node.declaration.is_some()));
     assert!(graph.nodes.iter().any(|node| node.owner.is_some()));
@@ -201,7 +201,7 @@ fn tc_451_borrowed_and_owned_projection_refuse_the_same_invalid_body() {
     let too_large = json!(9_007_199_254_740_993_u64);
     value["semantic_graph"]["nodes"][0]["body"] = too_large.clone();
     let owned: CheckedPackageIdentityPreimageV2 = typed(&value["identity_preimage"]);
-    let graph: CheckedSemanticGraphV2 = typed(&value["semantic_graph"]);
+    let graph: CheckedSemanticGraphV2<Value> = typed(&value["semantic_graph"]);
     let borrowed = borrowed_preimage(&owned, &graph.nodes);
     assert!(matches!(
         quire_canonical::to_vec(&borrowed, Limits::new(u64::MAX)),
@@ -235,8 +235,9 @@ fn tc_451_borrowed_projection_can_differ_from_the_supplied_graph() {
     let evidence = evidence_for(&value);
 
     let mut independent_nodes = graph.nodes.clone();
-    let changed_body = json!({"independent_projection": true});
-    independent_nodes[0].body = changed_body.clone();
+    let changed_body = json!({"term":"reference","target":independent_nodes[0].node_id});
+    independent_nodes[0].body =
+        serde_json::from_value(changed_body.clone()).expect("typed changed body");
     let borrowed = borrowed_preimage(&original, &independent_nodes);
     let different_digest = quire_canonical::sha256(&borrowed, Limits::new(u64::MAX))
         .unwrap()

@@ -1321,7 +1321,11 @@ fn lowers_as_data(case: &str, package: &Value, node: &str, tag: CheckedNodeTag) 
         wire,
         "{case}"
     );
-    assert_eq!(lowered.node.body, wire["body"], "{case}");
+    assert_eq!(
+        serde_json::to_value(&lowered.node.body).expect("typed body"),
+        wire["body"],
+        "{case}"
+    );
     assert_eq!(lowered.ir_id.domain.as_ref(), CONTRACT_IR_SEMANTIC_DOMAIN);
     assert_eq!(
         lowered.ir_id.digest.as_ref(),

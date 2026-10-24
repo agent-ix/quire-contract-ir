@@ -42,7 +42,7 @@
 use super::model_fields::{DeclarationIndex, DeclaredNode, FieldTables, Selected};
 use super::{
     member_pointer, CheckedDeclaration, CheckedDomainPackageRef, CheckedNodeOwner, CheckedNodeTag,
-    CheckedSemanticNodeV2, ValidationFailure, WorkMeter,
+    CheckedSemanticNodeV2, CheckedTerm, ValidationFailure, WorkMeter,
 };
 use crate::checked_package::common::{pointer_from_steps, Step, NODE_DOMAIN};
 use crate::checked_package::evidence::CheckedPackageEvidence;
@@ -54,6 +54,23 @@ use ix_trace_rs::string_edge;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::Serialize;
 use serde_json::{json, Value};
+
+/// The fixed declaration body shape in raw intake and admitted typed nodes.
+pub(super) trait EmptyAggregateBody {
+    fn is_empty_aggregate(&self) -> bool;
+}
+
+impl EmptyAggregateBody for Value {
+    fn is_empty_aggregate(&self) -> bool {
+        *self == json!({"term": "aggregate", "members": []})
+    }
+}
+
+impl EmptyAggregateBody for CheckedTerm {
+    fn is_empty_aggregate(&self) -> bool {
+        matches!(self, Self::Aggregate { members } if members.is_empty())
+    }
+}
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -1337,9 +1354,9 @@ impl<'m> ModelOwners<'m> {
     /// Whether `node` is a model declaration node: a `model` or `relation`
     /// node that carries no `declaration`, or whose key is a selected
     /// declaration's model declaration node key.
-    pub(super) fn is_model_declaration_node(
+    pub(super) fn is_model_declaration_node<Body>(
         &self,
-        node: &CheckedSemanticNodeV2,
+        node: &CheckedSemanticNodeV2<Body>,
         tag: CheckedNodeTag,
     ) -> bool {
         matches!(tag, CheckedNodeTag::Model | CheckedNodeTag::Relation)
@@ -1348,17 +1365,16 @@ impl<'m> ModelOwners<'m> {
     }
 
     /// FR-322 step 2 over one wire node.
-    pub(super) fn recover(&self, node: &CheckedSemanticNodeV2) -> Result<Owner<'m>, ModelRefusal> {
+    pub(super) fn recover<Body: EmptyAggregateBody>(
+        &self,
+        node: &CheckedSemanticNodeV2<Body>,
+    ) -> Result<Owner<'m>, ModelRefusal> {
         let owner = self
             .by_key
             .get(node.node_id.digest.as_ref())
             .copied()
             .ok_or_else(ModelRefusal::unselected)?;
-        check_declaration_node(
-            owner.form,
-            node,
-            node.body == json!({"term": "aggregate", "members": []}),
-        )?;
+        check_declaration_node(owner.form, node, node.body.is_empty_aggregate())?;
         Ok(owner)
     }
 
@@ -1399,9 +1415,9 @@ impl<'m> ModelOwners<'m> {
 /// (`invalid_package`/`stale-node-key` otherwise). The one statement of the
 /// rule: [`ModelOwners::recover`] at admission and the field accessor of an
 /// admitted package both apply it.
-pub(super) fn check_declaration_node(
+pub(super) fn check_declaration_node<Body>(
     form: DeclarationForm,
-    node: &CheckedSemanticNodeV2,
+    node: &CheckedSemanticNodeV2<Body>,
     body_is_empty_aggregate: bool,
 ) -> Result<(), ModelRefusal> {
     if form.tag() != node.node_tag.as_ref() || form.form() != node.semantic_form.as_ref() {
@@ -1428,9 +1444,9 @@ impl<'m> ModelOwners<'m> {
     /// or the refusal the first failing step determined. Step 3's charges
     /// go to `meter` at the owner's selection row; an exhausted limit is the
     /// outer error.
-    pub(super) fn resolve_member(
+    pub(super) fn resolve_member<Body: EmptyAggregateBody>(
         &self,
-        node: &CheckedSemanticNodeV2,
+        node: &CheckedSemanticNodeV2<Body>,
         kind: MemberKind,
         name: &str,
         meter: &mut WorkMeter,

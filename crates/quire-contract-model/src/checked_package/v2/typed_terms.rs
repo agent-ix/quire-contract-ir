@@ -7,11 +7,12 @@
 
 use super::{ApplicationOperator, BodyTerm, LiteralKind};
 use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedSemanticId};
+use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{error::Category, Value};
 
 /// A body term in an admitted checked-package V2 node.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "term", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CheckedTerm {
     /// A typed scalar literal.
@@ -105,9 +106,169 @@ pub(super) enum TermConversionCause {
 }
 
 impl CheckedTerm {
+    /// Return nested reference targets in term order, excluding type IDs and
+    /// other node identities.
+    pub fn reference_targets(&self) -> Vec<&CheckedNodeId> {
+        let mut targets = Vec::new();
+        self.visit_reference_targets(&mut |target| targets.push(target));
+        targets
+    }
+
+    fn visit_reference_targets<'a>(&'a self, visitor: &mut impl FnMut(&'a CheckedNodeId)) {
+        match self {
+            Self::Reference { target } => visitor(target),
+            Self::Application { arguments, .. } => {
+                for argument in arguments {
+                    argument.visit_reference_targets(visitor);
+                }
+            }
+            Self::Aggregate { members } => {
+                for member in members {
+                    member.visit_reference_targets(visitor);
+                }
+            }
+            Self::Binding { value, .. } => value.visit_reference_targets(visitor),
+            Self::ExtensionForm { clauses, .. } => {
+                for clause in clauses {
+                    clause.visit_reference_targets(visitor);
+                }
+            }
+            Self::Literal { .. }
+            | Self::DependencyReference { .. }
+            | Self::Frame { .. }
+            | Self::AbstractionRelation { .. } => {}
+        }
+    }
+
+    /// Substitute an exact node identity in this term's typed fields and
+    /// closed operation payloads without changing ordinary strings.
+    pub fn replace_node_id(&mut self, old: &CheckedNodeId, new: &CheckedNodeId) {
+        fn replace(id: &mut CheckedNodeId, old: &CheckedNodeId, new: &CheckedNodeId) {
+            if id == old {
+                *id = new.clone();
+            }
+        }
+        match self {
+            Self::Literal { type_id, value, .. } => {
+                replace(type_id, old, new);
+                replace_node_ids_in_value(value, old, new);
+            }
+            Self::Reference { target } => replace(target, old, new),
+            Self::Application {
+                operation,
+                result_type,
+                arguments,
+                ..
+            } => {
+                replace_node_ids_in_value(operation, old, new);
+                replace(result_type, old, new);
+                for argument in arguments {
+                    argument.replace_node_id(old, new);
+                }
+            }
+            Self::Aggregate { members } => {
+                for member in members {
+                    member.replace_node_id(old, new);
+                }
+            }
+            Self::Binding { value, .. } => value.replace_node_id(old, new),
+            Self::DependencyReference { node, .. } => replace(node, old, new),
+            Self::Frame {
+                modifies,
+                creates,
+                deletes,
+                ..
+            } => {
+                for modification in modifies {
+                    match modification {
+                        CheckedFrameModification::Relationship { declaration }
+                        | CheckedFrameModification::Field { declaration, .. } => {
+                            replace(declaration, old, new)
+                        }
+                    }
+                }
+                for id in creates.iter_mut().chain(deletes) {
+                    replace(id, old, new);
+                }
+            }
+            Self::AbstractionRelation {
+                objects,
+                populations,
+                frames,
+            } => {
+                for object in objects {
+                    replace(&mut object.type_id, old, new);
+                }
+                for population in populations {
+                    replace(&mut population.population, old, new);
+                }
+                for frame in frames {
+                    replace(&mut frame.context, old, new);
+                }
+            }
+            Self::ExtensionForm { clauses, .. } => {
+                for clause in clauses {
+                    clause.replace_node_id(old, new);
+                }
+            }
+        }
+    }
+    /// Construct a checked reference body without an untyped JSON intermediate.
+    pub fn reference(target: CheckedNodeId) -> Self {
+        Self::Reference { target }
+    }
+
+    /// Construct an ordered checked aggregate body.
+    pub fn aggregate(members: Vec<Self>) -> Self {
+        Self::Aggregate { members }
+    }
+
+    /// Construct one named aggregate member.
+    pub fn binding(name: impl Into<Box<str>>, value: Self) -> Self {
+        Self::Binding {
+            name: name.into(),
+            value: Box::new(value),
+        }
+    }
+
+    /// Construct a text literal; the wire payload is a JSON string.
+    pub fn literal_text(type_id: CheckedNodeId, value: impl Into<Box<str>>) -> Self {
+        Self::Literal {
+            type_id,
+            value_kind: LiteralKind::Text,
+            value: Value::String(value.into().into()),
+        }
+    }
+
+    /// Construct a rational literal; the wire payload is a JSON string.
+    pub fn literal_rational(type_id: CheckedNodeId, value: impl Into<Box<str>>) -> Self {
+        Self::Literal {
+            type_id,
+            value_kind: LiteralKind::Rational,
+            value: Value::String(value.into().into()),
+        }
+    }
+
+    /// Construct a quantity literal; the wire payload is a JSON string.
+    pub fn literal_quantity(type_id: CheckedNodeId, value: impl Into<Box<str>>) -> Self {
+        Self::Literal {
+            type_id,
+            value_kind: LiteralKind::Quantity,
+            value: Value::String(value.into().into()),
+        }
+    }
+
+    /// Construct a nonnegative integer literal; the wire payload is a JSON number.
+    pub fn literal_integer(type_id: CheckedNodeId, value: u64) -> Self {
+        Self::Literal {
+            type_id,
+            value_kind: LiteralKind::Integer,
+            value: Value::Number(value.into()),
+        }
+    }
+
     /// Decodes only a body that the reader's flat and closed-shape checks
-    /// already accepted. This is deliberately not a public Deserialize impl:
-    /// an arbitrary recursive wire term has no standalone depth bound.
+    /// already accepted. Public serde decoding does not provide that bound.
     pub(super) fn decode_admitted(value: &Value) -> Result<Self, TermConversionCause> {
         fn field<T: DeserializeOwned>(
             value: &Value,
@@ -200,8 +361,157 @@ impl CheckedTerm {
     }
 }
 
+impl Encode for CheckedTerm {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        match self {
+            Self::Literal {
+                type_id,
+                value_kind,
+                value,
+            } => {
+                writer.name("term")?;
+                writer.string("literal")?;
+                writer.name("type")?;
+                writer.serialize(type_id)?;
+                writer.name("value_kind")?;
+                writer.serialize(value_kind)?;
+                writer.name("value")?;
+                value.encode_into(writer)?;
+            }
+            Self::Reference { target } => {
+                writer.name("term")?;
+                writer.string("reference")?;
+                writer.name("target")?;
+                writer.serialize(target)?;
+            }
+            Self::Application {
+                operator,
+                operation,
+                result_type,
+                arguments,
+            } => {
+                writer.name("term")?;
+                writer.string("application")?;
+                writer.name("operator")?;
+                writer.serialize(operator)?;
+                writer.name("operation")?;
+                operation.encode_into(writer)?;
+                writer.name("result_type")?;
+                writer.serialize(result_type)?;
+                writer.name("arguments")?;
+                writer.begin_array()?;
+                for argument in arguments {
+                    argument.encode_into(writer)?;
+                }
+                writer.end_array()?;
+            }
+            Self::Aggregate { members } => {
+                writer.name("term")?;
+                writer.string("aggregate")?;
+                writer.name("members")?;
+                writer.begin_array()?;
+                for member in members {
+                    member.encode_into(writer)?;
+                }
+                writer.end_array()?;
+            }
+            Self::Binding { name, value } => {
+                writer.name("term")?;
+                writer.string("binding")?;
+                writer.name("name")?;
+                writer.string(name)?;
+                writer.name("value")?;
+                value.encode_into(writer)?;
+            }
+            Self::DependencyReference { package, node } => {
+                writer.name("term")?;
+                writer.string("dependency_reference")?;
+                writer.name("package")?;
+                writer.serialize(package)?;
+                writer.name("node")?;
+                writer.serialize(node)?;
+            }
+            Self::Frame {
+                modifies,
+                creates,
+                deletes,
+                deletes_scoped,
+            } => {
+                writer.name("term")?;
+                writer.string("frame")?;
+                writer.name("modifies")?;
+                writer.serialize(modifies)?;
+                writer.name("creates")?;
+                writer.serialize(creates)?;
+                writer.name("deletes")?;
+                writer.serialize(deletes)?;
+                writer.name("deletes_scoped")?;
+                writer.serialize(deletes_scoped)?;
+            }
+            Self::AbstractionRelation {
+                objects,
+                populations,
+                frames,
+            } => {
+                writer.name("term")?;
+                writer.string("abstraction_relation")?;
+                writer.name("objects")?;
+                writer.serialize(objects)?;
+                writer.name("populations")?;
+                writer.serialize(populations)?;
+                writer.name("frames")?;
+                writer.serialize(frames)?;
+            }
+            Self::ExtensionForm {
+                definition,
+                node_kind,
+                clauses,
+            } => {
+                writer.name("term")?;
+                writer.string("extension_form")?;
+                writer.name("definition")?;
+                writer.serialize(definition)?;
+                writer.name("node_kind")?;
+                writer.string(node_kind)?;
+                writer.name("clauses")?;
+                writer.begin_array()?;
+                for clause in clauses {
+                    clause.encode_into(writer)?;
+                }
+                writer.end_array()?;
+            }
+        }
+        writer.end_object()
+    }
+}
+
+fn replace_node_ids_in_value(value: &mut Value, old: &CheckedNodeId, new: &CheckedNodeId) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                replace_node_ids_in_value(item, old, new);
+            }
+        }
+        Value::Object(object) => {
+            if object.len() == 2
+                && object.get("domain").and_then(Value::as_str) == Some(old.domain.as_ref())
+                && object.get("digest").and_then(Value::as_str) == Some(old.digest.as_ref())
+            {
+                object.insert("domain".into(), Value::String(new.domain.to_string()));
+                object.insert("digest".into(), Value::String(new.digest.to_string()));
+            } else {
+                for member in object.values_mut() {
+                    replace_node_ids_in_value(member, old, new);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 /// One frame write grant.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CheckedFrameModification {
     /// A relationship declaration.
@@ -221,7 +531,7 @@ pub enum CheckedFrameModification {
 }
 
 /// The scope of one frame field grant.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(rename_all = "kebab-case")]
 pub enum CheckedFieldScope {
     /// Every object in the frame.
@@ -231,7 +541,7 @@ pub enum CheckedFieldScope {
 }
 
 /// One scoped deletion grant.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CheckedScopedDeletion {
     /// Delete the receiver.
@@ -244,7 +554,7 @@ pub enum CheckedScopedDeletion {
 }
 
 /// One abstraction object mapping.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedAbstractionObject {
     /// Model type node.
@@ -258,7 +568,7 @@ pub struct CheckedAbstractionObject {
 }
 
 /// One abstraction field mapping.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedAbstractionField {
     /// Model field.
@@ -269,7 +579,7 @@ pub struct CheckedAbstractionField {
 }
 
 /// One abstraction population mapping.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedAbstractionPopulation {
     /// Population node.
@@ -279,7 +589,7 @@ pub struct CheckedAbstractionPopulation {
 }
 
 /// One abstraction frame mapping.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedAbstractionFrame {
     /// Context node.
@@ -295,7 +605,7 @@ pub struct CheckedAbstractionFrame {
 }
 
 /// One abstraction parameter mapping.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedAbstractionParameter {
     /// Model parameter.
@@ -309,6 +619,7 @@ pub struct CheckedAbstractionParameter {
 mod tests {
     use super::{CheckedTerm, TermConversionCause};
     use ix_trace_rs::trace;
+    use quire_canonical::{to_vec, Limits};
     use serde_json::{error::Category, json};
 
     #[trace("TC-048")]
@@ -469,11 +780,45 @@ mod tests {
                     CheckedTerm::DependencyReference { .. }
                 ));
             }
-            assert_eq!(serde_json::to_value(term).expect("term serializes"), body);
+            assert_eq!(serde_json::to_value(&term).expect("term serializes"), body);
+            assert_eq!(
+                to_vec(&term, Limits::new(u64::MAX)).expect("term encodes"),
+                to_vec(&body, Limits::new(u64::MAX)).expect("wire encodes"),
+                "typed {expected} canonical bytes"
+            );
         }
         assert!(
             CheckedTerm::decode_admitted(&json!({"term":"group_reference","ordinal":0})).is_err(),
             "a preimage-only group reference cannot become a wire term"
         );
+    }
+
+    #[trace("FR-349-AC-1", "FR-349-AC-3")]
+    #[test]
+    fn public_producer_helpers_build_typed_terms_and_visit_reference_targets() {
+        let node = serde_json::from_value(json!({
+            "domain": "quire.checked-semantic-node/v1", "digest": "a".repeat(64)
+        }))
+        .expect("node identity");
+        let replacement: crate::checked_package::shared::CheckedNodeId =
+            serde_json::from_value(json!({
+                "domain": "quire.checked-semantic-node/v1", "digest": "b".repeat(64)
+            }))
+            .expect("replacement identity");
+        let mut body = CheckedTerm::aggregate(vec![
+            CheckedTerm::binding("member", CheckedTerm::reference(node)),
+            CheckedTerm::literal_text(replacement.clone(), "plain text"),
+        ]);
+        let targets = body.reference_targets();
+        assert_eq!(targets.len(), 1);
+        let old = targets[0].clone();
+        body.replace_node_id(&old, &replacement);
+        assert_eq!(body.reference_targets(), [&replacement]);
+        let wire = serde_json::to_value(&body).expect("producer term serializes");
+        assert_eq!(
+            wire["members"][0]["value"]["target"]["digest"],
+            "b".repeat(64)
+        );
+        assert_eq!(wire["members"][1]["value"], "plain text");
     }
 }

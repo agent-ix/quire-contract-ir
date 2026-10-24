@@ -45,16 +45,18 @@ fn admits(value: &Value) {
 
 fn admitted_frame_body(value: &Value) -> Value {
     match read(value) {
-        CheckedPackageV2ReadResult::Admitted(package) => package
-            .graph()
-            .nodes
-            .iter()
-            .find(|node| {
-                node.node_tag.as_ref() == "state" && node.semantic_form.as_ref() == "frame"
-            })
-            .expect("admitted frame")
-            .body
-            .clone(),
+        CheckedPackageV2ReadResult::Admitted(package) => serde_json::to_value(
+            &package
+                .graph()
+                .nodes
+                .iter()
+                .find(|node| {
+                    node.node_tag.as_ref() == "state" && node.semantic_form.as_ref() == "frame"
+                })
+                .expect("admitted frame")
+                .body,
+        )
+        .expect("typed frame body"),
         other => panic!("expected admission, read {other:?}"),
     }
 }

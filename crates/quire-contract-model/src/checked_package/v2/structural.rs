@@ -65,10 +65,10 @@
 use super::identity::is_identifier;
 use super::{ApplicationOperator, BodyTerm, LiteralKind, OperationMemberKind, StateClauseKind};
 use super::{
-    BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, CheckedSemanticNodeV2, ClaimForm,
-    CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm,
-    NominalIdentityPreimage, ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm,
-    ValueForm,
+    BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, ClaimForm, CompositeTypeForm,
+    CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm, NominalIdentityPreimage,
+    ProtocolForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, ScalarTypeForm,
+    StateForm, TemporalForm, ValueForm,
 };
 use crate::checked_package::common::{
     body_term, exact_members, is_digest, node_pointer, ValidationFailure, NODE_DOMAIN,
@@ -760,6 +760,18 @@ pub(super) fn reference_type_target(node: &CheckedSemanticNodeV2) -> Option<Chec
         return None;
     };
     reference_target(target)
+}
+
+pub(super) fn reference_type_target_typed(
+    node: &super::CheckedSemanticNodeV2,
+) -> Option<CheckedNodeId> {
+    let super::CheckedTerm::Aggregate { members } = &node.body else {
+        return None;
+    };
+    let [super::CheckedTerm::Reference { target }] = members.as_slice() else {
+        return None;
+    };
+    Some(target.clone())
 }
 
 /// One member of a `composite_type`/`union` node (QSpec FR-440): its name and

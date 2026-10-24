@@ -12,6 +12,25 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use thiserror::Error;
 
+/// Decode a raw candidate or borrow an already typed admitted body.
+pub(super) trait ScalarBody {
+    fn checked_term(&self) -> Result<Cow<'_, CheckedTerm>, ()>;
+}
+
+impl ScalarBody for Value {
+    fn checked_term(&self) -> Result<Cow<'_, CheckedTerm>, ()> {
+        CheckedTerm::decode_admitted(self)
+            .map(Cow::Owned)
+            .map_err(|_| ())
+    }
+}
+
+impl ScalarBody for CheckedTerm {
+    fn checked_term(&self) -> Result<Cow<'_, CheckedTerm>, ()> {
+        Ok(Cow::Borrowed(self))
+    }
+}
+
 #[cfg(test)]
 mod scan_probe {
     use std::cell::Cell;
@@ -102,22 +121,22 @@ pub enum CheckedScalarOperandError {
 }
 
 /// One IR-owned parse of an admitted scalar argument, shared by both package views.
-pub(super) struct ScalarArgument<'a> {
+pub(super) struct ScalarArgument<'a, Body> {
     pub(super) ordinal: u64,
-    pub(super) child: ScalarArgumentChild<'a>,
+    pub(super) child: ScalarArgumentChild<'a, Body>,
     pub(super) own_range: Result<CheckedScalarOperandRange, CheckedScalarOperandError>,
 }
 
-pub(super) enum ScalarArgumentChild<'a> {
-    Graph(&'a CheckedSemanticNodeV2),
+pub(super) enum ScalarArgumentChild<'a, Body> {
+    Graph(&'a CheckedSemanticNodeV2<Body>),
     InlineInteger(BigInt),
 }
 
-fn graph_node<'a>(
-    nodes: &'a [CheckedSemanticNodeV2],
+fn graph_node<'a, Body>(
+    nodes: &'a [CheckedSemanticNodeV2<Body>],
     positions: &BTreeMap<CheckedNodeId, usize>,
     id: &CheckedNodeId,
-) -> Option<(usize, &'a CheckedSemanticNodeV2)> {
+) -> Option<(usize, &'a CheckedSemanticNodeV2<Body>)> {
     let position = *positions.get(id)?;
     nodes
         .get(position)
@@ -134,23 +153,24 @@ fn graph_node<'a>(
 /// the admitted-package view retains each position when an own range is absent.
 /// Per-position laziness preserves the checked view's first-error order when
 /// an early range is absent and a later argument is malformed.
-pub(super) fn scalar_arguments<'a>(
-    nodes: &'a [CheckedSemanticNodeV2],
+pub(super) fn scalar_arguments<'a, Body: ScalarBody>(
+    nodes: &'a [CheckedSemanticNodeV2<Body>],
     positions: &'a BTreeMap<CheckedNodeId, usize>,
     kinds: &'a [CheckedNodeKind],
-    node: &'a CheckedSemanticNodeV2,
+    node: &'a CheckedSemanticNodeV2<Body>,
     retained: Option<&'a CheckedTerm>,
     retained_terms: Option<&'a [CheckedTerm]>,
-) -> Result<ScalarArguments<'a>, CheckedScalarOperandError> {
+) -> Result<ScalarArguments<'a, Body>, CheckedScalarOperandError> {
     use CheckedScalarOperandError as Error;
 
     // ContractPackageV1 does not retain a second body copy. Its admitted
     // root is decoded on demand; CheckedPackageV2 borrows its retained tree.
     let term = match retained {
         Some(term) => Cow::Borrowed(term),
-        None => {
-            Cow::Owned(CheckedTerm::decode_admitted(&node.body).map_err(|_| Error::NotApplication)?)
-        }
+        None => node
+            .body
+            .checked_term()
+            .map_err(|_| Error::NotApplication)?,
     };
     let CheckedTerm::Application { operation, .. } = term.as_ref() else {
         return Err(Error::NotApplication);
@@ -190,8 +210,8 @@ pub(super) fn scalar_arguments<'a>(
 
 /// Lazy, position-preserving scalar projection over a borrowed or decoded
 /// admitted application. It holds no second package body copy.
-pub(super) struct ScalarArguments<'a> {
-    nodes: &'a [CheckedSemanticNodeV2],
+pub(super) struct ScalarArguments<'a, Body> {
+    nodes: &'a [CheckedSemanticNodeV2<Body>],
     positions: &'a BTreeMap<CheckedNodeId, usize>,
     kinds: &'a [CheckedNodeKind],
     retained_terms: Option<&'a [CheckedTerm]>,
@@ -199,8 +219,8 @@ pub(super) struct ScalarArguments<'a> {
     next: usize,
 }
 
-impl<'a> Iterator for ScalarArguments<'a> {
-    type Item = Result<ScalarArgument<'a>, CheckedScalarOperandError>;
+impl<'a, Body: ScalarBody> Iterator for ScalarArguments<'a, Body> {
+    type Item = Result<ScalarArgument<'a, Body>, CheckedScalarOperandError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let position = self.next;
@@ -210,12 +230,12 @@ impl<'a> Iterator for ScalarArguments<'a> {
     }
 }
 
-impl<'a> ScalarArguments<'a> {
+impl<'a, Body: ScalarBody> ScalarArguments<'a, Body> {
     fn project(
         &self,
         position: usize,
         argument: &CheckedTerm,
-    ) -> Result<ScalarArgument<'a>, CheckedScalarOperandError> {
+    ) -> Result<ScalarArgument<'a, Body>, CheckedScalarOperandError> {
         use CheckedScalarOperandError as Error;
         let ordinal = u64::try_from(position).map_err(|_| Error::MissingRange)?;
         let (child, own_range) = match argument {
@@ -324,14 +344,15 @@ fn singleton_range(value: BigInt) -> Result<CheckedScalarOperandRange, CheckedSc
     })
 }
 
-fn graph_term<'a>(
-    node: &'a CheckedSemanticNodeV2,
+fn graph_term<'a, Body: ScalarBody>(
+    node: &'a CheckedSemanticNodeV2<Body>,
     retained: Option<&'a CheckedTerm>,
 ) -> Result<Cow<'a, CheckedTerm>, CheckedScalarOperandError> {
     match retained {
         Some(term) => Ok(Cow::Borrowed(term)),
-        None => CheckedTerm::decode_admitted(&node.body)
-            .map(Cow::Owned)
+        None => node
+            .body
+            .checked_term()
             .map_err(|_| CheckedScalarOperandError::MissingRange),
     }
 }
@@ -353,8 +374,8 @@ fn typed_literal_integer(term: &CheckedTerm) -> Result<BigInt, CheckedScalarOper
         .map_err(|_| Error::RangeOutOfI128)
 }
 
-fn type_range(
-    nodes: &[super::CheckedSemanticNodeV2],
+fn type_range<Body: ScalarBody>(
+    nodes: &[super::CheckedSemanticNodeV2<Body>],
     positions: &BTreeMap<CheckedNodeId, usize>,
     kinds: &[CheckedNodeKind],
     retained_terms: Option<&[CheckedTerm]>,
@@ -459,7 +480,7 @@ mod tests {
             .semantic_graph
             .nodes
             .iter()
-            .map(|node| super::super::CheckedTerm::decode_admitted(&node.body).expect("term"))
+            .map(|node| node.body.clone())
             .collect();
         CheckedPackageV2 {
             node_index: super::super::retained_node_index(&wire),
@@ -667,8 +688,7 @@ mod tests {
             value: json!("13"),
         };
         package.terms[2] = value.clone();
-        package.wire.semantic_graph.nodes[2].body =
-            serde_json::to_value(value).expect("private literal body");
+        package.wire.semantic_graph.nodes[2].body = value;
         package.wire.semantic_graph.nodes[2].semantic_type =
             serde_json::from_value(id('1')).expect("integer type");
         package.wire.semantic_graph.nodes[2].semantic_form = "literal".into();
@@ -710,7 +730,7 @@ mod tests {
         let expected = package
             .scalar_application_operands(&application, &occurrence)
             .expect("original operands");
-        package.wire.semantic_graph.nodes[3].body = json!({"term": "aggregate", "members": []});
+        package.wire.semantic_graph.nodes[3].body = CheckedTerm::aggregate(Vec::new());
         assert_eq!(
             package.scalar_application_operands(&application, &occurrence),
             Ok(expected)
@@ -729,7 +749,7 @@ mod tests {
         let expected = package
             .scalar_application_operands(&application, &occurrence)
             .expect("original ranges");
-        package.wire.semantic_graph.nodes[1].body = json!({"term": "aggregate", "members": []});
+        package.wire.semantic_graph.nodes[1].body = CheckedTerm::aggregate(Vec::new());
         assert_eq!(
             package.scalar_application_operands(&application, &occurrence),
             Ok(expected)

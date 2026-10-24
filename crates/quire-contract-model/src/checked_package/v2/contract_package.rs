@@ -29,7 +29,7 @@ use super::lower::{
 };
 use super::{
     CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedPackageV2, CheckedSelectionRole,
-    CheckedSemanticNodeV2, CheckedTerm,
+    CheckedTerm, RawSemanticNodeV2 as CheckedSemanticNodeV2,
 };
 use crate::checked_package::common::{
     read_typed_prefix, strict_parse, Step, Trail, ValidationFailure, NODE_DOMAIN,
@@ -822,9 +822,9 @@ fn canonical<T: Encode>(value: &T, ceiling: u64) -> Result<Vec<u8>, u64> {
 /// Sorts group blocks by their least represented key and preserves the
 /// admitted order of members inside each block. Ungrouped nodes are one-node
 /// blocks, so a graph without recursion keeps its ordinary key order.
-fn canonical_node_order<'a>(
-    nodes: impl Iterator<Item = &'a CheckedSemanticNodeV2>,
-) -> Vec<&'a CheckedSemanticNodeV2> {
+fn canonical_node_order<'a, Body>(
+    nodes: impl Iterator<Item = &'a super::CheckedSemanticNodeV2<Body>>,
+) -> Vec<&'a super::CheckedSemanticNodeV2<Body>> {
     let mut nodes = nodes.collect::<Vec<_>>();
     let mut least = BTreeMap::<&str, &CheckedNodeId>::new();
     for node in &nodes {
@@ -927,7 +927,7 @@ impl ContractPackageWireV1 {
         };
         let semantic_graph = ContractSemanticGraphV1 {
             graph_version: source.graph().graph_version.clone(),
-            nodes: nodes.into_iter().cloned().collect(),
+            nodes: nodes.into_iter().map(|node| node.to_raw()).collect(),
         };
         let terms = semantic_graph
             .nodes

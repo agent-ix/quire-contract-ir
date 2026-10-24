@@ -11,8 +11,8 @@ use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedSemanticId, CheckedSourceMapEntry,
 };
 use crate::checked_package::v2::{
-    ApplicationOperator, BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, CheckedSemanticNodeV2,
-    CheckedTerm, ExpressionForm,
+    ApplicationOperator, BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, CheckedTerm,
+    ExpressionForm, RawSemanticNodeV2 as CheckedSemanticNodeV2,
 };
 use serde::Deserialize;
 use std::collections::BTreeMap;

@@ -1353,9 +1353,15 @@ mod tests {
     }
 
     fn sync_term(package: &mut CheckedPackageV2, position: usize) {
-        package.terms[position] =
-            CheckedTerm::decode_admitted(&package.wire.semantic_graph.nodes[position].body)
-                .expect("synthetic post-admission body remains a typed term");
+        package.terms[position] = package.wire.semantic_graph.nodes[position].body.clone();
+    }
+
+    fn edit_body(package: &mut CheckedPackageV2, position: usize, edit: impl FnOnce(&mut Value)) {
+        let mut body = serde_json::to_value(&package.wire.semantic_graph.nodes[position].body)
+            .expect("typed fixture body");
+        edit(&mut body);
+        package.wire.semantic_graph.nodes[position].body =
+            CheckedTerm::decode_admitted(&body).expect("edited fixture body remains a closed term");
     }
 
     #[trace("FR-349-AC-2")]
@@ -1363,7 +1369,7 @@ mod tests {
     fn composite_uses_retained_application_after_raw_body_changes() {
         let mut package = package();
         let expected = read(&package).expect("admitted composite operands");
-        package.wire.semantic_graph.nodes[5].body = json!({"term": "aggregate", "members": []});
+        package.wire.semantic_graph.nodes[5].body = CheckedTerm::aggregate(Vec::new());
         assert_eq!(read(&package), Ok(expected));
     }
 
@@ -1372,7 +1378,7 @@ mod tests {
     fn alias_forwarding_uses_retained_term_after_raw_body_changes() {
         let mut package = package();
         package.kinds[6] = CheckedNodeKind::CompositeType(CompositeTypeForm::Alias);
-        package.wire.semantic_graph.nodes[6].body = json!({"term":"aggregate","members":[]});
+        package.wire.semantic_graph.nodes[6].body = CheckedTerm::aggregate(Vec::new());
         let graph = Graph {
             nodes: &package.wire.semantic_graph.nodes,
             kinds: &package.kinds,
@@ -1423,7 +1429,7 @@ mod tests {
             node.semantic_form = form.into();
             node.semantic_type = semantic_type.cloned().unwrap_or_else(|| id.clone());
             node.dependencies = semantic_type.into_iter().cloned().collect();
-            node.body = body;
+            node.body = CheckedTerm::aggregate(Vec::new());
             index.insert(id.clone(), nodes.len());
             nodes.push(node);
             kinds.push(kind);
@@ -1449,7 +1455,7 @@ mod tests {
         );
         let terms = nodes
             .iter()
-            .map(|node| CheckedTerm::decode_admitted(&node.body).expect("synthetic body term"))
+            .map(|node| node.body.clone())
             .collect::<Vec<_>>();
         let graph = Graph {
             nodes: &nodes,
@@ -1698,7 +1704,9 @@ mod tests {
             })
         );
         let mut p = original.clone();
-        p.wire.semantic_graph.nodes[6].body["members"][0]["target"] = json!(id('7'));
+        edit_body(&mut p, 6, |body| {
+            body["members"][0]["target"] = json!(id('7'))
+        });
         sync_term(&mut p, 6);
         p.wire.semantic_graph.nodes[7].semantic_type = id('7');
         assert_eq!(read(&p), Err(type_error(1, Some(id('7')))));
@@ -1715,7 +1723,11 @@ mod tests {
         let mut p = original.clone();
         p.wire.semantic_graph.nodes[6].semantic_form = "record".into();
         p.kinds[6] = CheckedNodeKind::CompositeType(CompositeTypeForm::Record);
-        p.wire.semantic_graph.nodes[6].body = json!({"term":"aggregate","members":[{"term":"binding","name":"bad","value":{"term":"aggregate","members":[]}}]});
+        edit_body(
+            &mut p,
+            6,
+            |body| *body = json!({"term":"aggregate","members":[{"term":"binding","name":"bad","value":{"term":"aggregate","members":[]}}]}),
+        );
         sync_term(&mut p, 6);
         p.wire.semantic_graph.nodes[7].semantic_type = id('7');
         assert_eq!(read(&p), Err(type_error(1, Some(id('7')))));
@@ -1733,14 +1745,18 @@ mod tests {
     #[test]
     fn malformed_optional_wrappers_unanchored_cycles_and_union_metadata_refuse_exactly() {
         let mut p = package();
-        p.wire.semantic_graph.nodes[3].body["members"][0]["value"] =
-            json!({"term":"aggregate","members":[]});
+        edit_body(&mut p, 3, |body| {
+            body["members"][0]["value"] = json!({"term":"aggregate","members":[]})
+        });
         sync_term(&mut p, 3);
         assert_eq!(read(&p), Err(type_error(0, Some(id('4')))));
         let mut p = package();
-        p.wire.semantic_graph.nodes[6].body["members"][0]["target"] = json!(id('7'));
-        p.wire.semantic_graph.nodes[3].body["members"][0]["value"] =
-            json!({"term":"reference","target":id('7')});
+        edit_body(&mut p, 6, |body| {
+            body["members"][0]["target"] = json!(id('7'))
+        });
+        edit_body(&mut p, 3, |body| {
+            body["members"][0]["value"] = json!({"term":"reference","target":id('7')})
+        });
         sync_term(&mut p, 6);
         sync_term(&mut p, 3);
         assert_eq!(read(&p), Err(type_error(0, Some(id('7')))));
@@ -1751,8 +1767,14 @@ mod tests {
         let mut p = package();
         p.wire.semantic_graph.nodes[4].semantic_form = "record_value".into();
         p.kinds[4] = CheckedNodeKind::Value(ValueForm::RecordValue);
-        p.wire.semantic_graph.nodes[4].body =
-            json!({"term":"aggregate","members":[{"term":"reference","target":id('5')}]});
+        edit_body(
+            &mut p,
+            4,
+            |body| {
+                *body =
+                    json!({"term":"aggregate","members":[{"term":"reference","target":id('5')}]})
+            },
+        );
         sync_term(&mut p, 4);
         assert_eq!(
             read(&p),

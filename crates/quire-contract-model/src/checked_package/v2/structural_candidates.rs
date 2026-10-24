@@ -9,7 +9,10 @@ use super::derived_keys::{node_preimage, valid_derived_shape, Group, LocalDigest
 use super::model_members::{structural_key, MemberType};
 use super::operations::has_application_key;
 use super::structural::reference_selector;
-use super::{BodyTerm, CheckedNodeKind, CheckedNodeTag, CheckedSemanticNodeV2, CorrespondenceForm};
+use super::{
+    BodyTerm, CheckedNodeKind, CheckedNodeTag, CorrespondenceForm,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2,
+};
 use crate::checked_package::common::{body_term, NODE_DOMAIN};
 use crate::checked_package::shared::CheckedNodeId;
 use serde_json::Value;
@@ -239,7 +242,16 @@ fn charge_terms(
 
 /// Derives structural identities and group labels from a complete borrowed
 /// ordered graph. The result is assembly data and does not admit a package.
-pub fn derive_structural_candidates(
+pub fn derive_structural_candidates<Body: super::CandidateBody>(
+    nodes: &[super::CheckedSemanticNodeV2<Body>],
+    byte_limit: u64,
+    work_limit: u64,
+) -> Result<StructuralCandidates, StructuralCandidateError> {
+    let raw_nodes = Body::candidate_nodes(nodes);
+    derive_structural_candidates_raw(&raw_nodes, byte_limit, work_limit)
+}
+
+fn derive_structural_candidates_raw(
     nodes: &[CheckedSemanticNodeV2],
     byte_limit: u64,
     work_limit: u64,
