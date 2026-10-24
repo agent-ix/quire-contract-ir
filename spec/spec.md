@@ -34,11 +34,15 @@ or canonicalization semantics.
   requirement, module, function, and obligation views.
 - A target-neutral output-mapping request, per-obligation loss record, bounded
   mapper seam, atomic generated-package assembler, and downstream observer reference.
+- A native temporal-to-TL correspondence bridge that consumes QSL's admitted
+  classification and temporal result without parsing source or invoking either
+  evaluator.
 
 ### Out of Scope
 
-- Native/TL source parsing, semantic evaluation, rewriting, code generation,
-  solver execution or production monitoring.
+- Native/TL source parsing, native or TL semantic evaluation, solver execution
+  or production monitoring; the temporal bridge constructs only the derived TL
+  artifacts specified by FR-350 and owns neither language nor evaluator.
 - The Kani family lowerings for checked arithmetic, collections and objects,
   which are the codegen backend adapter's.
 
@@ -99,6 +103,12 @@ complete-V1 target-neutral ContractPackage, exact provider negotiation, and
 the rule that backend counterexamples reach replay only through QSL's
 envelope. They do not reopen the closed bounded-Kani profile or claim
 target-specific mapping support.
+The planned temporal subsystem is specified by
+[FR-350](temporal/functional/FR-350-native-temporal-tl-correspondence.md): it
+projects QSL FR-045's admitted classification and joins QSL `evaluate_v2` with
+the selected TL result. [TC-461](temporal/matrix/TC-461-native-temporal-tl-correspondence.md)
+records its tests-first acceptance vectors; implementation and executable tests
+remain planned.
 FR-038 consumes the QSpec I04 `quire.checked-package/v2` contract through a
 strict reader that parses `contract_version` once, admits only
 `quire.checked-package/v2`, re-derives every package and nominal node
@@ -182,6 +192,7 @@ coverage target is specified before it is measured and reviewed.
 | Checked package | `spec/checked_package/` | The strict `quire.checked-package/v2` reader, its frame, anchor and state-clause admission, the refusal of unadmitted ADR-002 members, and complete-V1 ContractPackage lowering from that input | `quire-contract-model::checked_package` | AD-001, AD-003, AD-004 | Contract IR lane |
 | Output mapping | `spec/output_mapping/` | The target-neutral output-mapping request, per-obligation record, mapper seam, atomic package assembly and the refusal code registry | `quire-contract-model::output_mapping` | AD-001 | Contract IR lane |
 | Kani | `spec/kani/` | The versioned bounded-Kani profile, finite input and outcome firewall, dispatch index and typed outcomes, provider-side exact backend negotiation, the root crate's public interface and the rule that Contract IR defines no replay type | `quire-contract-ir` root crate (`lib.rs` and `kani`) excluding the conformance binary | AD-001, AD-002, AD-003, AD-006 | Contract IR lane |
+| Temporal | `spec/temporal/` | Native-to-TL formula and valuation projection, owner-reader validation, correspondence identity, and native/TL result joining | `quire-contract-ir::temporal` (planned root-crate module) | AD-001, ADR-0056 | Contract IR lane |
 
 ## References
 
