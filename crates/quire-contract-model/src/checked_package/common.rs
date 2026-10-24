@@ -405,6 +405,7 @@ enum CanonicalOpen {
 /// The strict scan has already proved syntax and duplicate-member validity.
 /// This second, allocation-bounded scan checks the ordering of object members
 /// and compares each scalar spelling with `quire-canonical`'s own spelling.
+#[ix_trace_rs::string_edge]
 fn require_canonical_tokens(input: &[u8]) -> Result<(), ValidationFailure> {
     let noncanonical =
         || ValidationFailure::refused_bytes(CheckedPackageRefusalCode::NoncanonicalWire);
@@ -1433,6 +1434,7 @@ fn strict_shape(input: &[u8]) -> Result<(), ValidationFailure> {
 }
 
 /// The strict shape and deepest container, counted without native recursion.
+#[ix_trace_rs::string_edge]
 fn strict_shape_depth(input: &[u8]) -> Result<usize, ValidationFailure> {
     let malformed = || ValidationFailure::refused_bytes(CheckedPackageRefusalCode::MalformedWire);
     let mut scan = Scan {
@@ -1725,6 +1727,7 @@ impl<'de> Visitor<'de> for StrictSeed<'_> {
         }
     }
     // Canonical-JSON front end: reads serde_json's number token.
+    #[ix_trace_rs::string_edge]
     fn visit_map<A>(self, mut access: A) -> Result<Value, A::Error>
     where
         A: MapAccess<'de>,

@@ -92,6 +92,7 @@ struct BorrowedDiagnostic<'a> {
     loci: Vec<CheckedSourceRegion>,
 }
 
+#[ix_trace_rs::string_edge]
 pub(super) fn decode_borrowed_wire(
     bytes: &[u8],
 ) -> Result<RawCheckedPackageWireV2, ValidationFailure> {

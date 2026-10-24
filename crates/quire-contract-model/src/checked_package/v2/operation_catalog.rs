@@ -40,6 +40,104 @@ use std::sync::OnceLock;
 const CATALOG_BYTES: &str =
     quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1;
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(from = "Box<str>")]
+pub(super) enum CatalogResult {
+    Member,
+    Clause,
+    Inner(usize),
+    Other(Box<str>),
+}
+
+impl From<Box<str>> for CatalogResult {
+    fn from(text: Box<str>) -> Self {
+        Self::from_wire(text)
+    }
+}
+
+impl CatalogResult {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(text: Box<str>) -> Self {
+        match text.as_ref() {
+            "member" => Self::Member,
+            "clause" => Self::Clause,
+            _ => match text
+                .strip_prefix("inner:")
+                .and_then(|value| value.parse().ok())
+            {
+                Some(index) => Self::Inner(index),
+                None => Self::Other(text),
+            },
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(from = "Box<str>")]
+pub(super) enum CatalogLeafSource {
+    OperandZero,
+    InnerZero,
+    ResultInner,
+    Other(Box<str>),
+}
+
+impl From<Box<str>> for CatalogLeafSource {
+    fn from(text: Box<str>) -> Self {
+        Self::from_wire(text)
+    }
+}
+
+impl CatalogLeafSource {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(text: Box<str>) -> Self {
+        match text.as_ref() {
+            "operand:0" => Self::OperandZero,
+            "inner:0" => Self::InnerZero,
+            "result_inner" => Self::ResultInner,
+            _ => Self::Other(text),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum FamilyClass {
+    Reference,
+    String,
+    Other,
+}
+
+impl FamilyClass {
+    #[ix_trace_rs::string_edge]
+    pub(super) fn from_wire(text: &str) -> Self {
+        match text {
+            "reference" => Self::Reference,
+            "string" => Self::String,
+            _ => Self::Other,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(from = "Box<str>")]
+pub(super) struct CatalogFamily {
+    text: Box<str>,
+    pub(super) class: FamilyClass,
+}
+
+impl From<Box<str>> for CatalogFamily {
+    fn from(text: Box<str>) -> Self {
+        let class = FamilyClass::from_wire(&text);
+        Self { text, class }
+    }
+}
+
+impl std::ops::Deref for CatalogFamily {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.text
+    }
+}
+
 /// One `operation-catalog.json` `operations[]` entry.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -49,13 +147,13 @@ pub(super) struct OperationCatalogEntry {
     /// Required application `operator` class.
     pub(super) operator: ApplicationOperator,
     /// Fixed leading operand families or group names, in order.
-    pub(super) operands: Vec<Box<str>>,
+    pub(super) operands: Vec<CatalogFamily>,
     /// The family or group name every operand past `operands` must fit, or
     /// `None` when no further operand is admitted.
-    pub(super) rest: Option<Box<str>>,
+    pub(super) rest: Option<CatalogFamily>,
     /// The result form; `inner:<n>` over a `reference` operand is checked
     /// (`check_inner_result`), the other forms are not.
-    pub(super) result: Box<str>,
+    pub(super) result: CatalogResult,
     /// Required law roles, in order.
     pub(super) laws: Vec<LawRole>,
     /// Required mode kind, or `None` when the operation carries no mode.
@@ -66,7 +164,7 @@ pub(super) struct OperationCatalogEntry {
     pub(super) constraints: Vec<OperationConstraint>,
     /// The leaf source this operation compares, or `None` when it carries no
     /// leaves.
-    pub(super) leaves: Option<Box<str>>,
+    pub(super) leaves: Option<CatalogLeafSource>,
 }
 
 /// One `operations[].constraints[]` entry.

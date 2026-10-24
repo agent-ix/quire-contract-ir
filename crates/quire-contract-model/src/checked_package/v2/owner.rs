@@ -1,9 +1,9 @@
 //! Closed node-owner wire and selected-evidence joins for FR-038-AC-153..155.
 
 use super::{
-    CheckedDeclaration, CheckedNodeKind, CheckedNodeOwner, CheckedTerm, DomainModel, LiteralKind,
-    RawCheckedPackageWireV2 as CheckedPackageWireV2, RawSemanticNodeV2 as CheckedSemanticNodeV2,
-    WorkMeter,
+    CheckedDeclaration, CheckedNodeKind, CheckedNodeOwner, CheckedNodeTag, CheckedTerm,
+    DomainModel, LiteralKind, ProtocolForm, RawCheckedPackageWireV2 as CheckedPackageWireV2,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, WorkMeter,
 };
 use crate::checked_package::common::{body_term, node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -82,8 +82,9 @@ fn check_one(
 /// Checks owner presence and variant before package identity validation.
 pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
     for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
-        if node.node_tag.as_ref() == "protocol"
-            && node.semantic_form.as_ref() == "protocol_reference"
+        if CheckedNodeTag::from_wire(&node.node_tag)
+            .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
+            == Some(CheckedNodeKind::Protocol(ProtocolForm::ProtocolReference))
         {
             let forbidden = [
                 ("declaration", node.declaration.is_some()),
@@ -118,12 +119,36 @@ pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), V
     Ok(())
 }
 
-fn clause_kind(body: &CheckedTerm) -> Option<&str> {
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum OwnerClauseKind {
+    Invariant,
+    Precondition,
+    Body,
+    Other,
+}
+
+impl OwnerClauseKind {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(text: &str) -> Self {
+        match text {
+            "invariant" => Self::Invariant,
+            "precondition" => Self::Precondition,
+            "body" => Self::Body,
+            _ => Self::Other,
+        }
+    }
+}
+
+fn clause_kind(body: &CheckedTerm) -> Option<OwnerClauseKind> {
     let CheckedTerm::Aggregate { members } = body else {
         return None;
     };
     let mut clauses = members.iter().filter_map(|member| match member {
-        CheckedTerm::Binding { name, value } if name.as_ref() == "clause" => Some(value.as_ref()),
+        CheckedTerm::Binding { name, value }
+            if super::TermBindingName::from_wire(name) == super::TermBindingName::Clause =>
+        {
+            Some(value.as_ref())
+        }
         _ => None,
     });
     let clause = clauses.next()?;
@@ -135,7 +160,7 @@ fn clause_kind(body: &CheckedTerm) -> Option<&str> {
             value_kind: LiteralKind::Text,
             value,
             ..
-        } => value.as_str(),
+        } => value.as_str().map(OwnerClauseKind::from_wire),
         _ => None,
     }
 }
@@ -169,14 +194,16 @@ fn model_kind_matches(
             model.populations.contains(declared)
         }
         CheckedNodeKind::Function(_) => match clause_kind(term) {
-            Some("invariant") => {
+            Some(OwnerClauseKind::Invariant) => {
                 model
                     .object_types
                     .get(declared)
                     .is_some_and(|object| !object.interface)
                     || model.record_types.contains_key(declared)
             }
-            Some("precondition" | "body") => operations.contains(declared),
+            Some(OwnerClauseKind::Precondition | OwnerClauseKind::Body) => {
+                operations.contains(declared)
+            }
             _ => false,
         },
         _ => false,

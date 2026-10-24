@@ -116,6 +116,13 @@ pub enum ContractDispositionV1 {
     BodyIncomplete,
 }
 
+impl ContractDispositionV1 {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(value: &str) -> Option<Self> {
+        serde_json::from_value(Value::String(value.to_owned())).ok()
+    }
+}
+
 /// A refused request's exact available sources.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
@@ -1023,7 +1030,8 @@ impl ContractPackageWireV1 {
         let root = JsonPointer::root();
         let top = object(&value, root.clone())?;
         match top.get("contract_version") {
-            Some(Value::String(version)) if version == CONTRACT_PACKAGE_VERSION => {}
+            Some(Value::String(version))
+                if ContractWireTag::from_wire(version) == Some(ContractWireTag::Version) => {}
             Some(Value::String(version)) => {
                 return Err(ValidationFailure::unknown_contract_version(version))
             }
@@ -1166,6 +1174,7 @@ fn id_shape(value: &Value, at: JsonPointer, package: bool) -> Result<(), Validat
     Ok(())
 }
 
+#[ix_trace_rs::string_edge]
 fn optional_typed(
     object: &Map<String, Value>,
     name: &str,
@@ -1393,19 +1402,19 @@ fn validate_record_shape(value: &Value, at: JsonPointer) -> Result<(), Validatio
         member(object, "disposition", &at)?,
         at.clone().key("disposition"),
     )?;
+    let disposition = ContractDispositionV1::from_wire(disposition).ok_or_else(|| {
+        malformed(
+            at.clone().key("disposition"),
+            CheckedPackageRefusalCause::InvalidValue,
+        )
+    })?;
     let payload: &[&str] = match disposition {
-        "lowered" | "invalid_input" => &[],
-        "unsupported" => &["unsupported_node_id", "node_tag"],
-        "requires_bound" => &["unbounded_type"],
-        "failed" => &["limit_kind", "limit", "consumed"],
-        "invalid_body" => &["body_node_id", "refusal"],
-        "body_incomplete" => &["body_node_id", "incomplete"],
-        _ => {
-            return Err(malformed(
-                at.key("disposition"),
-                CheckedPackageRefusalCause::InvalidValue,
-            ))
-        }
+        ContractDispositionV1::Lowered | ContractDispositionV1::InvalidInput => &[],
+        ContractDispositionV1::Unsupported => &["unsupported_node_id", "node_tag"],
+        ContractDispositionV1::RequiresBound => &["unbounded_type"],
+        ContractDispositionV1::Failed => &["limit_kind", "limit", "consumed"],
+        ContractDispositionV1::InvalidBody => &["body_node_id", "refusal"],
+        ContractDispositionV1::BodyIncomplete => &["body_node_id", "incomplete"],
     };
     let required: Vec<&str> = ["node_id", "disposition"]
         .into_iter()
@@ -1422,15 +1431,15 @@ fn validate_record_shape(value: &Value, at: JsonPointer) -> Result<(), Validatio
             id_shape(value, at.clone().key(name), false)?;
         }
     }
-    if disposition == "failed" {
+    if disposition == ContractDispositionV1::Failed {
         for counter in ["limit", "consumed"] {
             decimal(member(record, counter, &at)?, at.clone().key(counter))?;
         }
     }
-    if disposition == "invalid_body" {
+    if disposition == ContractDispositionV1::InvalidBody {
         validate_body_refusal(member(record, "refusal", &at)?, at.clone().key("refusal"))?;
     }
-    if disposition == "body_incomplete" {
+    if disposition == ContractDispositionV1::BodyIncomplete {
         validate_body_incomplete(member(record, "incomplete", &at)?, at.key("incomplete"))?;
     }
     Ok(())
@@ -1561,8 +1570,38 @@ fn valid_digest(text: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ContractWireTag {
+    Version,
+    PackageDomain,
+    Sha256,
+    SourceBytes,
+    ModelDigest,
+    GraphVersion,
+    ResultDomain,
+    NodeDomain,
+}
+
+impl ContractWireTag {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(text: &str) -> Option<Self> {
+        match text {
+            CONTRACT_PACKAGE_VERSION => Some(Self::Version),
+            super::PACKAGE_DOMAIN_V2 => Some(Self::PackageDomain),
+            "sha256" => Some(Self::Sha256),
+            super::SOURCE_BYTES => Some(Self::SourceBytes),
+            super::DOMAIN_PACKAGE_DIGEST => Some(Self::ModelDigest),
+            "quire.checked-semantic-graph/v2" => Some(Self::GraphVersion),
+            CONTRACT_IR_SEMANTIC_DOMAIN => Some(Self::ResultDomain),
+            NODE_DOMAIN => Some(Self::NodeDomain),
+            _ => None,
+        }
+    }
+}
+
 fn valid_node_id(id: &CheckedNodeId) -> bool {
-    id.domain.as_ref() == NODE_DOMAIN && valid_digest(&id.digest)
+    ContractWireTag::from_wire(&id.domain) == Some(ContractWireTag::NodeDomain)
+        && valid_digest(&id.digest)
 }
 
 impl ContractPackageWireV1 {
@@ -1573,8 +1612,8 @@ impl ContractPackageWireV1 {
     ) -> Result<(Vec<CheckedNodeKind>, Vec<Option<CheckedNodeTag>>), ValidationFailure> {
         let source = &self.package.source;
         let package_id = &source.package_id;
-        if package_id.domain.as_ref() != super::PACKAGE_DOMAIN_V2
-            || package_id.algorithm.as_ref() != "sha256"
+        if ContractWireTag::from_wire(&package_id.domain) != Some(ContractWireTag::PackageDomain)
+            || ContractWireTag::from_wire(&package_id.algorithm) != Some(ContractWireTag::Sha256)
             || !valid_digest(&package_id.digest)
         {
             return Err(malformed(
@@ -1612,7 +1651,9 @@ impl ContractPackageWireV1 {
                     ));
                 }
             }
-            if selected.digest_domain.as_ref() != super::SOURCE_BYTES {
+            if ContractWireTag::from_wire(&selected.digest_domain)
+                != Some(ContractWireTag::SourceBytes)
+            {
                 return Err(malformed(
                     at.clone().key("digest_domain"),
                     CheckedPackageRefusalCause::InvalidValue,
@@ -1676,7 +1717,8 @@ impl ContractPackageWireV1 {
         let mut model_identities = BTreeSet::new();
         for (index, selected) in source.lock.model_selections.iter().enumerate() {
             if selected.identity.is_empty()
-                || selected.digest_domain.as_ref() != super::DOMAIN_PACKAGE_DIGEST
+                || ContractWireTag::from_wire(&selected.digest_domain)
+                    != Some(ContractWireTag::ModelDigest)
                 || !valid_digest(&selected.digest)
                 || !models.insert(selected)
                 || !model_identities.insert(selected.identity.as_ref())
@@ -1704,8 +1746,10 @@ impl ContractPackageWireV1 {
                 ));
             }
             previous_identity = Some(&selected.identity);
-            if selected.package_id.domain.as_ref() != super::PACKAGE_DOMAIN_V2
-                || selected.package_id.algorithm.as_ref() != "sha256"
+            if ContractWireTag::from_wire(&selected.package_id.domain)
+                != Some(ContractWireTag::PackageDomain)
+                || ContractWireTag::from_wire(&selected.package_id.algorithm)
+                    != Some(ContractWireTag::Sha256)
                 || !valid_digest(&selected.package_id.digest)
             {
                 return Err(malformed(
@@ -1714,7 +1758,9 @@ impl ContractPackageWireV1 {
                 ));
             }
         }
-        if self.semantic_graph.graph_version.as_ref() != "quire.checked-semantic-graph/v2" {
+        if ContractWireTag::from_wire(&self.semantic_graph.graph_version)
+            != Some(ContractWireTag::GraphVersion)
+        {
             return Err(malformed(
                 JsonPointer::root()
                     .key("semantic_graph")
@@ -1806,13 +1852,16 @@ impl ContractPackageWireV1 {
             };
             unsupported_tags.push(unsupported_tag);
         }
-        if self.identity.domain.as_ref() != CONTRACT_IR_SEMANTIC_DOMAIN {
+        if ContractWireTag::from_wire(&self.identity.domain) != Some(ContractWireTag::ResultDomain)
+        {
             return Err(malformed(
                 JsonPointer::root().key("identity").key("domain"),
                 CheckedPackageRefusalCause::InvalidValue,
             ));
         }
-        if self.identity.algorithm.as_ref() != "sha256" || !valid_digest(&self.identity.digest) {
+        if ContractWireTag::from_wire(&self.identity.algorithm) != Some(ContractWireTag::Sha256)
+            || !valid_digest(&self.identity.digest)
+        {
             return Err(malformed(
                 JsonPointer::root().key("identity").key("digest"),
                 CheckedPackageRefusalCause::InvalidValue,

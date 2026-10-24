@@ -33,6 +33,15 @@ macro_rules! diagnostic_codes {
                     $( Self::$variant => $wire, )+
                 }
             }
+
+            /// Decode one external diagnostic code without accepting an unknown spelling.
+            #[ix_trace_rs::string_edge]
+            pub fn from_code(value: &str) -> Option<Self> {
+                match value {
+                    $( $wire => Some(Self::$variant), )+
+                    _ => None,
+                }
+            }
         }
     };
 }

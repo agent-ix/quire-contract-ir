@@ -143,6 +143,84 @@ const GRAPH_V2: &str = "quire.checked-semantic-graph/v2";
 const SOURCE_BYTES: &str = "quire.source.bytes/v1";
 /// The digest domain of a selected domain package.
 pub const DOMAIN_PACKAGE_DIGEST: &str = "sha256-jcs";
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum PackageWireTag {
+    ContractVersion,
+    PackageDomain,
+    IdentityVersion,
+    GraphVersion,
+    NodeDomain,
+    SourceBytes,
+    ModelDigest,
+    Sha256,
+}
+
+impl PackageWireTag {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(text: &str) -> Option<Self> {
+        match text {
+            CHECKED_PACKAGE_V2 => Some(Self::ContractVersion),
+            PACKAGE_DOMAIN_V2 => Some(Self::PackageDomain),
+            IDENTITY_PREIMAGE_V2 => Some(Self::IdentityVersion),
+            GRAPH_V2 => Some(Self::GraphVersion),
+            NODE_DOMAIN => Some(Self::NodeDomain),
+            SOURCE_BYTES => Some(Self::SourceBytes),
+            DOMAIN_PACKAGE_DIGEST => Some(Self::ModelDigest),
+            "sha256" => Some(Self::Sha256),
+            _ => None,
+        }
+    }
+}
+
+fn is_node_domain(domain: &str) -> bool {
+    PackageWireTag::from_wire(domain) == Some(PackageWireTag::NodeDomain)
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum KnownOperation {
+    StateClause,
+    NumericNarrow,
+    ModelNavigate,
+    ModelReaches,
+    FunctionCall,
+}
+
+impl KnownOperation {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(text: &str) -> Option<Self> {
+        match text {
+            "quire.op.state.clause" => Some(Self::StateClause),
+            "quire.op.numeric.narrow" => Some(Self::NumericNarrow),
+            "quire.op.model.navigate" => Some(Self::ModelNavigate),
+            "quire.op.model.reaches" => Some(Self::ModelReaches),
+            "quire.op.function.call" => Some(Self::FunctionCall),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum TermBindingName {
+    Parameters,
+    Body,
+    Optional,
+    Clause,
+    Other,
+}
+
+impl TermBindingName {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(text: &str) -> Self {
+        match text {
+            "parameters" => Self::Parameters,
+            "body" => Self::Body,
+            "optional" => Self::Optional,
+            "clause" => Self::Clause,
+            _ => Self::Other,
+        }
+    }
+}
 /// A node's declared qualified name (FR-208). Present exactly where the
 /// schema's `DeclarationOccurrenceRule` requires it and forbidden where
 /// `DeclarationTagRules` forbids it; see [`validate_declaration`].
@@ -291,7 +369,9 @@ impl CheckedSemanticNodeV2 {
             new: &CheckedNodeId,
         ) {
             if let identity::NominalOwner::Model { node, .. } = owner {
-                if old.domain.as_ref() == NODE_DOMAIN && node.as_ref() == old.digest.as_ref() {
+                if PackageWireTag::from_wire(&old.domain) == Some(PackageWireTag::NodeDomain)
+                    && node.as_ref() == old.digest.as_ref()
+                {
                     *node = new.digest.clone();
                 }
             }
@@ -302,7 +382,9 @@ impl CheckedSemanticNodeV2 {
             replace(id, old, new);
         }
         if let Some(CheckedNodeOwner::Model { node, .. }) = &mut self.owner {
-            if old.domain.as_ref() == NODE_DOMAIN && node.as_ref() == old.digest.as_ref() {
+            if PackageWireTag::from_wire(&old.domain) == Some(PackageWireTag::NodeDomain)
+                && node.as_ref() == old.digest.as_ref()
+            {
                 *node = new.digest.clone();
             }
         }
@@ -1068,7 +1150,9 @@ impl CheckedPackageV2 {
     ) -> Result<Self, ValidationFailure> {
         read_typed_prefix(bytes, limits)?;
         match intake::source_value(bytes, &member_pointer(&["contract_version"])) {
-            Some(Value::String(version)) if version == CHECKED_PACKAGE_V2 => {}
+            Some(Value::String(version))
+                if PackageWireTag::from_wire(&version) == Some(PackageWireTag::ContractVersion) => {
+            }
             Some(Value::String(version)) => {
                 return Err(ValidationFailure::unknown_contract_version(&version))
             }
@@ -1222,18 +1306,18 @@ impl CheckedPackageV2 {
 /// digest algorithm and identity preimage version.
 // Intake: checks the fixed version, domain and algorithm tags of the package.
 fn check_package_header(wire: &RawCheckedPackageWireV2) -> Result<(), ValidationFailure> {
-    if wire.contract_version.as_ref() != CHECKED_PACKAGE_V2 {
+    if PackageWireTag::from_wire(&wire.contract_version) != Some(PackageWireTag::ContractVersion) {
         return Err(ValidationFailure::unknown_contract_version(
             &wire.contract_version,
         ));
     }
-    if wire.package_id.domain.as_ref() != PACKAGE_DOMAIN_V2 {
+    if PackageWireTag::from_wire(&wire.package_id.domain) != Some(PackageWireTag::PackageDomain) {
         return Err(refuse(
             CheckedPackageRefusalCode::DigestDomainMismatch,
             member_pointer(&["package_id", "domain"]),
         ));
     }
-    if wire.package_id.algorithm.as_ref() != "sha256" {
+    if PackageWireTag::from_wire(&wire.package_id.algorithm) != Some(PackageWireTag::Sha256) {
         return Err(refuse(
             CheckedPackageRefusalCode::MalformedWire,
             member_pointer(&["package_id", "algorithm"]),
@@ -1245,7 +1329,9 @@ fn check_package_header(wire: &RawCheckedPackageWireV2) -> Result<(), Validation
             member_pointer(&["package_id", "digest"]),
         ));
     }
-    if wire.identity_preimage.version.as_ref() != IDENTITY_PREIMAGE_V2 {
+    if PackageWireTag::from_wire(&wire.identity_preimage.version)
+        != Some(PackageWireTag::IdentityVersion)
+    {
         return Err(refuse(
             CheckedPackageRefusalCode::MalformedWire,
             member_pointer(&["identity_preimage", "version"]),
@@ -1418,7 +1504,10 @@ struct LockAdmission<'a> {
 fn checked_unit_refs(nodes: &[RawSemanticNodeV2]) -> UnitRefs {
     let mut refs = BTreeMap::new();
     for node in nodes {
-        if node.node_tag.as_ref() != "scalar_type" || node.semantic_form.as_ref() != "unit" {
+        if CheckedNodeTag::from_wire(&node.node_tag)
+            .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
+            != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
+        {
             continue;
         }
         let Some(declaration) = &node.declaration else {
@@ -1560,10 +1649,9 @@ fn validate_dependency_selections(
     selections: &[CheckedDependencySelection],
 ) -> Result<(), ValidationFailure> {
     let at = |index: usize| member_pointer(&["lock", "dependency_selections"]).index(index);
-    if let Some(index) = selections
-        .iter()
-        .position(|entry| entry.package_id.domain.as_ref() != PACKAGE_DOMAIN_V2)
-    {
+    if let Some(index) = selections.iter().position(|entry| {
+        PackageWireTag::from_wire(&entry.package_id.domain) != Some(PackageWireTag::PackageDomain)
+    }) {
         return Err(refuse(
             CheckedPackageRefusalCode::DigestDomainMismatch,
             at(index).key("package_id").key("domain"),
@@ -1572,7 +1660,9 @@ fn validate_dependency_selections(
     let malformed = selections.iter().enumerate().find_map(|(index, entry)| {
         if !is_nonempty(&entry.identity) {
             Some(at(index).key("identity"))
-        } else if entry.package_id.algorithm.as_ref() != "sha256" {
+        } else if PackageWireTag::from_wire(&entry.package_id.algorithm)
+            != Some(PackageWireTag::Sha256)
+        {
             Some(at(index).key("package_id").key("algorithm"))
         } else if !is_digest(&entry.package_id.digest) {
             Some(at(index).key("package_id").key("digest"))
@@ -1637,10 +1727,9 @@ fn validate_domain_packages(
 ) -> Result<Vec<DomainModel>, ValidationFailure> {
     let row = |index: usize| member_pointer(&["lock", "model_selections"]).index(index);
     let at = |index: usize, member: &str| row(index).key(member);
-    if let Some(index) = models
-        .iter()
-        .position(|model| model.digest_domain.as_ref() != DOMAIN_PACKAGE_DIGEST)
-    {
+    if let Some(index) = models.iter().position(|model| {
+        PackageWireTag::from_wire(&model.digest_domain) != Some(PackageWireTag::ModelDigest)
+    }) {
         return Err(refuse(
             CheckedPackageRefusalCode::DigestDomainMismatch,
             at(index, "digest_domain"),
@@ -1723,7 +1812,7 @@ fn validate_node_id(
     id: &CheckedNodeId,
     at: impl FnOnce() -> JsonPointer,
 ) -> Result<(), ValidationFailure> {
-    let member = if id.domain.as_ref() != NODE_DOMAIN {
+    let member = if PackageWireTag::from_wire(&id.domain) != Some(PackageWireTag::NodeDomain) {
         "domain"
     } else if !is_digest(&id.digest) {
         "digest"
@@ -2266,7 +2355,7 @@ fn body_reference_pointer(
 /// Checks the graph's fixed version tag.
 // Intake: checks the fixed graph version tag.
 fn check_graph_version(graph: &RawSemanticGraphV2) -> Result<(), ValidationFailure> {
-    if graph.graph_version.as_ref() != GRAPH_V2 {
+    if PackageWireTag::from_wire(&graph.graph_version) != Some(PackageWireTag::GraphVersion) {
         return Err(refuse(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             member_pointer(&["semantic_graph", "graph_version"]),

@@ -20,7 +20,8 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ExtensionBody {
-    term: Box<str>,
+    #[serde(rename = "term")]
+    _term: ExtensionTerm,
     definition: CheckedArtifactRef,
     node_kind: Box<str>,
     clauses: Vec<ExtensionClause>,
@@ -29,7 +30,8 @@ pub(super) struct ExtensionBody {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ExtensionClause {
-    term: Box<str>,
+    #[serde(rename = "term")]
+    _term: BindingTerm,
     name: Box<str>,
     value: ExtensionReference,
 }
@@ -37,22 +39,39 @@ struct ExtensionClause {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ExtensionReference {
-    term: Box<str>,
+    #[serde(rename = "term")]
+    _term: ReferenceTerm,
     target: CheckedNodeId,
 }
 
+#[derive(Deserialize)]
+enum ExtensionTerm {
+    #[serde(rename = "extension_form")]
+    ExtensionForm,
+}
+
+#[derive(Deserialize)]
+enum BindingTerm {
+    #[serde(rename = "binding")]
+    Binding,
+}
+
+#[derive(Deserialize)]
+enum ReferenceTerm {
+    #[serde(rename = "reference")]
+    Reference,
+}
+
 /// The body has its own closed grammar, checked before key authentication.
+#[ix_trace_rs::string_edge]
 pub(super) fn read_body(body: &Value, at: JsonPointer) -> Result<ExtensionBody, ValidationFailure> {
     let parsed: ExtensionBody = serde_json::from_value(body.clone())
         .map_err(|_| ValidationFailure::refused(Code::MalformedWire, at.clone()))?;
-    if parsed.term.as_ref() != "extension_form"
-        || parsed.definition.authority.is_empty()
+    if parsed.definition.authority.is_empty()
         || parsed.definition.identity.is_empty()
         || !is_identifier(&parsed.node_kind)
         || parsed.clauses.iter().any(|clause| {
-            clause.term.as_ref() != "binding"
-                || !is_identifier(&clause.name)
-                || clause.value.term.as_ref() != "reference"
+            !is_identifier(&clause.name)
                 || clause.value.target.domain.as_ref() != NODE_DOMAIN
                 || !is_digest(&clause.value.target.digest)
         })
@@ -285,6 +304,38 @@ fn integer_range_bounds(term: &CheckedTerm) -> Option<(&str, &str)> {
     Some((bound(lo, "min")?, bound(hi, "max")?))
 }
 
+enum ExpectedType {
+    IntegerRange(Box<str>),
+    Scalar(ScalarTypeForm),
+    Other,
+}
+
+impl ExpectedType {
+    #[ix_trace_rs::string_edge]
+    fn from_text(expected: &str) -> Self {
+        if let Some(bounds) = expected
+            .strip_prefix("Int[")
+            .and_then(|tail| tail.strip_suffix(']'))
+        {
+            return Self::IntegerRange(bounds.into());
+        }
+        let scalar = match expected {
+            "Boolean" => Some(ScalarTypeForm::Boolean),
+            "Integer" | "Int" => Some(ScalarTypeForm::Integer),
+            "Rational" => Some(ScalarTypeForm::Rational),
+            "Decimal" => Some(ScalarTypeForm::Decimal),
+            "Float32" => Some(ScalarTypeForm::Float32),
+            "Float64" => Some(ScalarTypeForm::Float64),
+            "Text" => Some(ScalarTypeForm::Text),
+            "String" => Some(ScalarTypeForm::String),
+            "UUID" => Some(ScalarTypeForm::Uuid),
+            "Timestamp" => Some(ScalarTypeForm::Timestamp),
+            _ => None,
+        };
+        scalar.map_or(Self::Other, Self::Scalar)
+    }
+}
+
 fn type_matches(
     expected: &str,
     nodes: &[CheckedSemanticNodeV2],
@@ -304,10 +355,8 @@ fn type_matches(
     ) {
         return Ok(false);
     }
-    if let Some(bound) = expected
-        .strip_prefix("Int[")
-        .and_then(|tail| tail.strip_suffix(']'))
-    {
+    let expected_type = ExpectedType::from_text(expected);
+    if let ExpectedType::IntegerRange(bound) = &expected_type {
         let Some((lo, hi)) = bound.split_once(',') else {
             return Ok(false);
         };
@@ -325,20 +374,7 @@ fn type_matches(
             ))
             && bounds_match);
     }
-    let scalar = match expected {
-        "Boolean" => Some(ScalarTypeForm::Boolean),
-        "Integer" | "Int" => Some(ScalarTypeForm::Integer),
-        "Rational" => Some(ScalarTypeForm::Rational),
-        "Decimal" => Some(ScalarTypeForm::Decimal),
-        "Float32" => Some(ScalarTypeForm::Float32),
-        "Float64" => Some(ScalarTypeForm::Float64),
-        "Text" => Some(ScalarTypeForm::Text),
-        "String" => Some(ScalarTypeForm::String),
-        "UUID" => Some(ScalarTypeForm::Uuid),
-        "Timestamp" => Some(ScalarTypeForm::Timestamp),
-        _ => None,
-    };
-    if let Some(form) = scalar {
+    if let ExpectedType::Scalar(form) = expected_type {
         return Ok(index
             .get(&target.semantic_type)
             .and_then(|&position| nodes.get(position).zip(kinds.get(position)))
