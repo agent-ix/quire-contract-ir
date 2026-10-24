@@ -62,11 +62,11 @@ use super::structural::{typed_union_type_body, typed_union_value_body, UnionMemb
 use super::temporal::member_is_well_formed;
 use super::{
     ApplicationOperator, BodyTerm, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId,
-    CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedSemanticNodeV2, CheckedTerm,
-    ClaimForm, CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, LawRole,
-    LiteralKind, ModelForm, NominalIdentityPreimage, OperationConstraintKind, OperationMemberKind,
-    OperationModeKind, ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm,
-    ValueForm, WorkMeter,
+    CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedTerm, ClaimForm,
+    CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, LawRole, LiteralKind,
+    ModelForm, NominalIdentityPreimage, OperationConstraintKind, OperationMemberKind,
+    OperationModeKind, ProtocolForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm,
+    ScalarTypeForm, StateForm, TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::common::{body_term, decoder_pointer, node_pointer, NODE_DOMAIN};
@@ -571,8 +571,8 @@ impl StructuralTypes {
                 break None;
             };
             let forwards = kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Alias)
-                || (kind.tag() == CheckedNodeTag::BoundedDomain
-                    && node.semantic_form.as_ref() != "model_population");
+                || matches!(kind, CheckedNodeKind::BoundedDomain(form)
+                    if form != BoundedDomainForm::ModelPopulation);
             if !forwards {
                 break Some((position, kind));
             }
@@ -1354,11 +1354,14 @@ pub(super) enum FamilyResolution {
     Malformed(CheckedNodeId),
 }
 
-pub(super) fn resolve_family_with<'a, E>(
+pub(super) fn resolve_family_with<'a, E, Body: 'a>(
     type_id: &CheckedNodeId,
     mut visit: impl FnMut(
         FamilyVisit<'_>,
-    ) -> Result<Option<(&'a CheckedSemanticNodeV2, CheckedNodeKind)>, E>,
+    ) -> Result<
+        Option<(&'a super::CheckedSemanticNodeV2<Body>, CheckedNodeKind)>,
+        E,
+    >,
 ) -> Result<FamilyResolution, E> {
     let mut seen = BTreeSet::new();
     let mut current = type_id;
@@ -3028,8 +3031,8 @@ fn text_profile_pin(
             break None;
         };
         let forwards = kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Alias)
-            || (kind.tag() == CheckedNodeTag::BoundedDomain
-                && node.semantic_form.as_ref() != "model_population");
+            || matches!(kind, CheckedNodeKind::BoundedDomain(form)
+                if form != BoundedDomainForm::ModelPopulation);
         if !forwards || node.semantic_type == node.node_id {
             break None;
         }
@@ -6915,6 +6918,339 @@ mod tests {
         assert_eq!(run(lawful.clone(), lawful_work).0, Ok(None));
         let (short, consumed, _) = run(lawful, lawful_work - 1);
         assert_work(short, lawful_work - 1, consumed);
+    }
+
+    /// Private Graph controls only: these mismatched raw/retained headers are
+    /// not reader admissions. The same indexed retained kind owns dispatch.
+    fn check_forwarding_population_dispatch(population: bool) {
+        let nodes = vec![
+            forwarding_node('a', "composite_type", "alias", 'b'),
+            forwarding_node(
+                'b',
+                "bounded_domain",
+                if population {
+                    "model_population"
+                } else {
+                    "integer_range"
+                },
+                'c',
+            ),
+            scalar_type_node('c', "integer"),
+        ];
+        let kinds = kinds_of(&nodes);
+        let mut damaged = nodes.clone();
+        damaged[1].semantic_form = if population {
+            "integer_range"
+        } else {
+            "model_population"
+        }
+        .into();
+        let found = if population {
+            (1, kinds[1])
+        } else {
+            (2, kinds[2])
+        };
+        let paid = if population { 1 } else { 2 };
+        let expected_cache = if population {
+            BTreeMap::from([(0, found)])
+        } else {
+            BTreeMap::from([(0, found), (1, found)])
+        };
+        for nodes in [&nodes, &damaged] {
+            let index = nodes
+                .iter()
+                .enumerate()
+                .map(|(i, node)| (&node.node_id, i))
+                .collect();
+            let terms = decoded_terms(nodes);
+            let graph = Graph {
+                nodes,
+                kinds: &kinds,
+                index: &index,
+                terms: &terms,
+            };
+            let at = pointer("/semantic_graph/nodes/0/body/operation");
+            let mut structural = StructuralTypes::default();
+            let mut meter = WorkMeter::new(u64::MAX);
+            assert_eq!(
+                structural.resolve(&node_id('a'), &graph, &mut meter, &at),
+                Ok(Some(found))
+            );
+            assert_eq!(meter.consumed(), paid);
+            assert_eq!(structural.resolved, expected_cache);
+            for head in ['a', 'b', 'a'] {
+                assert_eq!(
+                    structural.resolve(&node_id(head), &graph, &mut meter, &at),
+                    Ok(Some(found))
+                );
+                assert_eq!(
+                    meter.consumed(),
+                    paid,
+                    "a cached suffix or population stop is free"
+                );
+                assert_eq!(structural.resolved, expected_cache);
+            }
+            let mut short = StructuralTypes::default();
+            let mut meter = WorkMeter::new(paid - 1);
+            let result = short.resolve(&node_id('a'), &graph, &mut meter, &at);
+            let Err(ValidationFailure::Incomplete(incomplete)) = result else {
+                panic!("the exact forwarding prefix must exhaust its work budget");
+            };
+            assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+            assert_eq!(incomplete.limit, paid - 1);
+            assert_eq!(incomplete.consumed, paid);
+            assert_eq!(incomplete.path, Some(at));
+            assert!(short.resolved.is_empty(), "an unpaid prefix is not cached");
+        }
+    }
+
+    #[trace("TC-048")]
+    #[test]
+    fn forwarding_dispatch_retained_population_stops_despite_raw_nonpopulation() {
+        check_forwarding_population_dispatch(true);
+    }
+
+    #[trace("TC-048")]
+    #[test]
+    fn forwarding_dispatch_retained_nonpopulation_forwards_despite_raw_population() {
+        check_forwarding_population_dispatch(false);
+    }
+
+    fn check_text_pin_population_dispatch(population: bool) {
+        let mut nodes = vec![
+            forwarding_node('a', "composite_type", "alias", 'b'),
+            forwarding_node(
+                'b',
+                "bounded_domain",
+                if population {
+                    "model_population"
+                } else {
+                    "text_bounds"
+                },
+                'x',
+            ),
+        ];
+        nodes.extend(profiled_text());
+        let kinds = kinds_of(&nodes);
+        let mut damaged = nodes.clone();
+        damaged[1].semantic_form = if population {
+            "text_bounds"
+        } else {
+            "model_population"
+        }
+        .into();
+        let expected = (!population).then(|| Box::<str>::from("nfc"));
+        let paid = if population { 2 } else { 3 };
+        let expected_pins = (0..paid as usize)
+            .map(|i| (i, expected.clone()))
+            .collect::<BTreeMap<_, _>>();
+        for nodes in [&nodes, &damaged] {
+            let index = nodes
+                .iter()
+                .enumerate()
+                .map(|(i, node)| (&node.node_id, i))
+                .collect();
+            let terms = decoded_terms(nodes);
+            let graph = Graph {
+                nodes,
+                kinds: &kinds,
+                index: &index,
+                terms: &terms,
+            };
+            let at = pointer("/semantic_graph/nodes/0/body/operation/leaves");
+            let mut meter = WorkMeter::new(u64::MAX);
+            let mut structural = StructuralTypes::default();
+            let mut walk = super::LeafWalk::new(
+                graph,
+                &mut meter,
+                &mut structural,
+                at.clone(),
+                pointer("/semantic_graph/nodes/0/body/operation"),
+            );
+            let Ok(actual) = super::text_profile_pin(&node_id('a'), &mut walk) else {
+                panic!("exact paid pin traversal must complete");
+            };
+            assert_eq!(actual, expected);
+            assert_eq!(walk.meter.consumed(), paid);
+            assert_eq!(walk.pins, expected_pins);
+            for head in ['b', 'a'] {
+                let Ok(actual) = super::text_profile_pin(&node_id(head), &mut walk) else {
+                    panic!("cached pin result must be free");
+                };
+                assert_eq!(actual, expected);
+                assert_eq!(walk.meter.consumed(), paid);
+                assert_eq!(walk.pins, expected_pins);
+            }
+            assert!(
+                walk.structural.resolved.is_empty(),
+                "pin and forwarding caches are independent"
+            );
+            let mut short_meter = WorkMeter::new(paid - 1);
+            let mut short_structural = StructuralTypes::default();
+            let mut short = super::LeafWalk::new(
+                graph,
+                &mut short_meter,
+                &mut short_structural,
+                at.clone(),
+                pointer("/semantic_graph/nodes/0/body/operation"),
+            );
+            let result = super::text_profile_pin(&node_id('a'), &mut short);
+            let Err(super::LeafWalkEnd::Work(ValidationFailure::Incomplete(incomplete))) = result
+            else {
+                panic!("one fewer pin unit must exhaust the same prefix");
+            };
+            assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+            assert_eq!(incomplete.limit, paid - 1);
+            assert_eq!(incomplete.consumed, paid);
+            assert_eq!(incomplete.path, Some(at));
+            assert!(
+                short.pins.is_empty(),
+                "an interrupted walk memoises no partial result"
+            );
+            assert!(short.structural.resolved.is_empty());
+        }
+    }
+
+    #[trace("TC-048")]
+    #[test]
+    fn forwarding_dispatch_text_pin_stops_at_retained_population_despite_raw_nonpopulation() {
+        check_text_pin_population_dispatch(true);
+    }
+
+    #[trace("TC-048")]
+    #[test]
+    fn forwarding_dispatch_text_pin_follows_retained_nonpopulation_despite_raw_population() {
+        check_text_pin_population_dispatch(false);
+    }
+
+    /// The pin is paid and inspected before kind availability and self-type
+    /// termination; these private states assert traversal order, not admission.
+    #[trace("TC-048")]
+    #[test]
+    fn forwarding_dispatch_text_pin_is_paid_before_kind_and_self_type_checks() {
+        let mut node = profiled_text_node('x', "nfc");
+        node.semantic_type = node.node_id.clone();
+        let nodes = vec![node];
+        let terms = decoded_terms(&nodes);
+        let index = nodes
+            .iter()
+            .enumerate()
+            .map(|(i, node)| (&node.node_id, i))
+            .collect();
+        for kinds in [
+            kinds_of(&nodes),
+            vec![],
+            vec![CheckedNodeKind::BoundedDomain(
+                super::super::BoundedDomainForm::ModelPopulation,
+            )],
+        ] {
+            let graph = Graph {
+                nodes: &nodes,
+                kinds: &kinds,
+                index: &index,
+                terms: &terms,
+            };
+            let at = pointer("/semantic_graph/nodes/0/body/operation/leaves");
+            for limit in [0, 1] {
+                let mut meter = WorkMeter::new(limit);
+                let mut structural = StructuralTypes::default();
+                let mut walk = super::LeafWalk::new(
+                    graph,
+                    &mut meter,
+                    &mut structural,
+                    at.clone(),
+                    pointer("/semantic_graph/nodes/0/body/operation"),
+                );
+                let result = super::text_profile_pin(&node_id('x'), &mut walk);
+                if limit == 0 {
+                    let Err(super::LeafWalkEnd::Work(ValidationFailure::Incomplete(incomplete))) =
+                        result
+                    else {
+                        panic!("even a directly readable pin must first be paid");
+                    };
+                    assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+                    assert_eq!(incomplete.limit, 0);
+                    assert_eq!(incomplete.consumed, 1);
+                    assert_eq!(incomplete.path, Some(at.clone()));
+                    assert!(walk.pins.is_empty());
+                } else {
+                    let Ok(pin) = result else {
+                        panic!("paid pin must precede the kind/self-type check");
+                    };
+                    assert_eq!(pin.as_deref(), Some("nfc"));
+                    assert_eq!(
+                        walk.pins,
+                        BTreeMap::from([(0, Some(Box::<str>::from("nfc")))])
+                    );
+                }
+                assert_eq!(walk.meter.consumed(), 1);
+            }
+        }
+    }
+
+    #[trace("TC-048")]
+    #[test]
+    fn forwarding_dispatch_text_pin_cycles_missing_targets_and_self_types_cache_no_pin() {
+        for target in ['a', 'z', 'b'] {
+            let nodes = vec![
+                forwarding_node('a', "composite_type", "alias", 'b'),
+                forwarding_node('b', "bounded_domain", "text_bounds", target),
+            ];
+            let kinds = kinds_of(&nodes);
+            let index = nodes
+                .iter()
+                .enumerate()
+                .map(|(i, node)| (&node.node_id, i))
+                .collect();
+            let terms = decoded_terms(&nodes);
+            let graph = Graph {
+                nodes: &nodes,
+                kinds: &kinds,
+                index: &index,
+                terms: &terms,
+            };
+            let at = pointer("/semantic_graph/nodes/0/body/operation/leaves");
+            let mut meter = WorkMeter::new(2);
+            let mut structural = StructuralTypes::default();
+            let mut walk = super::LeafWalk::new(
+                graph,
+                &mut meter,
+                &mut structural,
+                at.clone(),
+                pointer("/semantic_graph/nodes/0/body/operation"),
+            );
+            for head in ['a', 'b', 'a'] {
+                let Ok(pin) = super::text_profile_pin(&node_id(head), &mut walk) else {
+                    panic!("a paid absent pin and its memo must resolve");
+                };
+                assert_eq!(pin, None);
+                assert_eq!(
+                    walk.meter.consumed(),
+                    2,
+                    "a revisited or missing target is not paid again"
+                );
+                assert_eq!(walk.pins, BTreeMap::from([(0, None), (1, None)]));
+            }
+            let mut short_meter = WorkMeter::new(1);
+            let mut short_structural = StructuralTypes::default();
+            let mut short = super::LeafWalk::new(
+                graph,
+                &mut short_meter,
+                &mut short_structural,
+                at.clone(),
+                pointer("/semantic_graph/nodes/0/body/operation"),
+            );
+            let result = super::text_profile_pin(&node_id('a'), &mut short);
+            let Err(super::LeafWalkEnd::Work(ValidationFailure::Incomplete(incomplete))) = result
+            else {
+                panic!("the second distinct node must be paid before termination");
+            };
+            assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+            assert_eq!(incomplete.limit, 1);
+            assert_eq!(incomplete.consumed, 2);
+            assert_eq!(incomplete.path, Some(at));
+            assert!(short.pins.is_empty());
+        }
     }
 
     #[trace("TC-048", "FR-038-AC-224")]

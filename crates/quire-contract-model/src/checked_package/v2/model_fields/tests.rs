@@ -568,7 +568,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
         .semantic_graph
         .nodes
         .iter()
-        .map(|node| super::super::CheckedTerm::decode_admitted(&node.body).expect("fixture term"))
+        .map(|node| node.body.clone())
         .collect();
     Fixture {
         package: CheckedPackageV2 {
@@ -740,8 +740,12 @@ fn tc_227_the_accessor_does_not_read_a_node_body_it_was_not_passed() {
             .nodes
             .get_mut(position)
             .expect("the bounded domain node");
-        if let Some(members) = node.body["members"].as_array_mut() {
-            members[1]["value"]["value"] = json!(upper);
+        if let super::super::CheckedTerm::Aggregate { members } = &mut node.body {
+            if let super::super::CheckedTerm::Binding { value, .. } = &mut members[1] {
+                if let super::super::CheckedTerm::Literal { value, .. } = value.as_mut() {
+                    *value = json!(upper);
+                }
+            }
         }
         assert_eq!(
             fixture.package.model_object_fields(&ledger),
@@ -760,9 +764,11 @@ fn admitted_model_fields_use_retained_declaration_term() {
         .package
         .model_object_fields(&ledger)
         .expect("admitted fields");
-    fixture.package.wire.semantic_graph.nodes[0].body = json!({"term":"aggregate","members":[
-        {"term":"reference","target": ledger}
-    ]});
+    fixture.package.wire.semantic_graph.nodes[0].body =
+        serde_json::from_value(json!({"term":"aggregate","members":[
+            {"term":"reference","target": ledger}
+        ]}))
+        .expect("typed changed body");
     assert_eq!(fixture.package.model_object_fields(&ledger), Ok(expected));
 }
 

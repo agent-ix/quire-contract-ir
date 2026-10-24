@@ -1360,6 +1360,9 @@ fn tc_058_structural_candidate_api_is_typed_and_closed() {
         "body": {"term": "aggregate", "members": []},
     }))
     .expect("typed draft");
+    let draft: quire_contract_model::CheckedSemanticNodeV2<Value> =
+        serde_json::from_value(serde_json::to_value(draft).expect("draft wire"))
+            .expect("raw draft");
     let candidates =
         derive_structural_candidates(std::slice::from_ref(&draft), 4096, 10).expect("candidate");
     assert_eq!(candidates.nodes().len(), 1);

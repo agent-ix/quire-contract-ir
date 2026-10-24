@@ -79,7 +79,7 @@ mod tests {
     use ix_trace_rs::trace;
     use serde_json::{json, Value};
 
-    type Mutation = Box<dyn Fn(&mut CheckedPackageV2)>;
+    type Mutation = Box<dyn Fn(&mut Value)>;
 
     fn literal(ty: char, value_kind: &str, value: &str) -> Value {
         json!({"term": "literal", "type": id(ty), "value_kind": value_kind, "value": value})
@@ -148,7 +148,7 @@ mod tests {
             .semantic_graph
             .nodes
             .iter()
-            .map(|node| CheckedTerm::decode_admitted(&node.body).expect("fixture body"))
+            .map(|node| node.body.clone())
             .collect();
         CheckedPackageV2 {
             node_index: super::super::retained_node_index(&wire),
@@ -206,102 +206,92 @@ mod tests {
         let mutations: [(&str, Mutation); 13] = [
             (
                 "missing name binding",
-                Box::new(|package| {
-                    package.wire.semantic_graph.nodes[2].body = json!({"term": "aggregate",
+                Box::new(|body| {
+                    *body = json!({"term": "aggregate",
                         "members": [{"term": "binding", "name": "level",
                             "value": literal('2', "integer", "10")}]});
                 }),
             ),
             (
                 "name binding renamed",
-                Box::new(|package| {
-                    package.wire.semantic_graph.nodes[2].body["members"][0]["name"] =
-                        json!("title");
+                Box::new(|body| {
+                    body["members"][0]["name"] = json!("title");
                 }),
             ),
             (
                 "body is not an aggregate",
-                Box::new(|package| {
-                    package.wire.semantic_graph.nodes[2].body = literal('1', "text", "a");
+                Box::new(|body| {
+                    *body = literal('1', "text", "a");
                 }),
             ),
             (
                 "body is a reference",
-                Box::new(|package| {
-                    package.wire.semantic_graph.nodes[2].body =
-                        json!({"term": "reference", "target": id('4')});
+                Box::new(|body| {
+                    *body = json!({"term": "reference", "target": id('4')});
                 }),
             ),
             (
                 "name literal of integer kind typed at the text type",
-                Box::new(|package| {
-                    package.wire.semantic_graph.nodes[2].body["members"][0]["value"] =
-                        literal('1', "integer", "a");
+                Box::new(|body| {
+                    body["members"][0]["value"] = literal('1', "integer", "a");
                 }),
             ),
             (
                 "level literal of text kind typed at the integer type",
-                Box::new(|package| {
-                    package.wire.semantic_graph.nodes[2].body["members"][1]["value"] =
-                        literal('2', "text", "10");
+                Box::new(|body| {
+                    body["members"][1]["value"] = literal('2', "text", "10");
                 }),
             ),
             (
                 "level binding renamed",
-                Box::new(|package| {
-                    package.wire.semantic_graph.nodes[2].body["members"][1]["name"] =
-                        json!("depth");
+                Box::new(|body| {
+                    body["members"][1]["name"] = json!("depth");
                 }),
             ),
             (
                 "non-text name",
-                Box::new(|package| {
-                    package.wire.semantic_graph.nodes[2].body["members"][0]["value"] =
-                        literal('2', "integer", "5");
+                Box::new(|body| {
+                    body["members"][0]["value"] = literal('2', "integer", "5");
                 }),
             ),
             (
                 "non-identifier name",
-                Box::new(|package| {
-                    package.wire.semantic_graph.nodes[2].body["members"][0]["value"] =
-                        literal('1', "text", "1x");
+                Box::new(|body| {
+                    body["members"][0]["value"] = literal('1', "text", "1x");
                 }),
             ),
             (
                 "name typed at a node that is not scalar_type/text",
-                Box::new(|package| {
-                    package.wire.semantic_graph.nodes[2].body["members"][0]["value"] =
-                        literal('2', "text", "a");
+                Box::new(|body| {
+                    body["members"][0]["value"] = literal('2', "text", "a");
                 }),
             ),
             (
                 "name typed at a node that is not a scalar_type",
-                Box::new(|package| {
-                    package.wire.semantic_graph.nodes[2].body["members"][0]["value"] =
-                        literal('3', "text", "a");
+                Box::new(|body| {
+                    body["members"][0]["value"] = literal('3', "text", "a");
                 }),
             ),
             (
                 "non-canonical level",
-                Box::new(|package| {
-                    package.wire.semantic_graph.nodes[2].body["members"][1]["value"] =
-                        literal('2', "integer", "010");
+                Box::new(|body| {
+                    body["members"][1]["value"] = literal('2', "integer", "010");
                 }),
             ),
             (
                 "level typed at the text type",
-                Box::new(|package| {
-                    package.wire.semantic_graph.nodes[2].body["members"][1]["value"] =
-                        literal('1', "integer", "10");
+                Box::new(|body| {
+                    body["members"][1]["value"] = literal('1', "integer", "10");
                 }),
             ),
         ];
         for (label, mutate) in mutations {
             let mut package = fixture_package();
-            mutate(&mut package);
-            package.terms[2] =
-                CheckedTerm::decode_admitted(&package.wire.semantic_graph.nodes[2].body)
-                    .expect("mutated fixture retains a grammar-admitted term");
+            let mut body = serde_json::to_value(&package.terms[2]).expect("fixture body");
+            mutate(&mut body);
+            package.terms[2] = CheckedTerm::decode_admitted(&body)
+                .expect("mutated fixture retains a grammar-admitted term");
+            package.wire.semantic_graph.nodes[2].body = package.terms[2].clone();
             assert_eq!(
                 package.parameter_declaration(&node_id('3')),
                 Err(CheckedParameterDeclarationError::MalformedBody),

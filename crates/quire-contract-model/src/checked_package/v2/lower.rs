@@ -751,9 +751,10 @@ impl CheckedPackageV2 {
                     Step::Index(position),
                     Step::Key("body"),
                 ];
+                let body = serde_json::to_value(&node.body).expect("typed test body");
                 let terms = super::validate_body(
                     *kind,
-                    &node.body,
+                    &body,
                     &Trail::Base(&body_steps),
                     &mut |target, site, _at| {
                         if let Some(&resolved) = index.get(target) {

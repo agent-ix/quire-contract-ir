@@ -20,7 +20,7 @@ use quire_contract_model::{
     CheckedPackageLockV2, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult, CheckedSelectionRole, CheckedSemanticGraphV2, CheckedSemanticId,
-    CheckedSemanticNodeV2, CheckedSourceMapEntry,
+    CheckedSemanticNodeV2, CheckedSourceMapEntry, CheckedTerm,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -138,6 +138,10 @@ fn graph_of(package: &Value) -> CheckedSemanticGraphV2 {
     typed(&package["semantic_graph"])
 }
 
+fn raw_graph_of(package: &Value) -> CheckedSemanticGraphV2<Value> {
+    typed(&package["semantic_graph"])
+}
+
 fn hash_input(package: &Value) -> Value {
     let mut input = package["identity_preimage"].clone();
     input["identity_projection"] = Value::Array(
@@ -209,7 +213,8 @@ fn tc_048_preimage_bytes_equal_serde_json_and_hash_to_the_package_id() {
         .to_string();
         assert_ne!(digest, labelled, "{name}");
         // Crafted projection bodies.
-        let mut crafted = CheckedNodeProjectionV2::from(&graph.nodes[0]);
+        let raw = raw_graph_of(&package);
+        let mut crafted = CheckedNodeProjectionV2::from(&raw.nodes[0]);
         crafted.body = crafted_body();
         assert_same_bytes(name, &crafted);
     }
@@ -264,7 +269,7 @@ fn tc_048_a_preimage_that_differs_from_the_one_the_package_id_covers_is_stale() 
 /// A graph holding a node of each nominal preimage version, a `declaration`, a
 /// `recursion_group` and bodies of every JSON kind, with the strings and
 /// integers of FR-038-AC-75.
-fn crafted_graph() -> CheckedSemanticGraphV2 {
+fn crafted_graph() -> CheckedSemanticGraphV2<Value> {
     let package = v2_nominal();
     let mut nodes = package["semantic_graph"]["nodes"]
         .as_array()
@@ -421,9 +426,9 @@ trait Carrier: Encode + Serialize + Clone + Send + 'static {
     const AROUND: (&'static str, &'static str);
 }
 
-impl Carrier for CheckedSemanticGraphV2 {
+impl Carrier for CheckedSemanticGraphV2<Value> {
     fn shallow() -> Self {
-        let mut graph = graph_of(&v2_all_families());
+        let mut graph = raw_graph_of(&v2_all_families());
         graph.nodes.truncate(1);
         graph.nodes[0].body = Value::Null;
         graph
@@ -437,9 +442,10 @@ impl Carrier for CheckedSemanticGraphV2 {
     const AROUND: (&'static str, &'static str) = ("\"body\":", "");
 }
 
-impl Carrier for CheckedNodeProjectionV2 {
+impl Carrier for CheckedNodeProjectionV2<Value> {
     fn shallow() -> Self {
-        let mut projection = CheckedNodeProjectionV2::from(&graph_of(&v2_all_families()).nodes[0]);
+        let mut projection =
+            CheckedNodeProjectionV2::from(&raw_graph_of(&v2_all_families()).nodes[0]);
         projection.body = Value::Null;
         projection
     }
@@ -595,14 +601,14 @@ fn deep_encodes_and_stays_under_a_byte_ceiling<T: Carrier>() {
 #[trace("TC-048", "FR-038-AC-77", "FR-038-AC-78")]
 #[test]
 fn tc_048_a_graph_body_nested_100000_deep_encodes_on_a_256_kib_stack() {
-    deep_encodes_and_stays_under_a_byte_ceiling::<CheckedSemanticGraphV2>();
+    deep_encodes_and_stays_under_a_byte_ceiling::<CheckedSemanticGraphV2<Value>>();
 }
 
 /// ACs: FR-038-AC-77, FR-038-AC-78
 #[trace("TC-048", "FR-038-AC-77", "FR-038-AC-78")]
 #[test]
 fn tc_048_a_preimage_projection_nested_100000_deep_encodes_on_a_256_kib_stack() {
-    deep_encodes_and_stays_under_a_byte_ceiling::<CheckedNodeProjectionV2>();
+    deep_encodes_and_stays_under_a_byte_ceiling::<CheckedNodeProjectionV2<Value>>();
 }
 
 /// ACs: FR-038-AC-77, FR-038-AC-78
@@ -661,7 +667,7 @@ fn tc_451_deep_borrowed_projection_matches_owned_on_a_small_stack() {
     let preimage = preimage_of(&value);
     let mut expected_input = hash_input(&value);
     expected_input["identity_projection"][0]["body"] = nested(DEEP);
-    let mut graph = graph_of(&value);
+    let mut graph = raw_graph_of(&value);
     graph.nodes[0].body = nested(DEEP);
     let package_id: CheckedSemanticId = typed(&value["package_id"]);
     let lock: CheckedPackageLockV2 = typed(&value["lock"]);
@@ -1041,9 +1047,13 @@ fn implemented_encode(source: &str) -> BTreeSet<String> {
         .lines()
         .filter_map(|line| {
             let trimmed = line.trim_start();
+            if !trimmed.starts_with("impl") {
+                return None;
+            }
             let rest = trimmed
-                .strip_prefix("impl Encode for ")
-                .or_else(|| trimmed.strip_prefix("impl quire_canonical::Encode for "))?;
+                .split_once(" Encode for ")
+                .or_else(|| trimmed.split_once(" quire_canonical::Encode for "))?
+                .1;
             let end = rest
                 .find(|character: char| !(character.is_alphanumeric() || character == '_'))
                 .unwrap_or(rest.len());
@@ -1084,7 +1094,7 @@ const FIXED_DEPTH: [&str; 25] = [
 ];
 
 /// The types that hold a `Value`, directly or through another type.
-const HOLD_A_VALUE: [&str; 7] = [
+const HOLD_A_VALUE: [&str; 8] = [
     "CheckedPackageIdentityPreimageV2",
     "CheckedPackageIdentityPreimageRefV2",
     "CheckedSemanticGraphV2",
@@ -1092,13 +1102,15 @@ const HOLD_A_VALUE: [&str; 7] = [
     "CheckedNodeProjectionV2",
     "CheckedSemanticNodeV2",
     "CheckedDiagnosticV2",
+    "CheckedTerm",
 ];
 
-const ENCODED: [&str; 4] = [
+const ENCODED: [&str; 5] = [
     "CheckedPackageIdentityPreimageV2",
     "CheckedPackageIdentityPreimageRefV2",
     "CheckedSemanticGraphV2",
     "CheckedDiagnosticsV2",
+    "CheckedTerm",
 ];
 
 fn assert_fixed_shape<T: FixedShape>() {}
@@ -1226,6 +1238,7 @@ fn tc_048_the_wire_types_are_on_the_path_the_compiler_sees() {
     assert_encode::<CheckedPackageIdentityPreimageV2>();
     assert_encode::<CheckedPackageIdentityPreimageRefV2<'static>>();
     assert_encode::<CheckedSemanticGraphV2>();
+    assert_encode::<CheckedTerm>();
     assert_encode::<CheckedDiagnosticsV2>();
     const {
         assert!(is_fixed_shape!(CheckedPackageLockV2));

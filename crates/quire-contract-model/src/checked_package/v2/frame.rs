@@ -41,8 +41,8 @@
 use super::identity::is_identifier;
 use super::model_members::{MemberKind, ModelOwners, ModelRefusal};
 use super::{
-    BodyTerm, CheckedNodeKind, CheckedSemanticNodeV2, FrameEntryKind, ModelForm, RelationForm,
-    WorkMeter,
+    BodyTerm, CheckedNodeKind, FrameEntryKind, ModelForm,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, WorkMeter,
 };
 use crate::checked_package::common::{
     body_term, exact_members, node_pointer, visit_reference, ReferenceMember, Trail,

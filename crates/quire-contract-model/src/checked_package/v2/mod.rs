@@ -97,6 +97,7 @@ pub use vocabulary::*;
 use closure_index::ClosureIndex;
 use dependency_references::{admit_dependencies, check_derived_closure, SuppliedDependencies};
 use derived_keys::validate_derived_keys;
+use ix_trace_rs::string_edge;
 use operations::{validate_application_keys, validate_operations};
 use owner::{validate_owner_joins, validate_owner_schema};
 use structural::validate_structural_nodes;
@@ -175,7 +176,7 @@ pub enum CheckedNodeOwner {
 /// A checked V2 semantic graph node.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CheckedSemanticNodeV2 {
+pub struct CheckedSemanticNodeV2<Body = CheckedTerm> {
     /// Stable checked node identity.
     pub node_id: CheckedNodeId,
     /// Must be `quire.checked-semantic-graph/v2`.
@@ -203,13 +204,162 @@ pub struct CheckedSemanticNodeV2 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<CheckedNodeOwner>,
     /// Typed public semantic term.
-    pub body: Value,
+    pub body: Body,
+}
+
+type RawSemanticNodeV2 = CheckedSemanticNodeV2<Value>;
+
+/// Body representations accepted by the pre-read candidate APIs. Raw draft
+/// nodes borrow their JSON; admitted typed nodes use a temporary projection
+/// through the same identity derivation implementation.
+pub trait CandidateBody: Serialize {
+    /// Borrow or project one node for the pre-read identity calculation.
+    fn candidate_node<'a>(
+        node: &'a CheckedSemanticNodeV2<Self>,
+    ) -> std::borrow::Cow<'a, CheckedSemanticNodeV2<Value>>
+    where
+        Self: Sized;
+
+    /// Borrow or project an ordered graph for grouped candidate derivation.
+    fn candidate_nodes<'a>(
+        nodes: &'a [CheckedSemanticNodeV2<Self>],
+    ) -> std::borrow::Cow<'a, [CheckedSemanticNodeV2<Value>]>
+    where
+        Self: Sized;
+}
+
+impl CandidateBody for Value {
+    fn candidate_node<'a>(
+        node: &'a CheckedSemanticNodeV2<Self>,
+    ) -> std::borrow::Cow<'a, CheckedSemanticNodeV2<Value>> {
+        std::borrow::Cow::Borrowed(node)
+    }
+
+    fn candidate_nodes<'a>(
+        nodes: &'a [CheckedSemanticNodeV2<Self>],
+    ) -> std::borrow::Cow<'a, [CheckedSemanticNodeV2<Value>]> {
+        std::borrow::Cow::Borrowed(nodes)
+    }
+}
+
+impl CandidateBody for CheckedTerm {
+    fn candidate_node<'a>(
+        node: &'a CheckedSemanticNodeV2<Self>,
+    ) -> std::borrow::Cow<'a, CheckedSemanticNodeV2<Value>> {
+        std::borrow::Cow::Owned(node.to_raw())
+    }
+
+    fn candidate_nodes<'a>(
+        nodes: &'a [CheckedSemanticNodeV2<Self>],
+    ) -> std::borrow::Cow<'a, [CheckedSemanticNodeV2<Value>]> {
+        std::borrow::Cow::Owned(nodes.iter().map(CheckedSemanticNodeV2::to_raw).collect())
+    }
+}
+
+impl RawSemanticNodeV2 {
+    fn into_typed(mut self, body: CheckedTerm) -> CheckedSemanticNodeV2 {
+        quire_canonical::drop_value(std::mem::take(&mut self.body));
+        CheckedSemanticNodeV2 {
+            node_id: self.node_id,
+            schema_version: self.schema_version,
+            node_tag: self.node_tag,
+            semantic_form: self.semantic_form,
+            semantic_type: self.semantic_type,
+            dependencies: self.dependencies,
+            occurrences: self.occurrences,
+            recursion_group: self.recursion_group,
+            nominal_identity_preimage: self.nominal_identity_preimage,
+            declaration: self.declaration,
+            owner: self.owner,
+            body,
+        }
+    }
+}
+
+impl CheckedSemanticNodeV2 {
+    /// Replace an exact node identity throughout this admitted, cloned node.
+    /// This does not derive a replacement key or validate the resulting graph.
+    pub fn replace_node_id(&mut self, old: &CheckedNodeId, new: &CheckedNodeId) {
+        fn replace(id: &mut CheckedNodeId, old: &CheckedNodeId, new: &CheckedNodeId) {
+            if id == old {
+                *id = new.clone();
+            }
+        }
+        fn replace_owner(
+            owner: &mut identity::NominalOwner,
+            old: &CheckedNodeId,
+            new: &CheckedNodeId,
+        ) {
+            if let identity::NominalOwner::Model { node, .. } = owner {
+                if old.domain.as_ref() == NODE_DOMAIN && node.as_ref() == old.digest.as_ref() {
+                    *node = new.digest.clone();
+                }
+            }
+        }
+        replace(&mut self.node_id, old, new);
+        replace(&mut self.semantic_type, old, new);
+        for id in &mut self.dependencies {
+            replace(id, old, new);
+        }
+        if let Some(CheckedNodeOwner::Model { node, .. }) = &mut self.owner {
+            if old.domain.as_ref() == NODE_DOMAIN && node.as_ref() == old.digest.as_ref() {
+                *node = new.digest.clone();
+            }
+        }
+        if let Some(preimage) = &mut self.nominal_identity_preimage {
+            match preimage {
+                NominalIdentityPreimage::EnumDeclaration(value) => {
+                    replace_owner(&mut value.owner, old, new)
+                }
+                NominalIdentityPreimage::EnumMember(value) => {
+                    replace(&mut value.declaration_node_id, old, new);
+                }
+                NominalIdentityPreimage::Dimension(value) => {
+                    replace_owner(&mut value.owner, old, new);
+                    for term in &mut value.terms {
+                        replace(&mut term.dimension_node_id, old, new);
+                    }
+                }
+                NominalIdentityPreimage::Unit(value) => {
+                    replace_owner(&mut value.owner, old, new);
+                    replace(&mut value.dimension_node_id, old, new);
+                    if let Some(target) = &mut value.target_unit_node_id {
+                        replace(target, old, new);
+                    }
+                }
+            }
+        }
+        self.body.replace_node_id(old, new);
+    }
+
+    fn to_raw(&self) -> RawSemanticNodeV2 {
+        self.try_to_raw().expect("typed term serializes to JSON")
+    }
+}
+
+impl<Body: Serialize> CheckedSemanticNodeV2<Body> {
+    fn try_to_raw(&self) -> Result<RawSemanticNodeV2, serde_json::Error> {
+        Ok(RawSemanticNodeV2 {
+            node_id: self.node_id.clone(),
+            schema_version: self.schema_version.clone(),
+            node_tag: self.node_tag.clone(),
+            semantic_form: self.semantic_form.clone(),
+            semantic_type: self.semantic_type.clone(),
+            dependencies: self.dependencies.clone(),
+            occurrences: self.occurrences.clone(),
+            recursion_group: self.recursion_group.clone(),
+            nominal_identity_preimage: self.nominal_identity_preimage.clone(),
+            declaration: self.declaration.clone(),
+            owner: self.owner.clone(),
+            body: serde_json::to_value(&self.body)?,
+        })
+    }
 }
 
 /// Identity projection of a V2 node, excluding source occurrences.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CheckedNodeProjectionV2 {
+pub struct CheckedNodeProjectionV2<Body = CheckedTerm> {
     /// Stable node identity.
     pub node_id: CheckedNodeId,
     /// Graph schema version.
@@ -235,11 +385,11 @@ pub struct CheckedNodeProjectionV2 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<CheckedNodeOwner>,
     /// Typed semantic term.
-    pub body: Value,
+    pub body: Body,
 }
 
-impl From<&CheckedSemanticNodeV2> for CheckedNodeProjectionV2 {
-    fn from(node: &CheckedSemanticNodeV2) -> Self {
+impl<Body: Clone> From<&CheckedSemanticNodeV2<Body>> for CheckedNodeProjectionV2<Body> {
+    fn from(node: &CheckedSemanticNodeV2<Body>) -> Self {
         Self {
             node_id: node.node_id.clone(),
             schema_version: node.schema_version.clone(),
@@ -327,7 +477,7 @@ pub struct CheckedPackageIdentityPreimageV2 {
 /// another owned copy of any node body. The reader retains the seven wire
 /// selections separately; the complete graph projection appears only in hash input.
 #[derive(Clone, Copy, Debug)]
-pub struct CheckedPackageIdentityPreimageRefV2<'a> {
+pub struct CheckedPackageIdentityPreimageRefV2<'a, Body = CheckedTerm> {
     /// Must be `quire.checked-package-id/v2`.
     pub version: &'a str,
     /// Selected edition.
@@ -343,18 +493,20 @@ pub struct CheckedPackageIdentityPreimageRefV2<'a> {
     /// Dependency selections, sorted by library identity.
     pub dependency_selections: &'a [CheckedDependencySelection],
     /// Ordered nodes whose identity fields form the projection.
-    pub identity_projection: &'a [CheckedSemanticNodeV2],
+    pub identity_projection: &'a [CheckedSemanticNodeV2<Body>],
 }
 
 /// A checked V2 graph.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CheckedSemanticGraphV2 {
+pub struct CheckedSemanticGraphV2<Body = CheckedTerm> {
     /// Must be `quire.checked-semantic-graph/v2`.
     pub graph_version: Box<str>,
     /// Complete closed graph.
-    pub nodes: Vec<CheckedSemanticNodeV2>,
+    pub nodes: Vec<CheckedSemanticNodeV2<Body>>,
 }
+
+type RawSemanticGraphV2 = CheckedSemanticGraphV2<Value>;
 
 /// Pipeline stage of a typed V2 diagnostic.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
@@ -499,12 +651,12 @@ macro_rules! checked_package_envelope {
             $($name: $parameter,)+
         }
 
-        impl quire_canonical::Encode for CheckedPackageEnvelope<
+        impl<Body: quire_canonical::Encode> quire_canonical::Encode for CheckedPackageEnvelope<
             &str,
             &encode::SelectionFields<'_>,
             &CheckedSemanticId,
             &CheckedPackageLockV2,
-            &CheckedSemanticGraphV2,
+            &CheckedSemanticGraphV2<Body>,
             &[CheckedSourceMapEntry],
             &[CheckedCapability],
             &CheckedDiagnosticsV2,
@@ -532,20 +684,23 @@ checked_package_envelope! {
     diagnostics: D => nested,
 }
 
-type CheckedPackageWireV2 = CheckedPackageEnvelope<
+type CheckedPackageWireV2<Body = CheckedTerm> = CheckedPackageEnvelope<
     Box<str>,
     CheckedPackageIdentityPreimageV2,
     CheckedSemanticId,
     CheckedPackageLockV2,
-    CheckedSemanticGraphV2,
+    CheckedSemanticGraphV2<Body>,
     Vec<CheckedSourceMapEntry>,
     Vec<CheckedCapability>,
     CheckedDiagnosticsV2,
 >;
 
-/// Canonically encodes a complete typed checked-package V2 envelope under the
-/// caller's byte limits. Identity construction and admission belong to the
-/// producer and reader respectively.
+type RawCheckedPackageWireV2 = CheckedPackageWireV2<Value>;
+
+/// Canonically encodes a complete checked-package V2 envelope under the
+/// caller's byte limits. The graph and borrowed projection must use the same
+/// body representation; typed producers use [`CheckedTerm`]. Identity
+/// construction and admission belong to the producer and reader respectively.
 ///
 /// The encoder requires the borrowed projection view; the owned reader
 /// preimage is not a producer argument.
@@ -558,11 +713,11 @@ type CheckedPackageWireV2 = CheckedPackageEnvelope<
 ///     todo!(),
 /// );
 /// ```
-pub fn encode_checked_package_v2(
-    identity_preimage: &CheckedPackageIdentityPreimageRefV2<'_>,
+pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
+    identity_preimage: &CheckedPackageIdentityPreimageRefV2<'_, Body>,
     package_id: &CheckedSemanticId,
     lock: &CheckedPackageLockV2,
-    semantic_graph: &CheckedSemanticGraphV2,
+    semantic_graph: &CheckedSemanticGraphV2<Body>,
     source_map: &[CheckedSourceMapEntry],
     capability_report: &[CheckedCapability],
     diagnostics: &CheckedDiagnosticsV2,
@@ -961,6 +1116,41 @@ impl CheckedPackageV2 {
             .collect::<Result<Vec<_>, _>>()?;
         let closure_index =
             ClosureIndex::from_direct(&wire.lock.dependency_selections, &direct_dependencies);
+        let CheckedPackageEnvelope {
+            contract_version,
+            identity_preimage,
+            package_id,
+            lock,
+            semantic_graph,
+            source_map,
+            capability_report,
+            diagnostics,
+        } = wire;
+        if semantic_graph.nodes.len() != terms.len() {
+            return Err(refuse(
+                CheckedPackageRefusalCode::MalformedWire,
+                member_pointer(&["semantic_graph", "nodes"]),
+            ));
+        }
+        let semantic_graph = CheckedSemanticGraphV2 {
+            graph_version: semantic_graph.graph_version,
+            nodes: semantic_graph
+                .nodes
+                .into_iter()
+                .zip(terms.iter().cloned())
+                .map(|(node, term)| node.into_typed(term))
+                .collect(),
+        };
+        let wire = CheckedPackageEnvelope {
+            contract_version,
+            identity_preimage,
+            package_id,
+            lock,
+            semantic_graph,
+            source_map,
+            capability_report,
+            diagnostics,
+        };
         let node_index = retained_node_index(&wire);
         let source_index = retained_source_index(&wire);
         Ok(Self {
@@ -1031,7 +1221,7 @@ impl CheckedPackageV2 {
 /// Checks the package's fixed wire tags: contract version, digest domain,
 /// digest algorithm and identity preimage version.
 // Intake: checks the fixed version, domain and algorithm tags of the package.
-fn check_package_header(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
+fn check_package_header(wire: &RawCheckedPackageWireV2) -> Result<(), ValidationFailure> {
     if wire.contract_version.as_ref() != CHECKED_PACKAGE_V2 {
         return Err(ValidationFailure::unknown_contract_version(
             &wire.contract_version,
@@ -1079,7 +1269,7 @@ struct ValidatedGraph {
 }
 
 fn validate(
-    wire: &CheckedPackageWireV2,
+    wire: &RawCheckedPackageWireV2,
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
 ) -> Result<ValidatedPackage, ValidationFailure> {
@@ -1225,7 +1415,7 @@ struct LockAdmission<'a> {
 /// limit bounds this one graph walk and its index before graph work is charged.
 /// The graph stage subsequently validates each node, name and key before the
 /// package admits.
-fn checked_unit_refs(nodes: &[CheckedSemanticNodeV2]) -> UnitRefs {
+fn checked_unit_refs(nodes: &[RawSemanticNodeV2]) -> UnitRefs {
     let mut refs = BTreeMap::new();
     for node in nodes {
         if node.node_tag.as_ref() != "scalar_type" || node.semantic_form.as_ref() != "unit" {
@@ -1248,7 +1438,7 @@ fn checked_unit_refs(nodes: &[CheckedSemanticNodeV2]) -> UnitRefs {
 
 /// Checks the lock and returns what it admits.
 fn validate_lock<'a>(
-    wire: &'a CheckedPackageWireV2,
+    wire: &'a RawCheckedPackageWireV2,
     evidence: &'a CheckedPackageEvidence,
     meter: &mut WorkMeter,
     bytes: u64,
@@ -1950,7 +2140,7 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
 /// checks the nominal join first. Takes no work meter: every name compared
 /// here was already charged when `validate_graph`'s per-node loop admitted it.
 fn validate_declaration_names(
-    nodes: &[CheckedSemanticNodeV2],
+    nodes: &[RawSemanticNodeV2],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Result<(), ValidationFailure> {
     let name_pointer = |position: usize| {
@@ -2045,7 +2235,7 @@ fn with_node_locus(failure: ValidationFailure, node_id: &CheckedNodeId) -> Valid
 /// that target. The body was admitted by the first walk, so the walk is
 /// deterministic and reaches it; the body pointer is the fallback.
 fn body_reference_pointer(
-    node: &CheckedSemanticNodeV2,
+    node: &RawSemanticNodeV2,
     kind: CheckedNodeKind,
     position: usize,
     reference: usize,
@@ -2075,7 +2265,7 @@ fn body_reference_pointer(
 
 /// Checks the graph's fixed version tag.
 // Intake: checks the fixed graph version tag.
-fn check_graph_version(graph: &CheckedSemanticGraphV2) -> Result<(), ValidationFailure> {
+fn check_graph_version(graph: &RawSemanticGraphV2) -> Result<(), ValidationFailure> {
     if graph.graph_version.as_ref() != GRAPH_V2 {
         return Err(refuse(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -2087,8 +2277,9 @@ fn check_graph_version(graph: &CheckedSemanticGraphV2) -> Result<(), ValidationF
 
 /// Checks a node's fixed schema version and decodes its tag and form once.
 // Intake: checks the fixed schema version and decodes the node tag and form.
-fn decode_node_kind(
-    node: &CheckedSemanticNodeV2,
+#[string_edge]
+fn decode_node_kind<Body>(
+    node: &CheckedSemanticNodeV2<Body>,
     at: impl Fn(&str) -> JsonPointer,
 ) -> Result<CheckedNodeKind, ValidationFailure> {
     if node.schema_version.as_ref() != GRAPH_V2 {
@@ -2112,7 +2303,7 @@ fn decode_node_kind(
 }
 
 fn validate_graph(
-    wire: &CheckedPackageWireV2,
+    wire: &RawCheckedPackageWireV2,
     limits: CheckedPackageReadLimits,
     meter: &mut WorkMeter,
     models: &[DomainModel],
@@ -2247,8 +2438,8 @@ fn validate_graph(
         // typed decode cannot preempt that step.
         terms.push(match CheckedTerm::decode_admitted(&node.body) {
             Ok(term) => Some(term),
-            Err(()) if body_grammar(kind) == BodyGrammar::AbstractionRelation => None,
-            Err(()) => {
+            Err(_) if body_grammar(kind) == BodyGrammar::AbstractionRelation => None,
+            Err(_) => {
                 return Err(refuse(CheckedPackageRefusalCode::MalformedWire, at("body")));
             }
         });
@@ -2311,7 +2502,7 @@ fn validate_graph(
     abstraction::validate_abstraction(&graph.nodes, &kinds, &index, &owners, limits.bytes, meter)?;
     hybrid::validate_models(&graph.nodes, &kinds, &terms, &index, meter)?;
     hybrid::validate_claims(&graph.nodes, &kinds, &terms, &index, meter)?;
-    timed_model::validate_models(&graph.nodes, &kinds, &terms, &index, meter)?;
+    timed_model::validate_models(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     validate_protocol_references(&graph.nodes, &kinds, &index)?;
     validate_operations(
         &graph.nodes,
@@ -2427,7 +2618,7 @@ fn validate_graph(
 /// Joins the already keyed protocol-reference carriers to this graph alone.
 /// This protocol check follows the hybrid step and precedes operation validation.
 fn validate_protocol_references(
-    nodes: &[CheckedSemanticNodeV2],
+    nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Result<(), ValidationFailure> {
@@ -2488,7 +2679,7 @@ fn reference_requires_cycle_edge(
 /// explicit `recursion_group`. Iterative Tarjan; each edge costs one work,
 /// charged at the member that carried the edge (`edge_pointer`).
 fn validate_recursion(
-    nodes: &[CheckedSemanticNodeV2],
+    nodes: &[RawSemanticNodeV2],
     adjacency: &[Vec<(usize, EdgeSite)>],
     meter: &mut WorkMeter,
     edge_pointer: &dyn Fn(usize, EdgeSite) -> JsonPointer,
@@ -2626,7 +2817,7 @@ fn enter(
 }
 
 fn validate_capabilities(
-    wire: &CheckedPackageWireV2,
+    wire: &RawCheckedPackageWireV2,
     evidence: &CheckedPackageEvidence,
 ) -> Result<(), ValidationFailure> {
     let report = || member_pointer(&["capability_report"]);
@@ -2667,7 +2858,7 @@ fn validate_capabilities(
 }
 
 fn validate_diagnostics(
-    wire: &CheckedPackageWireV2,
+    wire: &RawCheckedPackageWireV2,
     limits: CheckedPackageReadLimits,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -2833,7 +3024,8 @@ mod tests {
             "node_id": node_id.clone(),
             "schema_version": "quire.checked-semantic-graph/v2",
             "node_tag": "test", "semantic_form": "test",
-            "semantic_type": node_id, "dependencies": [], "occurrences": [], "body": null
+            "semantic_type": node_id, "dependencies": [], "occurrences": [],
+            "body": {"term":"literal","type":node_id,"value_kind":"integer","value":null}
         }))
         .expect("shallow graph node");
         wire.semantic_graph.nodes.push(node);
@@ -2847,8 +3039,18 @@ mod tests {
                 // bodies without recursive serde serialization.
                 let mut private_wire_value =
                     serde_json::to_value(&wire).expect("private owned wire value");
-                private_wire_value["semantic_graph"]["nodes"][0]["body"] = nested(DEEP);
-                wire.semantic_graph.nodes[0].body = nested(DEEP);
+                let mut expected_body = serde_json::Map::new();
+                expected_body.insert("term".into(), json!("literal"));
+                expected_body.insert("type".into(), node_id.clone());
+                expected_body.insert("value_kind".into(), json!("integer"));
+                expected_body.insert("value".into(), nested(DEEP));
+                private_wire_value["semantic_graph"]["nodes"][0]["body"] =
+                    serde_json::Value::Object(expected_body);
+                wire.semantic_graph.nodes[0].body = super::CheckedTerm::Literal {
+                    type_id: super::test_support::node_id('b'),
+                    value_kind: super::LiteralKind::Integer,
+                    value: nested(DEEP),
+                };
 
                 let result = (|| {
                     let ceiling = 1_000_000;
@@ -2878,7 +3080,11 @@ mod tests {
                 })();
 
                 quire_canonical::drop_value(std::mem::take(&mut private_wire_value));
-                quire_canonical::drop_value(std::mem::take(&mut wire.semantic_graph.nodes[0].body));
+                if let super::CheckedTerm::Literal { value, .. } =
+                    &mut wire.semantic_graph.nodes[0].body
+                {
+                    quire_canonical::drop_value(std::mem::take(value));
+                }
                 result
             })
             .expect("small-stack thread spawns")
@@ -2930,7 +3136,7 @@ mod tests {
             assert_eq!(sites.len(), 1);
             let has_edge = reference_requires_cycle_edge(0, 0, 0, sites[0]);
             assert_eq!(has_edge, requires_edge);
-            let node: CheckedSemanticNodeV2 = serde_json::from_value(json!({
+            let node: super::RawSemanticNodeV2 = serde_json::from_value(json!({
                 "node_id":typed,
                 "schema_version":"quire.checked-semantic-graph/v2",
                 "node_tag":"expression",

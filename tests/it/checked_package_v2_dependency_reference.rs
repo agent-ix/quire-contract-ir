@@ -414,7 +414,7 @@ fn tc_048_a_dependency_callee_is_admitted_and_never_a_dependency() {
     let position = call_position(&package);
     let call = &admitted.graph().nodes[position];
     assert_eq!(
-        call.body["arguments"][0]["term"],
+        serde_json::to_value(&call.body).expect("typed body")["arguments"][0]["term"],
         json!("dependency_reference")
     );
     assert!(call.dependencies.is_empty());

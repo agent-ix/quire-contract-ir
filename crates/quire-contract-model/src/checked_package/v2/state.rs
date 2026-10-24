@@ -35,8 +35,8 @@ use super::structural::{
     AnchorBody,
 };
 use super::{
-    CheckedNodeKind, CheckedSemanticNodeV2, CheckedTerm, CompositeTypeForm, ModelForm,
-    StateClauseKind, StateForm, ValueForm, WorkMeter,
+    CheckedNodeKind, CheckedTerm, CompositeTypeForm, ModelForm,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, StateClauseKind, StateForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, Step, Trail, ValidationFailure};
 use crate::checked_package::shared::{

@@ -42,7 +42,7 @@
 use super::model_fields::{DeclarationIndex, DeclaredNode, FieldTables, Selected};
 use super::{
     member_pointer, CheckedDeclaration, CheckedDomainPackageRef, CheckedNodeOwner, CheckedNodeTag,
-    CheckedSemanticNodeV2, ValidationFailure, WorkMeter,
+    CheckedSemanticNodeV2, CheckedTerm, ValidationFailure, WorkMeter,
 };
 use crate::checked_package::common::{pointer_from_steps, Step, NODE_DOMAIN};
 use crate::checked_package::evidence::CheckedPackageEvidence;
@@ -54,6 +54,23 @@ use ix_trace_rs::string_edge;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::Serialize;
 use serde_json::{json, Value};
+
+/// The fixed declaration body shape in raw intake and admitted typed nodes.
+pub(super) trait EmptyAggregateBody {
+    fn is_empty_aggregate(&self) -> bool;
+}
+
+impl EmptyAggregateBody for Value {
+    fn is_empty_aggregate(&self) -> bool {
+        *self == json!({"term": "aggregate", "members": []})
+    }
+}
+
+impl EmptyAggregateBody for CheckedTerm {
+    fn is_empty_aggregate(&self) -> bool {
+        matches!(self, Self::Aggregate { members } if members.is_empty())
+    }
+}
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -175,6 +192,8 @@ pub(super) enum SelectedTypeRef {
     Native(NativeTypeRef),
     Unit(Box<str>),
     Declared(Box<str>),
+    /// A map's value type; retained for timed clock-place resolution.
+    Map(Box<str>, Box<str>),
 }
 
 /// The closed native names accepted by the selected model grammar.
@@ -190,11 +209,19 @@ pub(super) enum NativeTypeRef {
     String,
     Uuid,
     Timestamp,
+    Clock,
 }
 
 impl SelectedTypeRef {
     #[string_edge]
     fn from_admitted_name(name: &str) -> Option<Self> {
+        if let Some(inner) = name.strip_prefix("Map<").and_then(|s| s.strip_suffix('>')) {
+            let (key, value) = inner.split_once(", ")?;
+            if key.is_empty() || value.is_empty() || value.contains(',') {
+                return None;
+            }
+            return Some(Self::Map(key.into(), value.into()));
+        }
         if name.starts_with("ix://quire/unit/") {
             return Some(Self::Unit(name.into()));
         }
@@ -223,6 +250,7 @@ impl NativeTypeRef {
             "String" => Self::String,
             "UUID" => Self::Uuid,
             "Timestamp" => Self::Timestamp,
+            "Clock" => Self::Clock,
             _ => return None,
         })
     }
@@ -658,6 +686,8 @@ pub(super) enum MemberType {
     String,
     Uuid,
     Timestamp,
+    /// The timed-model clock marker used by checked clock-place paths.
+    Clock,
     /// `Int[lo, hi]`.
     IntRange(IntegerBounds),
     /// `Reference<O>`, by the digest of `O`'s model declaration node.
@@ -707,6 +737,7 @@ impl MemberType {
                 StructuralBody::Empty,
                 bytes,
             ),
+            Self::Clock => anonymous("scalar_type", "clock", None, StructuralBody::Empty, bytes),
             Self::IntRange(range) => {
                 let integer = Self::Integer.node_key(bytes)?;
                 anonymous(
@@ -1141,6 +1172,7 @@ impl DomainModel {
     /// FR-322 step 4's element type of a declared `typeRef`.
     fn element_type(&self, type_ref: &SelectedTypeRef) -> Option<MemberType> {
         let type_ref = match type_ref {
+            SelectedTypeRef::Map(_, _) => return None,
             SelectedTypeRef::Unit(name) => {
                 return self.unit_refs.get(name).cloned().map(MemberType::Quantity);
             }
@@ -1151,6 +1183,7 @@ impl DomainModel {
                     NativeTypeRef::String => Some(MemberType::String),
                     NativeTypeRef::Uuid => Some(MemberType::Uuid),
                     NativeTypeRef::Timestamp => Some(MemberType::Timestamp),
+                    NativeTypeRef::Clock => Some(MemberType::Clock),
                     NativeTypeRef::Rational
                     | NativeTypeRef::Decimal
                     | NativeTypeRef::Float32
@@ -1321,9 +1354,9 @@ impl<'m> ModelOwners<'m> {
     /// Whether `node` is a model declaration node: a `model` or `relation`
     /// node that carries no `declaration`, or whose key is a selected
     /// declaration's model declaration node key.
-    pub(super) fn is_model_declaration_node(
+    pub(super) fn is_model_declaration_node<Body>(
         &self,
-        node: &CheckedSemanticNodeV2,
+        node: &CheckedSemanticNodeV2<Body>,
         tag: CheckedNodeTag,
     ) -> bool {
         matches!(tag, CheckedNodeTag::Model | CheckedNodeTag::Relation)
@@ -1332,17 +1365,16 @@ impl<'m> ModelOwners<'m> {
     }
 
     /// FR-322 step 2 over one wire node.
-    pub(super) fn recover(&self, node: &CheckedSemanticNodeV2) -> Result<Owner<'m>, ModelRefusal> {
+    pub(super) fn recover<Body: EmptyAggregateBody>(
+        &self,
+        node: &CheckedSemanticNodeV2<Body>,
+    ) -> Result<Owner<'m>, ModelRefusal> {
         let owner = self
             .by_key
             .get(node.node_id.digest.as_ref())
             .copied()
             .ok_or_else(ModelRefusal::unselected)?;
-        check_declaration_node(
-            owner.form,
-            node,
-            node.body == json!({"term": "aggregate", "members": []}),
-        )?;
+        check_declaration_node(owner.form, node, node.body.is_empty_aggregate())?;
         Ok(owner)
     }
 
@@ -1383,9 +1415,9 @@ impl<'m> ModelOwners<'m> {
 /// (`invalid_package`/`stale-node-key` otherwise). The one statement of the
 /// rule: [`ModelOwners::recover`] at admission and the field accessor of an
 /// admitted package both apply it.
-pub(super) fn check_declaration_node(
+pub(super) fn check_declaration_node<Body>(
     form: DeclarationForm,
-    node: &CheckedSemanticNodeV2,
+    node: &CheckedSemanticNodeV2<Body>,
     body_is_empty_aggregate: bool,
 ) -> Result<(), ModelRefusal> {
     if form.tag() != node.node_tag.as_ref() || form.form() != node.semantic_form.as_ref() {
@@ -1412,9 +1444,9 @@ impl<'m> ModelOwners<'m> {
     /// or the refusal the first failing step determined. Step 3's charges
     /// go to `meter` at the owner's selection row; an exhausted limit is the
     /// outer error.
-    pub(super) fn resolve_member(
+    pub(super) fn resolve_member<Body: EmptyAggregateBody>(
         &self,
-        node: &CheckedSemanticNodeV2,
+        node: &CheckedSemanticNodeV2<Body>,
         kind: MemberKind,
         name: &str,
         meter: &mut WorkMeter,
@@ -2528,6 +2560,19 @@ impl References<'_> {
     // Reads a selected domain package document's type reference prefix.
     fn check_type_ref(&self, type_ref: &str, path: &[Segment], defects: &mut Defects) {
         let path = joined(path, Segment::Name("typeRef"));
+        if let Some(inner) = type_ref
+            .strip_prefix("Map<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            if let Some((key, value)) = inner.split_once(", ") {
+                if key == "Text" && !value.is_empty() && !value.contains(',') {
+                    self.check_type_ref(value, &[], defects);
+                    return;
+                }
+            }
+            defects.push(Row::Meaning, &path, ModelRefusal::malformed());
+            return;
+        }
         if type_ref.starts_with("ix://quire/unit/") {
             if !self.model.unit_refs.contains_key(type_ref) {
                 defects.push(Row::Reference, &path, ModelRefusal::missing_name());

@@ -301,7 +301,8 @@ fn selected_native_parameters_and_results_keep_their_type_nodes() {
             key
         );
         assert_eq!(
-            admitted.graph().nodes[CALL].body["result_type"],
+            serde_json::to_value(&admitted.graph().nodes[CALL].body).expect("typed body")
+                ["result_type"],
             node_id(&key)
         );
         assert_eq!(
@@ -1230,7 +1231,7 @@ fn tc_048_model_relationship_candidate_matches_reader_admission() {
         read(&package, &evidence),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
-    let nodes: Vec<CheckedSemanticNodeV2> =
+    let nodes: Vec<CheckedSemanticNodeV2<Value>> =
         serde_json::from_value(package["semantic_graph"]["nodes"].clone()).expect("typed graph");
     let position = nodes
         .iter()
@@ -1385,19 +1386,26 @@ fn admitted_reaches(
     let nodes = &admitted.graph().nodes;
     let call = nodes
         .iter()
-        .find(|node| node.body.get("operator").and_then(Value::as_str) == Some("reaches"))
+        .find(|node| {
+            matches!(
+                &node.body,
+                quire_contract_model::CheckedTerm::Application {
+                    operator: quire_contract_model::ApplicationOperator::Reaches,
+                    ..
+                }
+            )
+        })
         .expect("admitted reaches application");
     let result = nodes
         .iter()
         .find(|node| node.node_id == call.semantic_type)
         .expect("admitted result type node");
-    let operands = call
-        .body
-        .get("arguments")
-        .and_then(Value::as_array)
-        .map_or(0, Vec::len);
+    let operands = match &call.body {
+        quire_contract_model::CheckedTerm::Application { arguments, .. } => arguments.len(),
+        _ => 0,
+    };
     (
-        call.body.clone(),
+        serde_json::to_value(&call.body).expect("typed reaches body"),
         result.semantic_form.to_string(),
         operands,
     )
@@ -3385,10 +3393,8 @@ fn application_of(package: &CheckedPackageV2, operation: &str) -> CheckedNodeId 
         .nodes
         .iter()
         .find(|node| {
-            node.body
-                .pointer("/operation/identity")
-                .and_then(Value::as_str)
-                == Some(operation)
+            matches!(&node.body, quire_contract_model::CheckedTerm::Application { operation: record, .. }
+                if record.get("identity").and_then(Value::as_str) == Some(operation))
         })
         .expect("an application of the operation")
         .node_id

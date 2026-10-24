@@ -53,8 +53,8 @@ use super::model_members::{MemberKind, ModelOwners, ModelRefusal};
 use super::rust_spelling::{is_rust_field, is_rust_identifier, is_rust_path, is_rust_receiver};
 use super::state::resolve_operation;
 use super::{
-    BodyTerm, CheckedNodeKind, CheckedSemanticNodeV2, CorrespondenceForm, ModelForm, RelationForm,
-    WorkMeter,
+    BodyTerm, CheckedNodeKind, CorrespondenceForm, ModelForm,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, WorkMeter,
 };
 use crate::checked_package::common::{
     body_term, exact_members, is_digest, node_pointer, validate_term, ReferenceVisitor,
