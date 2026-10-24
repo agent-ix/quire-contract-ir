@@ -3,8 +3,8 @@
 use super::identity::is_identifier;
 use super::model_members::{Budget, DeclarationForm, ModelOwners};
 use super::{
-    CheckedNodeKind, CheckedPackageWireV2, CheckedSemanticNodeV2, CheckedTerm, ScalarTypeForm,
-    WorkMeter,
+    BoundedDomainForm, CheckedNodeKind, CheckedPackageWireV2, CheckedSemanticNodeV2, CheckedTerm,
+    ModelForm, ScalarTypeForm, WorkMeter,
 };
 use crate::checked_package::common::{is_digest, node_pointer, ValidationFailure, NODE_DOMAIN};
 use crate::checked_package::evidence::CheckedPackageEvidence;
@@ -249,6 +249,7 @@ pub(super) fn validate(
                         target,
                         kinds[target_position],
                         nodes,
+                        kinds,
                         terms,
                         target_position,
                         index,
@@ -312,14 +313,15 @@ fn type_matches(
         let Some(&position) = index.get(&target.semantic_type) else {
             return Ok(false);
         };
-        let type_node = &nodes[position];
         let bounds_match = terms
             .get(position)
             .and_then(Option::as_ref)
             .and_then(integer_range_bounds)
             .is_some_and(|(lower, upper)| lower == lo.trim() && upper == hi.trim());
-        return Ok(matches!(type_node.node_tag.as_ref(), "bounded_domain")
-            && type_node.semantic_form.as_ref() == "integer_range"
+        return Ok(kinds.get(position)
+            == Some(&CheckedNodeKind::BoundedDomain(
+                BoundedDomainForm::IntegerRange,
+            ))
             && bounds_match);
     }
     let scalar = match expected {
@@ -338,19 +340,14 @@ fn type_matches(
     if let Some(form) = scalar {
         return Ok(index
             .get(&target.semantic_type)
-            .and_then(|&position| nodes.get(position))
-            .is_some_and(|type_node| {
-                type_node.node_tag.as_ref() == "scalar_type"
-                    && type_node.semantic_form.as_ref() == form.as_wire()
-            }));
+            .and_then(|&position| nodes.get(position).zip(kinds.get(position)))
+            .is_some_and(|(_, kind)| *kind == CheckedNodeKind::ScalarType(form)));
     }
-    if let Some(type_node) = index
+    if let Some((type_node, type_kind)) = index
         .get(&target.semantic_type)
-        .and_then(|&position| nodes.get(position))
+        .and_then(|&position| nodes.get(position).zip(kinds.get(position)))
     {
-        if type_node.node_tag.as_ref() == "model"
-            && type_node.semantic_form.as_ref() == "record_value_type"
-        {
+        if *type_kind == CheckedNodeKind::Model(ModelForm::RecordValueType) {
             if let Ok(actual) = owners.recover(type_node) {
                 if actual.form == DeclarationForm::RecordValueType
                     && actual.package.record_types.contains_key(expected)
@@ -372,6 +369,7 @@ fn actual_type(
     target: &CheckedSemanticNodeV2,
     kind: CheckedNodeKind,
     nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
     target_position: usize,
     index: &BTreeMap<&CheckedNodeId, usize>,
@@ -385,12 +383,11 @@ fn actual_type(
     let Some(&type_position) = index.get(&target.semantic_type) else {
         return target.semantic_type.digest.to_string();
     };
-    let Some(type_node) = nodes.get(type_position) else {
+    let Some((type_node, type_kind)) = nodes.get(type_position).zip(kinds.get(type_position))
+    else {
         return target.semantic_type.digest.to_string();
     };
-    if type_node.node_tag.as_ref() == "bounded_domain"
-        && type_node.semantic_form.as_ref() == "integer_range"
-    {
+    if *type_kind == CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange) {
         if let Some((lo, hi)) = terms
             .get(type_position)
             .and_then(Option::as_ref)
@@ -399,21 +396,363 @@ fn actual_type(
             return format!("Int[{lo}, {hi}]");
         }
     }
-    match type_node.semantic_form.as_ref() {
-        "boolean" => "Boolean".into(),
-        "integer" => "Integer".into(),
-        "rational" => "Rational".into(),
-        "decimal" => "Decimal".into(),
-        "float32" => "Float32".into(),
-        "float64" => "Float64".into(),
-        "text" => "Text".into(),
-        "string" => "String".into(),
-        "uuid" => "UUID".into(),
-        "timestamp" => "Timestamp".into(),
+    match type_kind {
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean) => "Boolean".into(),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Integer) => "Integer".into(),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Rational) => "Rational".into(),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Decimal) => "Decimal".into(),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Float32) => "Float32".into(),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Float64) => "Float64".into(),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Text) => "Text".into(),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::String) => "String".into(),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Uuid) => "UUID".into(),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Timestamp) => "Timestamp".into(),
         _ => type_node
             .declaration
             .as_ref()
             .map(|declaration| declaration.qualified_name.join("."))
             .unwrap_or_else(|| type_node.semantic_form.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::checked_package::evidence::CheckedExtensionDefinition;
+    use crate::checked_package::v2::{
+        test_support::node_id, BoundedDomainForm, ExtensionForm, ModelForm, ValueForm,
+    };
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    /// This graph enters the actual extension join directly. Its metadata/kind
+    /// mismatches are deliberately private states, not newly admitted packages.
+    struct Join {
+        wire: CheckedPackageWireV2,
+        kinds: Vec<CheckedNodeKind>,
+        terms: Vec<Option<CheckedTerm>>,
+        evidence: CheckedPackageEvidence,
+    }
+
+    impl Join {
+        fn new(expected: &str, kind: CheckedNodeKind) -> Self {
+            let definition = json!({"authority": "test", "identity": "open-extension"});
+            let edition = json!({"role": "edition", "definition": definition});
+            let mut wire: CheckedPackageWireV2 = serde_json::from_value(json!({
+                "contract_version": super::super::CHECKED_PACKAGE_V2,
+                "identity_preimage": {
+                    "version": "quire.checked-package-id/v2", "edition": edition,
+                    "profile_selections": [], "definition_selections": [], "model_selections": [],
+                    "required_features": [], "dependency_selections": []
+                },
+                "package_id": {"domain": super::super::PACKAGE_DOMAIN_V2,
+                    "algorithm": "sha256", "digest": "a".repeat(64)},
+                "lock": {"sources": [], "edition": edition, "profile_selections": [],
+                    "definition_selections": [definition], "model_selections": [],
+                    "required_features": [], "dependency_selections": []},
+                "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": []},
+                "source_map": [], "capability_report": [],
+                "diagnostics": {"catalog": definition, "entries": []}
+            }))
+            .expect("private join wire");
+            let node = |id: char, kind: CheckedNodeKind, ty: CheckedNodeId| {
+                serde_json::from_value(json!({
+                    "node_id": node_id(id), "schema_version": "quire.checked-semantic-graph/v2",
+                    "node_tag": kind.tag().as_wire(), "semantic_form": kind.form_wire(),
+                    "semantic_type": ty, "dependencies": [], "occurrences": [],
+                    "body": {"term": "aggregate", "members": []}
+                }))
+                .expect("private graph node")
+            };
+            wire.semantic_graph.nodes = vec![
+                node('0', kind, node_id('0')),
+                node(
+                    '1',
+                    CheckedNodeKind::Value(ValueForm::Parameter),
+                    node_id('0'),
+                ),
+                node(
+                    '2',
+                    CheckedNodeKind::Extension(ExtensionForm::ExtensionForm),
+                    node_id('2'),
+                ),
+            ];
+            let extension = CheckedTerm::ExtensionForm {
+                definition: serde_json::from_value(definition).expect("definition ref"),
+                node_kind: "open-kind".into(),
+                clauses: vec![CheckedTerm::Binding {
+                    name: "subject".into(),
+                    value: Box::new(CheckedTerm::Reference {
+                        target: node_id('1'),
+                    }),
+                }],
+            };
+            let mut evidence = CheckedPackageEvidence::new();
+            let schema: CheckedExtensionDefinition = serde_json::from_value(json!({
+                "grammar_schema": {"productions": [{"keyword": "open", "clauses": ["subject"]},
+                    {"keyword": "future", "clauses": []}]},
+                "typed_node_schema": {"nodes": [{"keyword": "open", "node_kind": "open-kind",
+                    "clauses": [{"name": "subject", "type": expected}]},
+                        {"keyword": "future", "node_kind": "future-kind", "clauses": []}]}
+            }))
+            .expect("held definition");
+            evidence
+                .insert_extension_definition(wire.lock.definition_selections[0].clone(), schema)
+                .expect("definition evidence");
+            Self {
+                wire,
+                kinds: vec![
+                    kind,
+                    CheckedNodeKind::Value(ValueForm::Parameter),
+                    CheckedNodeKind::Extension(ExtensionForm::ExtensionForm),
+                ],
+                terms: vec![
+                    Some(CheckedTerm::Aggregate { members: vec![] }),
+                    None,
+                    Some(extension),
+                ],
+                evidence,
+            }
+        }
+
+        fn run(&self) -> (Result<(), ValidationFailure>, u64) {
+            let owners = ModelOwners::new(&[], |_| Ok(())).expect("empty selected-model owners");
+            self.run_with_owners(&owners)
+        }
+
+        fn run_with_owners(
+            &self,
+            owners: &ModelOwners<'_>,
+        ) -> (Result<(), ValidationFailure>, u64) {
+            let index = self
+                .wire
+                .semantic_graph
+                .nodes
+                .iter()
+                .enumerate()
+                .map(|(position, node)| (&node.node_id, position))
+                .collect();
+            let mut meter = WorkMeter::new(100_000);
+            let result = validate(
+                &self.wire,
+                &self.kinds,
+                &self.terms,
+                &index,
+                &self.evidence,
+                owners,
+                &mut meter,
+            );
+            (result, meter.consumed())
+        }
+
+        fn range(&mut self) {
+            let bound = |name: &str, text: &str| CheckedTerm::Binding {
+                name: name.into(),
+                value: Box::new(CheckedTerm::Literal {
+                    type_id: node_id('0'),
+                    value_kind: super::super::LiteralKind::Integer,
+                    value: json!(text),
+                }),
+            };
+            self.terms[0] = Some(CheckedTerm::Aggregate {
+                members: vec![bound("min", "1"), bound("max", "3650")],
+            });
+        }
+
+        fn mismatch(&self, expected: &str, actual: &str) {
+            let (result, work) = self.run();
+            let Err(ValidationFailure::Refused(refusal)) = result else {
+                panic!("expected extension mismatch, got {result:?}");
+            };
+            assert_eq!(
+                (refusal.code, refusal.cause),
+                (Code::IllTyped, Some(Cause::TypeMismatch))
+            );
+            assert_eq!(
+                refusal.path.expect("path").to_string(),
+                "/semantic_graph/nodes/2/body/clauses/0/value"
+            );
+            assert_eq!(refusal.locus, Some(node_id('2')));
+            let detail = refusal.extension_detail.expect("detail");
+            assert_eq!(detail.member.as_ref(), "subject");
+            assert_eq!(detail.expected_type.as_deref(), Some(expected));
+            assert_eq!(detail.actual_type.as_deref(), Some(actual));
+            assert_eq!(
+                detail.actual_semantic_type,
+                Some(self.wire.semantic_graph.nodes[1].semantic_type.clone())
+            );
+            assert_eq!(
+                work, 0,
+                "native type checks charge no model-conformance work"
+            );
+        }
+    }
+
+    #[trace("TC-459")]
+    #[test]
+    fn extension_join_scalar_dispatch_uses_retained_type_kind() {
+        for (name, form) in [
+            ("Boolean", ScalarTypeForm::Boolean),
+            ("Integer", ScalarTypeForm::Integer),
+            ("Int", ScalarTypeForm::Integer),
+            ("Rational", ScalarTypeForm::Rational),
+            ("Decimal", ScalarTypeForm::Decimal),
+            ("Float32", ScalarTypeForm::Float32),
+            ("Float64", ScalarTypeForm::Float64),
+            ("Text", ScalarTypeForm::Text),
+            ("String", ScalarTypeForm::String),
+            ("UUID", ScalarTypeForm::Uuid),
+            ("Timestamp", ScalarTypeForm::Timestamp),
+        ] {
+            let mut join = Join::new(name, CheckedNodeKind::ScalarType(form));
+            let (baseline, work) = join.run();
+            assert!(baseline.is_ok(), "{name}: {baseline:?}");
+            join.wire.semantic_graph.nodes[0].node_tag = "model".into();
+            join.wire.semantic_graph.nodes[0].semantic_form = "record_value_type".into();
+            let (damaged, damaged_work) = join.run();
+            assert!(
+                damaged.is_ok(),
+                "retained {name} must match despite private raw damage: {damaged:?}"
+            );
+            assert_eq!(damaged_work, work);
+
+            let mut inverse = Join::new(name, CheckedNodeKind::ScalarType(form));
+            inverse.kinds[0] = CheckedNodeKind::Model(ModelForm::ObjectType);
+            inverse.mismatch(name, form.as_wire());
+        }
+    }
+
+    #[trace("TC-459")]
+    #[test]
+    fn extension_join_range_dispatch_and_diagnostic_use_retained_kind() {
+        let range = CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange);
+        let mut join = Join::new("Int[1, 3650]", range);
+        join.range();
+        assert!(join.run().0.is_ok());
+        join.wire.semantic_graph.nodes[0].node_tag = "scalar_type".into();
+        join.wire.semantic_graph.nodes[0].semantic_form = "text".into();
+        assert!(
+            join.run().0.is_ok(),
+            "private raw damage cannot change retained range"
+        );
+        let mut inverse = Join::new("Int[1, 3650]", range);
+        inverse.range();
+        inverse.kinds[0] = CheckedNodeKind::ScalarType(ScalarTypeForm::Text);
+        inverse.mismatch("Int[1, 3650]", "Text");
+        let mut diagnostic = Join::new("Boolean", range);
+        diagnostic.range();
+        diagnostic.wire.semantic_graph.nodes[0].node_tag = "scalar_type".into();
+        diagnostic.wire.semantic_graph.nodes[0].semantic_form = "text".into();
+        diagnostic.mismatch("Boolean", "Int[1, 3650]");
+    }
+
+    #[trace("TC-459")]
+    #[test]
+    fn extension_join_scalar_diagnostic_uses_retained_kind() {
+        let mut join = Join::new("Boolean", CheckedNodeKind::ScalarType(ScalarTypeForm::Text));
+        join.wire.semantic_graph.nodes[0].semantic_form = "integer".into();
+        join.mismatch("Boolean", "Text");
+    }
+    #[trace("TC-459")]
+    #[test]
+    fn extension_join_selected_record_dispatch_preserves_owner_conformance() {
+        use crate::checked_package::v2::model_members::{declaration_key, tests as model_tests};
+        let base = "ix://acme/orders/Base";
+        let child = "ix://acme/orders/Child";
+        let mut types = vec![
+            model_tests::object_type(base, &[], vec![]),
+            model_tests::object_type(child, &[base], vec![]),
+        ];
+        for ty in &mut types {
+            ty["kind"]["name"] = json!("record");
+        }
+        let mut document = model_tests::document(types);
+        document["constructs"]
+            .as_array_mut()
+            .expect("constructs")
+            .push(json!({
+                "kind": {"module": "acme/orders", "name": "record"},
+                "construct": {"meaning": "quire.meaning.model.record-value-type/v1"}
+            }));
+        let model = model_tests::read(&document).expect("genuine selected record document");
+        let owners = ModelOwners::new(std::slice::from_ref(&model), |_| Ok(())).expect("owners");
+        let mut join = Join::new(base, CheckedNodeKind::Model(ModelForm::RecordValueType));
+        let key = declaration_key(
+            "acme/orders",
+            DeclarationForm::RecordValueType,
+            child,
+            model_tests::BYTES,
+        )
+        .expect("child declaration key");
+        let ty = &mut join.wire.semantic_graph.nodes[0];
+        ty.node_id.digest = key.into();
+        ty.semantic_type = ty.node_id.clone();
+        ty.owner = Some(
+            serde_json::from_value(json!({
+                "kind": "model", "identity": "acme/orders", "node": child
+            }))
+            .expect("owner"),
+        );
+        join.wire.semantic_graph.nodes[1].semantic_type = ty.node_id.clone();
+        let (baseline, baseline_work) = join.run_with_owners(&owners);
+        assert!(
+            baseline.is_ok(),
+            "directional record conformance: {baseline:?}"
+        );
+        assert!(
+            baseline_work > 0,
+            "real owner conformance must charge actual work"
+        );
+        join.kinds[0] = CheckedNodeKind::Model(ModelForm::ObjectType);
+        let (result, work) = join.run_with_owners(&owners);
+        let Err(ValidationFailure::Refused(refusal)) = result else {
+            panic!("nonrecord retained kind cannot enter record conformance: {result:?}");
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::IllTyped, Some(Cause::TypeMismatch))
+        );
+        assert_eq!(
+            refusal.path.expect("path").to_string(),
+            "/semantic_graph/nodes/2/body/clauses/0/value"
+        );
+        assert_eq!(
+            work, 0,
+            "ineligible kind must not charge owner-conformance work"
+        );
+        println!("extension_record baseline_work={baseline_work} retained_nonrecord_work={work}");
+    }
+
+    #[trace("TC-459")]
+    #[test]
+    fn extension_join_preserves_open_kind_names_and_selection_precedence() {
+        let kind = CheckedNodeKind::Extension(ExtensionForm::ExtensionForm);
+        let mut join = Join::new(
+            "future-kind",
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Text),
+        );
+        join.kinds[1] = kind;
+        join.terms[1] = Some(CheckedTerm::ExtensionForm {
+            definition: join.wire.lock.definition_selections[0].clone(),
+            node_kind: "future-kind".into(),
+            clauses: vec![],
+        });
+        assert!(join.run().0.is_ok(), "open extension name must remain data");
+        join.wire.lock.definition_selections.clear();
+        join.terms[1] = None;
+        join.kinds[1] = CheckedNodeKind::Value(ValueForm::Parameter);
+        let (result, work) = join.run();
+        let Err(ValidationFailure::Refused(refusal)) = result else {
+            panic!("missing selection must precede target typing: {result:?}");
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::MissingDeclaration, Some(Cause::MissingSelection))
+        );
+        assert_eq!(
+            refusal.path.expect("path").to_string(),
+            "/semantic_graph/nodes/2/body/definition"
+        );
+        assert_eq!(work, 0);
     }
 }

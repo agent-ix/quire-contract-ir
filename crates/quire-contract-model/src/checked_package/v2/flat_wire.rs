@@ -29,7 +29,8 @@
 
 use super::temporal::{interval_bound_outside_pattern, timed_upper_is_null};
 use super::{
-    body_grammar, BodyGrammar, CheckedNodeId, CheckedNodeKind, HybridForm, TemporalForm, ValueForm,
+    body_grammar, BodyGrammar, CheckedNodeId, CheckedNodeKind, CheckedNodeTag, HybridForm,
+    TemporalForm, ValueForm,
 };
 use super::{ApplicationOperator, BodyTerm, CheckedPackageWireV2};
 use crate::checked_package::common::{
@@ -67,31 +68,27 @@ enum Place {
 pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
     let mut kinds = Vec::with_capacity(wire.semantic_graph.nodes.len());
     for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
-        if node.node_tag.as_ref() == "extension" && node.semantic_form.as_ref() != "extension_form"
-        {
-            return Err(ValidationFailure::refused(
-                CheckedPackageRefusalCode::MalformedWire,
-                crate::checked_package::common::node_pointer(position).key("semantic_form"),
-            ));
-        }
-        if node.node_tag.as_ref() == "hybrid"
-            && super::HybridForm::from_wire(&node.semantic_form).is_none()
-        {
-            return Err(ValidationFailure::refused(
-                CheckedPackageRefusalCode::MalformedWire,
-                crate::checked_package::common::node_pointer(position).key("semantic_form"),
-            ));
-        }
-        if node.node_tag.as_ref() == "timed_model"
-            && super::TimedModelForm::from_wire(&node.semantic_form).is_none()
-        {
-            return Err(ValidationFailure::refused(
-                CheckedPackageRefusalCode::MalformedWire,
-                crate::checked_package::common::node_pointer(position).key("semantic_form"),
-            ));
-        }
         let kind = super::decode_node_kind(node, |member| {
             crate::checked_package::common::node_pointer(position).key(member)
+        })
+        .map_err(|failure| {
+            // These families' malformed forms precede even a bad schema
+            // version. Decode the successful header only once; inspect the
+            // typed vocabulary again solely to preserve that refusal order.
+            let malformed_form = CheckedNodeTag::from_wire(&node.node_tag).is_some_and(|tag| {
+                matches!(
+                    tag,
+                    CheckedNodeTag::Extension | CheckedNodeTag::Hybrid | CheckedNodeTag::TimedModel
+                ) && CheckedNodeKind::decode(tag, &node.semantic_form).is_none()
+            });
+            if malformed_form {
+                ValidationFailure::refused(
+                    CheckedPackageRefusalCode::MalformedWire,
+                    crate::checked_package::common::node_pointer(position).key("semantic_form"),
+                )
+            } else {
+                failure
+            }
         })?;
         let steps = [
             Step::Key("semantic_graph"),
@@ -520,9 +517,12 @@ pub(super) fn nested_application_refusal(
 
 #[cfg(test)]
 mod tests {
-    use super::{check_term, scan_members, Place};
+    use super::{check, check_term, scan_members, Place};
     use crate::checked_package::common::Trail;
     use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
+    use crate::checked_package::v2::{
+        CheckedNodeTag, CheckedPackageWireV2, ExtensionForm, HybridForm, TimedModelForm,
+    };
     use ix_trace_rs::trace;
     use serde_json::{json, Map, Value};
 
@@ -534,6 +534,169 @@ mod tests {
 
     fn application() -> Value {
         json!({"term": "application", "operator": "call", "arguments": []})
+    }
+
+    /// Private wire-shape inputs only: check does not authenticate identity
+    /// or admit a package. These inputs deliberately combine header defects.
+    fn header_node(tag: &str, form: &str, schema: &str, body: Value) -> Value {
+        let id = json!({"domain": "quire.checked-semantic-node/v1", "digest": "1".repeat(64)});
+        json!({
+            "schema_version": schema, "node_id": id.clone(), "semantic_type": id,
+            "node_tag": tag, "semantic_form": form, "dependencies": [],
+            "occurrences": [], "body": body,
+        })
+    }
+
+    fn header_wire(nodes: Vec<Value>) -> CheckedPackageWireV2 {
+        serde_json::from_value(json!({
+            "contract_version": "quire.checked-package/v2",
+            "identity_preimage": {
+                "version": "quire.checked-package-id/v2",
+                "edition": {"role": "edition", "definition": {"authority": "test", "identity": "edition"}},
+                "profile_selections": [], "definition_selections": [], "model_selections": [],
+                "required_features": [], "dependency_selections": [],
+            },
+            "package_id": {"domain": "quire.package.semantic/v2", "algorithm": "sha256", "digest": "2".repeat(64)},
+            "lock": {
+                "sources": [], "edition": {"role": "edition", "definition": {"authority": "test", "identity": "edition"}},
+                "profile_selections": [], "definition_selections": [], "model_selections": [],
+                "required_features": [], "dependency_selections": [],
+            },
+            "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": nodes},
+            "source_map": [], "capability_report": [],
+            "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"}, "entries": []},
+        })).expect("private flat-wire input")
+    }
+
+    fn header_refusal(nodes: Vec<Value>, code: CheckedPackageRefusalCode, path: &str) {
+        let failure = check(&header_wire(nodes)).expect_err("damaged wire refuses");
+        let crate::checked_package::common::ValidationFailure::Refused(refusal) = failure else {
+            panic!("a refusal, not an incomplete result");
+        };
+        assert_eq!(refusal.code, code);
+        assert_eq!(refusal.path, JsonPointer::parse(path));
+        assert_eq!(refusal.cause, None);
+    }
+
+    #[trace("TC-048")]
+    #[test]
+    fn flat_header_special_form_refusal_precedes_schema_and_body_defects() {
+        for tag in [
+            CheckedNodeTag::Extension,
+            CheckedNodeTag::Hybrid,
+            CheckedNodeTag::TimedModel,
+        ] {
+            for schema in [super::super::GRAPH_V2, "unsupported-schema"] {
+                header_refusal(
+                    vec![header_node(
+                        tag.as_wire(),
+                        "unknown-form",
+                        schema,
+                        application(),
+                    )],
+                    CheckedPackageRefusalCode::MalformedWire,
+                    "/semantic_graph/nodes/0/semantic_form",
+                );
+            }
+        }
+    }
+
+    #[trace("TC-048")]
+    #[test]
+    fn flat_header_known_special_forms_preserve_schema_priority() {
+        let forms = ExtensionForm::ALL
+            .iter()
+            .map(|form| (CheckedNodeTag::Extension, form.as_wire()))
+            .chain(
+                HybridForm::ALL
+                    .iter()
+                    .map(|form| (CheckedNodeTag::Hybrid, form.as_wire())),
+            )
+            .chain(
+                TimedModelForm::ALL
+                    .iter()
+                    .map(|form| (CheckedNodeTag::TimedModel, form.as_wire())),
+            );
+        for (tag, form) in forms {
+            header_refusal(
+                vec![header_node(
+                    tag.as_wire(),
+                    form,
+                    "unsupported-schema",
+                    application(),
+                )],
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                "/semantic_graph/nodes/0/schema_version",
+            );
+        }
+    }
+
+    #[trace("TC-048")]
+    #[test]
+    fn flat_header_ordinary_unknown_tag_and_form_keep_decoder_dispositions() {
+        for (tag, form, schema, code, member) in [
+            (
+                "unknown-tag",
+                "integer",
+                "unsupported-schema",
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                "schema_version",
+            ),
+            (
+                "unknown-tag",
+                "integer",
+                super::super::GRAPH_V2,
+                CheckedPackageRefusalCode::UnsupportedNodeTag,
+                "node_tag",
+            ),
+            (
+                "scalar_type",
+                "unknown-form",
+                "unsupported-schema",
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                "schema_version",
+            ),
+            (
+                "scalar_type",
+                "unknown-form",
+                super::super::GRAPH_V2,
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                "semantic_form",
+            ),
+        ] {
+            header_refusal(
+                vec![header_node(tag, form, schema, application())],
+                code,
+                &format!("/semantic_graph/nodes/0/{member}"),
+            );
+        }
+    }
+
+    #[trace("TC-048")]
+    #[test]
+    fn flat_header_checks_keep_body_and_later_header_in_document_order() {
+        let first = header_node(
+            "scalar_type",
+            "integer",
+            super::super::GRAPH_V2,
+            json!({"term": "aggregate", "members": [application()]}),
+        );
+        let second = header_node(
+            "unknown-tag",
+            "integer",
+            super::super::GRAPH_V2,
+            application(),
+        );
+        header_refusal(
+            vec![first.clone(), second.clone()],
+            CheckedPackageRefusalCode::MalformedWire,
+            "/semantic_graph/nodes/0/body/members/0",
+        );
+        header_refusal(
+            vec![second, first],
+            CheckedPackageRefusalCode::UnsupportedNodeTag,
+            "/semantic_graph/nodes/0/node_tag",
+        );
     }
 
     /// The scan of a frame or abstraction relation body reaches an application

@@ -8,7 +8,7 @@
 use super::{ApplicationOperator, BodyTerm, LiteralKind};
 use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedSemanticId};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{error::Category, Value};
 
 /// A body term in an admitted checked-package V2 node.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -90,26 +90,65 @@ pub enum CheckedTerm {
     },
 }
 
+/// Why a validated wire body could not become its retained typed term.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum TermConversionCause {
+    MissingTerm,
+    UnknownTerm,
+    MissingMember {
+        member: &'static str,
+    },
+    MalformedMember {
+        member: &'static str,
+        category: Category,
+    },
+}
+
 impl CheckedTerm {
     /// Decodes only a body that the reader's flat and closed-shape checks
     /// already accepted. This is deliberately not a public Deserialize impl:
     /// an arbitrary recursive wire term has no standalone depth bound.
-    pub(super) fn decode_admitted(value: &Value) -> Result<Self, ()> {
-        fn field<T: DeserializeOwned>(value: &Value, name: &str) -> Result<T, ()> {
-            serde_json::from_value(value.get(name).ok_or(())?.clone()).map_err(|_| ())
+    pub(super) fn decode_admitted(value: &Value) -> Result<Self, TermConversionCause> {
+        fn field<T: DeserializeOwned>(
+            value: &Value,
+            name: &'static str,
+        ) -> Result<T, TermConversionCause> {
+            let member = value
+                .get(name)
+                .ok_or(TermConversionCause::MissingMember { member: name })?;
+            serde_json::from_value(member.clone()).map_err(|error| {
+                TermConversionCause::MalformedMember {
+                    member: name,
+                    category: error.classify(),
+                }
+            })
         }
 
-        fn children(value: &Value, name: &str) -> Result<Vec<CheckedTerm>, ()> {
+        fn children(
+            value: &Value,
+            name: &'static str,
+        ) -> Result<Vec<CheckedTerm>, TermConversionCause> {
             value
                 .get(name)
-                .and_then(Value::as_array)
-                .ok_or(())?
+                .ok_or(TermConversionCause::MissingMember { member: name })?
+                .as_array()
+                .ok_or(TermConversionCause::MalformedMember {
+                    member: name,
+                    category: Category::Data,
+                })?
                 .iter()
                 .map(CheckedTerm::decode_admitted)
                 .collect()
         }
 
-        let tag = value.get("term").and_then(Value::as_str).ok_or(())?;
+        let tag = value
+            .get("term")
+            .ok_or(TermConversionCause::MissingTerm)?
+            .as_str()
+            .ok_or(TermConversionCause::MalformedMember {
+                member: "term",
+                category: Category::Data,
+            })?;
         match BodyTerm::from_wire(tag) {
             Some(BodyTerm::Literal) => Ok(Self::Literal {
                 type_id: field(value, "type")?,
@@ -130,7 +169,11 @@ impl CheckedTerm {
             }),
             Some(BodyTerm::Binding) => Ok(Self::Binding {
                 name: field(value, "name")?,
-                value: Box::new(Self::decode_admitted(value.get("value").ok_or(())?)?),
+                value: Box::new(Self::decode_admitted(
+                    value
+                        .get("value")
+                        .ok_or(TermConversionCause::MissingMember { member: "value" })?,
+                )?),
             }),
             Some(BodyTerm::DependencyReference) => Ok(Self::DependencyReference {
                 package: field(value, "package")?,
@@ -152,7 +195,7 @@ impl CheckedTerm {
                 node_kind: field(value, "node_kind")?,
                 clauses: children(value, "clauses")?,
             }),
-            None => Err(()),
+            None => Err(TermConversionCause::UnknownTerm),
         }
     }
 }
@@ -264,9 +307,98 @@ pub struct CheckedAbstractionParameter {
 
 #[cfg(test)]
 mod tests {
-    use super::CheckedTerm;
+    use super::{CheckedTerm, TermConversionCause};
     use ix_trace_rs::trace;
-    use serde_json::json;
+    use serde_json::{error::Category, json};
+
+    #[trace("TC-048")]
+    #[test]
+    fn checked_term_conversion_causes_distinguish_invalid_inputs() {
+        let missing = CheckedTerm::decode_admitted(&json!({})).expect_err("missing term");
+        let unknown =
+            CheckedTerm::decode_admitted(&json!({"term":"not_a_term"})).expect_err("unknown term");
+        assert_ne!(missing, unknown, "missing and unknown term causes differ");
+        assert_eq!(missing, TermConversionCause::MissingTerm);
+        assert_eq!(unknown, TermConversionCause::UnknownTerm);
+        for (body, expected) in [
+            (
+                json!({"term":false}),
+                TermConversionCause::MalformedMember {
+                    member: "term",
+                    category: Category::Data,
+                },
+            ),
+            (
+                json!({"term":"reference"}),
+                TermConversionCause::MissingMember { member: "target" },
+            ),
+            (
+                json!({"term":"reference","target":0}),
+                TermConversionCause::MalformedMember {
+                    member: "target",
+                    category: Category::Data,
+                },
+            ),
+            (
+                json!({"term":"aggregate"}),
+                TermConversionCause::MissingMember { member: "members" },
+            ),
+            (
+                json!({"term":"aggregate","members":false}),
+                TermConversionCause::MalformedMember {
+                    member: "members",
+                    category: Category::Data,
+                },
+            ),
+            (
+                json!({"term":"binding","name":"x"}),
+                TermConversionCause::MissingMember { member: "value" },
+            ),
+        ] {
+            assert_eq!(CheckedTerm::decode_admitted(&body), Err(expected), "{body}");
+        }
+    }
+
+    #[trace("TC-048")]
+    #[test]
+    fn checked_term_conversion_keeps_member_and_child_failure_order() {
+        assert_eq!(
+            CheckedTerm::decode_admitted(&json!({"term":"binding","name":0,"value":{}})),
+            Err(TermConversionCause::MalformedMember {
+                member: "name",
+                category: Category::Data,
+            }),
+            "the binding name is decoded before its value"
+        );
+        assert_eq!(
+            CheckedTerm::decode_admitted(&json!({"term":"literal","type":false})),
+            Err(TermConversionCause::MalformedMember {
+                member: "type",
+                category: Category::Data,
+            }),
+            "the malformed type precedes the absent literal kind"
+        );
+        for (members, expected) in [
+            (
+                json!([{"term":"unknown"}, {}]),
+                TermConversionCause::UnknownTerm,
+            ),
+            (
+                json!([{}, {"term":"unknown"}]),
+                TermConversionCause::MissingTerm,
+            ),
+        ] {
+            let aggregate = json!({"term":"aggregate","members":members});
+            assert_eq!(CheckedTerm::decode_admitted(&aggregate), Err(expected));
+            assert_eq!(
+                CheckedTerm::decode_admitted(
+                    &json!({"term":"binding","name":"x","value":aggregate})
+                ),
+                Err(expected),
+                "a recursive binding preserves the first child's exact cause"
+            );
+        }
+    }
 
     #[trace("FR-349-AC-1")]
     #[test]

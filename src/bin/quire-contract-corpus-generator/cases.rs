@@ -3,10 +3,11 @@
 use std::collections::BTreeSet;
 
 use super::J;
+use quire_contract_model::ConformanceOperation;
 
 pub(super) struct Case {
     pub(super) id: String,
-    pub(super) operation: &'static str,
+    pub(super) operation: ConformanceOperation,
     pub(super) value: J,
     pub(super) covers: BTreeSet<String>,
 }
@@ -14,7 +15,7 @@ pub(super) struct Case {
 fn add<I, S>(
     cases: &mut Vec<Case>,
     id: impl Into<String>,
-    operation: &'static str,
+    operation: ConformanceOperation,
     value: J,
     covers: I,
 ) where
@@ -22,13 +23,110 @@ fn add<I, S>(
     S: Into<String>,
 {
     let mut covers = covers.into_iter().map(Into::into).collect::<BTreeSet<_>>();
-    covers.insert(format!("operation:{operation}"));
+    covers.insert(format!("operation:{}", operation.as_str()));
     cases.push(Case {
         id: id.into(),
         operation,
         value,
         covers,
     });
+}
+
+enum CaseCoverage {
+    Construct(&'static str),
+    Boundary(&'static str),
+}
+impl CaseCoverage {
+    fn into_label(self) -> String {
+        match self {
+            Self::Construct(name) => format!("construct:{name}"),
+            Self::Boundary(name) => format!("boundary:{name}"),
+        }
+    }
+}
+
+enum PackageMutation {
+    Namespace,
+    Schema,
+    Identifier,
+    RequirementRevision,
+    SourceRevision,
+    ReversedSpan,
+    RequirementRevisionOver,
+    SourceRevisionOver,
+    SpanOffsetOver,
+}
+impl PackageMutation {
+    fn apply(&self, candidate: &mut J) {
+        match self {
+            Self::Namespace => candidate.set("id", "agent/../bad"),
+            Self::Schema => candidate["schema_version"].set("major", 0),
+            Self::Identifier => candidate["requirements"][0].set("id", "bad id"),
+            Self::RequirementRevision => candidate["requirements"][0].set("revision", 0),
+            Self::SourceRevision => candidate["source"].set("revision", 0),
+            Self::ReversedSpan => {
+                candidate["requirements"][0]["source"]["start"].set("byte_offset", 100)
+            }
+            Self::RequirementRevisionOver => {
+                candidate["requirements"][0].set("revision", (1_i64 << 53) + 1)
+            }
+            Self::SourceRevisionOver => candidate["source"].set("revision", (1_i64 << 53) + 1),
+            Self::SpanOffsetOver => {
+                candidate["requirements"][0]["source"]["end"].set("byte_offset", (1_i64 << 53) + 1)
+            }
+        }
+    }
+}
+
+enum ExpressionMutation {
+    DuplicateType,
+    DuplicateValue,
+    DuplicateFunction,
+    DuplicateField,
+    DuplicateVariant,
+    DuplicateParameter,
+    EmptyEnum,
+    InvalidNumeric,
+    UnboundedCollection,
+    RecursiveType,
+}
+impl ExpressionMutation {
+    fn apply(&self, request: &mut J) {
+        match self {
+            Self::DuplicateType => duplicate_first(&mut request["types"]),
+            Self::DuplicateValue => duplicate_first(&mut request["values"]),
+            Self::DuplicateFunction => duplicate_first(&mut request["functions"]),
+            Self::DuplicateField => duplicate_first(&mut request["types"][1]["fields"]),
+            Self::DuplicateVariant => duplicate_first(&mut request["types"][0]["variants"]),
+            Self::DuplicateParameter => duplicate_first(&mut request["functions"][0]["parameters"]),
+            Self::EmptyEnum => request["types"][0].set("variants", Vec::<J>::new()),
+            Self::InvalidNumeric => {
+                request["values"][0]["value_type"].set("minimum", "2");
+                request["values"][0]["value_type"].set("maximum", "1");
+            }
+            Self::UnboundedCollection => request["values"][3]["value_type"].set("maximum_items", 0),
+            Self::RecursiveType => {
+                request.set("types", vec![obj!("kind" => "record", "name" => "Cycle", "source" => expression_span(1),
+                    "fields" => vec![obj!("name" => "next", "value_type" => obj!("kind" => "option", "value" => obj!("kind" => "record", "name" => "Cycle")), "source" => expression_span(2))])]);
+                request.set("values", Vec::<J>::new());
+                request.set("functions", Vec::<J>::new());
+            }
+        }
+    }
+    fn additional_coverage(&self) -> Option<CaseCoverage> {
+        match self {
+            Self::InvalidNumeric => Some(CaseCoverage::Boundary("integer.out_of_range")),
+            Self::UnboundedCollection => Some(CaseCoverage::Boundary("collection.minimum")),
+            Self::DuplicateType
+            | Self::DuplicateValue
+            | Self::DuplicateFunction
+            | Self::DuplicateField
+            | Self::DuplicateVariant
+            | Self::DuplicateParameter
+            | Self::EmptyEnum
+            | Self::RecursiveType => None,
+        }
+    }
 }
 
 fn span(at: i64, document: &str, revision: i64) -> J {
@@ -223,7 +321,7 @@ fn package_cases(cases: &mut Vec<Case>) {
     add(
         cases,
         "package-constructs",
-        "package",
+        ConformanceOperation::Package,
         all_clauses,
         [
             "construct:clause_kind.assertion",
@@ -244,7 +342,7 @@ fn package_cases(cases: &mut Vec<Case>) {
     add(
         cases,
         "package-reference",
-        "package",
+        ConformanceOperation::Package,
         package_with_clause(
             "information",
             None,
@@ -258,53 +356,51 @@ fn package_cases(cases: &mut Vec<Case>) {
         ],
     );
 
-    for (id, code, extra) in [
+    for (id, code, extra, mutation) in [
         (
             "package-invalid-namespace",
             "invalid_package_namespace",
             None,
+            PackageMutation::Namespace,
         ),
         (
             "package-invalid-schema",
             "invalid_schema_version",
             Some("boundary:schema.zero_major"),
+            PackageMutation::Schema,
         ),
-        ("package-invalid-identifier", "invalid_identifier", None),
+        (
+            "package-invalid-identifier",
+            "invalid_identifier",
+            None,
+            PackageMutation::Identifier,
+        ),
         (
             "package-invalid-requirement-revision",
             "invalid_requirement_revision",
             None,
+            PackageMutation::RequirementRevision,
         ),
         (
             "package-invalid-source-revision",
             "invalid_source_revision",
             None,
+            PackageMutation::SourceRevision,
         ),
         (
             "package-invalid-span",
             "invalid_source_span",
             Some("boundary:source_span.reversed"),
+            PackageMutation::ReversedSpan,
         ),
     ] {
         let mut candidate = package(1);
-        match id {
-            "package-invalid-namespace" => candidate.set("id", "agent/../bad"),
-            "package-invalid-schema" => candidate["schema_version"].set("major", 0),
-            "package-invalid-identifier" => candidate["requirements"][0].set("id", "bad id"),
-            "package-invalid-requirement-revision" => {
-                candidate["requirements"][0].set("revision", 0)
-            }
-            "package-invalid-source-revision" => candidate["source"].set("revision", 0),
-            "package-invalid-span" => {
-                candidate["requirements"][0]["source"]["start"].set("byte_offset", 100)
-            }
-            _ => unreachable!(),
-        }
+        mutation.apply(&mut candidate);
         let mut covers = vec![format!("diagnostic:{code}")];
         if let Some(extra) = extra {
             covers.push(extra.to_owned());
         }
-        add(cases, id, "package", candidate, covers);
+        add(cases, id, ConformanceOperation::Package, candidate, covers);
     }
     let mut duplicate = package(1);
     let requirement = duplicate["requirements"][0].clone();
@@ -312,7 +408,7 @@ fn package_cases(cases: &mut Vec<Case>) {
     add(
         cases,
         "package-duplicate-requirement",
-        "package",
+        ConformanceOperation::Package,
         duplicate,
         ["diagnostic:duplicate_requirement"],
     );
@@ -322,7 +418,7 @@ fn package_cases(cases: &mut Vec<Case>) {
     add(
         cases,
         "package-duplicate-clause",
-        "package",
+        ConformanceOperation::Package,
         duplicate,
         ["diagnostic:duplicate_clause"],
     );
@@ -349,7 +445,7 @@ fn package_cases(cases: &mut Vec<Case>) {
         add(
             cases,
             id,
-            "package",
+            ConformanceOperation::Package,
             package_with_clause(kind, anchor, None),
             [format!("diagnostic:{code}")],
         );
@@ -391,7 +487,7 @@ fn package_cases(cases: &mut Vec<Case>) {
         add(
             cases,
             id,
-            "package",
+            ConformanceOperation::Package,
             package_with_clause(
                 "information",
                 None,
@@ -403,7 +499,7 @@ fn package_cases(cases: &mut Vec<Case>) {
     add(
         cases,
         "package-orphan-clause",
-        "package",
+        ConformanceOperation::Package,
         obj!("package" => package(1),
         "clause_resolutions" => vec![obj!("requirement" => owner(), "clause" => "missing")]),
         ["diagnostic:orphaned_clause_reference"],
@@ -411,7 +507,7 @@ fn package_cases(cases: &mut Vec<Case>) {
     add(
         cases,
         "package-canonical-limit",
-        "package",
+        ConformanceOperation::Package,
         obj!("package" => package(1), "canonical_maximum_bytes" => 0),
         [
             "diagnostic:canonicalization_resource_exhausted",
@@ -423,7 +519,7 @@ fn package_cases(cases: &mut Vec<Case>) {
     add(
         cases,
         "package-unknown-field",
-        "package",
+        ConformanceOperation::Package,
         wire_document(&unknown),
         ["diagnostic:invalid_wire_format"],
     );
@@ -442,7 +538,7 @@ fn package_cases(cases: &mut Vec<Case>) {
         add(
             cases,
             id,
-            "package",
+            ConformanceOperation::Package,
             obj!("document_json" => format!("{}0{}", "[".repeat(levels), "]".repeat(levels))),
             ["diagnostic:invalid_wire_format", boundary],
         );
@@ -456,38 +552,33 @@ fn package_cases(cases: &mut Vec<Case>) {
     add(
         cases,
         "package-revision-maximum",
-        "package",
+        ConformanceOperation::Package,
         bound,
         std::iter::empty::<String>(),
     );
-    for (id, code) in [
+    for (id, code, mutation) in [
         (
             "package-invalid-requirement-revision-over",
             "invalid_requirement_revision",
+            PackageMutation::RequirementRevisionOver,
         ),
         (
             "package-invalid-source-revision-over",
             "invalid_source_revision",
+            PackageMutation::SourceRevisionOver,
         ),
-        ("package-invalid-span-offset-over", "invalid_source_span"),
+        (
+            "package-invalid-span-offset-over",
+            "invalid_source_span",
+            PackageMutation::SpanOffsetOver,
+        ),
     ] {
         let mut candidate = package(1);
-        match id {
-            "package-invalid-requirement-revision-over" => {
-                candidate["requirements"][0].set("revision", (1_i64 << 53) + 1)
-            }
-            "package-invalid-source-revision-over" => {
-                candidate["source"].set("revision", (1_i64 << 53) + 1)
-            }
-            "package-invalid-span-offset-over" => {
-                candidate["requirements"][0]["source"]["end"].set("byte_offset", (1_i64 << 53) + 1)
-            }
-            _ => unreachable!(),
-        }
+        mutation.apply(&mut candidate);
         add(
             cases,
             id,
-            "package",
+            ConformanceOperation::Package,
             wire_document(&candidate),
             [format!("diagnostic:{code}")],
         );
@@ -512,7 +603,7 @@ fn package_cases(cases: &mut Vec<Case>) {
         add(
             cases,
             id,
-            "package",
+            ConformanceOperation::Package,
             unsupported,
             ["diagnostic:unsupported_schema_version", boundary],
         );
@@ -520,174 +611,209 @@ fn package_cases(cases: &mut Vec<Case>) {
 }
 
 fn expression_cases(cases: &mut Vec<Case>) {
-    let constructs: Vec<(&str, J, J, Vec<&str>)> = vec![
+    let constructs: Vec<(&str, J, J, Vec<CaseCoverage>, bool)> = vec![
         (
             "boolean-literal",
             boolean(true),
             bool_type(),
-            vec!["expression.boolean_literal"],
+            vec![CaseCoverage::Construct("expression.boolean_literal")],
+            true,
         ),
         (
             "integer-literal",
             one(),
             int_type(),
-            vec!["expression.integer_literal", "type.integer"],
+            vec![
+                CaseCoverage::Construct("expression.integer_literal"),
+                CaseCoverage::Construct("type.integer"),
+            ],
+            false,
         ),
         (
             "rational-literal",
             expression!("rational_literal", "numerator" => "2", "denominator" => "1", "value_type" => rational_type()),
             rational_type(),
             vec![
-                "expression.rational_literal",
-                "type.rational",
-                "boundary:rational.normalized",
+                CaseCoverage::Construct("expression.rational_literal"),
+                CaseCoverage::Construct("type.rational"),
+                CaseCoverage::Boundary("rational.normalized"),
             ],
+            false,
         ),
         (
             "text-literal",
             expression!("text_literal", "value" => "line\nend"),
             obj!("kind" => "text"),
             vec![
-                "expression.text_literal",
-                "type.text",
-                "boundary:canonical.escape_controls",
+                CaseCoverage::Construct("expression.text_literal"),
+                CaseCoverage::Construct("type.text"),
+                CaseCoverage::Boundary("canonical.escape_controls"),
             ],
+            false,
         ),
         (
             "enum-literal",
             expression!("enum_literal", "enumeration" => "Color", "variant" => "red"),
             obj!("kind" => "enum", "name" => "Color"),
             vec![
-                "expression.enum_literal",
-                "type.enum",
-                "dependency.kind.enum_variant",
+                CaseCoverage::Construct("expression.enum_literal"),
+                CaseCoverage::Construct("type.enum"),
+                CaseCoverage::Construct("dependency.kind.enum_variant"),
             ],
+            false,
         ),
         (
             "option-none",
             expression!("option_none", "value_type" => option_type()),
             option_type(),
-            vec!["expression.option_none", "type.option"],
+            vec![
+                CaseCoverage::Construct("expression.option_none"),
+                CaseCoverage::Construct("type.option"),
+            ],
+            false,
         ),
         (
             "option-some",
             expression!("option_some", "value_type" => option_type(), "value" => one()),
             option_type(),
-            vec!["expression.option_some"],
+            vec![CaseCoverage::Construct("expression.option_some")],
+            false,
         ),
         (
             "record-literal",
             expression!("record_literal", "record" => "Sensor", "fields" => vec![obj!("name" => "reading", "value" => one())]),
             obj!("kind" => "record", "name" => "Sensor"),
             vec![
-                "expression.record_literal",
-                "type.record",
-                "dependency.kind.field",
+                CaseCoverage::Construct("expression.record_literal"),
+                CaseCoverage::Construct("type.record"),
+                CaseCoverage::Construct("dependency.kind.field"),
             ],
+            false,
         ),
         (
             "collection-literal",
             expression!("collection_literal", "value_type" => collection_type(), "items" => vec![one()]),
             collection_type(),
-            vec!["expression.collection_literal", "type.collection"],
+            vec![
+                CaseCoverage::Construct("expression.collection_literal"),
+                CaseCoverage::Construct("type.collection"),
+            ],
+            false,
         ),
         (
             "value-input",
             value("divisor", "current"),
             int_type(),
-            vec!["expression.value_reference", "dependency.kind.input"],
+            vec![
+                CaseCoverage::Construct("expression.value_reference"),
+                CaseCoverage::Construct("dependency.kind.input"),
+            ],
+            false,
         ),
         (
             "value-state",
             value("state_value", "pre"),
             int_type(),
-            vec!["dependency.kind.state"],
+            vec![CaseCoverage::Construct("dependency.kind.state")],
+            false,
         ),
         (
             "field-access",
             expression!("field_access", "base" => value("sensor", "pre"), "field" => "reading"),
             int_type(),
-            vec!["expression.field_access"],
+            vec![CaseCoverage::Construct("expression.field_access")],
+            false,
         ),
         (
             "is-present",
             expression!("is_present", "option" => value("maybe", "pre")),
             bool_type(),
-            vec!["expression.is_present"],
+            vec![CaseCoverage::Construct("expression.is_present")],
+            false,
         ),
         (
             "unwrap",
             expression!("unwrap", "option" => expression!("option_some", "value_type" => option_type(), "value" => one())),
             int_type(),
-            vec!["expression.unwrap"],
+            vec![CaseCoverage::Construct("expression.unwrap")],
+            false,
         ),
         (
             "length",
             expression!("length", "collection" => value("items", "pre")),
             uint_type(),
-            vec!["expression.length"],
+            vec![CaseCoverage::Construct("expression.length")],
+            false,
         ),
         (
             "index",
             expression!("index", "collection" => expression!("collection_literal", "value_type" => collection_type(), "items" => vec![one()]), "index" => integer(0, uint_type())),
             int_type(),
-            vec!["expression.index"],
+            vec![CaseCoverage::Construct("expression.index")],
+            false,
         ),
         (
             "call",
             expression!("call", "function" => "identity", "arguments" => vec![one()]),
             int_type(),
-            vec!["expression.call", "dependency.kind.pure_function"],
+            vec![
+                CaseCoverage::Construct("expression.call"),
+                CaseCoverage::Construct("dependency.kind.pure_function"),
+            ],
+            false,
         ),
         (
             "numeric",
             numeric(one(), one(), "add"),
             int_type(),
-            vec!["expression.numeric"],
+            vec![CaseCoverage::Construct("expression.numeric")],
+            false,
         ),
         (
             "numeric-negate",
             expression!("numeric_negate", "operand" => one()),
             int_type(),
-            vec!["expression.numeric_negate"],
+            vec![CaseCoverage::Construct("expression.numeric_negate")],
+            false,
         ),
         (
             "compare",
             compare(one(), one(), "equal"),
             bool_type(),
-            vec!["expression.compare"],
+            vec![CaseCoverage::Construct("expression.compare")],
+            false,
         ),
         (
             "boolean-not",
             expression!("boolean_not", "operand" => boolean(true)),
             bool_type(),
-            vec!["expression.boolean_not"],
+            vec![CaseCoverage::Construct("expression.boolean_not")],
+            false,
         ),
         (
             "boolean",
             boolean_op(boolean(true), boolean(true), "total_and"),
             bool_type(),
-            vec!["expression.boolean"],
+            vec![CaseCoverage::Construct("expression.boolean")],
+            false,
         ),
         (
             "quantifier",
             expression!("quantifier", "quantifier" => "for_all", "domain" => "elements", "collection" => value("items", "pre"), "local" => "element", "local_source" => expression_span(22), "predicate" => compare(expression!("local_reference", "name" => "element"), one(), "equal")),
             bool_type(),
-            vec!["expression.quantifier", "expression.local_reference"],
+            vec![
+                CaseCoverage::Construct("expression.quantifier"),
+                CaseCoverage::Construct("expression.local_reference"),
+            ],
+            false,
         ),
     ];
-    for (id, expression, expected, tags) in constructs {
+    for (id, expression, expected, tags, complete_declarations) in constructs {
         let mut covers = tags
             .into_iter()
-            .map(|tag| {
-                if tag.starts_with("boundary:") {
-                    tag.to_owned()
-                } else {
-                    format!("construct:{tag}")
-                }
-            })
+            .map(CaseCoverage::into_label)
             .collect::<Vec<_>>();
-        if id == "boolean-literal" {
+        if complete_declarations {
             covers.extend(
                 [
                     "construct:declaration.enum",
@@ -705,7 +831,7 @@ fn expression_cases(cases: &mut Vec<Case>) {
         add(
             cases,
             format!("expression-{id}"),
-            "expression",
+            ConformanceOperation::Expression,
             expression_input(expression, expected),
             covers,
         );
@@ -720,133 +846,163 @@ fn expression_cases(cases: &mut Vec<Case>) {
         add(
             cases,
             format!("expression-execution-{kind}"),
-            "expression",
+            ConformanceOperation::Expression,
             input,
             [format!("construct:execution.{kind}")],
         );
     }
 
-    let diagnostics: Vec<(&str, J, J, &str)> = vec![
+    let diagnostics: Vec<(&str, J, J, &str, bool)> = vec![
         (
             "invalid-wire",
             expression!("integer_literal", "value" => "1", "value_type" => bool_type()),
             int_type(),
             "invalid_wire_format",
+            false,
         ),
         (
             "orphan-value",
             value("missing", "current"),
             bool_type(),
             "orphaned_value_reference",
+            false,
         ),
         (
             "orphan-function",
             expression!("call", "function" => "missing", "arguments" => Vec::<J>::new()),
             bool_type(),
             "orphaned_function_reference",
+            false,
         ),
         (
             "invalid-state",
             value("state_value", "post"),
             int_type(),
             "invalid_state_observation",
+            false,
         ),
         (
             "invalid-scope",
             expression!("local_reference", "name" => "missing"),
             bool_type(),
             "invalid_scope",
+            false,
         ),
         (
             "arity",
             expression!("call", "function" => "identity", "arguments" => Vec::<J>::new()),
             int_type(),
             "arity_mismatch",
+            false,
         ),
         (
             "ill-typed",
             numeric(boolean(true), boolean(true), "add"),
             int_type(),
             "ill_typed_expression",
+            false,
         ),
-        ("result-type", one(), bool_type(), "result_type_mismatch"),
+        (
+            "result-type",
+            one(),
+            bool_type(),
+            "result_type_mismatch",
+            false,
+        ),
         (
             "non-boolean-root",
             one(),
             int_type(),
             "non_boolean_clause_root",
+            true,
         ),
         (
             "collection-bound",
             expression!("collection_literal", "value_type" => obj!("kind" => "collection", "element" => bool_type(), "maximum_items" => 1), "items" => vec![boolean(true), boolean(false)]),
             obj!("kind" => "collection", "element" => bool_type(), "maximum_items" => 1),
             "collection_bound_exceeded",
+            false,
         ),
         (
             "orphan-type",
             expression!("enum_literal", "enumeration" => "Missing", "variant" => "value"),
             obj!("kind" => "enum", "name" => "Missing"),
             "orphaned_type_reference",
+            false,
         ),
     ];
-    for (id, expression, expected, code) in diagnostics {
+    for (id, expression, expected, code, clause_root) in diagnostics {
         let mut request = expression_input(expression, expected);
-        if id == "non-boolean-root" {
+        if clause_root {
             request.set("clause_root", true);
         }
         add(
             cases,
             format!("expression-{id}"),
-            "expression",
+            ConformanceOperation::Expression,
             request,
             [format!("diagnostic:{code}")],
         );
     }
 
-    for (id, code) in [
-        ("duplicate-type", "duplicate_type_declaration"),
-        ("duplicate-value", "duplicate_value_declaration"),
-        ("duplicate-function", "duplicate_function_declaration"),
-        ("duplicate-field", "duplicate_field"),
-        ("duplicate-variant", "duplicate_variant"),
-        ("duplicate-parameter", "duplicate_parameter"),
-        ("empty-enum", "empty_enum"),
-        ("invalid-numeric", "invalid_numeric_bounds"),
-        ("unbounded-collection", "unbounded_collection"),
-        ("recursive-type", "recursive_type"),
+    for (id, code, mutation) in [
+        (
+            "duplicate-type",
+            "duplicate_type_declaration",
+            ExpressionMutation::DuplicateType,
+        ),
+        (
+            "duplicate-value",
+            "duplicate_value_declaration",
+            ExpressionMutation::DuplicateValue,
+        ),
+        (
+            "duplicate-function",
+            "duplicate_function_declaration",
+            ExpressionMutation::DuplicateFunction,
+        ),
+        (
+            "duplicate-field",
+            "duplicate_field",
+            ExpressionMutation::DuplicateField,
+        ),
+        (
+            "duplicate-variant",
+            "duplicate_variant",
+            ExpressionMutation::DuplicateVariant,
+        ),
+        (
+            "duplicate-parameter",
+            "duplicate_parameter",
+            ExpressionMutation::DuplicateParameter,
+        ),
+        ("empty-enum", "empty_enum", ExpressionMutation::EmptyEnum),
+        (
+            "invalid-numeric",
+            "invalid_numeric_bounds",
+            ExpressionMutation::InvalidNumeric,
+        ),
+        (
+            "unbounded-collection",
+            "unbounded_collection",
+            ExpressionMutation::UnboundedCollection,
+        ),
+        (
+            "recursive-type",
+            "recursive_type",
+            ExpressionMutation::RecursiveType,
+        ),
     ] {
         let mut request = expression_input(boolean(true), bool_type());
-        match id {
-            "duplicate-type" => duplicate_first(&mut request["types"]),
-            "duplicate-value" => duplicate_first(&mut request["values"]),
-            "duplicate-function" => duplicate_first(&mut request["functions"]),
-            "duplicate-field" => duplicate_first(&mut request["types"][1]["fields"]),
-            "duplicate-variant" => duplicate_first(&mut request["types"][0]["variants"]),
-            "duplicate-parameter" => duplicate_first(&mut request["functions"][0]["parameters"]),
-            "empty-enum" => request["types"][0].set("variants", Vec::<J>::new()),
-            "invalid-numeric" => {
-                request["values"][0]["value_type"].set("minimum", "2");
-                request["values"][0]["value_type"].set("maximum", "1");
-            }
-            "unbounded-collection" => request["values"][3]["value_type"].set("maximum_items", 0),
-            "recursive-type" => {
-                request.set("types", vec![obj!("kind" => "record", "name" => "Cycle", "source" => expression_span(1),
-                    "fields" => vec![obj!("name" => "next", "value_type" => obj!("kind" => "option", "value" => obj!("kind" => "record", "name" => "Cycle")), "source" => expression_span(2))])]);
-                request.set("values", Vec::<J>::new());
-                request.set("functions", Vec::<J>::new());
-            }
-            _ => unreachable!(),
-        }
+        mutation.apply(&mut request);
         let mut covers = vec![format!("diagnostic:{code}")];
-        match id {
-            "invalid-numeric" => covers.push("boundary:integer.out_of_range".to_owned()),
-            "unbounded-collection" => covers.push("boundary:collection.minimum".to_owned()),
-            _ => {}
+        if let Some(coverage) = mutation.additional_coverage() {
+            covers.push(coverage.into_label());
         }
         add(
             cases,
             format!("expression-{id}"),
-            "expression",
+            ConformanceOperation::Expression,
             request,
             covers,
         );
@@ -885,7 +1041,7 @@ fn expression_cases(cases: &mut Vec<Case>) {
         add(
             cases,
             format!("expression-obligation-{id}"),
-            "expression",
+            ConformanceOperation::Expression,
             expression_input(expression, expected),
             [
                 "diagnostic:potentially_undefined".to_owned(),
@@ -928,7 +1084,7 @@ fn expression_edges(cases: &mut Vec<Case>) {
     add(
         cases,
         "expression-numeric-edges",
-        "expression",
+        ConformanceOperation::Expression,
         edge,
         [
             "boundary:integer.minimum",
@@ -943,7 +1099,7 @@ fn expression_edges(cases: &mut Vec<Case>) {
     add(
         cases,
         "expression-rational-zero-denominator",
-        "expression",
+        ConformanceOperation::Expression,
         zero_denominator,
         [
             "diagnostic:invalid_numeric_bounds",
@@ -955,7 +1111,7 @@ fn expression_edges(cases: &mut Vec<Case>) {
     add(
         cases,
         "expression-declared-collection-over",
-        "expression",
+        ConformanceOperation::Expression,
         declared_over,
         [
             "diagnostic:invalid_numeric_bounds",
@@ -968,7 +1124,7 @@ fn expression_edges(cases: &mut Vec<Case>) {
     add(
         cases,
         "expression-invalid-wire-number-bound",
-        "expression",
+        ConformanceOperation::Expression,
         wire_document(&number_bound),
         ["diagnostic:invalid_wire_format"],
     );
@@ -977,7 +1133,7 @@ fn expression_edges(cases: &mut Vec<Case>) {
     add(
         cases,
         "expression-invalid-wire-number-literal",
-        "expression",
+        ConformanceOperation::Expression,
         wire_document(&number_literal),
         ["diagnostic:invalid_wire_format"],
     );
@@ -986,7 +1142,7 @@ fn expression_edges(cases: &mut Vec<Case>) {
     add(
         cases,
         "expression-invalid-wire-string-grammar",
-        "expression",
+        ConformanceOperation::Expression,
         wire_document(&grammar_string),
         ["diagnostic:invalid_wire_format"],
     );
@@ -995,7 +1151,7 @@ fn expression_edges(cases: &mut Vec<Case>) {
     add(
         cases,
         "expression-invalid-numeric-range",
-        "expression",
+        ConformanceOperation::Expression,
         range_over,
         ["diagnostic:invalid_numeric_bounds"],
     );
@@ -1003,7 +1159,7 @@ fn expression_edges(cases: &mut Vec<Case>) {
     add(
         cases,
         "expression-text-maximum",
-        "expression",
+        ConformanceOperation::Expression,
         expression_input(
             expression!("text_literal", "value" => "x".repeat(1_048_576)),
             obj!("kind" => "text"),
@@ -1013,7 +1169,7 @@ fn expression_edges(cases: &mut Vec<Case>) {
     add(
         cases,
         "expression-text-over",
-        "expression",
+        ConformanceOperation::Expression,
         expression_input(
             expression!("text_literal", "value" => "x".repeat(1_048_577)),
             obj!("kind" => "text"),
@@ -1030,7 +1186,7 @@ fn expression_edges(cases: &mut Vec<Case>) {
     add(
         cases,
         "expression-nodes-maximum",
-        "expression",
+        ConformanceOperation::Expression,
         expression_input(
             expression_max.clone(),
             obj!("kind" => "collection", "element" => bool_type(), "maximum_items" => 10_000),
@@ -1042,7 +1198,7 @@ fn expression_edges(cases: &mut Vec<Case>) {
     add(
         cases,
         "expression-nodes-over",
-        "expression",
+        ConformanceOperation::Expression,
         expression_input(
             expression_over,
             obj!("kind" => "collection", "element" => bool_type(), "maximum_items" => 10_000),
@@ -1060,7 +1216,7 @@ fn expression_edges(cases: &mut Vec<Case>) {
     add(
         cases,
         "expression-type-depth-maximum",
-        "expression",
+        ConformanceOperation::Expression,
         type_max.clone(),
         ["boundary:type.depth.maximum"],
     );
@@ -1069,7 +1225,7 @@ fn expression_edges(cases: &mut Vec<Case>) {
     add(
         cases,
         "expression-type-depth-over",
-        "expression",
+        ConformanceOperation::Expression,
         type_over,
         [
             "diagnostic:semantic_input_too_large",
@@ -1086,7 +1242,7 @@ fn expression_edges(cases: &mut Vec<Case>) {
     add(
         cases,
         "expression-embedded-type-depth-over",
-        "expression",
+        ConformanceOperation::Expression,
         embedded_type_over,
         [
             "diagnostic:semantic_input_too_large",
@@ -1101,7 +1257,7 @@ fn expression_edges(cases: &mut Vec<Case>) {
     add(
         cases,
         "expression-depth-maximum",
-        "expression",
+        ConformanceOperation::Expression,
         expression_input(expression_depth_max.clone(), bool_type()),
         ["boundary:expression.depth.maximum"],
     );
@@ -1109,7 +1265,7 @@ fn expression_edges(cases: &mut Vec<Case>) {
     add(
         cases,
         "expression-depth-over",
-        "expression",
+        ConformanceOperation::Expression,
         expression_input(expression_depth_over, bool_type()),
         [
             "diagnostic:semantic_input_too_large",
@@ -1127,7 +1283,7 @@ fn expression_edges(cases: &mut Vec<Case>) {
     add(
         cases,
         "expression-semantic-nodes-maximum",
-        "expression",
+        ConformanceOperation::Expression,
         semantic_max.clone(),
         [
             "boundary:collection.maximum",
@@ -1143,7 +1299,7 @@ fn expression_edges(cases: &mut Vec<Case>) {
     add(
         cases,
         "expression-semantic-nodes-over",
-        "expression",
+        ConformanceOperation::Expression,
         semantic_over,
         [
             "diagnostic:semantic_input_too_large",
@@ -1160,7 +1316,7 @@ fn expression_edges(cases: &mut Vec<Case>) {
     add(
         cases,
         "expression-semantic-collection-over",
-        "expression",
+        ConformanceOperation::Expression,
         collection_over,
         [
             "diagnostic:semantic_input_too_large",
@@ -1184,7 +1340,7 @@ fn coverage_cases(cases: &mut Vec<Case>) {
     add(
         cases,
         "coverage-shallow",
-        "coverage",
+        ConformanceOperation::Coverage,
         obj!("package" => coverage_package.clone(),
         "traces" => vec![trace("shallow", req_a.clone(), 1, false)]),
         [
@@ -1195,7 +1351,7 @@ fn coverage_cases(cases: &mut Vec<Case>) {
     add(
         cases,
         "coverage-deep",
-        "coverage",
+        ConformanceOperation::Coverage,
         obj!("package" => coverage_package.clone(),
         "traces" => vec![trace("deep", req_a.clone(), 3, true)]),
         [
@@ -1206,7 +1362,7 @@ fn coverage_cases(cases: &mut Vec<Case>) {
     add(
         cases,
         "coverage-uncovered",
-        "coverage",
+        ConformanceOperation::Coverage,
         obj!("package" => coverage_package.clone(), "traces" => Vec::<J>::new()),
         ["construct:coverage.class.uncovered"],
     );
@@ -1215,7 +1371,7 @@ fn coverage_cases(cases: &mut Vec<Case>) {
     add(
         cases,
         "coverage-cross-package",
-        "coverage",
+        ConformanceOperation::Coverage,
         obj!("package" => coverage_package.clone(),
         "traces" => vec![trace("cross", cross, 5, false)]),
         [
@@ -1229,7 +1385,7 @@ fn coverage_cases(cases: &mut Vec<Case>) {
     add(
         cases,
         "coverage-missing",
-        "coverage",
+        ConformanceOperation::Coverage,
         obj!("package" => coverage_package.clone(),
         "traces" => vec![trace("missing", missing, 7, false)]),
         [
@@ -1242,7 +1398,7 @@ fn coverage_cases(cases: &mut Vec<Case>) {
     add(
         cases,
         "coverage-stale",
-        "coverage",
+        ConformanceOperation::Coverage,
         obj!("package" => coverage_package.clone(),
         "traces" => vec![trace("stale", stale, 9, true)]),
         [
@@ -1253,7 +1409,7 @@ fn coverage_cases(cases: &mut Vec<Case>) {
     add(
         cases,
         "coverage-duplicate",
-        "coverage",
+        ConformanceOperation::Coverage,
         obj!("package" => coverage_package,
         "traces" => vec![trace("duplicate", req_b.clone(), 13, false), trace("duplicate", req_b, 15, false)]),
         [
