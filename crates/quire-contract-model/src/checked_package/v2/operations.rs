@@ -622,10 +622,11 @@ fn check_type_argument_member_result(
     let Some(member) = member_declaration(operation) else {
         return Some(refuse());
     };
-    let result: Option<CheckedNodeId> = application
-        .node
-        .body
-        .get("result_type")
+    let result: Option<CheckedNodeId> = CheckedTerm::view(&application.node.body)
+        .and_then(|term| match term {
+            super::CheckedTermView::Application { result_type, .. } => Some(result_type),
+            _ => None,
+        })
         .and_then(|value| serde_json::from_value(value.clone()).ok());
     let Some(result) = result else {
         return Some(refuse());

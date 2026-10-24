@@ -11,7 +11,8 @@ use super::{
     RawSemanticNodeV2 as CheckedSemanticNodeV2, TimedModelForm,
 };
 use crate::checked_package::common::{
-    body_term, exact_members, is_digest, node_pointer, ValidationFailure, NODE_DOMAIN,
+    body_term, exact_members, is_digest, node_pointer, TermField, ValidationFailure, WireTerm,
+    NODE_DOMAIN,
 };
 use crate::checked_package::shared::{
     CheckedOccurrenceRole, CheckedPackageRefusalCode, JsonPointer,
@@ -69,7 +70,7 @@ fn possible_binding_value(value: &Value) -> Option<&Value> {
     }
     // The containing record may be malformed. Keep the original refusal
     // order by probing this member before the binding shape is diagnosed.
-    value.as_object()?.get("value")
+    WireTerm::decode(value).field(TermField::Value)
 }
 
 fn node_key(value: &Value) -> bool {

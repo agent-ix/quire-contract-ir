@@ -964,7 +964,6 @@ fn validate_one(
     at: &Trail<'_>,
     visit: &mut ReferenceVisitor<'_>,
 ) -> Result<u64, ValidationFailure> {
-    let value = wire.value();
     let invalid = |position: &Trail<'_>| {
         ValidationFailure::refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -1069,10 +1068,10 @@ fn validate_one(
             if !exact_members(object, &["term", "package", "node"]) {
                 return Err(invalid(at));
             }
-            if dependency_reference_package(value).is_none() {
+            if dependency_reference_package(wire).is_none() {
                 return Err(invalid(&at.key("package")));
             }
-            if dependency_reference_node(value).is_none() {
+            if dependency_reference_node(wire).is_none() {
                 return Err(invalid(&at.key("node")));
             }
             Ok(1)
@@ -1154,7 +1153,6 @@ impl TermField {
 /// tag and its fields, including when a malformed body needs an exact path.
 #[derive(Clone, Copy)]
 pub(in crate::checked_package) struct WireTerm<'a> {
-    value: &'a Value,
     object: Option<&'a Map<String, Value>>,
     tag: TermTag,
 }
@@ -1170,11 +1168,7 @@ impl<'a> WireTerm<'a> {
             }
             Some(_) => TermTag::NonString,
         };
-        Self { value, object, tag }
-    }
-
-    pub(in crate::checked_package) fn value(self) -> &'a Value {
-        self.value
+        Self { object, tag }
     }
 
     pub(in crate::checked_package) fn object(self) -> Option<&'a Map<String, Value>> {
@@ -1221,8 +1215,8 @@ pub(super) fn body_term(value: &Value) -> Option<BodyTerm> {
 /// SHA-256 [`CheckedSemanticId`]; `None` for any other shape, a bare digest
 /// or another digest domain included.
 // Intake check of a dependency reference's package domain and algorithm.
-pub(super) fn dependency_reference_package(term: &Value) -> Option<CheckedSemanticId> {
-    let package = CheckedSemanticId::deserialize(term.get("package")?).ok()?;
+pub(super) fn dependency_reference_package(term: WireTerm<'_>) -> Option<CheckedSemanticId> {
+    let package = CheckedSemanticId::deserialize(term.field(TermField::Package)?).ok()?;
     (package.domain.as_ref() == PACKAGE_DOMAIN_V2
         && package.algorithm.as_ref() == "sha256"
         && is_digest(&package.digest))
@@ -1232,8 +1226,8 @@ pub(super) fn dependency_reference_package(term: &Value) -> Option<CheckedSemant
 /// A `dependency_reference` term's `node`: a node key in the node domain;
 /// `None` for any other shape.
 // Intake check of a dependency reference's node domain.
-pub(super) fn dependency_reference_node(term: &Value) -> Option<CheckedNodeId> {
-    let node = CheckedNodeId::deserialize(term.get("node")?).ok()?;
+pub(super) fn dependency_reference_node(term: WireTerm<'_>) -> Option<CheckedNodeId> {
+    let node = CheckedNodeId::deserialize(term.field(TermField::Node)?).ok()?;
     (node.domain.as_ref() == NODE_DOMAIN && is_digest(&node.digest)).then_some(node)
 }
 
