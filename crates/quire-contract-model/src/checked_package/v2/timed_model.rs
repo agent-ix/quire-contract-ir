@@ -196,7 +196,13 @@ fn path(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
                     integer(b[2].0, &b[2].1)?;
                 }
                 integer(b[3].0, &b[3].1)?;
-                if b[4].0["value_kind"] == "text" {
+                if matches!(
+                    CheckedTerm::view(b[4].0),
+                    Some(CheckedTermView::Literal {
+                        value_kind: LiteralKind::Text,
+                        ..
+                    })
+                ) {
                     word(b[4].0, &["unbounded"], &b[4].1)?;
                 } else {
                     integer(b[4].0, &b[4].1)?;

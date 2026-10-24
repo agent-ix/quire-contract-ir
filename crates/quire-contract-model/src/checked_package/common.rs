@@ -983,10 +983,11 @@ fn validate_one(
     match term {
         BodyTerm::Literal => {
             if exact_members(object, &["term", "type", "value_kind", "value"])
-                && literal_kind(value).is_some()
-                && object
-                    .get("value")
-                    .is_some_and(|value| is_literal_value(value, grammar))
+                && matches!(
+                    super::v2::CheckedTerm::view(value),
+                    Some(super::v2::CheckedTermView::Literal { value, .. })
+                        if is_literal_value(value, grammar)
+                )
             {
                 visit_member(
                     object,
