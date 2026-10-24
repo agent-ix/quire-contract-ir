@@ -1066,9 +1066,7 @@ mod tests {
         package
             .node_index
             .insert(id.clone(), package.wire.semantic_graph.nodes.len());
-        package
-            .terms
-            .push(CheckedTerm::decode_admitted(&child.body).expect("private child term"));
+        package.terms.push(child.body.clone());
         package.kinds.push(kind);
         package.wire.semantic_graph.nodes.push(child);
         id
@@ -1137,8 +1135,9 @@ mod tests {
             CheckedNodeKind::Value(ValueForm::Literal),
             literal(&i128::MIN.to_string()),
         );
-        package.wire.semantic_graph.nodes[3].body["arguments"] =
-            json!([reference('6'), literal("1")]);
+        edit_body(&mut package, 3, |body| {
+            body["arguments"] = json!([reference('6'), literal("1")]);
+        });
         sync_comparison_term(&mut package);
         let comparison: CheckedNodeId = serde_json::from_value(id('4')).expect("comparison id");
         expect_failure(
@@ -1172,10 +1171,12 @@ mod tests {
         package.terms[5] =
             CheckedTerm::decode_admitted(&literal("340282366920938463463374607431768211456"))
                 .expect("arbitrary integer term");
-        package.wire.semantic_graph.nodes[3].body["arguments"] = json!([
-            reference('6'),
-            literal("340282366920938463463374607431768211456")
-        ]);
+        edit_body(&mut package, 3, |body| {
+            body["arguments"] = json!([
+                reference('6'),
+                literal("340282366920938463463374607431768211456")
+            ]);
+        });
         sync_comparison_term(&mut package);
         expect_failure(
             &package,
@@ -1207,10 +1208,12 @@ mod tests {
         members.push(CheckedTerm::Reference {
             target: child.clone(),
         });
-        package.wire.semantic_graph.nodes[3].body["arguments"] = json!([
-            reference('6'),
-            literal("340282366920938463463374607431768211456")
-        ]);
+        edit_body(&mut package, 3, |body| {
+            body["arguments"] = json!([
+                reference('6'),
+                literal("340282366920938463463374607431768211456")
+            ]);
+        });
         sync_comparison_term(&mut package);
         // This private invariant has no selected operation context. An eligible
         // input reaches MissingRange before the later overflowing literal.
