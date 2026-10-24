@@ -18,7 +18,7 @@ fn timed_model_published_fixture_round_trips_complete_nodes() {
     let wire = published();
     assert_eq!(
         wire["semantic_graph"]["nodes"].as_array().unwrap().len(),
-        56
+        54
     );
     let CheckedPackageV2ReadResult::Admitted(package) = read_package(&wire).unwrap() else {
         panic!(
@@ -41,7 +41,7 @@ fn timed_model_published_fixture_round_trips_complete_nodes() {
         assert_eq!(
             serde_json::to_value(package.term(&node.node_id).expect("retained complete body"))
                 .unwrap(),
-            node.body
+            serde_json::to_value(&node.body).unwrap()
         );
     }
     let s = package.identity_preimage();
@@ -127,11 +127,21 @@ fn timed_model_published_schema_vectors_precede_stale_identity() {
 #[trace("TC-048", "QSpec-TM-09", "QSpec-TM-21")]
 #[test]
 fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
-    let positive = published();
     let vectors = read_json(&fixtures_dir().join("../timed-model-node-vectors.json")).unwrap();
     for row in vectors["semantic_refusals"].as_array().unwrap() {
         let mutation = row["mutation"].as_str().unwrap();
-        let mut wire = positive.clone();
+        if matches!(
+            row["id"].as_str(),
+            Some("TM-23" | "TM-24" | "TM-25" | "TM-26" | "TM-27" | "TM-28" | "TM-29")
+        ) {
+            continue;
+        }
+        let fixture = match row["fixture"].as_str().unwrap_or("dense") {
+            "dense" => "positive-timed-model-nodes.json",
+            "tick" => "positive-tick-timed-model-nodes.json",
+            other => panic!("{}: unknown fixture {other}", row["id"]),
+        };
+        let mut wire = read_json(&fixtures_dir().join(fixture)).unwrap();
         match mutation {
             "remove-timed-root" => {
                 let root_id = wire["semantic_graph"]["nodes"][52]["node_id"].clone();
@@ -147,14 +157,12 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
             "dangling-tick-operation" => {
                 let target =
                     json!({"domain":"quire.checked-semantic-node/v1", "digest":"0".repeat(64)});
+                let old = wire["semantic_graph"]["nodes"][44]["body"]["members"][3]["value"]
+                    ["target"]
+                    .clone();
                 wire["semantic_graph"]["nodes"][44]["body"]["members"][3]["value"]["target"] =
                     target.clone();
-                replace_dependency(
-                    &mut wire["semantic_graph"]["nodes"][44],
-                    &positive["semantic_graph"]["nodes"][44]["body"]["members"][3]["value"]
-                        ["target"],
-                    &target,
-                );
+                replace_dependency(&mut wire["semantic_graph"]["nodes"][44], &old, &target);
             }
             "function-as-tick-operation" => {
                 let old = wire["semantic_graph"]["nodes"][44]["body"]["members"][3]["value"]
@@ -224,7 +232,7 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
                 replace_dependency(&mut wire["semantic_graph"]["nodes"][44], &old, &target);
             }
             "unresolved-tick-operation" => {
-                wire["semantic_graph"]["nodes"][53]["body"]["members"][1]["value"]["value"] =
+                wire["semantic_graph"]["nodes"][46]["body"]["members"][1]["value"]["value"] =
                     json!("missing")
             }
             other => panic!("{}: unknown semantic vector {other}", row["id"]),
@@ -257,6 +265,144 @@ fn timed_model_semantic_vectors_refuse_at_the_published_cause_and_locus() {
             row["locus"].as_str().unwrap(),
             "{}",
             row["id"]
+        );
+    }
+}
+
+#[trace("TC-367", "FR-038-AC-323")]
+#[test]
+fn timed_model_tm_23_to_tm_29_enforce_dense_time_and_base_time_identity() {
+    let vectors = read_json(&fixtures_dir().join("../timed-model-node-vectors.json")).unwrap();
+    for row in vectors["semantic_refusals"].as_array().unwrap() {
+        let id = row["id"].as_str().unwrap();
+        if !matches!(
+            id,
+            "TM-23" | "TM-24" | "TM-25" | "TM-26" | "TM-27" | "TM-28" | "TM-29"
+        ) {
+            continue;
+        }
+        let fixture = match row["fixture"].as_str().unwrap_or("dense") {
+            "dense" => "positive-timed-model-nodes.json",
+            "tick" => "positive-tick-timed-model-nodes.json",
+            other => panic!("{id}: unknown fixture {other}"),
+        };
+        let mut wire = read_json(&fixtures_dir().join(fixture)).unwrap();
+        match row["mutation"].as_str().unwrap() {
+            "tick-source-with-clock-place" => {
+                let dense = published();
+                let place = dense["semantic_graph"]["nodes"][45].clone();
+                let place_id = place["node_id"].clone();
+                wire["semantic_graph"]["nodes"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(place);
+                let root = &mut wire["semantic_graph"]["nodes"][45];
+                root["body"]["members"][3]["value"]["members"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({"term":"reference", "target":place_id}));
+                root["dependencies"].as_array_mut().unwrap().push(place_id);
+                root["dependencies"]
+                    .as_array_mut()
+                    .unwrap()
+                    .sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+            }
+            "source-unit-length" | "source-unit-derived-non-time" | "source-unit-derived-time" => {
+                let mutation = row["mutation"].as_str().unwrap();
+                let name = match mutation {
+                    "source-unit-length" => "Length",
+                    "source-unit-derived-non-time" => "Area",
+                    _ => "Duration",
+                };
+                let time_id = wire["semantic_graph"]["nodes"][42]["node_id"].clone();
+                let mut dimension = wire["semantic_graph"]["nodes"][42].clone();
+                dimension["nominal_identity_preimage"]["qualified_declaration"] =
+                    json!(["Example", name]);
+                dimension["declaration"]["qualified_name"] = json!(["Example", name]);
+                if name == "Area" || name == "Duration" {
+                    let base_id = if name == "Area" {
+                        let mut length = dimension.clone();
+                        length["nominal_identity_preimage"]["qualified_declaration"] =
+                            json!(["Example", "Length"]);
+                        length["declaration"]["qualified_name"] = json!(["Example", "Length"]);
+                        let id = fixture_support::node_id(&fixture_support::sha256_hex(
+                            &fixture_support::canonical(&length["nominal_identity_preimage"]),
+                        ));
+                        length["node_id"] = id.clone();
+                        length["semantic_type"] = id.clone();
+                        wire["semantic_graph"]["nodes"]
+                            .as_array_mut()
+                            .unwrap()
+                            .push(length);
+                        id
+                    } else {
+                        time_id
+                    };
+                    dimension["nominal_identity_preimage"]["terms"] = json!([{
+                        "dimension_node_id": base_id,
+                        "exponent": if name == "Area" { "2" } else { "1" }
+                    }]);
+                    dimension["dependencies"] = json!([base_id]);
+                }
+                let dimension_id = fixture_support::node_id(&fixture_support::sha256_hex(
+                    &fixture_support::canonical(&dimension["nominal_identity_preimage"]),
+                ));
+                dimension["node_id"] = dimension_id.clone();
+                dimension["semantic_type"] = dimension_id.clone();
+                wire["semantic_graph"]["nodes"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(dimension);
+                let mut unit = wire["semantic_graph"]["nodes"][43].clone();
+                unit["nominal_identity_preimage"]["qualified_declaration"] =
+                    json!(["Example", "u"]);
+                unit["nominal_identity_preimage"]["dimension_node_id"] = dimension_id.clone();
+                unit["node_id"] = fixture_support::node_id(&fixture_support::sha256_hex(
+                    &fixture_support::canonical(&unit["nominal_identity_preimage"]),
+                ));
+                unit["semantic_type"] = dimension_id;
+                unit["dependencies"] = json!([unit["semantic_type"].clone()]);
+                unit["declaration"]["qualified_name"] = json!(["Example", "u"]);
+                let unit_id = unit["node_id"].clone();
+                wire["semantic_graph"]["nodes"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(unit);
+                let source = &mut wire["semantic_graph"]["nodes"][44];
+                let old = source["body"]["members"][1]["value"]["target"].clone();
+                source["body"]["members"][1]["value"]["target"] = unit_id.clone();
+                let deps = source["dependencies"].as_array_mut().unwrap();
+                deps.retain(|dep| dep != &old);
+                deps.push(unit_id);
+                deps.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+            }
+            other => panic!("{id}: unknown mutation {other}"),
+        }
+        fixture_support::mint_ungrouped_structural_keys(&mut wire);
+        for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
+            node["dependencies"]
+                .as_array_mut()
+                .unwrap()
+                .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+        }
+        fixture_support::refresh_identity(&mut wire);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
+            panic!("{id} must refuse");
+        };
+        assert_eq!(
+            code_word(refusal.code),
+            row["expected_code"].as_str().unwrap(),
+            "{id}: {refusal:?}"
+        );
+        assert_eq!(
+            refusal.cause.map(cause_word),
+            row["expected_cause"].as_str(),
+            "{id}: {refusal:?}"
+        );
+        assert_eq!(
+            refusal.path.unwrap().to_string(),
+            row["locus"].as_str().unwrap(),
+            "{id}"
         );
     }
 }
@@ -363,7 +509,11 @@ fn timed_model_rebuilt_semantic_defects_keep_paired_causes() {
             Cause::TimedNodeReference,
         ),
     ] {
-        let mut wire = published();
+        let mut wire = if change == "zero_period" {
+            read_json(&fixtures_dir().join("positive-tick-timed-model-nodes.json")).unwrap()
+        } else {
+            published()
+        };
         let scalar = wire["semantic_graph"]["nodes"]
             .as_array()
             .unwrap()

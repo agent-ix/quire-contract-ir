@@ -1491,6 +1491,7 @@ fn cause_admitted(code: CheckedPackageRefusalCode, cause: CheckedPackageRefusalC
         | Cause::TimedNodeReference
         | Cause::DuplicateClockPlace
         | Cause::MalformedClockPlace
+        | Cause::ClockWithoutDenseTime
         | Cause::MalformedJson
         | Cause::MissingMember
         | Cause::DuplicateMember

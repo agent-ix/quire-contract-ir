@@ -1145,12 +1145,27 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::DuplicateClockPlace => "duplicate-clock-place",
         Cause::MalformedClockPlace => "malformed-clock-place",
         Cause::InvalidTimeQuantity => "invalid-time-quantity",
+        Cause::ClockWithoutDenseTime => "clock-without-dense-time",
         Cause::UnsupportedSelection => "unsupported-selection",
         Cause::WrongSelectionRole => "wrong-selection-role",
         Cause::InexactInteger => "inexact-integer",
         Cause::InexactNumber => "inexact-number",
         Cause::ExpressionForm => "expression-form",
     }
+}
+
+#[trace("TC-367", "FR-038-AC-323")]
+#[test]
+fn clock_without_dense_time_has_its_paired_wire_cause() {
+    assert_eq!(code_word(Code::InvalidPackage), "invalid_package");
+    assert_eq!(
+        cause_word(Cause::ClockWithoutDenseTime),
+        "clock-without-dense-time"
+    );
+    assert_eq!(
+        serde_json::to_value(Cause::ClockWithoutDenseTime).unwrap(),
+        json!("clock-without-dense-time")
+    );
 }
 
 #[trace("TC-048", "FR-038-AC-170")]

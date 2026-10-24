@@ -394,6 +394,7 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::DuplicateClockPlace => "duplicate-clock-place",
         Cause::MalformedClockPlace => "malformed-clock-place",
         Cause::InvalidTimeQuantity => "invalid-time-quantity",
+        Cause::ClockWithoutDenseTime => "clock-without-dense-time",
         Cause::UnsupportedSelection => "unsupported-selection",
         Cause::WrongSelectionRole => "wrong-selection-role",
         Cause::InexactInteger => "inexact-integer",
