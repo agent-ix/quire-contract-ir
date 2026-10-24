@@ -2251,10 +2251,10 @@ impl ContractPackageWireV1 {
             }
             terms.push(match super::CheckedTerm::decode_admitted(&node.body) {
                 Ok(term) => Some(term),
-                Err(()) if super::body_grammar(kind) == super::BodyGrammar::AbstractionRelation => {
+                Err(_) if super::body_grammar(kind) == super::BodyGrammar::AbstractionRelation => {
                     None
                 }
-                Err(()) => {
+                Err(_) => {
                     return Err(malformed(
                         at.clone().key("body"),
                         CheckedPackageRefusalCause::InvalidValue,
