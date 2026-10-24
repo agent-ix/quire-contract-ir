@@ -134,7 +134,9 @@ impl CheckedTerm {
         }
     }
 
-    pub(super) fn replace_node_id(&mut self, old: &CheckedNodeId, new: &CheckedNodeId) {
+    /// Substitute an exact node identity in this term's typed fields and
+    /// closed operation payloads without changing ordinary strings.
+    pub fn replace_node_id(&mut self, old: &CheckedNodeId, new: &CheckedNodeId) {
         fn replace(id: &mut CheckedNodeId, old: &CheckedNodeId, new: &CheckedNodeId) {
             if id == old {
                 *id = new.clone();

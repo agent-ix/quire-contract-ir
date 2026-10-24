@@ -242,7 +242,16 @@ fn charge_terms(
 
 /// Derives structural identities and group labels from a complete borrowed
 /// ordered graph. The result is assembly data and does not admit a package.
-pub fn derive_structural_candidates(
+pub fn derive_structural_candidates<Body: super::CandidateBody>(
+    nodes: &[super::CheckedSemanticNodeV2<Body>],
+    byte_limit: u64,
+    work_limit: u64,
+) -> Result<StructuralCandidates, StructuralCandidateError> {
+    let raw_nodes = Body::candidate_nodes(nodes);
+    derive_structural_candidates_raw(&raw_nodes, byte_limit, work_limit)
+}
+
+fn derive_structural_candidates_raw(
     nodes: &[CheckedSemanticNodeV2],
     byte_limit: u64,
     work_limit: u64,

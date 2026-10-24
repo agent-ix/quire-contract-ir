@@ -209,6 +209,53 @@ pub struct CheckedSemanticNodeV2<Body = CheckedTerm> {
 
 type RawSemanticNodeV2 = CheckedSemanticNodeV2<Value>;
 
+/// Body representations accepted by the pre-read candidate APIs. Raw draft
+/// nodes borrow their JSON; admitted typed nodes use a temporary projection
+/// through the same identity derivation implementation.
+pub trait CandidateBody: Serialize {
+    /// Borrow or project one node for the pre-read identity calculation.
+    fn candidate_node<'a>(
+        node: &'a CheckedSemanticNodeV2<Self>,
+    ) -> std::borrow::Cow<'a, CheckedSemanticNodeV2<Value>>
+    where
+        Self: Sized;
+
+    /// Borrow or project an ordered graph for grouped candidate derivation.
+    fn candidate_nodes<'a>(
+        nodes: &'a [CheckedSemanticNodeV2<Self>],
+    ) -> std::borrow::Cow<'a, [CheckedSemanticNodeV2<Value>]>
+    where
+        Self: Sized;
+}
+
+impl CandidateBody for Value {
+    fn candidate_node<'a>(
+        node: &'a CheckedSemanticNodeV2<Self>,
+    ) -> std::borrow::Cow<'a, CheckedSemanticNodeV2<Value>> {
+        std::borrow::Cow::Borrowed(node)
+    }
+
+    fn candidate_nodes<'a>(
+        nodes: &'a [CheckedSemanticNodeV2<Self>],
+    ) -> std::borrow::Cow<'a, [CheckedSemanticNodeV2<Value>]> {
+        std::borrow::Cow::Borrowed(nodes)
+    }
+}
+
+impl CandidateBody for CheckedTerm {
+    fn candidate_node<'a>(
+        node: &'a CheckedSemanticNodeV2<Self>,
+    ) -> std::borrow::Cow<'a, CheckedSemanticNodeV2<Value>> {
+        std::borrow::Cow::Owned(node.to_raw())
+    }
+
+    fn candidate_nodes<'a>(
+        nodes: &'a [CheckedSemanticNodeV2<Self>],
+    ) -> std::borrow::Cow<'a, [CheckedSemanticNodeV2<Value>]> {
+        std::borrow::Cow::Owned(nodes.iter().map(CheckedSemanticNodeV2::to_raw).collect())
+    }
+}
+
 impl RawSemanticNodeV2 {
     fn into_typed(mut self, body: CheckedTerm) -> CheckedSemanticNodeV2 {
         quire_canonical::drop_value(std::mem::take(&mut self.body));
@@ -286,7 +333,13 @@ impl CheckedSemanticNodeV2 {
     }
 
     fn to_raw(&self) -> RawSemanticNodeV2 {
-        RawSemanticNodeV2 {
+        self.try_to_raw().expect("typed term serializes to JSON")
+    }
+}
+
+impl<Body: Serialize> CheckedSemanticNodeV2<Body> {
+    fn try_to_raw(&self) -> Result<RawSemanticNodeV2, serde_json::Error> {
+        Ok(RawSemanticNodeV2 {
             node_id: self.node_id.clone(),
             schema_version: self.schema_version.clone(),
             node_tag: self.node_tag.clone(),
@@ -298,8 +351,8 @@ impl CheckedSemanticNodeV2 {
             nominal_identity_preimage: self.nominal_identity_preimage.clone(),
             declaration: self.declaration.clone(),
             owner: self.owner.clone(),
-            body: serde_json::to_value(&self.body).expect("typed term serializes to JSON"),
-        }
+            body: serde_json::to_value(&self.body)?,
+        })
     }
 }
 

@@ -770,7 +770,7 @@ mod tests {
             .semantic_graph
             .nodes
             .iter()
-            .map(|node| CheckedTerm::decode_admitted(&node.body).expect("fixture body"))
+            .map(|node| node.body.clone())
             .collect();
         let package = CheckedPackageV2 {
             node_index: super::super::retained_node_index(&wire),
@@ -793,8 +793,15 @@ mod tests {
     }
 
     fn sync_comparison_term(package: &mut CheckedPackageV2) {
-        package.terms[3] = CheckedTerm::decode_admitted(&package.wire.semantic_graph.nodes[3].body)
-            .expect("mutated synthetic comparison remains a body term");
+        package.terms[3] = package.wire.semantic_graph.nodes[3].body.clone();
+    }
+
+    fn edit_body(package: &mut CheckedPackageV2, position: usize, edit: impl FnOnce(&mut Value)) {
+        let mut body = serde_json::to_value(&package.wire.semantic_graph.nodes[position].body)
+            .expect("typed fixture body");
+        edit(&mut body);
+        package.wire.semantic_graph.nodes[position].body =
+            CheckedTerm::decode_admitted(&body).expect("edited fixture body remains a closed term");
     }
 
     #[trace("FR-038-AC-207")]
@@ -873,8 +880,9 @@ mod tests {
             target: serde_json::from_value(id('4')).expect("comparison id"),
         };
 
-        package.wire.semantic_graph.nodes[3].body["operation"]["identity"] =
-            json!("quire.op.integer.unknown");
+        edit_body(&mut package, 3, |body| {
+            body["operation"]["identity"] = json!("quire.op.integer.unknown")
+        });
         sync_comparison_term(&mut package);
         let failure = package
             .direct_integer_comparison(&clause, &claim)
@@ -889,8 +897,9 @@ mod tests {
             )
         );
         assert_eq!((&failure.clause, &failure.claim), (&clause, &claim));
-        package.wire.semantic_graph.nodes[3].body["operation"]["identity"] =
-            json!("quire.op.integer.add");
+        edit_body(&mut package, 3, |body| {
+            body["operation"]["identity"] = json!("quire.op.integer.add")
+        });
         sync_comparison_term(&mut package);
         let failure = package
             .direct_integer_comparison(&clause, &claim)
@@ -899,9 +908,12 @@ mod tests {
             (failure.kind, failure.path),
             (Refusal::IneligibleOperator, Path::Comparison)
         );
-        package.wire.semantic_graph.nodes[3].body["operation"]["identity"] =
-            json!("quire.op.integer.eq");
-        package.wire.semantic_graph.nodes[3].body["arguments"] = json!([literal("0")]);
+        edit_body(&mut package, 3, |body| {
+            body["operation"]["identity"] = json!("quire.op.integer.eq")
+        });
+        edit_body(&mut package, 3, |body| {
+            body["arguments"] = json!([literal("0")])
+        });
         sync_comparison_term(&mut package);
         let failure = package
             .direct_integer_comparison(&clause, &claim)
@@ -915,8 +927,9 @@ mod tests {
             )
         );
         assert_eq!((&failure.clause, &failure.claim), (&clause, &claim));
-        package.wire.semantic_graph.nodes[3].body["arguments"] =
-            json!([{"term": "aggregate", "members": []}, literal("1")]);
+        edit_body(&mut package, 3, |body| {
+            body["arguments"] = json!([{"term": "aggregate", "members": []}, literal("1")])
+        });
         sync_comparison_term(&mut package);
         let failure = package
             .direct_integer_comparison(&clause, &claim)
@@ -926,10 +939,12 @@ mod tests {
             (Refusal::IneligibleOperand, Path::Operand(0), None)
         );
         assert_eq!((&failure.clause, &failure.claim), (&clause, &claim));
-        package.wire.semantic_graph.nodes[3].body["arguments"] = json!([
-            reference('9'),
-            literal("340282366920938463463374607431768211456")
-        ]);
+        edit_body(&mut package, 3, |body| {
+            body["arguments"] = json!([
+                reference('9'),
+                literal("340282366920938463463374607431768211456")
+            ])
+        });
         sync_comparison_term(&mut package);
         let failure = package
             .direct_integer_comparison(&clause, &claim)
@@ -938,10 +953,12 @@ mod tests {
             (failure.kind, failure.path, failure.child),
             (Refusal::MissingChild, Path::Operand(0), Some(unknown))
         );
-        package.wire.semantic_graph.nodes[3].body["arguments"] = json!([
-            literal("0"),
-            literal("340282366920938463463374607431768211456")
-        ]);
+        edit_body(&mut package, 3, |body| {
+            body["arguments"] = json!([
+                literal("0"),
+                literal("340282366920938463463374607431768211456")
+            ])
+        });
         sync_comparison_term(&mut package);
         let failure = package
             .direct_integer_comparison(&clause, &claim)
@@ -950,8 +967,9 @@ mod tests {
             (failure.kind, failure.path),
             (Refusal::RangeOutOfI128, Path::Operand(1))
         );
-        package.wire.semantic_graph.nodes[3].body["arguments"] =
-            json!([literal("0"), literal("1")]);
+        edit_body(&mut package, 3, |body| {
+            body["arguments"] = json!([literal("0"), literal("1")])
+        });
         sync_comparison_term(&mut package);
         let failure = package
             .direct_integer_comparison(&clause, &claim)
@@ -975,7 +993,9 @@ mod tests {
     #[test]
     fn comparison_uses_retained_terms_after_raw_condition_body_changes() {
         let (mut package, clause, claim) = fixture();
-        package.wire.semantic_graph.nodes[3].body = json!({"term": "aggregate", "members": []});
+        edit_body(&mut package, 3, |body| {
+            *body = json!({"term": "aggregate", "members": []})
+        });
         let error = package
             .direct_integer_comparison(&clause, &claim)
             .expect_err("two retained inline literals still have no read");
@@ -987,7 +1007,9 @@ mod tests {
     #[test]
     fn comparison_uses_retained_clause_condition_after_raw_body_changes() {
         let (mut package, clause, claim) = fixture();
-        package.wire.semantic_graph.nodes[4].body["arguments"][2] = reference('9');
+        edit_body(&mut package, 4, |body| {
+            body["arguments"][2] = reference('9')
+        });
         let error = package
             .direct_integer_comparison(&clause, &claim)
             .expect_err("two retained inline literals still have no read");
