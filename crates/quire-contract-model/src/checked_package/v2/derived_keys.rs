@@ -570,6 +570,7 @@ mod tests {
             MemberType::String => wire(&key, "scalar_type", "string", &key, empty()),
             MemberType::Uuid => wire(&key, "scalar_type", "uuid", &key, empty()),
             MemberType::Timestamp => wire(&key, "scalar_type", "timestamp", &key, empty()),
+            MemberType::Clock => wire(&key, "scalar_type", "clock", &key, empty()),
             MemberType::IntRange(range) => wire(
                 &key,
                 "bounded_domain",
