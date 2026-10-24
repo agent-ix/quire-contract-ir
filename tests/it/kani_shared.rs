@@ -515,7 +515,7 @@ fn tc_443_the_outcome_and_its_error_carry_a_typed_std001_code() {
     );
 }
 
-/// Trace: FR-039-AC-4, TC-055; reuses the TC-041/TC-042 profile, finite-input,
+/// Trace: FR-039-AC-4, TC-055; exercises the TC-042 profile, finite-input,
 /// dispatch, and outcome rejection boundaries with malformed caller input.
 #[trace("TC-055", "FR-039-AC-4")]
 #[test]
@@ -630,7 +630,9 @@ fn tc_055_negative_kani_corpus_returns_typed_errors_without_panics() {
     let error = std::panic::catch_unwind(|| KaniOutcome::proved(0, "source", "context"))
         .expect("outcome construction must not panic")
         .expect_err("zero success checks");
-    assert_eq!(error.code(), Std001Code::KANI_VACUOUS_PROOF);
+    assert_eq!(error.code(), Std001Code::KANI_OUTCOME_INVALID);
+    assert_eq!(error.requested_code(), Std001Code::KANI_PROVED);
+    assert_eq!(error.rejected_success_checks(), Some(0));
     let invalid_kind = std::panic::catch_unwind(|| {
         KaniOutcome::non_success(
             KaniOutcomeKind::Proved,

@@ -1422,6 +1422,21 @@ fn tc_055_no_foreign_runtime_or_replay_surface_in_source() {
                 continue;
             }
             let source = fs::read_to_string(&path).expect("source file");
+            if path.starts_with(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")) {
+                let parsed = parse_model_source(&source, &path.display().to_string());
+                for item in parsed.items {
+                    if let syn::Item::Macro(item) = item {
+                        assert!(
+                            !item
+                                .attrs
+                                .iter()
+                                .any(|attr| attr.path().is_ident("macro_export")),
+                            "{} exports an uninventoried macro",
+                            path.display()
+                        );
+                    }
+                }
+            }
             let code = source
                 .lines()
                 .filter(|line| !line.trim_start().starts_with("//"))
