@@ -626,7 +626,7 @@ fn reached_view_uses_all_three_edges_and_preserves_sources_and_identity() {
             .find(|node| node.node_id == entry.node.node_id)
             .expect("source node");
         assert_eq!(
-            serde_json::to_value(&entry.node).expect("contract node"),
+            serde_json::to_value(entry.node).expect("contract node"),
             serde_json::to_value(original).expect("source node")
         );
         let sources = admitted
