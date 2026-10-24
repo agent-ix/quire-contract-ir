@@ -82,6 +82,18 @@ pub enum ProfileError {
     MissingConstruct(String),
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ProfileFamily {
+    Kani,
+}
+
+impl ProfileFamily {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(text: &str) -> Option<Self> {
+        (text == PROFILE).then_some(Self::Kani)
+    }
+}
+
 impl KaniProfile {
     /// Creates a profile only when its immutable selection and matrix are coherent.
     // Validates the wire selection's profile family against the one admitted family.
@@ -89,7 +101,7 @@ impl KaniProfile {
         selection: ProfileSelection,
         capabilities: Vec<CapabilityEntry>,
     ) -> Result<Self, ProfileError> {
-        if selection.profile != PROFILE {
+        if ProfileFamily::from_wire(&selection.profile) != Some(ProfileFamily::Kani) {
             return Err(ProfileError::UnsupportedProfile(selection.profile));
         }
         for (name, value) in [

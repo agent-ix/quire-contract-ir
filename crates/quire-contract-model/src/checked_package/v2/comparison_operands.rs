@@ -34,6 +34,7 @@ pub enum CheckedComparisonOperator {
 }
 
 impl CheckedComparisonOperator {
+    #[ix_trace_rs::string_edge]
     fn from_identity(identity: &str) -> Option<Self> {
         match identity {
             "quire.op.integer.eq" => Some(Self::Eq),

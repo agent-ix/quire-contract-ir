@@ -10,6 +10,7 @@ CARGO ?= cargo
 # --locked only when no local patch is active: a patch rewrites the resolution.
 LOCKED ?= $(if $(wildcard .cargo/config.toml),,--locked)
 QUIRE ?= quire
+STRING_EDGE ?= qsl-string-edge
 QUIRE_SPEC_LANGUAGE_BIN ?= $(QUIRE_SPEC_LANGUAGE_DIR)/target/debug/quire-spec
 
 .PHONY: help
@@ -47,8 +48,12 @@ fmt:
 fmt-check:
 	$(CARGO) fmt --all -- --check
 
+.PHONY: string-edge
+string-edge:
+	$(STRING_EDGE) --base-dir . --crate-root src --crate-root crates/quire-contract-model/src --rules string-edge-rules.json
+
 .PHONY: lint
-lint:
+lint: string-edge
 	$(CARGO) clippy $(LOCKED) --workspace --all-targets --features conformance-cli -- -D warnings
 	# The workspace lane turns on the model's test-only fault-injection feature
 	# through the root dev-dependency; this lane checks the model as a consumer

@@ -25,6 +25,18 @@ use crate::{
 };
 
 pub const EXECUTABLE_PROJECTION_FORMAT: &str = "quire.contract.executable-projection/v1";
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ProjectionFormat {
+    Executable,
+}
+
+impl ProjectionFormat {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(value: &str) -> Option<Self> {
+        (value == EXECUTABLE_PROJECTION_FORMAT).then_some(Self::Executable)
+    }
+}
 pub const EXECUTABLE_PROJECTION_SCHEMA: &str =
     include_str!("../../../schemas/contract-executable-projection-v1.schema.json");
 /// Domain-separated canonical identity profile; not a producer attestation.
@@ -263,7 +275,7 @@ impl BoundPackage {
         validate_schema(&value)?;
         let projection: Projection =
             serde_json::from_value(value).map_err(|_| invalid("invalid projection envelope"))?;
-        if projection.format != EXECUTABLE_PROJECTION_FORMAT {
+        if ProjectionFormat::from_wire(&projection.format) != Some(ProjectionFormat::Executable) {
             return Err(invalid("unsupported executable projection format"));
         }
         let package =

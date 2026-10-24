@@ -167,14 +167,16 @@ pub(in crate::checked_package) fn locate_preimage_failure(
     let mut members = object.clone();
     members.remove("version");
     let members = Value::Object(members);
-    let failure = match version {
-        "quire.enum-declaration-node/v1" => {
+    let failure = match NominalKind::from_version(version) {
+        Some(NominalKind::EnumDeclaration) => {
             locate_closed_value_failure::<EnumDeclarationPreimage>(&members)
         }
-        "quire.enum-member-node/v1" => locate_closed_value_failure::<EnumMemberPreimage>(&members),
-        "quire.dimension-node/v1" => locate_closed_value_failure::<DimensionPreimage>(&members),
-        "quire.unit-node/v1" => locate_closed_value_failure::<UnitPreimage>(&members),
-        _ => return (at.key("version"), false),
+        Some(NominalKind::EnumMember) => {
+            locate_closed_value_failure::<EnumMemberPreimage>(&members)
+        }
+        Some(NominalKind::Dimension) => locate_closed_value_failure::<DimensionPreimage>(&members),
+        Some(NominalKind::Unit) => locate_closed_value_failure::<UnitPreimage>(&members),
+        None => return (at.key("version"), false),
     };
     let Some((path, unknown_member)) = failure else {
         return (at, false);
@@ -197,10 +199,13 @@ fn locate_owner_failure(at: JsonPointer, owner: &Value) -> (JsonPointer, bool) {
         return (at, false);
     };
     let members: &[&str] = match object.get("kind") {
-        Some(Value::String(kind)) if kind == "source" || kind == "definition" => {
-            &["kind", "authority", "identity"]
-        }
-        Some(Value::String(kind)) if kind == "model" => &["kind", "identity", "node"],
+        Some(Value::String(kind)) => match NominalOwnerKind::from_wire(kind) {
+            Some(NominalOwnerKind::Source | NominalOwnerKind::Definition) => {
+                &["kind", "authority", "identity"]
+            }
+            Some(NominalOwnerKind::Model) => &["kind", "identity", "node"],
+            None => return (at.key("kind"), false),
+        },
         Some(_) => return (at.key("kind"), false),
         None => return (at, false),
     };
@@ -220,6 +225,37 @@ enum NominalKind {
     EnumMember,
     Dimension,
     Unit,
+}
+
+impl NominalKind {
+    #[ix_trace_rs::string_edge]
+    fn from_version(version: &str) -> Option<Self> {
+        match version {
+            "quire.enum-declaration-node/v1" => Some(Self::EnumDeclaration),
+            "quire.enum-member-node/v1" => Some(Self::EnumMember),
+            "quire.dimension-node/v1" => Some(Self::Dimension),
+            "quire.unit-node/v1" => Some(Self::Unit),
+            _ => None,
+        }
+    }
+}
+
+enum NominalOwnerKind {
+    Source,
+    Definition,
+    Model,
+}
+
+impl NominalOwnerKind {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(kind: &str) -> Option<Self> {
+        match kind {
+            "source" => Some(Self::Source),
+            "definition" => Some(Self::Definition),
+            "model" => Some(Self::Model),
+            _ => None,
+        }
+    }
 }
 
 impl NominalKind {
@@ -632,12 +668,25 @@ pub(super) fn validate_qualified_name(
 }
 
 /// `^(0|-?[1-9][0-9]*)$`; returns the unsigned magnitude.
-fn integer_magnitude(value: &str) -> Option<&str> {
+#[derive(Debug, Eq, PartialEq)]
+struct IntegerMagnitude<'a> {
+    digits: &'a str,
+    zero: bool,
+}
+
+#[ix_trace_rs::string_edge]
+fn integer_magnitude(value: &str) -> Option<IntegerMagnitude<'_>> {
     if value == "0" {
-        return Some(value);
+        return Some(IntegerMagnitude {
+            digits: value,
+            zero: true,
+        });
     }
     let magnitude = value.strip_prefix('-').unwrap_or(value);
-    positive_integer(magnitude).then_some(magnitude)
+    positive_integer(magnitude).then_some(IntegerMagnitude {
+        digits: magnitude,
+        zero: false,
+    })
 }
 
 /// `^[1-9][0-9]*$`.
@@ -661,7 +710,10 @@ fn validate_rational(
     require(positive_integer(&rational.denominator), || {
         at().key("denominator")
     })?;
-    require(coprime(numerator, &rational.denominator, meter, at)?, at)
+    require(
+        coprime(numerator.digits, &rational.denominator, meter, at)?,
+        at,
+    )
 }
 
 fn validate_enum_declaration(
@@ -766,7 +818,7 @@ fn validate_dimension(
         meter.charge(1, || term_at(index))?;
         let exponent_at = || term_at(index).key("exponent");
         let magnitude = integer_magnitude(&term.exponent).ok_or_else(|| invalid(exponent_at()))?;
-        require(magnitude != "0", exponent_at)?;
+        require(!magnitude.zero, exponent_at)?;
         let base_at = || term_at(index).key("dimension_node_id");
         require(bases.insert(&term.dimension_node_id), base_at)?;
         let Some(NominalIdentityPreimage::Dimension(base)) =
@@ -835,9 +887,10 @@ fn validate_unit(
             })?;
         }
         Some(target) => {
-            require(unit.scale.numerator.as_ref() != "0", || {
-                site.preimage(&["scale", "numerator"])
-            })?;
+            require(
+                integer_magnitude(&unit.scale.numerator).is_none_or(|m| !m.zero),
+                || site.preimage(&["scale", "numerator"]),
+            )?;
             expected.push(target);
             validate_unit_path(site, unit, graph, meter)?;
         }
@@ -894,8 +947,14 @@ mod tests {
     #[trace("TC-048")]
     #[test]
     fn tc_048_integer_and_identifier_grammars_are_exact() {
-        assert_eq!(integer_magnitude("0"), Some("0"));
-        assert_eq!(integer_magnitude("-12"), Some("12"));
+        assert_eq!(
+            integer_magnitude("0").map(|m| (m.digits, m.zero)),
+            Some(("0", true))
+        );
+        assert_eq!(
+            integer_magnitude("-12").map(|m| (m.digits, m.zero)),
+            Some(("12", false))
+        );
         assert_eq!(integer_magnitude("-0"), None);
         assert_eq!(integer_magnitude("012"), None);
         assert_eq!(integer_magnitude(""), None);

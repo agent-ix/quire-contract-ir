@@ -86,31 +86,49 @@ const NATIVE_PREFIX: &str = "ix://quire/native/";
 /// FR-208 meaning ids, as the constructs table of a Semantic IR document
 /// binds them.
 mod meaning {
-    pub(super) const OBJECT_TYPE: &str = "quire.meaning.model.object-type/v1";
-    pub(super) const VALUE_TYPE: &str = "quire.meaning.model.value-type/v1";
-    pub(super) const VARIANT_TYPE: &str = "quire.meaning.model.variant-type/v1";
-    pub(super) const RECORD_VALUE_TYPE: &str = "quire.meaning.model.record-value-type/v1";
-    pub(super) const SYSTEMS_INTERFACE: &str = "quire.meaning.systems.interface/v1";
-    pub(super) const SYSTEMS_CONNECTION: &str = "quire.meaning.systems.connection/v1";
-    pub(super) const POPULATION: &str = "quire.meaning.model.population/v1";
-    /// Every meaning id FR-208 declares.
-    pub(super) const ALL: &[&str] = &[
-        OBJECT_TYPE,
-        VALUE_TYPE,
-        RECORD_VALUE_TYPE,
-        VARIANT_TYPE,
-        "quire.meaning.model.event-type/v1",
-        "quire.meaning.model.state-machine/v1",
-        "quire.meaning.model.process/v1",
-        "quire.meaning.model.persistence-interface/v1",
-        "quire.meaning.model.namespace/v1",
-        POPULATION,
-        "quire.meaning.systems.part/v1",
-        "quire.meaning.systems.port/v1",
-        SYSTEMS_INTERFACE,
-        SYSTEMS_CONNECTION,
-        "quire.meaning.systems.allocation/v1",
-    ];
+    /// Every FR-208 meaning accepted by the selected Semantic IR document.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub(super) enum Kind {
+        ObjectType,
+        ValueType,
+        RecordValueType,
+        VariantType,
+        EventType,
+        StateMachine,
+        Process,
+        PersistenceInterface,
+        Namespace,
+        Population,
+        SystemsPart,
+        SystemsPort,
+        SystemsInterface,
+        SystemsConnection,
+        SystemsAllocation,
+    }
+
+    impl Kind {
+        #[ix_trace_rs::string_edge]
+        pub(super) fn from_wire(value: &str) -> Option<Self> {
+            match value {
+                "quire.meaning.model.object-type/v1" => Some(Self::ObjectType),
+                "quire.meaning.model.value-type/v1" => Some(Self::ValueType),
+                "quire.meaning.model.record-value-type/v1" => Some(Self::RecordValueType),
+                "quire.meaning.model.variant-type/v1" => Some(Self::VariantType),
+                "quire.meaning.model.event-type/v1" => Some(Self::EventType),
+                "quire.meaning.model.state-machine/v1" => Some(Self::StateMachine),
+                "quire.meaning.model.process/v1" => Some(Self::Process),
+                "quire.meaning.model.persistence-interface/v1" => Some(Self::PersistenceInterface),
+                "quire.meaning.model.namespace/v1" => Some(Self::Namespace),
+                "quire.meaning.model.population/v1" => Some(Self::Population),
+                "quire.meaning.systems.part/v1" => Some(Self::SystemsPart),
+                "quire.meaning.systems.port/v1" => Some(Self::SystemsPort),
+                "quire.meaning.systems.interface/v1" => Some(Self::SystemsInterface),
+                "quire.meaning.systems.connection/v1" => Some(Self::SystemsConnection),
+                "quire.meaning.systems.allocation/v1" => Some(Self::SystemsAllocation),
+                _ => None,
+            }
+        }
+    }
 }
 
 /// A refusal one of the four steps determined, before the caller locates it.
@@ -314,6 +332,17 @@ pub(super) enum RelationshipDirection {
 }
 
 impl RelationshipDirection {
+    #[string_edge]
+    fn from_wire(text: &str) -> Option<Self> {
+        match text {
+            "source-to-target" => Some(Self::SourceToTarget),
+            "target-to-source" => Some(Self::TargetToSource),
+            "bidirectional" => Some(Self::Bidirectional),
+            "undirected" => Some(Self::Undirected),
+            _ => None,
+        }
+    }
+
     pub(super) fn admits(self, forward: bool) -> bool {
         matches!(self, Self::Bidirectional | Self::Undirected)
             || (forward && self == Self::SourceToTarget)
@@ -2206,7 +2235,7 @@ fn joined(base: &[Segment], tail: Segment) -> Vec<Segment> {
 }
 
 /// One declared type node: its declaration and meaning, or the refusal it draws.
-type ClassifiedType<'v> = Result<(&'v Value, &'v str), ModelRefusal>;
+type ClassifiedType<'v> = Result<(&'v Value, meaning::Kind), ModelRefusal>;
 
 /// The document-wide sets a node's references are checked against. All are
 /// known before any node's body is read, so no reference outcome depends on
@@ -2246,7 +2275,7 @@ fn classify<'v>(
                 let name = kind.get("name")?.as_str()?;
                 meanings.get(&(module, name)).copied()
             })
-            .filter(|meaning| meaning::ALL.contains(meaning))
+            .and_then(meaning::Kind::from_wire)
             .map(|meaning| (*declared, meaning))
             .ok_or_else(ModelRefusal::malformed)
     };
@@ -2348,7 +2377,7 @@ pub(super) fn read_semantic_ir(
             return Err(ModelRefusal::malformed().into());
         }
         let (_, meaning) = classify(&prefix, &meanings, &[population], node)?;
-        if meaning != meaning::POPULATION || !model.populations.insert(node.into()) {
+        if meaning != meaning::Kind::Population || !model.populations.insert(node.into()) {
             return Err(ModelRefusal::malformed().into());
         }
     }
@@ -2368,8 +2397,10 @@ pub(super) fn read_semantic_ir(
             }
         };
         match meaning {
-            meaning::OBJECT_TYPE | meaning::SYSTEMS_INTERFACE | meaning::RECORD_VALUE_TYPE => {
-                if meaning == meaning::RECORD_VALUE_TYPE {
+            meaning::Kind::ObjectType
+            | meaning::Kind::SystemsInterface
+            | meaning::Kind::RecordValueType => {
+                if meaning == meaning::Kind::RecordValueType {
                     scope.records.insert(node);
                 } else {
                     scope.objects.insert(node);
@@ -2393,17 +2424,25 @@ pub(super) fn read_semantic_ir(
                     }
                 }
             }
-            meaning::VALUE_TYPE => {
+            meaning::Kind::ValueType => {
                 model.value_types.insert((*node).into(), None);
             }
-            meaning::VARIANT_TYPE => {
+            meaning::Kind::VariantType => {
                 model.variant_types.insert((*node).into(), BTreeSet::new());
             }
-            meaning::SYSTEMS_CONNECTION => {
+            meaning::Kind::SystemsConnection => {
                 model.relation_nodes.insert((*node).into());
                 scope.relationships.insert(node);
             }
-            _ => {
+            meaning::Kind::EventType
+            | meaning::Kind::StateMachine
+            | meaning::Kind::Process
+            | meaning::Kind::PersistenceInterface
+            | meaning::Kind::Namespace
+            | meaning::Kind::Population
+            | meaning::Kind::SystemsPart
+            | meaning::Kind::SystemsPort
+            | meaning::Kind::SystemsAllocation => {
                 model.other_types.insert((*node).into());
             }
         }
@@ -2421,13 +2460,15 @@ pub(super) fn read_semantic_ir(
         };
         budget.charge(node_size(declared))?;
         match meaning {
-            meaning::OBJECT_TYPE | meaning::SYSTEMS_INTERFACE | meaning::RECORD_VALUE_TYPE => {
+            meaning::Kind::ObjectType
+            | meaning::Kind::SystemsInterface
+            | meaning::Kind::RecordValueType => {
                 let mut defects = Defects::new(declared);
                 let (object, declared_relationships) = semantic_ir_object_type(
                     declared,
                     node,
-                    meaning == meaning::SYSTEMS_INTERFACE,
-                    meaning == meaning::RECORD_VALUE_TYPE,
+                    meaning == meaning::Kind::SystemsInterface,
+                    meaning == meaning::Kind::RecordValueType,
                     &References {
                         model: &model,
                         scope: &scope,
@@ -2448,7 +2489,7 @@ pub(super) fn read_semantic_ir(
                     }
                     return Err(selected.into());
                 }
-                if meaning == meaning::RECORD_VALUE_TYPE {
+                if meaning == meaning::Kind::RecordValueType {
                     records.push((node, object));
                 } else {
                     objects.push((node, object));
@@ -2468,12 +2509,12 @@ pub(super) fn read_semantic_ir(
                     }
                 }
             }
-            meaning::VALUE_TYPE => {
+            meaning::Kind::ValueType => {
                 model
                     .value_types
                     .insert(node.into(), semantic_ir_value_type(declared));
             }
-            meaning::VARIANT_TYPE => {
+            meaning::Kind::VariantType => {
                 let cases = match list(declared, "variants") {
                     Ok(cases) => cases,
                     Err(refusal) => {
@@ -2509,7 +2550,16 @@ pub(super) fn read_semantic_ir(
                 }
                 model.variant_types.insert(node.into(), names);
             }
-            _ => {}
+            meaning::Kind::EventType
+            | meaning::Kind::StateMachine
+            | meaning::Kind::Process
+            | meaning::Kind::PersistenceInterface
+            | meaning::Kind::Namespace
+            | meaning::Kind::Population
+            | meaning::Kind::SystemsPart
+            | meaning::Kind::SystemsPort
+            | meaning::Kind::SystemsConnection
+            | meaning::Kind::SystemsAllocation => {}
         }
     }
     model.object_types.extend(
@@ -2530,6 +2580,38 @@ pub(super) fn read_semantic_ir(
 struct References<'a> {
     model: &'a DomainModel,
     scope: &'a Scope<'a>,
+}
+
+enum CheckedTypeRefInput {
+    MapValue(Box<str>),
+    Unit,
+    Native,
+    Declared,
+    Malformed,
+}
+
+impl CheckedTypeRefInput {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(value: &str) -> Self {
+        match SelectedTypeRef::from_admitted_name(value) {
+            Some(SelectedTypeRef::Map(key, value)) if key.as_ref() == "Text" => {
+                Self::MapValue(value)
+            }
+            Some(SelectedTypeRef::Map(..)) => Self::Malformed,
+            Some(SelectedTypeRef::Unit(_)) => Self::Unit,
+            Some(SelectedTypeRef::Native(_)) => Self::Native,
+            Some(SelectedTypeRef::Declared(_)) => Self::Declared,
+            None if value.starts_with(NATIVE_PREFIX)
+                || value
+                    .strip_prefix("Map<")
+                    .and_then(|tail| tail.strip_suffix('>'))
+                    .is_some() =>
+            {
+                Self::Malformed
+            }
+            None => Self::Declared,
+        }
+    }
 }
 
 impl References<'_> {
@@ -2560,38 +2642,29 @@ impl References<'_> {
     // Reads a selected domain package document's type reference prefix.
     fn check_type_ref(&self, type_ref: &str, path: &[Segment], defects: &mut Defects) {
         let path = joined(path, Segment::Name("typeRef"));
-        if let Some(inner) = type_ref
-            .strip_prefix("Map<")
-            .and_then(|s| s.strip_suffix('>'))
-        {
-            if let Some((key, value)) = inner.split_once(", ") {
-                if key == "Text" && !value.is_empty() && !value.contains(',') {
-                    self.check_type_ref(value, &[], defects);
-                    return;
-                }
-            }
-            defects.push(Row::Meaning, &path, ModelRefusal::malformed());
-            return;
-        }
-        if type_ref.starts_with("ix://quire/unit/") {
-            if !self.model.unit_refs.contains_key(type_ref) {
+        match CheckedTypeRefInput::from_wire(type_ref) {
+            CheckedTypeRefInput::MapValue(value) => self.check_type_ref(&value, &[], defects),
+            CheckedTypeRefInput::Unit if self.model.unit_refs.contains_key(type_ref) => {}
+            CheckedTypeRefInput::Unit => {
                 defects.push(Row::Reference, &path, ModelRefusal::missing_name());
             }
-            return;
-        }
-        match type_ref.strip_prefix(NATIVE_PREFIX) {
-            Some(name) if NativeTypeRef::from_name(name).is_some() => {}
-            Some(_) => defects.push(Row::Meaning, &path, ModelRefusal::malformed()),
-            None if self.scope.objects.contains(type_ref)
-                || self.scope.records.contains(type_ref)
-                || self.model.value_types.contains_key(type_ref)
-                || self.model.variant_types.contains_key(type_ref)
-                || self.model.other_types.contains(type_ref) => {}
-            None if self.scope.refused.contains(type_ref) => {}
-            None if self.scope.relationships.contains(type_ref) => {
+            CheckedTypeRefInput::Native => {}
+            CheckedTypeRefInput::Malformed => {
                 defects.push(Row::Meaning, &path, ModelRefusal::malformed());
             }
-            None => defects.push(Row::Reference, &path, ModelRefusal::missing_name()),
+            CheckedTypeRefInput::Declared
+                if self.scope.objects.contains(type_ref)
+                    || self.scope.records.contains(type_ref)
+                    || self.model.value_types.contains_key(type_ref)
+                    || self.model.variant_types.contains_key(type_ref)
+                    || self.model.other_types.contains(type_ref) => {}
+            CheckedTypeRefInput::Declared if self.scope.refused.contains(type_ref) => {}
+            CheckedTypeRefInput::Declared if self.scope.relationships.contains(type_ref) => {
+                defects.push(Row::Meaning, &path, ModelRefusal::malformed());
+            }
+            CheckedTypeRefInput::Declared => {
+                defects.push(Row::Reference, &path, ModelRefusal::missing_name());
+            }
         }
     }
 
@@ -2705,6 +2778,60 @@ impl References<'_> {
     }
 }
 
+#[derive(Clone, Copy)]
+enum RelationshipMember {
+    Identity,
+    Category,
+    Composite,
+    Direction,
+    Origin,
+    SourceEnd,
+    TargetEnd,
+}
+
+impl RelationshipMember {
+    #[string_edge]
+    fn from_wire(text: &str) -> Option<Self> {
+        match text {
+            "identity" => Some(Self::Identity),
+            "category" => Some(Self::Category),
+            "composite" => Some(Self::Composite),
+            "direction" => Some(Self::Direction),
+            "origin" => Some(Self::Origin),
+            "sourceEnd" => Some(Self::SourceEnd),
+            "targetEnd" => Some(Self::TargetEnd),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum RelationshipCategory {
+    Structural,
+    Behavioral,
+    Dataflow,
+    Dependency,
+    Realization,
+    Governance,
+    Traceability,
+}
+
+impl RelationshipCategory {
+    #[string_edge]
+    fn from_wire(text: &str) -> Option<Self> {
+        match text {
+            "structural" => Some(Self::Structural),
+            "behavioral" => Some(Self::Behavioral),
+            "dataflow" => Some(Self::Dataflow),
+            "dependency" => Some(Self::Dependency),
+            "realization" => Some(Self::Realization),
+            "governance" => Some(Self::Governance),
+            "traceability" => Some(Self::Traceability),
+            _ => None,
+        }
+    }
+}
+
 /// Closed authored relationship metadata and ends, read at the selection row.
 fn semantic_ir_relationship(
     value: &Value,
@@ -2715,43 +2842,23 @@ fn semantic_ir_relationship(
 ) -> Option<(Box<str>, RelationshipDecl)> {
     let parsed = (|| {
         let members = value.as_object()?;
-        if !members.keys().all(|key| {
-            matches!(
-                key.as_str(),
-                "identity"
-                    | "category"
-                    | "composite"
-                    | "direction"
-                    | "origin"
-                    | "sourceEnd"
-                    | "targetEnd"
-            )
-        }) {
+        if !members
+            .keys()
+            .all(|key| RelationshipMember::from_wire(key).is_some())
+        {
             return None;
         }
         let identity = value.get("identity")?.as_str()?;
         if !valid_relationship_identity(&references.model.identity, identity) {
             return None;
         }
-        let direction = match value.get("direction")?.as_str()? {
-            "source-to-target" => RelationshipDirection::SourceToTarget,
-            "target-to-source" => RelationshipDirection::TargetToSource,
-            "bidirectional" => RelationshipDirection::Bidirectional,
-            "undirected" => RelationshipDirection::Undirected,
-            _ => return None,
-        };
-        if !matches!(
-            value.get("category").and_then(Value::as_str),
-            Some(
-                "structural"
-                    | "behavioral"
-                    | "dataflow"
-                    | "dependency"
-                    | "realization"
-                    | "governance"
-                    | "traceability"
-            )
-        ) || value.get("composite").and_then(Value::as_bool).is_none()
+        let direction = RelationshipDirection::from_wire(value.get("direction")?.as_str()?)?;
+        if value
+            .get("category")
+            .and_then(Value::as_str)
+            .and_then(RelationshipCategory::from_wire)
+            .is_none()
+            || value.get("composite").and_then(Value::as_bool).is_none()
             || !valid_relationship_origin(value.get("origin")?)
         {
             return None;
@@ -2843,6 +2950,7 @@ fn valid_relationship_origin(value: &Value) -> bool {
     OriginView::decode(value).is_some()
 }
 
+#[ix_trace_rs::string_edge]
 fn valid_semantic_identity(identity: &str) -> bool {
     let Some((org, path)) = identity
         .strip_prefix("ix://")
@@ -2865,6 +2973,7 @@ fn valid_semantic_identity(identity: &str) -> bool {
         })
 }
 
+#[ix_trace_rs::string_edge]
 fn valid_source_path(path: &str) -> bool {
     !path.is_empty()
         && !path.starts_with('/')

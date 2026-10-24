@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    path::{Component, Path},
+    path::{Component, Path, PathBuf},
     sync::mpsc::{self, Sender},
     thread::JoinHandle,
 };
@@ -843,16 +843,18 @@ fn parse_json<T: DeserializeOwned>(
         .map_err(|_| RunnerError::new(RunnerErrorCode::InvalidCorpus, path, malformed_detail))
 }
 
-fn safe_relative(path: &str) -> bool {
+#[ix_trace_rs::string_edge]
+fn relative_path(path: &str) -> Option<PathBuf> {
     let path = Path::new(path);
-    !path.as_os_str().is_empty()
+    let valid = !path.as_os_str().is_empty()
         && !path.is_absolute()
         && path.components().all(|component| {
             matches!(component, Component::Normal(_))
                 && !component.as_os_str().is_empty()
                 && component.as_os_str() != "."
                 && component.as_os_str() != ".."
-        })
+        });
+    valid.then(|| path.to_path_buf())
 }
 
 fn read_relative(
@@ -861,13 +863,8 @@ fn read_relative(
     field: &str,
     budget: &mut ReadBudget,
 ) -> Result<Vec<u8>, RunnerError> {
-    if !safe_relative(relative) {
-        return Err(RunnerError::new(
-            RunnerErrorCode::UnsafePath,
-            field,
-            "path is unsafe",
-        ));
-    }
+    let relative = relative_path(relative)
+        .ok_or_else(|| RunnerError::new(RunnerErrorCode::UnsafePath, field, "path is unsafe"))?;
     let joined = root.join(relative);
     let resolved = joined
         .canonicalize()
@@ -1107,7 +1104,9 @@ fn observed_coverage(
             if let Some(code) = diagnostic.get("code").and_then(Value::as_str) {
                 diagnostic_codes.insert(code);
                 observed.insert(format!("diagnostic:{code}"));
-                observe_diagnostic_boundaries(operation, code, &mut observed);
+                if let Some(code) = DiagnosticCode::from_code(code) {
+                    observe_diagnostic_boundaries(operation, code, &mut observed);
+                }
             }
             if let Some(kind) = diagnostic.get("obligation_kind").and_then(Value::as_str) {
                 observed.insert(format!("obligation:{kind}"));
@@ -1123,24 +1122,26 @@ fn observed_coverage(
 
 fn observe_diagnostic_boundaries(
     operation: ConformanceOperation,
-    code: &str,
+    code: DiagnosticCode,
     observed: &mut BTreeSet<String>,
 ) {
     let boundaries: &[&str] = match code {
-        "canonicalization_resource_exhausted" => &["canonical.resource_failure"],
-        "cross_package_reference" if operation == ConformanceOperation::Coverage => {
+        DiagnosticCode::CanonicalizationResourceExhausted => &["canonical.resource_failure"],
+        DiagnosticCode::CrossPackageReference if operation == ConformanceOperation::Coverage => {
             &["artifact.cross_package"]
         }
-        "duplicate_artifact_trace" if operation == ConformanceOperation::Coverage => {
+        DiagnosticCode::DuplicateArtifactTrace if operation == ConformanceOperation::Coverage => {
             &["artifact.duplicate"]
         }
-        "orphaned_requirement_reference" if operation == ConformanceOperation::Coverage => {
+        DiagnosticCode::OrphanedRequirementReference
+            if operation == ConformanceOperation::Coverage =>
+        {
             &["artifact.missing"]
         }
-        "stale_requirement_revision" if operation == ConformanceOperation::Coverage => {
+        DiagnosticCode::StaleRequirementRevision if operation == ConformanceOperation::Coverage => {
             &["artifact.stale", "revision.stale"]
         }
-        "stale_requirement_revision" => &["revision.stale"],
+        DiagnosticCode::StaleRequirementRevision => &["revision.stale"],
         _ => &[],
     };
     observed.extend(
@@ -1148,6 +1149,25 @@ fn observe_diagnostic_boundaries(
             .iter()
             .map(|boundary| format!("boundary:{boundary}")),
     );
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ObservedTypeKind {
+    Collection,
+    Integer,
+    Rational,
+}
+
+impl ObservedTypeKind {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(kind: &str) -> Option<Self> {
+        match kind {
+            "collection" => Some(Self::Collection),
+            "integer" => Some(Self::Integer),
+            "rational" => Some(Self::Rational),
+            _ => None,
+        }
+    }
 }
 
 fn observe_structural_boundaries(
@@ -1225,8 +1245,12 @@ fn observe_structural_boundaries(
                 {
                     record("boundary:source_span.minimum");
                 }
-                if let Some(kind) = object.get("kind").and_then(Value::as_str) {
-                    if kind == "collection" {
+                if let Some(kind) = object
+                    .get("kind")
+                    .and_then(Value::as_str)
+                    .and_then(ObservedTypeKind::from_wire)
+                {
+                    if kind == ObservedTypeKind::Collection {
                         match object.get("maximum_items").and_then(Value::as_u64) {
                             Some(0) => {
                                 record("boundary:collection.minimum");
@@ -1243,7 +1267,7 @@ fn observe_structural_boundaries(
                             _ => {}
                         }
                     }
-                    if kind == "integer" {
+                    if kind == ObservedTypeKind::Integer {
                         if decimal_member(object, "minimum") == Some(i128::from(i64::MIN)) {
                             record("boundary:integer.minimum");
                         }
@@ -1261,13 +1285,13 @@ fn observe_structural_boundaries(
                             record("boundary:integer.out_of_range");
                         }
                     }
-                    if kind == "rational"
+                    if kind == ObservedTypeKind::Rational
                         && decimal_member(object, "maximum_denominator")
                             == Some(i128::from(i64::MAX))
                     {
                         record("boundary:rational.maximum_denominator");
                     }
-                    if kind == "rational"
+                    if kind == ObservedTypeKind::Rational
                         && decimal_member(object, "maximum_denominator") == Some(0)
                     {
                         record("boundary:rational.zero_denominator");
@@ -1376,39 +1400,68 @@ fn decimal_member(object: &Map<String, Value>, name: &str) -> Option<i128> {
     object.get(name)?.as_str()?.parse().ok()
 }
 
+#[derive(Clone, Copy)]
+enum BoundaryExpectation {
+    WireDepthMaximum,
+    WireDepthOverMaximum,
+    Diagnostic(DiagnosticCode),
+}
+
+impl BoundaryExpectation {
+    #[ix_trace_rs::string_edge]
+    fn from_token(token: &str) -> Option<Self> {
+        use DiagnosticCode as Code;
+        match token {
+            "boundary:wire.depth.maximum" => Some(Self::WireDepthMaximum),
+            "boundary:wire.depth.over_maximum" => Some(Self::WireDepthOverMaximum),
+            "boundary:collection.minimum" => Some(Self::Diagnostic(Code::UnboundedCollection)),
+            "boundary:collection.declared_out_of_range"
+            | "boundary:integer.out_of_range"
+            | "boundary:rational.zero_denominator" => {
+                Some(Self::Diagnostic(Code::InvalidNumericBounds))
+            }
+            "boundary:text.over_maximum" => Some(Self::Diagnostic(Code::TextBoundExceeded)),
+            "boundary:expression.nodes.over_maximum" => {
+                Some(Self::Diagnostic(Code::ExpressionTooLarge))
+            }
+            "boundary:collection.over_maximum"
+            | "boundary:expression.depth.over_maximum"
+            | "boundary:semantic.nodes.over_maximum"
+            | "boundary:semantic_collection.over_maximum"
+            | "boundary:type.depth.over_maximum" => {
+                Some(Self::Diagnostic(Code::SemanticInputTooLarge))
+            }
+            "boundary:revision.stale" => Some(Self::Diagnostic(Code::StaleRequirementRevision)),
+            "boundary:schema.zero_major" => Some(Self::Diagnostic(Code::InvalidSchemaVersion)),
+            "boundary:schema.unknown_major" | "boundary:schema.unsupported_minor" => {
+                Some(Self::Diagnostic(Code::UnsupportedSchemaVersion))
+            }
+            "boundary:source_span.reversed" => Some(Self::Diagnostic(Code::InvalidSourceSpan)),
+            _ => None,
+        }
+    }
+}
+
 fn structural_boundary_observed(
     token: &str,
     actual: &Value,
     succeeded: bool,
     diagnostics: &BTreeSet<&str>,
 ) -> bool {
-    if token == "boundary:wire.depth.maximum" {
-        return has_diagnostic_at(actual, "invalid_wire_format", "document");
+    match BoundaryExpectation::from_token(token) {
+        Some(BoundaryExpectation::WireDepthMaximum) => has_diagnostic_at(
+            actual,
+            DiagnosticCode::InvalidWireFormat.as_str(),
+            "document",
+        ),
+        Some(BoundaryExpectation::WireDepthOverMaximum) => has_diagnostic_at(
+            actual,
+            DiagnosticCode::InvalidWireFormat.as_str(),
+            "document.nesting",
+        ),
+        Some(BoundaryExpectation::Diagnostic(code)) => diagnostics.contains(code.as_str()),
+        None => succeeded,
     }
-    if token == "boundary:wire.depth.over_maximum" {
-        return has_diagnostic_at(actual, "invalid_wire_format", "document.nesting");
-    }
-    let required_diagnostic = match token {
-        "boundary:collection.minimum" => Some("unbounded_collection"),
-        "boundary:collection.declared_out_of_range"
-        | "boundary:integer.out_of_range"
-        | "boundary:rational.zero_denominator" => Some("invalid_numeric_bounds"),
-        "boundary:text.over_maximum" => Some("text_bound_exceeded"),
-        "boundary:expression.nodes.over_maximum" => Some("expression_too_large"),
-        "boundary:collection.over_maximum"
-        | "boundary:expression.depth.over_maximum"
-        | "boundary:semantic.nodes.over_maximum"
-        | "boundary:semantic_collection.over_maximum"
-        | "boundary:type.depth.over_maximum" => Some("semantic_input_too_large"),
-        "boundary:revision.stale" => Some("stale_requirement_revision"),
-        "boundary:schema.zero_major" => Some("invalid_schema_version"),
-        "boundary:schema.unknown_major" | "boundary:schema.unsupported_minor" => {
-            Some("unsupported_schema_version")
-        }
-        "boundary:source_span.reversed" => Some("invalid_source_span"),
-        _ => None,
-    };
-    required_diagnostic.map_or(succeeded, |code| diagnostics.contains(code))
 }
 
 fn has_diagnostic_at(actual: &Value, code: &str, path: &str) -> bool {
