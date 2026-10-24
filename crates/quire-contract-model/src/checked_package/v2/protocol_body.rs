@@ -4,7 +4,8 @@
 //! inserted between abstraction and operations. The later step supplies the
 //! selected profile and maps each defect to a located reader refusal.
 
-use super::ProtocolForm;
+use super::{ApplicationOperator, CheckedTerm, LiteralKind, ProtocolForm};
+use crate::checked_package::shared::CheckedNodeId;
 use serde_json::Value;
 
 /// A defect in the application envelope or an operator's fixed bindings.
@@ -204,29 +205,41 @@ fn layout(form: ProtocolForm, operator: &str) -> Option<&'static [Binding]> {
     })
 }
 
-fn members(value: &Value) -> Option<&[Value]> {
-    (value.get("term")?.as_str()? == "aggregate")
-        .then_some(value.get("members")?.as_array()?.as_slice())
+fn members(value: &CheckedTerm) -> Option<&[CheckedTerm]> {
+    let CheckedTerm::Aggregate { members } = value else {
+        return None;
+    };
+    Some(members)
 }
 
-fn shape_fits(value: &Value, shape: Shape) -> bool {
-    let term = value.get("term").and_then(Value::as_str);
+fn shape_fits(value: &CheckedTerm, shape: Shape) -> bool {
     match shape {
-        Shape::Reference => term == Some("reference"),
-        Shape::Text => {
-            term == Some("literal")
-                && value.get("value_kind").and_then(Value::as_str) == Some("text")
-                && value.get("value").and_then(Value::as_str).is_some()
-        }
-        Shape::Integer => {
-            term == Some("literal")
-                && value.get("value_kind").and_then(Value::as_str) == Some("integer")
-        }
+        Shape::Reference => matches!(value, CheckedTerm::Reference { .. }),
+        Shape::Text => matches!(
+            value,
+            CheckedTerm::Literal {
+                value_kind: LiteralKind::Text,
+                value,
+                ..
+            } if value.as_str().is_some()
+        ),
+        Shape::Integer => matches!(
+            value,
+            CheckedTerm::Literal {
+                value_kind: LiteralKind::Integer,
+                ..
+            }
+        ),
         Shape::Boolean => {
-            term == Some("reference")
-                || term == Some("literal")
-                    && value.get("value_kind").and_then(Value::as_str) == Some("boolean")
-                    && value.get("value").and_then(Value::as_bool).is_some()
+            matches!(value, CheckedTerm::Reference { .. })
+                || matches!(
+                    value,
+                    CheckedTerm::Literal {
+                        value_kind: LiteralKind::Boolean,
+                        value,
+                        ..
+                    } if value.as_bool().is_some()
+                )
         }
         Shape::References => members(value)
             .is_some_and(|items| items.iter().all(|item| shape_fits(item, Shape::Reference))),
@@ -247,14 +260,14 @@ fn shape_fits(value: &Value, shape: Shape) -> bool {
         Shape::Group => members(value).is_some_and(|items| {
             items
                 .iter()
-                .all(|item| item.get("term").and_then(Value::as_str) == Some("binding"))
+                .all(|item| matches!(item, CheckedTerm::Binding { .. }))
         }),
         Shape::Records => members(value).is_some_and(|items| {
             items.iter().all(|item| {
                 members(item).is_some_and(|record| {
                     record
                         .iter()
-                        .all(|entry| entry.get("term").and_then(Value::as_str) == Some("binding"))
+                        .all(|entry| matches!(entry, CheckedTerm::Binding { .. }))
                 })
             })
         }),
@@ -269,20 +282,26 @@ fn shape_fits(value: &Value, shape: Shape) -> bool {
 #[allow(dead_code)] // The reader step will call this once QSpec fixtures are published.
 pub(super) fn validate_protocol_body(
     form: ProtocolForm,
-    body: &Value,
-    semantic_type: &Value,
+    body: &CheckedTerm,
+    semantic_type: &CheckedNodeId,
     selected_profile: Option<&Value>,
 ) -> Result<(), ProtocolBodyDefect> {
     use ProtocolBodyDefect as D;
-    if body.get("term").and_then(Value::as_str) != Some("application")
-        || body.get("operator").and_then(Value::as_str) != Some("protocol_control")
-        || body.get("result_type") != Some(semantic_type)
-        || body.pointer("/operation/identity").and_then(Value::as_str)
+    let CheckedTerm::Application {
+        operator: ApplicationOperator::ProtocolControl,
+        operation,
+        result_type,
+        arguments,
+    } = body
+    else {
+        return Err(D::OperatorIneligible);
+    };
+    if result_type != semantic_type
+        || operation.pointer("/identity").and_then(Value::as_str)
             != Some("quire.op.protocol.control")
     {
         return Err(D::OperatorIneligible);
     }
-    let operation = body.get("operation").ok_or(D::OperatorIneligible)?;
     let laws = operation
         .get("laws")
         .and_then(Value::as_array)
@@ -325,17 +344,10 @@ pub(super) fn validate_protocol_body(
             D::MemberMismatch
         }
     })?;
-    let arguments = body
-        .get("arguments")
-        .and_then(Value::as_array)
-        .ok_or(D::MalformedLayout)?;
     if arguments.len() != expected.len()
         || !arguments.iter().zip(expected).all(|(argument, binding)| {
-            argument.get("term").and_then(Value::as_str) == Some("binding")
-                && argument.get("name").and_then(Value::as_str) == Some(binding.name)
-                && argument
-                    .get("value")
-                    .is_some_and(|value| shape_fits(value, binding.shape))
+            matches!(argument, CheckedTerm::Binding { name, value }
+                if name.as_ref() == binding.name && shape_fits(value, binding.shape))
         })
     {
         return Err(D::MalformedLayout);
@@ -346,24 +358,39 @@ pub(super) fn validate_protocol_body(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::checked_package::shared::CheckedNodeId;
+    use crate::checked_package::v2::CheckedTerm;
     use ix_trace_rs::trace;
     use serde_json::json;
+
+    fn validate_protocol_body(
+        form: ProtocolForm,
+        body: &Value,
+        semantic_type: &Value,
+        selected_profile: Option<&Value>,
+    ) -> Result<(), ProtocolBodyDefect> {
+        let term = CheckedTerm::decode_admitted(body).expect("valid admitted term fixture");
+        let type_id: CheckedNodeId =
+            serde_json::from_value(semantic_type.clone()).expect("valid semantic type fixture");
+        super::validate_protocol_body(form, &term, &type_id, selected_profile)
+    }
 
     type QSpecFrame = (ProtocolForm, &'static str, &'static [(&'static str, Shape)]);
 
     fn example(shape: Shape) -> Value {
+        let type_id = json!({"domain": "quire.checked-semantic-node/v1", "digest": "b".repeat(64)});
         match shape {
             Shape::Reference => {
                 json!({"term": "reference", "target": {"domain": "quire.checked-semantic-node/v1", "digest": "a".repeat(64)}})
             }
             Shape::Text => {
-                json!({"term": "literal", "value_kind": "text", "value": "name", "type": Value::Null})
+                json!({"term": "literal", "value_kind": "text", "value": "name", "type": type_id})
             }
             Shape::Integer => {
-                json!({"term": "literal", "value_kind": "integer", "value": 1, "type": Value::Null})
+                json!({"term": "literal", "value_kind": "integer", "value": 1, "type": type_id})
             }
             Shape::Boolean => {
-                json!({"term": "literal", "value_kind": "boolean", "value": true, "type": Value::Null})
+                json!({"term": "literal", "value_kind": "boolean", "value": true, "type": type_id})
             }
             Shape::References
             | Shape::Texts
