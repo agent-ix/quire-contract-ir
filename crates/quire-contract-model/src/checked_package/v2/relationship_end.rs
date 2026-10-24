@@ -429,8 +429,7 @@ pub(super) mod tests {
         let (mut package, ids) = admitted();
         let expected = package.relationship_end(&ids[&'7']).expect("admitted end");
         let position = at(&package, &ids[&'7']);
-        package.wire.semantic_graph.nodes[position].body =
-            json!({"term": "aggregate", "members": []});
+        package.wire.semantic_graph.nodes[position].body = CheckedTerm::aggregate(Vec::new());
         assert_eq!(package.relationship_end(&ids[&'7']), Ok(expected));
     }
 

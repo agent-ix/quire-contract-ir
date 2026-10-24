@@ -34,9 +34,10 @@ use super::operations::OperationWire;
 use super::structural::reference_target;
 use super::{
     member_pointer, ApplicationOperator, BodyTerm, CheckedDiagnosticV2, CheckedNodeKind,
-    CheckedPackageLockV2, CheckedSelectionRole, CheckedSemanticNodeV2, FairnessGranularity,
-    FairnessKind, HybridForm, IntervalEnd, IntervalFit, LawRole, ModelForm, OperationMemberKind,
-    TemporalForm, TemporalProfile, ValueForm, WorkMeter,
+    CheckedPackageLockV2, CheckedSelectionRole, FairnessGranularity, FairnessKind, HybridForm,
+    IntervalEnd, IntervalFit, LawRole, ModelForm, OperationMemberKind,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, TemporalForm, TemporalProfile, ValueForm,
+    WorkMeter,
 };
 use crate::checked_package::common::{
     application_operator, body_term, node_pointer, ValidationFailure,

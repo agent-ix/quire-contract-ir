@@ -12,7 +12,7 @@ use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedSemanticId, CheckedSourceMapEntry,
 };
 use crate::checked_package::v2::{
-    CheckedNodeKind, CheckedNodeTag, CheckedSemanticNodeV2, ScalarTypeForm,
+    CheckedNodeKind, CheckedNodeTag, RawSemanticNodeV2 as CheckedSemanticNodeV2, ScalarTypeForm,
 };
 
 /// One QSL-checked path guard mapped to the exact IR source occurrence.

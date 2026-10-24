@@ -87,7 +87,7 @@ fn admitted_frame_body_is_typed_without_changing_the_wire() {
     assert!(!deletes.is_empty());
     assert_eq!(
         serde_json::to_value(package.term(&node.node_id)).expect("typed frame serializes"),
-        node.body
+        serde_json::to_value(&node.body).expect("typed body")
     );
 }
 

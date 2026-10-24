@@ -18,6 +18,10 @@ use quire_contract_model::{
 };
 use serde_json::{json, Value};
 
+fn body_at(term: &quire_contract_model::CheckedTerm, path: &str) -> Option<Value> {
+    serde_json::to_value(term).ok()?.pointer(path).cloned()
+}
+
 fn typed_key(digest: &str) -> CheckedNodeId {
     CheckedNodeId {
         domain: "quire.checked-semantic-node/v1".into(),
@@ -241,8 +245,8 @@ fn node_with_operation<'a>(
         .nodes
         .iter()
         .find(|node| {
-            node.body
-                .pointer("/operation/identity")
+            body_at(&node.body, "/operation/identity")
+                .as_ref()
                 .and_then(Value::as_str)
                 == Some(identity)
         })
@@ -259,7 +263,9 @@ fn reference_guard_node(
         .find(|node| {
             node.node_tag.as_ref() == "expression"
                 && node.semantic_form.as_ref() == "reference"
-                && node.body.pointer("/target/digest").and_then(Value::as_str)
+                && body_at(&node.body, "/target/digest")
+                    .as_ref()
+                    .and_then(Value::as_str)
                     == Some(family_key("a4a4").as_str())
         })
         .expect("shared reference guard")

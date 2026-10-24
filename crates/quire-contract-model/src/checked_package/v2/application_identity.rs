@@ -5,7 +5,9 @@
 //! pre-read API share the preimage construction here and the encoder in `encode`.
 
 use super::encode::{ApplicationNodePreimage, GroupPlace};
-use super::{structural, BodyTerm, CheckedNodeId, CheckedSemanticNodeV2, CheckedTerm};
+use super::{
+    structural, BodyTerm, CheckedNodeId, CheckedTerm, RawSemanticNodeV2 as CheckedSemanticNodeV2,
+};
 use crate::checked_package::common::{body_term, NODE_DOMAIN};
 use quire_walk::{walk, Children, Walk};
 use serde_json::{json, Value};
@@ -16,23 +18,31 @@ use std::ops::ControlFlow;
 /// A borrowed pre-read node. Its supplied key is a provisional selector, not
 /// an authenticated semantic identity. Construction neither validates nor
 /// mutates the node.
-#[derive(Clone, Copy)]
-pub struct ApplicationNodeDraft<'a> {
-    node: &'a CheckedSemanticNodeV2,
+pub struct ApplicationNodeDraft<'a, Body = Value> {
+    node: &'a super::CheckedSemanticNodeV2<Body>,
 }
 
-impl<'a> ApplicationNodeDraft<'a> {
+impl<Body> Copy for ApplicationNodeDraft<'_, Body> {}
+
+impl<Body> Clone for ApplicationNodeDraft<'_, Body> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<'a, Body> ApplicationNodeDraft<'a, Body> {
     /// Borrows a node whose candidate application identity will be derived.
-    pub fn new(node: &'a CheckedSemanticNodeV2) -> Self {
+    pub fn new(node: &'a super::CheckedSemanticNodeV2<Body>) -> Self {
         Self { node }
     }
 }
 
-/// An immutable, borrowed complete ordered draft snapshot. The caller supplies
-/// the complete intended graph; this context verifies its keys and target,
-/// without asserting package admission or retaining an owned group list.
+/// An immutable complete ordered draft snapshot. The caller supplies the
+/// complete intended graph; this context verifies its keys and target without
+/// asserting package admission. Raw drafts stay borrowed; typed drafts are
+/// projected into owned raw nodes for the shared candidate encoder.
 pub struct ApplicationIdentityContext<'a> {
-    nodes: &'a [CheckedSemanticNodeV2],
+    nodes: Cow<'a, [CheckedSemanticNodeV2]>,
     target: usize,
     group: Option<GroupPlace>,
 }
@@ -40,13 +50,16 @@ pub struct ApplicationIdentityContext<'a> {
 impl<'a> ApplicationIdentityContext<'a> {
     /// Validates key uniqueness, the target's complete fields and its position
     /// among all nodes with its recursion label. Repeated keys refuse in graph
-    /// order before target selection. Retained storage is constant in graph size.
-    pub fn try_new(
-        nodes: &'a [CheckedSemanticNodeV2],
-        draft: ApplicationNodeDraft<'_>,
+    /// order before target selection. Retained storage is constant in graph size
+    /// for raw drafts and linear in graph size for typed drafts.
+    pub fn try_new<Body: super::CandidateBody>(
+        nodes: &'a [super::CheckedSemanticNodeV2<Body>],
+        draft: ApplicationNodeDraft<'_, Body>,
     ) -> Result<Self, ApplicationIdentityError> {
+        let nodes = Body::candidate_nodes(nodes);
+        let draft_node = Body::candidate_node(draft.node);
         let index_error = || ApplicationIdentityError::ContextIndexOutOfRange {
-            node_id: draft.node.node_id.clone(),
+            node_id: draft_node.node_id.clone(),
         };
         for (repeated, node) in nodes.iter().enumerate() {
             let repeated_position = u64::try_from(repeated).map_err(|_| index_error())?;
@@ -69,7 +82,7 @@ impl<'a> ApplicationIdentityContext<'a> {
         let Some(node) = nodes.get(target) else {
             return Err(index_error());
         };
-        if !equal_nodes(node, draft.node) {
+        if !equal_nodes(node, &draft_node) {
             return Err(ApplicationIdentityError::ContextMismatch {
                 node_id: draft.node.node_id.clone(),
             });
@@ -170,12 +183,13 @@ pub enum ApplicationIdentityError {
 /// Derives a pre-read candidate through the reader's authoritative preimage
 /// and encoder. Context checks follow the application-root check, and precede
 /// encoding. The byte limit bounds canonical output, not graph or copy storage.
-pub fn derive_application_node_id(
-    draft: ApplicationNodeDraft<'_>,
+pub fn derive_application_node_id<Body: super::CandidateBody>(
+    draft: ApplicationNodeDraft<'_, Body>,
     context: Option<&ApplicationIdentityContext<'_>>,
     byte_limit: u64,
 ) -> Result<CandidateApplicationNodeId, ApplicationIdentityError> {
-    let node = draft.node;
+    let raw_node = Body::candidate_node(draft.node);
+    let node = raw_node.as_ref();
     if body_term(&node.body) != Some(BodyTerm::Application) {
         return Err(ApplicationIdentityError::NonApplication {
             node_id: node.node_id.clone(),
@@ -191,7 +205,7 @@ pub fn derive_application_node_id(
             }
             match (node.recursion_group.as_deref(), context.group) {
                 (Some(label), Some(place)) => ApplicationGroup::Snapshot {
-                    nodes: context.nodes,
+                    nodes: context.nodes.as_ref(),
                     label,
                     place,
                 },

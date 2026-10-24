@@ -13,8 +13,8 @@ use super::structural::{
     aggregate_members, binding, is_integer_bound, is_non_negative_integer, reference_target,
 };
 use super::{
-    BoundedDomainForm, CheckedNodeKind, CheckedSemanticNodeV2, CheckedTerm, CompositeTypeForm,
-    LiteralKind, ScalarTypeForm, WorkMeter,
+    BoundedDomainForm, CheckedNodeKind, CheckedTerm, CompositeTypeForm, LiteralKind,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, ScalarTypeForm, WorkMeter,
 };
 use crate::checked_package::common::{literal_kind, node_pointer, ValidationFailure, NODE_DOMAIN};
 use crate::checked_package::shared::{
@@ -570,6 +570,7 @@ mod tests {
             MemberType::String => wire(&key, "scalar_type", "string", &key, empty()),
             MemberType::Uuid => wire(&key, "scalar_type", "uuid", &key, empty()),
             MemberType::Timestamp => wire(&key, "scalar_type", "timestamp", &key, empty()),
+            MemberType::Clock => wire(&key, "scalar_type", "clock", &key, empty()),
             MemberType::IntRange(range) => wire(
                 &key,
                 "bounded_domain",

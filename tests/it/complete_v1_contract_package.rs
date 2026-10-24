@@ -564,7 +564,10 @@ fn independent_closure(
         pending.push_back(node.semantic_type.clone());
         pending.extend(node.dependencies.iter().cloned());
         let mut body = Vec::new();
-        body_keys(&node.body, &mut body);
+        body_keys(
+            &serde_json::to_value(&node.body).expect("typed body"),
+            &mut body,
+        );
         pending.extend(body);
     }
     reached
@@ -622,7 +625,10 @@ fn reached_view_uses_all_three_edges_and_preserves_sources_and_identity() {
             .iter()
             .find(|node| node.node_id == entry.node.node_id)
             .expect("source node");
-        assert_eq!(entry.node, original);
+        assert_eq!(
+            serde_json::to_value(entry.node).expect("contract node"),
+            serde_json::to_value(original).expect("source node")
+        );
         let sources = admitted
             .source_map()
             .iter()

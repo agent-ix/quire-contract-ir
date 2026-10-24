@@ -1,8 +1,9 @@
 //! Closed node-owner wire and selected-evidence joins for FR-038-AC-153..155.
 
 use super::{
-    CheckedDeclaration, CheckedNodeKind, CheckedNodeOwner, CheckedPackageWireV2,
-    CheckedSemanticNodeV2, CheckedTerm, DomainModel, LiteralKind, WorkMeter,
+    CheckedDeclaration, CheckedNodeKind, CheckedNodeOwner, CheckedTerm, DomainModel, LiteralKind,
+    RawCheckedPackageWireV2 as CheckedPackageWireV2, RawSemanticNodeV2 as CheckedSemanticNodeV2,
+    WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{

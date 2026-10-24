@@ -275,8 +275,8 @@ pub(super) struct SelectionFields<'a> {
     dependency_selections: &'a [super::CheckedDependencySelection],
 }
 
-impl<'a> From<&CheckedPackageIdentityPreimageRefV2<'a>> for SelectionFields<'a> {
-    fn from(value: &CheckedPackageIdentityPreimageRefV2<'a>) -> Self {
+impl<'a, Body> From<&CheckedPackageIdentityPreimageRefV2<'a, Body>> for SelectionFields<'a> {
+    fn from(value: &CheckedPackageIdentityPreimageRefV2<'a, Body>) -> Self {
         Self {
             version: value.version,
             edition: value.edition,
@@ -289,7 +289,7 @@ impl<'a> From<&CheckedPackageIdentityPreimageRefV2<'a>> for SelectionFields<'a> 
     }
 }
 
-impl Encode for CheckedPackageIdentityPreimageRefV2<'_> {
+impl<Body: Encode> Encode for CheckedPackageIdentityPreimageRefV2<'_, Body> {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_object()?;
         writer.name("version")?;
@@ -312,7 +312,7 @@ impl Encode for CheckedPackageIdentityPreimageRefV2<'_> {
 
 /// The fields common to the retained reader projection and the producer's
 /// borrowed graph-node projection. Source occurrences are intentionally absent.
-struct ProjectionFields<'a> {
+struct ProjectionFields<'a, Body> {
     node_id: &'a CheckedNodeId,
     schema_version: &'a str,
     node_tag: &'a str,
@@ -323,11 +323,11 @@ struct ProjectionFields<'a> {
     nominal_identity_preimage: Option<&'a NominalIdentityPreimage>,
     declaration: Option<&'a CheckedDeclaration>,
     owner: Option<&'a CheckedNodeOwner>,
-    body: &'a Value,
+    body: &'a Body,
 }
 
-impl<'a> ProjectionFields<'a> {
-    fn from_owned(node: &'a CheckedNodeProjectionV2) -> Self {
+impl<'a, Body> ProjectionFields<'a, Body> {
+    fn from_owned(node: &'a CheckedNodeProjectionV2<Body>) -> Self {
         Self {
             node_id: &node.node_id,
             schema_version: &node.schema_version,
@@ -343,7 +343,7 @@ impl<'a> ProjectionFields<'a> {
         }
     }
 
-    fn from_node(node: &'a CheckedSemanticNodeV2) -> Self {
+    fn from_node(node: &'a CheckedSemanticNodeV2<Body>) -> Self {
         Self {
             node_id: &node.node_id,
             schema_version: &node.schema_version,
@@ -360,7 +360,7 @@ impl<'a> ProjectionFields<'a> {
     }
 }
 
-impl Encode for ProjectionFields<'_> {
+impl<Body: Encode> Encode for ProjectionFields<'_, Body> {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_object()?;
         member(writer, "node_id", self.node_id)?;
@@ -381,18 +381,18 @@ impl Encode for ProjectionFields<'_> {
         if let Some(owner) = self.owner {
             member(writer, "owner", owner)?;
         }
-        value(writer, "body", self.body)?;
+        encoded(writer, "body", self.body)?;
         writer.end_object()
     }
 }
 
-impl Encode for CheckedNodeProjectionV2 {
+impl<Body: Encode> Encode for CheckedNodeProjectionV2<Body> {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         ProjectionFields::from_owned(self).encode_into(writer)
     }
 }
 
-impl Encode for CheckedSemanticGraphV2 {
+impl<Body: Encode> Encode for CheckedSemanticGraphV2<Body> {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_object()?;
         member(writer, "graph_version", &self.graph_version)?;
@@ -401,7 +401,7 @@ impl Encode for CheckedSemanticGraphV2 {
     }
 }
 
-impl Encode for CheckedSemanticNodeV2 {
+impl<Body: Encode> Encode for CheckedSemanticNodeV2<Body> {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_object()?;
         member(writer, "node_id", &self.node_id)?;
@@ -419,7 +419,7 @@ impl Encode for CheckedSemanticNodeV2 {
         )?;
         present(writer, "declaration", &self.declaration)?;
         present(writer, "owner", &self.owner)?;
-        value(writer, "body", &self.body)?;
+        encoded(writer, "body", &self.body)?;
         writer.end_object()
     }
 }
