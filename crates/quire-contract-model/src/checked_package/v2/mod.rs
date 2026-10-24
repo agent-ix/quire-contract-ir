@@ -177,7 +177,7 @@ fn is_node_domain(domain: &str) -> bool {
     PackageWireTag::from_wire(domain) == Some(PackageWireTag::NodeDomain)
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum KnownOperation {
     StateClause,
     NumericNarrow,
@@ -200,8 +200,8 @@ impl KnownOperation {
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-enum TermBindingName {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum TermBindingName {
     Parameters,
     Body,
     Optional,

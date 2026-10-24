@@ -406,7 +406,7 @@ fn signature_closure(supplied: &SuppliedDependency<'_>, function: usize) -> Clos
     };
     let parameters = members.and_then(|members| match members.first()? {
         CheckedTerm::Binding { name, value }
-            if super::TermBindingName::from_wire(name) == super::TermBindingName::Parameters =>
+            if name.kind() == super::TermBindingName::Parameters =>
         {
             Some(value.as_ref())
         }

@@ -332,6 +332,17 @@ pub(super) enum RelationshipDirection {
 }
 
 impl RelationshipDirection {
+    #[string_edge]
+    fn from_wire(text: &str) -> Option<Self> {
+        match text {
+            "source-to-target" => Some(Self::SourceToTarget),
+            "target-to-source" => Some(Self::TargetToSource),
+            "bidirectional" => Some(Self::Bidirectional),
+            "undirected" => Some(Self::Undirected),
+            _ => None,
+        }
+    }
+
     pub(super) fn admits(self, forward: bool) -> bool {
         matches!(self, Self::Bidirectional | Self::Undirected)
             || (forward && self == Self::SourceToTarget)
@@ -2767,8 +2778,61 @@ impl References<'_> {
     }
 }
 
+#[derive(Clone, Copy)]
+enum RelationshipMember {
+    Identity,
+    Category,
+    Composite,
+    Direction,
+    Origin,
+    SourceEnd,
+    TargetEnd,
+}
+
+impl RelationshipMember {
+    #[string_edge]
+    fn from_wire(text: &str) -> Option<Self> {
+        match text {
+            "identity" => Some(Self::Identity),
+            "category" => Some(Self::Category),
+            "composite" => Some(Self::Composite),
+            "direction" => Some(Self::Direction),
+            "origin" => Some(Self::Origin),
+            "sourceEnd" => Some(Self::SourceEnd),
+            "targetEnd" => Some(Self::TargetEnd),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum RelationshipCategory {
+    Structural,
+    Behavioral,
+    Dataflow,
+    Dependency,
+    Realization,
+    Governance,
+    Traceability,
+}
+
+impl RelationshipCategory {
+    #[string_edge]
+    fn from_wire(text: &str) -> Option<Self> {
+        match text {
+            "structural" => Some(Self::Structural),
+            "behavioral" => Some(Self::Behavioral),
+            "dataflow" => Some(Self::Dataflow),
+            "dependency" => Some(Self::Dependency),
+            "realization" => Some(Self::Realization),
+            "governance" => Some(Self::Governance),
+            "traceability" => Some(Self::Traceability),
+            _ => None,
+        }
+    }
+}
+
 /// Closed authored relationship metadata and ends, read at the selection row.
-#[ix_trace_rs::string_edge]
 fn semantic_ir_relationship(
     value: &Value,
     owner: &str,
@@ -2778,43 +2842,23 @@ fn semantic_ir_relationship(
 ) -> Option<(Box<str>, RelationshipDecl)> {
     let parsed = (|| {
         let members = value.as_object()?;
-        if !members.keys().all(|key| {
-            matches!(
-                key.as_str(),
-                "identity"
-                    | "category"
-                    | "composite"
-                    | "direction"
-                    | "origin"
-                    | "sourceEnd"
-                    | "targetEnd"
-            )
-        }) {
+        if !members
+            .keys()
+            .all(|key| RelationshipMember::from_wire(key).is_some())
+        {
             return None;
         }
         let identity = value.get("identity")?.as_str()?;
         if !valid_relationship_identity(&references.model.identity, identity) {
             return None;
         }
-        let direction = match value.get("direction")?.as_str()? {
-            "source-to-target" => RelationshipDirection::SourceToTarget,
-            "target-to-source" => RelationshipDirection::TargetToSource,
-            "bidirectional" => RelationshipDirection::Bidirectional,
-            "undirected" => RelationshipDirection::Undirected,
-            _ => return None,
-        };
-        if !matches!(
-            value.get("category").and_then(Value::as_str),
-            Some(
-                "structural"
-                    | "behavioral"
-                    | "dataflow"
-                    | "dependency"
-                    | "realization"
-                    | "governance"
-                    | "traceability"
-            )
-        ) || value.get("composite").and_then(Value::as_bool).is_none()
+        let direction = RelationshipDirection::from_wire(value.get("direction")?.as_str()?)?;
+        if value
+            .get("category")
+            .and_then(Value::as_str)
+            .and_then(RelationshipCategory::from_wire)
+            .is_none()
+            || value.get("composite").and_then(Value::as_bool).is_none()
             || !valid_relationship_origin(value.get("origin")?)
         {
             return None;

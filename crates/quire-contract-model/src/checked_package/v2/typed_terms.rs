@@ -8,8 +8,71 @@
 use super::{ApplicationOperator, BodyTerm, LiteralKind};
 use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedSemanticId};
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{error::Category, Value};
+
+/// An admitted binding name with the closed contextual names decoded once.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedBindingName {
+    raw: Box<str>,
+    kind: super::TermBindingName,
+}
+
+impl CheckedBindingName {
+    pub(super) fn kind(&self) -> super::TermBindingName {
+        self.kind
+    }
+}
+
+impl From<Box<str>> for CheckedBindingName {
+    fn from(raw: Box<str>) -> Self {
+        let kind = super::TermBindingName::from_wire(&raw);
+        Self { raw, kind }
+    }
+}
+
+impl From<&str> for CheckedBindingName {
+    fn from(raw: &str) -> Self {
+        Box::<str>::from(raw).into()
+    }
+}
+
+impl From<String> for CheckedBindingName {
+    fn from(raw: String) -> Self {
+        raw.into_boxed_str().into()
+    }
+}
+
+impl AsRef<str> for CheckedBindingName {
+    fn as_ref(&self) -> &str {
+        &self.raw
+    }
+}
+
+impl std::fmt::Display for CheckedBindingName {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.raw.fmt(formatter)
+    }
+}
+
+impl std::ops::Deref for CheckedBindingName {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.raw
+    }
+}
+
+impl Serialize for CheckedBindingName {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.raw.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for CheckedBindingName {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Box::<str>::deserialize(deserializer).map(Self::from)
+    }
+}
 
 /// A body term in an admitted checked-package V2 node.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -49,7 +112,7 @@ pub enum CheckedTerm {
     /// A named aggregate member.
     Binding {
         /// The member name.
-        name: Box<str>,
+        name: CheckedBindingName,
         /// The member value.
         value: Box<CheckedTerm>,
     },
@@ -309,7 +372,7 @@ impl CheckedTerm {
     /// Construct one named aggregate member.
     pub fn binding(name: impl Into<Box<str>>, value: Self) -> Self {
         Self::Binding {
-            name: name.into(),
+            name: name.into().into(),
             value: Box::new(value),
         }
     }
@@ -699,10 +762,20 @@ pub struct CheckedAbstractionParameter {
 
 #[cfg(test)]
 mod tests {
-    use super::{CheckedTerm, TermConversionCause};
+    use super::{CheckedBindingName, CheckedTerm, TermConversionCause};
     use ix_trace_rs::trace;
     use quire_canonical::{to_vec, Limits};
     use serde_json::{error::Category, json};
+
+    #[test]
+    fn admitted_binding_name_retains_its_class_without_changing_wire_text() {
+        let known: CheckedBindingName = serde_json::from_value(json!("parameters")).unwrap();
+        assert_eq!(known.kind(), super::super::TermBindingName::Parameters);
+        assert_eq!(serde_json::to_value(&known).unwrap(), json!("parameters"));
+        let open: CheckedBindingName = serde_json::from_value(json!("user-field")).unwrap();
+        assert_eq!(open.kind(), super::super::TermBindingName::Other);
+        assert_eq!(open.as_ref(), "user-field");
+    }
 
     #[trace("TC-048")]
     #[test]

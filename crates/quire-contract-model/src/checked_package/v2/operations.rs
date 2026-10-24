@@ -943,7 +943,7 @@ fn operation_defect(
         }
     }
     if matches!(
-        super::KnownOperation::from_wire(&operation.identity),
+        entry.known,
         Some(super::KnownOperation::ModelNavigate | super::KnownOperation::ModelReaches)
     ) {
         if let Some(failure) =
@@ -952,9 +952,7 @@ fn operation_defect(
             return Ok(Some(failure));
         }
     }
-    if super::KnownOperation::from_wire(&operation.identity)
-        == Some(super::KnownOperation::FunctionCall)
-    {
+    if entry.known == Some(super::KnownOperation::FunctionCall) {
         if let Some(failure) = check_function_call(application, graph, owners, meter)? {
             return Ok(Some(failure));
         }
@@ -2026,7 +2024,7 @@ fn body_root_defect(
             .iter()
             .find_map(|member| match member {
                 CheckedTerm::Binding { name, value }
-                    if super::TermBindingName::from_wire(name) == super::TermBindingName::Body =>
+                    if name.kind() == super::TermBindingName::Body =>
                 {
                     Some(value.as_ref())
                 }
@@ -2096,7 +2094,7 @@ fn check_function_call(
     };
     let Some(present) = members
         .iter()
-        .position(|member| matches!(member, CheckedTerm::Binding { name, .. } if super::TermBindingName::from_wire(name) == super::TermBindingName::Parameters))
+        .position(|member| matches!(member, CheckedTerm::Binding { name, .. } if name.kind() == super::TermBindingName::Parameters))
     else {
         return Ok(None);
     };
@@ -2398,8 +2396,8 @@ fn check_relationship_member(
     {
         return ineligible(argument_at(0));
     }
-    let reaches = super::KnownOperation::from_wire(&operation.identity)
-        == Some(super::KnownOperation::ModelReaches);
+    let reaches =
+        operation_catalog().known(&operation.identity) == Some(super::KnownOperation::ModelReaches);
     if reaches {
         let actual_target = match operand_owner(1) {
             Ok(Some(owner)) => owner,
@@ -3351,9 +3349,7 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
                         let [CheckedTerm::Binding { name, value }] = members.as_slice() else {
                             return None;
                         };
-                        if super::TermBindingName::from_wire(name)
-                            != super::TermBindingName::Optional
-                        {
+                        if name.kind() != super::TermBindingName::Optional {
                             return None;
                         }
                         let target = referenced_type(value)?;

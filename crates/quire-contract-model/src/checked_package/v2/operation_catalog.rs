@@ -144,6 +144,9 @@ impl std::ops::Deref for CatalogFamily {
 pub(super) struct OperationCatalogEntry {
     /// Catalogued `OperationIdentity`.
     pub(super) identity: Box<str>,
+    /// Closed decisions derived once when the authoritative catalog is admitted.
+    #[serde(skip)]
+    pub(super) known: Option<super::KnownOperation>,
     /// Required application `operator` class.
     pub(super) operator: ApplicationOperator,
     /// Fixed leading operand families or group names, in order.
@@ -218,6 +221,9 @@ pub(super) struct OperationCatalog {
 }
 
 impl OperationCatalog {
+    pub(super) fn known(&self, identity: &str) -> Option<super::KnownOperation> {
+        self.entry(identity).and_then(|entry| entry.known)
+    }
     /// Whether `value` is one of the catalog's closed values for mode `kind`.
     pub(super) fn mode_value_admitted(&self, kind: OperationModeKind, value: &str) -> bool {
         self.modes
@@ -334,7 +340,10 @@ fn index_catalog(wire: OperationCatalogWire) -> OperationCatalog {
     let operations = wire
         .operations
         .into_iter()
-        .map(|entry| (entry.identity.clone(), entry))
+        .map(|mut entry| {
+            entry.known = super::KnownOperation::from_wire(&entry.identity);
+            (entry.identity.clone(), entry)
+        })
         .collect();
     OperationCatalog {
         operations,
@@ -349,6 +358,36 @@ fn index_catalog(wire: OperationCatalogWire) -> OperationCatalog {
 mod tests {
     use super::*;
     use ix_trace_rs::trace;
+
+    #[test]
+    fn catalog_intake_retains_known_operation_class() {
+        let catalog = read_catalog(CATALOG_BYTES).expect("authoritative catalog");
+        for (identity, expected) in [
+            (
+                "quire.op.state.clause",
+                super::super::KnownOperation::StateClause,
+            ),
+            (
+                "quire.op.numeric.narrow",
+                super::super::KnownOperation::NumericNarrow,
+            ),
+            (
+                "quire.op.model.navigate",
+                super::super::KnownOperation::ModelNavigate,
+            ),
+            (
+                "quire.op.model.reaches",
+                super::super::KnownOperation::ModelReaches,
+            ),
+            (
+                "quire.op.function.call",
+                super::super::KnownOperation::FunctionCall,
+            ),
+        ] {
+            assert_eq!(catalog.known(identity), Some(expected));
+        }
+        assert_eq!(catalog.known("quire.op.boolean.not"), None);
+    }
 
     /// FR-038-AC-65: each of the six new words converts wire string to enum
     /// member and back; the operator classes the catalog's entries name are

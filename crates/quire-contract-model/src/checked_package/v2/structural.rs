@@ -695,7 +695,7 @@ pub(super) struct ClauseBody {
 // Reads an application's operation identity.
 pub(super) fn is_state_clause_application(term: &Value) -> bool {
     matches!(CheckedTerm::view(term), Some(CheckedTermView::Application { operation, .. })
-        if operation.get("identity").and_then(Value::as_str).and_then(super::KnownOperation::from_wire) == Some(super::KnownOperation::StateClause))
+        if operation.get("identity").and_then(Value::as_str).and_then(|identity| super::operation_catalog::operation_catalog().known(identity)) == Some(super::KnownOperation::StateClause))
 }
 
 /// The admitted state clause body, or `None` for any other shape: an
@@ -714,7 +714,7 @@ pub(super) fn typed_clause_body(body: &super::CheckedTerm) -> Option<ClauseBody>
     else {
         return None;
     };
-    if super::KnownOperation::from_wire(operation.get("identity")?.as_str()?)
+    if super::operation_catalog::operation_catalog().known(operation.get("identity")?.as_str()?)
         != Some(super::KnownOperation::StateClause)
     {
         return None;
@@ -860,7 +860,7 @@ fn application_dependencies(body: &super::CheckedTerm) -> Option<BTreeSet<Checke
                     .and_then(Value::as_str)
                     .is_some_and(|identity| {
                         matches!(
-                            super::KnownOperation::from_wire(identity),
+                            super::operation_catalog::operation_catalog().known(identity),
                             Some(
                                 super::KnownOperation::ModelReaches
                                     | super::KnownOperation::ModelNavigate
