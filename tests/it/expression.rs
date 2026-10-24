@@ -11,6 +11,98 @@ use quire_contract_model::{
     MAX_TEXT_LENGTH,
 };
 
+/// A source-level guard for TC-444's private representation inspection. The
+/// public behavior controls below continue to check diagnostic codes and spans.
+#[trace("TC-444", "FR-014-AC-9")]
+#[test]
+fn checked_numeric_operands_pair_type_and_interval_in_one_variant() {
+    let source = include_str!("../../crates/quire-contract-model/src/expression.rs");
+    let file = syn::parse_file(source).expect("expression source parses");
+    let checked = file
+        .items
+        .iter()
+        .find_map(|item| match item {
+            syn::Item::Struct(item) if item.ident == "Checked" => Some(item),
+            _ => None,
+        })
+        .expect("private Checked representation exists");
+    let field_names = checked
+        .fields
+        .iter()
+        .filter_map(|field| field.ident.as_ref())
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    assert!(
+        field_names.contains(&"value".to_owned()),
+        "Checked must store the paired value"
+    );
+    assert!(
+        !field_names
+            .iter()
+            .any(|name| name == "value_type" || name == "range"),
+        "Checked cannot store independent numeric type and range fields"
+    );
+    let value = file
+        .items
+        .iter()
+        .find_map(|item| match item {
+            syn::Item::Enum(item) if item.ident == "CheckedValue" => Some(item),
+            _ => None,
+        })
+        .expect("closed checked value variants exist");
+    for (name, expected_fields) in [
+        ("Integer", ["value_type", "ranges"]),
+        ("Rational", ["value_type", "range"]),
+    ] {
+        let variant = value
+            .variants
+            .iter()
+            .find(|variant| variant.ident == name)
+            .unwrap_or_else(|| panic!("{name} numeric variant exists"));
+        let syn::Fields::Named(fields) = &variant.fields else {
+            panic!("{name} must bundle numeric type and range in named fields");
+        };
+        let names = fields
+            .named
+            .iter()
+            .filter_map(|field| field.ident.as_ref())
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        for expected in expected_fields {
+            assert!(
+                names.iter().any(|name| name == expected),
+                "{name} lacks {expected}"
+            );
+        }
+    }
+    for (name, operand) in [
+        ("check_integer_operator", "CheckedInteger"),
+        ("check_rational_operator", "CheckedRational"),
+    ] {
+        let function = file
+            .items
+            .iter()
+            .find_map(|item| match item {
+                syn::Item::Fn(item) if item.sig.ident == name => Some(item),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{name} exists"));
+        let typed_operands = function
+            .sig
+            .inputs
+            .iter()
+            .filter(|input| match input {
+                syn::FnArg::Typed(argument) => match argument.ty.as_ref() {
+                    syn::Type::Path(path) => path.path.is_ident(operand),
+                    _ => false,
+                },
+                syn::FnArg::Receiver(_) => false,
+            })
+            .count();
+        assert_eq!(typed_operands, 2, "{name} must accept paired operands");
+    }
+}
+
 fn name(value: &str) -> SymbolName {
     SymbolName::new(value).unwrap()
 }
