@@ -673,31 +673,49 @@ fn boundary_control_rejects_copied_owner_types_parsers_callbacks_and_trust_flags
 
 #[trace("TC-018", "FR-020-AC-18")]
 #[test]
-fn shared_cli_kit_is_a_real_root_only_production_dependency() {
-    let workspace = metadata(&[]);
-    let root = package(&workspace, "quire-contract-ir");
-    let model = package(&workspace, "quire-contract-model");
-    let kit = package(&workspace, "ix-cli-kit");
+fn shared_cli_kit_is_confined_to_the_opt_in_conformance_binary() {
+    let default = metadata(&[]);
+    let root = package(&default, "quire-contract-ir");
+    let feature = metadata(&["--features".to_owned(), "conformance-cli".to_owned()]);
+    let model = package(&feature, "quire-contract-model");
+    let kit = package(&feature, "ix-cli-kit");
     let kit_id = kit["id"].as_str().unwrap();
     let source = kit["source"].as_str().unwrap();
     assert!(source.starts_with("git+https://github.com/agent-ix/ix-cli-kit?branch=main#"));
+    assert!(root["targets"].as_array().unwrap().iter().any(|target| {
+        target["name"] == "quire-contract-conformance"
+            && target["required-features"] == json!(["conformance-cli"])
+    }));
     assert!(root["dependencies"]
         .as_array()
         .unwrap()
         .iter()
-        .any(|dependency| { dependency["name"] == "ix-cli-kit" && dependency["kind"].is_null() }));
+        .any(|dependency| {
+            dependency["name"] == "ix-cli-kit"
+                && dependency["kind"].is_null()
+                && dependency["optional"] == true
+        }));
     assert!(
-        production_graph(&workspace, root["id"].as_str().unwrap(), false)
+        !production_graph(&default, root["id"].as_str().unwrap(), false)
             .unwrap()
             .contains(kit_id)
     );
+    assert!(production_graph(
+        &feature,
+        package(&feature, "quire-contract-ir")["id"]
+            .as_str()
+            .unwrap(),
+        false,
+    )
+    .unwrap()
+    .contains(kit_id));
     assert!(
-        !production_graph(&workspace, model["id"].as_str().unwrap(), false)
+        !production_graph(&feature, model["id"].as_str().unwrap(), false)
             .unwrap()
             .contains(kit_id)
     );
     assert_eq!(
-        workspace["packages"]
+        feature["packages"]
             .as_array()
             .unwrap()
             .iter()
