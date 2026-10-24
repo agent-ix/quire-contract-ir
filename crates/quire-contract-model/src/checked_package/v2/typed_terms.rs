@@ -91,6 +91,89 @@ pub enum CheckedTerm {
     },
 }
 
+/// Borrowed, one-level decoding for early family wire checks. Children are
+/// checked in their original order, with their own refusal pointers, before
+/// the complete admitted tree is constructed.
+pub(in crate::checked_package) enum CheckedTermView<'a> {
+    Application {
+        operator: ApplicationOperator,
+        operation: &'a Value,
+        result_type: &'a Value,
+        arguments: &'a [Value],
+    },
+    Aggregate {
+        members: &'a [Value],
+    },
+    Binding {
+        name: &'a str,
+        value: &'a Value,
+    },
+    Reference {
+        target: &'a Value,
+    },
+    Literal {
+        type_id: &'a Value,
+        value_kind: LiteralKind,
+        value: &'a Value,
+    },
+}
+
+impl CheckedTerm {
+    pub(in crate::checked_package) fn view(value: &Value) -> Option<CheckedTermView<'_>> {
+        Self::view_from_wire(crate::checked_package::common::WireTerm::decode(value))
+    }
+
+    pub(in crate::checked_package) fn view_from_wire(
+        wire: crate::checked_package::common::WireTerm<'_>,
+    ) -> Option<CheckedTermView<'_>> {
+        use crate::checked_package::common::{exact_members, TermField, TermTag};
+        let object = wire.object()?;
+        match wire.tag() {
+            TermTag::Known(BodyTerm::Application)
+                if exact_members(
+                    object,
+                    &["term", "operator", "operation", "result_type", "arguments"],
+                ) =>
+            {
+                Some(CheckedTermView::Application {
+                    operator: wire.operator()?,
+                    operation: wire.field(TermField::Operation)?,
+                    result_type: wire.field(TermField::ResultType)?,
+                    arguments: wire.array(TermField::Arguments)?,
+                })
+            }
+            TermTag::Known(BodyTerm::Aggregate) if exact_members(object, &["term", "members"]) => {
+                Some(CheckedTermView::Aggregate {
+                    members: wire.array(TermField::Members)?,
+                })
+            }
+            TermTag::Known(BodyTerm::Binding)
+                if exact_members(object, &["term", "name", "value"]) =>
+            {
+                Some(CheckedTermView::Binding {
+                    name: wire.field(TermField::Name)?.as_str()?,
+                    value: wire.field(TermField::Value)?,
+                })
+            }
+            TermTag::Known(BodyTerm::Reference) if exact_members(object, &["term", "target"]) => {
+                Some(CheckedTermView::Reference {
+                    target: wire.field(TermField::Target)?,
+                })
+            }
+            TermTag::Known(BodyTerm::Literal)
+                if exact_members(object, &["term", "type", "value_kind", "value"]) =>
+            {
+                Some(CheckedTermView::Literal {
+                    type_id: wire.field(TermField::Type)?,
+                    value_kind: wire.literal_kind()?,
+                    value: wire.field(TermField::Value)?,
+                })
+            }
+            _ => None,
+        }
+    }
+}
+
 /// Why a validated wire body could not become its retained typed term.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum TermConversionCause {
@@ -271,30 +354,31 @@ impl CheckedTerm {
     /// already accepted. Public serde decoding does not provide that bound.
     pub(super) fn decode_admitted(value: &Value) -> Result<Self, TermConversionCause> {
         fn field<T: DeserializeOwned>(
-            value: &Value,
-            name: &'static str,
+            wire: crate::checked_package::common::WireTerm<'_>,
+            name: crate::checked_package::common::TermField,
         ) -> Result<T, TermConversionCause> {
-            let member = value
-                .get(name)
-                .ok_or(TermConversionCause::MissingMember { member: name })?;
+            let member = wire.field(name).ok_or(TermConversionCause::MissingMember {
+                member: name.as_wire(),
+            })?;
             serde_json::from_value(member.clone()).map_err(|error| {
                 TermConversionCause::MalformedMember {
-                    member: name,
+                    member: name.as_wire(),
                     category: error.classify(),
                 }
             })
         }
 
         fn children(
-            value: &Value,
-            name: &'static str,
+            wire: crate::checked_package::common::WireTerm<'_>,
+            name: crate::checked_package::common::TermField,
         ) -> Result<Vec<CheckedTerm>, TermConversionCause> {
-            value
-                .get(name)
-                .ok_or(TermConversionCause::MissingMember { member: name })?
+            wire.field(name)
+                .ok_or(TermConversionCause::MissingMember {
+                    member: name.as_wire(),
+                })?
                 .as_array()
                 .ok_or(TermConversionCause::MalformedMember {
-                    member: name,
+                    member: name.as_wire(),
                     category: Category::Data,
                 })?
                 .iter()
@@ -302,61 +386,59 @@ impl CheckedTerm {
                 .collect()
         }
 
-        let tag = value
-            .get("term")
-            .ok_or(TermConversionCause::MissingTerm)?
-            .as_str()
-            .ok_or(TermConversionCause::MalformedMember {
-                member: "term",
-                category: Category::Data,
-            })?;
-        match BodyTerm::from_wire(tag) {
-            Some(BodyTerm::Literal) => Ok(Self::Literal {
-                type_id: field(value, "type")?,
-                value_kind: field(value, "value_kind")?,
-                value: field(value, "value")?,
+        use crate::checked_package::common::{TermField, TermTag, WireTerm};
+        let wire = WireTerm::decode(value);
+        match wire.tag() {
+            TermTag::Known(BodyTerm::Literal) => Ok(Self::Literal {
+                type_id: field(wire, TermField::Type)?,
+                value_kind: field(wire, TermField::ValueKind)?,
+                value: field(wire, TermField::Value)?,
             }),
-            Some(BodyTerm::Reference) => Ok(Self::Reference {
-                target: field(value, "target")?,
+            TermTag::Known(BodyTerm::Reference) => Ok(Self::Reference {
+                target: field(wire, TermField::Target)?,
             }),
-            Some(BodyTerm::Application) => Ok(Self::Application {
-                operator: field(value, "operator")?,
-                operation: field(value, "operation")?,
-                result_type: field(value, "result_type")?,
-                arguments: children(value, "arguments")?,
+            TermTag::Known(BodyTerm::Application) => Ok(Self::Application {
+                operator: field(wire, TermField::Operator)?,
+                operation: field(wire, TermField::Operation)?,
+                result_type: field(wire, TermField::ResultType)?,
+                arguments: children(wire, TermField::Arguments)?,
             }),
-            Some(BodyTerm::Aggregate) => Ok(Self::Aggregate {
-                members: children(value, "members")?,
+            TermTag::Known(BodyTerm::Aggregate) => Ok(Self::Aggregate {
+                members: children(wire, TermField::Members)?,
             }),
-            Some(BodyTerm::Binding) => Ok(Self::Binding {
-                name: field(value, "name")?,
+            TermTag::Known(BodyTerm::Binding) => Ok(Self::Binding {
+                name: field(wire, TermField::Name)?,
                 value: Box::new(Self::decode_admitted(
-                    value
-                        .get("value")
+                    wire.field(TermField::Value)
                         .ok_or(TermConversionCause::MissingMember { member: "value" })?,
                 )?),
             }),
-            Some(BodyTerm::DependencyReference) => Ok(Self::DependencyReference {
-                package: field(value, "package")?,
-                node: field(value, "node")?,
+            TermTag::Known(BodyTerm::DependencyReference) => Ok(Self::DependencyReference {
+                package: field(wire, TermField::Package)?,
+                node: field(wire, TermField::Node)?,
             }),
-            Some(BodyTerm::Frame) => Ok(Self::Frame {
-                modifies: field(value, "modifies")?,
-                creates: field(value, "creates")?,
-                deletes: field(value, "deletes")?,
-                deletes_scoped: field(value, "deletes_scoped")?,
+            TermTag::Known(BodyTerm::Frame) => Ok(Self::Frame {
+                modifies: field(wire, TermField::Modifies)?,
+                creates: field(wire, TermField::Creates)?,
+                deletes: field(wire, TermField::Deletes)?,
+                deletes_scoped: field(wire, TermField::DeletesScoped)?,
             }),
-            Some(BodyTerm::AbstractionRelation) => Ok(Self::AbstractionRelation {
-                objects: field(value, "objects")?,
-                populations: field(value, "populations")?,
-                frames: field(value, "frames")?,
+            TermTag::Known(BodyTerm::AbstractionRelation) => Ok(Self::AbstractionRelation {
+                objects: field(wire, TermField::Objects)?,
+                populations: field(wire, TermField::Populations)?,
+                frames: field(wire, TermField::Frames)?,
             }),
-            None if tag == "extension_form" => Ok(Self::ExtensionForm {
-                definition: field(value, "definition")?,
-                node_kind: field(value, "node_kind")?,
-                clauses: children(value, "clauses")?,
+            TermTag::ExtensionForm => Ok(Self::ExtensionForm {
+                definition: field(wire, TermField::Definition)?,
+                node_kind: field(wire, TermField::NodeKind)?,
+                clauses: children(wire, TermField::Clauses)?,
             }),
-            None => Err(TermConversionCause::UnknownTerm),
+            TermTag::Missing => Err(TermConversionCause::MissingTerm),
+            TermTag::NonString => Err(TermConversionCause::MalformedMember {
+                member: "term",
+                category: Category::Data,
+            }),
+            TermTag::Unknown => Err(TermConversionCause::UnknownTerm),
         }
     }
 }

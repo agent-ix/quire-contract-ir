@@ -7,10 +7,12 @@ use super::model_members::{
     Budget, MemberKind, ModelFailure, ModelOwners, Resolved, SelectedTypeRef,
 };
 use super::{
-    CheckedNodeId, CheckedNodeOwner, RawSemanticNodeV2 as CheckedSemanticNodeV2, TimedModelForm,
+    CheckedNodeId, CheckedNodeOwner, CheckedTerm, CheckedTermView, LiteralKind,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, TimedModelForm,
 };
 use crate::checked_package::common::{
-    exact_members, is_digest, node_pointer, ValidationFailure, NODE_DOMAIN,
+    body_term, exact_members, is_digest, node_pointer, TermField, ValidationFailure, WireTerm,
+    NODE_DOMAIN,
 };
 use crate::checked_package::shared::{
     CheckedOccurrenceRole, CheckedPackageRefusalCode, JsonPointer,
@@ -25,13 +27,15 @@ fn aggregate<'a>(value: &'a Value, at: &JsonPointer) -> Result<&'a [Value], Vali
     let Some(object) = value.as_object() else {
         return Err(malformed(at.clone()));
     };
-    if !exact_members(object, &["term", "members"]) || value["term"] != "aggregate" {
+    if !exact_members(object, &["term", "members"])
+        || body_term(value) != Some(super::BodyTerm::Aggregate)
+    {
         return Err(malformed(at.clone()));
     }
-    value["members"]
-        .as_array()
-        .map(Vec::as_slice)
-        .ok_or_else(|| malformed(at.clone().key("members")))
+    match CheckedTerm::view(value) {
+        Some(CheckedTermView::Aggregate { members }) => Ok(members),
+        _ => Err(malformed(at.clone().key("members"))),
+    }
 }
 
 fn bindings<'a>(
@@ -49,17 +53,24 @@ fn bindings<'a>(
         .enumerate()
         .map(|(index, (member, name))| {
             let member_at = at.clone().key("members").index(index);
-            let valid = member
-                .as_object()
-                .is_some_and(|o| exact_members(o, &["term", "name", "value"]))
-                && member["term"] == "binding"
-                && member["name"] == *name;
-            if !valid {
-                return Err(malformed(member_at));
+            match CheckedTerm::view(member) {
+                Some(CheckedTermView::Binding {
+                    name: actual,
+                    value,
+                }) if actual == *name => Ok((value, member_at.key("value"))),
+                _ => Err(malformed(member_at)),
             }
-            Ok((&member["value"], member_at.key("value")))
         })
         .collect()
+}
+
+fn possible_binding_value(value: &Value) -> Option<&Value> {
+    if let Some(CheckedTermView::Binding { value, .. }) = CheckedTerm::view(value) {
+        return Some(value);
+    }
+    // The containing record may be malformed. Keep the original refusal
+    // order by probing this member before the binding shape is diagnosed.
+    WireTerm::decode(value).field(TermField::Value)
 }
 
 fn node_key(value: &Value) -> bool {
@@ -68,15 +79,9 @@ fn node_key(value: &Value) -> bool {
 }
 
 fn reference(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
-    if value
-        .as_object()
-        .is_some_and(|o| exact_members(o, &["term", "target"]))
-        && value["term"] == "reference"
-        && node_key(&value["target"])
-    {
-        Ok(())
-    } else {
-        Err(malformed(at.clone()))
+    match CheckedTerm::view(value) {
+        Some(CheckedTermView::Reference { target }) if node_key(target) => Ok(()),
+        _ => Err(malformed(at.clone())),
     }
 }
 
@@ -85,16 +90,14 @@ fn literal<'a>(
     kind: &str,
     at: &JsonPointer,
 ) -> Result<&'a Value, ValidationFailure> {
-    if !value
-        .as_object()
-        .is_some_and(|o| exact_members(o, &["term", "type", "value_kind", "value"]))
-        || value["term"] != "literal"
-        || value["value_kind"] != kind
-        || !node_key(&value["type"])
-    {
-        return Err(malformed(at.clone()));
+    match CheckedTerm::view(value) {
+        Some(CheckedTermView::Literal {
+            type_id,
+            value_kind,
+            value,
+        }) if Some(value_kind) == LiteralKind::from_wire(kind) && node_key(type_id) => Ok(value),
+        _ => Err(malformed(at.clone())),
     }
-    Ok(&value["value"])
 }
 
 fn text<'a>(value: &'a Value, at: &JsonPointer) -> Result<&'a str, ValidationFailure> {
@@ -159,7 +162,7 @@ fn path(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
         let kind_at = step_at.clone().key("members").index(0).key("value");
         let kind = members
             .first()
-            .and_then(|m| m.get("value"))
+            .and_then(possible_binding_value)
             .ok_or_else(|| malformed(step_at.clone()))?;
         match text(kind, &kind_at)? {
             "field" => {
@@ -185,13 +188,22 @@ fn path(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
                     &["sequence", "map", "set", "bag", "ordered_set"],
                     &b[1].1,
                 )?;
-                if b[2].0["term"] == "reference" {
+                if matches!(
+                    CheckedTerm::view(b[2].0),
+                    Some(CheckedTermView::Reference { .. })
+                ) {
                     reference(b[2].0, &b[2].1)?;
                 } else {
                     integer(b[2].0, &b[2].1)?;
                 }
                 integer(b[3].0, &b[3].1)?;
-                if b[4].0["value_kind"] == "text" {
+                if matches!(
+                    CheckedTerm::view(b[4].0),
+                    Some(CheckedTermView::Literal {
+                        value_kind: LiteralKind::Text,
+                        ..
+                    })
+                ) {
                     word(b[4].0, &["unbounded"], &b[4].1)?;
                 } else {
                     integer(b[4].0, &b[4].1)?;
@@ -282,7 +294,7 @@ pub(super) fn check_wire(
             let kind_at = body_at.clone().key("members").index(0).key("value");
             let kind = members
                 .first()
-                .and_then(|m| m.get("value"))
+                .and_then(possible_binding_value)
                 .ok_or_else(|| malformed(body_at.clone()))?;
             match text(kind, &kind_at)? {
                 "dense" => {
@@ -348,7 +360,7 @@ pub(super) fn check_wire(
             let kind_at = body_at.clone().key("members").index(0).key("value");
             let kind = members
                 .first()
-                .and_then(|m| m.get("value"))
+                .and_then(possible_binding_value)
                 .ok_or_else(|| malformed(body_at.clone()))?;
             match text(kind, &kind_at)? {
                 "when" => {
@@ -373,7 +385,7 @@ pub(super) fn check_wire(
     Ok(())
 }
 
-use super::{CheckedNodeKind, CheckedTerm, LiteralKind, ScalarTypeForm, WorkMeter};
+use super::{CheckedNodeKind, ScalarTypeForm, WorkMeter};
 use crate::checked_package::shared::CheckedPackageRefusalCause;
 use std::collections::{BTreeMap, BTreeSet};
 

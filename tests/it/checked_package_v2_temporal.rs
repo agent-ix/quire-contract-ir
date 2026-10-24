@@ -735,6 +735,23 @@ fn tc_048_an_interval_member_admits_and_refuses_on_each_interval_operator() {
     }
 }
 
+#[trace("TC-048", "FR-038-AC-97")]
+#[test]
+fn tc_048_invalid_interval_precedes_a_missing_application_result_type() {
+    let (mut package, root) = with_root(INFINITE, "always", closed("-1", "3"), None, 1);
+    package["semantic_graph"]["nodes"][root]["body"]
+        .as_object_mut()
+        .expect("application body")
+        .remove("result_type");
+    expect(
+        "invalid interval before incomplete application",
+        &package,
+        Code::InvalidPackage,
+        Cause::InvalidValue,
+        &at_node(root, "/body/operation/member/interval/lower"),
+    );
+}
+
 /// A member on `holds`, `not` and the clause, none of which catalogues one.
 #[trace("TC-048", "FR-038-AC-97")]
 #[test]

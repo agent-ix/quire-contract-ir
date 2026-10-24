@@ -5,7 +5,7 @@ use super::{
     RawCheckedPackageWireV2 as CheckedPackageWireV2, RawSemanticNodeV2 as CheckedSemanticNodeV2,
     WorkMeter,
 };
-use crate::checked_package::common::{node_pointer, ValidationFailure};
+use crate::checked_package::common::{body_term, node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedOccurrenceRole, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
@@ -28,7 +28,7 @@ fn requirement(
     self_typed: bool,
     owner: Option<&CheckedNodeOwner>,
 ) -> OwnerRequirement {
-    if nominal || body.get("term").and_then(Value::as_str) == Some("application") {
+    if nominal || body_term(body) == Some(super::BodyTerm::Application) {
         return OwnerRequirement::None;
     }
     if declaration.is_some() {
