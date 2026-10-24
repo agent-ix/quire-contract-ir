@@ -13,7 +13,7 @@ use super::{
     BodyTerm, CheckedNodeKind, CheckedNodeTag, CheckedTerm, CheckedTermView, CorrespondenceForm,
     RawSemanticNodeV2 as CheckedSemanticNodeV2,
 };
-use crate::checked_package::common::{term_tag, TermTag, NODE_DOMAIN};
+use crate::checked_package::common::{TermField, TermTag, WireTerm, NODE_DOMAIN};
 use crate::checked_package::shared::CheckedNodeId;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -215,7 +215,8 @@ fn charge_terms(
     let mut pending = vec![body];
     while let Some(term) = pending.pop() {
         work.charge(position)?;
-        match CheckedTerm::view(term) {
+        let wire = WireTerm::decode(term);
+        match CheckedTerm::view_from_wire(wire) {
             Some(CheckedTermView::Aggregate { members }) => pending.extend(members.iter().rev()),
             Some(CheckedTermView::Application { arguments, .. }) => {
                 pending.extend(arguments.iter().rev());
@@ -225,18 +226,18 @@ fn charge_terms(
             // Candidate charging precedes complete body admission. Keep the
             // historical work count for a malformed parent so exhaustion
             // still outranks its later closed-shape refusal.
-            None => match term_tag(term) {
+            None => match wire.tag() {
                 TermTag::Known(BodyTerm::Aggregate) => {
-                    if let Some(items) = term.get("members").and_then(Value::as_array) {
+                    if let Some(items) = wire.array(TermField::Members) {
                         pending.extend(items.iter().rev());
                     }
                 }
                 TermTag::Known(BodyTerm::Application) => {
-                    if let Some(items) = term.get("arguments").and_then(Value::as_array) {
+                    if let Some(items) = wire.array(TermField::Arguments) {
                         pending.extend(items.iter().rev());
                     }
                 }
-                TermTag::Known(BodyTerm::Binding) => pending.extend(term.get("value")),
+                TermTag::Known(BodyTerm::Binding) => pending.extend(wire.field(TermField::Value)),
                 _ => {}
             },
         }

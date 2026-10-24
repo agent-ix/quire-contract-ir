@@ -1237,12 +1237,6 @@ pub(super) fn dependency_reference_node(term: &Value) -> Option<CheckedNodeId> {
     (node.domain.as_ref() == NODE_DOMAIN && is_digest(&node.digest)).then_some(node)
 }
 
-/// A `literal` term's decoded `value_kind`.
-// Reads the JSON `value_kind` member of a literal and decodes it.
-pub(super) fn literal_kind(value: &Value) -> Option<LiteralKind> {
-    WireTerm::decode(value).literal_kind()
-}
-
 /// An `application` term's decoded `operator` class.
 // Reads the JSON `operator` member of an application and decodes it.
 pub(super) fn application_operator(value: &Value) -> Option<ApplicationOperator> {
