@@ -615,6 +615,8 @@ pub enum CheckedMemberType {
     Uuid,
     /// Native Timestamp.
     Timestamp,
+    /// The native timed-model clock marker.
+    Clock,
     /// `Int[lower, upper]`.
     IntRange {
         /// The inclusive lower bound.
@@ -675,6 +677,7 @@ impl From<&MemberType> for CheckedMemberType {
             MemberType::String => Self::String,
             MemberType::Uuid => Self::Uuid,
             MemberType::Timestamp => Self::Timestamp,
+            MemberType::Clock => Self::Clock,
             MemberType::IntRange(range) => Self::IntRange {
                 lower: range.lower,
                 upper: range.upper,

@@ -1690,6 +1690,23 @@ or body validation. The canonical writer SHALL emit each complete timed node
 once in `semantic_graph.nodes`, without a second body in the wire identity
 preimage.
 
+For the published body layout, a `timed_model` root carries the ordered
+bindings `model`, `time_dimension`, `source`, `clock_places`, `resets`,
+`guards`, `invariants`, `urgencies`, and `constraints`. A tick `time_source`
+carries `kind`, `unit`, `model`, `operation`, and `period`; its explicit
+`model` reference equals the root model, and its operation references a
+`state`/`operation_anchor` whose context is that model. A `clock_place` carries
+`model`, `path`, `resolved_path`, and `guards`. The resolved-path table has one
+ordered row per path step and retains the declaring type, member identity,
+member type, collection kind and bounds; the terminal member type is the
+native `Clock` marker. These members are checked package data and are validated
+against their path steps before semantic graph admission. For a source-owned
+model node, the path's root name comes from its declaration's qualified name;
+for a selected model-owned node, it comes from the explicit `owner.node`
+identity. The reader compares this identity directly with each resolved row's
+declaring type and member identity; it does not infer a type from a display
+name or consult source text.
+
 Graph-shape validation SHALL compare each timed node's dependency set with
 its body references before the key stage. The structural-key stage SHALL
 derive its `quire.structural-node/v1` key from the published QSpec preimage,
@@ -5201,7 +5218,7 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-315 | The temporal step precedes the hybrid step: a hybrid claim's integer or timed interval is admitted only under its matching FR-370 profile, including timed `[q, *]` under `quire.temporal.timed/v1` and integer `[2, *]` under `quire.temporal.infinite-trace/v1`. A wrong interval form refuses `invalid_package`/`operation-member-mismatch` there before a fairness defect. The surviving `SlowEnough`, `Slows` and `Recent` claims are read from their published graph nodes with their respective clock, activation, capture, fairness and read levels. | Test (TC-048) |
 | FR-038-AC-316 | After all models and orphan modes/transitions, hybrid claims are checked in node-id digest order for clock/activation/guard/capture form, fairness, then model-variable/activation/capture reads. TC-966's `wall` clock, mistyped `each` trigger, fairness member naming `Halted`, `holds` reading `h` and `holds` reading a parameter at the wrong level refuse with FR-481's code, cause and locus; a valid claim and a later protocol defect yield the protocol refusal, while a hybrid defect and a protocol defect yield the hybrid refusal. | Test (TC-048) |
 | FR-038-AC-317 | TC-048 reads QSpec TC-966's published `hybrid-node-vectors.json` and `positive-all-families.json` from the selected QSpec checkout, without a local copy. Strict-wire cases are checked before identity, rebuilt-key semantic cases after it, with exact code, cause and locus. The IR reader does not substitute its own process-provider or host trace checks for QSpec's HY-15 and HY-16. | Test (TC-048) |
-| FR-038-AC-318 | The public reader admits exactly QSpec FR-322-AC-120's eight `timed_model` forms. Each admitted form retains its published semantic type, occurrence roles, owner, declaration and complete body; an unknown form or malformed outer/body member refuses at strict wire validation before any timed-model body check. The writer emits one complete body per node and no wire identity projection. | Test (TC-048) |
+| FR-038-AC-318 | The public reader admits exactly QSpec FR-322-AC-120's eight `timed_model` forms with the ordered root, tick-source and clock-place members stated above. Each admitted form retains its published semantic type, occurrence roles, owner, declaration and complete body; the root's time dimension matches the source unit's nominal dimension; a tick source model and operation-anchor context match the root model; each resolved-path row matches its path step and selected model declaration, including collection bounds and terminal `Clock`. An unknown form or malformed outer/body member refuses at strict wire validation before any timed-model body check. The writer emits one complete body per node and no wire identity projection. | Test (TC-048; QSpec TM-06..TM-21) |
 | FR-038-AC-319 | For a timed model with source, place, reset, guard, invariant, urgency and constraint nodes, graph-shape and structural-key checks compare each node's exact dependencies and QSpec preimage before the timed-model step. Changing one meaning-bearing body or owner member and rebuilding dependent keys changes the affected node and package identities; keeping a stale key or dependency list refuses at the earlier stage. Reordering only source occurrences changes neither identity. | Test (TC-048) |
 | FR-038-AC-320 | The timed-model step reconstructs the selected model from exactly one root and its referenced nodes. A missing root, dangling or wrong-form target, repeated place, noncanonical path, and invalid or non-time quantity each refuse with FR-322-AC-120's paired code and cause at the failing member, visiting timed nodes in ascending node-id digest order. The valid QSpec TC-367 CK-25 model admits and retains its normalized constraints. | Test (TC-048) |
 | FR-038-AC-321 | A package with both a timed-model defect and a protocol or operation defect reports the timed defect; one with a hybrid defect and a timed defect reports the hybrid defect. Strict-wire, graph-shape and stale-key defects continue to precede either body step. | Test (TC-048) |
