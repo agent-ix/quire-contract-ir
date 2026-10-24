@@ -37,9 +37,10 @@ impl<'a, Body> ApplicationNodeDraft<'a, Body> {
     }
 }
 
-/// An immutable, borrowed complete ordered draft snapshot. The caller supplies
-/// the complete intended graph; this context verifies its keys and target,
-/// without asserting package admission or retaining an owned group list.
+/// An immutable complete ordered draft snapshot. The caller supplies the
+/// complete intended graph; this context verifies its keys and target without
+/// asserting package admission. Raw drafts stay borrowed; typed drafts are
+/// projected into owned raw nodes for the shared candidate encoder.
 pub struct ApplicationIdentityContext<'a> {
     nodes: Cow<'a, [CheckedSemanticNodeV2]>,
     target: usize,
@@ -49,7 +50,8 @@ pub struct ApplicationIdentityContext<'a> {
 impl<'a> ApplicationIdentityContext<'a> {
     /// Validates key uniqueness, the target's complete fields and its position
     /// among all nodes with its recursion label. Repeated keys refuse in graph
-    /// order before target selection. Retained storage is constant in graph size.
+    /// order before target selection. Retained storage is constant in graph size
+    /// for raw drafts and linear in graph size for typed drafts.
     pub fn try_new<Body: super::CandidateBody>(
         nodes: &'a [super::CheckedSemanticNodeV2<Body>],
         draft: ApplicationNodeDraft<'_, Body>,

@@ -440,22 +440,20 @@ pub(super) fn population_maximum(body: &CheckedTerm) -> Option<u64> {
 
 /// The object type a population node's `semantic_type` chain names, resolving
 /// each node of the chain through `node`.
-pub(super) fn population_object_type<'a, Body: serde::Serialize + 'a>(
-    population: &super::v2::CheckedSemanticNodeV2<Body>,
-    node: impl Fn(&CheckedNodeId) -> Option<&'a super::v2::CheckedSemanticNodeV2<Body>>,
+pub(super) fn population_object_type<'a>(
+    population: &super::v2::CheckedSemanticNodeV2<serde_json::Value>,
+    node: impl Fn(&CheckedNodeId) -> Option<&'a super::v2::CheckedSemanticNodeV2<serde_json::Value>>,
 ) -> Option<CheckedNodeId> {
     let set_type = node(&population.semantic_type)?;
-    let first_target = |body: &Body| {
-        let value = serde_json::to_value(body).ok()?;
-        serde_json::from_value::<CheckedNodeId>(
-            value
-                .get("members")?
-                .as_array()?
-                .first()?
-                .get("target")?
-                .clone(),
-        )
-        .ok()
+    let first_target = |body: &serde_json::Value| {
+        let term = serde_json::from_value::<CheckedTerm>(body.clone()).ok()?;
+        let CheckedTerm::Aggregate { members } = term else {
+            return None;
+        };
+        let Some(CheckedTerm::Reference { target }) = members.into_iter().next() else {
+            return None;
+        };
+        Some(target)
     };
     let reference_id = first_target(&set_type.body)?;
     let reference = node(&reference_id)?;
