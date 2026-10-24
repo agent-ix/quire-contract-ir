@@ -43,4 +43,4 @@ under `src/`; no negative case panics.
 
 ## Status
 
-Planned.
+Partially implemented by `tests/it/public_interface.rs`, `tests/it/kani_shared.rs`, and the per-item compile-fail probes in `src/kani/mod.rs`. The TC-042 negative Kani paths run under `catch_unwind`. TC-041 defines dependency-graph and model-boundary cases, with no Kani negative corpus to run; the TC-041 reference in this procedure and FR-039-AC-4 awaits owner resolution. The acceptance criterion and procedure remain unchanged.
