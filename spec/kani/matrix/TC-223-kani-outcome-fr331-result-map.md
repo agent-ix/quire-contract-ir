@@ -24,7 +24,7 @@ previously named FR-031-AC-5, which is retired.
 Build, through FR-030's classification, a proof from a check count of three
 and from a count of zero, and read each outcome's kind, cause, count and
 Boolean claim. Build one outcome of each refusal kind and each limit kind and
-read each kind and cause. Build an `Unavailable` outcome for an absent solver
+read each kind and cause. Build an `Unavailable` outcome for an absent checker
 and one for an absent backend, and read each cause code. Request an
 `Unavailable` outcome with another cause code, an `Inconclusive` outcome with a
 cause other than `kani_vacuous_proof`, a `proved` outcome with a count of zero,
@@ -45,10 +45,7 @@ fails to compile. A new outcome kind fails to compile in the test's exhaustive
 
 ## Status
 
-Planned. No test is tagged for this case. The count-bearing `proved` request, the
-`Unavailable` and `Inconclusive` cause rules and the struct-literal probe
-(FR-030-AC-4, AC-5) are not built. The `non_success` refusal of a `proved` or
-`counterexample` request is built and is asserted by the TC-443 test, but this
-case does not claim it until the rest of AC-5 lands. The obsolete
+Implemented by the TC-223 tagged count, cause and wire controls plus the
+`KaniOutcome` compile-fail probe. The obsolete
 `kani_outcome_kinds_map_to_their_one_fr331_result` test of the IR-owned
 `KaniProviderResult` map was removed under IR-347; it did not back this case.
