@@ -15,11 +15,96 @@
 //! use quire_contract_ir::kani::KaniProviderRecord;
 //! ```
 
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::lower_checked_arithmetic;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::lower_query;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::lower_reaches;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::ArithmeticLowering;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::CheckedArithmeticRequest;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::CollectionLowering;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::CollectionQuery;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::QueryKind;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::GraphLowering;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::GraphRequest;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::CounterexamplePacket;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::PacketIdentity;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::ReplaySource;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::ReplayAgreement;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::WitnessReplayAgreement;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::InputReplayAgreement;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::replay_counterexample;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::Witness;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::WitnessBinding;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::WitnessCheck;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::WitnessValue;
+//! ```
+
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::WitnessValueType;
+//! ```
+
 mod abi;
-mod arithmetic;
-mod collections;
 mod dispatch;
-mod objects;
 mod outcome;
 mod profile;
 
@@ -27,10 +112,7 @@ pub use abi::{
     FiniteInput, FiniteObject, FiniteReference, PopulationCompleteness, ResourceBounds,
     ValidatedFiniteInput,
 };
-pub use arithmetic::{lower_checked_arithmetic, ArithmeticLowering, CheckedArithmeticRequest};
-pub use collections::{lower_query, CollectionLowering, CollectionQuery, QueryKind};
 pub use dispatch::{DispatchError, DispatchIndex, ModuleDescriptor, SemanticFamily};
-pub use objects::{lower_reaches, GraphLowering, GraphRequest};
 use outcome::NonSuccessKind;
 pub use outcome::{KaniCancellationSource, KaniOutcome, KaniOutcomeError, KaniOutcomeKind};
 pub use profile::{
