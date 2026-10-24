@@ -333,6 +333,7 @@ fn valid_identifier(value: &str) -> bool {
 pub struct PackageId(String);
 
 impl PackageId {
+    #[ix_trace_rs::string_edge]
     pub fn new(value: impl Into<String>) -> Result<Self, Diagnostic> {
         let value = value.into();
         let valid = !value.is_empty()

@@ -1141,6 +1141,7 @@ fn shape<'a>(
     Ok(object)
 }
 
+#[ix_trace_rs::string_edge]
 fn decimal(value: &Value, path: JsonPointer) -> Result<u64, ValidationFailure> {
     let text = string(value, path.clone())?;
     if text != "0"

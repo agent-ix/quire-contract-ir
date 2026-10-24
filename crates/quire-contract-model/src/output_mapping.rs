@@ -282,6 +282,7 @@ pub enum OutputTargetFamily {
 
 impl OutputTargetFamily {
     /// Parse an exact target-family spelling.
+    #[ix_trace_rs::string_edge]
     pub fn parse(value: &str) -> Result<Self, MappingRequestError> {
         match value {
             "ocl" => Ok(Self::Ocl),

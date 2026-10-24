@@ -51,6 +51,10 @@ impl Scratch {
             .expect("make invokes the scanner target")
     }
 
+    fn write(&self, path: &str, contents: &str) {
+        fs::write(self.0.join(path), contents).expect("write controlled consumer file");
+    }
+
     fn lint_plan(&self) -> Output {
         Command::new("make")
             .arg("-n")
@@ -85,6 +89,23 @@ fn diagnostic(output: &Output) -> String {
     )
 }
 
+fn assert_scan_status(output: &Output, expected: i32, diagnostic_fragment: &str) {
+    assert_eq!(
+        output.status.code(),
+        Some(expected),
+        "{}",
+        diagnostic(output)
+    );
+    let report = diagnostic(output);
+    assert!(
+        report.contains(diagnostic_fragment),
+        "expected {diagnostic_fragment:?}: {report}"
+    );
+    if expected == 2 {
+        assert!(!report.contains("string-edge: clean"), "{report}");
+    }
+}
+
 #[test]
 #[trace("FR-056-AC-1", "FR-056-AC-2", "FR-056-AC-5")]
 fn normal_gate_uses_both_roots_and_refuses_unmarked_dispatch() {
@@ -115,15 +136,125 @@ fn normal_gate_uses_both_roots_and_refuses_unmarked_dispatch() {
         "pub fn accepted(kind: &str) -> bool { match kind { \"accepted\" => true, _ => false } }\n",
     );
     let output = unmarked.run(&scanner());
-    assert!(!output.status.success(), "{}", diagnostic(&output));
-    assert!(
-        String::from_utf8_lossy(&output.stdout).contains("src/lib.rs:1 in accepted"),
-        "the real scanner must locate the unmarked item: {}",
-        diagnostic(&output)
+    assert_scan_status(&output, 2, "Error 1");
+    assert!(diagnostic(&output).contains("src/lib.rs:1 in accepted"));
+
+    clean.write(
+        "src/lib.rs",
+        "pub fn accepted(kind: &str) -> bool { match kind { \"node\" => true, _ => false } }\n",
     );
+    assert_scan_status(&clean.run(&scanner()), 2, "src/lib.rs:1 in accepted");
+    clean.write("src/lib.rs", "pub enum Kind { Node, Other }\npub fn accepted(kind: Kind) -> bool { matches!(kind, Kind::Node) }\n");
+    assert!(clean.run(&scanner()).status.success());
 
     let output = clean.run(&clean.0.join("missing-scanner"));
     assert!(!output.status.success(), "{}", diagnostic(&output));
+}
+
+#[test]
+#[trace("FR-056-AC-3")]
+fn genuine_intake_marker_compiles_and_only_exempts_its_function() {
+    let source = "#[ix_trace_rs::string_edge]\n\
+        pub fn decode(s: &str) -> Option<Kind> { match s { \"node\" => Some(Kind::Node), _ => None } }\n\
+        pub enum Kind { Node }\n\
+        pub fn adverse(s: &str) -> bool { s == \"node\" }\n";
+    let fixture = Scratch::new("marked", source);
+    assert_scan_status(&fixture.run(&scanner()), 2, "src/lib.rs:4 in adverse");
+    fixture.write(
+        "src/lib.rs",
+        &source.replace("pub fn adverse(s: &str) -> bool { s == \"node\" }\n", ""),
+    );
+    assert!(fixture.run(&scanner()).status.success());
+
+    let metadata = Command::new("cargo")
+        .args(["metadata", "--format-version", "1", "--offline"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .expect("resolve neutral marker");
+    assert!(metadata.status.success(), "{}", diagnostic(&metadata));
+    let json: serde_json::Value = serde_json::from_slice(&metadata.stdout).expect("metadata JSON");
+    let marker_manifest = json["packages"]
+        .as_array()
+        .expect("packages")
+        .iter()
+        .find(|package| package["name"] == "ix-trace-rs")
+        .and_then(|package| package["manifest_path"].as_str())
+        .expect("neutral marker manifest");
+    let marker_dir = Path::new(marker_manifest)
+        .parent()
+        .expect("marker directory");
+    fixture.write(
+        "Cargo.toml",
+        &format!(
+            "[package]\nname = \"fr056-marker-consumer\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[dependencies]\nix-trace-rs = {{ path = {:?} }}\n[workspace]\n",
+            marker_dir
+        ),
+    );
+    fixture.write(
+        "src/main.rs",
+        "fn main() { assert!(fr056_marker_consumer::decode(\"node\").is_some()); assert!(fr056_marker_consumer::decode(\"other\").is_none()); }\n",
+    );
+    let compiled = Command::new("cargo")
+        .args(["run", "--offline", "--quiet"])
+        .current_dir(&fixture.0)
+        .env("CARGO_TARGET_DIR", fixture.0.join("target"))
+        .output()
+        .expect("compile genuine marked intake");
+    assert!(compiled.status.success(), "{}", diagnostic(&compiled));
+
+    for marker in ["#[other::string_edge]", "// #[ix_trace_rs::string_edge]"] {
+        fixture.write(
+            "src/lib.rs",
+            &format!("{marker}\npub fn adverse(s: &str) -> bool {{ s == \"node\" }}\n"),
+        );
+        assert_scan_status(&fixture.run(&scanner()), 2, "src/lib.rs:2 in adverse");
+    }
+}
+
+#[test]
+#[trace("FR-056-AC-4")]
+fn open_keys_and_strict_nonbranching_rules() {
+    let fixture = Scratch::new(
+        "open-keys",
+        "pub fn same_key(left: &str, right: &str) -> bool { left == right }\n",
+    );
+    assert!(fixture.run(&scanner()).status.success());
+    fixture.write(
+        "src/lib.rs",
+        "pub fn same_key(left: &str, right: &str) -> bool { left == right }\n\
+         pub fn display(value: &str) -> bool { value == \"preview\" }\n",
+    );
+    assert_scan_status(&fixture.run(&scanner()), 2, "src/lib.rs:2 in display");
+    fixture.write(
+        "string-edge-rules.json",
+        r#"{"allow_list":[{"file":"src/lib.rs","item":"display","reason":"Result is returned for display only"}]}"#,
+    );
+    assert!(fixture.run(&scanner()).status.success());
+    fixture.write(
+        "src/lib.rs",
+        "pub fn same_key(left: &str, right: &str) -> bool { left == right }\n\
+         pub fn display(value: &str) -> bool { if value == \"node\" { true } else { false } }\n",
+    );
+    assert_scan_status(&fixture.run(&scanner()), 2, "gates a branch");
+}
+
+#[test]
+#[trace("FR-056-AC-5")]
+fn normal_prerequisite_propagates_command_and_input_failures() {
+    let fixture = Scratch::new("errors", "pub enum Kind { Node }\n");
+    let binary = scanner();
+    let missing = fixture.run(&fixture.0.join("missing-scanner"));
+    assert!(!missing.status.success(), "{}", diagnostic(&missing));
+    fixture.write("string-edge-rules.json", "{");
+    assert_scan_status(&fixture.run(&binary), 2, "string-edge:");
+    fixture.write("string-edge-rules.json", "{\"allow_list\":[]}");
+    fs::remove_dir_all(fixture.0.join("crates/quire-contract-model/src"))
+        .expect("remove controlled root");
+    assert_scan_status(&fixture.run(&binary), 2, "string-edge:");
+    fs::create_dir_all(fixture.0.join("crates/quire-contract-model/src"))
+        .expect("restore controlled root");
+    fixture.write("src/lib.rs", "pub fn invalid( {\n");
+    assert_scan_status(&fixture.run(&binary), 2, "string-edge:");
 }
 
 #[test]
@@ -152,14 +283,12 @@ fn marked_intake_depends_on_neutral_trace_without_scanner_or_qsl_dependency() {
             .find(|package| package["name"] == package_name)
             .expect("production package");
         let deps = package["dependencies"].as_array().expect("dependencies");
-        if package_name == "quire-contract-model" {
-            assert!(
-                deps.iter().any(|dependency| {
-                    dependency["name"] == "ix-trace-rs" && dependency["kind"].is_null()
-                }),
-                "the marked model crate must resolve the neutral marker as a normal dependency"
-            );
-        }
+        assert!(
+            deps.iter().any(|dependency| {
+                dependency["name"] == "ix-trace-rs" && dependency["kind"].is_null()
+            }),
+            "each marked production crate must resolve the neutral marker as a normal dependency"
+        );
         assert!(
             deps.iter().all(|dependency| {
                 !matches!(

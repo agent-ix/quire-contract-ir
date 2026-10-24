@@ -2292,6 +2292,7 @@ fn node_size(value: &Value) -> u64 {
 /// node by node in ascending IR node identity, returning the first refusal
 /// in that order; each node's own failures report in FR-154's table order.
 /// Every node and every member read is charged to `budget`.
+#[ix_trace_rs::string_edge]
 pub(super) fn read_semantic_ir(
     document: &Value,
     budget: &mut Budget<'_>,
@@ -2706,6 +2707,7 @@ impl References<'_> {
 }
 
 /// Closed authored relationship metadata and ends, read at the selection row.
+#[ix_trace_rs::string_edge]
 fn semantic_ir_relationship(
     value: &Value,
     owner: &str,

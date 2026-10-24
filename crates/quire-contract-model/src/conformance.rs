@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    path::{Component, Path},
+    path::{Component, Path, PathBuf},
     sync::mpsc::{self, Sender},
     thread::JoinHandle,
 };
@@ -843,16 +843,18 @@ fn parse_json<T: DeserializeOwned>(
         .map_err(|_| RunnerError::new(RunnerErrorCode::InvalidCorpus, path, malformed_detail))
 }
 
-fn safe_relative(path: &str) -> bool {
+#[ix_trace_rs::string_edge]
+fn relative_path(path: &str) -> Option<PathBuf> {
     let path = Path::new(path);
-    !path.as_os_str().is_empty()
+    let valid = !path.as_os_str().is_empty()
         && !path.is_absolute()
         && path.components().all(|component| {
             matches!(component, Component::Normal(_))
                 && !component.as_os_str().is_empty()
                 && component.as_os_str() != "."
                 && component.as_os_str() != ".."
-        })
+        });
+    valid.then(|| path.to_path_buf())
 }
 
 fn read_relative(
@@ -861,13 +863,13 @@ fn read_relative(
     field: &str,
     budget: &mut ReadBudget,
 ) -> Result<Vec<u8>, RunnerError> {
-    if !safe_relative(relative) {
-        return Err(RunnerError::new(
+    let relative = relative_path(relative).ok_or_else(|| {
+        RunnerError::new(
             RunnerErrorCode::UnsafePath,
             field,
             "path is unsafe",
-        ));
-    }
+        )
+    })?;
     let joined = root.join(relative);
     let resolved = joined
         .canonicalize()
