@@ -12,6 +12,25 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use thiserror::Error;
 
+/// Decode a raw candidate or borrow an already typed admitted body.
+pub(super) trait ScalarBody {
+    fn checked_term(&self) -> Result<Cow<'_, CheckedTerm>, ()>;
+}
+
+impl ScalarBody for Value {
+    fn checked_term(&self) -> Result<Cow<'_, CheckedTerm>, ()> {
+        CheckedTerm::decode_admitted(self)
+            .map(Cow::Owned)
+            .map_err(|_| ())
+    }
+}
+
+impl ScalarBody for CheckedTerm {
+    fn checked_term(&self) -> Result<Cow<'_, CheckedTerm>, ()> {
+        Ok(Cow::Borrowed(self))
+    }
+}
+
 #[cfg(test)]
 mod scan_probe {
     use std::cell::Cell;
@@ -134,7 +153,7 @@ fn graph_node<'a, Body>(
 /// the admitted-package view retains each position when an own range is absent.
 /// Per-position laziness preserves the checked view's first-error order when
 /// an early range is absent and a later argument is malformed.
-pub(super) fn scalar_arguments<'a, Body: serde::Serialize>(
+pub(super) fn scalar_arguments<'a, Body: ScalarBody>(
     nodes: &'a [CheckedSemanticNodeV2<Body>],
     positions: &'a BTreeMap<CheckedNodeId, usize>,
     kinds: &'a [CheckedNodeKind],
@@ -148,7 +167,10 @@ pub(super) fn scalar_arguments<'a, Body: serde::Serialize>(
     // root is decoded on demand; CheckedPackageV2 borrows its retained tree.
     let term = match retained {
         Some(term) => Cow::Borrowed(term),
-        None => Cow::Owned(decode_body(&node.body).map_err(|_| Error::NotApplication)?),
+        None => node
+            .body
+            .checked_term()
+            .map_err(|_| Error::NotApplication)?,
     };
     let CheckedTerm::Application { operation, .. } = term.as_ref() else {
         return Err(Error::NotApplication);
@@ -197,7 +219,7 @@ pub(super) struct ScalarArguments<'a, Body> {
     next: usize,
 }
 
-impl<'a, Body: serde::Serialize> Iterator for ScalarArguments<'a, Body> {
+impl<'a, Body: ScalarBody> Iterator for ScalarArguments<'a, Body> {
     type Item = Result<ScalarArgument<'a, Body>, CheckedScalarOperandError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -208,7 +230,7 @@ impl<'a, Body: serde::Serialize> Iterator for ScalarArguments<'a, Body> {
     }
 }
 
-impl<'a, Body: serde::Serialize> ScalarArguments<'a, Body> {
+impl<'a, Body: ScalarBody> ScalarArguments<'a, Body> {
     fn project(
         &self,
         position: usize,
@@ -322,19 +344,15 @@ fn singleton_range(value: BigInt) -> Result<CheckedScalarOperandRange, CheckedSc
     })
 }
 
-fn decode_body<Body: serde::Serialize>(body: &Body) -> Result<CheckedTerm, ()> {
-    let value = serde_json::to_value(body).map_err(|_| ())?;
-    CheckedTerm::decode_admitted(&value).map_err(|_| ())
-}
-
-fn graph_term<'a, Body: serde::Serialize>(
+fn graph_term<'a, Body: ScalarBody>(
     node: &'a CheckedSemanticNodeV2<Body>,
     retained: Option<&'a CheckedTerm>,
 ) -> Result<Cow<'a, CheckedTerm>, CheckedScalarOperandError> {
     match retained {
         Some(term) => Ok(Cow::Borrowed(term)),
-        None => decode_body(&node.body)
-            .map(Cow::Owned)
+        None => node
+            .body
+            .checked_term()
             .map_err(|_| CheckedScalarOperandError::MissingRange),
     }
 }
@@ -356,7 +374,7 @@ fn typed_literal_integer(term: &CheckedTerm) -> Result<BigInt, CheckedScalarOper
         .map_err(|_| Error::RangeOutOfI128)
 }
 
-fn type_range<Body: serde::Serialize>(
+fn type_range<Body: ScalarBody>(
     nodes: &[super::CheckedSemanticNodeV2<Body>],
     positions: &BTreeMap<CheckedNodeId, usize>,
     kinds: &[CheckedNodeKind],

@@ -42,7 +42,7 @@
 use super::model_fields::{DeclarationIndex, DeclaredNode, FieldTables, Selected};
 use super::{
     member_pointer, CheckedDeclaration, CheckedDomainPackageRef, CheckedNodeOwner, CheckedNodeTag,
-    CheckedSemanticNodeV2, ValidationFailure, WorkMeter,
+    CheckedSemanticNodeV2, CheckedTerm, ValidationFailure, WorkMeter,
 };
 use crate::checked_package::common::{pointer_from_steps, Step, NODE_DOMAIN};
 use crate::checked_package::evidence::CheckedPackageEvidence;
@@ -54,6 +54,23 @@ use ix_trace_rs::string_edge;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::Serialize;
 use serde_json::{json, Value};
+
+/// The fixed declaration body shape in raw intake and admitted typed nodes.
+pub(super) trait EmptyAggregateBody {
+    fn is_empty_aggregate(&self) -> bool;
+}
+
+impl EmptyAggregateBody for Value {
+    fn is_empty_aggregate(&self) -> bool {
+        *self == json!({"term": "aggregate", "members": []})
+    }
+}
+
+impl EmptyAggregateBody for CheckedTerm {
+    fn is_empty_aggregate(&self) -> bool {
+        matches!(self, Self::Aggregate { members } if members.is_empty())
+    }
+}
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -1348,7 +1365,7 @@ impl<'m> ModelOwners<'m> {
     }
 
     /// FR-322 step 2 over one wire node.
-    pub(super) fn recover<Body: serde::Serialize>(
+    pub(super) fn recover<Body: EmptyAggregateBody>(
         &self,
         node: &CheckedSemanticNodeV2<Body>,
     ) -> Result<Owner<'m>, ModelRefusal> {
@@ -1357,12 +1374,7 @@ impl<'m> ModelOwners<'m> {
             .get(node.node_id.digest.as_ref())
             .copied()
             .ok_or_else(ModelRefusal::unselected)?;
-        check_declaration_node(
-            owner.form,
-            node,
-            serde_json::to_value(&node.body)
-                .is_ok_and(|body| body == json!({"term": "aggregate", "members": []})),
-        )?;
+        check_declaration_node(owner.form, node, node.body.is_empty_aggregate())?;
         Ok(owner)
     }
 
@@ -1432,7 +1444,7 @@ impl<'m> ModelOwners<'m> {
     /// or the refusal the first failing step determined. Step 3's charges
     /// go to `meter` at the owner's selection row; an exhausted limit is the
     /// outer error.
-    pub(super) fn resolve_member<Body: serde::Serialize>(
+    pub(super) fn resolve_member<Body: EmptyAggregateBody>(
         &self,
         node: &CheckedSemanticNodeV2<Body>,
         kind: MemberKind,

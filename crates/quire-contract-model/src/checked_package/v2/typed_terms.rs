@@ -106,9 +106,15 @@ pub(super) enum TermConversionCause {
 }
 
 impl CheckedTerm {
-    /// Visit every nested reference target in term order, without visiting
-    /// type IDs or other node identities.
-    pub fn visit_reference_targets(&self, visitor: &mut impl FnMut(&CheckedNodeId)) {
+    /// Return nested reference targets in term order, excluding type IDs and
+    /// other node identities.
+    pub fn reference_targets(&self) -> Vec<&CheckedNodeId> {
+        let mut targets = Vec::new();
+        self.visit_reference_targets(&mut |target| targets.push(target));
+        targets
+    }
+
+    fn visit_reference_targets<'a>(&'a self, visitor: &mut impl FnMut(&'a CheckedNodeId)) {
         match self {
             Self::Reference { target } => visitor(target),
             Self::Application { arguments, .. } => {
@@ -803,13 +809,11 @@ mod tests {
             CheckedTerm::binding("member", CheckedTerm::reference(node)),
             CheckedTerm::literal_text(replacement.clone(), "plain text"),
         ]);
-        let mut targets = Vec::new();
-        body.visit_reference_targets(&mut |target| targets.push(target.clone()));
+        let targets = body.reference_targets();
         assert_eq!(targets.len(), 1);
-        body.replace_node_id(&targets[0], &replacement);
-        let mut after = Vec::new();
-        body.visit_reference_targets(&mut |target| after.push(target.clone()));
-        assert_eq!(after, [replacement]);
+        let old = targets[0].clone();
+        body.replace_node_id(&old, &replacement);
+        assert_eq!(body.reference_targets(), [&replacement]);
         let wire = serde_json::to_value(&body).expect("producer term serializes");
         assert_eq!(
             wire["members"][0]["value"]["target"]["digest"],
