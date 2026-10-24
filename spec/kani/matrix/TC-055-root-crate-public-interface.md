@@ -43,4 +43,4 @@ under `src/`; no negative case panics.
 
 ## Status
 
-Planned.
+Implemented by `tests/it/public_interface.rs`, `tests/it/kani_shared.rs`, and the per-item compile-fail probes in `src/kani/mod.rs`.

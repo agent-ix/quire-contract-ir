@@ -14,6 +14,9 @@ use syn::{parse::Parser, punctuated::Punctuated, Token};
 
 const MODEL_ROOT: &str = include_str!("../../crates/quire-contract-model/src/lib.rs");
 const BRIDGE_ROOT: &str = include_str!("../../src/lib.rs");
+const KANI_ROOT: &str = include_str!("../../src/kani/mod.rs");
+const FR_039: &str =
+    include_str!("../../spec/kani/functional/FR-039-root-crate-public-interface.md");
 const FR_019: &str = include_str!("../../spec/model/functional/FR-019-rust-library-interface.md");
 const STD_001: &str = include_str!("../../spec/core/functional/STD-001-diagnostic-registry.md");
 
@@ -1334,6 +1337,130 @@ fn tc_058_fault_injection_adds_only_its_named_export() {
             .count(),
         1
     );
+}
+
+/// Trace: FR-039-AC-1, FR-039-AC-2, FR-039-AC-3, FR-037-AC-6, TC-055.
+#[trace("TC-055", "FR-039-AC-1", "FR-039-AC-2", "FR-039-AC-3", "FR-037-AC-6")]
+#[test]
+fn tc_055_root_public_inventory_matches_fr_039() {
+    let root = parse_model_source(BRIDGE_ROOT, "IR root");
+    let declarations = public_declarations(&root);
+    assert_eq!(
+        declarations.len(),
+        1,
+        "IR root must have one public declaration"
+    );
+    assert!(matches!(&declarations[0], PublicDeclaration::Module(name) if name == "kani"));
+    let (table, _) = FR_039
+        .split_once("### Public items")
+        .expect("FR-039 public items")
+        .1
+        .split_once("An item's own public fields")
+        .expect("FR-039 table end");
+    let expected: BTreeSet<String> = table
+        .lines()
+        .filter(|line| line.starts_with("| `kani`"))
+        .flat_map(|line| {
+            let column = line.split('|').nth(2).expect("public items column");
+            column
+                .replace("constant ", "")
+                .replace("types ", "")
+                .replace("; ", ", ")
+                .split(',')
+                .map(|item| item.trim().trim_matches('`').to_owned())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert_eq!(
+        expected.len(),
+        20,
+        "FR-039 table parser must cover every item"
+    );
+    let kani = parse_model_source(KANI_ROOT, "Kani root");
+    let mut actual = BTreeSet::new();
+    for declaration in public_declarations(&kani) {
+        match declaration {
+            PublicDeclaration::Export { module, name } => {
+                assert!(
+                    matches!(module.as_str(), "abi" | "dispatch" | "outcome" | "profile"),
+                    "unexpected export module: {module}"
+                );
+                let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("src/kani")
+                    .join(format!("{module}.rs"));
+                let source = fs::read_to_string(path).expect("export source must exist");
+                let leaf = parse_model_source(&source, &module);
+                assert!(public_declarations(&leaf).iter().any(|item| matches!(item, PublicDeclaration::Item(item_name) if item_name == &name)), "{module}::{name} must be public in its leaf");
+                assert!(actual.insert(name), "duplicate Kani export");
+            }
+            PublicDeclaration::Item(name) => assert!(actual.insert(name), "duplicate Kani item"),
+            PublicDeclaration::Module(name) => panic!("unexpected public Kani module: {name}"),
+        }
+    }
+    assert_eq!(
+        actual, expected,
+        "transitive root public items differ from FR-039"
+    );
+}
+
+/// Trace: FR-039-AC-2, FR-039-AC-3, FR-037-AC-6, TC-055.
+#[trace("TC-055", "FR-039-AC-2", "FR-039-AC-3", "FR-037-AC-6")]
+#[test]
+fn tc_055_no_foreign_runtime_or_replay_surface_in_source() {
+    let mut pending = vec![
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("crates/quire-contract-model/src"),
+    ];
+    while let Some(dir) = pending.pop() {
+        for entry in fs::read_dir(dir).expect("source directory") {
+            let path = entry.expect("source entry").path();
+            if path.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            if path.extension().is_none_or(|extension| extension != "rs") {
+                continue;
+            }
+            let source = fs::read_to_string(&path).expect("source file");
+            let code = source
+                .lines()
+                .filter(|line| !line.trim_start().starts_with("//"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            for forbidden in [
+                "quire_spec_language::runtime",
+                "qsl_replay::",
+                "TerminalValue",
+                "replay_with_native_runtime",
+            ] {
+                assert!(
+                    !code.contains(forbidden),
+                    "{} contains {forbidden}",
+                    path.display()
+                );
+            }
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .expect("file name");
+            if path
+                .parent()
+                .is_some_and(|parent| parent.ends_with("src/kani"))
+            {
+                assert!(
+                    ![
+                        "replay.rs",
+                        "witness.rs",
+                        "arithmetic.rs",
+                        "collections.rs",
+                        "objects.rs"
+                    ]
+                    .contains(&name),
+                    "retired Kani module {name}"
+                );
+            }
+        }
+    }
 }
 
 #[trace("TC-058", "FR-019-AC-5")]

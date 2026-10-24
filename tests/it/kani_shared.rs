@@ -514,3 +514,133 @@ fn tc_443_the_outcome_and_its_error_carry_a_typed_std001_code() {
         vacuous
     );
 }
+
+/// Trace: FR-039-AC-4, TC-055; reuses the TC-041/TC-042 profile, finite-input,
+/// dispatch, and outcome rejection boundaries with malformed caller input.
+#[trace("TC-055", "FR-039-AC-4")]
+#[test]
+fn tc_055_negative_kani_corpus_returns_typed_errors_without_panics() {
+    let invalid_profile = std::panic::catch_unwind(|| {
+        KaniProfile::new(
+            ProfileSelection {
+                profile: "other".into(),
+                ..selection()
+            },
+            vec![],
+        )
+    })
+    .expect("profile construction must not panic")
+    .expect_err("unknown profile");
+    assert!(matches!(
+        invalid_profile,
+        quire_contract_ir::kani::ProfileError::UnsupportedProfile(_)
+    ));
+
+    let request_cases = [
+        (
+            vec!["".to_owned()],
+            Std001Code::KANI_CAPABILITY_REQUEST_INVALID,
+        ),
+        (
+            vec!["checked-add".to_owned(), "checked-add".to_owned()],
+            Std001Code::KANI_CAPABILITY_REQUEST_INVALID,
+        ),
+        (
+            vec!["unknown".to_owned()],
+            Std001Code::KANI_CAPABILITY_MISSING,
+        ),
+    ];
+    for (request, code) in request_cases {
+        let outcome = std::panic::catch_unwind(|| profile().classify(&request, "source"))
+            .expect("capability classification must not panic")
+            .expect_err("invalid capability request");
+        assert_eq!(outcome.kind(), KaniOutcomeKind::Refused);
+        assert_eq!(outcome.code(), code);
+    }
+
+    let mut cases = Vec::new();
+    let mut incomplete = input(PopulationCompleteness::Incomplete);
+    cases.push((
+        incomplete.clone(),
+        KaniOutcomeKind::IncompleteInput,
+        Std001Code::KANI_POPULATION_INCOMPLETE,
+    ));
+    incomplete.completeness = PopulationCompleteness::Complete;
+    incomplete.objects[0].identity.clear();
+    cases.push((
+        incomplete,
+        KaniOutcomeKind::InvalidInput,
+        Std001Code::KANI_POPULATION_INVALID,
+    ));
+    let mut dangling = input(PopulationCompleteness::Complete);
+    dangling.references[0].target_id = "missing".into();
+    cases.push((
+        dangling,
+        KaniOutcomeKind::InvalidInput,
+        Std001Code::KANI_REFERENCE_INVALID,
+    ));
+    let mut over_bound = input(PopulationCompleteness::Complete);
+    over_bound.bounds.max_objects = 1;
+    cases.push((
+        over_bound,
+        KaniOutcomeKind::ResourceExhausted,
+        Std001Code::KANI_BOUND_EXHAUSTED,
+    ));
+    for (offered, kind, code) in cases {
+        let outcome = std::panic::catch_unwind(|| offered.validate())
+            .expect("finite-input validation must not panic")
+            .expect_err("negative input must be refused");
+        assert_eq!((outcome.kind(), outcome.code()), (kind, code));
+    }
+
+    let module = |family, construct: &str| ModuleDescriptor {
+        module_id: format!("{construct}/1"),
+        family,
+        abi_revision: "kani-abi/1".into(),
+        constructs: vec![construct.into()],
+    };
+    let declared = [
+        module(SemanticFamily::DefinednessArithmetic, "checked-add"),
+        module(SemanticFamily::ObjectsReferencesGraphs, "reaches"),
+        module(SemanticFamily::CollectionsQueries, "query"),
+    ];
+    let dispatch = std::panic::catch_unwind(|| DispatchIndex::new(declared.to_vec()))
+        .expect("three-family index must not panic")
+        .expect("distinct families");
+    for (construct, family) in [
+        ("checked-add", SemanticFamily::DefinednessArithmetic),
+        ("reaches", SemanticFamily::ObjectsReferencesGraphs),
+        ("query", SemanticFamily::CollectionsQueries),
+    ] {
+        assert_eq!(
+            dispatch.resolve(construct).expect("declared route").family,
+            family
+        );
+    }
+    let missing = std::panic::catch_unwind(|| dispatch.resolve("unknown"))
+        .expect("unowned dispatch must not panic")
+        .expect_err("unowned construct");
+    assert_eq!(missing, DispatchError::Unowned("unknown".into()));
+    let conflict = std::panic::catch_unwind(|| {
+        DispatchIndex::new(vec![declared[0].clone(), declared[0].clone()])
+    })
+    .expect("duplicate dispatch must not panic")
+    .expect_err("duplicate family");
+    assert!(matches!(conflict, DispatchError::Conflict(_)));
+    let error = std::panic::catch_unwind(|| KaniOutcome::proved(0, "source", "context"))
+        .expect("outcome construction must not panic")
+        .expect_err("zero success checks");
+    assert_eq!(error.code(), Std001Code::KANI_VACUOUS_PROOF);
+    let invalid_kind = std::panic::catch_unwind(|| {
+        KaniOutcome::non_success(
+            KaniOutcomeKind::Proved,
+            std001_code!("consumer_stop"),
+            "source",
+            "context",
+        )
+    })
+    .expect("non-success construction must not panic")
+    .expect_err("boolean kind cannot be a non-success result");
+    assert_eq!(invalid_kind.requested_kind(), &KaniOutcomeKind::Proved);
+    assert_eq!(invalid_kind.code(), Std001Code::KANI_OUTCOME_INVALID);
+}

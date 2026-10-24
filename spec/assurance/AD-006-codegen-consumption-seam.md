@@ -55,7 +55,7 @@ Measured at the commits of codegen and IR this AD was written against.
 | Checked-package v2 and lowering | `CheckedPackageV2`, `CheckedNodeId`, `CheckedNodeTag`, `CheckedSemanticId`, `CheckedSemanticNodeV2`, `CheckedSourceMapEntry`, `CompleteContractNodeV2`, `CompleteLoweringProfileV2`, `CompleteLoweringRecordV2` | IR (FR-035, FR-038; wire is QSpec's) | `composite_equality.rs`, `exact_function.rs`, `exact_scalar.rs`, `state_frame.rs`, `routed_generation.rs`, `generation.rs`, `kani_obligations.rs` |
 | Authored-contract projection | `BoundPackage`, `BoundClause`, `ClauseRef`, `ClauseKind`, `Expression`, `ExpressionKind`, `TypedExpression`, `StateObservation`, `DependencyIdentity`, `SourceSpan` and related | IR (FR-011 to FR-023) | `bound.rs`, `bound_coverage.rs`, `bound_strategy/generation.rs`, `oracle.rs`, `harness.rs`, `kani.rs`, `strategy.rs`, `kani_obligations.rs` |
 | Shared Kani contract | `PROFILE` `kani-bounded/1`, `KaniProfile`, `ProfileSelection`, `FiniteInput` family, `DispatchIndex`, `KaniOutcome`, `KaniOutcomeKind` | IR (FR-029 to FR-031) | `bounded_kani_profile.rs`, `bounded_kani_corpus.rs`, `bounded_collections.rs`, `finite_reference_graphs.rs`, `definedness_arithmetic.rs`, `kani_execution.rs` |
-| Kani family lowerings | `lower_checked_arithmetic`, `lower_query`, `lower_reaches` and their request and result types | declared codegen's (AD-001, FR-039 "Items codegen owns"); in IR's source today | `definedness_arithmetic.rs:19`, `bounded_collections.rs:18`, `finite_reference_graphs.rs:18` are one-line calls into them |
+| Kani family lowerings | `lower_checked_arithmetic`, `lower_query`, `lower_reaches` and their request and result types | codegen (AD-001, FR-039 "Items codegen owns"); absent from IR | `definedness_arithmetic.rs:19`, `bounded_collections.rs:18`, `finite_reference_graphs.rs:18` are one-line calls into them |
 | Lowering request from codegen | `CompleteLoweringProfileV2` (`supported_tags`, `require_bounds`, `work_limit`), built by each generator (for example `composite_equality.rs:670`) | codegen supplies, IR defines the type | one profile per generator |
 
 What does not cross: no runtime type (the two repositories have no edge), and, as a target, no
@@ -84,8 +84,7 @@ Codegen's manifest now declares both IR packages: `quire-contract-model` for mod
 - The checked-package seam asserts `contract_version` and `package_id` (AD-004). Codegen does not
   recompute either; it reads an admitted `CheckedPackageV2`.
 - IR-605 changed `KaniOutcome.code` to the model crate's `Std001Code`; codegen compares the
-  registered `Std001Code::KANI_VACUOUS_PROOF` constant. The family lowerings still in IR build
-  unregistered codes with `std001_code!` until their move to codegen under IR-347.
+  registered `Std001Code::KANI_VACUOUS_PROOF` constant. The family lowerings now live in codegen.
 
 ### Dependency direction and what enforces it
 
@@ -129,10 +128,8 @@ Codegen's manifest now declares both IR packages: `quire-contract-model` for mod
 Local labels; the repository assigns requirement ids when one is authored.
 
 - G-1. The root crate's public items are exactly FR-039's table and re-export no model item
-  (FR-039-AC-1, planned as TC-055; the no-model-item part is implemented, while the complete
-  inventory is not).
-- G-2. No item named in FR-039 "Items codegen owns" is exported by the root crate (FR-039-AC-3;
-  not true today: `src/kani/mod.rs:19` exports `lower_checked_arithmetic` and the other two).
+  (FR-039-AC-1, verified by TC-055).
+- G-2. No item named in FR-039 "Items codegen owns" is exported by the root crate (FR-039-AC-3; verified by TC-055).
 - G-3. A struct-literal `KaniOutcome` outside the `kani` module does not compile (FR-030-AC-5;
   not true today: all four fields are `pub`, `src/kani/outcome.rs`).
 - G-4. `Proved` carries a check count and a request with count zero returns `KaniOutcomeError`
@@ -156,10 +153,8 @@ What is measured today, what is open and with whom, and what is routed.
   2. IR-347 removed `KaniProviderResult`, `KaniProviderRecord` and
      `KaniOutcomeKind::provider_result` from IR. FR-039 "Items QSL owns" assigns the first two to
      QSL; codegen owns the outcome-to-QSL terminal-value map and used none of these IR items.
-  3. The three family lowerings are in IR (`src/kani/arithmetic.rs`, `collections.rs`,
-     `objects.rs`, 392 lines) and codegen calls them. Moving them out of IR is IR-347 scope (the
-     IR planner's relayed decision); the root glob has been removed.
-  4. FR-030-AC-4 and AC-5, FR-039 and FR-037-AC-6 remain planned or partial in the matrix;
+  3. IR-347 removed the three Kani family lowerings from IR after codegen took ownership.
+  4. FR-030-AC-4 and AC-5 remain planned or partial in the matrix;
      `KaniOutcomeError` now exists for the invalid non-success constructor request.
   5. `proved_from_checks`' doc cites codegen's `classify_run` by file name
      (`src/kani/outcome.rs`): IR's documentation names its consumer, which is a reverse reference

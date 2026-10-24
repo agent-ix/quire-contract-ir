@@ -104,5 +104,4 @@ to `agent-ix/quire-contract-codegen`, tracked there under Linear IR-358.
 IR-347 removed the IR-owned `KaniOutcomeKind::provider_result` map and its
 `KaniProviderResult` and `KaniProviderRecord` types (FR-039). Codegen owns
 the outcome-to-QSL terminal-value map.
-The family lowerings `src/kani/arithmetic.rs`, `collections.rs` and
-`objects.rs` are in this crate today and are codegen's by this requirement.
+The family lowerings live in codegen; IR retains the three-family dispatch index.
