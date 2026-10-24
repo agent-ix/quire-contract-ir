@@ -888,7 +888,7 @@ fn validate_unit(
         }
         Some(target) => {
             require(
-                integer_magnitude(&unit.scale.numerator).map_or(true, |m| !m.zero),
+                integer_magnitude(&unit.scale.numerator).is_none_or(|m| !m.zero),
                 || site.preimage(&["scale", "numerator"]),
             )?;
             expected.push(target);

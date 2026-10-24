@@ -591,7 +591,7 @@ fn check_resolved_path(
     let steps = bound(place, 1).map(typed_members).unwrap_or_default();
     let rows = bound(place, 2).map(typed_members).unwrap_or_default();
     let fail = |at| graph.issue(position, Cause::MalformedClockPlace, at);
-    if steps.first().and_then(|step| path_step_kind(step)) == Some(PathStepKind::Slot) {
+    if steps.first().and_then(path_step_kind) == Some(PathStepKind::Slot) {
         return Err(fail(
             node_pointer(position).key("body").key("members").index(1),
         ));
@@ -738,7 +738,7 @@ fn check_resolved_path(
                 return Err(fail(at));
             }
         }
-        let next_kind = steps.get(index + 1).and_then(|next| path_step_kind(next));
+        let next_kind = steps.get(index + 1).and_then(path_step_kind);
         if next_kind == Some(PathStepKind::Slot) {
             let next = &steps[index + 1];
             let expected_collection = text_member(next, 1);
