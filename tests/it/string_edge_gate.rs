@@ -125,3 +125,49 @@ fn normal_gate_uses_both_roots_and_refuses_unmarked_dispatch() {
     let output = clean.run(&clean.0.join("missing-scanner"));
     assert!(!output.status.success(), "{}", diagnostic(&output));
 }
+
+#[test]
+#[trace("FR-056-AC-6")]
+fn marked_intake_depends_on_neutral_trace_without_scanner_or_qsl_dependency() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let output = Command::new("cargo")
+        .args([
+            "metadata",
+            "--format-version",
+            "1",
+            "--no-deps",
+            "--locked",
+            "--offline",
+        ])
+        .current_dir(&root)
+        .output()
+        .expect("cargo metadata runs");
+    assert!(output.status.success(), "{}", diagnostic(&output));
+    let metadata: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("cargo metadata JSON");
+    let packages = metadata["packages"].as_array().expect("packages");
+    for package_name in ["quire-contract-ir", "quire-contract-model"] {
+        let package = packages
+            .iter()
+            .find(|package| package["name"] == package_name)
+            .expect("production package");
+        let deps = package["dependencies"].as_array().expect("dependencies");
+        if package_name == "quire-contract-model" {
+            assert!(
+                deps.iter().any(|dependency| {
+                    dependency["name"] == "ix-trace-rs" && dependency["kind"].is_null()
+                }),
+                "the marked model crate must resolve the neutral marker as a normal dependency"
+            );
+        }
+        assert!(
+            deps.iter().all(|dependency| {
+                !matches!(
+                    dependency["name"].as_str(),
+                    Some("quire-spec-language" | "qsl-string-edge")
+                )
+            }),
+            "{package_name} cannot acquire QSL or scanner as a Cargo dependency"
+        );
+    }
+}
