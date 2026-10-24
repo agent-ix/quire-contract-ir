@@ -229,6 +229,8 @@ pub enum CheckedPackageRefusalCause {
     MalformedClockPlace,
     /// `invalid-time-quantity`: a clock quantity is not exact nonnegative time.
     InvalidTimeQuantity,
+    /// `clock-without-dense-time`: a tick time source owns a clock place.
+    ClockWithoutDenseTime,
     /// `unsupported-selection`: a clause's `temporal_profile` law names an
     /// identity that is no member of QSpec FR-250's Values table and that the
     /// package's own lock selects under no other role; paired with

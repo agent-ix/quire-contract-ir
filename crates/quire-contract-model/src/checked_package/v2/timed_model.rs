@@ -858,11 +858,17 @@ pub(super) fn validate_models<'a>(
                     binding_at(source, 1),
                     |kind| kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),
                 )?;
-                if nodes[unit].semantic_type != nodes[dimension].node_id {
+                let is_base_time = matches!(
+                    nodes[dimension].nominal_identity_preimage.as_ref(),
+                    Some(super::NominalIdentityPreimage::Dimension(preimage))
+                        if preimage.terms.is_empty()
+                            && preimage.qualified_declaration.last().is_some_and(|name| name.as_ref() == "Time")
+                );
+                if !is_base_time || nodes[unit].semantic_type != nodes[dimension].node_id {
                     return Err(graph.issue(
                         source,
                         Cause::InvalidTimeQuantity,
-                        binding_at(source, 1),
+                        binding_at(source, 1).key("target"),
                     ));
                 }
                 if bound(source_body, 0).and_then(spelling) == Some("tick") {
@@ -924,6 +930,15 @@ pub(super) fn validate_models<'a>(
                         let target = graph.target(position, Some(child), at.clone(), |kind| {
                             kind == CheckedNodeKind::TimedModel(expected)
                         })?;
+                        if expected == Form::Place
+                            && bound(source_body, 0).and_then(spelling) == Some("tick")
+                        {
+                            return Err(graph.issue(
+                                target,
+                                Cause::ClockWithoutDenseTime,
+                                binding_at(target, 0).key("target"),
+                            ));
+                        }
                         if expected == Form::Place {
                             let place = graph.body(target)?;
                             let place_model =
