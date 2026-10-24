@@ -1,7 +1,8 @@
 //! Closed outcomes at the bounded-Kani boundary.
 
 use quire_contract_model::Std001Code;
-use serde::{Deserialize, Serialize};
+use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
+use std::num::NonZeroUsize;
 use thiserror::Error;
 
 /// Every terminal bounded-Kani outcome.
@@ -17,7 +18,7 @@ use thiserror::Error;
 /// use quire_contract_ir::kani::{KaniCancellationSource, KaniOutcomeKind};
 /// let _ = KaniOutcomeKind::Cancelled { source: KaniCancellationSource::Requested };
 /// ```
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum KaniOutcomeKind {
     /// The selected finite property was proved under the retained profile and assumptions.
@@ -61,10 +62,11 @@ pub enum KaniCancellationSource {
 /// kind and cause code that were requested. No outcome is built and no other kind
 /// or cause is substituted.
 #[derive(Clone, Debug, Eq, PartialEq, Error)]
-#[error("kani_outcome_invalid: a {requested_kind:?} outcome with cause {requested_code} is not a non-success outcome")]
+#[error("kani_outcome_invalid: invalid {requested_kind:?} outcome with cause {requested_code} or check count")]
 pub struct KaniOutcomeError {
     requested_kind: KaniOutcomeKind,
     requested_code: Std001Code,
+    rejected_success_checks: Option<usize>,
 }
 
 impl KaniOutcomeError {
@@ -84,6 +86,12 @@ impl KaniOutcomeError {
     #[must_use]
     pub const fn requested_code(&self) -> Std001Code {
         self.requested_code
+    }
+
+    /// The rejected proof count, when the request was for a zero-check proof.
+    #[must_use]
+    pub const fn rejected_success_checks(&self) -> Option<usize> {
+        self.rejected_success_checks
     }
 }
 
@@ -142,29 +150,103 @@ impl TryFrom<KaniOutcomeKind> for NonSuccessKind {
 }
 
 /// Typed output which cannot manufacture a Boolean for a non-success state.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+/// Its fields are private to the `kani` module so callers use validated constructors.
+///
+/// ```compile_fail,E0451
+/// use quire_contract_ir::kani::{KaniOutcome, KaniOutcomeKind};
+/// use quire_contract_model::Std001Code;
+/// let _ = KaniOutcome {
+///     kind: KaniOutcomeKind::Proved,
+///     code: Std001Code::KANI_PROVED,
+///     source_id: "s".into(),
+///     context: "p".into(),
+///     success_checks: Some(0),
+/// };
+/// ```
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct KaniOutcome {
     /// Closed outcome kind.
-    pub kind: KaniOutcomeKind,
+    kind: KaniOutcomeKind,
     /// Stable machine-readable cause code, in the STD-001 form (FR-044). The form
     /// is checked, not the registration or the issuing registry.
-    pub code: Std001Code,
+    code: Std001Code,
     /// Exact source or input identity that first caused the result.
-    pub source_id: String,
+    source_id: String,
     /// Profile and bound context selected for the result.
-    pub context: String,
+    context: Box<str>,
+    /// Number of SUCCESS checks, present only on a proved outcome.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    success_checks: Option<NonZeroUsize>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KaniOutcomeWire {
+    kind: KaniOutcomeKind,
+    code: Std001Code,
+    source_id: String,
+    context: String,
+    success_checks: Option<usize>,
+}
+
+impl<'de> Deserialize<'de> for KaniOutcome {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire = KaniOutcomeWire::deserialize(deserializer)?;
+        let KaniOutcomeWire {
+            kind,
+            code,
+            source_id,
+            context,
+            success_checks,
+        } = wire;
+        match kind {
+            KaniOutcomeKind::Proved if code == Std001Code::KANI_PROVED => Self::proved(
+                success_checks.ok_or_else(|| D::Error::custom("proved requires success_checks"))?,
+                source_id,
+                context,
+            )
+            .map_err(D::Error::custom),
+            KaniOutcomeKind::Counterexample
+                if code == Std001Code::KANI_COUNTEREXAMPLE && success_checks.is_none() =>
+            {
+                Ok(Self::counterexample(source_id, context))
+            }
+            KaniOutcomeKind::Proved | KaniOutcomeKind::Counterexample => {
+                Err(D::Error::custom("invalid Boolean outcome cause or count"))
+            }
+            kind if success_checks.is_some() => Err(D::Error::custom(format!(
+                "{kind:?} cannot carry success_checks"
+            ))),
+            kind => Self::non_success(kind, code, source_id, context).map_err(D::Error::custom),
+        }
+    }
 }
 
 impl KaniOutcome {
-    /// Constructs a proof result.
-    pub fn proved(source_id: impl Into<String>, context: impl Into<String>) -> Self {
-        Self::new(
+    /// Constructs a proof result with a nonzero SUCCESS-check count.
+    ///
+    /// # Errors
+    ///
+    /// Refuses a zero-check proof with `kani_outcome_invalid`.
+    pub fn proved(
+        success_checks: usize,
+        source_id: impl Into<String>,
+        context: impl Into<String>,
+    ) -> Result<Self, KaniOutcomeError> {
+        let Some(success_checks) = NonZeroUsize::new(success_checks) else {
+            return Err(KaniOutcomeError {
+                requested_kind: KaniOutcomeKind::Proved,
+                requested_code: Std001Code::KANI_PROVED,
+                rejected_success_checks: Some(0),
+            });
+        };
+        Ok(Self::new(
             KaniOutcomeKind::Proved,
             Std001Code::KANI_PROVED,
             source_id,
             context,
-        )
+            Some(success_checks),
+        ))
     }
 
     /// Constructs a concrete counterexample result.
@@ -174,6 +256,7 @@ impl KaniOutcome {
             Std001Code::KANI_COUNTEREXAMPLE,
             source_id,
             context,
+            None,
         )
     }
 
@@ -205,7 +288,7 @@ impl KaniOutcome {
                 context,
             );
         }
-        Self::proved(source_id, context)
+        Self::proved(success_checks, source_id, context).expect("nonzero count was checked")
     }
 
     /// Constructs a `refused` outcome retaining the supplied cause and context.
@@ -493,9 +576,8 @@ impl KaniOutcome {
     ///
     /// # Errors
     ///
-    /// Returns [`KaniOutcomeError`] when `kind` is `Proved` or `Counterexample`,
-    /// which carry a Boolean claim and are built by [`KaniOutcome::proved`] and
-    /// [`KaniOutcome::counterexample`] only.
+    /// Returns [`KaniOutcomeError`] for a Boolean kind, or for an
+    /// `Unavailable`/`Inconclusive` kind with a cause outside its fixed set.
     pub fn non_success(
         kind: KaniOutcomeKind,
         code: Std001Code,
@@ -503,10 +585,32 @@ impl KaniOutcome {
         context: impl Into<String>,
     ) -> Result<Self, KaniOutcomeError> {
         match NonSuccessKind::try_from(kind) {
+            Ok(kind)
+                if matches!(kind, NonSuccessKind::Unavailable)
+                    && code != Std001Code::KANI_CHECKER_ABSENT
+                    && code != Std001Code::KANI_BACKEND_ABSENT =>
+            {
+                Err(KaniOutcomeError {
+                    requested_kind: kind.kind(),
+                    requested_code: code,
+                    rejected_success_checks: None,
+                })
+            }
+            Ok(kind)
+                if matches!(kind, NonSuccessKind::Inconclusive)
+                    && code != Std001Code::KANI_VACUOUS_PROOF =>
+            {
+                Err(KaniOutcomeError {
+                    requested_kind: kind.kind(),
+                    requested_code: code,
+                    rejected_success_checks: None,
+                })
+            }
             Ok(kind) => Ok(Self::raise(kind, code, source_id, context)),
             Err(requested_kind) => Err(KaniOutcomeError {
                 requested_kind,
                 requested_code: code,
+                rejected_success_checks: None,
             }),
         }
     }
@@ -521,7 +625,7 @@ impl KaniOutcome {
         source_id: impl Into<String>,
         context: impl Into<String>,
     ) -> Self {
-        Self::new(kind.kind(), code, source_id, context)
+        Self::new(kind.kind(), code, source_id, context, None)
     }
 
     /// Builds the outcome after the caller has chosen a kind and code that agree.
@@ -530,12 +634,47 @@ impl KaniOutcome {
         code: Std001Code,
         source_id: impl Into<String>,
         context: impl Into<String>,
+        success_checks: Option<NonZeroUsize>,
     ) -> Self {
         Self {
             kind,
             code,
             source_id: source_id.into(),
-            context: context.into(),
+            context: context.into().into_boxed_str(),
+            success_checks,
+        }
+    }
+
+    /// Closed outcome kind.
+    #[must_use]
+    pub const fn kind(&self) -> KaniOutcomeKind {
+        self.kind
+    }
+
+    /// Typed cause code.
+    #[must_use]
+    pub const fn code(&self) -> Std001Code {
+        self.code
+    }
+
+    /// Identity that caused the outcome.
+    #[must_use]
+    pub fn source_id(&self) -> &str {
+        &self.source_id
+    }
+
+    /// Retained profile and bound context.
+    #[must_use]
+    pub fn context(&self) -> &str {
+        &self.context
+    }
+
+    /// SUCCESS-check count, present only for a proved result.
+    #[must_use]
+    pub const fn success_checks(&self) -> Option<usize> {
+        match self.success_checks {
+            Some(count) => Some(count.get()),
+            None => None,
         }
     }
 

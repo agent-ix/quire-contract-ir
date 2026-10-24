@@ -170,16 +170,15 @@ FR-044 defines `Std001Code`. FR-015 defines partial-operation semantics. FR-029 
 Implemented through the shared finite ABI/outcome foundation and three semantic
 lanes. Invalid, incomplete, unavailable and over-bound inputs retain typed
 non-Boolean outcomes; this status does not claim an undeclared model or domain.
-AC-6 is partly implemented (TC-443, IR-605): `KaniOutcome.code` is a `Std001Code`
+AC-6 is implemented (TC-443, IR-605): `KaniOutcome.code` is a `Std001Code`
 that serializes as the bare string and is checked on read, `non_success` takes
 one (a string does not compile), and it returns `KaniOutcomeError` (code
 `kani_outcome_invalid`, naming the requested kind and cause) for a `proved` or
-`counterexample` request. Its clause that reads the error's code for a `proved`
-request with a count of zero is planned with AC-4, because no such request
-exists; the TC-443 test reads the error through the non-success request instead.
-AC-4 and AC-5 are planned (TC-223, no test): `KaniOutcome`'s fields are public, a
-`proved` outcome carries no check count and no `proved` request takes one, and
-`non_success` accepts any cause code for `unavailable` and `inconclusive`.
+`counterexample` request. TC-443 also reads the error's code for a zero-count
+`proved` request.
+AC-4 and AC-5 are exercised by TC-223: `KaniOutcome`'s fields are private,
+`proved` retains a nonzero SUCCESS-check count, and the broad constructor and
+wire reader reject invalid fixed causes and counts.
 The obsolete inconclusive profile disposition and its three family lowering
 arms have been removed; a legacy profile is rejected before lowering. The
 actual zero-SUCCESS run classifier still produces `kani_vacuous_proof`.
