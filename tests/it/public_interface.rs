@@ -1400,7 +1400,10 @@ fn tc_055_root_public_inventory_matches_fr_039() {
                     .join(format!("{module}.rs"));
                 let source = fs::read_to_string(path).expect("export source must exist");
                 let leaf = parse_model_source(&source, &module);
-                assert!(public_declarations(&leaf).iter().any(|item| matches!(item, PublicDeclaration::Item(item_name) if item_name == &name)), "{module}::{name} must be public in its leaf");
+                let leaf_has_item = public_declarations(&leaf).iter().any(
+                    |item| matches!(item, PublicDeclaration::Item(item_name) if item_name == &name),
+                );
+                assert!(leaf_has_item, "{module}::{name} must be public in its leaf");
                 assert!(actual.insert(name), "duplicate Kani export");
             }
             PublicDeclaration::Item(name) => assert!(actual.insert(name), "duplicate Kani item"),
@@ -1411,6 +1414,40 @@ fn tc_055_root_public_inventory_matches_fr_039() {
         actual, expected,
         "transitive root public items differ from FR-039"
     );
+}
+
+fn exports_macro(file: &syn::File) -> bool {
+    use syn::visit::Visit;
+
+    struct ExportedMacro(bool);
+    impl<'ast> Visit<'ast> for ExportedMacro {
+        fn visit_item_macro(&mut self, item: &'ast syn::ItemMacro) {
+            self.0 |= item
+                .attrs
+                .iter()
+                .any(|attr| attr.path().is_ident("macro_export"));
+            syn::visit::visit_item_macro(self, item);
+        }
+    }
+    let mut visitor = ExportedMacro(false);
+    visitor.visit_file(file);
+    visitor.0
+}
+
+/// Trace: FR-039-AC-1, TC-055.
+#[trace("TC-055", "FR-039-AC-1")]
+#[test]
+fn tc_055_nested_exported_macro_is_rejected_by_inventory() {
+    let nested = parse_model_source(
+        "mod nested { #[macro_export] macro_rules! leaked { () => {}; } }",
+        "nested macro control",
+    );
+    assert!(exports_macro(&nested));
+    let ordinary = parse_model_source(
+        "mod nested { macro_rules! private { () => {}; } }",
+        "private macro control",
+    );
+    assert!(!exports_macro(&ordinary));
 }
 
 /// Trace: FR-039-AC-2, FR-039-AC-3, FR-037-AC-6, TC-055.
@@ -1434,18 +1471,11 @@ fn tc_055_no_foreign_runtime_or_replay_surface_in_source() {
             let source = fs::read_to_string(&path).expect("source file");
             if path.starts_with(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")) {
                 let parsed = parse_model_source(&source, &path.display().to_string());
-                for item in parsed.items {
-                    if let syn::Item::Macro(item) = item {
-                        assert!(
-                            !item
-                                .attrs
-                                .iter()
-                                .any(|attr| attr.path().is_ident("macro_export")),
-                            "{} exports an uninventoried macro",
-                            path.display()
-                        );
-                    }
-                }
+                assert!(
+                    !exports_macro(&parsed),
+                    "{} exports an uninventoried macro",
+                    path.display()
+                );
             }
             let code = source
                 .lines()

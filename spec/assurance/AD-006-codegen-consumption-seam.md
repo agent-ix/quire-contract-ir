@@ -35,7 +35,8 @@ codegen's side are codegen's AD-002 and AD-003. None is restated here.
 
 IR owns the reader, the lowering types, the authored-contract model and the shared Kani contract
 (profile, finite input, dispatch, outcome). Codegen owns generation: oracles, harnesses, Kani
-obligations and the Kani family lowerings. Codegen depends on IR; IR depends on nothing of
+obligations and the collection and graph Kani lowerers. Codegen retired arithmetic
+lowering under FR-015-AC-109. Codegen depends on IR; IR depends on nothing of
 codegen's.
 
 Out of scope: how codegen uses what it reads (codegen's own specification) and the runtime seam
@@ -54,8 +55,8 @@ Measured at the commits of codegen and IR this AD was written against.
 | --- | --- | --- | --- |
 | Checked-package v2 and lowering | `CheckedPackageV2`, `CheckedNodeId`, `CheckedNodeTag`, `CheckedSemanticId`, `CheckedSemanticNodeV2`, `CheckedSourceMapEntry`, `CompleteContractNodeV2`, `CompleteLoweringProfileV2`, `CompleteLoweringRecordV2` | IR (FR-035, FR-038; wire is QSpec's) | `composite_equality.rs`, `exact_function.rs`, `exact_scalar.rs`, `state_frame.rs`, `routed_generation.rs`, `generation.rs`, `kani_obligations.rs` |
 | Authored-contract projection | `BoundPackage`, `BoundClause`, `ClauseRef`, `ClauseKind`, `Expression`, `ExpressionKind`, `TypedExpression`, `StateObservation`, `DependencyIdentity`, `SourceSpan` and related | IR (FR-011 to FR-023) | `bound.rs`, `bound_coverage.rs`, `bound_strategy/generation.rs`, `oracle.rs`, `harness.rs`, `kani.rs`, `strategy.rs`, `kani_obligations.rs` |
-| Shared Kani contract | `PROFILE` `kani-bounded/1`, `KaniProfile`, `ProfileSelection`, `FiniteInput` family, `DispatchIndex`, `KaniOutcome`, `KaniOutcomeKind` | IR (FR-029 to FR-031) | `bounded_kani_profile.rs`, `bounded_kani_corpus.rs`, `bounded_collections.rs`, `finite_reference_graphs.rs`, `definedness_arithmetic.rs`, `kani_execution.rs` |
-| Kani family lowerings | `lower_checked_arithmetic`, `lower_query`, `lower_reaches` and their request and result types | codegen (AD-001, FR-039 "Items codegen owns"); absent from IR | `definedness_arithmetic.rs`, `bounded_collections.rs`, and `finite_reference_graphs.rs` own the family lowering paths |
+| Shared Kani contract | `PROFILE` `kani-bounded/1`, `KaniProfile`, `ProfileSelection`, `FiniteInput` family, `DispatchIndex`, `KaniOutcome`, `KaniOutcomeKind` | IR (FR-029 to FR-031) | `bounded_kani_profile.rs`, `bounded_kani_corpus.rs`, `bounded_collections.rs`, `finite_reference_graphs.rs`, `kani_execution.rs` |
+| Former IR Kani family lowerings | `lower_checked_arithmetic`, `lower_query`, `lower_reaches` and their request and result types | absent from IR; arithmetic retired in codegen (FR-015-AC-109), collection and graph lowering owned by codegen | `bounded_collections.rs` and `finite_reference_graphs.rs` own the active lowering paths |
 | Lowering request from codegen | `CompleteLoweringProfileV2` (`supported_tags`, `require_bounds`, `work_limit`), built by each generator (for example `composite_equality.rs:670`) | codegen supplies, IR defines the type | one profile per generator |
 
 What does not cross: no runtime type (the two repositories have no edge), and, as a target, no
@@ -84,7 +85,9 @@ Codegen's manifest now declares both IR packages: `quire-contract-model` for mod
 - The checked-package seam asserts `contract_version` and `package_id` (AD-004). Codegen does not
   recompute either; it reads an admitted `CheckedPackageV2`.
 - IR-605 changed `KaniOutcome.code` to the model crate's `Std001Code`; codegen compares the
-  registered `Std001Code::KANI_VACUOUS_PROOF` constant. The family lowerings now live in codegen.
+  registered `Std001Code::KANI_VACUOUS_PROOF` constant. IR exports no family lowering;
+  codegen retains collection and graph lowerers, and arithmetic was retired under
+  FR-015-AC-109.
 
 ### Dependency direction and what enforces it
 
@@ -111,10 +114,10 @@ Codegen's manifest now declares both IR packages: `quire-contract-model` for mod
 - A. Target: codegen reads IR through the model crate for model items and the root crate for the
   `kani` module only. Order: codegen first adds the direct `quire-contract-model` dependency, then
   IR removes the root glob (the order the planner relays for IR-347); nothing sits between.
-- B. Every Kani family lowering lives in codegen. IR keeps the profile, finite input, dispatch
-  index and outcome, which any backend can read. Order: codegen takes the lowerings over first,
-  then IR deletes them, with no copy left in IR and no re-export. The move is IR-347 scope (the
-  IR planner's relayed decision). The final form is this one, and CG's ADs agree.
+- B. IR keeps the profile, finite input, dispatch index and outcome, which any backend can
+  read, and exports no family lowering. Codegen retains collection and graph lowerers; its
+  arithmetic lowering was retired by FR-015-AC-109. IR-347 removed the former IR modules and
+  re-exports after those codegen ownership decisions.
 - C. IR's `KaniOutcome` is built only through its constructors (FR-030-AC-5), and the cause codes
   codegen matches are `Std001Code` constants exported by `quire-contract-model`, not literals on
   both sides (FR-044, FR-030-AC-6; IR-605). Codegen's own refusal codes (`kani_corpus_*` and
@@ -153,7 +156,8 @@ What is measured today, what is open and with whom, and what is routed.
   2. IR-347 removed `KaniProviderResult`, `KaniProviderRecord` and
      `KaniOutcomeKind::provider_result` from IR. FR-039 "Items QSL owns" assigns the first two to
      QSL; codegen owns the outcome-to-QSL terminal-value map and used none of these IR items.
-  3. IR-347 removed the three Kani family lowerings from IR after codegen took ownership.
+  3. IR-347 removed the three Kani family lowerings from IR. Codegen retired arithmetic and
+     retains collection and graph lowerers.
   4. FR-030-AC-4 and AC-5 remain planned or partial in the matrix;
      `KaniOutcomeError` now exists for the invalid non-success constructor request.
   5. `proved_from_checks`' doc cites codegen's `classify_run` by file name
@@ -182,7 +186,7 @@ To codegen:
 
 | Id | Stated need |
 | --- | --- |
-| R3-C1 | Take over the three Kani family lowerings (their request and result types and the three one-line wrappers) so IR can delete them. The final form is this AD's (lowerings in codegen, model items through the model crate, per IR-347 as relayed), and CG's ADs agree. |
+| R3-C1 | Resolved: IR removed its three family lowerings; codegen retired arithmetic (FR-015-AC-109) and owns the collection and graph lowering paths. |
 | R3-C2 | Declare `quire-contract-model` directly and import model items from it, before IR removes the root glob. |
 | R3-C4 | Remove the stale comment in `deny.toml` that places `quire-spec-language` behind `quire-contract-ir`. |
 

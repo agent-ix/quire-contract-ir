@@ -68,7 +68,14 @@ fn input(completeness: PopulationCompleteness) -> FiniteInput {
     }
 }
 
-#[trace("TC-042", "FR-029-AC-1", "FR-029-AC-2", "FR-029-AC-3")]
+#[trace(
+    "TC-042",
+    "TC-055",
+    "FR-029-AC-1",
+    "FR-029-AC-2",
+    "FR-029-AC-3",
+    "FR-039-AC-4"
+)]
 #[test]
 fn tc_042_profile_requires_one_known_entry_per_encountered_construct() {
     let classified = profile()
@@ -79,15 +86,17 @@ fn tc_042_profile_requires_one_known_entry_per_encountered_construct() {
         .expect("complete matrix selection");
     assert_eq!(classified.len(), 2);
 
-    let refusal = profile()
-        .classify(&["unbounded-quantifier".into()], "clause:demo")
-        .expect_err("unknown construct refuses before lowering");
+    let refusal = std::panic::catch_unwind(|| {
+        profile().classify(&["unbounded-quantifier".into()], "clause:demo")
+    })
+    .expect("unknown capability classification must not panic")
+    .expect_err("unknown construct refuses before lowering");
     assert_eq!(refusal.kind(), KaniOutcomeKind::Refused);
     assert_eq!(refusal.code(), Std001Code::KANI_CAPABILITY_MISSING);
     assert_eq!(refusal.boolean_claim(), None);
 }
 
-#[trace("TC-042", "FR-029-AC-1", "FR-029-AC-2")]
+#[trace("TC-042", "TC-055", "FR-029-AC-1", "FR-029-AC-2", "FR-039-AC-4")]
 #[test]
 fn tc_042_an_invalid_profile_is_refused_on_every_construction_path() {
     let entry = |construct: &str| CapabilityEntry {
@@ -105,17 +114,37 @@ fn tc_042_an_invalid_profile_is_refused_on_every_construction_path() {
         ..selection()
     };
     let cases = [
-        (wrong_family, vec![entry("a")]),
-        (blank_revision, vec![entry("a")]),
-        (selection(), vec![entry("a"), entry("a")]),
-        (selection(), vec![entry(" ")]),
+        (
+            wrong_family,
+            vec![entry("a")],
+            quire_contract_ir::kani::ProfileError::UnsupportedProfile("kani-bounded/2".into()),
+        ),
+        (
+            blank_revision,
+            vec![entry("a")],
+            quire_contract_ir::kani::ProfileError::MissingSelectionField("revision"),
+        ),
+        (
+            selection(),
+            vec![entry("a"), entry("a")],
+            quire_contract_ir::kani::ProfileError::InvalidMatrix("a".into()),
+        ),
+        (
+            selection(),
+            vec![entry(" ")],
+            quire_contract_ir::kani::ProfileError::InvalidMatrix(" ".into()),
+        ),
     ];
-    for (selection, capabilities) in cases {
+    for (selection, capabilities, expected) in cases {
         let wire = serde_json::json!({ "selection": selection, "capabilities": capabilities });
-        let constructed =
-            KaniProfile::new(selection, capabilities).expect_err(&format!("new refuses {wire}"));
-        let deserialized = serde_json::from_value::<KaniProfile>(wire.clone())
-            .expect_err(&format!("deserialize refuses {wire}"));
+        let constructed = std::panic::catch_unwind(|| KaniProfile::new(selection, capabilities))
+            .expect("profile constructor must not panic")
+            .expect_err(&format!("new refuses {wire}"));
+        assert_eq!(constructed, expected, "{wire}");
+        let deserialized =
+            std::panic::catch_unwind(|| serde_json::from_value::<KaniProfile>(wire.clone()))
+                .expect("profile wire reader must not panic")
+                .expect_err(&format!("deserialize refuses {wire}"));
         // Deserialize routes through `new`, so the refusal is the same one.
         assert_eq!(deserialized.to_string(), constructed.to_string(), "{wire}");
     }
@@ -130,19 +159,23 @@ fn tc_042_an_invalid_profile_is_refused_on_every_construction_path() {
     assert_eq!(round_trip.capabilities().len(), 2);
 }
 
-#[trace("TC-042", "FR-029-AC-2")]
+#[trace("TC-042", "TC-055", "FR-029-AC-2", "FR-039-AC-4")]
 #[test]
 fn profile_wire_rejects_inconclusive_even_with_the_genuine_run_cause() {
     for code in ["profile_not_qualified", "kani_vacuous_proof"] {
         let disposition = serde_json::json!({"inconclusive": {"code": code}});
-        let error = serde_json::from_value::<CapabilityDisposition>(disposition.clone())
-            .expect_err("inconclusive is not a profile disposition");
+        let error = std::panic::catch_unwind(|| {
+            serde_json::from_value::<CapabilityDisposition>(disposition.clone())
+        })
+        .expect("disposition wire reader must not panic")
+        .expect_err("inconclusive is not a profile disposition");
         assert!(error.to_string().contains("unknown variant `inconclusive`"));
         let wire = serde_json::json!({
             "selection": selection(),
             "capabilities": [{"construct": "checked-add", "disposition": disposition}]
         });
-        let error = serde_json::from_value::<KaniProfile>(wire)
+        let error = std::panic::catch_unwind(|| serde_json::from_value::<KaniProfile>(wire))
+            .expect("profile wire reader must not panic")
             .expect_err("an otherwise valid profile must reject the obsolete disposition");
         assert!(error.to_string().contains("unknown variant `inconclusive`"));
     }
@@ -171,7 +204,7 @@ fn profile_wire_rejects_inconclusive_even_with_the_genuine_run_cause() {
     }
 }
 
-#[trace("TC-042", "FR-029-AC-1", "FR-029-AC-2")]
+#[trace("TC-042", "TC-055", "FR-029-AC-1", "FR-029-AC-2", "FR-039-AC-4")]
 #[test]
 fn capability_census_preserves_request_order_and_entries_after_a_refusal() {
     let refused = |construct: &str, code| CapabilityEntry {
@@ -214,8 +247,8 @@ fn capability_census_preserves_request_order_and_entries_after_a_refusal() {
         vec!["checked-add".into(), "checked-add".into()],
         vec![" ".into()],
     ] {
-        let failure = decoded
-            .classify(&constructs, "source:census")
+        let failure = std::panic::catch_unwind(|| decoded.classify(&constructs, "source:census"))
+            .expect("invalid capability classification must not panic")
             .expect_err("invalid request");
         assert_eq!(failure.kind(), KaniOutcomeKind::Refused);
         assert_eq!(failure.code(), Std001Code::KANI_CAPABILITY_REQUEST_INVALID);
@@ -225,19 +258,20 @@ fn capability_census_preserves_request_order_and_entries_after_a_refusal() {
     }
 }
 
-#[trace("TC-042", "FR-030-AC-1", "FR-030-AC-2")]
+#[trace("TC-042", "TC-055", "FR-030-AC-1", "FR-030-AC-2", "FR-039-AC-4")]
 #[test]
 fn tc_042_invalid_and_incomplete_populations_are_not_assumed_away() {
-    let incomplete = input(PopulationCompleteness::Incomplete)
-        .validate()
-        .expect_err("incomplete input is a result, not an assumption");
+    let incomplete =
+        std::panic::catch_unwind(|| input(PopulationCompleteness::Incomplete).validate())
+            .expect("incomplete input validation must not panic")
+            .expect_err("incomplete input is a result, not an assumption");
     assert_eq!(incomplete.kind(), KaniOutcomeKind::IncompleteInput);
     assert_eq!(incomplete.boolean_claim(), None);
 
     let mut duplicate = input(PopulationCompleteness::Complete);
     duplicate.objects[1].identity = "object:a".into();
-    let invalid = duplicate
-        .validate()
+    let invalid = std::panic::catch_unwind(|| duplicate.validate())
+        .expect("duplicate identity validation must not panic")
         .expect_err("duplicate identity is invalid input");
     assert_eq!(invalid.kind(), KaniOutcomeKind::InvalidInput);
     assert_eq!(invalid.boolean_claim(), None);
@@ -247,8 +281,8 @@ fn tc_042_invalid_and_incomplete_populations_are_not_assumed_away() {
         .references
         .push(duplicate_reference.references[0].clone());
     duplicate_reference.bounds.max_references = 2;
-    let invalid_reference = duplicate_reference
-        .validate()
+    let invalid_reference = std::panic::catch_unwind(|| duplicate_reference.validate())
+        .expect("duplicate reference validation must not panic")
         .expect_err("duplicate reference edge is invalid input");
     assert_eq!(invalid_reference.kind(), KaniOutcomeKind::InvalidInput);
 
@@ -258,6 +292,33 @@ fn tc_042_invalid_and_incomplete_populations_are_not_assumed_away() {
     scalar
         .validate()
         .expect("scalar domains do not require a reference capacity");
+}
+
+/// Trace: FR-039-AC-4, TC-055; malformed public wire readers return typed serde errors.
+#[trace("TC-055", "FR-039-AC-4")]
+#[test]
+fn tc_055_malformed_finite_input_and_descriptor_wire_do_not_panic() {
+    let invalid_input = serde_json::json!({"model_id": 17});
+    let input_error =
+        std::panic::catch_unwind(|| serde_json::from_value::<FiniteInput>(invalid_input))
+            .expect("finite-input wire reader must not panic")
+            .expect_err("malformed finite input is refused");
+    assert!(
+        input_error.is_data() || input_error.is_eof(),
+        "{input_error}"
+    );
+
+    let invalid_module = serde_json::json!({
+        "module_id": "m",
+        "family": "unknown",
+        "abi_revision": "kani-abi/1",
+        "constructs": []
+    });
+    let module_error =
+        std::panic::catch_unwind(|| serde_json::from_value::<ModuleDescriptor>(invalid_module))
+            .expect("module descriptor wire reader must not panic")
+            .expect_err("unknown semantic family is refused");
+    assert!(module_error.is_data(), "{module_error}");
 }
 
 #[trace("TC-042", "FR-030-AC-3")]
@@ -331,7 +392,7 @@ fn kani_cancellation_sources_round_trip_in_the_kind() {
     }
 }
 
-#[trace("TC-449")]
+#[trace("TC-449", "TC-055", "FR-039-AC-4")]
 #[test]
 fn malformed_or_mismatched_cancellation_wire_is_refused() {
     for kind in [
@@ -348,10 +409,10 @@ fn malformed_or_mismatched_cancellation_wire_is_refused() {
             "source_id": "clause:demo",
             "context": "profile"
         });
-        assert!(
-            serde_json::from_value::<KaniOutcome>(wire.clone()).is_err(),
-            "unexpectedly accepted {wire}"
-        );
+        let refusal =
+            std::panic::catch_unwind(|| serde_json::from_value::<KaniOutcome>(wire.clone()))
+                .expect("outcome wire reader must not panic");
+        assert!(refusal.is_err(), "unexpectedly accepted {wire}");
     }
     for (field, value) in [
         ("source", serde_json::json!("deadline")),
@@ -366,10 +427,10 @@ fn malformed_or_mismatched_cancellation_wire_is_refused() {
         wire.as_object_mut()
             .expect("outcome wire is an object")
             .insert(field.to_owned(), value);
-        assert!(
-            serde_json::from_value::<KaniOutcome>(wire.clone()).is_err(),
-            "unexpectedly accepted {wire}"
-        );
+        let refusal =
+            std::panic::catch_unwind(|| serde_json::from_value::<KaniOutcome>(wire.clone()))
+                .expect("outcome wire reader must not panic");
+        assert!(refusal.is_err(), "unexpectedly accepted {wire}");
     }
 }
 
@@ -426,7 +487,7 @@ fn non_cancelled_kinds_retain_their_wire_and_claims() {
     }
 }
 
-#[trace("TC-042", "FR-031-AC-1")]
+#[trace("TC-042", "TC-055", "FR-031-AC-1", "FR-039-AC-4")]
 #[test]
 fn tc_042_dispatch_rejects_cross_family_or_duplicate_ownership() {
     let module = ModuleDescriptor {
@@ -440,15 +501,16 @@ fn tc_042_dispatch_rejects_cross_family_or_duplicate_ownership() {
         index.resolve("checked-add").expect("owner").family,
         SemanticFamily::DefinednessArithmetic
     );
+    let unowned = std::panic::catch_unwind(|| index.resolve("object-reference"))
+        .expect("unowned dispatch must not panic");
     assert_eq!(
-        index.resolve("object-reference"),
+        unowned,
         Err(DispatchError::Unowned("object-reference".into()))
     );
 
-    assert!(matches!(
-        DispatchIndex::new(vec![module.clone(), module]),
-        Err(DispatchError::Conflict(_))
-    ));
+    let conflict = std::panic::catch_unwind(|| DispatchIndex::new(vec![module.clone(), module]))
+        .expect("duplicate dispatch must not panic");
+    assert!(matches!(conflict, Err(DispatchError::Conflict(_))));
 }
 
 // The focused TC-223 control covers the count and vacuous classification.
@@ -473,7 +535,7 @@ fn a_proved_run_with_zero_success_checks_settles_inconclusive_as_vacuous() {
 ///
 /// This test checks the error code and requested values on both constructor
 /// routes, including a zero-check proof request.
-#[trace("TC-443", "FR-030-AC-6")]
+#[trace("TC-443", "TC-055", "FR-030-AC-6", "FR-039-AC-4")]
 #[test]
 fn tc_443_the_outcome_and_its_error_carry_a_typed_std001_code() {
     let zero = KaniOutcome::proved(0, "clause:demo", "profile").expect_err("zero is not proved");
@@ -505,10 +567,9 @@ fn tc_443_the_outcome_and_its_error_carry_a_typed_std001_code() {
 
     let malformed = text.replace("kani_vacuous_proof", "Bad-Code");
     assert!(malformed.contains("\"code\":\"Bad-Code\""));
-    assert!(
-        serde_json::from_str::<KaniOutcome>(&malformed).is_err(),
-        "a malformed code is refused on read"
-    );
+    let refusal = std::panic::catch_unwind(|| serde_json::from_str::<KaniOutcome>(&malformed))
+        .expect("outcome wire reader must not panic");
+    assert!(refusal.is_err(), "a malformed code is refused on read");
     assert_eq!(
         serde_json::from_str::<KaniOutcome>(&text).expect("a well-formed outcome reads"),
         vacuous

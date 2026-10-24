@@ -35,8 +35,8 @@ expose its typed `KaniOutcome`. The map from a `KaniOutcome` to a QSL
 `qsl_replay::TerminalValue` is not a Contract IR requirement: it is owned by
 `agent-ix/quire-contract-codegen`, tracked there under Linear IR-358, because
 the root crate depends on no QSL crate (FR-028) and the map needs both sides.
-The family lowerings behind the dispatch index are codegen's backend
-adapter's, not Contract IR's. Replay of a
+Contract IR exports no family lowering. Codegen retains collection and graph
+lowerers; arithmetic lowering was retired under FR-015-AC-109. Replay of a
 counterexample is not a Contract IR operation: the counterexample envelope,
 the witness, the replay source, the FR-331 terminal record and the obligation
 identity are QSL's `qsl-replay` types, and replay runs through the QSL layer-6
@@ -55,7 +55,7 @@ Kani outcome types; it produces no `qsl_replay::TerminalValue`.
 
 ## Behavior
 
-The dispatch index is the only cross-module vocabulary and routing authority. Contract IR keeps the profile, the finite input ABI, the dispatch index and its module descriptors, and the typed outcome; the checked-arithmetic, collection and object lowerings each family module performs belong to the backend adapter in codegen, and the root crate carries no family lowering. The index selects independently versioned modules for definedness/checked arithmetic, finite object/reference/graph semantics, and bounded collection/query semantics. Each module declares constructs it owns, exact input/output ABI revision, definedness dependencies, resource charges, and supported/refused/unsupported cases (FR-029). Modules cannot invent source meaning, reinterpret another module's values, or silently substitute structural equality for identity, a collection set for an ordered duplicate-preserving sequence, or bounded graph search for unbounded reachability.
+The dispatch index is the only cross-module vocabulary and routing authority. Contract IR keeps the profile, the finite input ABI, the dispatch index and its module descriptors, and the typed outcome; the root crate carries no family lowering. Codegen retains collection and graph lowerers, while its arithmetic lowering was retired under FR-015-AC-109. The index selects independently versioned modules for definedness/checked arithmetic, finite object/reference/graph semantics, and bounded collection/query semantics. Each module declares constructs it owns, exact input/output ABI revision, definedness dependencies, resource charges, and supported/refused/unsupported cases (FR-029). Modules cannot invent source meaning, reinterpret another module's values, or silently substitute structural equality for identity, a collection set for an ordered duplicate-preserving sequence, or bounded graph search for unbounded reachability.
 
 The map from a `KaniOutcome` to a QSL `TerminalValue`, following QSL ADR-013
 O-16's proof column and QSpec FR-331, is owned by
@@ -104,4 +104,4 @@ to `agent-ix/quire-contract-codegen`, tracked there under Linear IR-358.
 IR-347 removed the IR-owned `KaniOutcomeKind::provider_result` map and its
 `KaniProviderResult` and `KaniProviderRecord` types (FR-039). Codegen owns
 the outcome-to-QSL terminal-value map.
-The family lowerings live in codegen; IR retains the three-family dispatch index.
+IR retains the three-family dispatch index and no family lowerings. Codegen retains collection and graph lowerers; arithmetic lowering was retired under FR-015-AC-109.
