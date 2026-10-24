@@ -9,4 +9,5 @@
 //! every test module declared in `tests/it/main.rs`.
 
 pub mod checked_package;
+#[cfg(feature = "conformance-cli")]
 pub mod corpus;

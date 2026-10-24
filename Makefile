@@ -49,7 +49,7 @@ fmt-check:
 
 .PHONY: lint
 lint:
-	$(CARGO) clippy $(LOCKED) --workspace --all-targets -- -D warnings
+	$(CARGO) clippy $(LOCKED) --workspace --all-targets --features conformance-cli -- -D warnings
 	# The workspace lane turns on the model's test-only fault-injection feature
 	# through the root dev-dependency; this lane checks the model as a consumer
 	# builds it, with the feature off.
@@ -57,7 +57,7 @@ lint:
 
 .PHONY: corpus
 corpus:
-	$(CARGO) run $(LOCKED) --quiet --bin quire-contract-conformance -- run --corpus corpus/contract-v0.1 --schemas schemas
+	$(CARGO) run $(LOCKED) --quiet --features conformance-cli --bin quire-contract-conformance -- run --corpus corpus/contract-v0.1 --schemas schemas
 
 .PHONY: check-corpus
 check-corpus: corpus
@@ -69,7 +69,7 @@ spec:
 
 .PHONY: test
 test:
-	$(CARGO) test $(LOCKED) --workspace --all-targets -- --include-ignored
+	$(CARGO) test $(LOCKED) --workspace --all-targets --features conformance-cli -- --include-ignored
 	# The model's own doctests with its test-only fault-injection feature off:
 	# they prove a default build does not export that surface (FR-019-AC-4).
 	$(CARGO) test $(LOCKED) -p quire-contract-model --doc
@@ -140,6 +140,7 @@ conformance-qsl-ir760:
 .PHONY: build
 build:
 	$(CARGO) build $(LOCKED) --workspace --release
+	$(CARGO) build $(LOCKED) -p quire-contract-ir --release --features conformance-cli --bin quire-contract-conformance
 
 .PHONY: clean
 clean:
