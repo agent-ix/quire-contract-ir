@@ -1377,6 +1377,16 @@ fn tc_055_root_public_inventory_matches_fr_039() {
         "FR-039 table parser must cover every item"
     );
     let kani = parse_model_source(KANI_ROOT, "Kani root");
+    for item in &kani.items {
+        if let syn::Item::Mod(module) = item {
+            assert!(
+                !["replay", "witness", "arithmetic", "collections", "objects"]
+                    .contains(&module.ident.to_string().as_str()),
+                "retired Kani module {} is declared",
+                module.ident
+            );
+        }
+    }
     let mut actual = BTreeSet::new();
     for declaration in public_declarations(&kani) {
         match declaration {
