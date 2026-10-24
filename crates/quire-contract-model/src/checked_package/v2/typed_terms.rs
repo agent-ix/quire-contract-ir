@@ -262,8 +262,7 @@ impl CheckedTerm {
     }
 
     /// Decodes only a body that the reader's flat and closed-shape checks
-    /// already accepted. This is deliberately not a public Deserialize impl:
-    /// an arbitrary recursive wire term has no standalone depth bound.
+    /// already accepted. Public serde decoding does not provide that bound.
     pub(super) fn decode_admitted(value: &Value) -> Result<Self, TermConversionCause> {
         fn field<T: DeserializeOwned>(
             value: &Value,
@@ -614,6 +613,7 @@ pub struct CheckedAbstractionParameter {
 mod tests {
     use super::{CheckedTerm, TermConversionCause};
     use ix_trace_rs::trace;
+    use quire_canonical::{to_vec, Limits};
     use serde_json::{error::Category, json};
 
     #[trace("TC-048")]
@@ -774,11 +774,47 @@ mod tests {
                     CheckedTerm::DependencyReference { .. }
                 ));
             }
-            assert_eq!(serde_json::to_value(term).expect("term serializes"), body);
+            assert_eq!(serde_json::to_value(&term).expect("term serializes"), body);
+            assert_eq!(
+                to_vec(&term, Limits::new(u64::MAX)).expect("term encodes"),
+                to_vec(&body, Limits::new(u64::MAX)).expect("wire encodes"),
+                "typed {expected} canonical bytes"
+            );
         }
         assert!(
             CheckedTerm::decode_admitted(&json!({"term":"group_reference","ordinal":0})).is_err(),
             "a preimage-only group reference cannot become a wire term"
         );
+    }
+
+    #[trace("FR-349-AC-1", "FR-349-AC-3")]
+    #[test]
+    fn public_producer_helpers_build_typed_terms_and_visit_reference_targets() {
+        let node = serde_json::from_value(json!({
+            "domain": "quire.checked-semantic-node/v1", "digest": "a".repeat(64)
+        }))
+        .expect("node identity");
+        let replacement: crate::checked_package::shared::CheckedNodeId =
+            serde_json::from_value(json!({
+                "domain": "quire.checked-semantic-node/v1", "digest": "b".repeat(64)
+            }))
+            .expect("replacement identity");
+        let mut body = CheckedTerm::aggregate(vec![
+            CheckedTerm::binding("member", CheckedTerm::reference(node)),
+            CheckedTerm::literal_text(replacement.clone(), "plain text"),
+        ]);
+        let mut targets = Vec::new();
+        body.visit_reference_targets(&mut |target| targets.push(target.clone()));
+        assert_eq!(targets.len(), 1);
+        body.replace_node_id(&targets[0], &replacement);
+        let mut after = Vec::new();
+        body.visit_reference_targets(&mut |target| after.push(target.clone()));
+        assert_eq!(after, [replacement]);
+        let wire = serde_json::to_value(&body).expect("producer term serializes");
+        assert_eq!(
+            wire["members"][0]["value"]["target"]["digest"],
+            "b".repeat(64)
+        );
+        assert_eq!(wire["members"][1]["value"], "plain text");
     }
 }

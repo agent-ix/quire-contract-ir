@@ -20,7 +20,7 @@ use quire_contract_model::{
     CheckedPackageLockV2, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult, CheckedSelectionRole, CheckedSemanticGraphV2, CheckedSemanticId,
-    CheckedSemanticNodeV2, CheckedSourceMapEntry,
+    CheckedSemanticNodeV2, CheckedSourceMapEntry, CheckedTerm,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -269,7 +269,7 @@ fn tc_048_a_preimage_that_differs_from_the_one_the_package_id_covers_is_stale() 
 /// A graph holding a node of each nominal preimage version, a `declaration`, a
 /// `recursion_group` and bodies of every JSON kind, with the strings and
 /// integers of FR-038-AC-75.
-fn crafted_graph() -> CheckedSemanticGraphV2 {
+fn crafted_graph() -> CheckedSemanticGraphV2<Value> {
     let package = v2_nominal();
     let mut nodes = package["semantic_graph"]["nodes"]
         .as_array()
@@ -1047,9 +1047,13 @@ fn implemented_encode(source: &str) -> BTreeSet<String> {
         .lines()
         .filter_map(|line| {
             let trimmed = line.trim_start();
+            if !trimmed.starts_with("impl") {
+                return None;
+            }
             let rest = trimmed
-                .strip_prefix("impl Encode for ")
-                .or_else(|| trimmed.strip_prefix("impl quire_canonical::Encode for "))?;
+                .split_once(" Encode for ")
+                .or_else(|| trimmed.split_once(" quire_canonical::Encode for "))?
+                .1;
             let end = rest
                 .find(|character: char| !(character.is_alphanumeric() || character == '_'))
                 .unwrap_or(rest.len());
@@ -1090,7 +1094,7 @@ const FIXED_DEPTH: [&str; 25] = [
 ];
 
 /// The types that hold a `Value`, directly or through another type.
-const HOLD_A_VALUE: [&str; 7] = [
+const HOLD_A_VALUE: [&str; 8] = [
     "CheckedPackageIdentityPreimageV2",
     "CheckedPackageIdentityPreimageRefV2",
     "CheckedSemanticGraphV2",
@@ -1098,13 +1102,15 @@ const HOLD_A_VALUE: [&str; 7] = [
     "CheckedNodeProjectionV2",
     "CheckedSemanticNodeV2",
     "CheckedDiagnosticV2",
+    "CheckedTerm",
 ];
 
-const ENCODED: [&str; 4] = [
+const ENCODED: [&str; 5] = [
     "CheckedPackageIdentityPreimageV2",
     "CheckedPackageIdentityPreimageRefV2",
     "CheckedSemanticGraphV2",
     "CheckedDiagnosticsV2",
+    "CheckedTerm",
 ];
 
 fn assert_fixed_shape<T: FixedShape>() {}
@@ -1232,6 +1238,7 @@ fn tc_048_the_wire_types_are_on_the_path_the_compiler_sees() {
     assert_encode::<CheckedPackageIdentityPreimageV2>();
     assert_encode::<CheckedPackageIdentityPreimageRefV2<'static>>();
     assert_encode::<CheckedSemanticGraphV2>();
+    assert_encode::<CheckedTerm>();
     assert_encode::<CheckedDiagnosticsV2>();
     const {
         assert!(is_fixed_shape!(CheckedPackageLockV2));
