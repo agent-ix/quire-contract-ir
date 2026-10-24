@@ -32,7 +32,7 @@ use super::{
     body_grammar, BodyGrammar, CheckedNodeId, CheckedNodeKind, CheckedNodeTag, HybridForm,
     TemporalForm, ValueForm,
 };
-use super::{ApplicationOperator, BodyTerm, CheckedPackageWireV2};
+use super::{ApplicationOperator, BodyTerm, RawCheckedPackageWireV2 as CheckedPackageWireV2};
 use crate::checked_package::common::{
     application_operator, body_term, Step, Trail, ValidationFailure,
 };

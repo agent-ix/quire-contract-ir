@@ -401,8 +401,8 @@ pub(super) fn is_model_population(kind: CheckedNodeKind) -> bool {
 
 /// The `Type` occurrence of `node` with the least ordinal: the one occurrence
 /// a reaches application's population link names.
-pub(super) fn least_type_occurrence(
-    node: &super::v2::CheckedSemanticNodeV2,
+pub(super) fn least_type_occurrence<Body>(
+    node: &super::v2::CheckedSemanticNodeV2<Body>,
 ) -> Option<&CheckedOccurrence> {
     node.occurrences
         .iter()
@@ -440,26 +440,26 @@ pub(super) fn population_maximum(body: &CheckedTerm) -> Option<u64> {
 
 /// The object type a population node's `semantic_type` chain names, resolving
 /// each node of the chain through `node`.
-pub(super) fn population_object_type<'a>(
-    population: &super::v2::CheckedSemanticNodeV2,
-    node: impl Fn(&CheckedNodeId) -> Option<&'a super::v2::CheckedSemanticNodeV2>,
+pub(super) fn population_object_type<'a, Body: serde::Serialize + 'a>(
+    population: &super::v2::CheckedSemanticNodeV2<Body>,
+    node: impl Fn(&CheckedNodeId) -> Option<&'a super::v2::CheckedSemanticNodeV2<Body>>,
 ) -> Option<CheckedNodeId> {
     let set_type = node(&population.semantic_type)?;
-    let reference_target = set_type
-        .body
-        .get("members")?
-        .as_array()?
-        .first()?
-        .get("target")?;
-    let reference_id: CheckedNodeId = serde_json::from_value(reference_target.clone()).ok()?;
+    let first_target = |body: &Body| {
+        let value = serde_json::to_value(body).ok()?;
+        serde_json::from_value::<CheckedNodeId>(
+            value
+                .get("members")?
+                .as_array()?
+                .first()?
+                .get("target")?
+                .clone(),
+        )
+        .ok()
+    };
+    let reference_id = first_target(&set_type.body)?;
     let reference = node(&reference_id)?;
-    let object_id = reference
-        .body
-        .get("members")?
-        .as_array()?
-        .first()?
-        .get("target")?;
-    serde_json::from_value(object_id.clone()).ok()
+    first_target(&reference.body)
 }
 
 /// Resolve the selected population's object type from the retained admitted terms.

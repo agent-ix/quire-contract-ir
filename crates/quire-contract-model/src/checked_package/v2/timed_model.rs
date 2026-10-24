@@ -6,7 +6,9 @@
 use super::model_members::{
     Budget, MemberKind, ModelFailure, ModelOwners, Resolved, SelectedTypeRef,
 };
-use super::{CheckedNodeId, CheckedNodeOwner, CheckedSemanticNodeV2, TimedModelForm};
+use super::{
+    CheckedNodeId, CheckedNodeOwner, RawSemanticNodeV2 as CheckedSemanticNodeV2, TimedModelForm,
+};
 use crate::checked_package::common::{
     exact_members, is_digest, node_pointer, ValidationFailure, NODE_DOMAIN,
 };

@@ -5,7 +5,9 @@
 //! pre-read API share the preimage construction here and the encoder in `encode`.
 
 use super::encode::{ApplicationNodePreimage, GroupPlace};
-use super::{structural, BodyTerm, CheckedNodeId, CheckedSemanticNodeV2, CheckedTerm};
+use super::{
+    structural, BodyTerm, CheckedNodeId, CheckedTerm, RawSemanticNodeV2 as CheckedSemanticNodeV2,
+};
 use crate::checked_package::common::{body_term, NODE_DOMAIN};
 use quire_walk::{walk, Children, Walk};
 use serde_json::{json, Value};

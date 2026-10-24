@@ -1337,9 +1337,9 @@ impl<'m> ModelOwners<'m> {
     /// Whether `node` is a model declaration node: a `model` or `relation`
     /// node that carries no `declaration`, or whose key is a selected
     /// declaration's model declaration node key.
-    pub(super) fn is_model_declaration_node(
+    pub(super) fn is_model_declaration_node<Body>(
         &self,
-        node: &CheckedSemanticNodeV2,
+        node: &CheckedSemanticNodeV2<Body>,
         tag: CheckedNodeTag,
     ) -> bool {
         matches!(tag, CheckedNodeTag::Model | CheckedNodeTag::Relation)
@@ -1348,7 +1348,10 @@ impl<'m> ModelOwners<'m> {
     }
 
     /// FR-322 step 2 over one wire node.
-    pub(super) fn recover(&self, node: &CheckedSemanticNodeV2) -> Result<Owner<'m>, ModelRefusal> {
+    pub(super) fn recover<Body: serde::Serialize>(
+        &self,
+        node: &CheckedSemanticNodeV2<Body>,
+    ) -> Result<Owner<'m>, ModelRefusal> {
         let owner = self
             .by_key
             .get(node.node_id.digest.as_ref())
@@ -1357,7 +1360,8 @@ impl<'m> ModelOwners<'m> {
         check_declaration_node(
             owner.form,
             node,
-            node.body == json!({"term": "aggregate", "members": []}),
+            serde_json::to_value(&node.body)
+                .is_ok_and(|body| body == json!({"term": "aggregate", "members": []})),
         )?;
         Ok(owner)
     }
@@ -1399,9 +1403,9 @@ impl<'m> ModelOwners<'m> {
 /// (`invalid_package`/`stale-node-key` otherwise). The one statement of the
 /// rule: [`ModelOwners::recover`] at admission and the field accessor of an
 /// admitted package both apply it.
-pub(super) fn check_declaration_node(
+pub(super) fn check_declaration_node<Body>(
     form: DeclarationForm,
-    node: &CheckedSemanticNodeV2,
+    node: &CheckedSemanticNodeV2<Body>,
     body_is_empty_aggregate: bool,
 ) -> Result<(), ModelRefusal> {
     if form.tag() != node.node_tag.as_ref() || form.form() != node.semantic_form.as_ref() {
@@ -1428,9 +1432,9 @@ impl<'m> ModelOwners<'m> {
     /// or the refusal the first failing step determined. Step 3's charges
     /// go to `meter` at the owner's selection row; an exhausted limit is the
     /// outer error.
-    pub(super) fn resolve_member(
+    pub(super) fn resolve_member<Body: serde::Serialize>(
         &self,
-        node: &CheckedSemanticNodeV2,
+        node: &CheckedSemanticNodeV2<Body>,
         kind: MemberKind,
         name: &str,
         meter: &mut WorkMeter,

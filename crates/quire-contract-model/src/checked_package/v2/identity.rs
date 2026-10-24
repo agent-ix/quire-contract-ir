@@ -9,9 +9,10 @@ use super::model_members::DomainModel;
 use super::natural::coprime;
 use super::CheckedPackageLockV2;
 use super::{
-    BoundedDomainForm, CheckedNodeKind, CheckedSemanticNodeV2, ClaimForm, CompositeTypeForm,
-    CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm, ProtocolForm, RelationForm,
-    ScalarTypeForm, StateForm, TemporalForm, ValueForm, WorkMeter,
+    BoundedDomainForm, CheckedNodeKind, ClaimForm, CompositeTypeForm, CorrespondenceForm,
+    ExpressionForm, FunctionForm, ModelForm, ProtocolForm,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, ScalarTypeForm, StateForm,
+    TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{
     decoder_pointer, locate_closed_value_failure, node_pointer, ValidationFailure,

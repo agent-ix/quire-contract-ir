@@ -28,12 +28,12 @@ fn admitted_v2_bodies_are_closed_typed_terms() {
     let mut saw_application_argument = false;
     let mut saw_nested_binding = false;
     for node in &admitted.graph().nodes {
+        let body: &CheckedTerm = &node.body;
         let term = admitted
             .term(&node.node_id)
             .expect("every admitted node has a typed body");
         assert_eq!(
-            serde_json::to_value(term).expect("typed body serializes"),
-            node.body,
+            term, body,
             "typed body preserves the admitted wire value for {}",
             node.node_id.digest
         );

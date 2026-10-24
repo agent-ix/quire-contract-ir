@@ -6,7 +6,7 @@
 use super::model_fields::OperationTypes;
 use super::operation_catalog::operation_catalog;
 use super::structural::{
-    reference_type_target, typed_anchor_body, typed_clause_body, typed_reference,
+    reference_type_target_typed, typed_anchor_body, typed_clause_body, typed_reference,
 };
 use super::{
     ApplicationOperator, CheckedMemberType, CheckedNodeId, CheckedOccurrence,
@@ -577,7 +577,7 @@ fn read_range(
         .first()
         .and_then(|id| context.node(id))
         .and_then(|parameter| context.node(&parameter.semantic_type))
-        .and_then(reference_type_target);
+        .and_then(reference_type_target_typed);
     if self_type.as_ref() != Some(&declaration)
         || deref.semantic_type != declaration
         || result_type != &project.semantic_type

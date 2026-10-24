@@ -3,8 +3,9 @@
 use super::identity::is_identifier;
 use super::model_members::{Budget, DeclarationForm, ModelOwners};
 use super::{
-    BoundedDomainForm, CheckedNodeKind, CheckedPackageWireV2, CheckedSemanticNodeV2, CheckedTerm,
-    ModelForm, ScalarTypeForm, WorkMeter,
+    BoundedDomainForm, CheckedNodeKind, CheckedTerm, ModelForm,
+    RawCheckedPackageWireV2 as CheckedPackageWireV2,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, ScalarTypeForm, WorkMeter,
 };
 use crate::checked_package::common::{is_digest, node_pointer, ValidationFailure, NODE_DOMAIN};
 use crate::checked_package::evidence::CheckedPackageEvidence;

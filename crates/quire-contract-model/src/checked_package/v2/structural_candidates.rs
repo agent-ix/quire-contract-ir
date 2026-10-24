@@ -9,7 +9,10 @@ use super::derived_keys::{node_preimage, valid_derived_shape, Group, LocalDigest
 use super::model_members::{structural_key, MemberType};
 use super::operations::has_application_key;
 use super::structural::reference_selector;
-use super::{BodyTerm, CheckedNodeKind, CheckedNodeTag, CheckedSemanticNodeV2, CorrespondenceForm};
+use super::{
+    BodyTerm, CheckedNodeKind, CheckedNodeTag, CorrespondenceForm,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2,
+};
 use crate::checked_package::common::{body_term, NODE_DOMAIN};
 use crate::checked_package::shared::CheckedNodeId;
 use serde_json::Value;

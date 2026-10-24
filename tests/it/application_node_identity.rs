@@ -13,9 +13,11 @@ use quire_canonical::{Error, LimitKind, Limits};
 use quire_contract_model::{
     derive_application_node_id, ApplicationIdentityContext, ApplicationIdentityError,
     ApplicationNodeDraft, CheckedNodeId, CheckedPackageReadLimits, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedSemanticNodeV2,
+    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
+
+type CheckedSemanticNodeV2 = quire_contract_model::CheckedSemanticNodeV2<Value>;
 
 const BYTES: u64 = 32 * 1024 * 1024;
 

@@ -35,10 +35,9 @@
 //! `function` node of the supplied dependency whose signature is
 //! package-independent.
 
-use super::structural::{aggregate_members, binding, reference_target};
 use super::{
-    CheckedDependencySelection, CheckedNodeKind, CheckedNodeTag, CheckedPackageV2,
-    CheckedSemanticNodeV2, CheckedTerm, NominalIdentityPreimage, NominalOwner, ValueForm,
+    CheckedDependencySelection, CheckedNodeKind, CheckedNodeTag, CheckedPackageV2, CheckedTerm,
+    NominalIdentityPreimage, NominalOwner, RawSemanticNodeV2 as CheckedSemanticNodeV2, ValueForm,
     WorkMeter,
 };
 use crate::checked_package::common::{count, node_pointer, ValidationFailure};
@@ -401,23 +400,29 @@ fn signature_closure(supplied: &SuppliedDependency<'_>, function: usize) -> Clos
     };
     let mut work = 1_u64;
     let mut pending: Vec<CheckedNodeId> = vec![function.semantic_type.clone()];
-    let members = aggregate_members(&function.body);
-    let parameters = members.and_then(|members| {
-        members
-            .first()
-            .and_then(|first| binding(first, "parameters"))
+    let members = match &function.body {
+        CheckedTerm::Aggregate { members } => Some(members.as_slice()),
+        _ => None,
+    };
+    let parameters = members.and_then(|members| match members.first()? {
+        CheckedTerm::Binding { name, value } if name.as_ref() == "parameters" => {
+            Some(value.as_ref())
+        }
+        _ => None,
     });
     if let Some(parameters) = parameters {
-        let Some(entries) = aggregate_members(parameters) else {
+        let CheckedTerm::Aggregate { members: entries } = parameters else {
             return Closure {
                 independent: false,
                 work,
             };
         };
         for entry in entries {
-            let Some((node, CheckedNodeKind::Value(ValueForm::Parameter))) =
-                reference_target(entry).as_ref().and_then(&node_of)
-            else {
+            let Some((node, CheckedNodeKind::Value(ValueForm::Parameter))) = (match entry {
+                CheckedTerm::Reference { target } => Some(target),
+                _ => None,
+            })
+            .and_then(&node_of) else {
                 return Closure {
                     independent: false,
                     work,
@@ -453,7 +458,10 @@ fn signature_closure(supplied: &SuppliedDependency<'_>, function: usize) -> Clos
 /// Whether a node is package-dependent: it carries a `declaration`, or it is
 /// keyed by a `ModelOwner` (a `model` or `relation` node, or a nominal
 /// preimage owned by a domain package).
-fn carries_declaration_or_owner(node: &CheckedSemanticNodeV2, kind: CheckedNodeKind) -> bool {
+fn carries_declaration_or_owner<Body>(
+    node: &super::CheckedSemanticNodeV2<Body>,
+    kind: CheckedNodeKind,
+) -> bool {
     node.declaration.is_some()
         || matches!(kind.tag(), CheckedNodeTag::Model | CheckedNodeTag::Relation)
         || matches!(

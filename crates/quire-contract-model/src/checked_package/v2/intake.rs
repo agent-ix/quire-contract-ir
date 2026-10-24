@@ -14,8 +14,8 @@
 use super::{
     CheckedDeclaration, CheckedDiagnosticCause, CheckedDiagnosticCode, CheckedDiagnosticStage,
     CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeOwner, CheckedPackageEnvelope,
-    CheckedPackageIdentityPreimageV2, CheckedPackageLockV2, CheckedPackageWireV2,
-    CheckedSemanticGraphV2, CheckedSemanticNodeV2, NominalIdentityPreimage, ValidationFailure,
+    CheckedPackageIdentityPreimageV2, CheckedPackageLockV2, NominalIdentityPreimage,
+    RawCheckedPackageWireV2, RawSemanticGraphV2, RawSemanticNodeV2, ValidationFailure,
 };
 use crate::checked_package::common::{decode_closed_bytes, strict_parse};
 use crate::checked_package::shared::{
@@ -94,7 +94,7 @@ struct BorrowedDiagnostic<'a> {
 
 pub(super) fn decode_borrowed_wire(
     bytes: &[u8],
-) -> Result<CheckedPackageWireV2, ValidationFailure> {
+) -> Result<RawCheckedPackageWireV2, ValidationFailure> {
     let wire: BorrowedWire<'_> = decode_closed_bytes(bytes).map_err(|failure| {
         let ValidationFailure::Refused(mut refusal) = failure else {
             return failure;
@@ -117,13 +117,13 @@ pub(super) fn decode_borrowed_wire(
         identity_preimage: wire.identity_preimage,
         package_id: wire.package_id,
         lock: wire.lock,
-        semantic_graph: CheckedSemanticGraphV2 {
+        semantic_graph: RawSemanticGraphV2 {
             graph_version: graph.graph_version,
             nodes: graph
                 .nodes
                 .into_iter()
                 .map(|node| {
-                    Ok(CheckedSemanticNodeV2 {
+                    Ok(RawSemanticNodeV2 {
                         node_id: node.node_id,
                         schema_version: node.schema_version,
                         node_tag: node.node_tag,
@@ -202,7 +202,7 @@ fn malformed(at: JsonPointer) -> ValidationFailure {
 /// their raw source slices and are skipped by this closed-member check.
 pub(super) fn check_lossless_source(
     bytes: &[u8],
-    wire: &CheckedPackageWireV2,
+    wire: &RawCheckedPackageWireV2,
 ) -> Result<(), ValidationFailure> {
     let root: BTreeMap<String, &RawValue> =
         serde_json::from_slice(bytes).map_err(|_| malformed(JsonPointer::root()))?;
