@@ -55,7 +55,9 @@ mod checked_package_v2_typed_terms;
 mod checked_package_v2_union;
 mod complete_v1_checked_package;
 mod complete_v1_contract_package;
+#[cfg(feature = "conformance-cli")]
 mod conformance;
+#[cfg(feature = "conformance-cli")]
 mod conformance_mismatch_independence;
 mod cycle_free_model;
 mod executable_binding;
@@ -68,6 +70,7 @@ mod kani_arithmetic;
 mod kani_collections;
 mod kani_objects;
 mod kani_outcome_construction;
+mod kani_outcome_tc223;
 mod kani_shared;
 mod nfr003_invalid_input;
 mod output_mapping;

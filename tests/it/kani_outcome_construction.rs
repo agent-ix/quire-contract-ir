@@ -11,10 +11,10 @@ fn assert_round_trip(
     source: &str,
     context: &str,
 ) {
-    assert_eq!(outcome.kind, kind);
-    assert_eq!(outcome.code, code);
-    assert_eq!(outcome.source_id, source);
-    assert_eq!(outcome.context, context);
+    assert_eq!(outcome.kind(), kind);
+    assert_eq!(outcome.code(), code);
+    assert_eq!(outcome.source_id(), source);
+    assert_eq!(outcome.context(), context);
     assert_eq!(outcome.boolean_claim(), None);
 
     let wire = serde_json::to_value(outcome).expect("serialize the public outcome");
@@ -100,7 +100,7 @@ fn coded_constructors_retain_consumer_causes_and_exact_context() {
         ),
     ] {
         assert_round_trip(&outcome, kind, code, source, context);
-        assert!(!outcome.code.is_registered());
+        assert!(!outcome.code().is_registered());
     }
     for (source, source_id, context) in [
         (
@@ -122,7 +122,7 @@ fn coded_constructors_retain_consumer_causes_and_exact_context() {
             source_id,
             context,
         );
-        assert!(!outcome.code.is_registered());
+        assert!(!outcome.code().is_registered());
     }
 }
 
@@ -159,7 +159,7 @@ fn fixed_cause_constructors_retain_the_registered_cause_and_context() {
         ),
     ] {
         assert_round_trip(&outcome, kind, code, source, context);
-        assert!(outcome.code.is_registered());
+        assert!(outcome.code().is_registered());
     }
 }
 
@@ -170,13 +170,9 @@ fn fixed_cause_constructors_retain_the_registered_cause_and_context() {
 fn broad_fallible_constructor_still_rejects_both_boolean_kinds() {
     let code = std001_code!("consumer_boolean_refusal");
     for kind in [KaniOutcomeKind::Proved, KaniOutcomeKind::Counterexample] {
-        let error = KaniOutcome::non_success(
-            kind.clone(),
-            code,
-            "source:boolean",
-            "kani-bounded/1; bound=11",
-        )
-        .expect_err("a Boolean outcome cannot use the non-success route");
+        let error =
+            KaniOutcome::non_success(kind, code, "source:boolean", "kani-bounded/1; bound=11")
+                .expect_err("a Boolean outcome cannot use the non-success route");
         assert_eq!(error.code(), Std001Code::KANI_OUTCOME_INVALID);
         assert_eq!(error.requested_kind(), &kind);
         assert_eq!(error.requested_code(), code);

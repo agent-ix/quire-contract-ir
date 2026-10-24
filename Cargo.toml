@@ -23,6 +23,15 @@ workspace = true
 name = "quire_contract_ir"
 path = "src/lib.rs"
 
+[[bin]]
+name = "quire-contract-conformance"
+path = "src/bin/quire-contract-conformance.rs"
+required-features = ["conformance-cli"]
+
+[features]
+default = []
+conformance-cli = ["dep:ix-cli-kit"]
+
 # FR-038-AC-107: reads QSpec's positive fixtures from a `quire-specification`
 # checkout, which `make test` has not got, so this target is outside the run of
 # `cargo test --workspace --all-targets` (`test = false`) and is run by
@@ -61,7 +70,7 @@ path = "tests/ir575_reader_memory.rs"
 test = false
 
 [dependencies]
-ix-cli-kit = { version = "0.1", git = "https://github.com/agent-ix/ix-cli-kit", branch = "main", default-features = false }
+ix-cli-kit = { version = "0.1", git = "https://github.com/agent-ix/ix-cli-kit", branch = "main", default-features = false, optional = true }
 quire-contract-model = { version = "=0.1.0", path = "crates/quire-contract-model" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["unbounded_depth"] }

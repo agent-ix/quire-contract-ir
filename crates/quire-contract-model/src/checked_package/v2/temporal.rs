@@ -33,15 +33,13 @@ use super::operation_catalog::operation_catalog;
 use super::operations::OperationWire;
 use super::structural::reference_target;
 use super::{
-    member_pointer, ApplicationOperator, BodyTerm, CheckedDiagnosticV2, CheckedNodeKind,
-    CheckedPackageLockV2, CheckedSelectionRole, FairnessGranularity, FairnessKind, HybridForm,
-    IntervalEnd, IntervalFit, LawRole, ModelForm, OperationMemberKind,
+    member_pointer, ApplicationOperator, CheckedDiagnosticV2, CheckedNodeKind,
+    CheckedPackageLockV2, CheckedSelectionRole, CheckedTerm, CheckedTermView, FairnessGranularity,
+    FairnessKind, HybridForm, IntervalEnd, IntervalFit, LawRole, ModelForm, OperationMemberKind,
     RawSemanticNodeV2 as CheckedSemanticNodeV2, TemporalForm, TemporalProfile, ValueForm,
     WorkMeter,
 };
-use crate::checked_package::common::{
-    application_operator, body_term, node_pointer, ValidationFailure,
-};
+use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedArtifactRef, CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
     JsonPointer,
@@ -91,8 +89,7 @@ pub(in crate::checked_package) fn references_refused_node(
     refused_target: impl Fn(&CheckedNodeId) -> bool,
 ) -> bool {
     visit_terms(term, |term| {
-        let refused = body_term(term) == Some(BodyTerm::Reference)
-            && reference_target(term).is_some_and(|target| refused_target(&target));
+        let refused = reference_target(term).is_some_and(|target| refused_target(&target));
         if refused {
             ControlFlow::Break(())
         } else {
@@ -366,7 +363,11 @@ pub(super) fn validate_timed_bounds_reduced(
         let Some(node) = nodes.get(position) else {
             continue;
         };
-        let Some(interval) = node.body.get("operation").and_then(interval_object) else {
+        let Some(CheckedTermView::Application { operation, .. }) = CheckedTerm::view(&node.body)
+        else {
+            continue;
+        };
+        let Some(interval) = interval_object(operation) else {
             continue;
         };
         if IntervalForm::of(interval) != Some(IntervalForm::Timed) {
@@ -565,11 +566,18 @@ fn argument_slot(kind: CheckedNodeKind, index: usize) -> Slot {
     }
 }
 
-fn terms<'a>(term: &'a Value, member: &str) -> impl Iterator<Item = &'a Value> {
-    term.get(member)
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
+fn application_arguments(term: &Value) -> Option<&[Value]> {
+    match CheckedTerm::view(term)? {
+        CheckedTermView::Application { arguments, .. } => Some(arguments),
+        _ => None,
+    }
+}
+
+fn aggregate_members(term: &Value) -> Option<&[Value]> {
+    match CheckedTerm::view(term)? {
+        CheckedTermView::Aggregate { members } => Some(members),
+        _ => None,
+    }
 }
 
 /// The placement defect of one node: its body root against its form, and any
@@ -578,9 +586,10 @@ fn terms<'a>(term: &'a Value, member: &str) -> impl Iterator<Item = &'a Value> {
 fn placement_defect(position: usize, graph: &StepGraph<'_, '_>) -> Option<ValidationFailure> {
     let node = graph.nodes.get(position)?;
     let kind = *graph.kinds.get(position)?;
-    let root_class = (body_term(&node.body) == Some(BodyTerm::Application))
-        .then(|| application_operator(&node.body))
-        .flatten();
+    let root_class = match CheckedTerm::view(&node.body) {
+        Some(CheckedTermView::Application { operator, .. }) => Some(operator),
+        _ => None,
+    };
     let required = PLACED
         .iter()
         .find(|(_, form)| *form == kind)
@@ -622,11 +631,11 @@ impl<'a> Walk for Placement<'_, 'a, '_> {
         (term, is_root, slot): (&'a Value, bool, Slot),
         children: &mut Children<'_, (&'a Value, bool, Slot)>,
     ) -> ControlFlow<ValidationFailure> {
-        match body_term(term) {
+        match CheckedTerm::view(term) {
             // Only the body root is an application: a nested one is refused
             // `malformed_wire` ahead of this step (`flat_wire`).
-            Some(BodyTerm::Application) => {
-                children.extend(terms(term, "arguments").enumerate().map(|(at, argument)| {
+            Some(CheckedTermView::Application { arguments, .. }) => {
+                children.extend(arguments.iter().enumerate().map(|(at, argument)| {
                     let slot = if is_root {
                         argument_slot(self.kind, at)
                     } else {
@@ -635,19 +644,22 @@ impl<'a> Walk for Placement<'_, 'a, '_> {
                     (argument, false, slot)
                 }));
             }
-            Some(BodyTerm::Aggregate) => {
+            Some(CheckedTermView::Aggregate { members }) => {
                 let member = if slot == Slot::FairnessList {
                     Slot::Fairness
                 } else {
                     Slot::Other
                 };
-                children
-                    .extend(terms(term, "members").map(|member_term| (member_term, false, member)));
+                children.extend(
+                    members
+                        .iter()
+                        .map(|member_term| (member_term, false, member)),
+                );
             }
-            Some(BodyTerm::Binding) => {
-                children.extend(term.get("value").map(|value| (value, false, Slot::Other)));
+            Some(CheckedTermView::Binding { value, .. }) => {
+                children.extend(std::iter::once((value, false, Slot::Other)));
             }
-            Some(BodyTerm::Reference) => {
+            Some(CheckedTermView::Reference { .. }) => {
                 let target = reference_target(term).and_then(|target| self.graph.node(&target));
                 let misplaced = match target {
                     Some((_, CheckedNodeKind::Temporal(TemporalForm::Formula))) => {
@@ -662,13 +674,7 @@ impl<'a> Walk for Placement<'_, 'a, '_> {
                     return ControlFlow::Break(ineligible(self.graph, self.position));
                 }
             }
-            Some(
-                BodyTerm::Literal
-                | BodyTerm::DependencyReference
-                | BodyTerm::Frame
-                | BodyTerm::AbstractionRelation,
-            )
-            | None => {}
+            Some(CheckedTermView::Literal { .. }) | None => {}
         }
         ControlFlow::Continue(())
     }
@@ -680,7 +686,12 @@ impl<'a> Walk for Placement<'_, 'a, '_> {
 
 /// The wire `operation` of the application at the root of `node`'s body.
 fn operation_of(node: &CheckedSemanticNodeV2) -> Option<OperationWire> {
-    OperationWire::deserialize(node.body.get("operation")?).ok()
+    match CheckedTerm::view(&node.body)? {
+        CheckedTermView::Application { operation, .. } => {
+            OperationWire::deserialize(operation).ok()
+        }
+        _ => None,
+    }
 }
 
 /// The interval of the formula node at `position`: the member of a
@@ -775,7 +786,10 @@ fn check_clause(
     }
     let at_node = node_pointer(position);
     let at_body = at_node.clone().key("body");
-    let arguments: Vec<&Value> = terms(&node.body, "arguments").collect();
+    let arguments: Vec<&Value> = application_arguments(&node.body)
+        .into_iter()
+        .flatten()
+        .collect();
     let hybrid_claim = arguments
         .first()
         .copied()
@@ -850,7 +864,7 @@ fn check_clause(
     let fairness: Vec<&Value> = arguments
         .get(4)
         .into_iter()
-        .flat_map(|aggregate| terms(aggregate, "members"))
+        .flat_map(|aggregate| aggregate_members(aggregate).into_iter().flatten())
         .collect();
     for reference in &fairness {
         let Some((fair, member)) = fairness_member(reference, graph) else {
@@ -934,14 +948,8 @@ fn fairness_member(entry: &Value, graph: &StepGraph<'_, '_>) -> Option<(usize, F
     if graph.kinds.get(position) != Some(&CheckedNodeKind::Temporal(TemporalForm::Fairness)) {
         return None;
     }
-    let member = read_fairness_member(
-        graph
-            .nodes
-            .get(position)?
-            .body
-            .get("operation")?
-            .get("member")?,
-    )?;
+    let operation = operation_of(graph.nodes.get(position)?)?;
+    let member = read_fairness_member(operation.member.as_ref()?)?;
     Some((position, member))
 }
 
@@ -1057,7 +1065,9 @@ fn formula_intervals(
         if let Some(interval) = interval_of(position, graph) {
             intervals.push((position, interval));
         }
-        let operands: Vec<usize> = terms(&graph.nodes[position].body, "arguments")
+        let operands: Vec<usize> = application_arguments(&graph.nodes[position].body)
+            .into_iter()
+            .flatten()
             .filter_map(reference_target)
             .filter_map(|target| graph.index.get(&target).copied())
             .collect();
@@ -1077,6 +1087,17 @@ mod tests {
 
     fn id(fill: char) -> Value {
         json!({ "domain": NODE_DOMAIN, "digest": fill.to_string().repeat(64) })
+    }
+
+    #[trace("TC-048", "FR-038-AC-22")]
+    #[test]
+    fn tc_048_diagnostic_reference_requires_a_closed_term() {
+        let target: CheckedNodeId = serde_json::from_value(id('a')).expect("target");
+        let reference = json!({"term": "reference", "target": id('a')});
+        assert!(references_refused_node(&reference, |node| node == &target));
+
+        let extra = json!({"term": "reference", "target": id('a'), "members": []});
+        assert!(!references_refused_node(&extra, |node| node == &target));
     }
 
     /// FR-038-AC-97: an interval bound is an integer string of unbounded size,

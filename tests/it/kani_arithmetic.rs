@@ -78,8 +78,11 @@ fn tc_042_checked_arithmetic_refuses_undefined_and_out_of_range_lowerings() {
         },
     )
     .expect_err("zero divisor refuses before a harness");
-    assert_eq!(zero.kind, KaniOutcomeKind::Refused);
-    assert_eq!(zero.code, std001_code!("kani_definedness_nonzero_divisor"));
+    assert_eq!(zero.kind(), KaniOutcomeKind::Refused);
+    assert_eq!(
+        zero.code(),
+        std001_code!("kani_definedness_nonzero_divisor")
+    );
     assert_eq!(zero.boolean_claim(), None);
 
     let out_of_range = lower_checked_arithmetic(
@@ -97,7 +100,7 @@ fn tc_042_checked_arithmetic_refuses_undefined_and_out_of_range_lowerings() {
     )
     .expect_err("range overflow refuses before a harness");
     assert_eq!(
-        out_of_range.code,
+        out_of_range.code(),
         std001_code!("kani_definedness_checked_range")
     );
     assert_eq!(out_of_range.boolean_claim(), None);
@@ -150,9 +153,9 @@ fn profile_refusal_retains_its_exact_cause_source_and_revision() {
         },
     )
     .expect_err("profile refusal precedes family lowering");
-    assert_eq!(failure.kind, KaniOutcomeKind::Refused);
-    assert_eq!(failure.code, cause);
-    assert_eq!(failure.source_id, "source:profile-refusal");
-    assert_eq!(failure.context, selection().revision);
+    assert_eq!(failure.kind(), KaniOutcomeKind::Refused);
+    assert_eq!(failure.code(), cause);
+    assert_eq!(failure.source_id(), "source:profile-refusal");
+    assert_eq!(failure.context(), selection().revision);
     assert_eq!(failure.boolean_claim(), None);
 }

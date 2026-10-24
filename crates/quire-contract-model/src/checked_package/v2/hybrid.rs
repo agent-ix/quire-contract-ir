@@ -1,10 +1,10 @@
 //! QSpec FR-481 hybrid node wire shapes and model joins.
 
 use super::{
-    CheckedNodeKind, CheckedTerm, HybridForm, LiteralKind,
+    CheckedNodeKind, CheckedTerm, CheckedTermView, HybridForm, LiteralKind,
     RawSemanticNodeV2 as CheckedSemanticNodeV2, ScalarTypeForm, TemporalForm, ValueForm, WorkMeter,
 };
-use crate::checked_package::common::{exact_members, node_pointer, ValidationFailure};
+use crate::checked_package::common::{body_term, exact_members, node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCause as Cause,
     CheckedPackageRefusalCode as Code, JsonPointer,
@@ -41,6 +41,13 @@ enum HybridBindingRole {
 #[serde(rename_all = "snake_case")]
 enum HybridActivationKind {
     Each,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+enum HybridTimeKind {
+    ModelTime,
+    ModelSteps,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -117,24 +124,26 @@ fn is_rational_one(term: &CheckedTerm) -> bool {
     )
 }
 
-fn members(value: &Value) -> &[Value] {
-    value
-        .get("members")
-        .and_then(Value::as_array)
-        .map(Vec::as_slice)
-        .unwrap_or(&[])
+fn members(value: &CheckedTerm) -> &[CheckedTerm] {
+    term_members(value)
 }
 
-fn bound(value: &Value, index: usize) -> &Value {
-    &members(value)[index]["value"]
+fn bound(value: &CheckedTerm, index: usize) -> &CheckedTerm {
+    term_value(&members(value)[index]).expect("strict hybrid binding")
 }
 
-fn target(value: &Value) -> Option<CheckedNodeId> {
-    serde_json::from_value(value.get("target")?.clone()).ok()
+fn target(value: &CheckedTerm) -> Option<CheckedNodeId> {
+    reference_target(value)
 }
 
-fn number(value: &Value) -> Option<usize> {
-    value.get("value")?.as_str()?.parse().ok()
+fn number(value: &CheckedTerm) -> Option<usize> {
+    match value {
+        CheckedTerm::Literal {
+            value: Value::String(value),
+            ..
+        } => value.parse().ok(),
+        _ => None,
+    }
 }
 
 fn node_at<'a>(
@@ -246,10 +255,16 @@ fn model_pointer(position: usize, binding: usize) -> JsonPointer {
         .key("value")
 }
 
-fn parameter_name_level(node: &CheckedSemanticNodeV2) -> Option<(&str, usize)> {
-    let body = members(&node.body);
-    let name = body.first()?.get("value")?.get("value")?.as_str()?;
-    let level = number(body.get(1)?.get("value")?)?;
+fn parameter_name_level(term: &CheckedTerm) -> Option<(&str, usize)> {
+    let body = members(term);
+    let name = match term_value(body.first()?)? {
+        CheckedTerm::Literal {
+            value: Value::String(value),
+            ..
+        } => value.as_str(),
+        _ => return None,
+    };
+    let level = number(term_value(body.get(1)?)?)?;
     Some((name, level))
 }
 
@@ -264,10 +279,20 @@ struct DecodedNodes<'a> {
     terms: &'a [Option<CheckedTerm>],
 }
 
+impl DecodedNodes<'_> {
+    fn term(&self, position: usize) -> &CheckedTerm {
+        self.terms
+            .get(position)
+            .and_then(Option::as_ref)
+            .expect("validated hybrid term")
+    }
+}
+
 fn claim_parameter_reads(
     roots: Vec<CheckedNodeId>,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
+    decoded: DecodedNodes<'_>,
     index: &BTreeMap<&CheckedNodeId, usize>,
     meter: &mut WorkMeter,
     at: &JsonPointer,
@@ -285,7 +310,7 @@ fn claim_parameter_reads(
         };
         match kinds.get(position) {
             Some(CheckedNodeKind::Value(ValueForm::Parameter)) => {
-                if let Some((name, level)) = parameter_name_level(node) {
+                if let Some((name, level)) = parameter_name_level(decoded.term(position)) {
                     reads.entry((name.to_owned(), level)).or_default().push(key);
                 }
             }
@@ -307,7 +332,6 @@ fn reads_allowed(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let kinds = decoded.kinds;
-    let terms = decoded.terms;
     let mut seen = BTreeSet::new();
     let mut pending = vec![start];
     let mut invalid_term = false;
@@ -327,9 +351,10 @@ fn reads_allowed(
         match kinds.get(position) {
             Some(CheckedNodeKind::Value(ValueForm::Parameter)) => {
                 if !allowed.variables.contains(key) {
-                    let expected = parameter_name_level(node).and_then(|(name, level)| {
-                        allowed.named_reads.get(&(name.to_owned(), level))
-                    });
+                    let expected =
+                        parameter_name_level(decoded.term(position)).and_then(|(name, level)| {
+                            allowed.named_reads.get(&(name.to_owned(), level))
+                        });
                     match expected {
                         Some(expected)
                             if scalar_base_type(
@@ -368,17 +393,11 @@ fn reads_allowed(
                 if !numeric_or_boolean_type(&node.semantic_type, nodes, kinds, index, meter, &at)? {
                     return Err(issue(Code::IllTyped, Some(Cause::TypeMismatch), at, source));
                 }
-                let parameters = members(&node.body)
+                let parameters = members(decoded.term(position))
                     .first()
-                    .filter(|_| {
-                        terms
-                            .get(position)
-                            .and_then(Option::as_ref)
-                            .and_then(|term| term_members(term).first())
-                            .and_then(binding_role)
-                            == Some(HybridBindingRole::Parameters)
-                    })
-                    .map(|member| members(&member["value"]))
+                    .filter(|member| binding_role(member) == Some(HybridBindingRole::Parameters))
+                    .and_then(term_value)
+                    .map(members)
                     .unwrap_or(&[]);
                 for parameter in parameters {
                     meter.charge(1, || at.clone())?;
@@ -408,7 +427,10 @@ fn reads_allowed(
                 continue;
             }
             Some(CheckedNodeKind::Expression(form)) => {
-                let operation = node.body["operation"]["identity"].as_str();
+                let operation = match decoded.term(position) {
+                    CheckedTerm::Application { operation, .. } => operation["identity"].as_str(),
+                    _ => None,
+                };
                 let admitted = matches!(
                     form,
                     super::ExpressionForm::Conditional | super::ExpressionForm::Call
@@ -477,9 +499,10 @@ pub(super) fn validate_models(
             continue;
         }
         let model = &nodes[position];
+        let model_term = decoded.term(position);
         meter.charge(1, || node_pointer(position))?;
-        let variables_body = bound(&model.body, 0);
-        let modes_body = bound(&model.body, 1);
+        let variables_body = bound(model_term, 0);
+        let modes_body = bound(model_term, 1);
         let mode_refs = members(modes_body);
         let mut seen_modes = BTreeSet::new();
         for (slot, mode) in mode_refs.iter().enumerate() {
@@ -491,8 +514,8 @@ pub(super) fn validate_models(
                 return Err(issue(Code::InvalidSemanticGraph, None, at, model));
             }
         }
-        if members(&model.body).len() == 3 {
-            let initial = bound(&model.body, 2);
+        if members(model_term).len() == 3 {
+            let initial = bound(model_term, 2);
             if members(initial).len() == 1 {
                 let item = &members(initial)[0];
                 if let Some(condition) = target(bound(item, 1)) {
@@ -536,10 +559,9 @@ pub(super) fn validate_models(
                         .get(&node.semantic_type)
                         .and_then(|&position| kinds.get(position))
                         == Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Rational))
-                    && number(bound(&node.body, 1)) == Some(slot)
-                    && node.body["members"][0]["value"]["value"]
-                        .as_str()
-                        .is_some_and(|name| variable_names.insert(name.to_owned()))
+                    && parameter_name_level(decoded.term(target_position)).is_some_and(
+                        |(name, level)| level == slot && variable_names.insert(name.to_owned()),
+                    )
             });
             if !valid || !variables.insert(key.clone()) {
                 return Err(issue(
@@ -592,7 +614,8 @@ pub(super) fn validate_models(
                 ));
             }
             reached_modes.insert(key);
-            let rates = members(bound(&mode.body, 1));
+            let mode_term = decoded.term(mode_position);
+            let rates = members(bound(mode_term, 1));
             if rates.len() != variables.len() {
                 return Err(issue(
                     Code::InvalidModelBinding,
@@ -601,7 +624,7 @@ pub(super) fn validate_models(
                     mode,
                 ));
             }
-            let invariant = target(bound(&mode.body, 0)).expect("strict hybrid reference");
+            let invariant = target(bound(mode_term, 0)).expect("strict hybrid reference");
             if !term_type(&invariant, ScalarTypeForm::Boolean, nodes, kinds, index) {
                 return Err(issue(
                     Code::IllTyped,
@@ -627,8 +650,7 @@ pub(super) fn validate_models(
                 rate_keys.push(key);
             }
             rates_by_mode.push(rate_keys);
-            for (transition_slot, transition_ref) in
-                members(bound(&mode.body, 2)).iter().enumerate()
+            for (transition_slot, transition_ref) in members(bound(mode_term, 2)).iter().enumerate()
             {
                 let at = model_pointer(mode_position, 2)
                     .key("members")
@@ -653,7 +675,8 @@ pub(super) fn validate_models(
                     ));
                 }
                 reached_transitions.insert(key);
-                let target_mode = number(bound(&transition.body, 0)).unwrap_or(usize::MAX);
+                let transition_term = decoded.term(transition_position);
+                let target_mode = number(bound(transition_term, 0)).unwrap_or(usize::MAX);
                 if target_mode >= mode_refs.len() {
                     return Err(issue(
                         Code::MissingDeclaration,
@@ -662,7 +685,7 @@ pub(super) fn validate_models(
                         transition,
                     ));
                 }
-                let guard = target(bound(&transition.body, 1)).expect("strict hybrid reference");
+                let guard = target(bound(transition_term, 1)).expect("strict hybrid reference");
                 if !term_type(&guard, ScalarTypeForm::Boolean, nodes, kinds, index) {
                     return Err(issue(
                         Code::IllTyped,
@@ -673,7 +696,7 @@ pub(super) fn validate_models(
                 }
                 let mut assigned = BTreeSet::new();
                 let mut bounded = BTreeSet::new();
-                for (reset_slot, reset) in members(bound(&transition.body, 2)).iter().enumerate() {
+                for (reset_slot, reset) in members(bound(transition_term, 2)).iter().enumerate() {
                     let at = model_pointer(transition_position, 2)
                         .key("members")
                         .index(reset_slot);
@@ -720,7 +743,7 @@ pub(super) fn validate_models(
                 }
             }
         }
-        if let Some(initial) = members(&model.body).get(2).map(|_| bound(&model.body, 2)) {
+        if let Some(initial) = members(model_term).get(2).map(|_| bound(model_term, 2)) {
             for (slot, item) in members(initial).iter().enumerate() {
                 let at = model_pointer(position, 2).key("members").index(slot);
                 let mode = number(bound(item, 0)).unwrap_or(usize::MAX);
@@ -755,11 +778,12 @@ pub(super) fn validate_models(
                 continue;
             };
             let mode = &nodes[mode_position];
+            let mode_term = decoded.term(mode_position);
             for binding_index in [0, 1] {
                 let term_refs = if binding_index == 0 {
-                    vec![bound(&mode.body, 0)]
+                    vec![bound(mode_term, 0)]
                 } else {
-                    members(bound(&mode.body, 1)).iter().collect()
+                    members(bound(mode_term, 1)).iter().collect()
                 };
                 for (slot, term) in term_refs.iter().enumerate() {
                     if let Some(key) = target(term) {
@@ -780,8 +804,7 @@ pub(super) fn validate_models(
                     }
                 }
             }
-            for (transition_slot, transition_ref) in
-                members(bound(&mode.body, 2)).iter().enumerate()
+            for (transition_slot, transition_ref) in members(bound(mode_term, 2)).iter().enumerate()
             {
                 let Some(key) = target(transition_ref) else {
                     continue;
@@ -789,7 +812,8 @@ pub(super) fn validate_models(
                 let Some((transition_position, transition)) = node_at(&key, nodes, index) else {
                     continue;
                 };
-                if let Some(guard) = target(bound(&transition.body, 1)) {
+                let transition_term = decoded.term(transition_position);
+                if let Some(guard) = target(bound(transition_term, 1)) {
                     reads_allowed(
                         &guard,
                         &model_scope,
@@ -803,7 +827,7 @@ pub(super) fn validate_models(
                         meter,
                     )?;
                 }
-                for (reset_slot, reset) in members(bound(&transition.body, 2)).iter().enumerate() {
+                for (reset_slot, reset) in members(bound(transition_term, 2)).iter().enumerate() {
                     if let Some(value) = target(bound(reset, 1)) {
                         reads_allowed(
                             &value,
@@ -821,8 +845,8 @@ pub(super) fn validate_models(
                 }
             }
         }
-        if members(&model.body).len() == 3 {
-            for (slot, initial) in members(bound(&model.body, 2)).iter().enumerate() {
+        if members(model_term).len() == 3 {
+            for (slot, initial) in members(bound(model_term, 2)).iter().enumerate() {
                 if let Some(key) = target(bound(initial, 1)) {
                     reads_allowed(
                         &key,
@@ -907,10 +931,14 @@ pub(super) fn validate_claims(
             continue;
         }
         let claim = &nodes[position];
-        let Some(arguments) = claim.body.get("arguments").and_then(Value::as_array) else {
+        let Some(arguments) = terms
+            .get(position)
+            .and_then(Option::as_ref)
+            .and_then(application_arguments)
+        else {
             continue;
         };
-        let Some(over) = arguments.first().and_then(target) else {
+        let Some(over) = arguments.first().and_then(reference_target) else {
             continue;
         };
         let Some((_, over_node)) = node_at(&over, nodes, index) else {
@@ -932,10 +960,11 @@ pub(super) fn validate_claims(
                 .key("arguments")
                 .index(slot)
         };
-        if !matches!(
-            arguments[1]["value"].as_str(),
-            Some("model-time" | "model-steps")
-        ) {
+        if arguments
+            .get(1)
+            .and_then(literal_word_as::<HybridTimeKind>)
+            .is_none()
+        {
             return Err(issue(
                 Code::InvalidPackage,
                 Some(Cause::InvalidValue),
@@ -968,7 +997,8 @@ pub(super) fn validate_claims(
                     kinds.get(target_position)
                         == Some(&CheckedNodeKind::Value(ValueForm::Parameter))
                         && node.semantic_type == model.node_id
-                        && parameter_name_level(node).is_some_and(|(_, level)| level == 1)
+                        && parameter_name_level(decoded.term(target_position))
+                            .is_some_and(|(_, level)| level == 1)
                 });
             if !valid {
                 return Err(issue(
@@ -979,7 +1009,8 @@ pub(super) fn validate_claims(
                 ));
             }
         }
-        let variable_entries = members(bound(&model.body, 0));
+        let model_term = decoded.term(model_position);
+        let variable_entries = members(bound(model_term, 0));
         let variables = variable_entries
             .iter()
             .filter_map(|entry| target(bound(entry, 0)))
@@ -993,10 +1024,11 @@ pub(super) fn validate_claims(
                 let Some(variable) = target(bound(entry, 0)) else {
                     continue;
                 };
-                let Some((_, variable_node)) = node_at(&variable, nodes, index) else {
+                let Some((variable_position, variable_node)) = node_at(&variable, nodes, index)
+                else {
                     continue;
                 };
-                let Some((name, _)) = parameter_name_level(variable_node) else {
+                let Some((name, _)) = parameter_name_level(decoded.term(variable_position)) else {
                     continue;
                 };
                 allowed.named_reads.insert(
@@ -1018,21 +1050,28 @@ pub(super) fn validate_claims(
                 reads_allowed(&key, &allowed, nodes, decoded, index, at, claim, meter)?;
             }
         }
-        let captures = members(&arguments[3]);
+        let captures = term_members(&arguments[3]);
         let mut claim_roots = arguments
             .get(5)
-            .and_then(target)
+            .and_then(reference_target)
             .into_iter()
             .collect::<Vec<_>>();
         claim_roots.extend(
             captures
                 .iter()
-                .filter_map(|capture| target(&capture["value"])),
+                .filter_map(|capture| term_value(capture).and_then(reference_target)),
         );
-        let parameter_reads =
-            claim_parameter_reads(claim_roots, nodes, kinds, index, meter, &argument_at(3))?;
+        let parameter_reads = claim_parameter_reads(
+            claim_roots,
+            nodes,
+            kinds,
+            decoded,
+            index,
+            meter,
+            &argument_at(3),
+        )?;
         for (slot, capture) in captures.iter().enumerate() {
-            let Some(value) = target(&capture["value"]) else {
+            let Some(value) = term_value(capture).and_then(reference_target) else {
                 continue;
             };
             let at = argument_at(3).key("members").index(slot);
@@ -1057,7 +1096,10 @@ pub(super) fn validate_claims(
             else {
                 return Err(issue(Code::IllTyped, Some(Cause::TypeMismatch), at, claim));
             };
-            let capture_name = capture["name"].as_str().unwrap_or_default();
+            let capture_name = match capture {
+                CheckedTerm::Binding { name, .. } => name.as_ref(),
+                _ => "",
+            };
             let capture_level = 2 * variable_entries.len() + slot;
             if let Some(reads) = parameter_reads.get(&(capture_name.to_owned(), capture_level)) {
                 for read in reads {
@@ -1076,24 +1118,27 @@ pub(super) fn validate_claims(
                 .named_reads
                 .insert((capture_name.to_owned(), capture_level), initializer_type);
         }
-        let mode_keys = members(bound(&model.body, 1))
+        let mode_keys = members(bound(model_term, 1))
             .iter()
             .filter_map(target)
             .collect::<Vec<_>>();
-        for fair_ref in members(&arguments[4]) {
-            let Some(fair_key) = target(fair_ref) else {
+        for fair_ref in term_members(&arguments[4]) {
+            let Some(fair_key) = reference_target(fair_ref) else {
                 continue;
             };
             let Some((fair_position, fair)) = node_at(&fair_key, nodes, index) else {
                 continue;
             };
-            let member = &fair.body["operation"]["member"];
+            let CheckedTerm::Application { operation, .. } = decoded.term(fair_position) else {
+                continue;
+            };
+            let member = &operation["member"];
             let declaration: Option<CheckedNodeId> =
                 serde_json::from_value(member["declaration"].clone()).ok();
             let name = member["name"].as_str().unwrap_or_default();
             let mut resolved = false;
             for mode_key in &mode_keys {
-                let Some((_, mode)) = node_at(mode_key, nodes, index) else {
+                let Some((mode_position, mode)) = node_at(mode_key, nodes, index) else {
                     continue;
                 };
                 let mode_name = mode
@@ -1103,19 +1148,21 @@ pub(super) fn validate_claims(
                     .map(AsRef::as_ref);
                 if declaration.as_ref() == Some(&model.node_id)
                     && mode_name == Some(name)
-                    && !members(bound(&mode.body, 2)).is_empty()
+                    && !members(bound(decoded.term(mode_position), 2)).is_empty()
                 {
                     resolved = true;
                 }
                 if declaration.as_ref() == Some(mode_key) {
-                    for transition_ref in members(bound(&mode.body, 2)) {
+                    for transition_ref in members(bound(decoded.term(mode_position), 2)) {
                         let Some(transition_key) = target(transition_ref) else {
                             continue;
                         };
-                        let Some((_, transition)) = node_at(&transition_key, nodes, index) else {
+                        let Some((transition_position, _)) = node_at(&transition_key, nodes, index)
+                        else {
                             continue;
                         };
-                        let Some(target_slot) = number(bound(&transition.body, 0)) else {
+                        let Some(target_slot) = number(bound(decoded.term(transition_position), 0))
+                        else {
                             continue;
                         };
                         if mode_keys
@@ -1145,7 +1192,7 @@ pub(super) fn validate_claims(
         }
         let mut pending = arguments
             .get(5)
-            .and_then(target)
+            .and_then(reference_target)
             .into_iter()
             .collect::<Vec<_>>();
         let mut seen = BTreeSet::new();
@@ -1172,10 +1219,9 @@ pub(super) fn validate_claims(
                     _ => None,
                 });
             if operation == Some(HybridTemporalOperation::Holds) {
-                if let Some(operand) = formula.body["arguments"]
-                    .as_array()
+                if let Some(operand) = application_arguments(decoded.term(formula_position))
                     .and_then(|arguments| arguments.first())
-                    .and_then(target)
+                    .and_then(reference_target)
                 {
                     reads_allowed(
                         &operand,
@@ -1198,15 +1244,14 @@ pub(super) fn validate_claims(
 fn aggregate<'a>(value: &'a Value, at: &JsonPointer) -> Result<&'a [Value], ValidationFailure> {
     let object = value.as_object().ok_or_else(|| malformed(at.clone()))?;
     if !exact_members(object, &["term", "members"])
-        || object.get("term").and_then(Value::as_str) != Some("aggregate")
+        || body_term(value) != Some(super::BodyTerm::Aggregate)
     {
         return Err(malformed(at.clone()));
     }
-    object
-        .get("members")
-        .and_then(Value::as_array)
-        .map(Vec::as_slice)
-        .ok_or_else(|| malformed(at.clone().key("members")))
+    match CheckedTerm::view(value) {
+        Some(CheckedTermView::Aggregate { members }) => Ok(members),
+        _ => Err(malformed(at.clone().key("members"))),
+    }
 }
 
 fn binding<'a>(
@@ -1216,14 +1261,17 @@ fn binding<'a>(
 ) -> Result<&'a Value, ValidationFailure> {
     let object = value.as_object().ok_or_else(|| malformed(at.clone()))?;
     if !exact_members(object, &["term", "name", "value"])
-        || object.get("term").and_then(Value::as_str) != Some("binding")
-        || object.get("name").and_then(Value::as_str) != Some(name)
+        || body_term(value) != Some(super::BodyTerm::Binding)
     {
         return Err(malformed(at.clone()));
     }
-    object
-        .get("value")
-        .ok_or_else(|| malformed(at.clone().key("value")))
+    match CheckedTerm::view(value) {
+        Some(CheckedTermView::Binding {
+            name: actual,
+            value,
+        }) if actual == name => Ok(value),
+        _ => Err(malformed(at.clone())),
+    }
 }
 
 fn entry<'a>(
@@ -1243,13 +1291,10 @@ fn entry<'a>(
 }
 
 fn reference(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
-    let object = value.as_object().ok_or_else(|| malformed(at.clone()))?;
-    if !exact_members(object, &["term", "target"])
-        || object.get("term").and_then(Value::as_str) != Some("reference")
-    {
-        return Err(malformed(at.clone()));
+    match CheckedTerm::view(value) {
+        Some(CheckedTermView::Reference { .. }) => Ok(()),
+        _ => Err(malformed(at.clone())),
     }
-    Ok(())
 }
 
 fn literal<'a>(
@@ -1257,17 +1302,14 @@ fn literal<'a>(
     kind: &str,
     at: &JsonPointer,
 ) -> Result<&'a str, ValidationFailure> {
-    let object = value.as_object().ok_or_else(|| malformed(at.clone()))?;
-    if !exact_members(object, &["term", "type", "value_kind", "value"])
-        || object.get("term").and_then(Value::as_str) != Some("literal")
-        || object.get("value_kind").and_then(Value::as_str) != Some(kind)
-    {
-        return Err(malformed(at.clone()));
+    match CheckedTerm::view(value) {
+        Some(CheckedTermView::Literal {
+            value_kind, value, ..
+        }) if Some(value_kind) == LiteralKind::from_wire(kind) => value
+            .as_str()
+            .ok_or_else(|| malformed(at.clone().key("value"))),
+        _ => Err(malformed(at.clone())),
     }
-    object
-        .get("value")
-        .and_then(Value::as_str)
-        .ok_or_else(|| malformed(at.clone().key("value")))
 }
 
 #[string_edge]

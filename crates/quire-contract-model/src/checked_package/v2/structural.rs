@@ -63,7 +63,10 @@
 //! parsed, shape-validated and charged once by the per-node body loop.
 
 use super::identity::is_identifier;
-use super::{ApplicationOperator, BodyTerm, LiteralKind, OperationMemberKind, StateClauseKind};
+use super::{
+    ApplicationOperator, CheckedTerm, CheckedTermView, LiteralKind, OperationMemberKind,
+    StateClauseKind,
+};
 use super::{
     BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, ClaimForm, CompositeTypeForm,
     CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm, NominalIdentityPreimage,
@@ -71,7 +74,7 @@ use super::{
     StateForm, TemporalForm, ValueForm,
 };
 use crate::checked_package::common::{
-    body_term, exact_members, is_digest, node_pointer, ValidationFailure, NODE_DOMAIN,
+    exact_members, is_digest, node_pointer, ValidationFailure, NODE_DOMAIN,
 };
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCode, JsonPointer,
@@ -695,12 +698,8 @@ pub(super) struct ClauseBody {
 /// Whether `term` is an application of `quire.op.state.clause`.
 // Reads an application's operation identity.
 pub(super) fn is_state_clause_application(term: &Value) -> bool {
-    body_term(term) == Some(BodyTerm::Application)
-        && term
-            .get("operation")
-            .and_then(|operation| operation.get("identity"))
-            .and_then(Value::as_str)
-            .is_some_and(|identity| identity == STATE_CLAUSE_OPERATION)
+    matches!(CheckedTerm::view(term), Some(CheckedTermView::Application { operation, .. })
+        if operation.get("identity").and_then(Value::as_str) == Some(STATE_CLAUSE_OPERATION))
 }
 
 /// The admitted state clause body, or `None` for any other shape: an
@@ -886,20 +885,21 @@ fn application_dependencies(body: &super::CheckedTerm) -> Option<BTreeSet<Checke
 
 /// An `aggregate` term's members.
 pub(super) fn aggregate_members(term: &Value) -> Option<&[Value]> {
-    let object = term.as_object()?;
-    (body_term(term) == Some(BodyTerm::Aggregate))
-        .then(|| object.get("members").and_then(Value::as_array))
-        .flatten()
-        .map(Vec::as_slice)
+    match CheckedTerm::view(term)? {
+        CheckedTermView::Aggregate { members } => Some(members),
+        _ => None,
+    }
 }
 
 /// A `binding` term's value, when the binding is named `name`.
 pub(super) fn binding<'a>(term: &'a Value, name: &str) -> Option<&'a Value> {
-    let object = term.as_object()?;
-    (body_term(term) == Some(BodyTerm::Binding)
-        && object.get("name").and_then(Value::as_str) == Some(name))
-    .then(|| object.get("value"))
-    .flatten()
+    match CheckedTerm::view(term)? {
+        CheckedTermView::Binding {
+            name: actual,
+            value,
+        } if actual == name => Some(value),
+        _ => None,
+    }
 }
 
 /// A `reference` term's target.
@@ -911,11 +911,10 @@ pub(super) fn reference_target(term: &Value) -> Option<CheckedNodeId> {
 /// A typed draft `reference` target before its provisional selector is replaced.
 /// The reader still requires the final digest through [`reference_target`].
 pub(super) fn reference_selector(term: &Value) -> Option<CheckedNodeId> {
-    let object = term.as_object()?;
-    if body_term(term) != Some(BodyTerm::Reference) {
-        return None;
+    match CheckedTerm::view(term)? {
+        CheckedTermView::Reference { target } => CheckedNodeId::deserialize(target).ok(),
+        _ => None,
     }
-    CheckedNodeId::deserialize(object.get("target")?).ok()
 }
 
 /// `^(0|[1-9][0-9]*)$`.
@@ -966,6 +965,20 @@ mod tests {
 
     fn id(fill: char) -> Value {
         json!({"domain": "quire.checked-semantic-node/v1", "digest": fill.to_string().repeat(64)})
+    }
+
+    #[trace("TC-048", "FR-038-AC-22")]
+    #[test]
+    fn tc_048_structural_reference_rejects_an_extra_wire_member() {
+        let target = id('a');
+        let closed = json!({"term": "reference", "target": target});
+        assert_eq!(
+            reference_selector(&closed),
+            serde_json::from_value(target).ok()
+        );
+
+        let extra = json!({"term": "reference", "target": id('a'), "members": []});
+        assert_eq!(reference_selector(&extra), None);
     }
 
     #[trace("TC-048", "FR-038-AC-23")]

@@ -384,6 +384,42 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
 
     let cases: Vec<(&str, Mutation, ExpectedRefusal)> = vec![
         (
+            "missing body term tag",
+            Box::new(|v| {
+                v["semantic_graph"]["nodes"][4]["body"]
+                    .as_object_mut()
+                    .expect("body object")
+                    .remove("term");
+                refresh_identity(v);
+            }),
+            refusal(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                "/semantic_graph/nodes/4/body",
+            ),
+        ),
+        (
+            "nonstring body term tag",
+            Box::new(|v| {
+                v["semantic_graph"]["nodes"][4]["body"]["term"] = json!(7);
+                refresh_identity(v);
+            }),
+            refusal(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                "/semantic_graph/nodes/4/body/term",
+            ),
+        ),
+        (
+            "unknown body term tag",
+            Box::new(|v| {
+                v["semantic_graph"]["nodes"][4]["body"]["term"] = json!("future_term");
+                refresh_identity(v);
+            }),
+            refusal(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                "/semantic_graph/nodes/4/body",
+            ),
+        ),
+        (
             "unknown top-level member",
             Box::new(|v| v["future"] = json!(1)),
             refusal(CheckedPackageRefusalCode::UnknownMember, "/future"),

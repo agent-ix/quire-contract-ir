@@ -622,10 +622,11 @@ fn check_type_argument_member_result(
     let Some(member) = member_declaration(operation) else {
         return Some(refuse());
     };
-    let result: Option<CheckedNodeId> = application
-        .node
-        .body
-        .get("result_type")
+    let result: Option<CheckedNodeId> = CheckedTerm::view(&application.node.body)
+        .and_then(|term| match term {
+            super::CheckedTermView::Application { result_type, .. } => Some(result_type),
+            _ => None,
+        })
         .and_then(|value| serde_json::from_value(value.clone()).ok());
     let Some(result) = result else {
         return Some(refuse());
@@ -2481,11 +2482,13 @@ fn reference_target(type_id: &CheckedNodeId, graph: &Graph<'_>) -> Option<Checke
     if *graph.kinds.get(position)? != CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) {
         return None;
     }
-    let members = graph.nodes[position].body.get("members")?.as_array()?;
-    let [member] = members.as_slice() else {
+    let CheckedTerm::Aggregate { members } = graph.terms.get(position)?.as_ref()? else {
         return None;
     };
-    serde_json::from_value(member.get("target")?.clone()).ok()
+    let [CheckedTerm::Reference { target }] = members.as_slice() else {
+        return None;
+    };
+    Some(target.clone())
 }
 
 /// A model-owned member refusal at `path`.

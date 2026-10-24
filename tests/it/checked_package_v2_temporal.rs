@@ -735,6 +735,23 @@ fn tc_048_an_interval_member_admits_and_refuses_on_each_interval_operator() {
     }
 }
 
+#[trace("TC-048", "FR-038-AC-97")]
+#[test]
+fn tc_048_invalid_interval_precedes_a_missing_application_result_type() {
+    let (mut package, root) = with_root(INFINITE, "always", closed("-1", "3"), None, 1);
+    package["semantic_graph"]["nodes"][root]["body"]
+        .as_object_mut()
+        .expect("application body")
+        .remove("result_type");
+    expect(
+        "invalid interval before incomplete application",
+        &package,
+        Code::InvalidPackage,
+        Cause::InvalidValue,
+        &at_node(root, "/body/operation/member/interval/lower"),
+    );
+}
+
 /// A member on `holds`, `not` and the clause, none of which catalogues one.
 #[trace("TC-048", "FR-038-AC-97")]
 #[test]
@@ -1145,12 +1162,27 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::DuplicateClockPlace => "duplicate-clock-place",
         Cause::MalformedClockPlace => "malformed-clock-place",
         Cause::InvalidTimeQuantity => "invalid-time-quantity",
+        Cause::ClockWithoutDenseTime => "clock-without-dense-time",
         Cause::UnsupportedSelection => "unsupported-selection",
         Cause::WrongSelectionRole => "wrong-selection-role",
         Cause::InexactInteger => "inexact-integer",
         Cause::InexactNumber => "inexact-number",
         Cause::ExpressionForm => "expression-form",
     }
+}
+
+#[trace("TC-367", "FR-038-AC-323")]
+#[test]
+fn clock_without_dense_time_has_its_paired_wire_cause() {
+    assert_eq!(code_word(Code::InvalidPackage), "invalid_package");
+    assert_eq!(
+        cause_word(Cause::ClockWithoutDenseTime),
+        "clock-without-dense-time"
+    );
+    assert_eq!(
+        serde_json::to_value(Cause::ClockWithoutDenseTime).unwrap(),
+        json!("clock-without-dense-time")
+    );
 }
 
 #[trace("TC-048", "FR-038-AC-170")]
