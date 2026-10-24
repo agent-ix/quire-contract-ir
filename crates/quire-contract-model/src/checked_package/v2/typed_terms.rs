@@ -767,6 +767,7 @@ mod tests {
     use quire_canonical::{to_vec, Limits};
     use serde_json::{error::Category, json};
 
+    #[trace("TC-460")]
     #[test]
     fn admitted_binding_name_retains_its_class_without_changing_wire_text() {
         let known: CheckedBindingName = serde_json::from_value(json!("parameters")).unwrap();

@@ -359,6 +359,7 @@ mod tests {
     use super::*;
     use ix_trace_rs::trace;
 
+    #[trace("TC-460")]
     #[test]
     fn catalog_intake_retains_known_operation_class() {
         let catalog = read_catalog(CATALOG_BYTES).expect("authoritative catalog");

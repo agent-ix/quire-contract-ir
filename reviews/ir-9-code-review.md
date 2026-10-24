@@ -36,3 +36,21 @@ Reviewed the frozen PR #555 diff at 1970117b, including Rust semantics, markers,
 - Reviewed `origin/main...HEAD` only; no CI workflow changes, no rules allow-list entries, and exactly two source roots in the Make invocation.
 - Controlled tests tag AC-1..6 and AC-8 and use the real Make entry point. AC-7 is an Inspection row and needs this source review.
 - QSpec `timed_model` external fixture files and the installed scanner were unavailable locally. Full aggregate gates were not run in this review.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | medium | The fix adds catalog_intake_retains_known_operation_class and admitted_binding_name_retains_its_class_without_changing_wire_text without a `#[trace(...)]` on either test. This repository traces new tests to requirements or test cases; both assertions are invisible to the computed matrix. Add an appropriate trace tag (TC-460 or the owning criterion) to each test. | crates/quire-contract-model/src/checked_package/v2/operation_catalog.rs:362 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Retained `OperationCatalogEntry.known` is assigned once during catalog indexing, and `CheckedBindingName.kind` is assigned at typed-term deserialization; post-intake callers use the retained kinds. |
+| FND-002 | fixed | The broad `semantic_ir_relationship` marker was removed. Dedicated `RelationshipMember`, `RelationshipDirection` and `RelationshipCategory` converters carry the marks; reference, owner and multiplicity checks remain unmarked. |
+| FND-003 | still-open | The fix adds catalog_intake_retains_known_operation_class and admitted_binding_name_retains_its_class_without_changing_wire_text without a `#[trace(...)]` on either test. This repository traces new tests to requirements or test cases; both assertions are invisible to the computed matrix. Add an appropriate trace tag (TC-460 or the owning criterion) to each test. |
+
+## Current review state
+
+**CONDITIONAL** — original high findings are fixed at c75c9c9f; the untagged new tests need a fix round. The installed scanner and full aggregate gate remain unqualified here.

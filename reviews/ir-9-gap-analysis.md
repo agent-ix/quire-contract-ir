@@ -40,3 +40,20 @@ Planless audit of FR-056 in the computed repository Test Matrix, changed test bi
 - FR-056: 7 Test criteria tagged; AC-7 is Inspection and `method-without-symbol`. Verified the test symbols in `tests/it/string_edge_gate.rs` and the actual `Makefile` target. The installed scanner and external QSpec timed-model fixtures were unavailable to this independent pass.
 - Untraced changed behavior: no separate changed public surface found beyond the FR-056 lint consumer and conversion work. Changed-source and test stub inspection found no new placeholder implementation.
 - Semantic review: not requested; source behavior was inspected only to judge AC-7 marker placement.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | medium | The two new fix-round unit tests for retained catalog and binding-name kinds have no trace tags, so the computed matrix cannot associate their behavioral assertions with TC-460 or another owning obligation. | crates/quire-contract-model/src/checked_package/v2/typed_terms.rs:770 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The formerly post-intake operation and binding-name decisions now consume retained typed classes assigned at catalog and term intake. |
+| FND-002 | still-open | The two new fix-round unit tests for retained catalog and binding-name kinds have no trace tags, so the computed matrix cannot associate their behavioral assertions with TC-460 or another owning obligation. |
+
+## Current review state
+
+**CONDITIONAL** — original high findings are fixed at c75c9c9f; the untagged new tests need a fix round. The installed scanner and full aggregate gate remain unqualified here.
