@@ -47,3 +47,11 @@ coverage overclaim, not a live panic. The TC-042 tests in `kani_shared.rs` alrea
 malformed-wire and profile negatives, and libtest would surface a panic there. Either bind those
 TC-042 negatives to FR-039-AC-4 and TC-055, or extend the TC-055 corpus to the wire readers and
 the other `KaniProfile::new` refusals. Either fix keeps AC-4 at full strength.
+
+## Dispositions
+
+Round 1. Checked against fix commit `c28a120bb41f1dea550006fc55b79dd692419bc7`, which follows reviewed head `59d855c0`. Focused checks at that head: `cargo test --locked --test it -- kani_shared:: tc_055` (17 passed), `make fmt-check` clean, `make lint` clean.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The TC-042 negative tests now carry `TC-055` and `FR-039-AC-4` and run under `catch_unwind`. They cover `KaniProfile::new` (exact `UnsupportedProfile`, `MissingSelectionField` and `InvalidMatrix` values), the `KaniProfile`, `CapabilityDisposition` and `KaniOutcome` wire readers, `classify`, `validate`, and `DispatchIndex` `new` and `resolve`. A new test, `tc_055_malformed_finite_input_and_descriptor_wire_do_not_panic`, covers the `FiniteInput` and `ModuleDescriptor` readers (tests/it/kani_shared.rs:71-535) |

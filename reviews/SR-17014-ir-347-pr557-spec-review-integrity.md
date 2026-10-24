@@ -43,3 +43,13 @@ FR-039 "Items codegen owns" matches the code. The status edits overstate in two 
 
 Several unchanged files still describe the lowerings as present in IR (FND-003). All three
 findings are prose corrections inside this PR. None requires a code change or an AC narrowing.
+
+## Dispositions
+
+Round 1. Checked against fix commit `c28a120bb41f1dea550006fc55b79dd692419bc7`. A grep of `spec/` finds no remaining "still in this repository", "now live in codegen", "IR-347 removes them" or `definedness_arithmetic` claim.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | deferred | Operator decision e29 is pending. FR-039-AC-4 and TC-055's procedure still cite TC-041's negative corpus, unchanged and not narrowed. TC-041 still has no Kani negative corpus, so the stale reference remains. The fix round does not hide this. TC-055 Status, the kani matrix FR-039 and TC-055 rows, the core matrix StR-001 row and AD-005 D-3 all now say AC-4 is partial and the reference "awaits owner resolution". The citation stays, and real TC-042 negatives are bound under `catch_unwind`. The coder cannot resolve this; it needs an owner ruling on the TC-041 citation. It blocks closing FR-039-AC-4, TC-055 and IR-347, and it is not waived |
+| FND-002 | fixed | AD-006 (lines 38, 58, 87, 117, 159, 189), FR-031 (lines 38, 58, 107), the kani tests.md rows FR-031 and TC-042, and spec.md now say: IR exports no family lowering; codegen retains the collection and graph lowerers; arithmetic was retired under CG FR-015-AC-109. AD-006:58 no longer names `definedness_arithmetic.rs`. Nothing proposes restoring arithmetic |
+| FND-003 | fixed | Updated: FR-044:151-155 and :182; AD-005:155, :173 and :219-220; FR-029:50-51; AD-006:57 (the `definedness_arithmetic.rs` consumer is dropped); core matrix StR-001 (the root inventory is backed by TC-055 and TC-058, and AC-4 is partial) |

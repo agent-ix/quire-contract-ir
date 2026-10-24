@@ -46,3 +46,11 @@ and TC-055 (all examined).
 **PASS WITH FINDINGS.** The IR-347 deletion scope is complete, and it leaves no production code
 without an owning requirement. The one gap is that the ✅ status for FR-039-AC-4 depends on
 corpora the bound test does not run.
+
+## Dispositions
+
+Round 1. Checked against fix commit `c28a120bb41f1dea550006fc55b79dd692419bc7`. `make spec` validation is clean. Strict coverage still lists the same 60 unbacked rows, all outside the diff, and 0 contradicted statuses. FR-039 is 4/4.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The FR-039 and TC-055 matrix rows and TC-055 Status now read 🚧 partial. AC-1 through AC-3 are backed. AC-4 has the TC-042 no-panic negatives bound to it, and the unresolved TC-041 reference is named. No overclaim remains (spec/kani/matrix/tests.md:17, :28; spec/kani/matrix/TC-055-root-crate-public-interface.md:46) |

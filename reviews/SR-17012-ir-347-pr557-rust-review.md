@@ -49,3 +49,12 @@ Both new tests carry `#[trace]` tags.
 - Exports are cross-checked against their leaf declarations.
 - There is no unsafe code, no new public API and no panic path in production code. The diff
   removes production code only.
+
+## Dispositions
+
+Round 1. Checked against fix commit `c28a120bb41f1dea550006fc55b79dd692419bc7`. `make fmt-check` and `make lint` are clean, and `tc_055_nested_exported_macro_is_rejected_by_inventory` passes.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | `exports_macro` uses a `syn::visit::Visit` visitor, which descends into nested and inline modules. The source scan calls it, and a positive and negative control test exercises it (tests/it/public_interface.rs:1419-1450, 1474) |
+| FND-002 | fixed | The predicate is bound to `leaf_has_item` and rustfmt formats it within 100 columns (tests/it/public_interface.rs:1403-1406) |
