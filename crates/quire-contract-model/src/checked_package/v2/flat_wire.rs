@@ -29,8 +29,8 @@
 
 use super::temporal::{interval_bound_outside_pattern, timed_upper_is_null};
 use super::{
-    body_grammar, BodyGrammar, CheckedNodeId, CheckedNodeKind, CheckedNodeTag, HybridForm,
-    TemporalForm, ValueForm,
+    body_grammar, BodyGrammar, CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedTerm,
+    CheckedTermView, HybridForm, TemporalForm, ValueForm,
 };
 use super::{ApplicationOperator, BodyTerm, RawCheckedPackageWireV2 as CheckedPackageWireV2};
 use crate::checked_package::common::{
@@ -39,7 +39,9 @@ use crate::checked_package::common::{
 use crate::checked_package::shared::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
 use crate::checked_package::terms::{subterms, At, Cursor};
 use quire_walk::{walk, Children, Walk};
+use serde::Deserialize;
 use serde_json::Value;
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::ControlFlow;
 
@@ -183,9 +185,18 @@ fn check_interval_bounds(
         {
             continue;
         }
-        let operation = node.body.get("operation");
-        let outside_pattern = operation.and_then(interval_bound_outside_pattern);
-        let nonhybrid_open_upper = operation.is_some_and(timed_upper_is_null)
+        let operation = match CheckedTerm::view(&node.body) {
+            Some(CheckedTermView::Application { operation, .. }) => Some(Cow::Borrowed(operation)),
+            _ => ApplicationProjection::deserialize(&node.body)
+                .ok()
+                .and_then(|projection| projection.operation)
+                .map(Cow::Owned),
+        };
+        let Some(operation) = operation else {
+            continue;
+        };
+        let outside_pattern = interval_bound_outside_pattern(&operation);
+        let nonhybrid_open_upper = timed_upper_is_null(&operation)
             && !hybrid_formulas
                 .get_or_insert_with(|| hybrid_formula_nodes(wire, kinds))
                 .contains(&node.node_id);
@@ -212,8 +223,43 @@ fn check_interval_bounds(
     Ok(())
 }
 
-fn reference_target(value: &Value) -> Option<CheckedNodeId> {
-    serde_json::from_value(value.get("target")?.clone()).ok()
+#[derive(Deserialize)]
+struct ApplicationProjection {
+    #[serde(default)]
+    operation: Option<Value>,
+    #[serde(default)]
+    arguments: Option<Value>,
+}
+
+#[derive(Deserialize)]
+struct ReferenceProjection {
+    #[serde(default)]
+    target: Option<CheckedNodeId>,
+}
+
+fn reference_target(term: &CheckedTerm) -> Option<CheckedNodeId> {
+    match term {
+        CheckedTerm::Reference { target } => Some(target.clone()),
+        _ => None,
+    }
+}
+
+/// A malformed application still exposes its independent arguments to the
+/// early interval exception check. Decode that one projection only when the
+/// complete admitted term cannot be built; later shape checks own its refusal.
+fn application_targets(body: &Value) -> Option<Vec<Option<CheckedNodeId>>> {
+    if let Ok(CheckedTerm::Application { arguments, .. }) = CheckedTerm::decode_admitted(body) {
+        return Some(arguments.iter().map(reference_target).collect());
+    }
+    let projection = ApplicationProjection::deserialize(body).ok()?;
+    Some(
+        projection
+            .arguments?
+            .as_array()?
+            .iter()
+            .map(|argument| ReferenceProjection::deserialize(argument).ok()?.target)
+            .collect(),
+    )
 }
 
 /// Formula nodes reached by a claim whose over parameter is typed by a
@@ -234,10 +280,10 @@ fn hybrid_formula_nodes(
         if kinds.get(position) != Some(&CheckedNodeKind::Temporal(TemporalForm::TemporalClause)) {
             continue;
         }
-        let Some(arguments) = node.body.get("arguments").and_then(Value::as_array) else {
+        let Some(arguments) = application_targets(&node.body) else {
             continue;
         };
-        let Some(over) = arguments.first().and_then(reference_target) else {
+        let Some(over) = arguments.first().cloned().flatten() else {
             continue;
         };
         let Some(&over_position) = positions.get(&over) else {
@@ -253,7 +299,7 @@ fn hybrid_formula_nodes(
             continue;
         };
         if kinds.get(model_position) == Some(&CheckedNodeKind::Hybrid(HybridForm::Model)) {
-            pending.extend(arguments.get(5).and_then(reference_target));
+            pending.extend(arguments.get(5).cloned().flatten());
         }
     }
     let mut seen = BTreeSet::new();
@@ -270,8 +316,8 @@ fn hybrid_formula_nodes(
             let Some(node) = nodes.get(position) else {
                 continue;
             };
-            if let Some(arguments) = node.body.get("arguments").and_then(Value::as_array) {
-                pending.extend(arguments.iter().filter_map(reference_target));
+            if let Some(arguments) = application_targets(&node.body) {
+                pending.extend(arguments.into_iter().flatten());
             }
         }
     }
@@ -476,7 +522,11 @@ pub(super) fn nested_application_refusal(
     at: &Trail<'_>,
     details: bool,
 ) -> ValidationFailure {
-    let operator_ineligible = match application_operator(application) {
+    let operator = match CheckedTerm::view(application) {
+        Some(CheckedTermView::Application { operator, .. }) => Some(operator),
+        _ => application_operator(application),
+    };
+    let operator_ineligible = match operator {
         Some(ApplicationOperator::Case) => true,
         Some(ApplicationOperator::TemporalFormula | ApplicationOperator::TemporalFairness) => {
             details

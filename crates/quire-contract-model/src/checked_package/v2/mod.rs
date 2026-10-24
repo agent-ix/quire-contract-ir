@@ -1941,7 +1941,7 @@ fn validate_body(
     if kind == CheckedNodeKind::Protocol(ProtocolForm::ProtocolReference)
         && !body.as_object().is_some_and(|object| {
             super::common::exact_members(object, &["term", "target"])
-                && body.get("term").and_then(Value::as_str) == Some("reference")
+                && super::common::body_term(body) == Some(BodyTerm::Reference)
         })
     {
         return Err(refuse(

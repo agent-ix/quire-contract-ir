@@ -972,10 +972,10 @@ fn validate_one(
     let Value::Object(object) = value else {
         return Err(invalid(at));
     };
-    match object.get("term") {
-        Some(Value::String(_)) => {}
-        Some(_) => return Err(invalid(&at.key("term"))),
-        None => return Err(invalid(at)),
+    match term_tag(value) {
+        TermTag::Known(_) | TermTag::ExtensionForm | TermTag::Unknown => {}
+        TermTag::NonString => return Err(invalid(&at.key("term"))),
+        TermTag::Missing => return Err(invalid(at)),
     }
     let Some(term) = body_term(value) else {
         return Err(invalid(at));
@@ -1082,9 +1082,38 @@ fn validate_one(
 
 /// The `term` tag of a semantic term or frame body, decoded; `None` when the
 /// member is absent, not a string, or outside the vocabulary.
-// Reads the JSON `term` member of a body and decodes it once.
+/// The one constant-work raw-wire intake for the term discriminator. Shape
+/// checks use this closed tag before the bounded admitted body is decoded as
+/// `CheckedTerm`; malformed input still keeps its stage-specific refusal.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::checked_package) enum TermTag {
+    Known(BodyTerm),
+    ExtensionForm,
+    Missing,
+    NonString,
+    Unknown,
+}
+
+pub(in crate::checked_package) fn term_tag(value: &Value) -> TermTag {
+    let Some(object) = value.as_object() else {
+        return TermTag::Missing;
+    };
+    match object.get("term") {
+        None => TermTag::Missing,
+        Some(Value::String(tag)) if tag == "extension_form" => TermTag::ExtensionForm,
+        Some(Value::String(tag)) => {
+            BodyTerm::from_wire(tag).map_or(TermTag::Unknown, TermTag::Known)
+        }
+        Some(_) => TermTag::NonString,
+    }
+}
+
+// The sole discriminator intake above returns a closed enum to every caller.
 pub(super) fn body_term(value: &Value) -> Option<BodyTerm> {
-    BodyTerm::from_wire(value.get("term")?.as_str()?)
+    match term_tag(value) {
+        TermTag::Known(term) => Some(term),
+        TermTag::ExtensionForm | TermTag::Missing | TermTag::NonString | TermTag::Unknown => None,
+    }
 }
 
 /// A `dependency_reference` term's `package`: a `quire.package.semantic/v2`
