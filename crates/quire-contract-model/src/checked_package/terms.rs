@@ -9,7 +9,7 @@
 //! entered node ([`Cursor`], [`At`]), and the plain pre-order visit
 //! ([`visit_terms`]).
 
-use super::common::{body_term, Step, Trail};
+use super::common::{Step, TermField, Trail, WireTerm};
 use super::v2::{BodyTerm, CheckedTerm, CheckedTermView};
 use quire_walk::{walk, Children, Walk};
 use serde_json::Value;
@@ -30,27 +30,43 @@ pub(super) struct Subterm<'a> {
 /// `arguments`, an aggregate's `members` and a binding's `value`. Any other
 /// value, and a term whose member is absent or of the wrong kind, has none.
 pub(super) fn subterms(term: &Value) -> impl Iterator<Item = Subterm<'_>> {
-    let (key, listed, valued) = match CheckedTerm::view(term) {
-        Some(CheckedTermView::Application { arguments, .. }) => ("arguments", arguments, None),
-        Some(CheckedTermView::Aggregate { members }) => ("members", members, None),
-        Some(CheckedTermView::Binding { value, .. }) => ("value", &[][..], Some(value)),
-        _ => match body_term(term) {
-            Some(BodyTerm::Application) => ("arguments", array(term, "arguments"), None),
-            Some(BodyTerm::Aggregate) => ("members", array(term, "members"), None),
-            Some(BodyTerm::Binding) => (
-                "value",
-                &[][..],
-                term.as_object().and_then(|o| o.get("value")),
-            ),
-            Some(
-                BodyTerm::Literal
-                | BodyTerm::Reference
-                | BodyTerm::DependencyReference
-                | BodyTerm::Frame
-                | BodyTerm::AbstractionRelation,
-            )
-            | None => ("", &[][..], None),
-        },
+    subterms_of(WireTerm::decode(term))
+}
+
+/// Children of a term whose discriminator has already been decoded at this
+/// walk entry. A malformed member still leaves the other staged refusals in
+/// their original order.
+pub(super) fn subterms_of(wire: WireTerm<'_>) -> impl Iterator<Item = Subterm<'_>> {
+    let (key, listed, valued) = match wire.kind() {
+        Some(BodyTerm::Application) => {
+            let arguments = match CheckedTerm::view_from_wire(wire) {
+                Some(CheckedTermView::Application { arguments, .. }) => arguments,
+                _ => wire.array(TermField::Arguments).unwrap_or(&[]),
+            };
+            ("arguments", arguments, None)
+        }
+        Some(BodyTerm::Aggregate) => {
+            let members = match CheckedTerm::view_from_wire(wire) {
+                Some(CheckedTermView::Aggregate { members }) => members,
+                _ => wire.array(TermField::Members).unwrap_or(&[]),
+            };
+            ("members", members, None)
+        }
+        Some(BodyTerm::Binding) => {
+            let value = match CheckedTerm::view_from_wire(wire) {
+                Some(CheckedTermView::Binding { value, .. }) => Some(value),
+                _ => wire.field(TermField::Value),
+            };
+            ("value", &[][..], value)
+        }
+        Some(
+            BodyTerm::Literal
+            | BodyTerm::Reference
+            | BodyTerm::DependencyReference
+            | BodyTerm::Frame
+            | BodyTerm::AbstractionRelation,
+        )
+        | None => ("", &[][..], None),
     };
     listed
         .iter()
@@ -65,14 +81,6 @@ pub(super) fn subterms(term: &Value) -> impl Iterator<Item = Subterm<'_>> {
             key,
             index: None,
         }))
-}
-
-/// The array held in `term[key]`; empty when absent or not an array.
-fn array<'a>(term: &'a Value, key: &str) -> &'a [Value] {
-    term.as_object()
-        .and_then(|object| object.get(key))
-        .and_then(Value::as_array)
-        .map_or(&[], Vec::as_slice)
 }
 
 /// A node a walk will enter: the value, the steps that lead to it from its

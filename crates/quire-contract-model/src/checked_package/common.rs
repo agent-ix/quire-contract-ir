@@ -14,7 +14,7 @@ use super::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticId,
     CheckedSourceMapEntry, CheckedSourceRef, JsonPointer, RefusalFields,
 };
-use super::terms::{subterms, At, Cursor};
+use super::terms::{subterms_of, At, Cursor};
 use super::v2::{ApplicationOperator, BodyTerm, LiteralKind, PACKAGE_DOMAIN_V2};
 use closed_members::ClosedMemberProvenance;
 use quire_walk::{walk, Children, Walk};
@@ -932,8 +932,9 @@ impl<'a> Walk for TermWalk<'a, '_, '_> {
         children: &mut Children<'_, At<'a, bool>>,
     ) -> ControlFlow<ValidationFailure> {
         self.cursor.enter(&node);
+        let wire = WireTerm::decode(node.value);
         match validate_one(
-            node.value,
+            wire,
             self.grammar,
             node.extra,
             &self.cursor.trail(),
@@ -942,7 +943,7 @@ impl<'a> Walk for TermWalk<'a, '_, '_> {
             Ok(work) => self.work = self.work.saturating_add(work),
             Err(failure) => return ControlFlow::Break(failure),
         }
-        children.extend(subterms(node.value).map(|subterm| self.cursor.subterm(subterm, false)));
+        children.extend(subterms_of(wire).map(|subterm| self.cursor.subterm(subterm, false)));
         ControlFlow::Continue(())
     }
 
@@ -957,34 +958,35 @@ impl<'a> Walk for TermWalk<'a, '_, '_> {
 /// An `application` or `aggregate` whose `arguments` or `members` is no array is
 /// refused here, at that member, before any subterm is entered.
 fn validate_one(
-    value: &Value,
+    wire: WireTerm<'_>,
     grammar: TermGrammar,
     is_body_root: bool,
     at: &Trail<'_>,
     visit: &mut ReferenceVisitor<'_>,
 ) -> Result<u64, ValidationFailure> {
+    let value = wire.value();
     let invalid = |position: &Trail<'_>| {
         ValidationFailure::refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             position.pointer(),
         )
     };
-    let Value::Object(object) = value else {
+    let Some(object) = wire.object() else {
         return Err(invalid(at));
     };
-    match term_tag(value) {
+    match wire.tag() {
         TermTag::Known(_) | TermTag::ExtensionForm | TermTag::Unknown => {}
         TermTag::NonString => return Err(invalid(&at.key("term"))),
         TermTag::Missing => return Err(invalid(at)),
     }
-    let Some(term) = body_term(value) else {
+    let Some(term) = wire.kind() else {
         return Err(invalid(at));
     };
     match term {
         BodyTerm::Literal => {
             if exact_members(object, &["term", "type", "value_kind", "value"])
                 && matches!(
-                    super::v2::CheckedTerm::view(value),
+                    super::v2::CheckedTerm::view_from_wire(wire),
                     Some(super::v2::CheckedTermView::Literal { value, .. })
                         if is_literal_value(value, grammar)
                 )
@@ -1019,7 +1021,7 @@ fn validate_one(
             if !(exact_members(
                 object,
                 &["term", "operator", "operation", "result_type", "arguments"],
-            ) && application_operator(value).is_some())
+            ) && wire.operator().is_some())
             {
                 return Err(invalid(at));
             }
@@ -1081,11 +1083,7 @@ fn validate_one(
     }
 }
 
-/// The `term` tag of a semantic term or frame body, decoded; `None` when the
-/// member is absent, not a string, or outside the vocabulary.
-/// The one constant-work raw-wire intake for the term discriminator. Shape
-/// checks use this closed tag before the bounded admitted body is decoded as
-/// `CheckedTerm`; malformed input still keeps its stage-specific refusal.
+/// The outcome of decoding a term discriminator from untrusted wire data.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::checked_package) enum TermTag {
     Known(BodyTerm),
@@ -1095,26 +1093,128 @@ pub(in crate::checked_package) enum TermTag {
     Unknown,
 }
 
-pub(in crate::checked_package) fn term_tag(value: &Value) -> TermTag {
-    let Some(object) = value.as_object() else {
-        return TermTag::Missing;
-    };
-    match object.get("term") {
-        None => TermTag::Missing,
-        Some(Value::String(tag)) if tag == "extension_form" => TermTag::ExtensionForm,
-        Some(Value::String(tag)) => {
-            BodyTerm::from_wire(tag).map_or(TermTag::Unknown, TermTag::Known)
+/// Closed field names used by the borrowed term projection.
+#[derive(Clone, Copy)]
+pub(in crate::checked_package) enum TermField {
+    Type,
+    ValueKind,
+    Value,
+    Target,
+    Operator,
+    Operation,
+    ResultType,
+    Arguments,
+    Members,
+    Name,
+    Package,
+    Node,
+    Modifies,
+    Creates,
+    Deletes,
+    DeletesScoped,
+    Objects,
+    Populations,
+    Frames,
+    Definition,
+    NodeKind,
+    Clauses,
+}
+
+impl TermField {
+    pub(in crate::checked_package) const fn as_wire(self) -> &'static str {
+        match self {
+            Self::Type => "type",
+            Self::ValueKind => "value_kind",
+            Self::Value => "value",
+            Self::Target => "target",
+            Self::Operator => "operator",
+            Self::Operation => "operation",
+            Self::ResultType => "result_type",
+            Self::Arguments => "arguments",
+            Self::Members => "members",
+            Self::Name => "name",
+            Self::Package => "package",
+            Self::Node => "node",
+            Self::Modifies => "modifies",
+            Self::Creates => "creates",
+            Self::Deletes => "deletes",
+            Self::DeletesScoped => "deletes_scoped",
+            Self::Objects => "objects",
+            Self::Populations => "populations",
+            Self::Frames => "frames",
+            Self::Definition => "definition",
+            Self::NodeKind => "node_kind",
+            Self::Clauses => "clauses",
         }
-        Some(_) => TermTag::NonString,
     }
 }
 
-// The sole discriminator intake above returns a closed enum to every caller.
-pub(super) fn body_term(value: &Value) -> Option<BodyTerm> {
-    match term_tag(value) {
-        TermTag::Known(term) => Some(term),
-        TermTag::ExtensionForm | TermTag::Missing | TermTag::NonString | TermTag::Unknown => None,
+/// A borrowed, constant-work projection of one raw term. This constructor is
+/// the sole raw discriminator lookup; every validation walk uses its typed
+/// tag and its fields, including when a malformed body needs an exact path.
+#[derive(Clone, Copy)]
+pub(in crate::checked_package) struct WireTerm<'a> {
+    value: &'a Value,
+    object: Option<&'a Map<String, Value>>,
+    tag: TermTag,
+}
+
+impl<'a> WireTerm<'a> {
+    pub(in crate::checked_package) fn decode(value: &'a Value) -> Self {
+        let object = value.as_object();
+        let tag = match object.and_then(|object| object.get("term")) {
+            None => TermTag::Missing,
+            Some(Value::String(tag)) if tag == "extension_form" => TermTag::ExtensionForm,
+            Some(Value::String(tag)) => {
+                BodyTerm::from_wire(tag).map_or(TermTag::Unknown, TermTag::Known)
+            }
+            Some(_) => TermTag::NonString,
+        };
+        Self { value, object, tag }
     }
+
+    pub(in crate::checked_package) fn value(self) -> &'a Value {
+        self.value
+    }
+
+    pub(in crate::checked_package) fn object(self) -> Option<&'a Map<String, Value>> {
+        self.object
+    }
+
+    pub(in crate::checked_package) fn tag(self) -> TermTag {
+        self.tag
+    }
+
+    pub(in crate::checked_package) fn kind(self) -> Option<BodyTerm> {
+        match self.tag {
+            TermTag::Known(term) => Some(term),
+            TermTag::ExtensionForm | TermTag::Missing | TermTag::NonString | TermTag::Unknown => {
+                None
+            }
+        }
+    }
+
+    pub(in crate::checked_package) fn field(self, field: TermField) -> Option<&'a Value> {
+        self.object?.get(field.as_wire())
+    }
+
+    pub(in crate::checked_package) fn array(self, field: TermField) -> Option<&'a [Value]> {
+        self.field(field)?.as_array().map(Vec::as_slice)
+    }
+
+    pub(in crate::checked_package) fn literal_kind(self) -> Option<LiteralKind> {
+        LiteralKind::from_wire(self.field(TermField::ValueKind)?.as_str()?)
+    }
+
+    pub(in crate::checked_package) fn operator(self) -> Option<ApplicationOperator> {
+        ApplicationOperator::from_wire(self.field(TermField::Operator)?.as_str()?)
+    }
+}
+
+/// The `term` tag of a semantic term or frame body, decoded; `None` when the
+/// member is absent, not a string, or outside the vocabulary.
+pub(super) fn body_term(value: &Value) -> Option<BodyTerm> {
+    WireTerm::decode(value).kind()
 }
 
 /// A `dependency_reference` term's `package`: a `quire.package.semantic/v2`
@@ -1140,13 +1240,13 @@ pub(super) fn dependency_reference_node(term: &Value) -> Option<CheckedNodeId> {
 /// A `literal` term's decoded `value_kind`.
 // Reads the JSON `value_kind` member of a literal and decodes it.
 pub(super) fn literal_kind(value: &Value) -> Option<LiteralKind> {
-    LiteralKind::from_wire(value.get("value_kind")?.as_str()?)
+    WireTerm::decode(value).literal_kind()
 }
 
 /// An `application` term's decoded `operator` class.
 // Reads the JSON `operator` member of an application and decodes it.
 pub(super) fn application_operator(value: &Value) -> Option<ApplicationOperator> {
-    ApplicationOperator::from_wire(value.get("operator")?.as_str()?)
+    WireTerm::decode(value).operator()
 }
 
 /// Reports the node reference held in `object[key]` (the term at `at`).

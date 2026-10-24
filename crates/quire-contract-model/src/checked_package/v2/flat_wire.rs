@@ -34,10 +34,10 @@ use super::{
 };
 use super::{ApplicationOperator, BodyTerm, RawCheckedPackageWireV2 as CheckedPackageWireV2};
 use crate::checked_package::common::{
-    application_operator, body_term, Step, Trail, ValidationFailure,
+    application_operator, body_term, Step, Trail, ValidationFailure, WireTerm,
 };
 use crate::checked_package::shared::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
-use crate::checked_package::terms::{subterms, At, Cursor};
+use crate::checked_package::terms::{subterms, subterms_of, At, Cursor};
 use quire_walk::{walk, Children, Walk};
 use serde::Deserialize;
 use serde_json::Value;
@@ -175,17 +175,18 @@ fn check_interval_bounds(
 ) -> Result<(), ValidationFailure> {
     let mut hybrid_formulas = None;
     for (position, (node, &kind)) in wire.semantic_graph.nodes.iter().zip(kinds).enumerate() {
+        let body = WireTerm::decode(&node.body);
         if matches!(
             body_grammar(kind),
             BodyGrammar::Frame
                 | BodyGrammar::Extension
                 | BodyGrammar::TimedModel
                 | BodyGrammar::Hybrid
-        ) || body_term(&node.body) != Some(BodyTerm::Application)
+        ) || body.kind() != Some(BodyTerm::Application)
         {
             continue;
         }
-        let operation = match CheckedTerm::view(&node.body) {
+        let operation = match CheckedTerm::view_from_wire(body) {
             Some(CheckedTermView::Application { operation, .. }) => Some(Cow::Borrowed(operation)),
             _ => ApplicationProjection::deserialize(&node.body)
                 .ok()
@@ -428,7 +429,8 @@ impl<'a> Walk for Flat<'a> {
         self.cursor.enter(&node);
         let value = node.value;
         let place = node.extra;
-        let below = match body_term(value) {
+        let wire = WireTerm::decode(value);
+        let below = match wire.kind() {
             // An application stands only at a body root; its arguments are
             // each a Member.
             Some(BodyTerm::Application) if place == Place::BodyRoot => Place::Member,
@@ -466,7 +468,7 @@ impl<'a> Walk for Flat<'a> {
             )
             | None => return ControlFlow::Continue(()),
         };
-        children.extend(subterms(value).map(|subterm| self.cursor.subterm(subterm, below)));
+        children.extend(subterms_of(wire).map(|subterm| self.cursor.subterm(subterm, below)));
         ControlFlow::Continue(())
     }
 
