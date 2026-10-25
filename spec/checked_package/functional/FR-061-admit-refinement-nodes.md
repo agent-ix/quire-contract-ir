@@ -121,16 +121,21 @@ also have one `generated` occurrence at each ordinal 0 through its number
 of step rows, the initial obligation at 0 and step row `i` at `i + 1`.
 An ineligible owner SHALL have no `generated` occurrence. Each generated
 entry SHALL carry exactly the source region FR-322 assigns to its ordinal.
-A duplicate key, extra role or ordinal, missing required entry or wrong
-region SHALL refuse `invalid_package`/`invalid-value` at the offending
-`source_map` entry under FR-322's occurrence rules. These occurrences stay
+A duplicate key, extra role or ordinal, or wrong region SHALL refuse
+`invalid_package`/`invalid-value` at the offending `source_map` entry under
+FR-322's occurrence rules. After every present entry passes, a missing
+required occurrence SHALL refuse that pair at `/source_map`. These occurrences stay
 on the owner node; the reader SHALL NOT invent derived per-step nodes.
 
 The reader SHALL apply FR-322's strict wire, graph-shape, key, declaration
 and source-map checks in their published order. Within refinement body
 validation, it SHALL check the closed shape before resolving targets, and
-shall report the first defect by ascending node id then body member and
-array position (IR reading where FR-375 fixes no tie-break). A malformed
+shall report the first defect by ascending node id, then this fixed body
+member order: `term`, `abstract`, `profile`, `populations`, `objects`,
+`steps`, `histories`, `assume`, `ensure`, optional `protocol`, optional
+`abstract_internal`. Within an array it SHALL visit ascending indices;
+within an entry it SHALL visit members in the order the published schema
+declares them (IR reading where FR-375 fixes no tie-break). A malformed
 closed body or row refuses `invalid_semantic_graph` at its body or offending
 entry (IR reading); a malformed term already assigned `malformed_wire` by
 FR-038 keeps that earlier refusal. A wrong body on another `relation` form
@@ -148,8 +153,8 @@ still refuses at `semantic_form`.
 | FR-061-AC-5 | A history `initial` literal and a local history-literal reference both admit; a dependency-package history-literal reference, an application initial, duplicate history update, duplicate object field, invalid fairness kind/granularity, or unsorted arrays/fields/updates refuses, with no reordered or defaulted output. | Test |
 | FR-061-AC-6 | The exact local dependency set includes body header keys and every direct row declaration/type and expression/member target, excludes external keys and annotations, and is digest-ascending. An omitted, extra or misordered dependency refuses `invalid_semantic_graph` at `/dependencies` before any row-meaning defect. | Test |
 | FR-061-AC-7 | Two row-empty refinements over one abstract model and profile but distinct concrete models have equal bodies, distinct `semantic_type` keys and distinct `quire.refinement-node/v1` node ids. Mutating any meaning-bearing body row or optional internal list with recomputed identities changes node and package ids; retaining a stale key refuses at the earlier key stage; source row permutation that canonicalizes to the same arrays changes neither id. | Test |
-| FR-061-AC-8 | A proof-eligible refinement with `n` steps admits exactly its declaration occurrence 0 and generated occurrences 0 through `n`; an owner with a hidden field, a history or an `any` step admits only declaration occurrence 0. Missing, duplicate, extra-role, extra-ordinal or wrong-region source-map entries refuse `invalid_package`/`invalid-value` at the offending entry; no derived per-step node is synthesized. | Test |
-| FR-061-AC-9 | The reader reports the earlier FR-322 strict-wire, graph-shape, key, declaration or source-map defect before a later refinement meaning defect. Among two refinement nodes with separate meaning defects, the lower node id wins; within a node the first body member or array entry with a defect wins. An invalid body of another `relation` form never enters the refinement body path. | Test |
+| FR-061-AC-8 | A proof-eligible refinement with `n` steps admits exactly its declaration occurrence 0 and generated occurrences 0 through `n`; an owner with a hidden field, a history or an `any` step admits only declaration occurrence 0. Duplicate, extra-role, extra-ordinal or wrong-region source-map entries refuse `invalid_package`/`invalid-value` at the offending entry; a missing required occurrence refuses the same pair at `/source_map` after every present entry passes. No derived per-step node is synthesized. | Test |
+| FR-061-AC-9 | The reader reports the earlier FR-322 strict-wire, graph-shape, key, declaration or source-map defect before a later refinement meaning defect. Among two refinement nodes with separate meaning defects, the lower node id wins; within one node, defects are selected in the fixed `term`, `abstract`, `profile`, `populations`, `objects`, `steps`, `histories`, `assume`, `ensure`, `protocol`, `abstract_internal` order, then ascending array index and schema-declared entry-member order. An invalid body of another `relation` form never enters the refinement body path. | Test |
 
 ## Dependencies
 

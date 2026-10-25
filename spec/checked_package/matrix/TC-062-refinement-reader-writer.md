@@ -35,7 +35,12 @@ key forms, an unselected package, each row array's missing/extra member,
 noncanonical ordering, a history initial of both admitted forms and of an
 application, missing/extra dependencies, two row-empty concrete subjects,
 proof-eligible and ineligible occurrence sets, and pairs of simultaneous
-defects at the earlier/meaning stages. Rebuild identities after every body
+defects at the earlier/meaning stages. For a missing generated occurrence,
+remove its `source_map` entry and assert `/source_map`; for duplicate,
+extra-role, extra-ordinal and wrong-region entries, assert the offending
+entry's pointer. For within-node precedence, put two wrong-kind targets in
+different body members; repeat with two entries of one array and with two
+properties of one row entry. Rebuild identities after every body
 mutation except the stale-key control; keep the same selected packages in
 the identity comparisons.
 
@@ -47,3 +52,5 @@ FR-061's code, cause and pointer; no row is defaulted, reordered, omitted or
 interpreted under another form. The two concrete subjects produce distinct
 node ids despite equal bodies, and only the canonical meaning-bearing edits
 change identity. Earlier reader stages win over later refinement joins.
+The simultaneous body defects report the first member in FR-061's fixed
+order, then first array index and first schema-declared entry member.
