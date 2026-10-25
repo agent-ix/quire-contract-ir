@@ -45,3 +45,7 @@ Final verdict: PASS for the corrected trace bindings in this partial slice. The 
 ## String-edge gate re-review
 
 At PR head `421176f25daed888a2fb549bfef55bd1ec76e97b`, the new `refinement_open_argument_has_one_closed_spelling` test traces FR-061-AC-2's closed-wire argument rule. It establishes that exact `open` passes closed-body validation and reaches the later stale-key stage, while another spelling refuses at the argument path. No `TC-062`, FR-061-AC-1 or FR-061-AC-8 tag was reintroduced. The remaining full AC-2 vectors stay open under IR-1014; no new false trace finding was established for this delta. PASS remains for this head.
+
+## Root-gate regression re-review
+
+At PR head `92aa6e74a10708bb8d0fca4d6849e5f662e4c0a5`, the two existing model-form tests retain their original positive `state_machine` intent using one selected declaration and owner rather than an anonymous all-family node. The new writer and replacement unit vectors are untagged internal checks of the FR-061 code and do not claim to complete its open criteria. The FR-019 inventory change is covered by the existing TC-058 public-interface test; the independent spec verdict is in SR-565875. No new false trace or reverse ownership gap was established. PASS remains for this head.
