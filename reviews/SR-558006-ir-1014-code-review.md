@@ -37,3 +37,7 @@ Fix round 1 at PR head `b71dcf3022e9c94017b081f0d336eaa0e4efaaea`:
 | FND-001 | fixed | `validate_step_rows` now checks each row region's source against `lock.sources` and requires `start < end` before occurrence checks. The new ineligible-owner vector removes generated occurrences and asserts both malformed intervals and unlocked sources refuse at the sidecar region. After excerpt: `if !locked_sources.contains(&row.region.source) { return Err(invalid_step_row_region(index, true)); } if row.region.start >= row.region.end { return Err(invalid_step_row_region(index, false)); }` |
 
 Final verdict: PASS for the reviewed early refinement slice. IR-874 and the other open FR-061 criteria remain outstanding.
+
+## String-edge gate re-review
+
+At PR head `421176f25daed888a2fb549bfef55bd1ec76e97b`, the source-map root comparison uses `JsonPointer` instead of a raw string, the body header check is extracted unchanged, and class/open/memory spellings flow through typed `string_edge` functions. The `source_node` presence test in catalog absence is equivalent to the former memory-prefix test because `check_wire` first enforces exactly that pairing for each step. The new open-term vector reaches the stale-key stage for `open` and refuses `other` at the argument pointer. No semantic regression or new code-review finding was established. PASS remains for this head; the code lead owns the final aggregate gate.

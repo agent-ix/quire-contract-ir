@@ -41,3 +41,7 @@ Fix round 1 at PR head `b71dcf3022e9c94017b081f0d336eaa0e4efaaea`:
 | FND-003 | fixed | No `TC-062` trace argument remains in the new refinement test file; the four remaining trace attributes name FR-061-AC-2 or FR-061-AC-9 only. After excerpt: `#[trace("FR-061-AC-2")]` and `#[trace("FR-061-AC-9")]`. |
 
 Final verdict: PASS for the corrected trace bindings in this partial slice. The untouched full FR-061 acceptance criteria remain open where their complete evidence is absent.
+
+## String-edge gate re-review
+
+At PR head `421176f25daed888a2fb549bfef55bd1ec76e97b`, the new `refinement_open_argument_has_one_closed_spelling` test traces FR-061-AC-2's closed-wire argument rule. It establishes that exact `open` passes closed-body validation and reaches the later stale-key stage, while another spelling refuses at the argument path. No `TC-062`, FR-061-AC-1 or FR-061-AC-8 tag was reintroduced. The remaining full AC-2 vectors stay open under IR-1014; no new false trace finding was established for this delta. PASS remains for this head.
