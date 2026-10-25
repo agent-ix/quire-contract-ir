@@ -405,6 +405,7 @@ enum CanonicalOpen {
 /// The strict scan has already proved syntax and duplicate-member validity.
 /// This second, allocation-bounded scan checks the ordering of object members
 /// and compares each scalar spelling with `quire-canonical`'s own spelling.
+#[ix_trace_rs::string_edge]
 fn require_canonical_tokens(input: &[u8]) -> Result<(), ValidationFailure> {
     let noncanonical =
         || ValidationFailure::refused_bytes(CheckedPackageRefusalCode::NoncanonicalWire);
@@ -1158,6 +1159,7 @@ pub(in crate::checked_package) struct WireTerm<'a> {
 }
 
 impl<'a> WireTerm<'a> {
+    #[ix_trace_rs::string_edge]
     pub(in crate::checked_package) fn decode(value: &'a Value) -> Self {
         let object = value.as_object();
         let tag = match object.and_then(|object| object.get("term")) {
@@ -1215,6 +1217,7 @@ pub(super) fn body_term(value: &Value) -> Option<BodyTerm> {
 /// SHA-256 [`CheckedSemanticId`]; `None` for any other shape, a bare digest
 /// or another digest domain included.
 // Intake check of a dependency reference's package domain and algorithm.
+#[ix_trace_rs::string_edge]
 pub(super) fn dependency_reference_package(term: WireTerm<'_>) -> Option<CheckedSemanticId> {
     let package = CheckedSemanticId::deserialize(term.field(TermField::Package)?).ok()?;
     (package.domain.as_ref() == PACKAGE_DOMAIN_V2
@@ -1226,6 +1229,7 @@ pub(super) fn dependency_reference_package(term: WireTerm<'_>) -> Option<Checked
 /// A `dependency_reference` term's `node`: a node key in the node domain;
 /// `None` for any other shape.
 // Intake check of a dependency reference's node domain.
+#[ix_trace_rs::string_edge]
 pub(super) fn dependency_reference_node(term: WireTerm<'_>) -> Option<CheckedNodeId> {
     let node = CheckedNodeId::deserialize(term.field(TermField::Node)?).ok()?;
     (node.domain.as_ref() == NODE_DOMAIN && is_digest(&node.digest)).then_some(node)
@@ -1260,6 +1264,7 @@ fn visit_member(
 /// charges one unit of work. Shared by `reference.target`, `literal.type`,
 /// `application.result_type`, and the V2 `frame` body's reference arrays.
 // Intake check of a node reference's domain and digest text.
+#[ix_trace_rs::string_edge]
 pub(super) fn visit_reference(
     value: &Value,
     member: ReferenceMember,
@@ -1429,6 +1434,7 @@ fn strict_shape(input: &[u8]) -> Result<(), ValidationFailure> {
 }
 
 /// The strict shape and deepest container, counted without native recursion.
+#[ix_trace_rs::string_edge]
 fn strict_shape_depth(input: &[u8]) -> Result<usize, ValidationFailure> {
     let malformed = || ValidationFailure::refused_bytes(CheckedPackageRefusalCode::MalformedWire);
     let mut scan = Scan {
@@ -1721,6 +1727,7 @@ impl<'de> Visitor<'de> for StrictSeed<'_> {
         }
     }
     // Canonical-JSON front end: reads serde_json's number token.
+    #[ix_trace_rs::string_edge]
     fn visit_map<A>(self, mut access: A) -> Result<Value, A::Error>
     where
         A: MapAccess<'de>,

@@ -71,6 +71,7 @@ test = false
 
 [dependencies]
 ix-cli-kit = { version = "0.1", git = "https://github.com/agent-ix/ix-cli-kit", branch = "main", default-features = false, optional = true }
+ix-trace-rs = { version = "0.1", git = "https://github.com/agent-ix/ix-trace-rs", branch = "main" }
 quire-contract-model = { version = "=0.1.0", path = "crates/quire-contract-model" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["unbounded_depth"] }
@@ -80,7 +81,6 @@ thiserror = "=2.0.20"
 syn = { version = "2", features = ["full", "visit"] }
 quire-contract-model = { version = "=0.1.0", path = "crates/quire-contract-model", features = ["fault-injection"] }
 # Moving first-party branches use compatible ranges; Cargo.lock records selected revisions.
-ix-trace-rs = { version = "0.1", git = "https://github.com/agent-ix/ix-trace-rs", branch = "main" }
 quire-canonical = { version = "0.3", git = "https://github.com/agent-ix/quire-canonical", branch = "main" }
 quire-verification-contracts = { version = "0.1", git = "https://github.com/agent-ix/quire-verification-contracts", branch = "main" }
 jsonschema = { version = "=0.17.1", default-features = false }

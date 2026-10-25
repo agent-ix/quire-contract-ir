@@ -169,6 +169,7 @@ impl Defect {
 /// the reader's node-identity domain, or with a digest that is not lowercase
 /// hex, is `digest_domain_mismatch` at the key itself, as every other node
 /// reference the reader reads (FR-038 "Frame bodies").
+#[ix_trace_rs::string_edge]
 fn node_key(
     object: &Map<String, Value>,
     key: &str,

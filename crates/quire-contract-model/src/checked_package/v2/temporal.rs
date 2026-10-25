@@ -105,12 +105,14 @@ pub(in crate::checked_package) fn references_refused_node(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::checked_package) struct IntegerString {
     negative: bool,
+    zero: bool,
     /// The magnitude's digits, with no leading zero unless the magnitude is `0`.
     digits: Box<str>,
 }
 
 impl IntegerString {
     /// The integer `text` spells, `None` when it is not an `IntegerString`.
+    #[ix_trace_rs::string_edge]
     pub(in crate::checked_package) fn parse(text: &str) -> Option<Self> {
         let (negative, digits) = match text.strip_prefix('-') {
             Some(digits) => (true, digits),
@@ -125,6 +127,7 @@ impl IntegerString {
         };
         spelled.then(|| Self {
             negative,
+            zero: digits == "0",
             digits: digits.into(),
         })
     }
@@ -136,7 +139,7 @@ impl IntegerString {
 
     /// Whether this is `0`.
     fn is_zero(&self) -> bool {
-        self.digits.as_ref() == "0"
+        self.zero
     }
 
     fn magnitude_cmp(&self, other: &Self) -> Ordering {
@@ -317,6 +320,23 @@ fn interval_object(operation: &Value) -> Option<&serde_json::Map<String, Value>>
 /// that is no string. A timed `upper` of `null` is admitted only for a formula
 /// reached by a hybrid claim; `flat_wire::check_interval_bounds` refuses it
 /// `invalid-value` for every other formula before identity validation.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum IntervalBound {
+    Lower,
+    Upper,
+}
+
+impl IntervalBound {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(text: &str) -> Self {
+        if text == "upper" {
+            Self::Upper
+        } else {
+            Self::Lower
+        }
+    }
+}
+
 pub(super) fn interval_bound_outside_pattern(operation: &Value) -> Option<&'static str> {
     let interval = interval_object(operation)?;
     let timed = IntervalForm::of(interval) == Some(IntervalForm::Timed);
@@ -326,12 +346,12 @@ pub(super) fn interval_bound_outside_pattern(operation: &Value) -> Option<&'stat
             return false;
         };
         if timed {
-            if *bound == "upper" && value.is_null() {
+            if IntervalBound::from_wire(bound) == IntervalBound::Upper && value.is_null() {
                 return false;
             }
             return Rational::read(value).is_none();
         }
-        if *bound == "upper" && value.is_null() {
+        if IntervalBound::from_wire(bound) == IntervalBound::Upper && value.is_null() {
             return false;
         }
         !value

@@ -134,13 +134,13 @@ pub(super) fn closed_shape(
                 BoundsOver::Collection
             };
             if matches!(over, BoundsOver::Integer)
-                && (node.semantic_type.domain.as_ref() != NODE_DOMAIN
+                && (!super::is_node_domain(&node.semantic_type.domain)
                     || node.semantic_type.digest.as_ref() != integer)
             {
                 return false;
             }
             let typed = |id: &CheckedNodeId| {
-                id.domain.as_ref() == NODE_DOMAIN && id.digest.as_ref() == integer
+                super::is_node_domain(&id.domain) && id.digest.as_ref() == integer
             };
             bound(lower, "min", &typed, over).is_some()
                 && bound(upper, "max", &typed, over).is_some()

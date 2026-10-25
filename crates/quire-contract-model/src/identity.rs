@@ -33,6 +33,15 @@ macro_rules! diagnostic_codes {
                     $( Self::$variant => $wire, )+
                 }
             }
+
+            /// Decode one external diagnostic code without accepting an unknown spelling.
+            #[ix_trace_rs::string_edge]
+            pub(crate) fn from_code(value: &str) -> Option<Self> {
+                match value {
+                    $( $wire => Some(Self::$variant), )+
+                    _ => None,
+                }
+            }
         }
     };
 }
@@ -333,6 +342,7 @@ fn valid_identifier(value: &str) -> bool {
 pub struct PackageId(String);
 
 impl PackageId {
+    #[ix_trace_rs::string_edge]
     pub fn new(value: impl Into<String>) -> Result<Self, Diagnostic> {
         let value = value.into();
         let valid = !value.is_empty()

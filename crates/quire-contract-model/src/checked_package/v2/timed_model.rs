@@ -73,14 +73,16 @@ fn possible_binding_value(value: &Value) -> Option<&Value> {
     WireTerm::decode(value).field(TermField::Value)
 }
 
-fn node_key(value: &Value) -> bool {
+#[ix_trace_rs::string_edge]
+fn node_key(value: &Value) -> Option<CheckedNodeId> {
     serde_json::from_value::<CheckedNodeId>(value.clone())
-        .is_ok_and(|key| key.domain.as_ref() == NODE_DOMAIN && is_digest(&key.digest))
+        .ok()
+        .filter(|key| key.domain.as_ref() == NODE_DOMAIN && is_digest(&key.digest))
 }
 
 fn reference(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
     match CheckedTerm::view(value) {
-        Some(CheckedTermView::Reference { target }) if node_key(target) => Ok(()),
+        Some(CheckedTermView::Reference { target }) if node_key(target).is_some() => Ok(()),
         _ => Err(malformed(at.clone())),
     }
 }
@@ -95,7 +97,9 @@ fn literal<'a>(
             type_id,
             value_kind,
             value,
-        }) if Some(value_kind) == LiteralKind::from_wire(kind) && node_key(type_id) => Ok(value),
+        }) if Some(value_kind) == LiteralKind::from_wire(kind) && node_key(type_id).is_some() => {
+            Ok(value)
+        }
         _ => Err(malformed(at.clone())),
     }
 }
@@ -122,22 +126,36 @@ fn integer(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
     }
 }
 
+struct ExactMagnitude<'a> {
+    numerator: &'a str,
+    denominator: &'a str,
+    zero: bool,
+}
+
+impl<'a> ExactMagnitude<'a> {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(spelling: &'a str) -> Option<Self> {
+        let natural = |s: &str| {
+            s == "0"
+                || s.as_bytes()
+                    .first()
+                    .is_some_and(|c| matches!(c, b'1'..=b'9'))
+                    && s.bytes().all(|c| c.is_ascii_digit())
+        };
+        let (numerator, denominator) = spelling.split_once('/').unwrap_or((spelling, "1"));
+        (natural(numerator) && natural(denominator) && denominator != "0").then_some(Self {
+            numerator,
+            denominator,
+            zero: numerator == "0",
+        })
+    }
+}
+
 fn magnitude(value: &Value, kind: &str, at: &JsonPointer) -> Result<(), ValidationFailure> {
     let Some(spelling) = literal(value, kind, at)?.as_str() else {
         return Err(malformed(at.clone().key("value")));
     };
-    let natural = |s: &str| {
-        s == "0"
-            || s.as_bytes()
-                .first()
-                .is_some_and(|c| matches!(c, b'1'..=b'9'))
-                && s.bytes().all(|c| c.is_ascii_digit())
-    };
-    let valid = match spelling.split_once('/') {
-        Some((n, d)) => natural(n) && natural(d) && d != "0",
-        None => natural(spelling),
-    };
-    if valid {
+    if ExactMagnitude::from_wire(spelling).is_some() {
         Ok(())
     } else {
         Err(malformed(at.clone().key("value")))
@@ -164,20 +182,20 @@ fn path(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
             .first()
             .and_then(possible_binding_value)
             .ok_or_else(|| malformed(step_at.clone()))?;
-        match text(kind, &kind_at)? {
-            "field" => {
+        match PathStepKind::from_wire(text(kind, &kind_at)?) {
+            Some(PathStepKind::Field) => {
                 let b = bindings(step, &["kind", "name"], &step_at)?;
                 text(b[1].0, &b[1].1)?;
             }
-            "tuple" => {
+            Some(PathStepKind::Tuple) => {
                 let b = bindings(step, &["kind", "index"], &step_at)?;
                 integer(b[1].0, &b[1].1)?;
             }
-            "union" => {
+            Some(PathStepKind::Union) => {
                 let b = bindings(step, &["kind", "case"], &step_at)?;
                 text(b[1].0, &b[1].1)?;
             }
-            "slot" => {
+            Some(PathStepKind::Slot) => {
                 let b = bindings(
                     step,
                     &["kind", "collection", "selector", "minimum", "maximum"],
@@ -296,12 +314,12 @@ pub(super) fn check_wire(
                 .first()
                 .and_then(possible_binding_value)
                 .ok_or_else(|| malformed(body_at.clone()))?;
-            match text(kind, &kind_at)? {
-                "dense" => {
+            match TimeSourceKind::from_wire(text(kind, &kind_at)?) {
+                Some(TimeSourceKind::Dense) => {
                     let b = bindings(&node.body, &["kind", "unit"], &body_at)?;
                     reference(b[1].0, &b[1].1)?;
                 }
-                "tick" => {
+                Some(TimeSourceKind::Tick) => {
                     let b = bindings(
                         &node.body,
                         &["kind", "unit", "model", "operation", "period"],
@@ -362,12 +380,12 @@ pub(super) fn check_wire(
                 .first()
                 .and_then(possible_binding_value)
                 .ok_or_else(|| malformed(body_at.clone()))?;
-            match text(kind, &kind_at)? {
-                "when" => {
+            match UrgencyKind::from_wire(text(kind, &kind_at)?) {
+                Some(UrgencyKind::When) => {
                     let b = bindings(&node.body, &["kind", "predicate"], &body_at)?;
                     reference(b[1].0, &b[1].1)?;
                 }
-                "operation" => {
+                Some(UrgencyKind::Operation) => {
                     let b = bindings(&node.body, &["kind", "model", "operation_name"], &body_at)?;
                     reference(b[1].0, &b[1].1)?;
                     text(b[2].0, &b[2].1)?;
@@ -448,6 +466,118 @@ fn text_member(term: &CheckedTerm, index: usize) -> Option<&str> {
     bound(term, index).and_then(spelling)
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PathStepKind {
+    Field,
+    Tuple,
+    Union,
+    Slot,
+}
+
+enum TimeSourceKind {
+    Dense,
+    Tick,
+}
+
+impl TimeSourceKind {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(value: &str) -> Option<Self> {
+        match value {
+            "dense" => Some(Self::Dense),
+            "tick" => Some(Self::Tick),
+            _ => None,
+        }
+    }
+}
+
+enum UrgencyKind {
+    When,
+    Operation,
+}
+
+impl UrgencyKind {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(value: &str) -> Option<Self> {
+        match value {
+            "when" => Some(Self::When),
+            "operation" => Some(Self::Operation),
+            _ => None,
+        }
+    }
+}
+
+impl PathStepKind {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(value: &str) -> Option<Self> {
+        match value {
+            "field" => Some(Self::Field),
+            "tuple" => Some(Self::Tuple),
+            "union" => Some(Self::Union),
+            "slot" => Some(Self::Slot),
+            _ => None,
+        }
+    }
+}
+
+fn path_step_kind(step: &CheckedTerm) -> Option<PathStepKind> {
+    text_member(step, 0).and_then(PathStepKind::from_wire)
+}
+
+enum RenderedCollectionType<'a> {
+    Map(&'a str),
+    OtherCollection(&'a str),
+    Other,
+}
+
+impl<'a> RenderedCollectionType<'a> {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(text: &'a str) -> Self {
+        if let Some(inner) = text.strip_prefix("Map<").and_then(|s| s.strip_suffix('>')) {
+            return Self::Map(inner);
+        }
+        for prefix in ["Sequence<", "Set<", "Bag<", "OrderedSet<"] {
+            if let Some(inner) = text.strip_prefix(prefix).and_then(|s| s.strip_suffix('>')) {
+                return Self::OtherCollection(inner);
+            }
+        }
+        Self::Other
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum CollectionKind {
+    Map,
+    Other,
+}
+
+impl CollectionKind {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(text: &str) -> Self {
+        if text == "map" {
+            Self::Map
+        } else {
+            Self::Other
+        }
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum MapKeyKind {
+    Text,
+    Other,
+}
+
+impl MapKeyKind {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(text: &str) -> Self {
+        if text == "Text" {
+            Self::Text
+        } else {
+            Self::Other
+        }
+    }
+}
+
 fn check_resolved_path(
     graph: &Graph<'_>,
     position: usize,
@@ -461,7 +591,7 @@ fn check_resolved_path(
     let steps = bound(place, 1).map(typed_members).unwrap_or_default();
     let rows = bound(place, 2).map(typed_members).unwrap_or_default();
     let fail = |at| graph.issue(position, Cause::MalformedClockPlace, at);
-    if steps.first().and_then(|step| text_member(step, 0)) == Some("slot") {
+    if steps.first().and_then(path_step_kind) == Some(PathStepKind::Slot) {
         return Err(fail(
             node_pointer(position).key("body").key("members").index(1),
         ));
@@ -489,19 +619,16 @@ fn check_resolved_path(
     for (index, (step, row)) in steps.iter().zip(rows).enumerate() {
         let at = rows_at.clone().key("members").index(index);
         meter.charge(1, || at.clone())?;
-        let step_kind = text_member(step, 0).unwrap_or_default();
+        let step_kind = path_step_kind(step);
         let parent_type = expected_declaring.clone();
-        let declaring_expected = if step_kind == "slot" {
-            parent_type.as_deref().and_then(|ty| {
-                if ty.starts_with("Map<") && ty.ends_with('>') {
-                    return Some(ty.to_owned());
-                }
-                ["Sequence<", "Set<", "Bag<", "OrderedSet<"]
-                    .iter()
-                    .find_map(|prefix| ty.strip_prefix(prefix))
-                    .and_then(|inside| inside.strip_suffix('>'))
-                    .map(str::to_owned)
-            })
+        let declaring_expected = if step_kind == Some(PathStepKind::Slot) {
+            parent_type
+                .as_deref()
+                .and_then(|ty| match RenderedCollectionType::from_wire(ty) {
+                    RenderedCollectionType::Map(_) => Some(ty.to_owned()),
+                    RenderedCollectionType::OtherCollection(inner) => Some(inner.to_owned()),
+                    RenderedCollectionType::Other => None,
+                })
         } else {
             parent_type.clone()
         };
@@ -523,17 +650,17 @@ fn check_resolved_path(
             return Err(fail(at));
         }
         let expected_identity = match step_kind {
-            "field" => {
+            Some(PathStepKind::Field) => {
                 text_member(step, 1).map(|name| format!("{}/{name}", declaring.unwrap_or_default()))
             }
-            "tuple" => text_member(step, 1)
+            Some(PathStepKind::Tuple) => text_member(step, 1)
                 .map(|slot| format!("{}/tuple/{slot}", declaring.unwrap_or_default())),
-            "union" => text_member(step, 1)
+            Some(PathStepKind::Union) => text_member(step, 1)
                 .map(|case| format!("{}/union/{case}", declaring.unwrap_or_default())),
-            "slot" => parent_type.as_ref().map(|name| format!("{name}[slot]")),
+            Some(PathStepKind::Slot) => parent_type.as_ref().map(|name| format!("{name}[slot]")),
             _ => None,
         };
-        if step_kind == "field" {
+        if step_kind == Some(PathStepKind::Field) {
             let path_at = binding_at(position, 1).key("members").index(index);
             let model_owner = owners
                 .recover(model_node)
@@ -579,12 +706,15 @@ fn check_resolved_path(
         if expected_identity.as_deref() != identity {
             return Err(fail(at));
         }
-        if step_kind == "slot" && collection == Some("map") {
-            let Some(map_inner) = parent_type
-                .as_deref()
-                .and_then(|name| name.strip_prefix("Map<"))
-                .and_then(|name| name.strip_suffix('>'))
-            else {
+        if step_kind == Some(PathStepKind::Slot)
+            && collection.map(CollectionKind::from_wire) == Some(CollectionKind::Map)
+        {
+            let Some(map_inner) = parent_type.as_deref().and_then(|name| {
+                match RenderedCollectionType::from_wire(name) {
+                    RenderedCollectionType::Map(inner) => Some(inner),
+                    _ => None,
+                }
+            }) else {
                 return Err(fail(at));
             };
             let Some((key_type, value_type)) = map_inner.split_once(", ") else {
@@ -600,7 +730,7 @@ fn check_resolved_path(
                 .and_then(|key| graph.index.get(key))
                 .copied();
             let text_node_id = &graph.nodes[text_node].node_id;
-            if key_type != "Text"
+            if MapKeyKind::from_wire(key_type) != MapKeyKind::Text
                 || value_type != member_type.unwrap_or_default()
                 || selector_position
                     .is_none_or(|selector| graph.nodes[selector].semantic_type != *text_node_id)
@@ -608,8 +738,8 @@ fn check_resolved_path(
                 return Err(fail(at));
             }
         }
-        let next_kind = steps.get(index + 1).and_then(|next| text_member(next, 0));
-        if next_kind == Some("slot") {
+        let next_kind = steps.get(index + 1).and_then(path_step_kind);
+        if next_kind == Some(PathStepKind::Slot) {
             let next = &steps[index + 1];
             let expected_collection = text_member(next, 1);
             let expected_minimum = bound(next, 3).and_then(scalar_text);
@@ -725,11 +855,11 @@ impl Graph<'_> {
             )
         };
         let value = term.and_then(spelling).ok_or_else(invalid)?;
-        let (numerator, denominator) = value.split_once('/').unwrap_or((value, "1"));
+        let exact = ExactMagnitude::from_wire(value).ok_or_else(invalid)?;
         // The strict shape has checked nonnegative decimal syntax. Shared
         // natural arithmetic accounts for the exact reduction work.
-        if positive && numerator == "0"
-            || !super::natural::coprime(numerator, denominator, meter, &|| at.clone())?
+        if positive && exact.zero
+            || !super::natural::coprime(exact.numerator, exact.denominator, meter, &|| at.clone())?
         {
             return Err(invalid());
         }

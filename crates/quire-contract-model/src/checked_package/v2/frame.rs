@@ -74,6 +74,7 @@ pub(super) enum FieldScope {
 }
 
 impl FieldScope {
+    #[ix_trace_rs::string_edge]
     fn from_wire(value: &str) -> Option<Self> {
         match value {
             "every-object" => Some(Self::EveryObject),

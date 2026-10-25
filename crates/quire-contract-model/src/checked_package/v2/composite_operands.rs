@@ -42,6 +42,17 @@ pub enum CheckedCompositeOperator {
     Ne,
 }
 
+impl CheckedCompositeOperator {
+    #[ix_trace_rs::string_edge]
+    fn from_identity(identity: &str) -> Option<Self> {
+        match identity {
+            "quire.op.structural.eq" => Some(Self::Eq),
+            "quire.op.structural.ne" => Some(Self::Ne),
+            _ => None,
+        }
+    }
+}
+
 /// One authentic positional operand.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CheckedCompositeOperand {
@@ -406,15 +417,11 @@ impl CheckedPackageV2 {
             .ok_or_else(|| Error::UnknownOperator {
                 application: application.clone(),
             })?;
-        let operator = match identity {
-            "quire.op.structural.eq" => CheckedCompositeOperator::Eq,
-            "quire.op.structural.ne" => CheckedCompositeOperator::Ne,
-            _ => {
-                return Err(Error::IneligibleOperator {
-                    application: application.clone(),
-                })
+        let operator = CheckedCompositeOperator::from_identity(identity).ok_or_else(|| {
+            Error::IneligibleOperator {
+                application: application.clone(),
             }
-        };
+        })?;
         let mut operands = Vec::new();
         for (index, argument) in arguments.iter().enumerate() {
             let ordinal = argument_ordinal(index)?;
