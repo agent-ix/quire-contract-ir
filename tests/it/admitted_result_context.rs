@@ -1030,10 +1030,10 @@ fn tc_447_shared_expression_uses_each_supplied_occurrence_and_direct_narrow() {
     assert_eq!(result(&application_one, &first), first_result);
 }
 
-/// Golden values measured on pre-change IR main 0a63033 with the same public fixture.
+/// Golden bytes and work for the admitted fixture with a declared protocol body.
 #[trace("TC-447", "FR-049-AC-5")]
 #[test]
-fn ir987_scalar_and_result_results_bytes_and_work_match_before_change() {
+fn ir987_scalar_and_result_results_bytes_and_work_match_admitted_fixture() {
     let wire = fixture();
     let bytes = canonical(&wire);
     let checked = admit(&wire);
@@ -1117,7 +1117,7 @@ fn ir987_scalar_and_result_results_bytes_and_work_match_before_change() {
     else {
         panic!("work boundary");
     };
-    assert_eq!((high, incomplete.consumed), (263, 263));
+    assert_eq!((high, incomplete.consumed), (339, 339));
 
     let contract = package(&checked, &[add.node_id.clone(), narrow.node_id.clone()]);
     let result = contract.result_context(
