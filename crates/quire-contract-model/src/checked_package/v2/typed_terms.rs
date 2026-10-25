@@ -183,6 +183,9 @@ pub enum CheckedTerm {
         /// Nonempty alias-free internal list, when supplied.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         abstract_internal: Option<Vec<Box<str>>>,
+        /// Identity-bound checked classes of the selected subjects.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        class_catalog: Option<super::refinement::RefinementClassCatalog>,
     },
     /// The closed extension declaration body.
     ExtensionForm {
@@ -686,6 +689,7 @@ impl Encode for CheckedTerm {
                 ensure,
                 protocol,
                 abstract_internal,
+                class_catalog,
             } => {
                 writer.name("term")?;
                 writer.string("refinement")?;
@@ -712,6 +716,10 @@ impl Encode for CheckedTerm {
                 if let Some(internal) = abstract_internal {
                     writer.name("abstract_internal")?;
                     writer.serialize(internal)?;
+                }
+                if let Some(catalog) = class_catalog {
+                    writer.name("class_catalog")?;
+                    encode_refinement_member(writer, catalog)?;
                 }
             }
             Self::ExtensionForm {

@@ -234,15 +234,90 @@ fn one_step_refinement(package: &mut Value) {
     refresh_identity(package);
 }
 
+#[trace("TC-062", "FR-061-AC-2")]
+#[test]
+fn tc_062_class_catalog_entries_are_closed() {
+    let (mut package, evidence) = machine_package();
+    row_empty_refinement(&mut package);
+    let refinement = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    let base = package.clone();
+    for entry in [
+        json!({"class":"memory flush","memory_model":"tso","node":base["semantic_graph"]["nodes"][refinement]["semantic_type"]}),
+        json!({"class":"memory flush","memory_model":"unknown"}),
+        json!({"class":"finish P::end","node":base["semantic_graph"]["nodes"][refinement]["semantic_type"]}),
+    ] {
+        package = base.clone();
+        package["semantic_graph"]["nodes"][refinement]["body"]["class_catalog"] =
+            json!({"concrete":[entry],"abstract":[]});
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+            panic!("malformed catalog entry admitted");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(
+                format!("/semantic_graph/nodes/{refinement}/body/class_catalog/concrete/0")
+                    .as_str()
+            )
+        );
+    }
+}
+
+#[trace("TC-062", "FR-061-AC-7", "FR-061-AC-9")]
+#[test]
+fn tc_062_class_catalog_is_in_dedicated_refinement_key() {
+    let (mut package, evidence) = machine_package();
+    row_empty_refinement(&mut package);
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    package["semantic_graph"]["nodes"][position]["body"]["class_catalog"] =
+        json!({"concrete":[],"abstract":[]});
+    refresh_identity(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+        panic!("stale refinement key admitted");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::StaleNodeKey)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/node_id").as_str())
+    );
+}
+
 #[trace("TC-062", "FR-061-AC-8")]
 #[test]
-fn tc_062_step_regions_bind_generated_occurrences() {
+fn tc_062_step_regions_bind_generated_occurrences_before_row_join() {
     let (mut package, evidence) = machine_package();
     one_step_refinement(&mut package);
     let result = read(&package, &evidence);
-    assert!(
-        matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
-        "{result:?}"
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("unbacked memory class must not admit");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    let refinement = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{refinement}/body/class_catalog").as_str())
     );
     let bytes = writer_bytes(&package);
     assert_eq!(bytes, canonical(&package));

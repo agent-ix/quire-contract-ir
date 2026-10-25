@@ -178,6 +178,92 @@ pub struct RefinementStep {
     pub target: RefinementStepTarget,
 }
 
+/// Checked classes of the selected concrete and abstract subjects.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RefinementClassCatalog {
+    /// Concrete operation, protocol and memory classes.
+    pub concrete: Vec<RefinementConcreteClass>,
+    /// Abstract operation, protocol and memory classes.
+    pub r#abstract: Vec<RefinementAbstractClass>,
+}
+
+/// A concrete class with a declaration or a source-default memory step.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum RefinementConcreteClass {
+    /// A class backed by a local declaration node.
+    Declared {
+        /// Alias-free canonical spelling.
+        class: Box<str>,
+        /// Local declaring node.
+        node: CheckedNodeId,
+        /// Checked binder types in declaration order.
+        binder_types: Vec<CheckedNodeId>,
+    },
+    /// A source-default memory class.
+    Memory(RefinementMemoryClass),
+}
+
+/// An abstract class with a declaration or a source-default memory step.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum RefinementAbstractClass {
+    /// A class backed by a selected declaration node.
+    Declared {
+        /// Alias-free canonical spelling.
+        class: Box<str>,
+        /// Local or directly selected declaring node.
+        node: RefinementKey,
+        /// Checked binder types in declaration order.
+        binder_types: Vec<RefinementKey>,
+    },
+    /// A source-default memory class.
+    Memory(RefinementMemoryClass),
+}
+
+/// One memory step defined by a selected source-default memory model.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RefinementMemoryClass {
+    /// Alias-free `memory <kind>` spelling.
+    pub class: Box<str>,
+    /// The selected source-default memory model.
+    pub memory_model: RefinementMemoryModel,
+}
+
+/// Closed source-default memory model vocabulary.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RefinementMemoryModel {
+    /// Sequential consistency.
+    Sc,
+    /// Total store order.
+    Tso,
+    /// Release acquire.
+    Ra,
+}
+
+impl RefinementConcreteClass {
+    fn class(&self) -> &str {
+        match self {
+            Self::Declared { class, .. } | Self::Memory(RefinementMemoryClass { class, .. }) => {
+                class
+            }
+        }
+    }
+}
+
+impl RefinementAbstractClass {
+    fn class(&self) -> &str {
+        match self {
+            Self::Declared { class, .. } | Self::Memory(RefinementMemoryClass { class, .. }) => {
+                class
+            }
+        }
+    }
+}
+
 /// A history update after one concrete operation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -355,10 +441,16 @@ pub(super) fn check_wire(body: &Value, at: &Trail<'_>) -> Result<(), ValidationF
     if object.get("term").and_then(Value::as_str) != Some("refinement")
         || required.iter().any(|name| !object.contains_key(*name))
         || object.keys().any(|name| {
-            !required.contains(&name.as_str()) && name != "protocol" && name != "abstract_internal"
+            !required.contains(&name.as_str())
+                && name != "protocol"
+                && name != "abstract_internal"
+                && name != "class_catalog"
         })
     {
         return Err(invalid(at));
+    }
+    if let Some(catalog) = body.get("class_catalog") {
+        check_catalog_wire(catalog, &at.key("class_catalog"))?;
     }
     let typed = serde_json::from_value::<CheckedTerm>(body.clone()).map_err(|_| {
         let path = locate_closed_value_failure::<CheckedTerm>(body)
@@ -416,6 +508,47 @@ pub(super) fn check_wire(body: &Value, at: &Trail<'_>) -> Result<(), ValidationF
     row_terms(body, at, |term, term_at| {
         super::flat_wire::check_refinement_term(term, term_at)
     })
+}
+
+fn check_catalog_wire(value: &Value, at: &Trail<'_>) -> Result<(), ValidationFailure> {
+    let Some(object) = value.as_object() else {
+        return Err(invalid(at));
+    };
+    if object.len() != 2 || !object.contains_key("concrete") || !object.contains_key("abstract") {
+        return Err(invalid(at));
+    }
+    for side in ["concrete", "abstract"] {
+        let side_at = at.key(side);
+        for (index, entry) in array(value, side, at)?.iter().enumerate() {
+            let entry_at = side_at.index(index);
+            let Some(entry) = entry.as_object() else {
+                return Err(invalid(&entry_at));
+            };
+            let Some(class) = entry.get("class").and_then(Value::as_str) else {
+                return Err(invalid(&entry_at.key("class")));
+            };
+            let memory = class.starts_with("memory ");
+            let valid = if memory {
+                class
+                    .strip_prefix("memory ")
+                    .is_some_and(|kind| !kind.is_empty() && !kind.contains(' '))
+                    && entry.len() == 2
+                    && matches!(
+                        entry.get("memory_model").and_then(Value::as_str),
+                        Some("sc" | "tso" | "ra")
+                    )
+            } else {
+                !class.is_empty()
+                    && entry.len() == 3
+                    && entry.contains_key("node")
+                    && entry.contains_key("binder_types")
+            };
+            if !valid {
+                return Err(invalid(&entry_at));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn check_open_arguments(
@@ -486,6 +619,7 @@ fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), Validation
         assume,
         ensure,
         abstract_internal,
+        class_catalog,
         ..
     } = body
     else {
@@ -608,6 +742,32 @@ fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), Validation
         for (index, pair) in internal.windows(2).enumerate() {
             if pair[0] >= pair[1] {
                 return Err(order_defect(position, "abstract_internal", index + 1));
+            }
+        }
+    }
+    if let Some(catalog) = class_catalog {
+        for (index, pair) in catalog.concrete.windows(2).enumerate() {
+            if pair[0].class() >= pair[1].class() {
+                return Err(ValidationFailure::refused(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    node_at(position)
+                        .key("body")
+                        .key("class_catalog")
+                        .key("concrete")
+                        .index(index + 1),
+                ));
+            }
+        }
+        for (index, pair) in catalog.r#abstract.windows(2).enumerate() {
+            if pair[0].class() >= pair[1].class() {
+                return Err(ValidationFailure::refused(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    node_at(position)
+                        .key("body")
+                        .key("class_catalog")
+                        .key("abstract")
+                        .index(index + 1),
+                ));
             }
         }
     }
@@ -800,6 +960,113 @@ fn wrong_binding(at: JsonPointer, locus: &CheckedNodeId) -> ValidationFailure {
     )
 }
 
+fn missing_class(at: JsonPointer, locus: &CheckedNodeId) -> ValidationFailure {
+    ValidationFailure::refused_at(
+        CheckedPackageRefusalCode::MissingDeclaration,
+        at,
+        Some(CheckedPackageRefusalCause::MissingName),
+        locus.clone(),
+    )
+}
+
+fn class_node_kind(kind: super::CheckedNodeKind) -> bool {
+    matches!(
+        kind,
+        super::CheckedNodeKind::State(super::StateForm::OperationAnchor)
+            | super::CheckedNodeKind::Protocol(_)
+    )
+}
+
+fn class_type_kind(kind: super::CheckedNodeKind) -> bool {
+    matches!(
+        kind,
+        super::CheckedNodeKind::ScalarType(_)
+            | super::CheckedNodeKind::CompositeType(_)
+            | super::CheckedNodeKind::BoundedDomain(_)
+            | super::CheckedNodeKind::Model(_)
+    )
+}
+
+fn validate_catalog(
+    body: &CheckedTerm,
+    position: usize,
+    graph: &RefinementGraph<'_, '_>,
+    locus: &CheckedNodeId,
+    meter: &mut super::WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let CheckedTerm::Refinement {
+        protocol,
+        class_catalog,
+        steps,
+        ..
+    } = body
+    else {
+        return Ok(());
+    };
+    let root = node_at(position).key("body").key("class_catalog");
+    let Some(catalog) = class_catalog else {
+        if protocol.is_some()
+            || steps.iter().any(|step| {
+                step.source_class.starts_with("memory ")
+                    || matches!(step.target, RefinementStepTarget::ProtocolStep { .. })
+            })
+        {
+            return Err(ValidationFailure::refused(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                root,
+            ));
+        }
+        return Ok(());
+    };
+    if protocol.is_none() && catalog.concrete.is_empty() && catalog.r#abstract.is_empty() {
+        return Err(ValidationFailure::refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            root,
+        ));
+    }
+    for (index, entry) in catalog.concrete.iter().enumerate() {
+        let at = root.clone().key("concrete").index(index);
+        meter.charge(1, || at.clone())?;
+        if let RefinementConcreteClass::Declared {
+            node, binder_types, ..
+        } = entry
+        {
+            let node_at = at.clone().key("node");
+            if !class_node_kind(graph.local_kind(node, node_at.clone(), locus)?) {
+                return Err(wrong_binding(node_at, locus));
+            }
+            for (binder_index, binder) in binder_types.iter().enumerate() {
+                let binder_at = at.clone().key("binder_types").index(binder_index);
+                meter.charge(1, || binder_at.clone())?;
+                if !class_type_kind(graph.local_kind(binder, binder_at.clone(), locus)?) {
+                    return Err(wrong_binding(binder_at, locus));
+                }
+            }
+        }
+    }
+    for (index, entry) in catalog.r#abstract.iter().enumerate() {
+        let at = root.clone().key("abstract").index(index);
+        meter.charge(1, || at.clone())?;
+        if let RefinementAbstractClass::Declared {
+            node, binder_types, ..
+        } = entry
+        {
+            let node_at = at.clone().key("node");
+            if !class_node_kind(graph.key_kind(node, node_at.clone(), locus)?) {
+                return Err(wrong_binding(node_at, locus));
+            }
+            for (binder_index, binder) in binder_types.iter().enumerate() {
+                let binder_at = at.clone().key("binder_types").index(binder_index);
+                meter.charge(1, || binder_at.clone())?;
+                if !class_type_kind(graph.key_kind(binder, binder_at.clone(), locus)?) {
+                    return Err(wrong_binding(binder_at, locus));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn validate_rows(
     node: &super::RawSemanticNodeV2,
     body: &CheckedTerm,
@@ -817,6 +1084,7 @@ fn validate_rows(
         histories,
         assume,
         ensure,
+        class_catalog,
         ..
     } = body
     else {
@@ -882,7 +1150,23 @@ fn validate_rows(
     for (index, row) in steps.iter().enumerate() {
         let at = root.clone().key("steps").index(index);
         meter.charge(1, || at.clone())?;
-        if let Some(source) = &row.source_node {
+        if let Some(catalog) = class_catalog {
+            let Some(class) = catalog
+                .concrete
+                .iter()
+                .find(|entry| entry.class() == row.source_class.as_ref())
+            else {
+                return Err(missing_class(at.clone().key("source_class"), locus));
+            };
+            let matches_node = match (class, &row.source_node) {
+                (RefinementConcreteClass::Declared { node, .. }, Some(source)) => node == source,
+                (RefinementConcreteClass::Memory(_), None) => true,
+                _ => false,
+            };
+            if !matches_node {
+                return Err(wrong_binding(at.clone().key("source_node"), locus));
+            }
+        } else if let Some(source) = &row.source_node {
             let operation = graph.require_anchor_subject(
                 &RefinementKey::Local(source.clone()),
                 &node.semantic_type,
@@ -892,6 +1176,8 @@ fn validate_rows(
             if row.source_class.as_ref() != operation.as_ref() {
                 return Err(wrong_binding(at.clone().key("source_class"), locus));
             }
+        } else {
+            return Err(missing_class(at.clone().key("source_class"), locus));
         }
         let target_at = at.key("target");
         match &row.target {
@@ -904,17 +1190,44 @@ fn validate_rows(
                 )?;
             }
             RefinementStepTarget::ProtocolStep {
-                node: Some(target), ..
+                class,
+                node,
+                arguments,
             } => {
-                // A declared protocol class names a selected protocol-family node.
-                let kind = graph.key_kind(target, target_at.clone().key("node"), locus)?;
-                if !matches!(kind, K::Protocol(_)) {
-                    return Err(wrong_binding(target_at.key("node"), locus));
+                let selected = class_catalog
+                    .as_ref()
+                    .and_then(|catalog| {
+                        catalog
+                            .r#abstract
+                            .iter()
+                            .find(|entry| entry.class() == class.as_ref())
+                    })
+                    .ok_or_else(|| missing_class(target_at.clone().key("class"), locus))?;
+                let (matches_node, binders) = match selected {
+                    RefinementAbstractClass::Declared {
+                        node: declared,
+                        binder_types,
+                        ..
+                    } => (
+                        node.as_ref() == Some(declared),
+                        Some(binder_types.as_slice()),
+                    ),
+                    RefinementAbstractClass::Memory(_) => (node.is_none(), None),
+                };
+                if !matches_node {
+                    return Err(wrong_binding(target_at.clone().key("node"), locus));
+                }
+                let expected = binders.map_or(0, <[_]>::len);
+                if !arguments.is_empty() && arguments.len() != expected {
+                    return Err(ValidationFailure::refused_at(
+                        CheckedPackageRefusalCode::IllTyped,
+                        target_at.key("arguments"),
+                        Some(CheckedPackageRefusalCause::OperatorIneligible),
+                        locus.clone(),
+                    ));
                 }
             }
-            RefinementStepTarget::ProtocolStep { node: None, .. }
-            | RefinementStepTarget::Stutter
-            | RefinementStepTarget::Any => {}
+            RefinementStepTarget::Stutter | RefinementStepTarget::Any => {}
         }
     }
     for (index, row) in histories.iter().enumerate() {
@@ -1231,7 +1544,9 @@ pub(super) fn validate_occurrences(
         }
         if !present.contains(&(CheckedOccurrenceRole::Declaration, 0))
             || (0..generated_count).any(|ordinal| {
-                !present.contains(&(CheckedOccurrenceRole::Generated, ordinal as u64))
+                u64::try_from(ordinal).map_or(true, |ordinal| {
+                    !present.contains(&(CheckedOccurrenceRole::Generated, ordinal))
+                })
             })
         {
             return Err(ValidationFailure::refused_at(
@@ -1276,6 +1591,7 @@ pub(super) fn validate_refinements(
         stale_refinement_key(node, position, bytes)?;
         canonical_order(body, position)?;
         check_headers(node, body, position, &graph, lock)?;
+        validate_catalog(body, position, &graph, &node.node_id, meter)?;
         validate_rows(node, body, position, &graph, owners, meter)?;
     }
     Ok(())
@@ -1304,6 +1620,7 @@ fn local_dependencies(body: &CheckedTerm) -> Option<Vec<CheckedNodeId>> {
         histories,
         assume,
         ensure,
+        class_catalog,
         ..
     } = body
     else {
@@ -1372,6 +1689,28 @@ fn local_dependencies(body: &CheckedTerm) -> Option<Vec<CheckedNodeId>> {
     }
     for row in ensure {
         add_key(&mut targets, &row.operation);
+    }
+    if let Some(catalog) = class_catalog {
+        for entry in &catalog.concrete {
+            if let RefinementConcreteClass::Declared {
+                node, binder_types, ..
+            } = entry
+            {
+                targets.insert(node.clone());
+                targets.extend(binder_types.iter().cloned());
+            }
+        }
+        for entry in &catalog.r#abstract {
+            if let RefinementAbstractClass::Declared {
+                node, binder_types, ..
+            } = entry
+            {
+                add_key(&mut targets, node);
+                for binder in binder_types {
+                    add_key(&mut targets, binder);
+                }
+            }
+        }
     }
     Some(targets.into_iter().collect())
 }
