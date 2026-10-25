@@ -263,6 +263,7 @@ closed_vocabulary! {
         Window => "window",
         Activation => "activation",
         Deadline => "deadline",
+        Terminal => "terminal",
     }
 }
 
@@ -287,6 +288,7 @@ closed_vocabulary! {
         AnalysisClaim => "analysis_claim",
         Hyperproperty => "hyperproperty",
         SynthesisRequest => "synthesis_request",
+        StateGraph => "state_graph",
     }
 }
 

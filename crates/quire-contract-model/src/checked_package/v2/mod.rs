@@ -9,6 +9,7 @@
 
 mod abstraction;
 mod application_identity;
+mod claim_terminal;
 mod closure_index;
 mod comparison_operands;
 mod composite_operands;
@@ -1979,7 +1980,8 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | TemporalForm::Clock
             | TemporalForm::Window
             | TemporalForm::Activation
-            | TemporalForm::Deadline,
+            | TemporalForm::Deadline
+            | TemporalForm::Terminal,
         ) => true,
         K::Protocol(ProtocolForm::ProtocolReference) => true,
         K::Protocol(
@@ -1995,7 +1997,8 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             ClaimForm::VerificationClaim
             | ClaimForm::AnalysisClaim
             | ClaimForm::Hyperproperty
-            | ClaimForm::SynthesisRequest,
+            | ClaimForm::SynthesisRequest
+            | ClaimForm::StateGraph,
         ) => false,
         K::Correspondence(
             CorrespondenceForm::SourceLocus
@@ -2186,7 +2189,8 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
             | TemporalForm::Clock
             | TemporalForm::Window
             | TemporalForm::Activation
-            | TemporalForm::Deadline,
+            | TemporalForm::Deadline
+            | TemporalForm::Terminal,
         ) => BodyGrammar::Term,
         K::Protocol(
             ProtocolForm::ProtocolClause
@@ -2202,7 +2206,8 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
             ClaimForm::VerificationClaim
             | ClaimForm::AnalysisClaim
             | ClaimForm::Hyperproperty
-            | ClaimForm::SynthesisRequest,
+            | ClaimForm::SynthesisRequest
+            | ClaimForm::StateGraph,
         ) => BodyGrammar::Term,
         K::Correspondence(CorrespondenceForm::AbstractionRelation) => {
             BodyGrammar::AbstractionRelation
@@ -2543,6 +2548,31 @@ fn validate_graph(
     // own `missing_declaration` refusal rather than the generic
     // unresolved-reference `invalid_semantic_graph`.
     validate_structural_nodes(&graph.nodes, &kinds, &terms, &index)?;
+    for &position in index.values() {
+        if !matches!(
+            kinds.get(position),
+            Some(CheckedNodeKind::Claim(ClaimForm::StateGraph))
+                | Some(CheckedNodeKind::Temporal(TemporalForm::Terminal))
+        ) {
+            continue;
+        }
+        let node = &graph.nodes[position];
+        let expected = references[position]
+            .iter()
+            .filter(|(_, site)| site.member == ReferenceMember::Target)
+            .map(|(target, _)| target.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        if node.dependencies != expected {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                node_pointer(position).key("dependencies"),
+                None,
+                node.node_id.clone(),
+            ));
+        }
+    }
     validate_application_keys(&graph.nodes, &kinds, &terms, &index, meter, limits.bytes)?;
     // FR-038-AC-127: the derived-shape key stage, after the application keys
     // and before the nominal keys.
@@ -2579,6 +2609,7 @@ fn validate_graph(
     let declarations = owners.index();
     frame::validate_frame_semantics(frames, &graph.nodes, &kinds, &index, &owners, meter)?;
     state::validate_state(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
+    claim_terminal::validate_state_graph(&graph.nodes, &kinds, &terms, &index, &owners)?;
     validate_temporal(
         &graph.nodes,
         &kinds,
@@ -2589,6 +2620,7 @@ fn validate_graph(
         meter,
     )?;
     abstraction::validate_abstraction(&graph.nodes, &kinds, &index, &owners, limits.bytes, meter)?;
+    claim_terminal::validate_terminal(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     hybrid::validate_models(&graph.nodes, &kinds, &terms, &index, meter)?;
     hybrid::validate_claims(&graph.nodes, &kinds, &terms, &index, meter)?;
     timed_model::validate_models(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;

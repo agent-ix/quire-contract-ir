@@ -1149,7 +1149,8 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | TemporalForm::Clock
             | TemporalForm::Window
             | TemporalForm::Activation
-            | TemporalForm::Deadline,
+            | TemporalForm::Deadline
+            | TemporalForm::Terminal,
         ) => None,
         K::Protocol(
             ProtocolForm::ProtocolClause
@@ -1165,7 +1166,8 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             ClaimForm::VerificationClaim
             | ClaimForm::AnalysisClaim
             | ClaimForm::Hyperproperty
-            | ClaimForm::SynthesisRequest,
+            | ClaimForm::SynthesisRequest
+            | ClaimForm::StateGraph,
         ) => None,
         K::Correspondence(
             CorrespondenceForm::SourceLocus
@@ -1291,7 +1293,8 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | TemporalForm::Clock
             | TemporalForm::Window
             | TemporalForm::Activation
-            | TemporalForm::Deadline,
+            | TemporalForm::Deadline
+            | TemporalForm::Terminal,
         ) => false,
         K::Protocol(
             ProtocolForm::ProtocolClause
@@ -1307,7 +1310,8 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             ClaimForm::VerificationClaim
             | ClaimForm::AnalysisClaim
             | ClaimForm::Hyperproperty
-            | ClaimForm::SynthesisRequest,
+            | ClaimForm::SynthesisRequest
+            | ClaimForm::StateGraph,
         ) => false,
         K::Correspondence(
             CorrespondenceForm::SourceLocus
