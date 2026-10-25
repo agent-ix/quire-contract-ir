@@ -4,8 +4,9 @@
 //! TC-060 and TC-061: public V2 read/write vectors for the two new body forms.
 
 use crate::support::checked_package::{
-    canonical, domain_package_digest, evidence_for, family_key, family_model_document, model_owner,
-    node_id, refresh_identity, settle, sha256_hex, structural_key, v2_all_families,
+    canonical, domain_package_digest, evidence_for, family_key, family_model_document,
+    fixture_source, model_owner, node_id, refresh_identity, settle, sha256_hex, source_owner,
+    structural_key, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -100,6 +101,32 @@ fn malformed_abstraction() -> Value {
         "node_id": node_id(&key), "schema_version": "quire.checked-semantic-graph/v2",
         "node_tag": "correspondence", "semantic_form": "abstraction_relation",
         "semantic_type": node_id(&key), "dependencies": [],
+        "occurrences": [{"role": "declaration", "ordinal": 0}], "body": body,
+    })
+}
+
+fn malformed_hybrid_model() -> Value {
+    let owner = source_owner(&fixture_source());
+    let declaration = json!({"qualified_name": ["Tank"]});
+    let target = family_key("aaaa");
+    let body = json!({"term": "aggregate", "members": [
+        binding("variables", json!({"term": "aggregate", "members": [
+            {"term": "aggregate", "members": [
+                binding("parameter", reference(&target)), binding("class", word("clock")),
+            ]},
+        ]})),
+        binding("modes", json!({"term": "aggregate", "members": [reference(&target)]})),
+    ]});
+    let key = sha256_hex(&canonical(&json!({
+        "version": "quire.structural-node/v1", "node_tag": "hybrid",
+        "semantic_form": "hybrid_model", "semantic_type": null,
+        "declaration": declaration, "recursion": null, "owner": owner, "body": body,
+    })));
+    json!({
+        "node_id": node_id(&key), "schema_version": "quire.checked-semantic-graph/v2",
+        "node_tag": "hybrid", "semantic_form": "hybrid_model",
+        "semantic_type": node_id(&key), "declaration": declaration, "owner": owner,
+        "dependencies": [node_id(&target)],
         "occurrences": [{"role": "declaration", "ordinal": 0}], "body": body,
     })
 }
@@ -326,7 +353,7 @@ fn reread_written(package: &Value) -> CheckedPackageV2 {
 fn refused(package: &Value, code: Code, cause: Option<Cause>, suffix: &str) {
     match read(package) {
         CheckedPackageV2ReadResult::Refused(value) => {
-            assert_eq!(value.code, code);
+            assert_eq!(value.code, code, "{value:?}");
             assert_eq!(value.cause, cause);
             if code != Code::AmbiguousDeclaration {
                 assert_eq!(value.terminal_duplicate, None);
@@ -1400,10 +1427,25 @@ fn graph_shape_then_state_graph_then_terminal_order() {
         Some(Cause::OperatorIneligible),
         "/body/target",
     );
-    let terminal_before_protocol =
+    let protocol_before_terminal =
         package_with_nodes(vec![bad_terminal.clone(), bad_protocol_reference]);
     refused(
-        &terminal_before_protocol,
+        &protocol_before_terminal,
+        Code::IllTyped,
+        Some(Cause::OperatorIneligible),
+        "/body/target",
+    );
+    let bad_hybrid_only = package_with(malformed_hybrid_model());
+    refused(
+        &bad_hybrid_only,
+        Code::InvalidModelBinding,
+        Some(Cause::MalformedDeclaration),
+        "/body/members/0/value/members/0/members/0/value/target",
+    );
+    let terminal_before_hybrid =
+        package_with_nodes(vec![bad_terminal.clone(), malformed_hybrid_model()]);
+    refused(
+        &terminal_before_hybrid,
         Code::InvalidPackage,
         Some(Cause::InvalidValue),
         "/body/members/1",

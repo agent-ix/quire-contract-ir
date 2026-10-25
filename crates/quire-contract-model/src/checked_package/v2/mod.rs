@@ -2601,6 +2601,7 @@ fn validate_graph(
     // FR-038 "The timed interval form" stage 2: the last graph check of the
     // nodes before the frame step.
     validate_timed_bounds_reduced(&graph.nodes, &index, meter)?;
+    validate_protocol_references(&graph.nodes, &kinds, &index)?;
     // FR-322 step 2: each selected declaration's model declaration node key,
     // one validation visit apiece, charged at the selection it belongs to.
     let owners = ModelOwners::new(models, |selection| {
@@ -2627,7 +2628,6 @@ fn validate_graph(
     hybrid::validate_models(&graph.nodes, &kinds, &terms, &index, meter)?;
     hybrid::validate_claims(&graph.nodes, &kinds, &terms, &index, meter)?;
     timed_model::validate_models(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
-    validate_protocol_references(&graph.nodes, &kinds, &index)?;
     validate_operations(
         &graph.nodes,
         &kinds,
@@ -2739,8 +2739,7 @@ fn validate_graph(
     })
 }
 
-/// Joins the already keyed protocol-reference carriers to this graph alone.
-/// This protocol check follows the hybrid step and precedes operation validation.
+/// Joins already keyed protocol-reference carriers at the declaration step.
 fn validate_protocol_references(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
