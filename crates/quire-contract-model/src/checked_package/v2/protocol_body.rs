@@ -4,9 +4,17 @@
 //! inserted between abstraction and operations. The later step supplies the
 //! selected profile and maps each defect to a located reader refusal.
 
-use super::{ApplicationOperator, CheckedTerm, LiteralKind, ProtocolForm};
+use super::{
+    ApplicationOperator, CheckedNodeKind, CheckedPackageLockV2, CheckedSelectionRole, CheckedTerm,
+    LiteralKind, ProtocolForm, RawSemanticNodeV2, WorkMeter,
+};
+use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::CheckedNodeId;
+use crate::checked_package::shared::{
+    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
+};
 use serde_json::Value;
+use std::collections::BTreeMap;
 
 /// A defect in the application envelope or an operator's fixed bindings.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -479,18 +487,12 @@ fn argument_text(term: &CheckedTerm, position: usize) -> Option<&str> {
         })
 }
 
-/// Checks the shared protocol application envelope and the fixed outer layout.
-/// `selected_profile` is the lock's selected `protocol_profile` definition.
-///
-/// This has no graph context; target forms, nested record layouts, canonical
-/// ordering and binder scope belong to the later protocol reader step.
-#[allow(dead_code)] // The reader step will call this once QSpec fixtures are published.
-pub(super) fn validate_protocol_body(
+fn validate_envelope<'a>(
     form: ProtocolForm,
-    body: &CheckedTerm,
+    body: &'a CheckedTerm,
     semantic_type: &CheckedNodeId,
     selected_profile: Option<&Value>,
-) -> Result<(), ProtocolBodyDefect> {
+) -> Result<(&'a str, &'a [CheckedTerm]), ProtocolBodyDefect> {
     use ProtocolBodyDefect as D;
     let CheckedTerm::Application {
         operator: ApplicationOperator::ProtocolControl,
@@ -539,7 +541,7 @@ pub(super) fn validate_protocol_body(
     {
         return Err(D::MemberMismatch);
     }
-    let expected = layout(form, operator).ok_or_else(|| {
+    layout(form, operator).ok_or_else(|| {
         if ProtocolForm::ALL
             .iter()
             .any(|&candidate| layout(candidate, operator).is_some())
@@ -549,6 +551,18 @@ pub(super) fn validate_protocol_body(
             D::MemberMismatch
         }
     })?;
+    Ok((operator, arguments))
+}
+
+fn validate_layout(
+    form: ProtocolForm,
+    operator: &str,
+    arguments: &[CheckedTerm],
+) -> Result<(), ProtocolBodyDefect> {
+    use ProtocolBodyDefect as D;
+    let Some(expected) = layout(form, operator) else {
+        return Err(D::OperatorIneligible);
+    };
     if arguments.len() != expected.len()
         || !arguments.iter().zip(expected).all(|(argument, binding)| {
             matches!(argument, CheckedTerm::Binding { name, value }
@@ -566,6 +580,162 @@ pub(super) fn validate_protocol_body(
         })
     {
         return Err(D::NoncanonicalSet);
+    }
+    Ok(())
+}
+
+/// Checks the shared protocol application envelope and fixed local layout.
+/// `selected_profile` is the lock's selected `protocol_profile` definition.
+///
+/// This has no graph context; target forms, binder scope and membership are
+/// checked by the protocol reader step.
+#[allow(dead_code)] // The reader will call the two ordered phases separately.
+pub(super) fn validate_protocol_body(
+    form: ProtocolForm,
+    body: &CheckedTerm,
+    semantic_type: &CheckedNodeId,
+    selected_profile: Option<&Value>,
+) -> Result<(), ProtocolBodyDefect> {
+    let (operator, arguments) = validate_envelope(form, body, semantic_type, selected_profile)?;
+    validate_layout(form, operator, arguments)
+}
+
+fn body_defect(
+    position: usize,
+    node: &RawSemanticNodeV2,
+    defect: ProtocolBodyDefect,
+) -> ValidationFailure {
+    let body = node_pointer(position).key("body");
+    let (code, cause, path) = match defect {
+        ProtocolBodyDefect::OperatorIneligible => {
+            (Code::IllTyped, Some(Cause::OperatorIneligible), body)
+        }
+        ProtocolBodyDefect::MemberMismatch => (
+            Code::InvalidPackage,
+            Some(Cause::OperationMemberMismatch),
+            body.key("operation").key("member"),
+        ),
+        ProtocolBodyDefect::LawMissing => (
+            Code::InvalidPackage,
+            Some(Cause::OperationLawMissing),
+            body.key("operation").key("laws"),
+        ),
+        ProtocolBodyDefect::LawMismatch => (
+            Code::InvalidPackage,
+            Some(Cause::OperationLawMismatch),
+            body.key("operation").key("laws").index(0).key("role"),
+        ),
+        ProtocolBodyDefect::LawUnselected => (
+            Code::InvalidPackage,
+            Some(Cause::OperationLawUnselected),
+            body.key("operation").key("laws").index(0).key("definition"),
+        ),
+        ProtocolBodyDefect::MalformedLayout => (Code::MalformedWire, None, body.key("arguments")),
+        ProtocolBodyDefect::NoncanonicalSet => {
+            (Code::InvalidSemanticGraph, None, node_pointer(position))
+        }
+    };
+    ValidationFailure::refused_at(code, path, cause, node.node_id.clone())
+}
+
+/// First protocol reader passes: placement, operator/law and local layout.
+/// Graph member joins, membership and clause scope follow in later passes.
+#[allow(dead_code)] // Called by the reader after the refinement PR merges.
+pub(super) fn validate_protocol_nodes(
+    nodes: &[RawSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    terms: &[Option<CheckedTerm>],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    lock: &CheckedPackageLockV2,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let selected_profile = lock
+        .profile_selections
+        .iter()
+        .find(|selection| selection.role == CheckedSelectionRole::ProtocolProfile)
+        .and_then(|selection| serde_json::to_value(&selection.definition).ok());
+    let has_temporal_profile = lock
+        .profile_selections
+        .iter()
+        .any(|selection| selection.role == CheckedSelectionRole::TemporalProfile);
+
+    // Placement is one complete pass, so it precedes every operator defect.
+    let mut validated = vec![None; nodes.len()];
+    for &position in index.values() {
+        let Some(CheckedTerm::Application {
+            operator: ApplicationOperator::ProtocolControl,
+            ..
+        }) = terms.get(position).and_then(Option::as_ref)
+        else {
+            continue;
+        };
+        if !matches!(
+            kinds.get(position),
+            Some(CheckedNodeKind::Protocol(form)) if *form != ProtocolForm::ProtocolReference
+        ) {
+            return Err(body_defect(
+                position,
+                &nodes[position],
+                ProtocolBodyDefect::OperatorIneligible,
+            ));
+        }
+    }
+
+    for &position in index.values() {
+        let Some(CheckedNodeKind::Protocol(form)) = kinds.get(position).copied() else {
+            continue;
+        };
+        if form == ProtocolForm::ProtocolReference {
+            continue;
+        }
+        let node = &nodes[position];
+        meter.charge(1, || node_pointer(position).key("body"))?;
+        let Some(body) = terms.get(position).and_then(Option::as_ref) else {
+            return Err(body_defect(
+                position,
+                node,
+                ProtocolBodyDefect::OperatorIneligible,
+            ));
+        };
+        let (operator, arguments) =
+            validate_envelope(form, body, &node.semantic_type, selected_profile.as_ref())
+                .map_err(|defect| body_defect(position, node, defect))?;
+        validated[position] = Some((operator, arguments));
+
+        if !has_temporal_profile && matches!(operator, "await" | "compensate") {
+            return Err(ValidationFailure::refused_at(
+                Code::MissingDeclaration,
+                node_pointer(position),
+                Some(Cause::MissingSelection),
+                node.node_id.clone(),
+            ));
+        }
+    }
+    // Local member shapes are visited by form, then by ascending key. The
+    // clause follows the members, as FR-464's reader order requires.
+    for form in [
+        ProtocolForm::Role,
+        ProtocolForm::Channel,
+        ProtocolForm::Queue,
+        ProtocolForm::Obligation,
+        ProtocolForm::Control,
+        ProtocolForm::Compensation,
+        ProtocolForm::ProtocolClause,
+    ] {
+        for &position in index.values() {
+            if kinds.get(position) != Some(&CheckedNodeKind::Protocol(form)) {
+                continue;
+            }
+            let Some((operator, arguments)) = validated[position] else {
+                return Err(body_defect(
+                    position,
+                    &nodes[position],
+                    ProtocolBodyDefect::OperatorIneligible,
+                ));
+            };
+            validate_layout(form, operator, arguments)
+                .map_err(|defect| body_defect(position, &nodes[position], defect))?;
+        }
     }
     Ok(())
 }
