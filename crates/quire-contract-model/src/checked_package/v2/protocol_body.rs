@@ -4,7 +4,7 @@
 
 use super::{
     ApplicationOperator, CheckedNodeKind, CheckedPackageLockV2, CheckedSelectionRole, CheckedTerm,
-    LiteralKind, ProtocolForm, RawSemanticNodeV2, WorkMeter,
+    LiteralKind, ProtocolForm, RawSemanticNodeV2, ScalarTypeForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::CheckedNodeId;
@@ -757,6 +757,48 @@ fn body_defect(
     ValidationFailure::refused_at(code, path, cause, node.node_id.clone())
 }
 
+/// Checks name collisions involving a protocol declaration at reader step 3.
+/// The earlier generic sweep has already refused collisions entirely among
+/// non-protocol declarations. Prefix and control-path ownership remain for
+/// the graph membership pass.
+fn validate_protocol_declaration_names(
+    nodes: &[RawSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+) -> Result<(), ValidationFailure> {
+    let mut holders: BTreeMap<&[Box<str>], bool> = BTreeMap::new();
+    for &position in index.values() {
+        if matches!(
+            kinds.get(position),
+            Some(CheckedNodeKind::ScalarType(
+                ScalarTypeForm::Dimension | ScalarTypeForm::Unit
+            ))
+        ) {
+            continue;
+        }
+        let Some(declaration) = nodes[position].declaration.as_ref() else {
+            continue;
+        };
+        let name = declaration.qualified_name.as_slice();
+        let protocol = matches!(kinds.get(position), Some(CheckedNodeKind::Protocol(_)));
+        if let Some(&previous_protocol) = holders.get(name) {
+            if protocol || previous_protocol {
+                return Err(ValidationFailure::refused_at(
+                    Code::AmbiguousDeclaration,
+                    node_pointer(position)
+                        .key("declaration")
+                        .key("qualified_name"),
+                    Some(Cause::AmbiguousName),
+                    nodes[position].node_id.clone(),
+                ));
+            }
+        } else {
+            holders.insert(name, protocol);
+        }
+    }
+    Ok(())
+}
+
 /// First protocol reader passes: placement, operator/law and local layout.
 /// Graph member joins, membership and clause scope follow in later passes.
 pub(super) fn validate_protocol_nodes(
@@ -829,6 +871,7 @@ pub(super) fn validate_protocol_nodes(
             ));
         }
     }
+    validate_protocol_declaration_names(nodes, kinds, index)?;
     // Local member shapes are visited by form, then by ascending key. The
     // clause follows the members, as FR-464's reader order requires.
     for form in [

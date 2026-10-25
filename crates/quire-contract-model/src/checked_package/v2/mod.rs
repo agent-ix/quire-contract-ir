@@ -2261,17 +2261,19 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
 /// FR-322's declaration-name refusals, after the nominal checks and before
 /// frame and operation checks. First, a node carrying both a `declaration` and
 /// a nominal preimage that fixes a name must declare exactly that name, else
-/// `invalid_package` / `declaration-nominal-mismatch`. Then no two nodes in
-/// one namespace may declare the same `qualified_name`, else
-/// `ambiguous_declaration` / `ambiguous-name`. The namespaces are units,
-/// dimensions and all other types. Each sweep reports at the first offending
-/// node in ascending node-id digest order, the iteration order of `index`;
+/// `invalid_package` / `declaration-nominal-mismatch`. Then no two
+/// non-protocol nodes in one namespace may declare the same `qualified_name`,
+/// else `ambiguous_declaration` / `ambiguous-name`. The namespaces are units,
+/// dimensions and all other types. Protocol-involved duplicates run in the
+/// protocol step, after its placement and operator checks. Each sweep reports
+/// at the first offending node in ascending node-id digest order (`index`);
 /// for an ambiguous name that is the later node sharing it. FR-322 orders
 /// both before any operation refusal but not against each other: this reader
 /// checks the nominal join first. Takes no work meter: every name compared
 /// here was already charged when `validate_graph`'s per-node loop admitted it.
 fn validate_declaration_names(
     nodes: &[RawSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Result<(), ValidationFailure> {
     let name_pointer = |position: usize| {
@@ -2300,6 +2302,9 @@ fn validate_declaration_names(
     }
     let mut holders = BTreeSet::new();
     for (&node_id, &position) in index {
+        if matches!(kinds.get(position), Some(CheckedNodeKind::Protocol(_))) {
+            continue;
+        }
         let node = &nodes[position];
         if let Some(declaration) = &node.declaration {
             let namespace = match (node.node_tag.as_ref(), node.semantic_form.as_ref()) {
@@ -2653,7 +2658,7 @@ fn validate_graph(
         meter,
         limits.bytes,
     )?;
-    validate_declaration_names(&graph.nodes, &index)?;
+    validate_declaration_names(&graph.nodes, &kinds, &index)?;
     // FR-038 "The timed interval form" stage 2: the last graph check of the
     // nodes before the frame step.
     validate_timed_bounds_reduced(&graph.nodes, &index, meter)?;

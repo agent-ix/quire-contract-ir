@@ -1444,7 +1444,7 @@ fn protocol_named_key(form: &str, declaration: &[&str], body: &Value) -> String 
     )
 }
 
-fn protocol_named_node(
+pub fn protocol_named_node(
     form: &str,
     declaration: &[&str],
     body: Value,
