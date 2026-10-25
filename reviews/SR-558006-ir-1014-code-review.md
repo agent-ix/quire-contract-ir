@@ -1,0 +1,29 @@
+---
+id: SR-558006
+title: "IR-1014 PR 564 Rust and code review"
+type: SpecReview
+analysis: code-review
+scope: "agent-ix/quire-contract-ir; PR #564 at a08376c2; refinement reader, sidecar, writer and focused tests"
+review_set: subset
+relationships:
+  - target: ix://agent-ix/quire-contract-ir/FR-061
+    type: reviews
+---
+
+## Summary
+
+Reviewed the PR diff against IR FR-061 and QSpec FR-375/FR-322 at the merged QSpec #442/#443 contracts. The early catalog checks are explicitly partial; FR-061-AC-4, full row typing and FR-375-AC-19 remain open. The repository's AGENTS.md, CLAUDE.md and Rust review baseline were applied. The sidecar validity defect below is in the delivered provenance slice.
+
+## Findings
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-001 | medium | Validate the `refinement_step_rows[].region` interval and locked source even when an owner is proof-ineligible. `validate_step_rows` checks only owner, ordinal and order; `validate_occurrences` checks a sidecar region only through a generated source-map occurrence, which an ineligible owner must not have. Consequently an ineligible owner with a step can carry `start >= end` or an unlocked `source` and still reach admission. Refuse the offending sidecar region and add an ineligible-owner vector. | crates/quire-contract-model/src/checked_package/v2/refinement.rs:1416, 1495, 1541; QSpec FR-322 `refinement_step_rows` |
+
+## Coverage
+
+Examined FR-061-AC-2, AC-3, AC-6, AC-7, AC-8 and AC-9, with FR-061-AC-1 and AC-4 as context for the declared partial scope. QSpec FR-322-AC-128/129 and FR-375-AC-23 were context. The public wire structs, dedicated identity preimage, exact dependency collection, catalog order and local key checks have no other established defect in this pass. Plan completion: not assessed.
+
+## Verdict
+
+CONDITIONAL. Fix FND-001 in this PR. Complete catalog attestation remains owned by IR-874, and this review does not close IR-1014.

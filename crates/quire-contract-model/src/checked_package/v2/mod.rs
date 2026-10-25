@@ -2686,6 +2686,7 @@ fn validate_graph(
         &kinds,
         &terms,
         wire.refinement_step_rows.as_deref(),
+        &wire.lock.sources,
         meter,
     )?;
     if kinds.contains(&CheckedNodeKind::Relation(RelationForm::Refinement)) {

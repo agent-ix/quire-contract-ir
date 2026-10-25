@@ -8,7 +8,7 @@ use crate::checked_package::common::{
 };
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedSemanticId, CheckedSourceMapEntry,
-    CheckedSourceRegion,
+    CheckedSourceRef, CheckedSourceRegion,
 };
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
@@ -1409,6 +1409,7 @@ pub(super) fn validate_step_rows(
     kinds: &[super::CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
     rows: Option<&[CheckedRefinementStepRowRegion]>,
+    locked_sources: &[CheckedSourceRef],
     meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let mut expected = BTreeMap::new();
@@ -1436,6 +1437,11 @@ pub(super) fn validate_step_rows(
     let Some(rows) = rows else {
         return Err(invalid_step_rows(None));
     };
+    meter.charge(
+        u64::try_from(locked_sources.len()).unwrap_or(u64::MAX),
+        || JsonPointer::root().key("lock").key("sources"),
+    )?;
+    let locked_sources = locked_sources.iter().collect::<BTreeSet<_>>();
     let mut previous: Option<(&CheckedNodeId, u64)> = None;
     for (index, row) in rows.iter().enumerate() {
         meter.charge(1, || {
@@ -1450,12 +1456,30 @@ pub(super) fn validate_step_rows(
         if !in_range || !ordered {
             return Err(invalid_step_rows(Some(index)));
         }
+        if !locked_sources.contains(&row.region.source) {
+            return Err(invalid_step_row_region(index, true));
+        }
+        if row.region.start >= row.region.end {
+            return Err(invalid_step_row_region(index, false));
+        }
         previous = Some((&row.node_id, row.ordinal));
     }
     if rows.len() != count {
         return Err(invalid_step_rows(None));
     }
     Ok(())
+}
+
+fn invalid_step_row_region(index: usize, source: bool) -> ValidationFailure {
+    let region = JsonPointer::root()
+        .key("refinement_step_rows")
+        .index(index)
+        .key("region");
+    ValidationFailure::refused_because(
+        CheckedPackageRefusalCode::InvalidPackage,
+        if source { region.key("source") } else { region },
+        CheckedPackageRefusalCause::InvalidValue,
+    )
 }
 
 fn invalid_step_rows(index: Option<usize>) -> ValidationFailure {

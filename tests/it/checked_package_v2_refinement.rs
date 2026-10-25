@@ -234,9 +234,37 @@ fn one_step_refinement(package: &mut Value) {
     refresh_identity(package);
 }
 
-#[trace("TC-062", "FR-061-AC-2")]
+fn make_step_owner_proof_ineligible(package: &mut Value) {
+    let node = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .last_mut()
+        .expect("refinement");
+    let old_id = node["node_id"].clone();
+    node["body"]["steps"][0]["target"] = json!({"kind":"any"});
+    node["occurrences"]
+        .as_array_mut()
+        .expect("occurrences")
+        .retain(|entry| entry["role"] == "declaration");
+    let new_id = node_id(&sha256_hex(&canonical(&json!({
+        "version": "quire.refinement-node/v1",
+        "semantic_type": node["semantic_type"], "body": node["body"]
+    }))));
+    node["node_id"] = new_id.clone();
+    let source_map = package["source_map"].as_array_mut().expect("source map");
+    source_map.retain(|entry| entry["node_id"] != old_id || entry["role"] == "declaration");
+    for entry in source_map {
+        if entry["node_id"] == old_id {
+            entry["node_id"] = new_id.clone();
+        }
+    }
+    package["refinement_step_rows"][0]["node_id"] = new_id;
+    refresh_identity(package);
+}
+
+#[trace("FR-061-AC-2")]
 #[test]
-fn tc_062_class_catalog_entries_are_closed() {
+fn refinement_class_catalog_entries_are_closed() {
     let (mut package, evidence) = machine_package();
     row_empty_refinement(&mut package);
     let refinement = package["semantic_graph"]["nodes"]
@@ -270,9 +298,9 @@ fn tc_062_class_catalog_entries_are_closed() {
     }
 }
 
-#[trace("TC-062", "FR-061-AC-7", "FR-061-AC-9")]
+#[trace("FR-061-AC-9")]
 #[test]
-fn tc_062_class_catalog_is_in_dedicated_refinement_key() {
+fn refinement_class_catalog_is_in_dedicated_refinement_key() {
     let (mut package, evidence) = machine_package();
     row_empty_refinement(&mut package);
     let position = package["semantic_graph"]["nodes"]
@@ -297,9 +325,9 @@ fn tc_062_class_catalog_is_in_dedicated_refinement_key() {
     );
 }
 
-#[trace("TC-062", "FR-061-AC-8")]
+#[trace("FR-061-AC-9")]
 #[test]
-fn tc_062_step_regions_bind_generated_occurrences_before_row_join() {
+fn refinement_step_regions_bind_generated_occurrences_before_row_join() {
     let (mut package, evidence) = machine_package();
     one_step_refinement(&mut package);
     let result = read(&package, &evidence);
@@ -337,9 +365,8 @@ fn tc_062_step_regions_bind_generated_occurrences_before_row_join() {
     invalid_value_at(read(&wrong, &evidence), &format!("/source_map/{at}"));
 }
 
-#[trace("TC-062", "FR-061-AC-8")]
 #[test]
-fn tc_062_step_row_sidecar_shape_and_order_are_exact() {
+fn refinement_step_row_sidecar_shape_and_order_are_exact() {
     let (mut package, evidence) = machine_package();
     one_step_refinement(&mut package);
     let mut missing = package.clone();
@@ -372,9 +399,39 @@ fn tc_062_step_row_sidecar_shape_and_order_are_exact() {
     invalid_value_at(read(&empty, &evidence), "/refinement_step_rows");
 }
 
-#[trace("TC-062", "FR-061-AC-9")]
 #[test]
-fn tc_062_source_map_precedes_stale_refinement_key() {
+fn refinement_ineligible_step_owner_still_checks_sidecar_region() {
+    let (mut package, evidence) = machine_package();
+    one_step_refinement(&mut package);
+    make_step_owner_proof_ineligible(&mut package);
+    assert!(package["source_map"]
+        .as_array()
+        .expect("source map")
+        .iter()
+        .all(|entry| {
+            entry["node_id"] != package["refinement_step_rows"][0]["node_id"]
+                || entry["role"] == "declaration"
+        }));
+
+    let mut empty_interval = package.clone();
+    empty_interval["refinement_step_rows"][0]["region"]["end"] =
+        empty_interval["refinement_step_rows"][0]["region"]["start"].clone();
+    invalid_value_at(
+        read(&empty_interval, &evidence),
+        "/refinement_step_rows/0/region",
+    );
+
+    let mut unlocked = package;
+    unlocked["refinement_step_rows"][0]["region"]["source"]["identity"] = json!("test/unlocked");
+    invalid_value_at(
+        read(&unlocked, &evidence),
+        "/refinement_step_rows/0/region/source",
+    );
+}
+
+#[trace("FR-061-AC-9")]
+#[test]
+fn refinement_source_map_precedes_stale_refinement_key() {
     let (mut package, evidence) = machine_package();
     row_empty_refinement(&mut package);
     let refinement = package["semantic_graph"]["nodes"]
@@ -403,9 +460,8 @@ fn tc_062_source_map_precedes_stale_refinement_key() {
     invalid_value_at(read(&package, &evidence), "/source_map");
 }
 
-#[trace("TC-062", "FR-061-AC-1")]
 #[test]
-fn tc_062_selected_state_machine_owner_is_admitted() {
+fn refinement_selected_state_machine_owner_is_admitted() {
     let (package, evidence) = machine_package();
     let result = read(&package, &evidence);
     assert!(
@@ -414,9 +470,8 @@ fn tc_062_selected_state_machine_owner_is_admitted() {
     );
 }
 
-#[trace("TC-062", "FR-061-AC-1", "FR-061-AC-7", "FR-061-AC-8")]
 #[test]
-fn tc_062_row_empty_model_refinement_is_admitted() {
+fn refinement_row_empty_model_refinement_is_admitted() {
     let (mut package, evidence) = machine_package();
     row_empty_refinement(&mut package);
     let result = read(&package, &evidence);
@@ -432,9 +487,8 @@ fn tc_062_row_empty_model_refinement_is_admitted() {
     ));
 }
 
-#[trace("TC-062", "FR-061-AC-3")]
 #[test]
-fn tc_062_state_machine_owner_and_kind_are_exact() {
+fn refinement_state_machine_owner_and_kind_are_exact() {
     let (package, evidence) = machine_package();
     let position = package["semantic_graph"]["nodes"]
         .as_array()
