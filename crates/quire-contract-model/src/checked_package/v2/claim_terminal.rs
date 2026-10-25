@@ -96,31 +96,44 @@ fn boolean_type(node: &CheckedSemanticNodeV2, graph: &StepGraph<'_, '_>) -> bool
         .is_some_and(|(_, kind)| kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean))
 }
 
-fn self_object_key(graph: &StepGraph<'_, '_>, model: &CheckedNodeId) -> Option<String> {
-    let (model_node, _) = graph.node(model)?;
-    let owner = graph.owners.recover(model_node).ok()?;
+fn self_object_key(
+    graph: &StepGraph<'_, '_>,
+    model: &CheckedNodeId,
+    meter: &mut WorkMeter,
+    position: usize,
+) -> Result<Option<String>, ValidationFailure> {
+    let Some((model_node, _)) = graph.node(model) else {
+        return Ok(None);
+    };
+    let Ok(owner) = graph.owners.recover(model_node) else {
+        return Ok(None);
+    };
     let mut covered = BTreeMap::<&str, usize>::new();
     for members in owner.package.population_members.values() {
+        meter.charge(1, || binding_path(position, 2))?;
         for object in members {
+            meter.charge(1, || binding_path(position, 2))?;
             if owner.package.object_types.contains_key(object) {
                 *covered.entry(object).or_default() += 1;
             }
         }
     }
     if covered.len() != 1 {
-        return None;
+        return Ok(None);
     }
-    let (object, count) = covered.into_iter().next()?;
+    let Some((object, count)) = covered.into_iter().next() else {
+        return Ok(None);
+    };
     if count != 1 {
-        return None;
+        return Ok(None);
     }
-    declaration_key(
+    Ok(declaration_key(
         &owner.package.identity,
         DeclarationForm::ObjectType,
         object,
         owner.package.bytes,
     )
-    .ok()
+    .ok())
 }
 
 fn self_reads(
@@ -385,30 +398,30 @@ pub(super) fn validate_terminal(
             ));
         }
         if let Some(parameter) = parameter {
-            let valid = graph.node(parameter).is_some_and(|(target_node, kind)| {
-                if kind != CheckedNodeKind::Value(ValueForm::Parameter) {
-                    return false;
-                }
-                let Some(&target_position) = graph.index.get(parameter) else {
-                    return false;
-                };
-                let name_level = terms
-                    .get(target_position)
-                    .and_then(Option::as_ref)
-                    .and_then(|term| {
-                        typed_parameter_binding(term, &|id| graph.node(id).map(|(_, kind)| kind))
-                    });
-                let reference_target = graph
-                    .node(&target_node.semantic_type)
-                    .filter(|(_, kind)| {
-                        *kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Reference)
-                    })
-                    .and_then(|(type_node, _)| reference_type_target(type_node));
-                name_level == Some(("self", "0"))
-                    && reference_target.as_ref().is_some_and(|target| {
-                        self_object_key(&graph, model).as_deref() == Some(target.digest.as_ref())
-                    })
+            let candidate = graph.node(parameter).and_then(|(target_node, kind)| {
+                (kind == CheckedNodeKind::Value(ValueForm::Parameter)).then_some(target_node)
             });
+            let target_position = graph.index.get(parameter).copied();
+            let name_level = target_position
+                .and_then(|at| terms.get(at))
+                .and_then(Option::as_ref)
+                .and_then(|term| {
+                    typed_parameter_binding(term, &|id| graph.node(id).map(|(_, kind)| kind))
+                });
+            let reference_target = candidate
+                .and_then(|target_node| graph.node(&target_node.semantic_type))
+                .filter(|(_, kind)| {
+                    *kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Reference)
+                })
+                .and_then(|(type_node, _)| reference_type_target(type_node));
+            let valid = if name_level == Some(("self", "0")) && reference_target.is_some() {
+                let expected = self_object_key(&graph, model, meter, position)?;
+                reference_target
+                    .as_ref()
+                    .is_some_and(|target| expected.as_deref() == Some(target.digest.as_ref()))
+            } else {
+                false
+            };
             if !valid {
                 return Err(failure(
                     Code::IllTyped,

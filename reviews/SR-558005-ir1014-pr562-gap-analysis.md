@@ -1,0 +1,37 @@
+---
+id: SR-558005
+title: "IR-1014 PR 562 acceptance coverage review"
+type: SpecReview
+analysis: gap-analysis
+scope: "agent-ix/quire-contract-ir@8b7a22cbed7355880050d6c5705dbfddc1f408a1; FR-059, FR-060, FR-062, TC-060, TC-061, TC-063 and PR #562 tests"
+review_set: subset
+relationships:
+  - target: ix://agent-ix/quire-contract-ir/FR-059
+    type: reviews
+  - target: ix://agent-ix/quire-contract-ir/FR-060
+    type: reviews
+  - target: ix://agent-ix/quire-contract-ir/FR-062
+    type: reviews
+---
+
+# SR-558005: IR-1014 PR 562 acceptance coverage review
+
+## Summary
+
+Ticket: IR-1014. `quire matrix --scope . --format json` tags all fourteen reviewed criteria, but several tags cover only a subset of the named vectors. This is a diff-scoped gap analysis, not a plan audit. No source or test stub was found.
+
+## Findings
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-001 | medium | The single FR-059-AC-4 test compares `possible` with `always-possible` and adds a second occurrence, but never varies source spelling, the request subject, or an `over` instance while asserting the admitted node and writer bytes are retained. FR-059-AC-5 claims IR-owned positive vectors for SN-01 through SN-17; SN-07 and SN-16's retention distinctions have no assertions. Add IR-owned public reader/writer controls for the representable node/source-map portions, with the request identity left to its owning layer as the spec says. | tests/it/checked_package_v2_claim_terminal.rs:736 |
+| FND-002 | medium | FR-060-AC-4 tags the identity test, but the test never changes only the written terminal declaration name and asserts unchanged node and package identities (MT-04). The other identity pairs are checked. Add the missing name-only control through the public read/write path. | tests/it/checked_package_v2_claim_terminal.rs:839 |
+| FND-003 | medium | FR-059-AC-3 and FR-060-AC-3 tag one ordering test that proves dependency before state-graph and state-graph before terminal, but does not exercise a temporal or abstraction body defect before terminal, nor a terminal defect before a later body-step defect. The criterion explicitly requires those orders. Add mixed-defect vectors at the public reader. | tests/it/checked_package_v2_claim_terminal.rs:1092 |
+
+## Coverage
+
+Examined FR-059-AC-1 through AC-5, FR-060-AC-1 through AC-5, and FR-062-AC-1 through AC-4. All are mechanically tagged in the computed matrix; the findings identify partial behavioral evidence behind four of those tags. The new code is owned by FR-059, FR-060 or FR-062; no reverse ownership gap was found. Plan completion: not assessed.
+
+## Verdict
+
+CONDITIONAL. Complete the named vector and reader-order assertions before treating the tagged criteria as backed.

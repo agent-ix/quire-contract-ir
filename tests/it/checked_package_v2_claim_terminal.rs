@@ -11,7 +11,7 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     encode_checked_package_v2, CheckedCapability, CheckedDiagnosticsV2, CheckedNodeId,
     CheckedOccurrence, CheckedPackageIdentityPreimageRefV2, CheckedPackageIdentityPreimageV2,
-    CheckedPackageLockV2, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedPackageLimit, CheckedPackageLockV2, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, CheckedPackageV2,
     CheckedPackageV2ReadResult, CheckedSemanticGraphV2, CheckedSemanticId, CheckedSourceMapEntry,
     CheckedTerminalDuplicate,
@@ -88,6 +88,20 @@ fn terminal(
         ]}),
         deps,
     )
+}
+
+fn malformed_abstraction() -> Value {
+    let body = json!({"term": "abstraction_relation", "objects": [{}],
+        "populations": [], "frames": []});
+    let key = sha256_hex(&canonical(&json!({
+        "version": "quire.abstraction-relation-node/v1", "body": body
+    })));
+    json!({
+        "node_id": node_id(&key), "schema_version": "quire.checked-semantic-graph/v2",
+        "node_tag": "correspondence", "semantic_form": "abstraction_relation",
+        "semantic_type": node_id(&key), "dependencies": [],
+        "occurrences": [{"role": "declaration", "ordinal": 0}], "body": body,
+    })
 }
 
 fn package_with(node: Value) -> Value {
@@ -243,16 +257,19 @@ fn population_document() -> Value {
 }
 
 fn read_with_population(package: &Value) -> CheckedPackageV2ReadResult {
+    read_with_population_limited(package, CheckedPackageReadLimits::bounded())
+}
+
+fn read_with_population_limited(
+    package: &Value,
+    limits: CheckedPackageReadLimits,
+) -> CheckedPackageV2ReadResult {
     let document = population_document();
     let mut evidence = evidence_for(package);
     evidence
         .insert_domain_package_document(domain_package_digest(&document), canonical(&document))
         .expect("selected population document");
-    CheckedPackageV2::read(
-        &canonical(package),
-        CheckedPackageReadLimits::bounded(),
-        &evidence,
-    )
+    CheckedPackageV2::read(&canonical(package), limits, &evidence)
 }
 
 fn second_claim_occurrence(package: &mut Value) {
@@ -290,6 +307,19 @@ fn admitted(package: &Value) -> CheckedPackageV2 {
     match read(package) {
         CheckedPackageV2ReadResult::Admitted(value) => *value,
         other => panic!("expected admission, got {other:?}"),
+    }
+}
+
+fn reread_written(package: &Value) -> CheckedPackageV2 {
+    let written = encoded(package);
+    assert_eq!(written, canonical(package));
+    match CheckedPackageV2::read(
+        &written,
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(package),
+    ) {
+        CheckedPackageV2ReadResult::Admitted(value) => *value,
+        other => panic!("expected written package to admit, got {other:?}"),
     }
 }
 
@@ -376,6 +406,22 @@ fn encoded(package: &Value) -> Vec<u8> {
         quire_canonical::Limits::new(u64::MAX),
     )
     .expect("writer")
+}
+
+fn source_spelling(package: &Value, node_position: usize, spelling: &[u8]) -> Value {
+    let mut changed = package.clone();
+    let digest = json!(sha256_hex(spelling));
+    changed["lock"]["sources"][0]["digest"] = digest.clone();
+    for entry in changed["source_map"].as_array_mut().expect("source map") {
+        for region in entry["regions"].as_array_mut().expect("regions") {
+            region["source"]["digest"] = digest.clone();
+        }
+    }
+    assert_ne!(
+        changed["source_map"][node_position],
+        package["source_map"][node_position]
+    );
+    changed
 }
 
 #[trace("TC-060", "FR-059-AC-1", "FR-059-AC-5")]
@@ -756,6 +802,48 @@ fn state_graph_identity_and_shared_occurrences() {
         always["semantic_graph"]["nodes"][22]["node_id"]
     );
     assert_ne!(possible["package_id"], always["package_id"]);
+    let respelled = source_spelling(
+        &possible,
+        22,
+        b"possible ReachesTwo using v over (c: Config::ConfigVersion) { /* same */ c.versionNumber = 2 }",
+    );
+    assert_eq!(
+        possible["semantic_graph"]["nodes"][22],
+        respelled["semantic_graph"]["nodes"][22]
+    );
+    assert_eq!(possible["package_id"], respelled["package_id"]);
+    assert_ne!(possible["source_map"], respelled["source_map"]);
+    let respelled_read = admitted(&respelled);
+    let respelled_reread = reread_written(&respelled);
+    let expected_source: Vec<CheckedSourceMapEntry> = typed(&respelled["source_map"]);
+    assert_eq!(respelled_read.source_map(), expected_source);
+    assert_eq!(respelled_reread.source_map(), respelled_read.source_map());
+    assert_eq!(
+        respelled_reread.graph().nodes[22],
+        respelled_read.graph().nodes[22]
+    );
+    let mut instance_a = possible.clone();
+    instance_a["source_map"][22]["regions"][0]["start"] = json!(100);
+    instance_a["source_map"][22]["regions"][0]["end"] = json!(101);
+    let mut instance_b = possible.clone();
+    instance_b["source_map"][22]["regions"][0]["start"] = json!(200);
+    instance_b["source_map"][22]["regions"][0]["end"] = json!(201);
+    for instance in [&instance_a, &instance_b] {
+        let read = admitted(instance);
+        let written = reread_written(instance);
+        assert_eq!(
+            read.graph().nodes[22].node_id,
+            admitted(&possible).graph().nodes[22].node_id
+        );
+        assert_eq!(read.package_id(), admitted(&possible).package_id());
+        assert_eq!(written.source_map(), read.source_map());
+        assert_eq!(written.graph().nodes[22], read.graph().nodes[22]);
+    }
+    assert_ne!(instance_a["source_map"], instance_b["source_map"]);
+    assert_eq!(
+        instance_a["semantic_graph"]["nodes"][22],
+        instance_b["semantic_graph"]["nodes"][22]
+    );
     let mut shared = possible.clone();
     second_claim_occurrence(&mut shared);
     let admitted = admitted(&shared);
@@ -858,6 +946,25 @@ fn terminal_identity_and_uniqueness_per_model() {
         when["semantic_graph"]["nodes"][22]["node_id"]
     );
     assert_ne!(any["package_id"], when["package_id"]);
+    let done = source_spelling(&any, 22, b"terminal Done for M any");
+    let stop = source_spelling(&any, 22, b"terminal Stop for M any");
+    assert_eq!(
+        done["semantic_graph"]["nodes"][22],
+        stop["semantic_graph"]["nodes"][22]
+    );
+    assert_eq!(done["package_id"], stop["package_id"]);
+    assert_ne!(done["source_map"], stop["source_map"]);
+    for named in [&done, &stop] {
+        let read = admitted(named);
+        let written = reread_written(named);
+        assert_eq!(
+            read.graph().nodes[22].node_id,
+            admitted(&any).graph().nodes[22].node_id
+        );
+        assert_eq!(read.package_id(), admitted(&any).package_id());
+        assert_eq!(written.source_map(), read.source_map());
+        assert_eq!(written.graph().nodes[22], read.graph().nodes[22]);
+    }
     assert_ne!(any["package_id"], v2_all_families()["package_id"]);
     let changed_body = reference(&predicate);
     let changed_condition = structural_key(
@@ -1087,6 +1194,58 @@ fn terminal_self_parameter_must_have_right_name_level_and_type() {
     }
 }
 
+#[trace("TC-061", "FR-060-AC-1", "FR-038-AC-121")]
+#[test]
+fn terminal_self_population_scan_obeys_work_limit() {
+    let package = terminal_with_self(&family_key("1515"), "self", "0");
+    let read_at = |work| {
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = work;
+        read_with_population_limited(&package, limits)
+    };
+    let (mut lower, mut upper) = (0, CheckedPackageReadLimits::bounded().work);
+    assert!(matches!(
+        read_at(lower),
+        CheckedPackageV2ReadResult::Incomplete(_)
+    ));
+    assert!(matches!(
+        read_at(upper),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    while lower + 1 < upper {
+        let middle = lower + (upper - lower) / 2;
+        if matches!(read_at(middle), CheckedPackageV2ReadResult::Incomplete(_)) {
+            lower = middle;
+        } else {
+            upper = middle;
+        }
+    }
+    assert!(matches!(
+        read_at(upper),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    let mut charged_population = false;
+    for work in (upper.saturating_sub(2_048)..upper).rev() {
+        let CheckedPackageV2ReadResult::Incomplete(incomplete) = read_at(work) else {
+            panic!("work below exact decision boundary must be incomplete");
+        };
+        assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+        if incomplete
+            .path
+            .as_ref()
+            .is_some_and(|path| path.as_str().ends_with("/body/members/2"))
+        {
+            assert_eq!(incomplete.consumed, work + 1);
+            charged_population = true;
+            break;
+        }
+    }
+    assert!(
+        charged_population,
+        "self population traversal must have a charged boundary"
+    );
+}
+
 #[trace("TC-060", "FR-059-AC-3", "TC-061", "FR-060-AC-3")]
 #[test]
 fn graph_shape_then_state_graph_then_terminal_order() {
@@ -1142,7 +1301,7 @@ fn graph_shape_then_state_graph_then_terminal_order() {
         .as_str()
         .expect("digest")
         .to_owned();
-    let by_digest = package_with_nodes(vec![second_bad_claim, bad_claim]);
+    let by_digest = package_with_nodes(vec![second_bad_claim, bad_claim.clone()]);
     refused(
         &by_digest,
         Code::InvalidPackage,
@@ -1159,7 +1318,7 @@ fn graph_shape_then_state_graph_then_terminal_order() {
         reference(&predicate),
         &[over],
     );
-    let graph_first = package_with_nodes(vec![bad_terminal, no_dependency]);
+    let graph_first = package_with_nodes(vec![bad_terminal.clone(), no_dependency]);
     refused(
         &graph_first,
         Code::InvalidSemanticGraph,
@@ -1179,6 +1338,65 @@ fn graph_shape_then_state_graph_then_terminal_order() {
     ]);
     refused(
         &terminal_first,
+        Code::InvalidPackage,
+        Some(Cause::InvalidValue),
+        "/body/members/1",
+    );
+    let mut bad_temporal = package_with_nodes(vec![bad_claim.clone(), bad_terminal.clone()]);
+    let temporal_position = bad_temporal["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "temporal_clause")
+        .expect("temporal clause");
+    bad_temporal["semantic_graph"]["nodes"][temporal_position]["body"]["arguments"][0] =
+        reference(&family_key("1515"));
+    settle(&mut bad_temporal);
+    refused(
+        &bad_temporal,
+        Code::InvalidPackage,
+        Some(Cause::InvalidValue),
+        "/body/members/0",
+    );
+    let mut temporal_before_terminal = bad_temporal.clone();
+    temporal_before_terminal["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .retain(|node| node["semantic_form"] != "state_graph");
+    settle(&mut temporal_before_terminal);
+    refused(
+        &temporal_before_terminal,
+        Code::InvalidModelBinding,
+        Some(Cause::MalformedDeclaration),
+        "/body/arguments/0",
+    );
+    let abstraction_before_terminal =
+        package_with_nodes(vec![malformed_abstraction(), bad_terminal.clone()]);
+    refused(
+        &abstraction_before_terminal,
+        Code::InvalidSemanticGraph,
+        None,
+        "/body/objects/0",
+    );
+    let claim_before_abstraction = package_with_nodes(vec![bad_claim, malformed_abstraction()]);
+    refused(
+        &claim_before_abstraction,
+        Code::InvalidPackage,
+        Some(Cause::InvalidValue),
+        "/body/members/0",
+    );
+    let mut terminal_before_operations = package_with(bad_terminal);
+    let function_position = terminal_before_operations["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "function")
+        .expect("function node");
+    terminal_before_operations["semantic_graph"]["nodes"][function_position]["body"]["operation"]
+        ["identity"] = json!("quire.op.unknown");
+    settle(&mut terminal_before_operations);
+    refused(
+        &terminal_before_operations,
         Code::InvalidPackage,
         Some(Cause::InvalidValue),
         "/body/members/1",
