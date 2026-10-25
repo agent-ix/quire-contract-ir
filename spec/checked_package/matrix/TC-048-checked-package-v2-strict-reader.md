@@ -1672,12 +1672,16 @@ vector or schema is copied into this repository.
 7. From an admitted clause with `activation on each (opened)` and one required
    temporal clause, inspect the derived activation relation: it contains the
    clause key, `each` and the trigger key, and the required clause key. Repeat
-   with `origin`, no requirement, a duplicate requirement, a second distinct
-   requirement and an unrelated temporal clause with the same clock; require
-   respectively one origin row, no row, one row, two digest-ordered rows and
-   no extra row. Remove the `requirements` or `each` trigger dependency in
-   separate packages and require `missing_declaration`/`missing-name` at the
-   target and no exposed relation (FR-038-AC-324; QSpec TC-946).
+   with `origin`, no requirement, two source `requires temporal` declarations
+   normalized by the producer to one canonical wire set entry, a second
+   distinct requirement and an unrelated temporal clause with the same
+   clock; require respectively one origin row, no row, one row, two
+   digest-ordered rows and no extra row. In a separate identity-consistent
+   wire mutation, duplicate the same `requirements` set entry; require
+   `invalid_semantic_graph` under the clause's set rule and no relation.
+   Remove the `requirements` or `each` trigger dependency in separate
+   packages and require `missing_declaration`/`missing-name` at the target
+   and no exposed relation (FR-038-AC-324; QSpec TC-946).
 8. Use QSpec TC-310's `CC-01`, `CC-03` to `CC-05`, `CC-08` and `CC-11`
    catalog cases from the selected checkout, rebuilding keys, dependencies,
    package identity and provenance carriers as each vector requires. Admit
