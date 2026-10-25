@@ -34,6 +34,15 @@ pub(super) enum ProtocolBodyDefect {
     NoncanonicalSet,
 }
 
+/// A malformed protocol wire shape, with the offending enum term when known.
+pub(super) enum ProtocolWireDefect {
+    Body,
+    EnumValue {
+        argument: usize,
+        member: Option<(usize, bool)>,
+    },
+}
+
 #[derive(Clone, Copy)]
 enum Shape {
     Reference,
@@ -589,7 +598,7 @@ fn validate_layout(
 pub(super) fn wire_layout_defect(
     form: ProtocolForm,
     body: &CheckedTerm,
-) -> Option<ProtocolBodyDefect> {
+) -> Option<ProtocolWireDefect> {
     let CheckedTerm::Application {
         operator: ApplicationOperator::ProtocolControl,
         operation,
@@ -609,17 +618,89 @@ pub(super) fn wire_layout_defect(
             .and_then(Value::as_array)
             .is_some_and(Vec::is_empty)
     {
-        return Some(ProtocolBodyDefect::MalformedLayout);
+        return Some(ProtocolWireDefect::Body);
     }
     let operator = operation
         .pointer("/member/operator")
         .and_then(Value::as_str)?;
     layout(form, operator)?;
+    if let Some(defect) = enum_value_defect(form, operator, arguments) {
+        return Some(defect);
+    }
     matches!(
         validate_layout(form, operator, arguments),
         Err(ProtocolBodyDefect::MalformedLayout)
     )
-    .then_some(ProtocolBodyDefect::MalformedLayout)
+    .then_some(ProtocolWireDefect::Body)
+}
+
+fn invalid_enum_at(
+    arguments: &[CheckedTerm],
+    argument_position: usize,
+    member: Option<(usize, bool)>,
+    allowed: &[&str],
+) -> Option<ProtocolWireDefect> {
+    let mut term = argument(arguments, argument_position)?;
+    if let Some((position, binding)) = member {
+        term = members(term)?.get(position)?;
+        if binding {
+            let CheckedTerm::Binding { value, .. } = term else {
+                return None;
+            };
+            term = value;
+        }
+    }
+    let spelling = text_value(term)?;
+    (!allowed.contains(&spelling)).then_some(ProtocolWireDefect::EnumValue {
+        argument: argument_position,
+        member,
+    })
+}
+
+#[string_edge]
+fn enum_value_defect(
+    form: ProtocolForm,
+    operator: &str,
+    arguments: &[CheckedTerm],
+) -> Option<ProtocolWireDefect> {
+    match (form, operator) {
+        (ProtocolForm::ProtocolClause, "protocol") => {
+            invalid_enum_at(arguments, 1, Some((0, true)), &["origin", "each"])
+                .or_else(|| invalid_enum_at(arguments, 10, Some((0, false)), &["adversarial"]))
+        }
+        (ProtocolForm::Role, "role") => invalid_enum_at(
+            arguments,
+            1,
+            Some((3, true)),
+            &["workflow", "scope", "until"],
+        ),
+        (ProtocolForm::Channel, "channel") => {
+            invalid_enum_at(arguments, 3, Some((0, true)), &["unordered", "fifo"]).or_else(|| {
+                invalid_enum_at(
+                    arguments,
+                    4,
+                    None,
+                    &[
+                        "unknown",
+                        "at-most-once",
+                        "at-least-once",
+                        "exactly-once-premise",
+                    ],
+                )
+            })
+        }
+        (ProtocolForm::Queue, "queue") => {
+            invalid_enum_at(arguments, 1, Some((0, true)), &["literal", "symbolic"])
+                .or_else(|| invalid_enum_at(arguments, 2, None, &["reject", "block", "loss"]))
+                .or_else(|| {
+                    invalid_enum_at(arguments, 3, Some((0, false)), &["head", "tail", "new"])
+                })
+        }
+        (ProtocolForm::Obligation, "terminal") => {
+            invalid_enum_at(arguments, 0, None, &["any", "when"])
+        }
+        _ => None,
+    }
 }
 
 /// Checks the shared protocol application envelope and fixed local layout.
@@ -1245,7 +1326,7 @@ mod tests {
     }
 
     /// QSpec TC-946 C2 and C8-C9 fix the activation group's exact alternatives.
-    #[trace("TC-048", "FR-038-AC-282")]
+    #[trace("TC-048")]
     #[test]
     fn protocol_clause_activation_requires_origin_or_each_shape() {
         let mut clause = body(ProtocolForm::ProtocolClause, "protocol");
@@ -1277,7 +1358,7 @@ mod tests {
     }
 
     /// QSpec TC-946 C1-C6 and K3 separate ordered captures from canonical sets.
-    #[trace("TC-048", "FR-038-AC-282")]
+    #[trace("TC-048")]
     #[test]
     fn protocol_clause_checks_capture_records_scheduling_and_set_order() {
         let mut clause = body(ProtocolForm::ProtocolClause, "protocol");
@@ -1318,7 +1399,7 @@ mod tests {
     }
 
     /// QSpec TC-947 fixes the nested declaration alternatives and their enums.
-    #[trace("TC-048", "FR-038-AC-282", "FR-038-AC-286", "FR-038-AC-287")]
+    #[trace("TC-048")]
     #[test]
     fn protocol_declaration_nested_shapes_refuse_wrong_alternatives() {
         let check =

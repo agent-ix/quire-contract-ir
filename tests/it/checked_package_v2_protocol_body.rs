@@ -4,7 +4,8 @@
 //! Public reader checks for the first protocol validation passes.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, refresh_identity, refusal_at, rekey_application_node, v2_all_families,
+    canonical, evidence_for, refresh_identity, refusal, refusal_at, rekey_application_node,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -32,7 +33,7 @@ fn clause_position(package: &Value) -> usize {
         .expect("protocol clause")
 }
 
-#[trace("TC-048", "FR-038-AC-281")]
+#[trace("TC-048")]
 #[test]
 fn protocol_clause_requires_the_selected_profile_law_in_the_public_reader() {
     let mut package = v2_all_families();
@@ -50,6 +51,36 @@ fn protocol_clause_requires_the_selected_profile_law_in_the_public_reader() {
             &format!("/semantic_graph/nodes/{position}/body/operation/laws"),
             Some(CheckedPackageRefusalCause::OperationLawMissing),
             key,
+        )
+    );
+}
+
+#[trace("TC-048")]
+#[test]
+fn malformed_protocol_enum_names_the_offending_term() {
+    let mut package = v2_all_families();
+    let position = clause_position(&package);
+    package["semantic_graph"]["nodes"][position]["body"]["arguments"][1]["value"]["members"][0]
+        ["value"]["value"] = json!("unknown-activation");
+    assert_eq!(
+        read(&package),
+        refusal(
+            CheckedPackageRefusalCode::MalformedWire,
+            &format!("/semantic_graph/nodes/{position}/body/arguments/1/value/members/0/value"),
+        )
+    );
+
+    let mut package = v2_all_families();
+    let semantic_type = package["semantic_graph"]["nodes"][position]["semantic_type"].clone();
+    package["semantic_graph"]["nodes"][position]["body"]["arguments"][10]["value"]["members"] = json!([{
+        "term": "literal", "type": semantic_type,
+        "value_kind": "text", "value": "unknown-scheduling"
+    }]);
+    assert_eq!(
+        read(&package),
+        refusal(
+            CheckedPackageRefusalCode::MalformedWire,
+            &format!("/semantic_graph/nodes/{position}/body/arguments/10/value/members/0"),
         )
     );
 }
