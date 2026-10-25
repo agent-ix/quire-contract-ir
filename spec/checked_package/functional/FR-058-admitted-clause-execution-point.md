@@ -51,6 +51,8 @@ from the current V2 wire; see Dependencies.
   typed causes `DuplicatePoint`, `NonClaimPoint`, or `IncompatiblePoint` and
   the offending clause/occurrence locus. The QSpec V2 carrier contract must
   assign these cases to its closed diagnostic pairing before implementation.
+  These Planned names, including AC-7 and AC-8, follow that QSpec pairing
+  exactly when QSL-1082 lands; QSpec's assigned code and cause prevail.
 
 ## Admission and retention
 
