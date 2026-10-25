@@ -1165,7 +1165,9 @@ fn reaches_over(
     "FR-038-AC-166",
     "FR-038-AC-169",
     "FR-038-AC-170",
-    "FR-038-AC-171"
+    "FR-038-AC-171",
+    "FR-062-AC-3",
+    "TC-063"
 )]
 #[test]
 fn tc_048_a_selected_fcd_relationship_navigates_through_its_named_end() {
@@ -1182,6 +1184,7 @@ fn tc_048_a_selected_fcd_relationship_navigates_through_its_named_end() {
         refusal.path.as_ref().map(ToString::to_string).as_deref(),
         Some("/semantic_graph/nodes/6/body/operation/member/name")
     );
+    assert_eq!(refusal.terminal_duplicate, None);
     assert_eq!(
         refusal.locus.as_ref(),
         Some(

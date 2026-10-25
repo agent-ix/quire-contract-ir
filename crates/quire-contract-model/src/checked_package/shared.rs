@@ -363,6 +363,27 @@ pub struct CheckedExtensionRefusalDetail {
     pub actual_semantic_type: Option<CheckedNodeId>,
 }
 
+/// The two identities involved in a terminal declaration duplicate.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CheckedTerminalDuplicate {
+    /// Distinct terminal nodes for the same model, in node-id order.
+    Nodes {
+        /// The earlier terminal node.
+        first: CheckedNodeId,
+        /// The terminal node whose uniqueness check failed.
+        second: CheckedNodeId,
+    },
+    /// Repeated claim occurrences on one terminal node.
+    Occurrences {
+        /// The terminal node carrying both occurrences.
+        node: CheckedNodeId,
+        /// Its first claim occurrence.
+        first: CheckedOccurrence,
+        /// Its second claim occurrence.
+        second: CheckedOccurrence,
+    },
+}
+
 /// A typed refusal with a stable code and the location of the value it is
 /// about.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -394,6 +415,8 @@ pub struct CheckedPackageRefusal {
     pub actual: Option<CheckedSemanticId>,
     /// Extension clause information at a missing-member or type-mismatch refusal.
     pub extension_detail: Option<Box<CheckedExtensionRefusalDetail>>,
+    /// Both parties to a terminal declaration duplicate, when applicable.
+    pub terminal_duplicate: Option<CheckedTerminalDuplicate>,
     /// The key already derived at a stale-node-key refusal site, when one
     /// exists. It is meaningful only with the original reader-returned locus.
     expected_node_id: Option<Box<CheckedNodeId>>,
@@ -423,6 +446,7 @@ impl CheckedPackageRefusal {
             expected: None,
             actual: None,
             extension_detail: None,
+            terminal_duplicate: None,
             expected_node_id: None,
         }
     }

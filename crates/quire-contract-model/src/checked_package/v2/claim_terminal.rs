@@ -13,7 +13,7 @@ use super::{
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCause as Cause,
-    CheckedPackageRefusalCode as Code, JsonPointer,
+    CheckedPackageRefusalCode as Code, CheckedTerminalDuplicate, JsonPointer,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -306,7 +306,7 @@ pub(super) fn validate_terminal(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let graph = graph_nodes(nodes, kinds, index, owners);
-    let mut by_model = BTreeMap::<&CheckedNodeId, usize>::new();
+    let mut by_model = BTreeMap::<&CheckedNodeId, &CheckedSemanticNodeV2>::new();
     let mut terminals = Vec::new();
     for (position, node) in graph.each(CheckedNodeKind::Temporal(TemporalForm::Terminal)) {
         let [model, mode, parameters, condition] = terms
@@ -471,21 +471,36 @@ pub(super) fn validate_terminal(
         terminals.push((position, node, model));
     }
     for (position, node, model) in terminals {
-        if by_model.insert(model, position).is_some() {
-            return Err(failure(
+        if let Some(first) = by_model.insert(model, node) {
+            let mut refusal = failure(
                 Code::AmbiguousDeclaration,
                 Some(Cause::AmbiguousName),
                 node_pointer(position),
                 &node.node_id,
-            ));
+            );
+            if let ValidationFailure::Refused(ref mut value) = refusal {
+                value.terminal_duplicate = Some(CheckedTerminalDuplicate::Nodes {
+                    first: first.node_id.clone(),
+                    second: node.node_id.clone(),
+                });
+            }
+            return Err(refusal);
         }
         if node.occurrences.len() > 1 {
-            return Err(failure(
+            let mut refusal = failure(
                 Code::AmbiguousDeclaration,
                 Some(Cause::AmbiguousName),
                 node_pointer(position),
                 &node.node_id,
-            ));
+            );
+            if let ValidationFailure::Refused(ref mut value) = refusal {
+                value.terminal_duplicate = Some(CheckedTerminalDuplicate::Occurrences {
+                    node: node.node_id.clone(),
+                    first: node.occurrences[0].clone(),
+                    second: node.occurrences[1].clone(),
+                });
+            }
+            return Err(refusal);
         }
     }
     Ok(())

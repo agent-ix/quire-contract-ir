@@ -9,11 +9,12 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedCapability, CheckedDiagnosticsV2,
-    CheckedPackageIdentityPreimageRefV2, CheckedPackageIdentityPreimageV2, CheckedPackageLockV2,
-    CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
-    CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CheckedSemanticGraphV2, CheckedSemanticId, CheckedSourceMapEntry,
+    encode_checked_package_v2, CheckedCapability, CheckedDiagnosticsV2, CheckedNodeId,
+    CheckedOccurrence, CheckedPackageIdentityPreimageRefV2, CheckedPackageIdentityPreimageV2,
+    CheckedPackageLockV2, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedSemanticGraphV2, CheckedSemanticId, CheckedSourceMapEntry,
+    CheckedTerminalDuplicate,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
@@ -259,10 +260,9 @@ fn second_claim_occurrence(package: &mut Value) {
         .as_array_mut()
         .expect("nodes");
     let last = nodes.last_mut().expect("claim node");
-    last["occurrences"]
-        .as_array_mut()
-        .expect("occurrences")
-        .push(json!({"role": "claim", "ordinal": 1}));
+    let occurrences = last["occurrences"].as_array_mut().expect("occurrences");
+    let ordinal = occurrences.len();
+    occurrences.push(json!({"role": "claim", "ordinal": ordinal}));
     let first = package["source_map"]
         .as_array()
         .expect("source map")
@@ -270,7 +270,7 @@ fn second_claim_occurrence(package: &mut Value) {
         .expect("entry")
         .clone();
     let mut second = first;
-    second["ordinal"] = json!(1);
+    second["ordinal"] = json!(ordinal);
     package["source_map"]
         .as_array_mut()
         .expect("source map")
@@ -298,6 +298,9 @@ fn refused(package: &Value, code: Code, cause: Option<Cause>, suffix: &str) {
         CheckedPackageV2ReadResult::Refused(value) => {
             assert_eq!(value.code, code);
             assert_eq!(value.cause, cause);
+            if code != Code::AmbiguousDeclaration {
+                assert_eq!(value.terminal_duplicate, None);
+            }
             assert!(
                 value
                     .path
@@ -307,6 +310,36 @@ fn refused(package: &Value, code: Code, cause: Option<Cause>, suffix: &str) {
             );
         }
         other => panic!("expected refusal, got {other:?}"),
+    }
+}
+
+fn terminal_duplicate(package: &Value) -> CheckedPackageRefusal {
+    match read(package) {
+        CheckedPackageV2ReadResult::Refused(value) => value,
+        other => panic!("expected terminal duplicate refusal, got {other:?}"),
+    }
+}
+
+fn duplicate_parties(refusal: &CheckedPackageRefusal) -> (CheckedNodeId, CheckedNodeId) {
+    assert_eq!(refusal.code, Code::AmbiguousDeclaration);
+    assert_eq!(refusal.cause, Some(Cause::AmbiguousName));
+    assert_eq!(refusal.document_pointer, None);
+    assert_eq!(refusal.related_path, None);
+    assert_eq!(refusal.expected, None);
+    assert_eq!(refusal.actual, None);
+    assert_eq!(refusal.extension_detail, None);
+    let Some(CheckedTerminalDuplicate::Nodes { first, second }) = &refusal.terminal_duplicate
+    else {
+        panic!("expected two terminal nodes: {refusal:?}");
+    };
+    assert_eq!(refusal.locus.as_ref(), Some(second));
+    (first.clone(), second.clone())
+}
+
+fn duplicate_kind(duplicate: &CheckedTerminalDuplicate) -> &'static str {
+    match duplicate {
+        CheckedTerminalDuplicate::Nodes { .. } => "nodes",
+        CheckedTerminalDuplicate::Occurrences { .. } => "occurrences",
     }
 }
 
@@ -791,7 +824,17 @@ fn state_graph_constant_predicate_and_absent_over() {
     let _ = admitted(&always);
 }
 
-#[trace("TC-061", "FR-060-AC-2", "FR-060-AC-4", "FR-060-AC-5")]
+#[trace(
+    "TC-061",
+    "TC-063",
+    "FR-060-AC-2",
+    "FR-060-AC-4",
+    "FR-060-AC-5",
+    "FR-062-AC-1",
+    "FR-062-AC-2",
+    "FR-062-AC-3",
+    "FR-062-AC-4"
+)]
 #[test]
 fn terminal_identity_and_uniqueness_per_model() {
     let model = family_key("1515");
@@ -853,28 +896,117 @@ fn terminal_identity_and_uniqueness_per_model() {
         .expect("nodes")
         .push(when["semantic_graph"]["nodes"][22].clone());
     settle(&mut duplicate);
-    refused(
-        &duplicate,
-        Code::AmbiguousDeclaration,
-        Some(Cause::AmbiguousName),
-        &format!(
-            "/semantic_graph/nodes/{}",
-            if any["semantic_graph"]["nodes"][22]["node_id"]["digest"].as_str()
-                < when["semantic_graph"]["nodes"][22]["node_id"]["digest"].as_str()
-            {
-                23
-            } else {
-                22
-            }
+    let duplicate_result = terminal_duplicate(&duplicate);
+    assert_eq!(
+        duplicate_kind(
+            duplicate_result
+                .terminal_duplicate
+                .as_ref()
+                .expect("payload")
         ),
+        "nodes"
+    );
+    let (first, second) = duplicate_parties(&duplicate_result);
+    let any_id: CheckedNodeId = typed(&any["semantic_graph"]["nodes"][22]["node_id"]);
+    let when_id: CheckedNodeId = typed(&when["semantic_graph"]["nodes"][22]["node_id"]);
+    assert_eq!(
+        first,
+        if any_id < when_id {
+            any_id.clone()
+        } else {
+            when_id.clone()
+        }
+    );
+    assert_eq!(second, if first == any_id { when_id } else { any_id });
+    let second_position = duplicate["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_id"] == json!(second))
+        .expect("second terminal position");
+    assert_eq!(
+        duplicate_result.path.as_ref().map(AsRef::as_ref),
+        Some(format!("/semantic_graph/nodes/{second_position}").as_str())
+    );
+    let mut reversed = duplicate.clone();
+    reversed["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .swap(22, 23);
+    settle(&mut reversed);
+    let reversed_result = terminal_duplicate(&reversed);
+    assert_eq!(duplicate_parties(&reversed_result), (first, second));
+    let mut bad_target = duplicate.clone();
+    let terminal = &mut bad_target["semantic_graph"]["nodes"][23];
+    terminal["body"]["members"][3]["value"] = reference(&model);
+    terminal["dependencies"] = json!([node_id(&model)]);
+    rekey(terminal);
+    settle(&mut bad_target);
+    refused(
+        &bad_target,
+        Code::IllTyped,
+        Some(Cause::OperatorIneligible),
+        "/body/members/3/value/target",
     );
     let mut repeated = any;
     second_claim_occurrence(&mut repeated);
-    refused(
-        &repeated,
-        Code::AmbiguousDeclaration,
-        Some(Cause::AmbiguousName),
-        "/semantic_graph/nodes/22",
+    let repeated_result = terminal_duplicate(&repeated);
+    assert_eq!(
+        duplicate_kind(
+            repeated_result
+                .terminal_duplicate
+                .as_ref()
+                .expect("payload")
+        ),
+        "occurrences"
+    );
+    assert_eq!(repeated_result.code, Code::AmbiguousDeclaration);
+    assert_eq!(repeated_result.cause, Some(Cause::AmbiguousName));
+    assert_eq!(
+        repeated_result.path.as_ref().map(AsRef::as_ref),
+        Some("/semantic_graph/nodes/22")
+    );
+    assert_eq!(repeated_result.document_pointer, None);
+    assert_eq!(repeated_result.related_path, None);
+    assert_eq!(repeated_result.expected, None);
+    assert_eq!(repeated_result.actual, None);
+    assert_eq!(repeated_result.extension_detail, None);
+    let repeated_id: CheckedNodeId = typed(&repeated["semantic_graph"]["nodes"][22]["node_id"]);
+    let (first_occurrence, second_occurrence) = match repeated_result.terminal_duplicate {
+        Some(CheckedTerminalDuplicate::Occurrences {
+            node,
+            first,
+            second,
+        }) => {
+            assert_eq!(node, repeated_id);
+            assert_eq!(repeated_result.locus, Some(node));
+            (first, second)
+        }
+        other => panic!("expected duplicate occurrences, got {other:?}"),
+    };
+    assert_eq!(
+        first_occurrence,
+        (CheckedOccurrence {
+            role: quire_contract_model::CheckedOccurrenceRole::Claim,
+            ordinal: 0
+        })
+    );
+    assert_eq!(
+        second_occurrence,
+        (CheckedOccurrence {
+            role: quire_contract_model::CheckedOccurrenceRole::Claim,
+            ordinal: 1
+        })
+    );
+    second_claim_occurrence(&mut repeated);
+    let third_result = terminal_duplicate(&repeated);
+    assert_eq!(
+        third_result.terminal_duplicate,
+        Some(CheckedTerminalDuplicate::Occurrences {
+            node: repeated_id,
+            first: first_occurrence,
+            second: second_occurrence,
+        })
     );
     let first_model = terminal_for_selected_model(&model);
     let second_model = terminal_for_selected_model(&other_object_key());
