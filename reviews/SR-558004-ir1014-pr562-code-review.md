@@ -33,3 +33,13 @@ Examined FR-059-AC-1 through AC-5, FR-060-AC-1 through AC-5, and FR-062-AC-1 thr
 ## Verdict
 
 CONDITIONAL. Correct the unmetered terminal self-type walk before the final PR gate.
+
+## Dispositions
+
+Fix round 1, PR head `9303fed058aaa38008d8d43f687d7bc72ae1b97e`:
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | `self_object_key` now charges one work unit for each population and member before inspecting it, propagates `ValidationFailure`, and `terminal_self_population_scan_obeys_work_limit` observes `Work` incomplete at the terminal `parameters` binding. After excerpt: `for members in owner.package.population_members.values() { meter.charge(1, || binding_path(position, 2))?; for object in members { meter.charge(1, || binding_path(position, 2))?;` |
+
+The code-review finding is resolved at this head. Final aggregate gates remain with the lead.

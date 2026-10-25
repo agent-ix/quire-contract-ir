@@ -35,3 +35,15 @@ Examined FR-059-AC-1 through AC-5, FR-060-AC-1 through AC-5, and FR-062-AC-1 thr
 ## Verdict
 
 CONDITIONAL. Complete the named vector and reader-order assertions before treating the tagged criteria as backed.
+
+## Dispositions
+
+Fix round 1, PR head `9303fed058aaa38008d8d43f687d7bc72ae1b97e`:
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | `state_graph_identity_and_shared_occurrences` now varies the source digest and source map while retaining the graph node and package identity, and round trips the changed source map through the public writer and reader. It also compares two instance-locus variations; request identities remain the owning layer's concern. After excerpt: `assert_eq!(possible["package_id"], respelled["package_id"]); assert_ne!(possible["source_map"], respelled["source_map"]);` |
+| FND-002 | fixed | `terminal_identity_and_uniqueness_per_model` now varies only the source spelling between `Done` and `Stop`, asserts equal terminal node and package identity with distinct source maps, and round trips both packages through the public writer and reader. After excerpt: `assert_eq!(done["package_id"], stop["package_id"]); assert_ne!(done["source_map"], stop["source_map"]);` |
+| FND-003 | still-open | The new vectors prove temporal and abstraction defects run before terminal, and a terminal defect runs before the operation step. The last control mutates a function operation identity (`terminal_before_operations`). An operation is a later operation step, not a later body step. FR-060-AC-3 also requires terminal before step-relation and later body-step defects; exercise at least one admitted later body form (hybrid, timed-model, protocol or schedulability) with its own defect. |
+
+The gap-analysis verdict remains CONDITIONAL until FND-003 is resolved.
