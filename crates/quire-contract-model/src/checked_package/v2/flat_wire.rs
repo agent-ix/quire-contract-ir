@@ -124,7 +124,20 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
             // application at the root of an abstraction relation body is a
             // term of the closed grammar, placed by the abstraction step.
             BodyGrammar::Frame => scan_members(&node.body, &at).map(|_| ()),
-            BodyGrammar::Term => check_term(&node.body, &at, Place::BodyRoot, false),
+            BodyGrammar::Term => {
+                if kind == CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolReference)
+                    && body_term(&node.body) == Some(BodyTerm::Application)
+                    && application_operator(&node.body)
+                        == Some(ApplicationOperator::ProtocolControl)
+                {
+                    Err(ValidationFailure::refused(
+                        CheckedPackageRefusalCode::MalformedWire,
+                        at.pointer(),
+                    ))
+                } else {
+                    check_term(&node.body, &at, Place::BodyRoot, false)
+                }
+            }
             BodyGrammar::TimedModel => {
                 let CheckedNodeKind::TimedModel(form) = kind else {
                     unreachable!("timed grammar requires a timed kind")
@@ -657,6 +670,22 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// QSpec TC-946 V6: a carrier cannot become a protocol declaration.
+    #[trace("TC-048", "FR-038-AC-284")]
+    #[test]
+    fn protocol_reference_rejects_protocol_application_at_wire_boundary() {
+        header_refusal(
+            vec![header_node(
+                "protocol",
+                "protocol_reference",
+                super::super::GRAPH_V2,
+                json!({"term": "application", "operator": "protocol_control", "arguments": []}),
+            )],
+            CheckedPackageRefusalCode::MalformedWire,
+            "/semantic_graph/nodes/0/body",
+        );
     }
 
     #[trace("TC-048")]

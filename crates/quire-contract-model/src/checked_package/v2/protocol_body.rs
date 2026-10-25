@@ -382,12 +382,12 @@ fn argument(arguments: &[CheckedTerm], position: usize) -> Option<&CheckedTerm> 
 }
 
 fn group_fields_fit(term: &CheckedTerm, fields: &[(&str, Shape)]) -> bool {
-    let names: Vec<&str> = fields.iter().map(|(name, _)| *name).collect();
-    named_fields(term, &names).is_some_and(|values| {
-        values
-            .iter()
-            .zip(fields)
-            .all(|(value, (_, shape))| shape_fits(value, *shape))
+    members(term).is_some_and(|values| {
+        values.len() == fields.len()
+            && values.iter().zip(fields).all(|(value, (name, shape))| {
+                matches!(value, CheckedTerm::Binding { name: actual, value }
+                    if actual.as_ref() == *name && shape_fits(value, *shape))
+            })
     })
 }
 
