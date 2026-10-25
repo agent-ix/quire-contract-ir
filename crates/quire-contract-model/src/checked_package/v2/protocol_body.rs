@@ -584,6 +584,44 @@ fn validate_layout(
     Ok(())
 }
 
+/// Strict-wire subset: known operators' fixed shapes, before any graph step.
+/// Unknown or misplaced operators retain their protocol-step refusal.
+pub(super) fn wire_layout_defect(
+    form: ProtocolForm,
+    body: &CheckedTerm,
+) -> Option<ProtocolBodyDefect> {
+    let CheckedTerm::Application {
+        operator: ApplicationOperator::ProtocolControl,
+        operation,
+        arguments,
+        ..
+    } = body
+    else {
+        return None;
+    };
+    if operation
+        .get("laws")
+        .and_then(Value::as_array)
+        .is_some_and(|laws| laws.len() > 1)
+        || !operation.get("mode").is_some_and(Value::is_null)
+        || !operation
+            .get("leaves")
+            .and_then(Value::as_array)
+            .is_some_and(Vec::is_empty)
+    {
+        return Some(ProtocolBodyDefect::MalformedLayout);
+    }
+    let operator = operation
+        .pointer("/member/operator")
+        .and_then(Value::as_str)?;
+    layout(form, operator)?;
+    matches!(
+        validate_layout(form, operator, arguments),
+        Err(ProtocolBodyDefect::MalformedLayout)
+    )
+    .then_some(ProtocolBodyDefect::MalformedLayout)
+}
+
 /// Checks the shared protocol application envelope and fixed local layout.
 /// `selected_profile` is the lock's selected `protocol_profile` definition.
 ///

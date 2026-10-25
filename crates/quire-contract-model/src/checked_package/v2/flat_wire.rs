@@ -135,7 +135,22 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
                         at.pointer(),
                     ))
                 } else {
-                    check_term(&node.body, &at, Place::BodyRoot, false)
+                    check_term(&node.body, &at, Place::BodyRoot, false).and_then(|_| {
+                        let CheckedNodeKind::Protocol(form) = kind else {
+                            return Ok(());
+                        };
+                        let Some(body) = CheckedTerm::decode_admitted(&node.body).ok() else {
+                            return Ok(());
+                        };
+                        if super::protocol_body::wire_layout_defect(form, &body).is_some() {
+                            Err(ValidationFailure::refused(
+                                CheckedPackageRefusalCode::MalformedWire,
+                                at.pointer(),
+                            ))
+                        } else {
+                            Ok(())
+                        }
+                    })
                 }
             }
             BodyGrammar::TimedModel => {
@@ -682,6 +697,32 @@ mod tests {
                 "protocol_reference",
                 super::super::GRAPH_V2,
                 json!({"term": "application", "operator": "protocol_control", "arguments": []}),
+            )],
+            CheckedPackageRefusalCode::MalformedWire,
+            "/semantic_graph/nodes/0/body",
+        );
+    }
+
+    /// QSpec FR-464 step 1 rejects a known operator's damaged fixed layout
+    /// before semantic graph validation can report a later defect.
+    #[trace("TC-048", "FR-038-AC-284")]
+    #[test]
+    fn protocol_clause_rejects_short_layout_at_wire_boundary() {
+        header_refusal(
+            vec![header_node(
+                "protocol",
+                "protocol_clause",
+                super::super::GRAPH_V2,
+                json!({
+                    "term": "application", "operator": "protocol_control",
+                    "operation": {
+                        "identity": "quire.op.protocol.control", "laws": [], "mode": null,
+                        "member": {"kind": "profile_operator", "operator": "protocol"},
+                        "leaves": []
+                    },
+                    "result_type": {"domain": "quire.checked-semantic-node/v1", "digest": "1".repeat(64)},
+                    "arguments": []
+                }),
             )],
             CheckedPackageRefusalCode::MalformedWire,
             "/semantic_graph/nodes/0/body",
