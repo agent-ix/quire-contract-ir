@@ -57,7 +57,10 @@ use super::model_members::{
     declaration_key, Budget, CollectionKind, DeclarationForm, EndSelectionError, MemberKind,
     MemberType, ModelFailure, ModelOwners, ModelRefusal, Resolved, SelectedEnds,
 };
-use super::operation_catalog::{operation_catalog, OperationCatalog, OperationCatalogEntry};
+use super::operation_catalog::{
+    operation_catalog, CatalogLeafSource, CatalogResult, FamilyClass, OperationCatalog,
+    OperationCatalogEntry,
+};
 use super::structural::{typed_union_type_body, typed_union_value_body, UnionMember};
 use super::temporal::member_is_well_formed;
 use super::{
@@ -603,7 +606,8 @@ fn check_type_argument_member_result(
     graph: &Graph<'_>,
     catalog: &OperationCatalog,
 ) -> Option<ValidationFailure> {
-    if entry.result.as_ref() != "member" || entry.member != Some(OperationMemberKind::TypeArgument)
+    if entry.result != CatalogResult::Member
+        || entry.member != Some(OperationMemberKind::TypeArgument)
     {
         return None;
     }
@@ -939,8 +943,8 @@ fn operation_defect(
         }
     }
     if matches!(
-        operation.identity.as_ref(),
-        "quire.op.model.navigate" | "quire.op.model.reaches"
+        entry.known,
+        Some(super::KnownOperation::ModelNavigate | super::KnownOperation::ModelReaches)
     ) {
         if let Some(failure) =
             check_relationship_member(application, &operation, graph, owners, meter)?
@@ -948,7 +952,7 @@ fn operation_defect(
             return Ok(Some(failure));
         }
     }
-    if operation.identity.as_ref() == "quire.op.function.call" {
+    if entry.known == Some(super::KnownOperation::FunctionCall) {
         if let Some(failure) = check_function_call(application, graph, owners, meter)? {
             return Ok(Some(failure));
         }
@@ -1024,7 +1028,7 @@ fn is_clause_application(argument: &CheckedTerm, catalog: &OperationCatalog) -> 
         .get("identity")
         .and_then(Value::as_str)
         .and_then(|identity| catalog.entry(identity))
-        .is_some_and(|entry| &*entry.result == "clause")
+        .is_some_and(|entry| entry.result == CatalogResult::Clause)
 }
 
 /// The node a `reference` term names, unresolved; `None` for any other term.
@@ -1453,7 +1457,10 @@ fn check_operands(
         // operand. These member terms have no operand family or type; do not
         // let an absent family bypass the operand check.
         if position == 0
-            && matches!(entry.leaves.as_deref(), Some("operand:0" | "inner:0"))
+            && matches!(
+                entry.leaves.as_ref(),
+                Some(CatalogLeafSource::OperandZero | CatalogLeafSource::InnerZero)
+            )
             && matches!(
                 typed_arguments.first(),
                 Some(
@@ -1473,7 +1480,7 @@ fn check_operands(
         // `reference` term.
         if entry.operator == ApplicationOperator::Temporal
             && position == 0
-            && &**expected == "reference"
+            && expected.class == FamilyClass::Reference
         {
             if !matches!(typed_arguments.first(), Some(CheckedTerm::Reference { .. })) {
                 return ineligible(Some(0));
@@ -1485,7 +1492,9 @@ fn check_operands(
             .and_then(|argument| argument_family(argument, nodes, kinds, index, catalog))
         {
             if !catalog.family_fits(actual, expected) {
-                if entry.mode == Some(OperationModeKind::TextProfile) && actual == "string" {
+                if entry.mode == Some(OperationModeKind::TextProfile)
+                    && FamilyClass::from_wire(actual) == FamilyClass::String
+                {
                     string_in_text_mode = true;
                 } else {
                     return ineligible(Some(position));
@@ -1502,7 +1511,9 @@ fn check_operands(
         {
             if let Some(actual) = argument_family(argument, nodes, kinds, index, catalog) {
                 if !catalog.family_fits(actual, rest_family) {
-                    if entry.mode == Some(OperationModeKind::TextProfile) && actual == "string" {
+                    if entry.mode == Some(OperationModeKind::TextProfile)
+                        && FamilyClass::from_wire(actual) == FamilyClass::String
+                    {
                         string_in_text_mode = true;
                     } else {
                         return ineligible(Some(required.saturating_add(offset)));
@@ -2012,7 +2023,9 @@ fn body_root_defect(
         Some(CheckedTerm::Aggregate { members }) if tag == CheckedNodeTag::Function => members
             .iter()
             .find_map(|member| match member {
-                CheckedTerm::Binding { name, value } if name.as_ref() == "body" => {
+                CheckedTerm::Binding { name, value }
+                    if name.kind() == super::TermBindingName::Body =>
+                {
                     Some(value.as_ref())
                 }
                 _ => None,
@@ -2081,7 +2094,7 @@ fn check_function_call(
     };
     let Some(present) = members
         .iter()
-        .position(|member| matches!(member, CheckedTerm::Binding { name, .. } if name.as_ref() == "parameters"))
+        .position(|member| matches!(member, CheckedTerm::Binding { name, .. } if name.kind() == super::TermBindingName::Parameters))
     else {
         return Ok(None);
     };
@@ -2383,7 +2396,8 @@ fn check_relationship_member(
     {
         return ineligible(argument_at(0));
     }
-    let reaches = operation.identity.as_ref() == "quire.op.model.reaches";
+    let reaches =
+        operation_catalog().known(&operation.identity) == Some(super::KnownOperation::ModelReaches);
     if reaches {
         let actual_target = match operand_owner(1) {
             Ok(Some(owner)) => owner,
@@ -2580,7 +2594,10 @@ fn check_inner_result(
     entry: &OperationCatalogEntry,
     graph: &Graph<'_>,
 ) -> Option<ValidationFailure> {
-    let operand: usize = entry.result.strip_prefix("inner:")?.parse().ok()?;
+    let CatalogResult::Inner(operand) = &entry.result else {
+        return None;
+    };
+    let operand = *operand;
     let type_id = operand_type_node_typed(
         admitted_arguments(application, graph)?.get(operand)?,
         graph.nodes,
@@ -3182,11 +3199,21 @@ impl OpenComposites {
 }
 
 /// Whether `leaf` is a recursion leaf, `recursion:<d>` as its last segment.
+struct RecursionLeafDepth;
+
+impl RecursionLeafDepth {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(segment: &str) -> Option<Self> {
+        let depth = segment.strip_prefix("recursion:")?;
+        (!depth.is_empty() && depth.bytes().all(|byte| byte.is_ascii_digit())).then_some(Self)
+    }
+}
+
 fn is_recursion_leaf(leaf: &OperationLeafWire) -> bool {
     leaf.path
         .last()
-        .and_then(|segment| segment.strip_prefix("recursion:"))
-        .is_some_and(|depth| !depth.is_empty() && depth.bytes().all(|byte| byte.is_ascii_digit()))
+        .and_then(|segment| RecursionLeafDepth::from_wire(segment))
+        .is_some()
 }
 
 /// Whether `leaf`'s path is `prefix` followed, when `last` is given, by that
@@ -3322,7 +3349,7 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
                         let [CheckedTerm::Binding { name, value }] = members.as_slice() else {
                             return None;
                         };
-                        if name.as_ref() != "optional" {
+                        if name.kind() != super::TermBindingName::Optional {
                             return None;
                         }
                         let target = referenced_type(value)?;
@@ -3861,7 +3888,7 @@ fn check_leaf_count(
         index,
         ..
     } = *graph;
-    let Some(source) = entry.leaves.as_deref() else {
+    let Some(source) = entry.leaves.as_ref() else {
         return Ok(None);
     };
     let arguments = admitted_arguments(application, graph).unwrap_or_default();
@@ -3877,11 +3904,11 @@ fn check_leaf_count(
     // Outer `None`: a required type could not be resolved. Inner `None`:
     // this admitted result kind has no leaf source (a sequence, for example).
     let compared: Option<Option<CheckedNodeId>> = match source {
-        "operand:0" => arguments
+        CatalogLeafSource::OperandZero => arguments
             .first()
             .and_then(|argument| operand_type_node_typed(argument, nodes, kinds, index))
             .map(Some),
-        "inner:0" => {
+        CatalogLeafSource::InnerZero => {
             match arguments
                 .first()
                 .and_then(|argument| operand_type_node_typed(argument, nodes, kinds, index))
@@ -3892,7 +3919,7 @@ fn check_leaf_count(
                 None => None,
             }
         }
-        "result_inner" => {
+        CatalogLeafSource::ResultInner => {
             let result = graph
                 .terms
                 .get(application.position)

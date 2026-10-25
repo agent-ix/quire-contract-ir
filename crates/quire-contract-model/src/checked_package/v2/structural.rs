@@ -73,9 +73,7 @@ use super::{
     ProtocolForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, ScalarTypeForm,
     StateForm, TemporalForm, ValueForm,
 };
-use crate::checked_package::common::{
-    exact_members, is_digest, node_pointer, ValidationFailure, NODE_DOMAIN,
-};
+use crate::checked_package::common::{exact_members, is_digest, node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCode, JsonPointer,
 };
@@ -465,7 +463,7 @@ fn protocol_reference_defect(
     let Some(super::CheckedTerm::Reference { target }) = term else {
         return Some(Defect::Body);
     };
-    if target.domain.as_ref() != NODE_DOMAIN || !is_digest(&target.digest) {
+    if !super::is_node_domain(&target.domain) || !is_digest(&target.digest) {
         return Some(Defect::Body);
     }
     if node.dependencies.as_slice() != std::slice::from_ref(target) {
@@ -535,7 +533,7 @@ pub(super) fn typed_binding<'a>(
 pub(super) fn typed_reference(term: &super::CheckedTerm) -> Option<&CheckedNodeId> {
     match term {
         super::CheckedTerm::Reference { target }
-            if target.domain.as_ref() == NODE_DOMAIN && is_digest(&target.digest) =>
+            if super::is_node_domain(&target.domain) && is_digest(&target.digest) =>
         {
             Some(target)
         }
@@ -683,8 +681,6 @@ pub(super) fn typed_anchor_body(body: &super::CheckedTerm) -> Option<AnchorBody<
 }
 
 /// The catalogued identity of the state clause operation.
-const STATE_CLAUSE_OPERATION: &str = "quire.op.state.clause";
-
 /// A `state`/`state_clause` body (QSpec FR-341).
 pub(super) struct ClauseBody {
     /// The clause kind its `state_clause` member names.
@@ -699,7 +695,7 @@ pub(super) struct ClauseBody {
 // Reads an application's operation identity.
 pub(super) fn is_state_clause_application(term: &Value) -> bool {
     matches!(CheckedTerm::view(term), Some(CheckedTermView::Application { operation, .. })
-        if operation.get("identity").and_then(Value::as_str) == Some(STATE_CLAUSE_OPERATION))
+        if operation.get("identity").and_then(Value::as_str).and_then(|identity| super::operation_catalog::operation_catalog().known(identity)) == Some(super::KnownOperation::StateClause))
 }
 
 /// The admitted state clause body, or `None` for any other shape: an
@@ -718,7 +714,9 @@ pub(super) fn typed_clause_body(body: &super::CheckedTerm) -> Option<ClauseBody>
     else {
         return None;
     };
-    if operation.get("identity")?.as_str()? != STATE_CLAUSE_OPERATION {
+    if super::operation_catalog::operation_catalog().known(operation.get("identity")?.as_str()?)
+        != Some(super::KnownOperation::StateClause)
+    {
         return None;
     }
     let member = operation.get("member")?.as_object()?;
@@ -862,8 +860,11 @@ fn application_dependencies(body: &super::CheckedTerm) -> Option<BTreeSet<Checke
                     .and_then(Value::as_str)
                     .is_some_and(|identity| {
                         matches!(
-                            identity,
-                            "quire.op.model.reaches" | "quire.op.model.navigate"
+                            super::operation_catalog::operation_catalog().known(identity),
+                            Some(
+                                super::KnownOperation::ModelReaches
+                                    | super::KnownOperation::ModelNavigate
+                            )
                         )
                     });
                 if relationship {
@@ -905,7 +906,7 @@ pub(super) fn binding<'a>(term: &'a Value, name: &str) -> Option<&'a Value> {
 /// A `reference` term's target.
 pub(super) fn reference_target(term: &Value) -> Option<CheckedNodeId> {
     let target = reference_selector(term)?;
-    (target.domain.as_ref() == NODE_DOMAIN && is_digest(&target.digest)).then_some(target)
+    (super::is_node_domain(&target.domain) && is_digest(&target.digest)).then_some(target)
 }
 
 /// A typed draft `reference` target before its provisional selector is replaced.
@@ -918,12 +919,14 @@ pub(super) fn reference_selector(term: &Value) -> Option<CheckedNodeId> {
 }
 
 /// `^(0|[1-9][0-9]*)$`.
+#[ix_trace_rs::string_edge]
 pub(super) fn is_non_negative_integer(value: &str) -> bool {
     value == "0" || is_positive_integer(value)
 }
 
 /// `^(0|-?[1-9][0-9]*)$`: an `integer_range` bound. No leading zero, no `+`,
 /// and `-0` is refused.
+#[ix_trace_rs::string_edge]
 pub(super) fn is_integer_bound(value: &str) -> bool {
     value == "0" || is_nonzero_integer(value)
 }

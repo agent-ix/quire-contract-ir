@@ -1,7 +1,7 @@
 use std::{
     ffi::OsString,
     io::{self, Write as _},
-    path::Path,
+    path::PathBuf,
     process::ExitCode,
 };
 
@@ -34,16 +34,15 @@ fn main() -> ExitCode {
     ix_cli_kit::exit::caller_exit_code(status).unwrap_or(ExitCode::from(2))
 }
 
-fn execute(arguments: Vec<OsString>) -> Result<(Vec<u8>, bool), RunnerError> {
+enum Command {
+    Version,
+    Run { corpus: PathBuf, schemas: PathBuf },
+}
+
+#[ix_trace_rs::string_edge]
+fn parse_command(arguments: Vec<OsString>) -> Result<Command, RunnerError> {
     if arguments.len() == 1 && arguments[0] == "--version" {
-        return Ok((
-            format!(
-                "quire-contract-ir {} {CONFORMANCE_PROTOCOL}\n",
-                env!("CARGO_PKG_VERSION")
-            )
-            .into_bytes(),
-            false,
-        ));
+        return Ok(Command::Version);
     }
     if arguments.len() != 5
         || arguments[0] != "run"
@@ -54,7 +53,24 @@ fn execute(arguments: Vec<OsString>) -> Result<(Vec<u8>, bool), RunnerError> {
     }
     let corpus = arguments[2].to_str().ok_or_else(invalid_invocation)?;
     let schemas = arguments[4].to_str().ok_or_else(invalid_invocation)?;
-    let results = run_corpus(Path::new(corpus), Path::new(schemas))?;
+    Ok(Command::Run {
+        corpus: PathBuf::from(corpus),
+        schemas: PathBuf::from(schemas),
+    })
+}
+
+fn execute(arguments: Vec<OsString>) -> Result<(Vec<u8>, bool), RunnerError> {
+    let Command::Run { corpus, schemas } = parse_command(arguments)? else {
+        return Ok((
+            format!(
+                "quire-contract-ir {} {CONFORMANCE_PROTOCOL}\n",
+                env!("CARGO_PKG_VERSION")
+            )
+            .into_bytes(),
+            false,
+        ));
+    };
+    let results = run_corpus(&corpus, &schemas)?;
     let mismatched = results
         .iter()
         .any(|result| result.status() == FixtureStatus::Mismatch);

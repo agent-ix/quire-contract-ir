@@ -37,6 +37,7 @@ fn is_identifier_or_keyword(text: &str) -> bool {
 }
 
 /// A Rust identifier (FR-450 `rust-name`, one segment of a `rust-path`).
+#[ix_trace_rs::string_edge]
 pub(super) fn is_rust_identifier(text: &str) -> bool {
     if !is_nfc(text) {
         return false;
@@ -59,10 +60,12 @@ pub(super) fn is_rust_field(text: &str) -> bool {
 }
 
 /// A `rust-receiver`: exactly `self`, or one Rust identifier.
+#[ix_trace_rs::string_edge]
 pub(super) fn is_rust_receiver(text: &str) -> bool {
     text == "self" || is_rust_identifier(text)
 }
 
+#[ix_trace_rs::string_edge]
 fn is_tuple_index(text: &str) -> bool {
     text == "0"
         || (text.starts_with(|first: char| ('1'..='9').contains(&first))

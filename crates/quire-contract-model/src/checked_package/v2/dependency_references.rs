@@ -405,7 +405,9 @@ fn signature_closure(supplied: &SuppliedDependency<'_>, function: usize) -> Clos
         _ => None,
     };
     let parameters = members.and_then(|members| match members.first()? {
-        CheckedTerm::Binding { name, value } if name.as_ref() == "parameters" => {
+        CheckedTerm::Binding { name, value }
+            if name.kind() == super::TermBindingName::Parameters =>
+        {
             Some(value.as_ref())
         }
         _ => None,

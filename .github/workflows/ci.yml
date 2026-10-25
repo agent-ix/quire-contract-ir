@@ -23,6 +23,9 @@ jobs:
       - name: Format
         run: cargo fmt --all -- --check
 
+      - name: Install authoritative string-edge scanner
+        run: cargo install --git https://github.com/agent-ix/quire-spec-language.git --rev 965460aa2dc987d4dc6cd9e2316b56edc7c4d041 qsl-string-edge
+
       - name: Lint
         run: make lint
 
