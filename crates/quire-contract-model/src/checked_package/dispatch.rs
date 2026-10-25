@@ -5,6 +5,9 @@ use super::shared::{CheckedPackageIncomplete, CheckedPackageReadLimits, CheckedP
 use super::v2::{CheckedPackageV2, CheckedPackageV2ReadResult};
 
 /// The closed result of dispatching untrusted checked-package bytes.
+// The required inline typed refusal makes this public result larger than its
+// incomplete case; changing the variant to a box would change its API.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CheckedPackageDispatchResult {
     /// A `quire.checked-package/v2` package admitted by the V2 reader.

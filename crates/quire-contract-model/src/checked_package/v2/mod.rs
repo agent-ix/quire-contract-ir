@@ -821,6 +821,9 @@ pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
 }
 
 /// The closed result of reading untrusted bytes as V2.
+// The required inline typed refusal makes this public result larger than its
+// incomplete case; changing the variant to a box would change its API.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CheckedPackageV2ReadResult {
     /// A complete V2 package is safe for lowering.
@@ -1993,12 +1996,12 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | ProtocolForm::Obligation
             | ProtocolForm::Compensation,
         ) => false,
+        K::Claim(ClaimForm::StateGraph) => true,
         K::Claim(
             ClaimForm::VerificationClaim
             | ClaimForm::AnalysisClaim
             | ClaimForm::Hyperproperty
-            | ClaimForm::SynthesisRequest
-            | ClaimForm::StateGraph,
+            | ClaimForm::SynthesisRequest,
         ) => false,
         K::Correspondence(
             CorrespondenceForm::SourceLocus
