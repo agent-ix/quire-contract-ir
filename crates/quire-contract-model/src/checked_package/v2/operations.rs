@@ -469,6 +469,7 @@ fn literal_defect(
             | CheckedTerm::DependencyReference { .. }
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
+            | CheckedTerm::Refinement { .. }
             | CheckedTerm::ExtensionForm { .. } => {}
         }
     }
@@ -1015,6 +1016,7 @@ fn argument_family(
         CheckedTerm::DependencyReference { .. }
         | CheckedTerm::Frame { .. }
         | CheckedTerm::AbstractionRelation { .. }
+        | CheckedTerm::Refinement { .. }
         | CheckedTerm::ExtensionForm { .. } => None,
     }
 }
@@ -1070,7 +1072,10 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
         K::CompositeType(CompositeTypeForm::Alias) => None,
         K::Relation(RelationForm::Population) => Some("population"),
         K::Relation(
-            RelationForm::Relationship | RelationForm::Membership | RelationForm::CausalRelation,
+            RelationForm::Relationship
+            | RelationForm::Membership
+            | RelationForm::CausalRelation
+            | RelationForm::Refinement,
         ) => None,
         K::Function(
             FunctionForm::PureFunction | FunctionForm::Predicate | FunctionForm::RecursiveFunction,
@@ -1275,7 +1280,8 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             RelationForm::Relationship
             | RelationForm::Population
             | RelationForm::Membership
-            | RelationForm::CausalRelation,
+            | RelationForm::CausalRelation
+            | RelationForm::Refinement,
         ) => true,
         K::State(
             StateForm::StateClause

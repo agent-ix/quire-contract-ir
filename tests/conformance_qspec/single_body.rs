@@ -90,7 +90,10 @@ fn published_single_body_packages_keep_their_recorded_identity_and_writer_bytes(
             read.package_id(),
             read.lock(),
             read.graph(),
-            read.source_map(),
+            quire_contract_model::CheckedPackageSourceCorrespondenceRef {
+                source_map: read.source_map(),
+                refinement_step_rows: read.refinement_step_rows(),
+            },
             read.capability_report(),
             read.diagnostics(),
             Limits::new(1 << 24),

@@ -42,7 +42,7 @@ fn requirement(
                 OwnerRequirement::None
             }
         }
-        ("model", "object_type" | "systems_interface")
+        ("model", "object_type" | "state_machine" | "systems_interface")
         | ("relation", "relationship" | "population")
         | ("function", _) => OwnerRequirement::Model,
         _ => OwnerRequirement::None,
@@ -174,7 +174,10 @@ fn model_kind_matches(
         CheckedNodeKind::Model(super::ModelForm::ObjectType) => model
             .object_types
             .get(declared)
-            .is_some_and(|declared| !declared.interface),
+            .is_some_and(|object| !object.interface && !model.state_machines.contains(declared)),
+        CheckedNodeKind::Model(super::ModelForm::StateMachine) => {
+            model.state_machines.contains(declared)
+        }
         CheckedNodeKind::Model(super::ModelForm::RecordValueType) => {
             model.record_types.contains_key(declared)
         }
@@ -193,11 +196,9 @@ fn model_kind_matches(
         }
         CheckedNodeKind::Function(_) => match clause_kind(term) {
             Some(OwnerClauseKind::Invariant) => {
-                model
-                    .object_types
-                    .get(declared)
-                    .is_some_and(|object| !object.interface)
-                    || model.record_types.contains_key(declared)
+                model.object_types.get(declared).is_some_and(|object| {
+                    !object.interface && !model.state_machines.contains(declared)
+                }) || model.record_types.contains_key(declared)
             }
             Some(OwnerClauseKind::Precondition | OwnerClauseKind::Body) => {
                 operations.contains(declared)

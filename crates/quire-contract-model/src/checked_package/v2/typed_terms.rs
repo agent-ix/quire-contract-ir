@@ -6,6 +6,10 @@
 //! byte length.
 
 use super::{ApplicationOperator, BodyTerm, LiteralKind};
+use super::{
+    RefinementAssume, RefinementEnsure, RefinementHistory, RefinementKey, RefinementObject,
+    RefinementPopulation, RefinementStep,
+};
 use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedSemanticId};
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
@@ -143,6 +147,35 @@ pub enum CheckedTerm {
         /// Frame mappings.
         frames: Vec<CheckedAbstractionFrame>,
     },
+    /// A closed model or protocol refinement declaration.
+    Refinement {
+        /// Abstract model declaration.
+        #[serde(rename = "abstract")]
+        abstract_key: Box<RefinementKey>,
+        /// Selected infinite-trace profile.
+        profile: CheckedArtifactRef,
+        /// Population mappings.
+        populations: Vec<RefinementPopulation>,
+        /// Object mappings.
+        objects: Vec<RefinementObject>,
+        /// Step mappings.
+        steps: Vec<RefinementStep>,
+        /// History fields.
+        histories: Vec<RefinementHistory>,
+        /// Concrete fairness assumptions.
+        assume: Vec<RefinementAssume>,
+        /// Abstract fairness guarantees.
+        ensure: Vec<RefinementEnsure>,
+        /// Abstract protocol clause, when selected.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        protocol: Option<Box<RefinementKey>>,
+        /// Nonempty alias-free internal list, when supplied.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        abstract_internal: Option<Vec<Box<str>>>,
+        /// Identity-bound checked classes of the selected subjects.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        class_catalog: Option<super::refinement::RefinementClassCatalog>,
+    },
     /// The closed extension declaration body.
     ExtensionForm {
         /// Selected definition.
@@ -260,7 +293,10 @@ impl CheckedTerm {
         targets
     }
 
-    fn visit_reference_targets<'a>(&'a self, visitor: &mut impl FnMut(&'a CheckedNodeId)) {
+    pub(super) fn visit_reference_targets<'a>(
+        &'a self,
+        visitor: &mut impl FnMut(&'a CheckedNodeId),
+    ) {
         match self {
             Self::Reference { target } => visitor(target),
             Self::Application { arguments, .. } => {
@@ -278,6 +314,14 @@ impl CheckedTerm {
                 for clause in clauses {
                     clause.visit_reference_targets(visitor);
                 }
+            }
+            Self::Refinement {
+                objects,
+                steps,
+                histories,
+                ..
+            } => {
+                super::refinement::visit_reference_targets(objects, steps, histories, visitor);
             }
             Self::Literal { .. }
             | Self::DependencyReference { .. }
@@ -357,6 +401,9 @@ impl CheckedTerm {
                     clause.replace_node_id(old, new);
                 }
             }
+            Self::Refinement { .. } => {
+                super::refinement::replace_node_ids(self, old, new);
+            }
         }
     }
     /// Construct a checked reference body without an untyped JSON intermediate.
@@ -416,6 +463,14 @@ impl CheckedTerm {
     /// Decodes only a body that the reader's flat and closed-shape checks
     /// already accepted. Public serde decoding does not provide that bound.
     pub(super) fn decode_admitted(value: &Value) -> Result<Self, TermConversionCause> {
+        if value.get("term").and_then(Value::as_str) == Some("refinement") {
+            return serde_json::from_value(value.clone()).map_err(|error| {
+                TermConversionCause::MalformedMember {
+                    member: "refinement",
+                    category: error.classify(),
+                }
+            });
+        }
         fn field<T: DeserializeOwned>(
             wire: crate::checked_package::common::WireTerm<'_>,
             name: crate::checked_package::common::TermField,
@@ -607,6 +662,50 @@ impl Encode for CheckedTerm {
                 writer.serialize(populations)?;
                 writer.name("frames")?;
                 writer.serialize(frames)?;
+            }
+            Self::Refinement {
+                abstract_key,
+                profile,
+                populations,
+                objects,
+                steps,
+                histories,
+                assume,
+                ensure,
+                protocol,
+                abstract_internal,
+                class_catalog,
+            } => {
+                writer.name("term")?;
+                writer.string("refinement")?;
+                writer.name("abstract")?;
+                writer.serialize(abstract_key.as_ref())?;
+                writer.name("profile")?;
+                writer.serialize(profile)?;
+                writer.name("populations")?;
+                writer.serialize(populations)?;
+                writer.name("objects")?;
+                super::refinement::encode_rows(objects, writer)?;
+                writer.name("steps")?;
+                super::refinement::encode_rows(steps, writer)?;
+                writer.name("histories")?;
+                super::refinement::encode_rows(histories, writer)?;
+                writer.name("assume")?;
+                writer.serialize(assume)?;
+                writer.name("ensure")?;
+                writer.serialize(ensure)?;
+                if let Some(protocol) = protocol {
+                    writer.name("protocol")?;
+                    writer.serialize(protocol.as_ref())?;
+                }
+                if let Some(internal) = abstract_internal {
+                    writer.name("abstract_internal")?;
+                    writer.serialize(internal)?;
+                }
+                if let Some(catalog) = class_catalog {
+                    writer.name("class_catalog")?;
+                    writer.serialize(catalog)?;
+                }
             }
             Self::ExtensionForm {
                 definition,
@@ -895,6 +994,31 @@ mod tests {
         let abstraction = json!({
             "term":"abstraction_relation","objects":[],"populations":[],"frames":[]
         });
+        let refinement = json!({
+            "term":"refinement", "abstract":node,
+            "profile":{"authority":"test","identity":"trace"},
+            "populations":[{"abstract":node,"concrete":node}],
+            "objects":[{"abstract_type":node,"concrete_type":node,
+                "fields":[{"name":"history","expression":reference}]}],
+            "steps":[
+                {"source_class":"finish","source_node":node,"target":{
+                    "kind":"operation","operation":node,"receiver":reference,
+                    "arguments":[{"term":"open"},reference]}},
+                {"source_class":"memory flush","target":{
+                    "kind":"protocol_step","class":"memory flush",
+                    "arguments":[{"term":"open"}]}},
+                {"source_class":"memory read","target":{"kind":"stutter"}},
+                {"source_class":"memory write","target":{"kind":"any"}}
+            ],
+            "histories":[{"concrete_type":node,"name":"history","type":node,
+                "initial":literal,"updates":[{"operation":node,"expression":reference}]}],
+            "assume":[{"operation":node,"kind":"weak","granularity":"each"}],
+            "ensure":[{"operation":node,"kind":"strong","granularity":"whole"}],
+            "protocol":node,"abstract_internal":["history"],
+            "class_catalog":{"concrete":[{"class":"finish","node":node,
+                "binder_types":[node]},{"class":"memory flush","memory_model":"sc"}],
+                "abstract":[{"class":"finish","node":node,"binder_types":[node]}]}
+        });
         let extension = json!({
             "term":"extension_form",
             "definition":{"authority":"test","identity":"extension"},
@@ -910,6 +1034,7 @@ mod tests {
             (application, "application"),
             (frame, "frame"),
             (abstraction, "abstraction_relation"),
+            (refinement, "refinement"),
             (extension, "extension_form"),
         ] {
             let term = CheckedTerm::decode_admitted(&body).expect("closed term");
@@ -922,6 +1047,7 @@ mod tests {
                 CheckedTerm::Application { .. } => "application",
                 CheckedTerm::Frame { .. } => "frame",
                 CheckedTerm::AbstractionRelation { .. } => "abstraction_relation",
+                CheckedTerm::Refinement { .. } => "refinement",
                 CheckedTerm::ExtensionForm { .. } => "extension_form",
             };
             assert_eq!(actual, expected);
@@ -976,5 +1102,31 @@ mod tests {
             "b".repeat(64)
         );
         assert_eq!(wire["members"][1]["value"], "plain text");
+
+        let mut refinement: CheckedTerm = serde_json::from_value(json!({
+            "term":"refinement", "abstract":old,
+            "profile":{"authority":"test","identity":"trace"},
+            "populations":[],"objects":[],
+            "steps":[{"source_class":"finish","source_node":old,
+                "target":{"kind":"stutter"}}],
+            "histories":[],"assume":[],"ensure":[],
+            "class_catalog":{"concrete":[{"class":"finish","node":old,
+                "binder_types":[old]}],"abstract":[]}
+        }))
+        .expect("typed refinement");
+        refinement.replace_node_id(&old, &replacement);
+        let wire = serde_json::to_value(&refinement).expect("refinement serializes");
+        let replacement_wire = serde_json::to_value(&replacement).expect("node serializes");
+        assert_eq!(wire["abstract"], replacement_wire);
+        assert_eq!(wire["steps"][0]["source_node"], replacement_wire);
+        assert_eq!(
+            wire["class_catalog"]["concrete"][0]["node"],
+            replacement_wire
+        );
+        assert_eq!(
+            wire["class_catalog"]["concrete"][0]["binder_types"][0],
+            replacement_wire
+        );
+        assert_eq!(wire["steps"][0]["source_class"], "finish");
     }
 }

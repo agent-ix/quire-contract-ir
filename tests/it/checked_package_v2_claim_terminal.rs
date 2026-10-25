@@ -427,7 +427,10 @@ fn encoded(package: &Value) -> Vec<u8> {
         &package_id,
         &lock,
         &graph,
-        &source_map,
+        quire_contract_model::CheckedPackageSourceCorrespondenceRef {
+            source_map: &source_map,
+            refinement_step_rows: None,
+        },
         &capabilities,
         &diagnostics,
         quire_canonical::Limits::new(u64::MAX),

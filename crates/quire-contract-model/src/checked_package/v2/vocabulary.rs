@@ -239,6 +239,7 @@ closed_vocabulary! {
         Population => "population",
         Membership => "membership",
         CausalRelation => "causal_relation",
+        Refinement => "refinement",
     }
 }
 

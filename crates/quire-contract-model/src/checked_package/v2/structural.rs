@@ -269,6 +269,7 @@ impl StructuralForm {
                 | RelationForm::Membership
                 | RelationForm::CausalRelation,
             ) => None,
+            K::Relation(RelationForm::Refinement) => None,
             K::State(StateForm::Frame) => Some(Self::Frame),
             K::State(StateForm::OperationAnchor) => Some(Self::OperationAnchor),
             K::State(StateForm::StateClause) => Some(Self::StateClause),
@@ -832,7 +833,9 @@ pub(super) fn typed_union_value_body(
 /// `population` of a reaches or navigate application. A member `declaration` or
 /// `population` that is not a node key is skipped here: the operation stage
 /// owns that refusal and its path.
-fn application_dependencies(body: &super::CheckedTerm) -> Option<BTreeSet<CheckedNodeId>> {
+pub(super) fn application_dependencies(
+    body: &super::CheckedTerm,
+) -> Option<BTreeSet<CheckedNodeId>> {
     use super::CheckedTerm;
     let mut contains_application = false;
     let mut join = BTreeSet::new();
@@ -880,6 +883,7 @@ fn application_dependencies(body: &super::CheckedTerm) -> Option<BTreeSet<Checke
             | CheckedTerm::DependencyReference { .. }
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
+            | CheckedTerm::Refinement { .. }
             | CheckedTerm::ExtensionForm { .. } => {}
         }
     }

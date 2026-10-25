@@ -451,6 +451,8 @@ pub(super) struct DomainModel {
     pub(super) bytes: u64,
     /// Object types and systems interfaces, by IR node identity.
     pub(super) object_types: BTreeMap<Box<str>, FieldBearingTypeDecl>,
+    /// State machine declarations share field and operation parsing with object types.
+    pub(super) state_machines: BTreeSet<Box<str>>,
     /// Record value types, with their own and inherited fields.
     pub(super) record_types: BTreeMap<Box<str>, FieldBearingTypeDecl>,
     /// Value types, by IR node identity; `None` when not bound as `Int[lo, hi]`.
@@ -478,6 +480,7 @@ pub(super) struct DomainModel {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum DeclarationForm {
     ObjectType,
+    StateMachine,
     RecordValueType,
     VariantType,
     SystemsInterface,
@@ -489,6 +492,7 @@ impl DeclarationForm {
     pub(super) const fn tag(self) -> &'static str {
         match self {
             Self::ObjectType
+            | Self::StateMachine
             | Self::RecordValueType
             | Self::VariantType
             | Self::SystemsInterface => "model",
@@ -499,6 +503,7 @@ impl DeclarationForm {
     pub(super) const fn form(self) -> &'static str {
         match self {
             Self::ObjectType => "object_type",
+            Self::StateMachine => "state_machine",
             Self::RecordValueType => "record_value_type",
             Self::VariantType => "variant_type",
             Self::SystemsInterface => "systems_interface",
@@ -1028,6 +1033,9 @@ impl DomainModel {
         &self,
         type_ref: &str,
     ) -> Option<Result<String, quire_canonical::Error>> {
+        if self.state_machines.contains(type_ref) {
+            return None;
+        }
         let declared = self.object_types.get(type_ref)?;
         let form = if declared.interface {
             DeclarationForm::SystemsInterface
@@ -1317,6 +1325,16 @@ pub(super) struct ModelOwners<'m> {
 }
 
 impl<'m> ModelOwners<'m> {
+    pub(super) fn refinement_object_fields(
+        &self,
+        key: &crate::checked_package::shared::CheckedNodeId,
+    ) -> Option<BTreeSet<Box<str>>> {
+        let owner = self.by_key.get(key.digest.as_ref())?;
+        if owner.form != DeclarationForm::ObjectType {
+            return None;
+        }
+        owner.package.fields.exposed_names(owner.node)
+    }
     /// Recomputes the key of every selected model declaration
     /// of each admitted document; `charge` is called once per key.
     pub(super) fn new(
@@ -1326,7 +1344,9 @@ impl<'m> ModelOwners<'m> {
         let mut by_key = BTreeMap::new();
         for (index, package) in models.iter().enumerate() {
             let objects = package.object_types.iter().map(|(node, declared)| {
-                let form = if declared.interface {
+                let form = if package.state_machines.contains(node.as_ref()) {
+                    DeclarationForm::StateMachine
+                } else if declared.interface {
                     DeclarationForm::SystemsInterface
                 } else {
                     DeclarationForm::ObjectType
@@ -2362,6 +2382,7 @@ pub(super) fn read_semantic_ir(
         identity: identity.into(),
         bytes: budget.bytes,
         object_types: BTreeMap::new(),
+        state_machines: BTreeSet::new(),
         record_types: BTreeMap::new(),
         value_types: BTreeMap::new(),
         variant_types: BTreeMap::new(),
@@ -2411,6 +2432,7 @@ pub(super) fn read_semantic_ir(
         };
         match meaning {
             meaning::Kind::ObjectType
+            | meaning::Kind::StateMachine
             | meaning::Kind::SystemsInterface
             | meaning::Kind::RecordValueType => {
                 if meaning == meaning::Kind::RecordValueType {
@@ -2448,7 +2470,6 @@ pub(super) fn read_semantic_ir(
                 scope.relationships.insert(node);
             }
             meaning::Kind::EventType
-            | meaning::Kind::StateMachine
             | meaning::Kind::Process
             | meaning::Kind::PersistenceInterface
             | meaning::Kind::Namespace
@@ -2474,6 +2495,7 @@ pub(super) fn read_semantic_ir(
         budget.charge(node_size(declared))?;
         match meaning {
             meaning::Kind::ObjectType
+            | meaning::Kind::StateMachine
             | meaning::Kind::SystemsInterface
             | meaning::Kind::RecordValueType => {
                 let mut defects = Defects::new(declared);
@@ -2505,6 +2527,9 @@ pub(super) fn read_semantic_ir(
                 if meaning == meaning::Kind::RecordValueType {
                     records.push((node, object));
                 } else {
+                    if meaning == meaning::Kind::StateMachine {
+                        model.state_machines.insert(node.into());
+                    }
                     objects.push((node, object));
                 }
                 for (identity, relationship) in declared_relationships {
@@ -2564,7 +2589,6 @@ pub(super) fn read_semantic_ir(
                 model.variant_types.insert(node.into(), names);
             }
             meaning::Kind::EventType
-            | meaning::Kind::StateMachine
             | meaning::Kind::Process
             | meaning::Kind::PersistenceInterface
             | meaning::Kind::Namespace

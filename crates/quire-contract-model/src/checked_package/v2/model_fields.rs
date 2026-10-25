@@ -99,6 +99,16 @@ impl FieldTables {
     pub(super) fn of(&self, node: &str) -> Option<&FieldTable> {
         self.components.get(*self.by_type.get(node)?)
     }
+
+    pub(super) fn exposed_names(&self, node: &str) -> Option<BTreeSet<Box<str>>> {
+        Some(
+            self.of(node)?
+                .exposed
+                .iter()
+                .map(|field| Box::from(field.name()))
+                .collect(),
+        )
+    }
 }
 
 /// Builds the field tables of every document, in lock order of the rows, each
@@ -452,6 +462,18 @@ pub(super) struct OperationTypes {
 }
 
 impl RetainedModels {
+    pub(super) fn refinement_object_fields(
+        &self,
+        key: &CheckedNodeId,
+    ) -> Option<BTreeSet<Box<str>>> {
+        let declared = self.index.0.get(key.digest.as_ref())?;
+        if declared.form != DeclarationForm::ObjectType {
+            return None;
+        }
+        self.tables
+            .get(declared.selection)?
+            .exposed_names(&declared.node)
+    }
     pub(super) fn new(index: DeclarationIndex, models: Vec<DomainModel>) -> Self {
         let mut operation_types = BTreeMap::new();
         for (selection, model) in models.iter().enumerate() {

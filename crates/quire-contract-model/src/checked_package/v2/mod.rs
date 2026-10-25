@@ -34,6 +34,7 @@ mod owner;
 mod parameter_declaration;
 mod protocol_body;
 mod reaches_population;
+mod refinement;
 mod relationship_end;
 mod rust_spelling;
 mod scalar_operands;
@@ -83,6 +84,7 @@ pub use model_fields::{
 };
 pub use parameter_declaration::{CheckedParameterDeclaration, CheckedParameterDeclarationError};
 pub use reaches_population::CheckedReachesPopulationError;
+pub use refinement::*;
 pub use relationship_end::{CheckedRelationshipEnd, CheckedRelationshipEndError};
 pub use scalar_operands::{
     CheckedScalarOperand, CheckedScalarOperandChild, CheckedScalarOperandError,
@@ -722,6 +724,11 @@ macro_rules! encode_envelope_field {
     ($writer:expr, $name:expr, $value:expr, nested) => {
         encode::encoded($writer, $name, $value)?
     };
+    ($writer:expr, $name:expr, $value:expr, optional) => {
+        if let Some(value) = $value {
+            encode::member($writer, $name, value)?;
+        }
+    };
 }
 
 // One field list generates the top-level shape and its borrowed canonical
@@ -730,8 +737,10 @@ macro_rules! checked_package_envelope {
     ($($name:ident: $parameter:ident => $encoding:ident),+ $(,)?) => {
         #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
         #[serde(deny_unknown_fields)]
-        struct CheckedPackageEnvelope<C, P, I, L, G, S, A, D> {
+        struct CheckedPackageEnvelope<C, P, I, L, G, S, R, A, D> {
             $($name: $parameter,)+
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            refinement_step_rows: Option<R>,
         }
 
         impl<Body: quire_canonical::Encode> quire_canonical::Encode for CheckedPackageEnvelope<
@@ -741,6 +750,7 @@ macro_rules! checked_package_envelope {
             &CheckedPackageLockV2,
             &CheckedSemanticGraphV2<Body>,
             &[CheckedSourceMapEntry],
+            &[refinement::CheckedRefinementStepRowRegion],
             &[CheckedCapability],
             &CheckedDiagnosticsV2,
         > {
@@ -750,6 +760,7 @@ macro_rules! checked_package_envelope {
             ) -> Result<(), quire_canonical::Error> {
                 writer.begin_object()?;
                 $(encode_envelope_field!(writer, stringify!($name), self.$name, $encoding);)+
+                encode_envelope_field!(writer, "refinement_step_rows", self.refinement_step_rows, optional);
                 writer.end_object()
             }
         }
@@ -774,11 +785,21 @@ type CheckedPackageWireV2<Body = CheckedTerm> = CheckedPackageEnvelope<
     CheckedPackageLockV2,
     CheckedSemanticGraphV2<Body>,
     Vec<CheckedSourceMapEntry>,
+    Vec<refinement::CheckedRefinementStepRowRegion>,
     Vec<CheckedCapability>,
     CheckedDiagnosticsV2,
 >;
 
 type RawCheckedPackageWireV2 = CheckedPackageWireV2<Value>;
+
+/// Source correspondence supplied to the canonical V2 writer.
+#[derive(Clone, Copy, Debug)]
+pub struct CheckedPackageSourceCorrespondenceRef<'a> {
+    /// Node occurrence regions.
+    pub source_map: &'a [CheckedSourceMapEntry],
+    /// Canonical refinement step row regions, absent when no steps exist.
+    pub refinement_step_rows: Option<&'a [CheckedRefinementStepRowRegion]>,
+}
 
 /// Canonically encodes a complete checked-package V2 envelope under the
 /// caller's byte limits. The graph and borrowed projection must use the same
@@ -801,7 +822,7 @@ pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
     package_id: &CheckedSemanticId,
     lock: &CheckedPackageLockV2,
     semantic_graph: &CheckedSemanticGraphV2<Body>,
-    source_map: &[CheckedSourceMapEntry],
+    sources: CheckedPackageSourceCorrespondenceRef<'_>,
     capability_report: &[CheckedCapability],
     diagnostics: &CheckedDiagnosticsV2,
     limits: quire_canonical::Limits,
@@ -813,7 +834,8 @@ pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
         package_id,
         lock,
         semantic_graph,
-        source_map,
+        source_map: sources.source_map,
+        refinement_step_rows: sources.refinement_step_rows,
         capability_report,
         diagnostics,
     };
@@ -1211,6 +1233,7 @@ impl CheckedPackageV2 {
             lock,
             semantic_graph,
             source_map,
+            refinement_step_rows,
             capability_report,
             diagnostics,
         } = wire;
@@ -1236,6 +1259,7 @@ impl CheckedPackageV2 {
             lock,
             semantic_graph,
             source_map,
+            refinement_step_rows,
             capability_report,
             diagnostics,
         };
@@ -1293,6 +1317,11 @@ impl CheckedPackageV2 {
     /// The exact source map.
     pub fn source_map(&self) -> &[CheckedSourceMapEntry] {
         &self.wire.source_map
+    }
+
+    /// Source regions of canonical refinement step rows, when steps exist.
+    pub fn refinement_step_rows(&self) -> Option<&[CheckedRefinementStepRowRegion]> {
+        self.wire.refinement_step_rows.as_deref()
     }
 
     /// The reported capabilities.
@@ -1967,7 +1996,8 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             RelationForm::Relationship
             | RelationForm::Population
             | RelationForm::Membership
-            | RelationForm::CausalRelation,
+            | RelationForm::CausalRelation
+            | RelationForm::Refinement,
         ) => true,
         K::State(
             StateForm::StateClause
@@ -2050,6 +2080,7 @@ fn validate_body(
         }
         BodyGrammar::Frame => frame::read_frame_body(body, at).map(|(_, work)| work),
         BodyGrammar::AbstractionRelation => abstraction::scan_body(body, at, visit),
+        BodyGrammar::Refinement => refinement::validate_body(body, at, visit),
         // `body` is the node's own top-level term, never a nested one, so
         // this is the one call in the module that reports `is_body_root: true`.
         BodyGrammar::Term | BodyGrammar::TimedModel | BodyGrammar::Hybrid => {
@@ -2073,6 +2104,8 @@ enum BodyGrammar {
     Frame,
     /// The abstraction relation body of FR-346.
     AbstractionRelation,
+    /// The closed refinement body of FR-375.
+    Refinement,
     /// The closed nested hybrid model, mode or transition shape.
     Hybrid,
     /// Closed timed-model bodies.
@@ -2178,6 +2211,7 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
             | RelationForm::Membership
             | RelationForm::CausalRelation,
         ) => BodyGrammar::Term,
+        K::Relation(RelationForm::Refinement) => BodyGrammar::Refinement,
         K::State(StateForm::Frame) => BodyGrammar::Frame,
         K::State(
             StateForm::StateClause
@@ -2445,6 +2479,21 @@ fn validate_graph(
             ));
         }
         let kind = decode_node_kind(node, at)?;
+        if kind == CheckedNodeKind::Relation(RelationForm::Refinement) {
+            for (present, member) in [
+                (node.recursion_group.is_some(), "recursion_group"),
+                (
+                    node.nominal_identity_preimage.is_some(),
+                    "nominal_identity_preimage",
+                ),
+                (node.declaration.is_some(), "declaration"),
+                (node.owner.is_some(), "owner"),
+            ] {
+                if present {
+                    return Err(refuse(CheckedPackageRefusalCode::MalformedWire, at(member)));
+                }
+            }
+        }
         kinds.push(kind);
         validate_declaration(kind, &node.occurrences, node.declaration.as_ref(), position)?;
         validate_node_id(&node.semantic_type, || at("semantic_type"))?;
@@ -2496,6 +2545,12 @@ fn validate_graph(
                 frames.push((&node.node_id, position, body));
                 work
             }
+            BodyGrammar::Refinement => refinement::validate_body(
+                &node.body,
+                &Trail::Base(&body_steps),
+                &mut |target, site, _target_at| targets.push((target.clone(), site)),
+            )
+            .map_err(|failure| with_node_locus(failure, &node.node_id))?,
             BodyGrammar::Term
             | BodyGrammar::TimedModel
             | BodyGrammar::Hybrid
@@ -2576,6 +2631,7 @@ fn validate_graph(
             ));
         }
     }
+    refinement::validate_dependencies(&graph.nodes, &kinds, &terms)?;
     validate_application_keys(&graph.nodes, &kinds, &terms, &index, meter, limits.bytes)?;
     // FR-038-AC-127: the derived-shape key stage, after the application keys
     // and before the nominal keys.
@@ -2625,6 +2681,93 @@ fn validate_graph(
     )?;
     abstraction::validate_abstraction(&graph.nodes, &kinds, &index, &owners, limits.bytes, meter)?;
     claim_terminal::validate_terminal(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
+    refinement::validate_step_rows(
+        &graph.nodes,
+        &kinds,
+        &terms,
+        wire.refinement_step_rows.as_deref(),
+        &wire.lock.sources,
+        meter,
+    )?;
+    if kinds.contains(&CheckedNodeKind::Relation(RelationForm::Refinement)) {
+        // FR-375 orders all source-map defects before the refinement meaning
+        // step; the ordinary package-wide check below remains the sole check
+        // for graphs without a refinement.
+        let source_check = validate_source_map_entries(
+            graph
+                .nodes
+                .iter()
+                .map(|node| (&node.node_id, node.occurrences.as_slice())),
+            &wire.source_map,
+            &wire.lock.sources,
+            limits,
+        );
+        if let Err(failure) = source_check {
+            if let ValidationFailure::Refused(refusal) = &failure {
+                if refusal.code == CheckedPackageRefusalCode::InvalidSourceMap {
+                    if let Some(path) = &refusal.path {
+                        let source_root = JsonPointer::root().key("source_map");
+                        if path == &source_root {
+                            refinement::validate_occurrences(
+                                &graph.nodes,
+                                &kinds,
+                                &terms,
+                                &wire.source_map,
+                                wire.refinement_step_rows.as_deref(),
+                                &owners,
+                                dependencies,
+                                meter,
+                            )?;
+                        } else if let Some(entry) = path
+                            .as_str()
+                            .strip_prefix(source_root.as_str())
+                            .and_then(|suffix| suffix.strip_prefix('/'))
+                            .and_then(|suffix| suffix.split('/').next())
+                            .and_then(|index| index.parse::<usize>().ok())
+                            .and_then(|index| wire.source_map.get(index))
+                        {
+                            if index.get(&entry.node_id).is_some_and(|&position| {
+                                kinds[position]
+                                    == CheckedNodeKind::Relation(RelationForm::Refinement)
+                            }) {
+                                return Err(ValidationFailure::refused_at(
+                                    CheckedPackageRefusalCode::InvalidPackage,
+                                    path.clone(),
+                                    Some(CheckedPackageRefusalCause::InvalidValue),
+                                    entry.node_id.clone(),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+            return Err(failure);
+        }
+        refinement::validate_occurrences(
+            &graph.nodes,
+            &kinds,
+            &terms,
+            &wire.source_map,
+            wire.refinement_step_rows.as_deref(),
+            &owners,
+            dependencies,
+            meter,
+        )?;
+    }
+    refinement::validate_refinements(
+        refinement::RefinementGraph::new(
+            &graph.nodes,
+            &kinds,
+            &terms,
+            &index,
+            dependencies,
+            &wire.package_id,
+        ),
+        &wire.lock,
+        &owners,
+        limits.bytes,
+        meter,
+    )?;
     hybrid::validate_models(&graph.nodes, &kinds, &terms, &index, meter)?;
     hybrid::validate_claims(&graph.nodes, &kinds, &terms, &index, meter)?;
     timed_model::validate_models(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
@@ -3119,7 +3262,10 @@ mod tests {
             &wire.package_id,
             &wire.lock,
             &wire.semantic_graph,
-            &wire.source_map,
+            super::CheckedPackageSourceCorrespondenceRef {
+                source_map: &wire.source_map,
+                refinement_step_rows: wire.refinement_step_rows.as_deref(),
+            },
             &wire.capability_report,
             &wire.diagnostics,
             quire_canonical::Limits::new(u64::MAX),
@@ -3194,7 +3340,10 @@ mod tests {
                         &wire.package_id,
                         &wire.lock,
                         &wire.semantic_graph,
-                        &wire.source_map,
+                        super::CheckedPackageSourceCorrespondenceRef {
+                            source_map: &wire.source_map,
+                            refinement_step_rows: wire.refinement_step_rows.as_deref(),
+                        },
                         &wire.capability_report,
                         &wire.diagnostics,
                         limits,

@@ -72,6 +72,13 @@ impl<'e> SuppliedDependencies<'e> {
     pub(super) fn packages(&self) -> Vec<&'e CheckedPackageV2> {
         self.packages.iter().map(|entry| entry.package).collect()
     }
+    /// The admitted directly selected package with this exact identity.
+    pub(super) fn selected_package(
+        &self,
+        package: &CheckedSemanticId,
+    ) -> Option<&'e CheckedPackageV2> {
+        self.resolve(package).map(|entry| entry.package)
+    }
     /// Index already admitted, selection-matched packages for another closed
     /// reader that shares FR-322 dependency-reference semantics.
     pub(super) fn from_admitted(
@@ -318,6 +325,7 @@ impl<'a> DependencyReferences<'a> {
                 | CheckedTerm::Reference { .. }
                 | CheckedTerm::Frame { .. }
                 | CheckedTerm::AbstractionRelation { .. }
+                | CheckedTerm::Refinement { .. }
                 | CheckedTerm::ExtensionForm { .. } => {}
             }
         }
@@ -493,6 +501,7 @@ pub(super) fn selected_reference_targets(
             | CheckedTerm::Reference { .. }
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
+            | CheckedTerm::Refinement { .. }
             | CheckedTerm::ExtensionForm { .. } => {}
         }
     }

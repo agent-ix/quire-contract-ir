@@ -60,7 +60,10 @@ fn timed_model_published_fixture_round_trips_complete_nodes() {
         package.package_id(),
         package.lock(),
         package.graph(),
-        package.source_map(),
+        quire_contract_model::CheckedPackageSourceCorrespondenceRef {
+            source_map: package.source_map(),
+            refinement_step_rows: package.refinement_step_rows(),
+        },
         package.capability_report(),
         package.diagnostics(),
         Limits::new(1 << 24),
