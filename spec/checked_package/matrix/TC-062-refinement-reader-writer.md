@@ -38,11 +38,22 @@ proof-eligible and ineligible occurrence sets, and pairs of simultaneous
 defects at the earlier/meaning stages. For a missing generated occurrence,
 remove its `source_map` entry and assert `/source_map`; for duplicate,
 extra-role, extra-ordinal and wrong-region entries, assert the offending
-entry's pointer. For within-node precedence, put two wrong-kind targets in
-different body members; repeat with two entries of one array and with two
-properties of one row entry. Rebuild identities after every body
-mutation except the stale-key control; keep the same selected packages in
-the identity comparisons.
+entry's pointer. For within-node precedence, combine a retained stale
+refinement key with an unsorted `steps` array and assert the stale-key
+refusal; with identities recomputed, combine an unsorted `steps` array with
+a wrong-kind `abstract` header and assert the first out-of-order `steps`
+entry. Repair the array and assert the `abstract` join refusal. Combine a
+wrong-kind `semantic_type` with wrong-kind `abstract`, optional `protocol`
+and `profile` headers and assert `semantic_type` first, then repair each
+header in that order and assert the next. Combine a bad `profile` header
+with a wrong-kind population row and assert the profile refusal first;
+repair the header and assert the row refusal. Within the canonical and row
+stages, place defects in different arrays and nested `fields`/`updates`,
+then two entries of one array and two properties of one row entry; assert
+FR-375 array/nested-array order, ascending indices and schema-declared
+entry-member order where FR-375 fixes no further tie-break. Rebuild
+identities after every body mutation except the stale-key control; keep
+the same selected packages in the identity comparisons.
 
 ## Expected Results
 
@@ -52,5 +63,6 @@ FR-061's code, cause and pointer; no row is defaulted, reordered, omitted or
 interpreted under another form. The two concrete subjects produce distinct
 node ids despite equal bodies, and only the canonical meaning-bearing edits
 change identity. Earlier reader stages win over later refinement joins.
-The simultaneous body defects report the first member in FR-061's fixed
-order, then first array index and first schema-declared entry member.
+The simultaneous body defects report the first FR-375 stage, then the first
+header or array and nested array in that stage, then the first array index
+and schema-declared entry member where FR-375 fixes no further tie-break.

@@ -128,15 +128,18 @@ required occurrence SHALL refuse that pair at `/source_map`. These occurrences s
 on the owner node; the reader SHALL NOT invent derived per-step nodes.
 
 The reader SHALL apply FR-322's strict wire, graph-shape, key, declaration
-and source-map checks in their published order. Within refinement body
-validation, it SHALL check the closed shape before resolving targets, and
-shall report the first defect by ascending node id, then this fixed body
-member order: `term`, `abstract`, `profile`, `populations`, `objects`,
-`steps`, `histories`, `assume`, `ensure`, optional `protocol`, optional
-`abstract_internal`. Within an array it SHALL visit ascending indices;
-within an entry it SHALL visit members in the order the published schema
-declares them (IR reading where FR-375 fixes no tie-break). A malformed
-closed body or row refuses `invalid_semantic_graph` at its body or offending
+and source-map checks in their published order. The closed schema and body
+shape SHALL be checked before refinement meaning joins. The refinement step
+SHALL visit nodes in ascending retained node-id digest order and, within each
+node, follow FR-375's stages: recompute the dedicated refinement identity;
+check canonical order in `populations`, `objects` (including `fields`),
+`steps`, `histories` (including `updates`), `assume`, `ensure`, then optional
+`abstract_internal`; join the header in `semantic_type`, `abstract`, optional
+`protocol`, `profile` order; then join rows in the same array and nested-array
+order as the canonical check. Within an array or nested array it SHALL visit
+ascending indices; within one row at one stage it SHALL visit members in the
+published schema's declared order where FR-375 fixes no further tie-break.
+A malformed closed body or row refuses `invalid_semantic_graph` at its body or offending
 entry (IR reading); a malformed term already assigned `malformed_wire` by
 FR-038 keeps that earlier refusal. A wrong body on another `relation` form
 does not become a refinement, and a valid refinement body on an unknown form
@@ -154,7 +157,7 @@ still refuses at `semantic_form`.
 | FR-061-AC-6 | The exact local dependency set includes body header keys and every direct row declaration/type and expression/member target, excludes external keys and annotations, and is digest-ascending. An omitted, extra or misordered dependency refuses `invalid_semantic_graph` at `/dependencies` before any row-meaning defect. | Test |
 | FR-061-AC-7 | Two row-empty refinements over one abstract model and profile but distinct concrete models have equal bodies, distinct `semantic_type` keys and distinct `quire.refinement-node/v1` node ids. Mutating any meaning-bearing body row or optional internal list with recomputed identities changes node and package ids; retaining a stale key refuses at the earlier key stage; source row permutation that canonicalizes to the same arrays changes neither id. | Test |
 | FR-061-AC-8 | A proof-eligible refinement with `n` steps admits exactly its declaration occurrence 0 and generated occurrences 0 through `n`; an owner with a hidden field, a history or an `any` step admits only declaration occurrence 0. Duplicate, extra-role, extra-ordinal or wrong-region source-map entries refuse `invalid_package`/`invalid-value` at the offending entry; a missing required occurrence refuses the same pair at `/source_map` after every present entry passes. No derived per-step node is synthesized. | Test |
-| FR-061-AC-9 | The reader reports the earlier FR-322 strict-wire, graph-shape, key, declaration or source-map defect before a later refinement meaning defect. Among two refinement nodes with separate meaning defects, the lower node id wins; within one node, defects are selected in the fixed `term`, `abstract`, `profile`, `populations`, `objects`, `steps`, `histories`, `assume`, `ensure`, `protocol`, `abstract_internal` order, then ascending array index and schema-declared entry-member order. An invalid body of another `relation` form never enters the refinement body path. | Test |
+| FR-061-AC-9 | The reader reports the earlier FR-322 strict-wire, graph-shape, key, declaration or source-map defect before a later refinement meaning defect. Among two refinement nodes with separate meaning defects, the lower node id wins. Within one node, a stale dedicated refinement key precedes canonical array-order defects; canonical defects precede header-join defects; header joins run in `semantic_type`, `abstract`, optional `protocol`, `profile` order and precede row joins; canonical and row checks each visit `populations`, `objects`/`fields`, `steps`, `histories`/`updates`, `assume`, `ensure`, optional `abstract_internal` in FR-375 order, then ascending index and schema-declared entry-member order where FR-375 fixes no further tie-break. An invalid body of another `relation` form never enters the refinement body path. | Test |
 
 ## Dependencies
 
