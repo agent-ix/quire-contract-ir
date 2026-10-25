@@ -27,3 +27,13 @@ Examined FR-061-AC-2, AC-3, AC-6, AC-7, AC-8 and AC-9, with FR-061-AC-1 and AC-4
 ## Verdict
 
 CONDITIONAL. Fix FND-001 in this PR. Complete catalog attestation remains owned by IR-874, and this review does not close IR-1014.
+
+## Dispositions
+
+Fix round 1 at PR head `b71dcf3022e9c94017b081f0d336eaa0e4efaaea`:
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | `validate_step_rows` now checks each row region's source against `lock.sources` and requires `start < end` before occurrence checks. The new ineligible-owner vector removes generated occurrences and asserts both malformed intervals and unlocked sources refuse at the sidecar region. After excerpt: `if !locked_sources.contains(&row.region.source) { return Err(invalid_step_row_region(index, true)); } if row.region.start >= row.region.end { return Err(invalid_step_row_region(index, false)); }` |
+
+Final verdict: PASS for the reviewed early refinement slice. IR-874 and the other open FR-061 criteria remain outstanding.

@@ -29,3 +29,15 @@ Examined all eight changed refinement tests against FR-061-AC-1, AC-2, AC-3, AC-
 ## Verdict
 
 CONDITIONAL. Correct the trace claims while preserving the unchanged full AC text and the IR-1014 open-work list.
+
+## Dispositions
+
+Fix round 1 at PR head `b71dcf3022e9c94017b081f0d336eaa0e4efaaea`:
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Both owner-only and row-empty positive tests no longer trace FR-061-AC-1. After excerpt: `#[test] fn refinement_selected_state_machine_owner_is_admitted()` and `#[test] fn refinement_row_empty_model_refinement_is_admitted()`. |
+| FND-002 | fixed | The sidecar-only and row-empty vectors no longer trace FR-061-AC-8. The positive and adverse AC-8 vectors remain open under IR-1014. After excerpt: `#[test] fn refinement_step_row_sidecar_shape_and_order_are_exact()` and `#[test] fn refinement_row_empty_model_refinement_is_admitted()`. |
+| FND-003 | fixed | No `TC-062` trace argument remains in the new refinement test file; the four remaining trace attributes name FR-061-AC-2 or FR-061-AC-9 only. After excerpt: `#[trace("FR-061-AC-2")]` and `#[trace("FR-061-AC-9")]`. |
+
+Final verdict: PASS for the corrected trace bindings in this partial slice. The untouched full FR-061 acceptance criteria remain open where their complete evidence is absent.
