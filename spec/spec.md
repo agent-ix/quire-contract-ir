@@ -146,6 +146,12 @@ defines the admitted V1 package's typed, ordered scalar operand view, with
 [TC-458](checked_package/matrix/TC-458-admitted-scalar-operands.md) covering
 positions, source correspondence, own-range absence and refusal.
 QSL-766 owns the separate producer adoption.
+[FR-058](checked_package/functional/FR-058-admitted-clause-execution-point.md)
+specifies a planned admitted V2 clause-claim execution-point accessor, with
+[TC-462](checked_package/matrix/TC-462-admitted-clause-execution-point.md)
+covering exact binding identity, reader admission and typed refusals. QSL-1082
+and the QSpec carrier contract must land before producer-origin cases or
+implementation can qualify.
 [NFR-006](checked_package/non-functional/NFR-006-v2-producer-memory.md) bounds
 the integrated checked-package V2 producer's emission memory while requiring
 byte-for-byte and `package_id` preservation;
