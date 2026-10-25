@@ -113,6 +113,24 @@ pub(super) fn decode_borrowed_wire(
     })?;
     let graph = wire.semantic_graph;
     let diagnostics = wire.diagnostics;
+    let mut nodes = Vec::with_capacity(graph.nodes.len());
+    for node in graph.nodes {
+        let body = strict_parse(node.body.get().as_bytes())?;
+        nodes.push(RawSemanticNodeV2 {
+            node_id: node.node_id,
+            schema_version: node.schema_version,
+            node_tag: node.node_tag,
+            semantic_form: node.semantic_form,
+            semantic_type: node.semantic_type,
+            dependencies: node.dependencies,
+            occurrences: node.occurrences,
+            recursion_group: node.recursion_group,
+            nominal_identity_preimage: node.nominal_identity_preimage,
+            declaration: node.declaration,
+            owner: node.owner,
+            body,
+        });
+    }
     Ok(CheckedPackageEnvelope {
         contract_version: wire.contract_version,
         identity_preimage: wire.identity_preimage,
@@ -120,26 +138,7 @@ pub(super) fn decode_borrowed_wire(
         lock: wire.lock,
         semantic_graph: RawSemanticGraphV2 {
             graph_version: graph.graph_version,
-            nodes: graph
-                .nodes
-                .into_iter()
-                .map(|node| {
-                    Ok(RawSemanticNodeV2 {
-                        node_id: node.node_id,
-                        schema_version: node.schema_version,
-                        node_tag: node.node_tag,
-                        semantic_form: node.semantic_form,
-                        semantic_type: node.semantic_type,
-                        dependencies: node.dependencies,
-                        occurrences: node.occurrences,
-                        recursion_group: node.recursion_group,
-                        nominal_identity_preimage: node.nominal_identity_preimage,
-                        declaration: node.declaration,
-                        owner: node.owner,
-                        body: strict_parse(node.body.get().as_bytes())?,
-                    })
-                })
-                .collect::<Result<Vec<_>, ValidationFailure>>()?,
+            nodes,
         },
         source_map: wire.source_map,
         capability_report: wire.capability_report,
