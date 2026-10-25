@@ -28,7 +28,11 @@ each package and inspect its code, cause, path, locus and related payload.
 As controls, read either terminal node alone; a nonterminal ambiguous-name
 case; and packages where a strict-wire, graph-shape, key, source-map, body or
 target defect coexists with a duplicate. Compile an external consumer that
-matches both related-payload variants using only the public model types.
+imports `CheckedTerminalDuplicate`, `CheckedPackageRefusal`, `CheckedNodeId`
+and `CheckedOccurrence` from `quire_contract_model`, reads the public
+`terminal_duplicate` member and matches both enum variants without a
+wildcard. It shall not import a private module or parse a JSON body or
+message.
 
 ## Expected Results
 

@@ -36,8 +36,11 @@ and `CheckedOccurrence` are the reader's existing public typed identities.
 
 A `CheckedPackageRefusal` with code `ambiguous_declaration`, cause
 `ambiguous-name`, a primary RFC 6901 `path`, one primary `locus`, and a
-terminal-specific optional typed related-identity payload. The payload is a
-closed sum of exactly these cases:
+terminal-specific public field
+`terminal_duplicate: Option<CheckedTerminalDuplicate>`. The public
+`CheckedTerminalDuplicate` enum is exported from the `quire_contract_model`
+crate root alongside `CheckedPackageRefusal`, `CheckedNodeId` and
+`CheckedOccurrence`, and has exactly these exhaustive variants:
 
 - `Nodes { first: CheckedNodeId, second: CheckedNodeId }`: two distinct
   terminal nodes of one model, first and second in ascending node-id digest
@@ -46,7 +49,7 @@ closed sum of exactly these cases:
   CheckedOccurrence }`: two `claim` occurrences of one terminal node, the
   first two in that node's admitted occurrence order.
 
-The payload is present exactly for the two terminal-duplicate refusals and
+`CheckedPackageRefusal::terminal_duplicate` is `Some` exactly for the two terminal-duplicate refusals and
 absent on every other refusal, including another cause of
 `ambiguous_declaration`/`ambiguous-name`. The two cases cannot be confused
 by a caller or collapsed to one node or ordinal. The payload is read-only
@@ -80,7 +83,7 @@ compatibility reader or fallback interpretation is introduced.
 | FR-062-AC-1 | With two individually valid terminal nodes on one model and recomputed identities, the reader refuses `ambiguous_declaration`/`ambiguous-name` at the second node in ascending node-id digest order, with `locus` equal to that node and typed `Nodes { first, second }` containing exactly both distinct node ids in that order. The same model with either node alone admits. | Test |
 | FR-062-AC-2 | One terminal node with two `claim` occurrences and matching source-map entries refuses `ambiguous_declaration`/`ambiguous-name` at the node with typed `Occurrences { node, first, second }`; the two occurrence values equal the first two checked occurrences, and a third occurrence does not replace them. One occurrence admits. | Test |
 | FR-062-AC-3 | The related payload is absent on a nonterminal `ambiguous_declaration`/`ambiguous-name` refusal and on each earlier strict-wire, graph-shape, key, source-map, body or target refusal; a terminal node with a wrong target and a duplicate still reports the target defect first with no related payload. | Test |
-| FR-062-AC-4 | A public consumer using only `CheckedPackageRefusal`, `CheckedNodeId` and `CheckedOccurrence` can exhaustively distinguish the two related-identity cases without parsing prose, node-body JSON or paths. Each terminal-duplicate refusal retains its primary code, cause, path and locus and has no `document_pointer`, `related_path`, `expected`/`actual` or extension detail. | Test |
+| FR-062-AC-4 | A public consumer imports `CheckedTerminalDuplicate`, `CheckedPackageRefusal`, `CheckedNodeId` and `CheckedOccurrence` from `quire_contract_model`, reads the public `CheckedPackageRefusal::terminal_duplicate: Option<CheckedTerminalDuplicate>` member, and exhaustively matches `Nodes` and `Occurrences` without a wildcard or parsing prose, node-body JSON or paths. Each terminal-duplicate refusal retains its primary code, cause, path and locus and has no `document_pointer`, `related_path`, `expected`/`actual` or extension detail. | Test |
 
 ## Dependencies
 
