@@ -451,7 +451,7 @@ fn source_spelling(package: &Value, node_position: usize, spelling: &[u8]) -> Va
     changed
 }
 
-#[trace("TC-060", "FR-059-AC-1", "FR-059-AC-5")]
+#[trace("FR-059-AC-1", "FR-059-AC-5")]
 #[test]
 fn state_graph_forms_read_and_write() {
     let over = family_key("a4a4");
@@ -497,7 +497,7 @@ fn state_graph_forms_read_and_write() {
     }
 }
 
-#[trace("TC-061", "FR-060-AC-1", "FR-060-AC-5")]
+#[trace("FR-060-AC-1", "FR-060-AC-5")]
 #[test]
 fn terminal_any_reads_and_writes() {
     let model = family_key("1515");
@@ -528,7 +528,7 @@ fn terminal_any_reads_and_writes() {
     assert_eq!(reread.source_map(), admitted.source_map());
 }
 
-#[trace("TC-060", "FR-059-AC-2", "FR-059-AC-5")]
+#[trace("FR-059-AC-2", "FR-059-AC-5")]
 #[test]
 fn state_graph_refuses_kind_fit_and_target_meaning() {
     let over = family_key("a4a4");
@@ -664,7 +664,7 @@ fn state_graph_refuses_kind_fit_and_target_meaning() {
     );
 }
 
-#[trace("TC-061", "FR-060-AC-1", "FR-060-AC-2", "FR-060-AC-5")]
+#[trace("FR-060-AC-1", "FR-060-AC-2", "FR-060-AC-5")]
 #[test]
 fn terminal_when_and_mode_refusals() {
     let model = family_key("1515");
@@ -804,7 +804,7 @@ fn terminal_when_and_mode_refusals() {
     );
 }
 
-#[trace("TC-060", "FR-059-AC-1", "FR-059-AC-4", "FR-059-AC-5")]
+#[trace("FR-059-AC-1", "FR-059-AC-4", "FR-059-AC-5")]
 #[test]
 fn state_graph_identity_and_shared_occurrences() {
     let over = family_key("a4a4");
@@ -895,7 +895,7 @@ fn state_graph_identity_and_shared_occurrences() {
     ));
 }
 
-#[trace("TC-060", "FR-059-AC-1", "FR-059-AC-5")]
+#[trace("FR-059-AC-1", "FR-059-AC-5")]
 #[test]
 fn state_graph_constant_predicate_and_absent_over() {
     let boolean = family_key("aaaa");
@@ -940,8 +940,6 @@ fn state_graph_constant_predicate_and_absent_over() {
 }
 
 #[trace(
-    "TC-061",
-    "TC-063",
     "FR-060-AC-2",
     "FR-060-AC-4",
     "FR-060-AC-5",
@@ -1159,7 +1157,7 @@ fn terminal_identity_and_uniqueness_per_model() {
     assert_ne!(first_model["package_id"], second_model["package_id"]);
 }
 
-#[trace("TC-061", "FR-060-AC-1", "FR-060-AC-2", "FR-060-AC-5")]
+#[trace("FR-060-AC-1", "FR-060-AC-2", "FR-060-AC-5")]
 #[test]
 fn terminal_self_parameter_must_have_right_name_level_and_type() {
     let model = family_key("1515");
@@ -1221,7 +1219,7 @@ fn terminal_self_parameter_must_have_right_name_level_and_type() {
     }
 }
 
-#[trace("TC-061", "FR-060-AC-1", "FR-038-AC-121")]
+#[trace("FR-060-AC-1", "FR-038-AC-121")]
 #[test]
 fn terminal_self_population_scan_obeys_work_limit() {
     let package = terminal_with_self(&family_key("1515"), "self", "0");
@@ -1273,7 +1271,7 @@ fn terminal_self_population_scan_obeys_work_limit() {
     );
 }
 
-#[trace("TC-060", "FR-059-AC-3", "TC-061", "FR-060-AC-3")]
+#[trace("FR-059-AC-3", "FR-060-AC-3")]
 #[test]
 fn graph_shape_then_state_graph_then_terminal_order() {
     let over = family_key("a4a4");
@@ -1468,7 +1466,7 @@ fn graph_shape_then_state_graph_then_terminal_order() {
     );
 }
 
-#[trace("TC-060", "FR-059-AC-2", "TC-061", "FR-060-AC-2")]
+#[trace("FR-059-AC-2", "FR-060-AC-2")]
 #[test]
 fn unknown_forms_remain_closed() {
     for (tag, form) in [("claim", "other_claim"), ("temporal", "other_temporal")] {
