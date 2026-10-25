@@ -298,6 +298,50 @@ fn refinement_class_catalog_entries_are_closed() {
     }
 }
 
+#[trace("FR-061-AC-2")]
+#[test]
+fn refinement_open_argument_has_one_closed_spelling() {
+    let (mut package, evidence) = machine_package();
+    one_step_refinement(&mut package);
+    let refinement = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    package["semantic_graph"]["nodes"][refinement]["body"]["steps"][0]["target"] =
+        json!({"kind":"protocol_step","class":"memory flush","arguments":[{"term":"open"}]});
+    refresh_identity(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+        panic!("unrefreshed node key must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::StaleNodeKey)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{refinement}/node_id").as_str())
+    );
+
+    package["semantic_graph"]["nodes"][refinement]["body"]["steps"][0]["target"]["arguments"][0]
+        ["term"] = json!("other");
+    refresh_identity(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+        panic!("non-open argument spelling admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(
+            format!("/semantic_graph/nodes/{refinement}/body/steps/0/target/arguments/0").as_str()
+        )
+    );
+}
+
 #[trace("FR-061-AC-9")]
 #[test]
 fn refinement_class_catalog_is_in_dedicated_refinement_key() {

@@ -136,6 +136,13 @@ pub struct RefinementOpen {
     pub term: Box<str>,
 }
 
+/// The sole spelling admitted for an open step argument.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RefinementOpenTerm {
+    /// An explicitly open argument.
+    Open,
+}
+
 /// One of the four closed abstract step targets.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -342,6 +349,44 @@ fn invalid(at: &Trail<'_>) -> ValidationFailure {
     )
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RefinementClassKind {
+    Declared,
+    Memory,
+}
+
+/// Convert a raw source class spelling before graph admission.
+#[ix_trace_rs::string_edge]
+fn class_kind(class: &str) -> Option<RefinementClassKind> {
+    if class.is_empty() {
+        None
+    } else if class.starts_with("memory ") {
+        Some(RefinementClassKind::Memory)
+    } else {
+        Some(RefinementClassKind::Declared)
+    }
+}
+
+/// Check the raw source-default memory class grammar at the catalog intake.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RefinementMemoryClassKind {
+    Valid,
+}
+
+#[ix_trace_rs::string_edge]
+fn memory_class_kind(class: &str) -> Option<RefinementMemoryClassKind> {
+    class
+        .strip_prefix("memory ")
+        .filter(|kind| !kind.is_empty() && !kind.contains(' '))
+        .map(|_| RefinementMemoryClassKind::Valid)
+}
+
+/// Convert the untrusted argument-only special term before row admission.
+#[ix_trace_rs::string_edge]
+fn open_term_kind(term: &str) -> Option<RefinementOpenTerm> {
+    (term == "open").then_some(RefinementOpenTerm::Open)
+}
+
 fn member<'a>(
     value: &'a Value,
     name: &str,
@@ -424,31 +469,7 @@ fn row_terms(
 /// Check the complete closed body before hashing the package, including the
 /// nested flat-term rule that applies to each row expression independently.
 pub(super) fn check_wire(body: &Value, at: &Trail<'_>) -> Result<(), ValidationFailure> {
-    let Some(object) = body.as_object() else {
-        return Err(invalid(at));
-    };
-    let required = [
-        "term",
-        "abstract",
-        "profile",
-        "populations",
-        "objects",
-        "steps",
-        "histories",
-        "assume",
-        "ensure",
-    ];
-    if object.get("term").and_then(Value::as_str) != Some("refinement")
-        || required.iter().any(|name| !object.contains_key(*name))
-        || object.keys().any(|name| {
-            !required.contains(&name.as_str())
-                && name != "protocol"
-                && name != "abstract_internal"
-                && name != "class_catalog"
-        })
-    {
-        return Err(invalid(at));
-    }
+    check_body_header(body, at)?;
     if let Some(catalog) = body.get("class_catalog") {
         check_catalog_wire(catalog, &at.key("class_catalog"))?;
     }
@@ -475,8 +496,9 @@ pub(super) fn check_wire(body: &Value, at: &Trail<'_>) -> Result<(), ValidationF
         return Err(invalid(&at.key("abstract_internal")));
     }
     for (index, step) in steps.iter().enumerate() {
-        if step.source_class.is_empty()
-            || step.source_class.starts_with("memory ") == step.source_node.is_some()
+        let kind = class_kind(&step.source_class);
+        if kind.is_none()
+            || (kind == Some(RefinementClassKind::Memory)) == step.source_node.is_some()
         {
             return Err(invalid(&at.key("steps").index(index)));
         }
@@ -489,7 +511,8 @@ pub(super) fn check_wire(body: &Value, at: &Trail<'_>) -> Result<(), ValidationF
                 node,
                 arguments,
             } => {
-                if class.is_empty() || class.starts_with("memory ") == node.is_some() {
+                let kind = class_kind(class);
+                if kind.is_none() || (kind == Some(RefinementClassKind::Memory)) == node.is_some() {
                     return Err(invalid(&at.key("steps").index(index).key("target")));
                 }
                 check_open_arguments(arguments, &at.key("steps").index(index).key("target"))?;
@@ -510,6 +533,37 @@ pub(super) fn check_wire(body: &Value, at: &Trail<'_>) -> Result<(), ValidationF
     })
 }
 
+/// Convert the outer raw object shape before typed semantic checks.
+#[ix_trace_rs::string_edge]
+fn check_body_header(body: &Value, at: &Trail<'_>) -> Result<(), ValidationFailure> {
+    let Some(object) = body.as_object() else {
+        return Err(invalid(at));
+    };
+    let required = [
+        "term",
+        "abstract",
+        "profile",
+        "populations",
+        "objects",
+        "steps",
+        "histories",
+        "assume",
+        "ensure",
+    ];
+    if object.get("term").and_then(Value::as_str) != Some("refinement")
+        || required.iter().any(|name| !object.contains_key(*name))
+        || object.keys().any(|name| {
+            !required.contains(&name.as_str())
+                && name != "protocol"
+                && name != "abstract_internal"
+                && name != "class_catalog"
+        })
+    {
+        return Err(invalid(at));
+    }
+    Ok(())
+}
+
 fn check_catalog_wire(value: &Value, at: &Trail<'_>) -> Result<(), ValidationFailure> {
     let Some(object) = value.as_object() else {
         return Err(invalid(at));
@@ -527,16 +581,13 @@ fn check_catalog_wire(value: &Value, at: &Trail<'_>) -> Result<(), ValidationFai
             let Some(class) = entry.get("class").and_then(Value::as_str) else {
                 return Err(invalid(&entry_at.key("class")));
             };
-            let memory = class.starts_with("memory ");
+            let memory = class_kind(class) == Some(RefinementClassKind::Memory);
             let valid = if memory {
-                class
-                    .strip_prefix("memory ")
-                    .is_some_and(|kind| !kind.is_empty() && !kind.contains(' '))
+                memory_class_kind(class).is_some()
                     && entry.len() == 2
-                    && matches!(
-                        entry.get("memory_model").and_then(Value::as_str),
-                        Some("sc" | "tso" | "ra")
-                    )
+                    && entry.get("memory_model").is_some_and(|value| {
+                        serde_json::from_value::<RefinementMemoryModel>(value.clone()).is_ok()
+                    })
             } else {
                 !class.is_empty()
                     && entry.len() == 3
@@ -557,7 +608,7 @@ fn check_open_arguments(
 ) -> Result<(), ValidationFailure> {
     for (index, argument) in arguments.iter().enumerate() {
         if let RefinementStepArgument::Open(open) = argument {
-            if open.term.as_ref() != "open" {
+            if open_term_kind(&open.term).is_none() {
                 return Err(invalid(&at.key("arguments").index(index)));
             }
         }
@@ -1007,7 +1058,7 @@ fn validate_catalog(
     let Some(catalog) = class_catalog else {
         if protocol.is_some()
             || steps.iter().any(|step| {
-                step.source_class.starts_with("memory ")
+                step.source_node.is_none()
                     || matches!(step.target, RefinementStepTarget::ProtocolStep { .. })
             })
         {

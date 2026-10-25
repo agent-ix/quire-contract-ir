@@ -2706,8 +2706,8 @@ fn validate_graph(
             if let ValidationFailure::Refused(refusal) = &failure {
                 if refusal.code == CheckedPackageRefusalCode::InvalidSourceMap {
                     if let Some(path) = &refusal.path {
-                        let raw = path.as_str();
-                        if raw == "/source_map" {
+                        let source_root = JsonPointer::root().key("source_map");
+                        if path == &source_root {
                             refinement::validate_occurrences(
                                 &graph.nodes,
                                 &kinds,
@@ -2718,8 +2718,10 @@ fn validate_graph(
                                 dependencies,
                                 meter,
                             )?;
-                        } else if let Some(entry) = raw
-                            .strip_prefix("/source_map/")
+                        } else if let Some(entry) = path
+                            .as_str()
+                            .strip_prefix(source_root.as_str())
+                            .and_then(|suffix| suffix.strip_prefix('/'))
                             .and_then(|suffix| suffix.split('/').next())
                             .and_then(|index| index.parse::<usize>().ok())
                             .and_then(|index| wire.source_map.get(index))
