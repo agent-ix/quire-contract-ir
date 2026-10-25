@@ -463,6 +463,8 @@ pub(super) struct DomainModel {
     pub(super) relationships: BTreeMap<Box<str>, RelationshipDecl>,
     /// Declared populations, by IR node identity in the selected document.
     pub(super) populations: BTreeSet<Box<str>>,
+    /// Object type identities covered by each selected population.
+    pub(super) population_members: BTreeMap<Box<str>, BTreeSet<Box<str>>>,
     /// Systems connection declarations that also back relation nodes.
     pub(super) relation_nodes: BTreeSet<Box<str>>,
     /// Types of every other FR-208 meaning, by IR node identity.
@@ -2366,6 +2368,7 @@ pub(super) fn read_semantic_ir(
         unit_refs: unit_refs.clone(),
         relationships: BTreeMap::new(),
         populations: BTreeSet::new(),
+        population_members: BTreeMap::new(),
         relation_nodes: BTreeSet::new(),
         other_types: BTreeSet::new(),
         fields: FieldTables::default(),
@@ -2380,6 +2383,16 @@ pub(super) fn read_semantic_ir(
         if meaning != meaning::Kind::Population || !model.populations.insert(node.into()) {
             return Err(ModelRefusal::malformed().into());
         }
+        let members = list(population, "members")?
+            .iter()
+            .map(|member| {
+                member
+                    .as_str()
+                    .map(Box::<str>::from)
+                    .ok_or_else(ModelRefusal::malformed)
+            })
+            .collect::<Result<BTreeSet<_>, _>>()?;
+        model.population_members.insert(node.into(), members);
     }
     let mut scope = Scope {
         objects: BTreeSet::new(),

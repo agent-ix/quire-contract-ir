@@ -373,7 +373,8 @@ impl NominalKind {
                 | TemporalForm::Clock
                 | TemporalForm::Window
                 | TemporalForm::Activation
-                | TemporalForm::Deadline,
+                | TemporalForm::Deadline
+                | TemporalForm::Terminal,
             ) => None,
             K::Protocol(
                 ProtocolForm::ProtocolClause
@@ -389,7 +390,8 @@ impl NominalKind {
                 ClaimForm::VerificationClaim
                 | ClaimForm::AnalysisClaim
                 | ClaimForm::Hyperproperty
-                | ClaimForm::SynthesisRequest,
+                | ClaimForm::SynthesisRequest
+                | ClaimForm::StateGraph,
             ) => None,
             K::Correspondence(
                 CorrespondenceForm::SourceLocus

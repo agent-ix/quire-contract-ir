@@ -9,6 +9,7 @@
 
 mod abstraction;
 mod application_identity;
+mod claim_terminal;
 mod closure_index;
 mod comparison_operands;
 mod composite_operands;
@@ -820,6 +821,9 @@ pub fn encode_checked_package_v2<Body: quire_canonical::Encode>(
 }
 
 /// The closed result of reading untrusted bytes as V2.
+// The required inline typed refusal makes this public result larger than its
+// incomplete case; changing the variant to a box would change its API.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CheckedPackageV2ReadResult {
     /// A complete V2 package is safe for lowering.
@@ -1979,7 +1983,8 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | TemporalForm::Clock
             | TemporalForm::Window
             | TemporalForm::Activation
-            | TemporalForm::Deadline,
+            | TemporalForm::Deadline
+            | TemporalForm::Terminal,
         ) => true,
         K::Protocol(ProtocolForm::ProtocolReference) => true,
         K::Protocol(
@@ -1991,6 +1996,7 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | ProtocolForm::Obligation
             | ProtocolForm::Compensation,
         ) => false,
+        K::Claim(ClaimForm::StateGraph) => true,
         K::Claim(
             ClaimForm::VerificationClaim
             | ClaimForm::AnalysisClaim
@@ -2186,7 +2192,8 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
             | TemporalForm::Clock
             | TemporalForm::Window
             | TemporalForm::Activation
-            | TemporalForm::Deadline,
+            | TemporalForm::Deadline
+            | TemporalForm::Terminal,
         ) => BodyGrammar::Term,
         K::Protocol(
             ProtocolForm::ProtocolClause
@@ -2202,7 +2209,8 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
             ClaimForm::VerificationClaim
             | ClaimForm::AnalysisClaim
             | ClaimForm::Hyperproperty
-            | ClaimForm::SynthesisRequest,
+            | ClaimForm::SynthesisRequest
+            | ClaimForm::StateGraph,
         ) => BodyGrammar::Term,
         K::Correspondence(CorrespondenceForm::AbstractionRelation) => {
             BodyGrammar::AbstractionRelation
@@ -2543,6 +2551,31 @@ fn validate_graph(
     // own `missing_declaration` refusal rather than the generic
     // unresolved-reference `invalid_semantic_graph`.
     validate_structural_nodes(&graph.nodes, &kinds, &terms, &index)?;
+    for &position in index.values() {
+        if !matches!(
+            kinds.get(position),
+            Some(CheckedNodeKind::Claim(ClaimForm::StateGraph))
+                | Some(CheckedNodeKind::Temporal(TemporalForm::Terminal))
+        ) {
+            continue;
+        }
+        let node = &graph.nodes[position];
+        let expected = references[position]
+            .iter()
+            .filter(|(_, site)| site.member == ReferenceMember::Target)
+            .map(|(target, _)| target.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        if node.dependencies != expected {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                node_pointer(position).key("dependencies"),
+                None,
+                node.node_id.clone(),
+            ));
+        }
+    }
     validate_application_keys(&graph.nodes, &kinds, &terms, &index, meter, limits.bytes)?;
     // FR-038-AC-127: the derived-shape key stage, after the application keys
     // and before the nominal keys.
@@ -2568,6 +2601,7 @@ fn validate_graph(
     // FR-038 "The timed interval form" stage 2: the last graph check of the
     // nodes before the frame step.
     validate_timed_bounds_reduced(&graph.nodes, &index, meter)?;
+    validate_protocol_references(&graph.nodes, &kinds, &index)?;
     // FR-322 step 2: each selected declaration's model declaration node key,
     // one validation visit apiece, charged at the selection it belongs to.
     let owners = ModelOwners::new(models, |selection| {
@@ -2579,6 +2613,7 @@ fn validate_graph(
     let declarations = owners.index();
     frame::validate_frame_semantics(frames, &graph.nodes, &kinds, &index, &owners, meter)?;
     state::validate_state(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
+    claim_terminal::validate_state_graph(&graph.nodes, &kinds, &terms, &index, &owners)?;
     validate_temporal(
         &graph.nodes,
         &kinds,
@@ -2589,10 +2624,10 @@ fn validate_graph(
         meter,
     )?;
     abstraction::validate_abstraction(&graph.nodes, &kinds, &index, &owners, limits.bytes, meter)?;
+    claim_terminal::validate_terminal(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     hybrid::validate_models(&graph.nodes, &kinds, &terms, &index, meter)?;
     hybrid::validate_claims(&graph.nodes, &kinds, &terms, &index, meter)?;
     timed_model::validate_models(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
-    validate_protocol_references(&graph.nodes, &kinds, &index)?;
     validate_operations(
         &graph.nodes,
         &kinds,
@@ -2704,8 +2739,7 @@ fn validate_graph(
     })
 }
 
-/// Joins the already keyed protocol-reference carriers to this graph alone.
-/// This protocol check follows the hybrid step and precedes operation validation.
+/// Joins already keyed protocol-reference carriers at the declaration step.
 fn validate_protocol_references(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],

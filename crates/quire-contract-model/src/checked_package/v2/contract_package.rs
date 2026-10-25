@@ -746,6 +746,9 @@ impl ContractPackageV1 {
 }
 
 /// One typed FR-330 read outcome.
+// The required inline typed refusal makes this public result larger than its
+// incomplete case; changing the variant to a box would change its API.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ContractPackageReadResult {
     /// Fully admitted package.

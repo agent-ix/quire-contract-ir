@@ -280,7 +280,8 @@ impl StructuralForm {
                 | TemporalForm::Clock
                 | TemporalForm::Window
                 | TemporalForm::Activation
-                | TemporalForm::Deadline,
+                | TemporalForm::Deadline
+                | TemporalForm::Terminal,
             ) => None,
             K::Protocol(
                 ProtocolForm::ProtocolClause
@@ -296,7 +297,8 @@ impl StructuralForm {
                 ClaimForm::VerificationClaim
                 | ClaimForm::AnalysisClaim
                 | ClaimForm::Hyperproperty
-                | ClaimForm::SynthesisRequest,
+                | ClaimForm::SynthesisRequest
+                | ClaimForm::StateGraph,
             ) => None,
             K::Correspondence(CorrespondenceForm::AbstractionRelation) => {
                 Some(Self::AbstractionRelation)

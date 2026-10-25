@@ -268,6 +268,9 @@ pub struct CompleteContractNodeV2 {
 }
 
 /// One terminal per-request V2 lowering outcome.
+// The required inline typed refusal makes InvalidBody larger than other cases;
+// boxing it would change this public variant's field type.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CompleteLoweringRecordV2 {
     /// The node and its closure lowered exactly.
@@ -1226,7 +1229,8 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             | TemporalForm::Clock
             | TemporalForm::Window
             | TemporalForm::Activation
-            | TemporalForm::Deadline,
+            | TemporalForm::Deadline
+            | TemporalForm::Terminal,
         ) => false,
         K::Protocol(
             ProtocolForm::ProtocolClause
@@ -1242,7 +1246,8 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             ClaimForm::VerificationClaim
             | ClaimForm::AnalysisClaim
             | ClaimForm::Hyperproperty
-            | ClaimForm::SynthesisRequest,
+            | ClaimForm::SynthesisRequest
+            | ClaimForm::StateGraph,
         ) => false,
         K::Correspondence(
             CorrespondenceForm::SourceLocus
