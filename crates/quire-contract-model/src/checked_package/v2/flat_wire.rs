@@ -144,6 +144,7 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
                     scan_members(&node.body, &at).map(|_| ())
                 }
             }
+            BodyGrammar::Refinement => super::refinement::check_wire(&node.body, &at),
         };
         checked.map_err(|failure| super::with_node_locus(failure, &node.node_id))?;
         kinds.push(kind);
@@ -341,6 +342,11 @@ fn check_term(
         ControlFlow::Continue(()) => Ok(()),
         ControlFlow::Break(failure) => Err(failure),
     }
+}
+
+/// A row expression stands at the root of its own SemanticTerm grammar.
+pub(super) fn check_refinement_term(root: &Value, at: &Trail<'_>) -> Result<(), ValidationFailure> {
+    check_term(root, at, Place::BodyRoot, false)
 }
 
 /// Walks the values below the root of a frame or abstraction relation body,

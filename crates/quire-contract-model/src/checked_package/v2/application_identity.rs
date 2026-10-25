@@ -397,6 +397,7 @@ impl<'t> Walk for TypedGroupRewrite<'t> {
             | CheckedTerm::DependencyReference { .. }
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
+            | CheckedTerm::Refinement { .. }
             | CheckedTerm::ExtensionForm { .. } => {}
         }
         ControlFlow::Continue(())

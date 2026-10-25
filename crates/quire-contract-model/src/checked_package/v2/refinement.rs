@@ -1,0 +1,1475 @@
+//! Closed FR-375 refinement body vocabulary and reader checks.
+
+use super::encode::RefinementNodePreimage;
+use super::CheckedTerm;
+use crate::checked_package::common::{
+    decoder_pointer, locate_closed_value_failure, validate_term, ReferenceVisitor, TermGrammar,
+    Trail, ValidationFailure,
+};
+use crate::checked_package::shared::{
+    CheckedNodeId, CheckedOccurrenceRole, CheckedSemanticId, CheckedSourceMapEntry,
+    CheckedSourceRegion,
+};
+use crate::checked_package::shared::{
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
+};
+use quire_canonical::FixedShape;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+
+/// Source region of one canonical refinement step row, outside package identity.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedRefinementStepRowRegion {
+    /// Retained refinement relation node.
+    pub node_id: CheckedNodeId,
+    /// Zero-based position in its canonical steps array.
+    pub ordinal: u64,
+    /// The checked source row's single region.
+    pub region: CheckedSourceRegion,
+}
+
+fn node_at(position: usize) -> crate::checked_package::shared::JsonPointer {
+    crate::checked_package::common::node_pointer(position)
+}
+
+pub(super) fn stale_refinement_key(
+    node: &super::RawSemanticNodeV2,
+    position: usize,
+    bytes: u64,
+) -> Result<(), ValidationFailure> {
+    let computed = quire_canonical::sha256(
+        &RefinementNodePreimage {
+            semantic_type: &node.semantic_type,
+            body: &node.body,
+        },
+        quire_canonical::Limits::new(bytes),
+    )
+    .map_err(|_| {
+        ValidationFailure::refused(
+            CheckedPackageRefusalCode::MalformedWire,
+            node_at(position).key("body"),
+        )
+    })?;
+    if computed.to_string() == node.node_id.digest.as_ref() {
+        return Ok(());
+    }
+    Err(ValidationFailure::refused_stale_node_key(
+        node_at(position).key("node_id"),
+        node.node_id.clone(),
+        CheckedNodeId {
+            domain: node.node_id.domain.clone(),
+            digest: computed.to_string().into(),
+        },
+    ))
+}
+
+/// A refinement target is either a local node or a node in a directly selected package.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RefinementKey {
+    /// A declaration in this graph.
+    Local(CheckedNodeId),
+    /// A declaration in a directly selected dependency package.
+    External(RefinementPackageNodeKey),
+}
+
+/// A node of a directly selected dependency package.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RefinementPackageNodeKey {
+    /// The selected package identity.
+    pub package: CheckedSemanticId,
+    /// The target node identity in that package.
+    pub node: CheckedNodeId,
+}
+
+/// One abstract and concrete population pair.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RefinementPopulation {
+    /// Abstract population.
+    pub r#abstract: RefinementKey,
+    /// Concrete population.
+    pub concrete: CheckedNodeId,
+}
+
+/// One mapped abstract field.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RefinementField {
+    /// The abstract field name.
+    pub name: Box<str>,
+    /// Its value in the concrete state.
+    pub expression: CheckedTerm,
+}
+
+/// One abstract object type mapped from a concrete object type.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RefinementObject {
+    /// Abstract object declaration.
+    pub abstract_type: RefinementKey,
+    /// Concrete object declaration.
+    pub concrete_type: CheckedNodeId,
+    /// Mapped fields in name order.
+    pub fields: Vec<RefinementField>,
+}
+
+/// An argument expression or the special open argument `_`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RefinementStepArgument {
+    /// An explicitly open argument.
+    Open(RefinementOpen),
+    /// A closed semantic term.
+    Term(Box<CheckedTerm>),
+}
+
+/// The exact step-argument-only open term.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RefinementOpen {
+    /// Always `open`.
+    pub term: Box<str>,
+}
+
+/// One of the four closed abstract step targets.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum RefinementStepTarget {
+    /// An abstract operation call.
+    Operation {
+        /// Abstract operation declaration.
+        operation: RefinementKey,
+        /// Mapped receiver.
+        receiver: Box<CheckedTerm>,
+        /// Mapped arguments.
+        arguments: Vec<RefinementStepArgument>,
+    },
+    /// An abstract protocol step.
+    ProtocolStep {
+        /// Alias-free canonical step class.
+        class: Box<str>,
+        /// Declaration node for declaration-naming classes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        node: Option<RefinementKey>,
+        /// Mapped arguments.
+        arguments: Vec<RefinementStepArgument>,
+    },
+    /// No abstract state change.
+    Stutter,
+    /// A deliberately unconstrained abstract step.
+    Any,
+}
+
+/// One concrete step mapping.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RefinementStep {
+    /// Alias-free canonical concrete class.
+    pub source_class: Box<str>,
+    /// Concrete declaration for declaration-naming classes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_node: Option<CheckedNodeId>,
+    /// Abstract target.
+    pub target: RefinementStepTarget,
+}
+
+/// A history update after one concrete operation.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RefinementHistoryUpdate {
+    /// Concrete operation declaration.
+    pub operation: CheckedNodeId,
+    /// New history value.
+    pub expression: CheckedTerm,
+}
+
+/// One history field introduced by the refinement.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RefinementHistory {
+    /// Concrete object type.
+    pub concrete_type: CheckedNodeId,
+    /// New field name.
+    pub name: Box<str>,
+    /// Bounded history value type.
+    #[serde(rename = "type")]
+    pub type_id: CheckedNodeId,
+    /// Literal or local history-literal reference.
+    pub initial: CheckedTerm,
+    /// Updates in operation-key order.
+    pub updates: Vec<RefinementHistoryUpdate>,
+}
+
+/// Fairness strength.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RefinementFairnessKind {
+    /// Weak fairness.
+    Weak,
+    /// Strong fairness.
+    Strong,
+}
+
+/// Fairness granularity.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RefinementGranularity {
+    /// Per-instance fairness.
+    Each,
+    /// Whole-operation fairness.
+    Whole,
+}
+
+/// One concrete fairness assumption.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RefinementAssume {
+    /// Concrete operation.
+    pub operation: CheckedNodeId,
+    /// Weak or strong fairness.
+    pub kind: RefinementFairnessKind,
+    /// Per-instance or whole-operation fairness.
+    pub granularity: RefinementGranularity,
+}
+
+/// One abstract fairness guarantee.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RefinementEnsure {
+    /// Abstract operation.
+    pub operation: RefinementKey,
+    /// Weak or strong fairness.
+    pub kind: RefinementFairnessKind,
+    /// Per-instance or whole-operation fairness.
+    pub granularity: RefinementGranularity,
+}
+
+fn invalid(at: &Trail<'_>) -> ValidationFailure {
+    ValidationFailure::refused(
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        at.pointer(),
+    )
+}
+
+fn member<'a>(
+    value: &'a Value,
+    name: &str,
+    at: &Trail<'_>,
+) -> Result<&'a Value, ValidationFailure> {
+    value.get(name).ok_or_else(|| invalid(&at.key(name)))
+}
+
+fn array<'a>(
+    value: &'a Value,
+    name: &str,
+    at: &Trail<'_>,
+) -> Result<&'a [Value], ValidationFailure> {
+    member(value, name, at)?
+        .as_array()
+        .map(Vec::as_slice)
+        .ok_or_else(|| invalid(&at.key(name)))
+}
+
+/// Walk each actual semantic term in FR-375 row order. The special `open`
+/// argument is not a semantic term and is excluded here.
+fn row_terms(
+    body: &Value,
+    at: &Trail<'_>,
+    mut visit: impl FnMut(&Value, &Trail<'_>) -> Result<(), ValidationFailure>,
+) -> Result<(), ValidationFailure> {
+    for (object_index, object) in array(body, "objects", at)?.iter().enumerate() {
+        let objects_at = at.key("objects");
+        let object_at = objects_at.index(object_index);
+        for (field_index, field) in array(object, "fields", &object_at)?.iter().enumerate() {
+            let fields_at = object_at.key("fields");
+            let field_at = fields_at.index(field_index);
+            visit(
+                member(field, "expression", &field_at)?,
+                &field_at.key("expression"),
+            )?;
+        }
+    }
+    for (step_index, step) in array(body, "steps", at)?.iter().enumerate() {
+        let steps_at = at.key("steps");
+        let step_at = steps_at.index(step_index);
+        let target_at = step_at.key("target");
+        let target = member(step, "target", &step_at)?;
+        let kind = member(target, "kind", &target_at)?.as_str();
+        if kind == Some("operation") {
+            visit(
+                member(target, "receiver", &target_at)?,
+                &target_at.key("receiver"),
+            )?;
+        }
+        if matches!(kind, Some("operation" | "protocol_step")) {
+            for (argument_index, argument) in
+                array(target, "arguments", &target_at)?.iter().enumerate()
+            {
+                if argument.get("term").and_then(Value::as_str) != Some("open") {
+                    visit(argument, &target_at.key("arguments").index(argument_index))?;
+                }
+            }
+        }
+    }
+    for (history_index, history) in array(body, "histories", at)?.iter().enumerate() {
+        let histories_at = at.key("histories");
+        let history_at = histories_at.index(history_index);
+        visit(
+            member(history, "initial", &history_at)?,
+            &history_at.key("initial"),
+        )?;
+        for (update_index, update) in array(history, "updates", &history_at)?.iter().enumerate() {
+            let updates_at = history_at.key("updates");
+            let update_at = updates_at.index(update_index);
+            visit(
+                member(update, "expression", &update_at)?,
+                &update_at.key("expression"),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Check the complete closed body before hashing the package, including the
+/// nested flat-term rule that applies to each row expression independently.
+pub(super) fn check_wire(body: &Value, at: &Trail<'_>) -> Result<(), ValidationFailure> {
+    let Some(object) = body.as_object() else {
+        return Err(invalid(at));
+    };
+    let required = [
+        "term",
+        "abstract",
+        "profile",
+        "populations",
+        "objects",
+        "steps",
+        "histories",
+        "assume",
+        "ensure",
+    ];
+    if object.get("term").and_then(Value::as_str) != Some("refinement")
+        || required.iter().any(|name| !object.contains_key(*name))
+        || object.keys().any(|name| {
+            !required.contains(&name.as_str()) && name != "protocol" && name != "abstract_internal"
+        })
+    {
+        return Err(invalid(at));
+    }
+    let typed = serde_json::from_value::<CheckedTerm>(body.clone()).map_err(|_| {
+        let path = locate_closed_value_failure::<CheckedTerm>(body)
+            .map(|(path, _)| decoder_pointer(at.pointer(), &path))
+            .unwrap_or_else(|| at.pointer());
+        ValidationFailure::refused(CheckedPackageRefusalCode::InvalidSemanticGraph, path)
+    })?;
+    let CheckedTerm::Refinement {
+        steps,
+        histories,
+        abstract_internal,
+        protocol,
+        ..
+    } = typed
+    else {
+        return Err(invalid(at));
+    };
+    if abstract_internal
+        .as_ref()
+        .is_some_and(|list| list.is_empty() || protocol.is_none())
+    {
+        return Err(invalid(&at.key("abstract_internal")));
+    }
+    for (index, step) in steps.iter().enumerate() {
+        if step.source_class.is_empty()
+            || step.source_class.starts_with("memory ") == step.source_node.is_some()
+        {
+            return Err(invalid(&at.key("steps").index(index)));
+        }
+        match &step.target {
+            RefinementStepTarget::Operation { arguments, .. } => {
+                check_open_arguments(arguments, &at.key("steps").index(index).key("target"))?;
+            }
+            RefinementStepTarget::ProtocolStep {
+                class,
+                node,
+                arguments,
+            } => {
+                if class.is_empty() || class.starts_with("memory ") == node.is_some() {
+                    return Err(invalid(&at.key("steps").index(index).key("target")));
+                }
+                check_open_arguments(arguments, &at.key("steps").index(index).key("target"))?;
+            }
+            RefinementStepTarget::Stutter | RefinementStepTarget::Any => {}
+        }
+    }
+    for (index, history) in histories.iter().enumerate() {
+        if !matches!(
+            history.initial,
+            CheckedTerm::Literal { .. } | CheckedTerm::Reference { .. }
+        ) {
+            return Err(invalid(&at.key("histories").index(index).key("initial")));
+        }
+    }
+    row_terms(body, at, |term, term_at| {
+        super::flat_wire::check_refinement_term(term, term_at)
+    })
+}
+
+fn check_open_arguments(
+    arguments: &[RefinementStepArgument],
+    at: &Trail<'_>,
+) -> Result<(), ValidationFailure> {
+    for (index, argument) in arguments.iter().enumerate() {
+        if let RefinementStepArgument::Open(open) = argument {
+            if open.term.as_ref() != "open" {
+                return Err(invalid(&at.key("arguments").index(index)));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Validate every row term and report its local node references to the graph.
+/// The whole body has already passed `check_wire`.
+pub(super) fn validate_body(
+    body: &Value,
+    at: &Trail<'_>,
+    visitor: &mut ReferenceVisitor<'_>,
+) -> Result<u64, ValidationFailure> {
+    let mut work = 1_u64;
+    row_terms(body, at, |term, term_at| {
+        work = work.saturating_add(validate_term(
+            term,
+            TermGrammar::V2,
+            true,
+            term_at,
+            visitor,
+        )?);
+        Ok(())
+    })?;
+    Ok(work)
+}
+
+impl RefinementKey {
+    fn digest(&self) -> &str {
+        match self {
+            Self::Local(node) => &node.digest,
+            Self::External(key) => &key.node.digest,
+        }
+    }
+
+    fn local(&self) -> Option<&CheckedNodeId> {
+        match self {
+            Self::Local(node) => Some(node),
+            Self::External(_) => None,
+        }
+    }
+}
+
+fn order_defect(position: usize, array: &str, index: usize) -> ValidationFailure {
+    ValidationFailure::refused(
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        node_at(position).key("body").key(array).index(index),
+    )
+}
+
+/// Check the six FR-375 row arrays and their nested arrays in published order.
+fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), ValidationFailure> {
+    let CheckedTerm::Refinement {
+        populations,
+        objects,
+        steps,
+        histories,
+        assume,
+        ensure,
+        abstract_internal,
+        ..
+    } = body
+    else {
+        return Err(ValidationFailure::refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            node_at(position).key("body"),
+        ));
+    };
+    for (index, pair) in populations.windows(2).enumerate() {
+        if pair[0].r#abstract.digest() >= pair[1].r#abstract.digest() {
+            return Err(order_defect(position, "populations", index + 1));
+        }
+    }
+    for (index, object) in objects.iter().enumerate() {
+        for (field_index, pair) in object.fields.windows(2).enumerate() {
+            if pair[0].name >= pair[1].name {
+                return Err(ValidationFailure::refused(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    node_at(position)
+                        .key("body")
+                        .key("objects")
+                        .index(index)
+                        .key("fields")
+                        .index(field_index + 1),
+                ));
+            }
+        }
+    }
+    for (index, pair) in objects.windows(2).enumerate() {
+        if pair[0].abstract_type.digest() >= pair[1].abstract_type.digest() {
+            return Err(order_defect(position, "objects", index + 1));
+        }
+    }
+    for (index, pair) in steps.windows(2).enumerate() {
+        fn key(step: &RefinementStep) -> (bool, &str, &str) {
+            (
+                step.source_node.is_none(),
+                step.source_node
+                    .as_ref()
+                    .map(|node| node.digest.as_ref())
+                    .unwrap_or(""),
+                step.source_class.as_ref(),
+            )
+        }
+        if key(&pair[0]) >= key(&pair[1]) {
+            return Err(order_defect(position, "steps", index + 1));
+        }
+    }
+    for (index, history) in histories.iter().enumerate() {
+        for (update_index, pair) in history.updates.windows(2).enumerate() {
+            if pair[0].operation.digest >= pair[1].operation.digest {
+                return Err(ValidationFailure::refused(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    node_at(position)
+                        .key("body")
+                        .key("histories")
+                        .index(index)
+                        .key("updates")
+                        .index(update_index + 1),
+                ));
+            }
+        }
+    }
+    for (index, pair) in histories.windows(2).enumerate() {
+        if (pair[0].concrete_type.digest.as_ref(), pair[0].name.as_ref())
+            >= (pair[1].concrete_type.digest.as_ref(), pair[1].name.as_ref())
+        {
+            return Err(order_defect(position, "histories", index + 1));
+        }
+    }
+    for (index, pair) in assume.windows(2).enumerate() {
+        fn kind(kind: RefinementFairnessKind) -> &'static str {
+            match kind {
+                RefinementFairnessKind::Weak => "weak",
+                RefinementFairnessKind::Strong => "strong",
+            }
+        }
+        fn granularity(granularity: RefinementGranularity) -> &'static str {
+            match granularity {
+                RefinementGranularity::Each => "each",
+                RefinementGranularity::Whole => "whole",
+            }
+        }
+        fn key(row: &RefinementAssume) -> (&str, &str, &str) {
+            (
+                &row.operation.digest,
+                kind(row.kind),
+                granularity(row.granularity),
+            )
+        }
+        if key(&pair[0]) >= key(&pair[1]) {
+            return Err(order_defect(position, "assume", index + 1));
+        }
+    }
+    for (index, pair) in ensure.windows(2).enumerate() {
+        fn kind(kind: RefinementFairnessKind) -> &'static str {
+            match kind {
+                RefinementFairnessKind::Weak => "weak",
+                RefinementFairnessKind::Strong => "strong",
+            }
+        }
+        fn granularity(granularity: RefinementGranularity) -> &'static str {
+            match granularity {
+                RefinementGranularity::Each => "each",
+                RefinementGranularity::Whole => "whole",
+            }
+        }
+        fn key(row: &RefinementEnsure) -> (&str, &str, &str) {
+            (
+                row.operation.digest(),
+                kind(row.kind),
+                granularity(row.granularity),
+            )
+        }
+        if key(&pair[0]) >= key(&pair[1]) {
+            return Err(order_defect(position, "ensure", index + 1));
+        }
+    }
+    if let Some(internal) = abstract_internal {
+        for (index, pair) in internal.windows(2).enumerate() {
+            if pair[0] >= pair[1] {
+                return Err(order_defect(position, "abstract_internal", index + 1));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(super) struct RefinementGraph<'a, 'e> {
+    nodes: &'a [super::RawSemanticNodeV2],
+    kinds: &'a [super::CheckedNodeKind],
+    terms: &'a [Option<CheckedTerm>],
+    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    dependencies: &'a super::SuppliedDependencies<'e>,
+    package_id: &'a CheckedSemanticId,
+}
+
+impl<'a, 'e> RefinementGraph<'a, 'e> {
+    pub(super) fn new(
+        nodes: &'a [super::RawSemanticNodeV2],
+        kinds: &'a [super::CheckedNodeKind],
+        terms: &'a [Option<CheckedTerm>],
+        index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+        dependencies: &'a super::SuppliedDependencies<'e>,
+        package_id: &'a CheckedSemanticId,
+    ) -> Self {
+        Self {
+            nodes,
+            kinds,
+            terms,
+            index,
+            dependencies,
+            package_id,
+        }
+    }
+}
+
+impl RefinementGraph<'_, '_> {
+    fn local_term(&self, id: &CheckedNodeId) -> Option<&CheckedTerm> {
+        self.terms
+            .get(*self.index.get(id)?)
+            .and_then(Option::as_ref)
+    }
+
+    fn local_node(&self, id: &CheckedNodeId) -> Option<&super::RawSemanticNodeV2> {
+        self.nodes.get(*self.index.get(id)?)
+    }
+
+    fn key_semantic_type(&self, key: &RefinementKey) -> Option<&CheckedNodeId> {
+        match key {
+            RefinementKey::Local(id) => Some(&self.local_node(id)?.semantic_type),
+            RefinementKey::External(external) => Some(
+                &self
+                    .dependencies
+                    .selected_package(&external.package)?
+                    .node(&external.node)?
+                    .semantic_type,
+            ),
+        }
+    }
+
+    fn key_anchor(&self, key: &RefinementKey) -> Option<(CheckedNodeId, Box<str>)> {
+        let term = match key {
+            RefinementKey::Local(id) => self.local_term(id)?,
+            RefinementKey::External(external) => self
+                .dependencies
+                .selected_package(&external.package)?
+                .term(&external.node)?,
+        };
+        let anchor = super::structural::typed_anchor_body(term)?;
+        Some((anchor.context, Box::from(anchor.operation)))
+    }
+
+    fn local_kind(
+        &self,
+        id: &CheckedNodeId,
+        at: JsonPointer,
+        locus: &CheckedNodeId,
+    ) -> Result<super::CheckedNodeKind, ValidationFailure> {
+        let Some(&position) = self.index.get(id) else {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::MissingDeclaration,
+                at,
+                Some(CheckedPackageRefusalCause::MissingName),
+                locus.clone(),
+            ));
+        };
+        self.kinds.get(position).copied().ok_or_else(|| {
+            ValidationFailure::refused(CheckedPackageRefusalCode::InvalidSemanticGraph, at)
+        })
+    }
+
+    fn key_kind(
+        &self,
+        key: &RefinementKey,
+        at: JsonPointer,
+        locus: &CheckedNodeId,
+    ) -> Result<super::CheckedNodeKind, ValidationFailure> {
+        match key {
+            RefinementKey::Local(id) => self.local_kind(id, at, locus),
+            RefinementKey::External(key) => {
+                if &key.package == self.package_id {
+                    return Err(ValidationFailure::refused_at(
+                        CheckedPackageRefusalCode::InvalidSemanticGraph,
+                        at.key("package"),
+                        None,
+                        locus.clone(),
+                    ));
+                }
+                let selected = self
+                    .dependencies
+                    .selected_package(&key.package)
+                    .ok_or_else(|| {
+                        ValidationFailure::refused_at(
+                            CheckedPackageRefusalCode::MissingDeclaration,
+                            at.clone().key("package"),
+                            Some(CheckedPackageRefusalCause::MissingSelection),
+                            locus.clone(),
+                        )
+                    })?;
+                selected.node_kind(&key.node).ok_or_else(|| {
+                    ValidationFailure::refused_at(
+                        CheckedPackageRefusalCode::MissingDeclaration,
+                        at,
+                        Some(CheckedPackageRefusalCause::MissingName),
+                        locus.clone(),
+                    )
+                })
+            }
+        }
+    }
+
+    fn require_kind(
+        &self,
+        key: &RefinementKey,
+        expected: super::CheckedNodeKind,
+        at: JsonPointer,
+        locus: &CheckedNodeId,
+    ) -> Result<(), ValidationFailure> {
+        let actual = self.key_kind(key, at.clone(), locus)?;
+        if actual == expected {
+            Ok(())
+        } else {
+            Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidModelBinding,
+                at,
+                Some(CheckedPackageRefusalCause::MalformedDeclaration),
+                locus.clone(),
+            ))
+        }
+    }
+
+    fn require_local_kind(
+        &self,
+        id: &CheckedNodeId,
+        expected: super::CheckedNodeKind,
+        at: JsonPointer,
+        locus: &CheckedNodeId,
+    ) -> Result<(), ValidationFailure> {
+        self.require_kind(&RefinementKey::Local(id.clone()), expected, at, locus)
+    }
+
+    fn require_anchor_subject(
+        &self,
+        key: &RefinementKey,
+        subject: &CheckedNodeId,
+        at: JsonPointer,
+        locus: &CheckedNodeId,
+    ) -> Result<Box<str>, ValidationFailure> {
+        self.require_kind(
+            key,
+            super::CheckedNodeKind::State(super::StateForm::OperationAnchor),
+            at.clone(),
+            locus,
+        )?;
+        let Some((context, operation)) = self.key_anchor(key) else {
+            return Err(wrong_binding(at, locus));
+        };
+        if context != *subject {
+            return Err(wrong_binding(at, locus));
+        }
+        Ok(operation)
+    }
+}
+
+fn wrong_binding(at: JsonPointer, locus: &CheckedNodeId) -> ValidationFailure {
+    ValidationFailure::refused_at(
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        at,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration),
+        locus.clone(),
+    )
+}
+
+fn validate_rows(
+    node: &super::RawSemanticNodeV2,
+    body: &CheckedTerm,
+    position: usize,
+    graph: &RefinementGraph<'_, '_>,
+    owners: &super::model_members::ModelOwners<'_>,
+    meter: &mut super::WorkMeter,
+) -> Result<(), ValidationFailure> {
+    use super::{CheckedNodeKind as K, ModelForm, RelationForm};
+    let CheckedTerm::Refinement {
+        abstract_key,
+        populations,
+        objects,
+        steps,
+        histories,
+        assume,
+        ensure,
+        ..
+    } = body
+    else {
+        return Err(ValidationFailure::refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            node_at(position).key("body"),
+        ));
+    };
+    let root = node_at(position).key("body");
+    let locus = &node.node_id;
+    let abstract_id = match abstract_key.as_ref() {
+        RefinementKey::Local(id) => id,
+        RefinementKey::External(external) => &external.node,
+    };
+    for (index, row) in populations.iter().enumerate() {
+        let at = root.clone().key("populations").index(index);
+        meter.charge(1, || at.clone())?;
+        graph.require_kind(
+            &row.r#abstract,
+            K::Relation(RelationForm::Population),
+            at.clone().key("abstract"),
+            locus,
+        )?;
+        graph.require_local_kind(
+            &row.concrete,
+            K::Relation(RelationForm::Population),
+            at.key("concrete"),
+            locus,
+        )?;
+    }
+    for (index, row) in objects.iter().enumerate() {
+        let at = root.clone().key("objects").index(index);
+        meter.charge(1, || at.clone())?;
+        graph.require_kind(
+            &row.abstract_type,
+            K::Model(ModelForm::ObjectType),
+            at.clone().key("abstract_type"),
+            locus,
+        )?;
+        graph.require_local_kind(
+            &row.concrete_type,
+            K::Model(ModelForm::ObjectType),
+            at.clone().key("concrete_type"),
+            locus,
+        )?;
+        let known = abstract_fields(&row.abstract_type, owners, graph.dependencies);
+        for (field_index, field) in row.fields.iter().enumerate() {
+            let field_at = at.clone().key("fields").index(field_index);
+            meter.charge(1, || field_at.clone())?;
+            if !known
+                .as_ref()
+                .is_some_and(|names| names.contains(&field.name))
+            {
+                return Err(ValidationFailure::refused_at(
+                    CheckedPackageRefusalCode::MissingDeclaration,
+                    field_at.key("name"),
+                    Some(CheckedPackageRefusalCause::MissingName),
+                    locus.clone(),
+                ));
+            }
+        }
+    }
+    for (index, row) in steps.iter().enumerate() {
+        let at = root.clone().key("steps").index(index);
+        meter.charge(1, || at.clone())?;
+        if let Some(source) = &row.source_node {
+            let operation = graph.require_anchor_subject(
+                &RefinementKey::Local(source.clone()),
+                &node.semantic_type,
+                at.clone().key("source_node"),
+                locus,
+            )?;
+            if row.source_class.as_ref() != operation.as_ref() {
+                return Err(wrong_binding(at.clone().key("source_class"), locus));
+            }
+        }
+        let target_at = at.key("target");
+        match &row.target {
+            RefinementStepTarget::Operation { operation, .. } => {
+                graph.require_anchor_subject(
+                    operation,
+                    abstract_id,
+                    target_at.key("operation"),
+                    locus,
+                )?;
+            }
+            RefinementStepTarget::ProtocolStep {
+                node: Some(target), ..
+            } => {
+                // A declared protocol class names a selected protocol-family node.
+                let kind = graph.key_kind(target, target_at.clone().key("node"), locus)?;
+                if !matches!(kind, K::Protocol(_)) {
+                    return Err(wrong_binding(target_at.key("node"), locus));
+                }
+            }
+            RefinementStepTarget::ProtocolStep { node: None, .. }
+            | RefinementStepTarget::Stutter
+            | RefinementStepTarget::Any => {}
+        }
+    }
+    for (index, row) in histories.iter().enumerate() {
+        let at = root.clone().key("histories").index(index);
+        meter.charge(1, || at.clone())?;
+        graph.require_local_kind(
+            &row.concrete_type,
+            K::Model(ModelForm::ObjectType),
+            at.clone().key("concrete_type"),
+            locus,
+        )?;
+        graph.local_kind(&row.type_id, at.clone().key("type"), locus)?;
+        if let CheckedTerm::Reference { target } = &row.initial {
+            graph.require_local_kind(
+                target,
+                K::Value(super::ValueForm::Literal),
+                at.clone().key("initial").key("target"),
+                locus,
+            )?;
+        }
+        for (update_index, update) in row.updates.iter().enumerate() {
+            let update_at = at.clone().key("updates").index(update_index);
+            meter.charge(1, || update_at.clone())?;
+            graph.require_anchor_subject(
+                &RefinementKey::Local(update.operation.clone()),
+                &node.semantic_type,
+                update_at.key("operation"),
+                locus,
+            )?;
+        }
+    }
+    for (index, row) in assume.iter().enumerate() {
+        let at = root.clone().key("assume").index(index);
+        meter.charge(1, || at.clone())?;
+        graph.require_anchor_subject(
+            &RefinementKey::Local(row.operation.clone()),
+            &node.semantic_type,
+            at.key("operation"),
+            locus,
+        )?;
+    }
+    for (index, row) in ensure.iter().enumerate() {
+        let at = root.clone().key("ensure").index(index);
+        meter.charge(1, || at.clone())?;
+        graph.require_anchor_subject(&row.operation, abstract_id, at.key("operation"), locus)?;
+    }
+    Ok(())
+}
+
+fn check_headers(
+    node: &super::RawSemanticNodeV2,
+    body: &CheckedTerm,
+    position: usize,
+    graph: &RefinementGraph<'_, '_>,
+    lock: &super::CheckedPackageLockV2,
+) -> Result<(), ValidationFailure> {
+    use super::{CheckedNodeKind as K, ModelForm, ProtocolForm};
+    let CheckedTerm::Refinement {
+        abstract_key,
+        protocol,
+        profile,
+        ..
+    } = body
+    else {
+        return Err(ValidationFailure::refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            node_at(position).key("body"),
+        ));
+    };
+    let root = node_at(position);
+    let locus = &node.node_id;
+    graph.require_local_kind(
+        &node.semantic_type,
+        K::Model(ModelForm::StateMachine),
+        root.clone().key("semantic_type"),
+        locus,
+    )?;
+    graph.require_kind(
+        abstract_key,
+        K::Model(ModelForm::StateMachine),
+        root.clone().key("body").key("abstract"),
+        locus,
+    )?;
+    if let Some(protocol) = protocol {
+        graph.require_kind(
+            protocol,
+            K::Protocol(ProtocolForm::ProtocolClause),
+            root.clone().key("body").key("protocol"),
+            locus,
+        )?;
+        let abstract_id = match abstract_key.as_ref() {
+            RefinementKey::Local(id) => id,
+            RefinementKey::External(key) => &key.node,
+        };
+        if graph.key_semantic_type(protocol) != Some(abstract_id) {
+            return Err(wrong_binding(
+                root.clone().key("body").key("protocol"),
+                locus,
+            ));
+        }
+    }
+    let selected = lock.profile_selections.iter().any(|selection| {
+        selection.role == super::CheckedSelectionRole::TemporalProfile
+            && selection.definition == *profile
+            && super::TemporalProfile::from_wire(&profile.identity)
+                == Some(super::TemporalProfile::InfiniteTrace)
+    });
+    if !selected {
+        return Err(ValidationFailure::refused_at(
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            root.key("body").key("profile"),
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            locus.clone(),
+        ));
+    }
+    Ok(())
+}
+
+fn abstract_fields(
+    key: &RefinementKey,
+    owners: &super::model_members::ModelOwners<'_>,
+    dependencies: &super::SuppliedDependencies<'_>,
+) -> Option<BTreeSet<Box<str>>> {
+    match key {
+        RefinementKey::Local(id) => owners.refinement_object_fields(id),
+        RefinementKey::External(external) => dependencies
+            .selected_package(&external.package)?
+            .models
+            .refinement_object_fields(&external.node),
+    }
+}
+
+fn proof_eligible(
+    body: &CheckedTerm,
+    owners: &super::model_members::ModelOwners<'_>,
+    dependencies: &super::SuppliedDependencies<'_>,
+    meter: &mut super::WorkMeter,
+    position: usize,
+) -> Result<Option<usize>, ValidationFailure> {
+    let CheckedTerm::Refinement {
+        objects,
+        steps,
+        histories,
+        ..
+    } = body
+    else {
+        return Ok(None);
+    };
+    if !histories.is_empty()
+        || steps
+            .iter()
+            .any(|step| matches!(step.target, RefinementStepTarget::Any))
+    {
+        return Ok(Some(0));
+    }
+    for (index, object) in objects.iter().enumerate() {
+        let Some(fields) = abstract_fields(&object.abstract_type, owners, dependencies) else {
+            // A missing or wrong-kind key receives its ordered meaning refusal later.
+            return Ok(None);
+        };
+        meter.charge(u64::try_from(fields.len()).unwrap_or(u64::MAX), || {
+            node_at(position).key("body").key("objects").index(index)
+        })?;
+        let mapped: BTreeSet<&str> = object
+            .fields
+            .iter()
+            .map(|field| field.name.as_ref())
+            .collect();
+        if fields.iter().any(|field| !mapped.contains(field.as_ref())) {
+            return Ok(Some(0));
+        }
+    }
+    Ok(Some(steps.len().saturating_add(1)))
+}
+
+/// Check the closed, identity-excluded row-region carrier before occurrences.
+pub(super) fn validate_step_rows(
+    nodes: &[super::RawSemanticNodeV2],
+    kinds: &[super::CheckedNodeKind],
+    terms: &[Option<CheckedTerm>],
+    rows: Option<&[CheckedRefinementStepRowRegion]>,
+    meter: &mut super::WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let mut expected = BTreeMap::new();
+    for (position, node) in nodes.iter().enumerate() {
+        if kinds[position] != super::CheckedNodeKind::Relation(super::RelationForm::Refinement) {
+            continue;
+        }
+        if let Some(CheckedTerm::Refinement { steps, .. }) = terms[position].as_ref() {
+            meter.charge(u64::try_from(steps.len()).unwrap_or(u64::MAX), || {
+                node_at(position).key("body").key("steps")
+            })?;
+            expected.insert(node.node_id.clone(), steps.len());
+        }
+    }
+    let count = expected
+        .values()
+        .try_fold(0usize, |total, len| total.checked_add(*len))
+        .ok_or_else(|| invalid_step_rows(None))?;
+    if count == 0 && rows.is_none() {
+        return Ok(());
+    }
+    if count == 0 {
+        return Err(invalid_step_rows(None));
+    }
+    let Some(rows) = rows else {
+        return Err(invalid_step_rows(None));
+    };
+    let mut previous: Option<(&CheckedNodeId, u64)> = None;
+    for (index, row) in rows.iter().enumerate() {
+        meter.charge(1, || {
+            JsonPointer::root().key("refinement_step_rows").index(index)
+        })?;
+        let in_range = expected
+            .get(&row.node_id)
+            .is_some_and(|len| usize::try_from(row.ordinal).is_ok_and(|ordinal| ordinal < *len));
+        let ordered = previous.is_none_or(|(node, ordinal)| {
+            (node.digest.as_ref(), ordinal) < (row.node_id.digest.as_ref(), row.ordinal)
+        });
+        if !in_range || !ordered {
+            return Err(invalid_step_rows(Some(index)));
+        }
+        previous = Some((&row.node_id, row.ordinal));
+    }
+    if rows.len() != count {
+        return Err(invalid_step_rows(None));
+    }
+    Ok(())
+}
+
+fn invalid_step_rows(index: Option<usize>) -> ValidationFailure {
+    let path = JsonPointer::root().key("refinement_step_rows");
+    let path = index.map_or(path.clone(), |index| path.index(index));
+    ValidationFailure::refused_because(
+        CheckedPackageRefusalCode::InvalidPackage,
+        path,
+        CheckedPackageRefusalCause::InvalidValue,
+    )
+}
+
+/// Check the source-map occurrences against declaration and step-row regions.
+pub(super) fn validate_occurrences(
+    nodes: &[super::RawSemanticNodeV2],
+    kinds: &[super::CheckedNodeKind],
+    terms: &[Option<CheckedTerm>],
+    source_map: &[CheckedSourceMapEntry],
+    rows: Option<&[CheckedRefinementStepRowRegion]>,
+    owners: &super::model_members::ModelOwners<'_>,
+    dependencies: &super::SuppliedDependencies<'_>,
+    meter: &mut super::WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let mut row_regions = BTreeMap::new();
+    if let Some(rows) = rows {
+        for (index, row) in rows.iter().enumerate() {
+            meter.charge(1, || {
+                JsonPointer::root().key("refinement_step_rows").index(index)
+            })?;
+            row_regions.insert((&row.node_id, row.ordinal), &row.region);
+        }
+    }
+    let mut declarations = BTreeMap::new();
+    for (index, entry) in source_map.iter().enumerate() {
+        meter.charge(1, || JsonPointer::root().key("source_map").index(index))?;
+        if entry.role == CheckedOccurrenceRole::Declaration && entry.ordinal == 0 {
+            declarations.insert(&entry.node_id, entry.regions.as_slice());
+        }
+    }
+    for (position, node) in nodes.iter().enumerate() {
+        if kinds[position] != super::CheckedNodeKind::Relation(super::RelationForm::Refinement) {
+            continue;
+        }
+        let Some(body) = terms[position].as_ref() else {
+            continue;
+        };
+        let Some(generated_count) = proof_eligible(body, owners, dependencies, meter, position)?
+        else {
+            continue;
+        };
+        let declaration = declarations.get(&node.node_id);
+        let mut present = BTreeSet::new();
+        for (entry_index, entry) in source_map.iter().enumerate() {
+            meter.charge(1, || {
+                JsonPointer::root().key("source_map").index(entry_index)
+            })?;
+            if entry.node_id != node.node_id {
+                continue;
+            }
+            let valid = match entry.role {
+                CheckedOccurrenceRole::Declaration => entry.ordinal == 0,
+                CheckedOccurrenceRole::Generated => {
+                    usize::try_from(entry.ordinal).is_ok_and(|ordinal| ordinal < generated_count)
+                }
+                _ => false,
+            };
+            if !valid
+                || entry.regions.len() != 1
+                || (entry.role == CheckedOccurrenceRole::Generated
+                    && entry.ordinal == 0
+                    && declaration.is_some_and(|regions| entry.regions != *regions))
+                || (entry.role == CheckedOccurrenceRole::Generated
+                    && entry.ordinal > 0
+                    && row_regions
+                        .get(&(&node.node_id, entry.ordinal - 1))
+                        .is_some_and(|region| entry.regions.first() != Some(*region)))
+            {
+                return Err(ValidationFailure::refused_at(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    JsonPointer::root().key("source_map").index(entry_index),
+                    Some(CheckedPackageRefusalCause::InvalidValue),
+                    node.node_id.clone(),
+                ));
+            }
+            present.insert((entry.role.clone(), entry.ordinal));
+        }
+        if !present.contains(&(CheckedOccurrenceRole::Declaration, 0))
+            || (0..generated_count).any(|ordinal| {
+                !present.contains(&(CheckedOccurrenceRole::Generated, ordinal as u64))
+            })
+        {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                JsonPointer::root().key("source_map"),
+                Some(CheckedPackageRefusalCause::InvalidValue),
+                node.node_id.clone(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The dedicated refinement body step, in retained node-key order.
+pub(super) fn validate_refinements(
+    graph: RefinementGraph<'_, '_>,
+    lock: &super::CheckedPackageLockV2,
+    owners: &super::model_members::ModelOwners<'_>,
+    bytes: u64,
+    meter: &mut super::WorkMeter,
+) -> Result<(), ValidationFailure> {
+    for &position in graph.index.values() {
+        if graph.kinds.get(position)
+            != Some(&super::CheckedNodeKind::Relation(
+                super::RelationForm::Refinement,
+            ))
+        {
+            continue;
+        }
+        let node = &graph.nodes[position];
+        let body = graph
+            .terms
+            .get(position)
+            .and_then(Option::as_ref)
+            .ok_or_else(|| {
+                ValidationFailure::refused(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    node_at(position).key("body"),
+                )
+            })?;
+        meter.charge(1, || node_at(position))?;
+        stale_refinement_key(node, position, bytes)?;
+        canonical_order(body, position)?;
+        check_headers(node, body, position, &graph, lock)?;
+        validate_rows(node, body, position, &graph, owners, meter)?;
+    }
+    Ok(())
+}
+
+fn add_key(targets: &mut BTreeSet<CheckedNodeId>, key: &RefinementKey) {
+    if let Some(local) = key.local() {
+        targets.insert(local.clone());
+    }
+}
+
+fn add_term(targets: &mut BTreeSet<CheckedNodeId>, term: &CheckedTerm) {
+    targets.extend(term.reference_targets().into_iter().cloned());
+    if let Some(application) = super::structural::application_dependencies(term) {
+        targets.extend(application);
+    }
+}
+
+fn local_dependencies(body: &CheckedTerm) -> Option<Vec<CheckedNodeId>> {
+    let CheckedTerm::Refinement {
+        abstract_key,
+        protocol,
+        populations,
+        objects,
+        steps,
+        histories,
+        assume,
+        ensure,
+        ..
+    } = body
+    else {
+        return None;
+    };
+    let mut targets = BTreeSet::new();
+    add_key(&mut targets, abstract_key);
+    if let Some(protocol) = protocol {
+        add_key(&mut targets, protocol);
+    }
+    for row in populations {
+        add_key(&mut targets, &row.r#abstract);
+        targets.insert(row.concrete.clone());
+    }
+    for row in objects {
+        add_key(&mut targets, &row.abstract_type);
+        targets.insert(row.concrete_type.clone());
+        for field in &row.fields {
+            add_term(&mut targets, &field.expression);
+        }
+    }
+    for row in steps {
+        if let Some(node) = &row.source_node {
+            targets.insert(node.clone());
+        }
+        match &row.target {
+            RefinementStepTarget::Operation {
+                operation,
+                receiver,
+                arguments,
+            } => {
+                add_key(&mut targets, operation);
+                add_term(&mut targets, receiver);
+                for argument in arguments {
+                    if let RefinementStepArgument::Term(term) = argument {
+                        add_term(&mut targets, term);
+                    }
+                }
+            }
+            RefinementStepTarget::ProtocolStep {
+                node, arguments, ..
+            } => {
+                if let Some(node) = node {
+                    add_key(&mut targets, node);
+                }
+                for argument in arguments {
+                    if let RefinementStepArgument::Term(term) = argument {
+                        add_term(&mut targets, term);
+                    }
+                }
+            }
+            RefinementStepTarget::Stutter | RefinementStepTarget::Any => {}
+        }
+    }
+    for row in histories {
+        targets.insert(row.concrete_type.clone());
+        targets.insert(row.type_id.clone());
+        add_term(&mut targets, &row.initial);
+        for update in &row.updates {
+            targets.insert(update.operation.clone());
+            add_term(&mut targets, &update.expression);
+        }
+    }
+    for row in assume {
+        targets.insert(row.operation.clone());
+    }
+    for row in ensure {
+        add_key(&mut targets, &row.operation);
+    }
+    Some(targets.into_iter().collect())
+}
+
+/// Check the exact local dependency vector at the graph-shape stage.
+pub(super) fn validate_dependencies(
+    nodes: &[super::RawSemanticNodeV2],
+    kinds: &[super::CheckedNodeKind],
+    terms: &[Option<CheckedTerm>],
+) -> Result<(), ValidationFailure> {
+    for (position, ((node, kind), term)) in nodes.iter().zip(kinds).zip(terms).enumerate() {
+        if *kind != super::CheckedNodeKind::Relation(super::RelationForm::Refinement) {
+            continue;
+        }
+        let expected = term.as_ref().and_then(local_dependencies).ok_or_else(|| {
+            ValidationFailure::refused(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                crate::checked_package::common::node_pointer(position).key("body"),
+            )
+        })?;
+        if node.dependencies != expected {
+            return Err(ValidationFailure::refused(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                crate::checked_package::common::node_pointer(position).key("dependencies"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Reference terms in the three row collections that can hold expressions.
+pub(super) fn visit_reference_targets<'a>(
+    objects: &'a [RefinementObject],
+    steps: &'a [RefinementStep],
+    histories: &'a [RefinementHistory],
+    visitor: &mut impl FnMut(&'a CheckedNodeId),
+) {
+    for object in objects {
+        for field in &object.fields {
+            field.expression.visit_reference_targets(visitor);
+        }
+    }
+    for step in steps {
+        match &step.target {
+            RefinementStepTarget::Operation {
+                receiver,
+                arguments,
+                ..
+            } => {
+                receiver.visit_reference_targets(visitor);
+                for argument in arguments {
+                    if let RefinementStepArgument::Term(term) = argument {
+                        term.visit_reference_targets(visitor);
+                    }
+                }
+            }
+            RefinementStepTarget::ProtocolStep { arguments, .. } => {
+                for argument in arguments {
+                    if let RefinementStepArgument::Term(term) = argument {
+                        term.visit_reference_targets(visitor);
+                    }
+                }
+            }
+            RefinementStepTarget::Stutter | RefinementStepTarget::Any => {}
+        }
+    }
+    for history in histories {
+        history.initial.visit_reference_targets(visitor);
+        for update in &history.updates {
+            update.expression.visit_reference_targets(visitor);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn refinement_preimage_matches_jcs_value() {
+        let semantic_type = CheckedNodeId {
+            domain: "quire.checked-semantic-node/v1".into(),
+            digest: "a".repeat(64).into(),
+        };
+        let body = json!({"term":"refinement","abstract":semantic_type,"profile":{"authority":"test","identity":"quire.temporal.infinite-trace/v1"},"populations":[],"objects":[],"steps":[],"histories":[],"assume":[],"ensure":[]});
+        let value =
+            json!({"version":"quire.refinement-node/v1","semantic_type":semantic_type,"body":body});
+        let limits = quire_canonical::Limits::new(u64::MAX);
+        let expected = quire_canonical::to_vec(&value, limits).expect("value");
+        let actual = quire_canonical::to_vec(
+            &RefinementNodePreimage {
+                semantic_type: &semantic_type,
+                body: &body,
+            },
+            limits,
+        )
+        .expect("preimage");
+        assert_eq!(actual, expected);
+    }
+}

@@ -181,7 +181,10 @@ impl<'a> Walk for StateClausePlacement<'a> {
 }
 
 fn is_object_type(kind: CheckedNodeKind) -> bool {
-    kind == CheckedNodeKind::Model(ModelForm::ObjectType)
+    matches!(
+        kind,
+        CheckedNodeKind::Model(ModelForm::ObjectType | ModelForm::StateMachine)
+    )
 }
 
 /// A resolved operation and its owner, `None` for a context that is not a

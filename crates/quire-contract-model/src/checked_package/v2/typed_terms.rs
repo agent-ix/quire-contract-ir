@@ -6,10 +6,25 @@
 //! byte length.
 
 use super::{ApplicationOperator, BodyTerm, LiteralKind};
+use super::{
+    RefinementAssume, RefinementEnsure, RefinementHistory, RefinementKey, RefinementObject,
+    RefinementPopulation, RefinementStep,
+};
 use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedSemanticId};
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{error::Category, Value};
+
+fn encode_refinement_member<T: Serialize, S: Sink + ?Sized>(
+    writer: &mut Writer<'_, S>,
+    value: &T,
+) -> Result<(), Error> {
+    // Refinement row depth is bounded by FR-322's SemanticTerm grammar. The
+    // typed row may contain a term, so it cannot implement FixedShape.
+    serde_json::to_value(value)
+        .expect("an admitted typed refinement member serializes")
+        .encode_into(writer)
+}
 
 /// An admitted binding name with the closed contextual names decoded once.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -143,6 +158,32 @@ pub enum CheckedTerm {
         /// Frame mappings.
         frames: Vec<CheckedAbstractionFrame>,
     },
+    /// A closed model or protocol refinement declaration.
+    Refinement {
+        /// Abstract model declaration.
+        #[serde(rename = "abstract")]
+        abstract_key: Box<RefinementKey>,
+        /// Selected infinite-trace profile.
+        profile: CheckedArtifactRef,
+        /// Population mappings.
+        populations: Vec<RefinementPopulation>,
+        /// Object mappings.
+        objects: Vec<RefinementObject>,
+        /// Step mappings.
+        steps: Vec<RefinementStep>,
+        /// History fields.
+        histories: Vec<RefinementHistory>,
+        /// Concrete fairness assumptions.
+        assume: Vec<RefinementAssume>,
+        /// Abstract fairness guarantees.
+        ensure: Vec<RefinementEnsure>,
+        /// Abstract protocol clause, when selected.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        protocol: Option<Box<RefinementKey>>,
+        /// Nonempty alias-free internal list, when supplied.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        abstract_internal: Option<Vec<Box<str>>>,
+    },
     /// The closed extension declaration body.
     ExtensionForm {
         /// Selected definition.
@@ -260,7 +301,10 @@ impl CheckedTerm {
         targets
     }
 
-    fn visit_reference_targets<'a>(&'a self, visitor: &mut impl FnMut(&'a CheckedNodeId)) {
+    pub(super) fn visit_reference_targets<'a>(
+        &'a self,
+        visitor: &mut impl FnMut(&'a CheckedNodeId),
+    ) {
         match self {
             Self::Reference { target } => visitor(target),
             Self::Application { arguments, .. } => {
@@ -278,6 +322,14 @@ impl CheckedTerm {
                 for clause in clauses {
                     clause.visit_reference_targets(visitor);
                 }
+            }
+            Self::Refinement {
+                objects,
+                steps,
+                histories,
+                ..
+            } => {
+                super::refinement::visit_reference_targets(objects, steps, histories, visitor);
             }
             Self::Literal { .. }
             | Self::DependencyReference { .. }
@@ -357,6 +409,13 @@ impl CheckedTerm {
                     clause.replace_node_id(old, new);
                 }
             }
+            Self::Refinement { .. } => {
+                let mut raw =
+                    serde_json::to_value(&*self).expect("an admitted typed refinement serializes");
+                replace_node_ids_in_value(&mut raw, old, new);
+                *self = serde_json::from_value(raw)
+                    .expect("replacing a valid node key preserves refinement shape");
+            }
         }
     }
     /// Construct a checked reference body without an untyped JSON intermediate.
@@ -416,6 +475,14 @@ impl CheckedTerm {
     /// Decodes only a body that the reader's flat and closed-shape checks
     /// already accepted. Public serde decoding does not provide that bound.
     pub(super) fn decode_admitted(value: &Value) -> Result<Self, TermConversionCause> {
+        if value.get("term").and_then(Value::as_str) == Some("refinement") {
+            return serde_json::from_value(value.clone()).map_err(|error| {
+                TermConversionCause::MalformedMember {
+                    member: "refinement",
+                    category: error.classify(),
+                }
+            });
+        }
         fn field<T: DeserializeOwned>(
             wire: crate::checked_package::common::WireTerm<'_>,
             name: crate::checked_package::common::TermField,
@@ -607,6 +674,45 @@ impl Encode for CheckedTerm {
                 writer.serialize(populations)?;
                 writer.name("frames")?;
                 writer.serialize(frames)?;
+            }
+            Self::Refinement {
+                abstract_key,
+                profile,
+                populations,
+                objects,
+                steps,
+                histories,
+                assume,
+                ensure,
+                protocol,
+                abstract_internal,
+            } => {
+                writer.name("term")?;
+                writer.string("refinement")?;
+                writer.name("abstract")?;
+                encode_refinement_member(writer, abstract_key)?;
+                writer.name("profile")?;
+                writer.serialize(profile)?;
+                writer.name("populations")?;
+                encode_refinement_member(writer, populations)?;
+                writer.name("objects")?;
+                encode_refinement_member(writer, objects)?;
+                writer.name("steps")?;
+                encode_refinement_member(writer, steps)?;
+                writer.name("histories")?;
+                encode_refinement_member(writer, histories)?;
+                writer.name("assume")?;
+                encode_refinement_member(writer, assume)?;
+                writer.name("ensure")?;
+                encode_refinement_member(writer, ensure)?;
+                if let Some(protocol) = protocol {
+                    writer.name("protocol")?;
+                    encode_refinement_member(writer, protocol)?;
+                }
+                if let Some(internal) = abstract_internal {
+                    writer.name("abstract_internal")?;
+                    writer.serialize(internal)?;
+                }
             }
             Self::ExtensionForm {
                 definition,
@@ -922,6 +1028,7 @@ mod tests {
                 CheckedTerm::Application { .. } => "application",
                 CheckedTerm::Frame { .. } => "frame",
                 CheckedTerm::AbstractionRelation { .. } => "abstraction_relation",
+                CheckedTerm::Refinement { .. } => "refinement",
                 CheckedTerm::ExtensionForm { .. } => "extension_form",
             };
             assert_eq!(actual, expected);

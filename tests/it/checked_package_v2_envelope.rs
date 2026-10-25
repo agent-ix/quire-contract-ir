@@ -67,7 +67,10 @@ fn encode(value: &Value, limits: Limits) -> Result<Vec<u8>, Error> {
         &package_id,
         &lock,
         &graph,
-        &source_map,
+        quire_contract_model::CheckedPackageSourceCorrespondenceRef {
+            source_map: &source_map,
+            refinement_step_rows: None,
+        },
         &capabilities,
         &diagnostics,
         limits,
@@ -255,7 +258,10 @@ fn tc_451_borrowed_projection_can_differ_from_the_supplied_graph() {
         &package_id,
         &lock,
         &graph,
-        &source_map,
+        quire_contract_model::CheckedPackageSourceCorrespondenceRef {
+            source_map: &source_map,
+            refinement_step_rows: None,
+        },
         &capabilities,
         &diagnostics,
         Limits::new(u64::MAX),

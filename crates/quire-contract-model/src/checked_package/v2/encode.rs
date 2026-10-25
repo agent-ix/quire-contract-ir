@@ -160,6 +160,27 @@ impl Encode for GroupBody<'_> {
 /// relation node preimage (QSpec FR-451, FR-346).
 pub(super) const ABSTRACTION_NODE_VERSION: &str = "quire.abstraction-relation-node/v1";
 
+/// The dedicated closed refinement-node identity domain of QSpec FR-375.
+pub(super) const REFINEMENT_NODE_VERSION: &str = "quire.refinement-node/v1";
+
+/// The refinement preimage includes the concrete model semantic type even
+/// when all six row arrays are empty.
+pub(super) struct RefinementNodePreimage<'a> {
+    pub(super) semantic_type: &'a CheckedNodeId,
+    pub(super) body: &'a Value,
+}
+
+impl Encode for RefinementNodePreimage<'_> {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("version")?;
+        writer.string(REFINEMENT_NODE_VERSION)?;
+        member(writer, "semantic_type", self.semantic_type)?;
+        value(writer, "body", self.body)?;
+        writer.end_object()
+    }
+}
+
 /// QSpec FR-451's preimage of a `correspondence`/`abstraction_relation`
 /// node: `{version, body}`. The node key is the SHA-256 of its canonical
 /// bytes, so every binding of the body is part of the key.

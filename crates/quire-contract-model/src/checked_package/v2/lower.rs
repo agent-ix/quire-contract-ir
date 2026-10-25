@@ -1213,7 +1213,8 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             RelationForm::Relationship
             | RelationForm::Population
             | RelationForm::Membership
-            | RelationForm::CausalRelation,
+            | RelationForm::CausalRelation
+            | RelationForm::Refinement,
         ) => false,
         K::State(
             StateForm::StateClause

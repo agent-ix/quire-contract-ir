@@ -357,7 +357,8 @@ impl NominalKind {
                 RelationForm::Relationship
                 | RelationForm::Population
                 | RelationForm::Membership
-                | RelationForm::CausalRelation,
+                | RelationForm::CausalRelation
+                | RelationForm::Refinement,
             ) => None,
             K::State(
                 StateForm::StateClause

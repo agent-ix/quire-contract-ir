@@ -320,6 +320,7 @@ fn charge_terms(
             | CheckedTerm::DependencyReference { .. }
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. } => None,
+            CheckedTerm::Refinement { .. } => None,
         };
         if let Some((name, children)) = children {
             for (ordinal, child) in children.iter().enumerate().rev() {
@@ -388,6 +389,9 @@ pub(super) fn validate_derived_keys(
         let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
             continue;
         };
+        if kind == CheckedNodeKind::Relation(super::RelationForm::Refinement) {
+            continue;
+        }
         if node.nominal_identity_preimage.is_some()
             || super::operations::has_application_key_admitted(
                 terms.get(position).and_then(Option::as_ref),
