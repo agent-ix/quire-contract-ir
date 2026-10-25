@@ -43,3 +43,15 @@ Fix round 1, PR head `9303fed058aaa38008d8d43f687d7bc72ae1b97e`:
 | FND-001 | fixed | `self_object_key` now charges one work unit for each population and member before inspecting it, propagates `ValidationFailure`, and `terminal_self_population_scan_obeys_work_limit` observes `Work` incomplete at the terminal `parameters` binding. After excerpt: `for members in owner.package.population_members.values() { meter.charge(1, || binding_path(position, 2))?; for object in members { meter.charge(1, || binding_path(position, 2))?;` |
 
 The code-review finding is resolved at this head. Final aggregate gates remain with the lead.
+
+## New findings (disposition pass 2)
+
+At PR head `7ca9a4d8218be042a5d90873ec08e15c833653cb`:
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | high | QSpec FR-322 says a `protocol`/`protocol_reference` carrier's typed target join runs in the declaration step before frame, state and body steps. The reader calls `validate_protocol_references` after terminal validation, and the new mixed test asserts that a bad terminal wins over an independently malformed carrier. With both defects present, the reader returns the terminal's `invalid_package` instead of the earlier carrier's `ill_typed`/`operator-ineligible` at `/body/target`. Move the carrier target join to the specified declaration point, preserving its earlier graph-shape and key checks; then use a genuine later body form for terminal precedence coverage. | crates/quire-contract-model/src/checked_package/v2/mod.rs:2630; tests/it/checked_package_v2_claim_terminal.rs:1391 |
+
+## Current verdict
+
+FAIL at `7ca9a4d8`: FND-002 is open. FND-001 remains fixed.

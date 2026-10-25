@@ -47,3 +47,11 @@ Fix round 1, PR head `9303fed058aaa38008d8d43f687d7bc72ae1b97e`:
 | FND-003 | still-open | The new vectors prove temporal and abstraction defects run before terminal, and a terminal defect runs before the operation step. The last control mutates a function operation identity (`terminal_before_operations`). An operation is a later operation step, not a later body step. FR-060-AC-3 also requires terminal before step-relation and later body-step defects; exercise at least one admitted later body form (hybrid, timed-model, protocol or schedulability) with its own defect. |
 
 The gap-analysis verdict remains CONDITIONAL until FND-003 is resolved.
+
+Fix round 2, PR head `7ca9a4d8218be042a5d90873ec08e15c833653cb`:
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-003 | still-open | The new mixed vector uses `protocol`/`protocol_reference`, whose target join QSpec FR-322 assigns to the earlier declaration step. It is not a later protocol body-step defect. The test currently expects terminal to win, contrary to that order. Use a malformed later body form after the carrier ordering is corrected. |
+
+The current gap-analysis verdict remains CONDITIONAL at `7ca9a4d8`.
