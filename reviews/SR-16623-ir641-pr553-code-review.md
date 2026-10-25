@@ -33,3 +33,7 @@ Independent diff-scoped code and Rust review of draft PR #553. The four-file dif
 ## Verdict
 
 PASS for the diff-scoped code and Rust review of draft head beb1975f6b297edc8c8eabf3044b551aa3d55e34. Final FR-055-AC-1/5 qualification and merge remain dependent on the released installed CLI and a final-head gate.
+
+## Continuation at 35d44745fbc157b8f8426ca9bcc0c19f23bec808
+
+The new `.github/workflows/ci.yml` install uses the exact quire-cli source revision `374d50853331bf7bc86a991a2caa107a9a49442f` with `cargo install --locked`. The Rust Checks job supplies its binary only to `make test` through `QUIRE_LOCK_CHECKER`; the Supply-chain Checks job supplies its binary only to `make deny` through `QUIRE`. Both use a separate `${{ runner.temp }}/quire-check-lock` root, so the fleet `quire` on `PATH` remains available to the spec recipe. The supply-chain job still runs cargo-deny and cargo-audit. No source or binary copy was introduced. The hosted jobs were still in progress at this continuation review, so no hosted result is claimed here. The released-binary mismatch is recorded by the separate gap-analysis artifact SR-16624.

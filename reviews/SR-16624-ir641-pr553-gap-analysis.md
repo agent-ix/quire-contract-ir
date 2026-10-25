@@ -33,3 +33,23 @@ Planless incremental requirement, trace, test, and source analysis for the FR-05
 ## Verdict
 
 PASS for incremental FR-055 trace and test causality at the draft head. Released checker installation and final-head gate are outstanding.
+
+## Continuation at 35d44745fbc157b8f8426ca9bcc0c19f23bec808
+
+The workflow addition installs the authoritative Quire source at a full revision in both hosted jobs and directs the normal test and deny recipes to the installed binary. This preserves the owner algorithm, but the installed artifact is compiled from an unreleased source commit. FR-055-AC-1, the Description, Qualification Status, and Consumer Verification Plan explicitly require a **released** command/binary. The installed fleet `quire` still lacks `check-lock`; the source installation therefore cannot satisfy that qualification condition. No acceptance criterion has been edited. The PR remains draft pending released-binary qualification or a first-hand owner decision that changes the written requirement.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | high | Pinned source install does not satisfy FR-055-AC-1's released-binary requirement | .github/workflows/ci.yml:29 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-002 | still-open | The workflow installs an unreleased source revision and the fleet released Quire CLI does not provide check-lock. |
+
+## Continuation verdict
+
+FAIL for FR-055-AC-1 qualification at this head. The source install and consumer wiring may be functionally correct, but the released-binary requirement remains unmet.
