@@ -69,3 +69,7 @@ PASS at `2c102b47`. Every gap-analysis finding has a verified fixed disposition.
 ## Final gate regression re-review
 
 At `0add8e8e`, the intake-only loop change leaves the FR-059, FR-060 and FR-062 vectors and their trace tags unchanged. The existing FR-038-AC-117 flat-wire test covers the exact 256 KiB stack regression, and the coder's focused log reports it passes with all 16 flat-wire tests. An isolated depth-61 diagnostic-details control also passed on the 256 KiB stack. No new coverage finding was established. PASS; the final aggregate gate belongs to the lead.
+
+## Public API inventory re-review
+
+At `0eb8a1b5`, the only new diff is the FR-019 inventory row for the exported `CheckedTerminalDuplicate` type, with FR-062 ownership. This aligns the public inventory with FR-062-AC-4 and the existing public-consumer test; it changes no FR-059, FR-060 or FR-062 acceptance text or vectors. The focused public-interface inventory test passed in the coder's report. No new gap finding was established. PASS remains the gap-analysis disposition.

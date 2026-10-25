@@ -75,3 +75,7 @@ At PR head `0add8e8ecd3579e32b7fb4a1432a70518c9af1db`, the only code delta since
 The prior final gate at `8749838f` aborted in `tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse` on its 256 KiB stack. The coder's focused log reports that this exact test and all 16 flat-wire tests pass after the loop change, along with formatting, model Clippy and diff check. I independently changed only the diagnostic-details depth from 50 to 61 in a disposable worktree at `0add8e8e`; `tc_048_a_deep_details_term_within_the_parse_limit_refuses_at_the_grammar` passed on the same 256 KiB test stack. The disposable worktree was removed. No new finding was established.
 
 PASS at `0add8e8e` for the reviewed code diff. The final aggregate gate belongs to the lead.
+
+## Public API inventory re-review
+
+At frozen PR head `0eb8a1b547fda8a03ee822b4a240b72e55189692`, the sole change after the prior PASS is one FR-019 Public items table row: `CheckedTerminalDuplicate` is listed under `checked_package` with FR-062 ownership. The enum is public in `checked_package/shared.rs`, is re-exported at the `quire_contract_model` crate root, and is required by FR-062-AC-4's public-consumer obligation. The change adds no behavior or narrower acceptance condition. The focused public-interface inventory test, formatting and diff check passed in the coder's report; the aggregate diff check passed independently. PASS remains the code-review disposition.
