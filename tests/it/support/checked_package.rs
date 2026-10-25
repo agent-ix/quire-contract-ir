@@ -1178,6 +1178,9 @@ pub fn family_key(prefix: &str) -> String {
             &["Example", "OrderFlow"],
             &protocol_control_body(),
         ),
+        "p-run" => protocol_run_key(),
+        "p-finish" => protocol_finish_key(),
+        "p-close" => closing_parameter_key(),
         "6060" => application_key(
             "claim",
             "verification_claim",
