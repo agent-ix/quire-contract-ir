@@ -2020,7 +2020,6 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
         "variant_type",
         "record_value_type",
         "event_type",
-        "state_machine",
         "process",
         "persistence_interface",
         "namespace",
@@ -2070,6 +2069,13 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
         rekey_declared_all_families(&mut value);
         admitted(&value);
     }
+    // This form needs a selected model declaration and owner, unlike the
+    // anonymous node used for the other vocabulary controls.
+    let (state_machine, evidence) = crate::checked_package_v2_refinement::machine_package();
+    assert!(matches!(
+        read(&state_machine, &evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
     let mut export = base.clone();
     export["semantic_graph"]["nodes"][model]["semantic_form"] = json!("model_export");
     refresh_identity(&mut export);

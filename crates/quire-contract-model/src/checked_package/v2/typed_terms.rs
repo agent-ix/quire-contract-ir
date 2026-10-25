@@ -15,17 +15,6 @@ use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{error::Category, Value};
 
-fn encode_refinement_member<T: Serialize, S: Sink + ?Sized>(
-    writer: &mut Writer<'_, S>,
-    value: &T,
-) -> Result<(), Error> {
-    // Refinement row depth is bounded by FR-322's SemanticTerm grammar. The
-    // typed row may contain a term, so it cannot implement FixedShape.
-    serde_json::to_value(value)
-        .expect("an admitted typed refinement member serializes")
-        .encode_into(writer)
-}
-
 /// An admitted binding name with the closed contextual names decoded once.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CheckedBindingName {
@@ -413,11 +402,7 @@ impl CheckedTerm {
                 }
             }
             Self::Refinement { .. } => {
-                let mut raw =
-                    serde_json::to_value(&*self).expect("an admitted typed refinement serializes");
-                replace_node_ids_in_value(&mut raw, old, new);
-                *self = serde_json::from_value(raw)
-                    .expect("replacing a valid node key preserves refinement shape");
+                super::refinement::replace_node_ids(self, old, new);
             }
         }
     }
@@ -694,24 +679,24 @@ impl Encode for CheckedTerm {
                 writer.name("term")?;
                 writer.string("refinement")?;
                 writer.name("abstract")?;
-                encode_refinement_member(writer, abstract_key)?;
+                writer.serialize(abstract_key.as_ref())?;
                 writer.name("profile")?;
                 writer.serialize(profile)?;
                 writer.name("populations")?;
-                encode_refinement_member(writer, populations)?;
+                writer.serialize(populations)?;
                 writer.name("objects")?;
-                encode_refinement_member(writer, objects)?;
+                super::refinement::encode_rows(objects, writer)?;
                 writer.name("steps")?;
-                encode_refinement_member(writer, steps)?;
+                super::refinement::encode_rows(steps, writer)?;
                 writer.name("histories")?;
-                encode_refinement_member(writer, histories)?;
+                super::refinement::encode_rows(histories, writer)?;
                 writer.name("assume")?;
-                encode_refinement_member(writer, assume)?;
+                writer.serialize(assume)?;
                 writer.name("ensure")?;
-                encode_refinement_member(writer, ensure)?;
+                writer.serialize(ensure)?;
                 if let Some(protocol) = protocol {
                     writer.name("protocol")?;
-                    encode_refinement_member(writer, protocol)?;
+                    writer.serialize(protocol.as_ref())?;
                 }
                 if let Some(internal) = abstract_internal {
                     writer.name("abstract_internal")?;
@@ -719,7 +704,7 @@ impl Encode for CheckedTerm {
                 }
                 if let Some(catalog) = class_catalog {
                     writer.name("class_catalog")?;
-                    encode_refinement_member(writer, catalog)?;
+                    writer.serialize(catalog)?;
                 }
             }
             Self::ExtensionForm {
@@ -1009,6 +994,31 @@ mod tests {
         let abstraction = json!({
             "term":"abstraction_relation","objects":[],"populations":[],"frames":[]
         });
+        let refinement = json!({
+            "term":"refinement", "abstract":node,
+            "profile":{"authority":"test","identity":"trace"},
+            "populations":[{"abstract":node,"concrete":node}],
+            "objects":[{"abstract_type":node,"concrete_type":node,
+                "fields":[{"name":"history","expression":reference}]}],
+            "steps":[
+                {"source_class":"finish","source_node":node,"target":{
+                    "kind":"operation","operation":node,"receiver":reference,
+                    "arguments":[{"term":"open"},reference]}},
+                {"source_class":"memory flush","target":{
+                    "kind":"protocol_step","class":"memory flush",
+                    "arguments":[{"term":"open"}]}},
+                {"source_class":"memory read","target":{"kind":"stutter"}},
+                {"source_class":"memory write","target":{"kind":"any"}}
+            ],
+            "histories":[{"concrete_type":node,"name":"history","type":node,
+                "initial":literal,"updates":[{"operation":node,"expression":reference}]}],
+            "assume":[{"operation":node,"kind":"weak","granularity":"each"}],
+            "ensure":[{"operation":node,"kind":"strong","granularity":"whole"}],
+            "protocol":node,"abstract_internal":["history"],
+            "class_catalog":{"concrete":[{"class":"finish","node":node,
+                "binder_types":[node]},{"class":"memory flush","memory_model":"sc"}],
+                "abstract":[{"class":"finish","node":node,"binder_types":[node]}]}
+        });
         let extension = json!({
             "term":"extension_form",
             "definition":{"authority":"test","identity":"extension"},
@@ -1024,6 +1034,7 @@ mod tests {
             (application, "application"),
             (frame, "frame"),
             (abstraction, "abstraction_relation"),
+            (refinement, "refinement"),
             (extension, "extension_form"),
         ] {
             let term = CheckedTerm::decode_admitted(&body).expect("closed term");
@@ -1091,5 +1102,31 @@ mod tests {
             "b".repeat(64)
         );
         assert_eq!(wire["members"][1]["value"], "plain text");
+
+        let mut refinement: CheckedTerm = serde_json::from_value(json!({
+            "term":"refinement", "abstract":old,
+            "profile":{"authority":"test","identity":"trace"},
+            "populations":[],"objects":[],
+            "steps":[{"source_class":"finish","source_node":old,
+                "target":{"kind":"stutter"}}],
+            "histories":[],"assume":[],"ensure":[],
+            "class_catalog":{"concrete":[{"class":"finish","node":old,
+                "binder_types":[old]}],"abstract":[]}
+        }))
+        .expect("typed refinement");
+        refinement.replace_node_id(&old, &replacement);
+        let wire = serde_json::to_value(&refinement).expect("refinement serializes");
+        let replacement_wire = serde_json::to_value(&replacement).expect("node serializes");
+        assert_eq!(wire["abstract"], replacement_wire);
+        assert_eq!(wire["steps"][0]["source_node"], replacement_wire);
+        assert_eq!(
+            wire["class_catalog"]["concrete"][0]["node"],
+            replacement_wire
+        );
+        assert_eq!(
+            wire["class_catalog"]["concrete"][0]["binder_types"][0],
+            replacement_wire
+        );
+        assert_eq!(wire["steps"][0]["source_class"], "finish");
     }
 }

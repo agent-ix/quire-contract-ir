@@ -13,7 +13,7 @@ use crate::checked_package::shared::{
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
-use quire_canonical::FixedShape;
+use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -67,7 +67,7 @@ pub(super) fn stale_refinement_key(
 }
 
 /// A refinement target is either a local node or a node in a directly selected package.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(untagged)]
 pub enum RefinementKey {
     /// A declaration in this graph.
@@ -77,7 +77,7 @@ pub enum RefinementKey {
 }
 
 /// A node of a directly selected dependency package.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct RefinementPackageNodeKey {
     /// The selected package identity.
@@ -87,7 +87,7 @@ pub struct RefinementPackageNodeKey {
 }
 
 /// One abstract and concrete population pair.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct RefinementPopulation {
     /// Abstract population.
@@ -129,7 +129,7 @@ pub enum RefinementStepArgument {
 }
 
 /// The exact step-argument-only open term.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct RefinementOpen {
     /// Always `open`.
@@ -186,7 +186,7 @@ pub struct RefinementStep {
 }
 
 /// Checked classes of the selected concrete and abstract subjects.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct RefinementClassCatalog {
     /// Concrete operation, protocol and memory classes.
@@ -196,7 +196,7 @@ pub struct RefinementClassCatalog {
 }
 
 /// A concrete class with a declaration or a source-default memory step.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum RefinementConcreteClass {
     /// A class backed by a local declaration node.
@@ -213,7 +213,7 @@ pub enum RefinementConcreteClass {
 }
 
 /// An abstract class with a declaration or a source-default memory step.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum RefinementAbstractClass {
     /// A class backed by a selected declaration node.
@@ -230,7 +230,7 @@ pub enum RefinementAbstractClass {
 }
 
 /// One memory step defined by a selected source-default memory model.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct RefinementMemoryClass {
     /// Alias-free `memory <kind>` spelling.
@@ -240,7 +240,7 @@ pub struct RefinementMemoryClass {
 }
 
 /// Closed source-default memory model vocabulary.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(rename_all = "snake_case")]
 pub enum RefinementMemoryModel {
     /// Sequential consistency.
@@ -299,7 +299,9 @@ pub struct RefinementHistory {
 }
 
 /// Fairness strength.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize, FixedShape,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum RefinementFairnessKind {
     /// Weak fairness.
@@ -309,7 +311,9 @@ pub enum RefinementFairnessKind {
 }
 
 /// Fairness granularity.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize, FixedShape,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum RefinementGranularity {
     /// Per-instance fairness.
@@ -319,7 +323,7 @@ pub enum RefinementGranularity {
 }
 
 /// One concrete fairness assumption.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct RefinementAssume {
     /// Concrete operation.
@@ -331,7 +335,7 @@ pub struct RefinementAssume {
 }
 
 /// One abstract fairness guarantee.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct RefinementEnsure {
     /// Abstract operation.
@@ -340,6 +344,256 @@ pub struct RefinementEnsure {
     pub kind: RefinementFairnessKind,
     /// Per-instance or whole-operation fairness.
     pub granularity: RefinementGranularity,
+}
+
+/// Encode bounded refinement rows through the canonical writer, including
+/// nested semantic terms whose shape is not fixed at the Rust type level.
+pub(super) fn encode_rows<T: Encode, S: Sink + ?Sized>(
+    rows: &[T],
+    writer: &mut Writer<'_, S>,
+) -> Result<(), Error> {
+    writer.begin_array()?;
+    for row in rows {
+        row.encode_into(writer)?;
+    }
+    writer.end_array()
+}
+
+impl Encode for RefinementField {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("name")?;
+        writer.string(&self.name)?;
+        writer.name("expression")?;
+        self.expression.encode_into(writer)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for RefinementObject {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("abstract_type")?;
+        writer.serialize(&self.abstract_type)?;
+        writer.name("concrete_type")?;
+        writer.serialize(&self.concrete_type)?;
+        writer.name("fields")?;
+        encode_rows(&self.fields, writer)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for RefinementStepArgument {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        match self {
+            Self::Open(open) => writer.serialize(open),
+            Self::Term(term) => term.encode_into(writer),
+        }
+    }
+}
+
+impl Encode for RefinementStepTarget {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("kind")?;
+        match self {
+            Self::Operation {
+                operation,
+                receiver,
+                arguments,
+            } => {
+                writer.string("operation")?;
+                writer.name("operation")?;
+                writer.serialize(operation)?;
+                writer.name("receiver")?;
+                receiver.encode_into(writer)?;
+                writer.name("arguments")?;
+                encode_rows(arguments, writer)?;
+            }
+            Self::ProtocolStep {
+                class,
+                node,
+                arguments,
+            } => {
+                writer.string("protocol_step")?;
+                writer.name("class")?;
+                writer.string(class)?;
+                if let Some(node) = node {
+                    writer.name("node")?;
+                    writer.serialize(node)?;
+                }
+                writer.name("arguments")?;
+                encode_rows(arguments, writer)?;
+            }
+            Self::Stutter => writer.string("stutter")?,
+            Self::Any => writer.string("any")?,
+        }
+        writer.end_object()
+    }
+}
+
+impl Encode for RefinementStep {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("source_class")?;
+        writer.string(&self.source_class)?;
+        if let Some(node) = &self.source_node {
+            writer.name("source_node")?;
+            writer.serialize(node)?;
+        }
+        writer.name("target")?;
+        self.target.encode_into(writer)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for RefinementHistoryUpdate {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("operation")?;
+        writer.serialize(&self.operation)?;
+        writer.name("expression")?;
+        self.expression.encode_into(writer)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for RefinementHistory {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("concrete_type")?;
+        writer.serialize(&self.concrete_type)?;
+        writer.name("name")?;
+        writer.string(&self.name)?;
+        writer.name("type")?;
+        writer.serialize(&self.type_id)?;
+        writer.name("initial")?;
+        self.initial.encode_into(writer)?;
+        writer.name("updates")?;
+        encode_rows(&self.updates, writer)?;
+        writer.end_object()
+    }
+}
+
+/// Retarget a draft refinement's typed node references without projecting
+/// the admitted body through an untyped JSON encoder.
+pub(super) fn replace_node_ids(body: &mut CheckedTerm, old: &CheckedNodeId, new: &CheckedNodeId) {
+    fn replace(id: &mut CheckedNodeId, old: &CheckedNodeId, new: &CheckedNodeId) {
+        if id == old {
+            *id = new.clone();
+        }
+    }
+    fn replace_key(key: &mut RefinementKey, old: &CheckedNodeId, new: &CheckedNodeId) {
+        match key {
+            RefinementKey::Local(id) => replace(id, old, new),
+            RefinementKey::External(external) => replace(&mut external.node, old, new),
+        }
+    }
+    fn replace_arguments(
+        arguments: &mut [RefinementStepArgument],
+        old: &CheckedNodeId,
+        new: &CheckedNodeId,
+    ) {
+        for argument in arguments {
+            if let RefinementStepArgument::Term(term) = argument {
+                term.replace_node_id(old, new);
+            }
+        }
+    }
+    let CheckedTerm::Refinement {
+        abstract_key,
+        populations,
+        objects,
+        steps,
+        histories,
+        assume,
+        ensure,
+        protocol,
+        class_catalog,
+        ..
+    } = body
+    else {
+        return;
+    };
+    replace_key(abstract_key, old, new);
+    for row in populations {
+        replace_key(&mut row.r#abstract, old, new);
+        replace(&mut row.concrete, old, new);
+    }
+    for row in objects {
+        replace_key(&mut row.abstract_type, old, new);
+        replace(&mut row.concrete_type, old, new);
+        for field in &mut row.fields {
+            field.expression.replace_node_id(old, new);
+        }
+    }
+    for row in steps {
+        if let Some(node) = &mut row.source_node {
+            replace(node, old, new);
+        }
+        match &mut row.target {
+            RefinementStepTarget::Operation {
+                operation,
+                receiver,
+                arguments,
+            } => {
+                replace_key(operation, old, new);
+                receiver.replace_node_id(old, new);
+                replace_arguments(arguments, old, new);
+            }
+            RefinementStepTarget::ProtocolStep {
+                node, arguments, ..
+            } => {
+                if let Some(node) = node {
+                    replace_key(node, old, new);
+                }
+                replace_arguments(arguments, old, new);
+            }
+            RefinementStepTarget::Stutter | RefinementStepTarget::Any => {}
+        }
+    }
+    for row in histories {
+        replace(&mut row.concrete_type, old, new);
+        replace(&mut row.type_id, old, new);
+        row.initial.replace_node_id(old, new);
+        for update in &mut row.updates {
+            replace(&mut update.operation, old, new);
+            update.expression.replace_node_id(old, new);
+        }
+    }
+    for row in assume {
+        replace(&mut row.operation, old, new);
+    }
+    for row in ensure {
+        replace_key(&mut row.operation, old, new);
+    }
+    if let Some(protocol) = protocol {
+        replace_key(protocol, old, new);
+    }
+    if let Some(catalog) = class_catalog {
+        for entry in &mut catalog.concrete {
+            if let RefinementConcreteClass::Declared {
+                node, binder_types, ..
+            } = entry
+            {
+                replace(node, old, new);
+                for binder in binder_types {
+                    replace(binder, old, new);
+                }
+            }
+        }
+        for entry in &mut catalog.r#abstract {
+            if let RefinementAbstractClass::Declared {
+                node, binder_types, ..
+            } = entry
+            {
+                replace_key(node, old, new);
+                for binder in binder_types {
+                    replace_key(binder, old, new);
+                }
+            }
+        }
+    }
 }
 
 fn invalid(at: &Trail<'_>) -> ValidationFailure {

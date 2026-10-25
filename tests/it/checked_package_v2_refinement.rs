@@ -36,7 +36,7 @@ fn model_document() -> Value {
     })
 }
 
-fn machine_package() -> (Value, CheckedPackageEvidence) {
+pub(super) fn machine_package() -> (Value, CheckedPackageEvidence) {
     let mut package = v2_nominal();
     let document = model_document();
     let digest = sha256_hex(&canonical(&document));

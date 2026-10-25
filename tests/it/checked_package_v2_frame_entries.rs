@@ -789,7 +789,6 @@ fn tc_056_exactly_fifteen_model_forms_admit() {
         "variant_type",
         "record_value_type",
         "event_type",
-        "state_machine",
         "process",
         "persistence_interface",
         "namespace",
@@ -801,6 +800,17 @@ fn tc_056_exactly_fifteen_model_forms_admit() {
     ] {
         admits(&with_form(form));
     }
+    // A state machine is owner dependent: use a selected declaration rather
+    // than changing only the form of the anonymous all-family node.
+    let (state_machine, evidence) = crate::checked_package_v2_refinement::machine_package();
+    assert!(matches!(
+        CheckedPackageV2::read(
+            &canonical(&state_machine),
+            CheckedPackageReadLimits::bounded(),
+            &evidence
+        ),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
     for form in [
         "field_declaration",
         "operation_declaration",
