@@ -1385,6 +1385,29 @@ fn graph_shape_then_state_graph_then_terminal_order() {
         Some(Cause::InvalidValue),
         "/body/members/0",
     );
+    let wrong_protocol_target = family_key("aaaa");
+    let mut bad_protocol_reference = node(
+        "protocol",
+        "protocol_reference",
+        reference(&wrong_protocol_target),
+        std::slice::from_ref(&wrong_protocol_target),
+    );
+    bad_protocol_reference["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
+    let bad_protocol_only = package_with(bad_protocol_reference.clone());
+    refused(
+        &bad_protocol_only,
+        Code::IllTyped,
+        Some(Cause::OperatorIneligible),
+        "/body/target",
+    );
+    let terminal_before_protocol =
+        package_with_nodes(vec![bad_terminal.clone(), bad_protocol_reference]);
+    refused(
+        &terminal_before_protocol,
+        Code::InvalidPackage,
+        Some(Cause::InvalidValue),
+        "/body/members/1",
+    );
     let mut terminal_before_operations = package_with(bad_terminal);
     let function_position = terminal_before_operations["semantic_graph"]["nodes"]
         .as_array()
