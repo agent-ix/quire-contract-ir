@@ -55,3 +55,13 @@ Fix round 2, PR head `7ca9a4d8218be042a5d90873ec08e15c833653cb`:
 | FND-003 | still-open | The new mixed vector uses `protocol`/`protocol_reference`, whose target join QSpec FR-322 assigns to the earlier declaration step. It is not a later protocol body-step defect. The test currently expects terminal to win, contrary to that order. Use a malformed later body form after the carrier ordering is corrected. |
 
 The current gap-analysis verdict remains CONDITIONAL at `7ca9a4d8`.
+
+Fix round 3, PR head `2c102b478f40c569c451b386e19e74ce199fccbe`:
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-003 | fixed | The revised test first proves the malformed `hybrid`/`hybrid_model` alone reaches `hybrid::validate_models` and refuses `invalid_model_binding`/`malformed-declaration` at its variable target. The same malformed hybrid beside an invalid-mode terminal reports the terminal's `invalid_package`/`invalid-value` at `body/members/1`, verifying terminal-before-hybrid body-step precedence. The carrier-before-terminal control separately preserves FR-322's earlier declaration-step order. After excerpt: `let bad_hybrid_only = package_with(malformed_hybrid_model()); ... let terminal_before_hybrid = package_with_nodes(vec![bad_terminal.clone(), malformed_hybrid_model()]);` |
+
+## Final reviewed-head verdict
+
+PASS at `2c102b47`. Every gap-analysis finding has a verified fixed disposition. Final aggregate gates remain with the lead.

@@ -55,3 +55,15 @@ At PR head `7ca9a4d8218be042a5d90873ec08e15c833653cb`:
 ## Current verdict
 
 FAIL at `7ca9a4d8`: FND-002 is open. FND-001 remains fixed.
+
+## Dispositions (round 3)
+
+At PR head `2c102b478f40c569c451b386e19e74ce199fccbe`:
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-002 | fixed | `validate_protocol_references` now runs after graph-shape, key and declaration-name checks and before model-owner, extension, frame, state and body checks. The mixed vector now expects the carrier's `ill_typed`/`operator-ineligible` refusal before the terminal's invalid mode. The standalone carrier vector proves that defect independently. After excerpt: `validate_timed_bounds_reduced(&graph.nodes, &index, meter)?; validate_protocol_references(&graph.nodes, &kinds, &index)?;` |
+
+## Final reviewed-head verdict
+
+PASS at `2c102b47`. Both code-review findings are fixed. The coder's focused log reports formatting, model and integration-test Clippy, 11 terminal tests and 12 protocol-reference tests passed; `git diff --check` passed independently. Final aggregate gates remain with the lead.
