@@ -23,11 +23,14 @@ pub(super) enum ProtocolBodyDefect {
     LawUnselected,
     /// An argument name, position, or term shape differs from its layout.
     MalformedLayout,
+    /// A set repeats an entry or is not in ascending node-key order.
+    NoncanonicalSet,
 }
 
 #[derive(Clone, Copy)]
 enum Shape {
     Reference,
+    Term,
     Text,
     Integer,
     Boolean,
@@ -215,6 +218,12 @@ fn members(value: &CheckedTerm) -> Option<&[CheckedTerm]> {
 fn shape_fits(value: &CheckedTerm, shape: Shape) -> bool {
     match shape {
         Shape::Reference => matches!(value, CheckedTerm::Reference { .. }),
+        Shape::Term => matches!(
+            value,
+            CheckedTerm::Reference { .. }
+                | CheckedTerm::Literal { .. }
+                | CheckedTerm::DependencyReference { .. }
+        ),
         Shape::Text => matches!(
             value,
             CheckedTerm::Literal {
@@ -272,6 +281,202 @@ fn shape_fits(value: &CheckedTerm, shape: Shape) -> bool {
             })
         }),
     }
+}
+
+fn named_fields<'a>(term: &'a CheckedTerm, names: &[&str]) -> Option<Vec<&'a CheckedTerm>> {
+    let fields = members(term)?;
+    if fields.len() != names.len() {
+        return None;
+    }
+    fields
+        .iter()
+        .zip(names)
+        .map(|(field, expected)| match field {
+            CheckedTerm::Binding { name, value } if name.as_ref() == *expected => {
+                Some(value.as_ref())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn text_value(term: &CheckedTerm) -> Option<&str> {
+    match term {
+        CheckedTerm::Literal {
+            value_kind: LiteralKind::Text,
+            value,
+            ..
+        } => value.as_str(),
+        _ => None,
+    }
+}
+
+fn clause_activation_fits(term: &CheckedTerm) -> bool {
+    let Some(fields) = members(term) else {
+        return false;
+    };
+    let Some(CheckedTerm::Binding { name, value }) = fields.first() else {
+        return false;
+    };
+    if name.as_ref() != "kind" {
+        return false;
+    }
+    match text_value(value) {
+        Some("origin") => fields.len() == 1,
+        Some("each") => {
+            let expected = if fields.len() == 2 {
+                &["kind", "trigger"][..]
+            } else {
+                &["kind", "trigger", "guard"][..]
+            };
+            named_fields(term, expected).is_some_and(|values| {
+                shape_fits(values[1], Shape::Reference)
+                    && (values.len() == 2 || shape_fits(values[2], Shape::Boolean))
+            })
+        }
+        _ => false,
+    }
+}
+
+fn clause_details_fit(arguments: &[CheckedTerm]) -> bool {
+    let Some(activation) = argument(arguments, 1) else {
+        return false;
+    };
+    let captures_fit = argument(arguments, 2)
+        .and_then(members)
+        .is_some_and(|captures| {
+            captures.iter().all(|record| {
+                group_fields_fit(
+                    record,
+                    &[("binder", Shape::Reference), ("initializer", Shape::Term)],
+                )
+            })
+        });
+    let scheduling_fit = argument(arguments, 10)
+        .and_then(members)
+        .is_some_and(|values| {
+            matches!(values, [] | [CheckedTerm::Literal { .. }])
+                && values
+                    .first()
+                    .is_none_or(|value| text_value(value) == Some("adversarial"))
+        });
+    clause_activation_fits(activation) && captures_fit && scheduling_fit
+}
+
+fn reference_set_is_ordered(term: &CheckedTerm) -> bool {
+    members(term).is_some_and(|items| {
+        items.windows(2).all(|pair| match pair {
+            [CheckedTerm::Reference { target: left }, CheckedTerm::Reference { target: right }] => {
+                left.digest.as_bytes() < right.digest.as_bytes()
+            }
+            _ => false,
+        })
+    })
+}
+
+fn argument(arguments: &[CheckedTerm], position: usize) -> Option<&CheckedTerm> {
+    match arguments.get(position)? {
+        CheckedTerm::Binding { value, .. } => Some(value),
+        _ => None,
+    }
+}
+
+fn group_fields_fit(term: &CheckedTerm, fields: &[(&str, Shape)]) -> bool {
+    let names: Vec<&str> = fields.iter().map(|(name, _)| *name).collect();
+    named_fields(term, &names).is_some_and(|values| {
+        values
+            .iter()
+            .zip(fields)
+            .all(|(value, (_, shape))| shape_fits(value, *shape))
+    })
+}
+
+fn local_details_fit(form: ProtocolForm, operator: &str, arguments: &[CheckedTerm]) -> bool {
+    match (form, operator) {
+        (ProtocolForm::ProtocolClause, "protocol") => clause_details_fit(arguments),
+        (ProtocolForm::Role, "role") => {
+            let Some(replication) = argument(arguments, 1) else {
+                return false;
+            };
+            members(replication).is_some_and(|fields| fields.is_empty())
+                || group_fields_fit(
+                    replication,
+                    &[
+                        ("population", Shape::Text),
+                        ("max", Shape::Integer),
+                        ("binder", Shape::Reference),
+                        ("lifetime", Shape::Text),
+                    ],
+                ) && matches!(argument_text(replication, 3), Some("workflow" | "scope"))
+                || group_fields_fit(
+                    replication,
+                    &[
+                        ("population", Shape::Text),
+                        ("max", Shape::Integer),
+                        ("binder", Shape::Reference),
+                        ("lifetime", Shape::Text),
+                        ("until", Shape::Boolean),
+                    ],
+                ) && argument_text(replication, 3) == Some("until")
+        }
+        (ProtocolForm::Channel, "channel") => {
+            let delivery = argument(arguments, 4).and_then(text_value);
+            matches!(
+                delivery,
+                Some("unknown" | "at-most-once" | "at-least-once" | "exactly-once-premise")
+            ) && argument(arguments, 3).is_some_and(|ordering| {
+                group_fields_fit(ordering, &[("kind", Shape::Text)])
+                    && argument_text(ordering, 0) == Some("unordered")
+                    || group_fields_fit(
+                        ordering,
+                        &[
+                            ("kind", Shape::Text),
+                            ("binder", Shape::Reference),
+                            ("key", Shape::Term),
+                        ],
+                    ) && argument_text(ordering, 0) == Some("fifo")
+            })
+        }
+        (ProtocolForm::Queue, "queue") => {
+            let Some(capacity) = argument(arguments, 1) else {
+                return false;
+            };
+            let capacity_fits = group_fields_fit(
+                capacity,
+                &[("kind", Shape::Text), ("value", Shape::Integer)],
+            ) && argument_text(capacity, 0) == Some("literal")
+                || group_fields_fit(capacity, &[("kind", Shape::Text), ("name", Shape::Text)])
+                    && argument_text(capacity, 0) == Some("symbolic");
+            let overflow = argument(arguments, 2).and_then(text_value);
+            let loss = argument(arguments, 3).and_then(members);
+            capacity_fits
+                && match (overflow, loss) {
+                    (Some("reject" | "block"), Some([])) => true,
+                    (Some("loss"), Some([selector])) => {
+                        matches!(text_value(selector), Some("head" | "tail" | "new"))
+                    }
+                    _ => false,
+                }
+        }
+        (ProtocolForm::Obligation, "terminal") => {
+            let mode = argument(arguments, 0).and_then(text_value);
+            let condition = argument(arguments, 1).and_then(members);
+            matches!(
+                (mode, condition),
+                (Some("any"), Some([])) | (Some("when"), Some([_]))
+            )
+        }
+        _ => true,
+    }
+}
+
+fn argument_text(term: &CheckedTerm, position: usize) -> Option<&str> {
+    members(term)?
+        .get(position)
+        .and_then(|member| match member {
+            CheckedTerm::Binding { value, .. } => text_value(value),
+            _ => None,
+        })
 }
 
 /// Checks the shared protocol application envelope and the fixed outer layout.
@@ -352,6 +557,16 @@ pub(super) fn validate_protocol_body(
     {
         return Err(D::MalformedLayout);
     }
+    if !local_details_fit(form, operator, arguments) {
+        return Err(D::MalformedLayout);
+    }
+    if form == ProtocolForm::ProtocolClause
+        && (3..=8).any(|position| {
+            argument(arguments, position).is_none_or(|set| !reference_set_is_ordered(set))
+        })
+    {
+        return Err(D::NoncanonicalSet);
+    }
     Ok(())
 }
 
@@ -380,7 +595,7 @@ mod tests {
     fn example(shape: Shape) -> Value {
         let type_id = json!({"domain": "quire.checked-semantic-node/v1", "digest": "b".repeat(64)});
         match shape {
-            Shape::Reference => {
+            Shape::Reference | Shape::Term => {
                 json!({"term": "reference", "target": {"domain": "quire.checked-semantic-node/v1", "digest": "a".repeat(64)}})
             }
             Shape::Text => {
@@ -407,7 +622,10 @@ mod tests {
         let arguments: Vec<Value> = layout(form, operator)
             .expect("catalogued operator")
             .iter()
-            .map(|binding| json!({"term": "binding", "name": binding.name, "value": example(binding.shape)}))
+            .map(|binding| {
+                let value = example_binding(form, operator, binding);
+                json!({"term": "binding", "name": binding.name, "value": value})
+            })
             .collect();
         json!({
             "term": "application",
@@ -426,6 +644,38 @@ mod tests {
 
     fn selected() -> Value {
         json!({"authority": "quire", "identity": "quire.protocol.finite-global/v1"})
+    }
+
+    fn text(value: &str) -> Value {
+        json!({
+            "term": "literal", "value_kind": "text", "value": value,
+            "type": {"domain": "quire.checked-semantic-node/v1", "digest": "b".repeat(64)}
+        })
+    }
+
+    fn example_binding(form: ProtocolForm, operator: &str, binding: &Binding) -> Value {
+        match (form, operator, binding.name) {
+            (ProtocolForm::ProtocolClause, "protocol", "activation") => json!({
+                "term": "aggregate", "members": [
+                    {"term": "binding", "name": "kind", "value": text("origin")}
+                ]
+            }),
+            (ProtocolForm::Channel, "channel", "ordering") => json!({
+                "term": "aggregate", "members": [
+                    {"term": "binding", "name": "kind", "value": text("unordered")}
+                ]
+            }),
+            (ProtocolForm::Queue, "queue", "capacity") => json!({
+                "term": "aggregate", "members": [
+                    {"term": "binding", "name": "kind", "value": text("literal")},
+                    {"term": "binding", "name": "value", "value": example(Shape::Integer)}
+                ]
+            }),
+            (ProtocolForm::Queue, "queue", "overflow") => text("reject"),
+            (ProtocolForm::Channel, "channel", "delivery") => text("unknown"),
+            (ProtocolForm::Obligation, "terminal", "mode") => text("any"),
+            _ => example(binding.shape),
+        }
     }
 
     fn boolean() -> Value {
@@ -594,7 +844,8 @@ mod tests {
                 bindings
                     .iter()
                     .map(|&(name, shape)| {
-                        json!({"term": "binding", "name": name, "value": example(shape)})
+                        let term = example_binding(form, operator, &Binding { name, shape });
+                        json!({"term": "binding", "name": name, "value": term})
                     })
                     .collect(),
             );
@@ -784,5 +1035,139 @@ mod tests {
             ),
             Err(ProtocolBodyDefect::OperatorIneligible)
         );
+    }
+
+    /// QSpec TC-946 C2 and C8-C9 fix the activation group's exact alternatives.
+    #[trace("TC-048", "FR-038-AC-282")]
+    #[test]
+    fn protocol_clause_activation_requires_origin_or_each_shape() {
+        let mut clause = body(ProtocolForm::ProtocolClause, "protocol");
+        let admitted = |body: &Value| {
+            validate_protocol_body(
+                ProtocolForm::ProtocolClause,
+                body,
+                &boolean(),
+                Some(&selected()),
+            )
+        };
+        assert_eq!(admitted(&clause), Ok(()));
+
+        clause["arguments"][1]["value"]["members"] = json!([
+            {"term": "binding", "name": "kind", "value": text("each")},
+            {"term": "binding", "name": "trigger", "value": example(Shape::Reference)},
+            {"term": "binding", "name": "guard", "value": example(Shape::Boolean)}
+        ]);
+        assert_eq!(admitted(&clause), Ok(()));
+
+        clause["arguments"][1]["value"]["members"][0]["value"] = text("always");
+        assert_eq!(admitted(&clause), Err(ProtocolBodyDefect::MalformedLayout));
+        clause["arguments"][1]["value"]["members"][0]["value"] = text("origin");
+        assert_eq!(admitted(&clause), Err(ProtocolBodyDefect::MalformedLayout));
+        clause["arguments"][1]["value"]["members"] = json!([
+            {"term": "binding", "name": "kind", "value": text("each")}
+        ]);
+        assert_eq!(admitted(&clause), Err(ProtocolBodyDefect::MalformedLayout));
+    }
+
+    /// QSpec TC-946 C1-C6 and K3 separate ordered captures from canonical sets.
+    #[trace("TC-048", "FR-038-AC-282")]
+    #[test]
+    fn protocol_clause_checks_capture_records_scheduling_and_set_order() {
+        let mut clause = body(ProtocolForm::ProtocolClause, "protocol");
+        let check = |body: &Value| {
+            validate_protocol_body(
+                ProtocolForm::ProtocolClause,
+                body,
+                &boolean(),
+                Some(&selected()),
+            )
+        };
+        clause["arguments"][2]["value"]["members"] = json!([
+            {"term": "aggregate", "members": [
+                {"term": "binding", "name": "binder", "value": example(Shape::Reference)},
+                {"term": "binding", "name": "initializer", "value": example(Shape::Term)}
+            ]}
+        ]);
+        clause["arguments"][10]["value"]["members"] = json!([text("adversarial")]);
+        assert_eq!(check(&clause), Ok(()));
+        clause["arguments"][2]["value"]["members"][0]["members"][0]["name"] = json!("initializer");
+        assert_eq!(check(&clause), Err(ProtocolBodyDefect::MalformedLayout));
+        clause["arguments"][2]["value"]["members"] = json!([]);
+        clause["arguments"][10]["value"]["members"] = json!([text("fair")]);
+        assert_eq!(check(&clause), Err(ProtocolBodyDefect::MalformedLayout));
+
+        clause["arguments"][10]["value"]["members"] = json!([]);
+        let mut first = example(Shape::Reference);
+        let mut second = example(Shape::Reference);
+        first["target"]["digest"] = json!("a".repeat(64));
+        second["target"]["digest"] = json!("b".repeat(64));
+        clause["arguments"][3]["value"]["members"] = json!([first, second]);
+        assert_eq!(check(&clause), Ok(()));
+        clause["arguments"][3]["value"]["members"]
+            .as_array_mut()
+            .expect("roles set")
+            .swap(0, 1);
+        assert_eq!(check(&clause), Err(ProtocolBodyDefect::NoncanonicalSet));
+    }
+
+    /// QSpec TC-947 fixes the nested declaration alternatives and their enums.
+    #[trace("TC-048", "FR-038-AC-282", "FR-038-AC-286", "FR-038-AC-287")]
+    #[test]
+    fn protocol_declaration_nested_shapes_refuse_wrong_alternatives() {
+        let check =
+            |form, body: &Value| validate_protocol_body(form, body, &boolean(), Some(&selected()));
+
+        let mut role = body(ProtocolForm::Role, "role");
+        assert_eq!(check(ProtocolForm::Role, &role), Ok(()));
+        role["arguments"][1]["value"]["members"] = json!([
+            {"term": "binding", "name": "population", "value": text("orders")},
+            {"term": "binding", "name": "max", "value": example(Shape::Integer)},
+            {"term": "binding", "name": "binder", "value": example(Shape::Reference)},
+            {"term": "binding", "name": "lifetime", "value": text("until")},
+            {"term": "binding", "name": "until", "value": example(Shape::Boolean)}
+        ]);
+        assert_eq!(check(ProtocolForm::Role, &role), Ok(()));
+        role["arguments"][1]["value"]["members"]
+            .as_array_mut()
+            .expect("replication fields")
+            .pop();
+        assert_eq!(
+            check(ProtocolForm::Role, &role),
+            Err(ProtocolBodyDefect::MalformedLayout)
+        );
+
+        let mut channel = body(ProtocolForm::Channel, "channel");
+        assert_eq!(check(ProtocolForm::Channel, &channel), Ok(()));
+        channel["arguments"][3]["value"]["members"] = json!([
+            {"term": "binding", "name": "kind", "value": text("fifo")},
+            {"term": "binding", "name": "binder", "value": example(Shape::Reference)},
+            {"term": "binding", "name": "key", "value": example(Shape::Term)}
+        ]);
+        assert_eq!(check(ProtocolForm::Channel, &channel), Ok(()));
+        channel["arguments"][4]["value"] = text("best-effort");
+        assert_eq!(
+            check(ProtocolForm::Channel, &channel),
+            Err(ProtocolBodyDefect::MalformedLayout)
+        );
+
+        let mut queue = body(ProtocolForm::Queue, "queue");
+        assert_eq!(check(ProtocolForm::Queue, &queue), Ok(()));
+        queue["arguments"][2]["value"] = text("loss");
+        assert_eq!(
+            check(ProtocolForm::Queue, &queue),
+            Err(ProtocolBodyDefect::MalformedLayout)
+        );
+        queue["arguments"][3]["value"]["members"] = json!([text("head")]);
+        assert_eq!(check(ProtocolForm::Queue, &queue), Ok(()));
+
+        let mut terminal = body(ProtocolForm::Obligation, "terminal");
+        assert_eq!(check(ProtocolForm::Obligation, &terminal), Ok(()));
+        terminal["arguments"][0]["value"] = text("when");
+        assert_eq!(
+            check(ProtocolForm::Obligation, &terminal),
+            Err(ProtocolBodyDefect::MalformedLayout)
+        );
+        terminal["arguments"][1]["value"]["members"] = json!([example(Shape::Boolean)]);
+        assert_eq!(check(ProtocolForm::Obligation, &terminal), Ok(()));
     }
 }
