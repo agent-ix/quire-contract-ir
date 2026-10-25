@@ -1468,6 +1468,34 @@ fn protocol_named_node(
     node
 }
 
+/// A declared role target for protocol-reference reader tests.
+pub fn protocol_role_node() -> Value {
+    let model = family_key("a4a4");
+    protocol_named_node(
+        "role",
+        &["Example", "OrderFlow", "role", "Worker"],
+        json!({
+            "term": "application", "operator": "protocol_control",
+            "operation": {
+                "identity": "quire.op.protocol.control", "laws": [protocol_profile_law()],
+                "mode": Value::Null,
+                "member": {"kind": "profile_operator", "operator": "role"},
+                "leaves": []
+            },
+            "result_type": node_id(&family_key("aaaa")),
+            "arguments": [
+                {"term": "binding", "name": "model", "value": {
+                    "term": "reference", "target": node_id(&model)
+                }},
+                {"term": "binding", "name": "replication", "value": {
+                    "term": "aggregate", "members": []
+                }}
+            ]
+        }),
+        &[model],
+    )
+}
+
 fn protocol_run_body() -> Value {
     json!({
         "term": "application", "operator": "protocol_control",

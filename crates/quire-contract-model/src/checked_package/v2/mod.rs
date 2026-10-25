@@ -2771,6 +2771,14 @@ fn validate_graph(
     hybrid::validate_models(&graph.nodes, &kinds, &terms, &index, meter)?;
     hybrid::validate_claims(&graph.nodes, &kinds, &terms, &index, meter)?;
     timed_model::validate_models(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
+    protocol_body::validate_protocol_nodes(
+        &graph.nodes,
+        &kinds,
+        &terms,
+        &index,
+        &wire.lock,
+        meter,
+    )?;
     validate_operations(
         &graph.nodes,
         &kinds,

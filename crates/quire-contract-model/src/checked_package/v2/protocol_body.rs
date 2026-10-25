@@ -1,8 +1,6 @@
 //! The fixed outer body grammar of the twenty finite global protocol operators.
 //!
-//! This validator is kept separate from the reader until the protocol step is
-//! inserted between abstraction and operations. The later step supplies the
-//! selected profile and maps each defect to a located reader refusal.
+//! The protocol step runs after refinement and timed models, before operations.
 
 use super::{
     ApplicationOperator, CheckedNodeKind, CheckedPackageLockV2, CheckedSelectionRole, CheckedTerm,
@@ -13,6 +11,7 @@ use crate::checked_package::shared::CheckedNodeId;
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
 };
+use ix_trace_rs::string_edge;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -319,6 +318,7 @@ fn text_value(term: &CheckedTerm) -> Option<&str> {
     }
 }
 
+#[string_edge]
 fn clause_activation_fits(term: &CheckedTerm) -> bool {
     let Some(fields) = members(term) else {
         return false;
@@ -678,7 +678,6 @@ fn body_defect(
 
 /// First protocol reader passes: placement, operator/law and local layout.
 /// Graph member joins, membership and clause scope follow in later passes.
-#[allow(dead_code)] // Called by the reader after the refinement PR merges.
 pub(super) fn validate_protocol_nodes(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
