@@ -67,3 +67,11 @@ At PR head `2c102b478f40c569c451b386e19e74ce199fccbe`:
 ## Final reviewed-head verdict
 
 PASS at `2c102b47`. Both code-review findings are fixed. The coder's focused log reports formatting, model and integration-test Clippy, 11 terminal tests and 12 protocol-reference tests passed; `git diff --check` passed independently. Final aggregate gates remain with the lead.
+
+## Final gate regression re-review
+
+At PR head `0add8e8ecd3579e32b7fb4a1432a70518c9af1db`, the only code delta since the reviewed head replaces the node-body `map`/`collect` parse in `decode_borrowed_wire` with a preallocated, ordered loop. Each body still calls `strict_parse` once before its node is pushed; the first malformed body still returns its refusal before later nodes or diagnostics. The vector capacity is the borrowed graph's node count, as before, and the loop does not introduce a full-document `Value` or canonical-byte copy. This preserves FR-038-AC-214's intake shape; the aggregate memory measurement remains the lead's final gate.
+
+The prior final gate at `8749838f` aborted in `tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse` on its 256 KiB stack. The coder's focused log reports that this exact test and all 16 flat-wire tests pass after the loop change, along with formatting, model Clippy and diff check. I independently changed only the diagnostic-details depth from 50 to 61 in a disposable worktree at `0add8e8e`; `tc_048_a_deep_details_term_within_the_parse_limit_refuses_at_the_grammar` passed on the same 256 KiB test stack. The disposable worktree was removed. No new finding was established.
+
+PASS at `0add8e8e` for the reviewed code diff. The final aggregate gate belongs to the lead.

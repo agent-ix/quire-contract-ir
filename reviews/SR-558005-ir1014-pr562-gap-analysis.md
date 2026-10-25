@@ -65,3 +65,7 @@ Fix round 3, PR head `2c102b478f40c569c451b386e19e74ce199fccbe`:
 ## Final reviewed-head verdict
 
 PASS at `2c102b47`. Every gap-analysis finding has a verified fixed disposition. Final aggregate gates remain with the lead.
+
+## Final gate regression re-review
+
+At `0add8e8e`, the intake-only loop change leaves the FR-059, FR-060 and FR-062 vectors and their trace tags unchanged. The existing FR-038-AC-117 flat-wire test covers the exact 256 KiB stack regression, and the coder's focused log reports it passes with all 16 flat-wire tests. An isolated depth-61 diagnostic-details control also passed on the 256 KiB stack. No new coverage finding was established. PASS; the final aggregate gate belongs to the lead.
