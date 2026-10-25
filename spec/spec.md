@@ -75,6 +75,13 @@ proposes the IR contribution to the existing Engineering Assurance/Quoin
 cross-repository conformance mechanism. Shared-owner concurrence and the
 campaign decision remain pending; this is planned, not a campaign pass.
 
+[FR-058](checked_package/functional/FR-058-admitted-clause-execution-point.md)
+specifies a planned admitted V2 clause-claim execution-point accessor, with
+[TC-462](checked_package/matrix/TC-462-admitted-clause-execution-point.md)
+covering exact binding identity and typed refusals. QSL-1082 and the QSpec
+carrier contract must land before producer-origin cases or implementation
+can qualify.
+
 StR-001 through StR-003, FR-011 through FR-020, FR-023 and FR-028, alongside
 NFR-001 through NFR-003, define the semantic substrate.
 [TC-456](core/matrix/TC-456-public-name-portability.md) guards the public-name
