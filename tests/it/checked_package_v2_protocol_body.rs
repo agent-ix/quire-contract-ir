@@ -458,7 +458,7 @@ fn clause_each_trigger_requires_declared_dependency() {
     );
 }
 
-/// Trace: FR-038-AC-284, FR-038-AC-324
+/// Trace: FR-038-AC-284
 #[trace("TC-048")]
 #[test]
 fn clause_each_guard_requires_boolean_root() {
@@ -604,7 +604,7 @@ fn clause_rejects_second_capture_with_readable_name() {
     );
 }
 
-/// Trace: FR-038-AC-284
+/// Trace: FR-038-AC-284, FR-038-AC-324
 #[trace("TC-048")]
 #[test]
 fn clause_required_temporal_target_is_checked_after_membership() {
