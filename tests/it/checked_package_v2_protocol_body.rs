@@ -2456,10 +2456,7 @@ fn compensation_requires_forward_and_retry_binder_types() {
     }
 }
 
-/// Trace: FR-038-AC-289
-#[trace("TC-048")]
-#[test]
-fn compensation_admits_present_commit_and_refuses_wrong_record_type() {
+fn package_with_present_commit() -> (Value, usize, usize) {
     let (mut package, _, compensation) = package_with_admitted_compensation();
     let role =
         package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
@@ -2501,6 +2498,14 @@ fn compensation_admits_present_commit_and_refuses_wrong_record_type() {
     package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][11]["value"]["members"] =
         json!([{"term": "reference", "target": commit_target}]);
     settle(&mut package);
+    (package, compensation, root)
+}
+
+/// Trace: FR-038-AC-289
+#[trace("TC-048")]
+#[test]
+fn compensation_admits_present_commit_and_refuses_wrong_record_type() {
+    let (package, compensation, _) = package_with_present_commit();
     assert!(
         matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
         "{:?}",
@@ -2523,6 +2528,185 @@ fn compensation_admits_present_commit_and_refuses_wrong_record_type() {
             key,
         )
     );
+}
+
+/// Trace: FR-038-AC-289
+#[trace("TC-048")]
+#[test]
+fn compensation_refuses_a_commit_taken_before_its_forward_effect() {
+    let (mut package, compensation, root) = package_with_present_commit();
+    let children = package["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]
+        ["members"]
+        .as_array_mut()
+        .expect("sequence children");
+    let commit_reference = children.pop().expect("commit child");
+    children.insert(1, commit_reference);
+    settle(&mut package);
+    let commit_target = &package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][11]
+        ["value"]["members"][0]["target"];
+    let effect_target = &package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][0]
+        ["value"]["target"];
+    let commit = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| &node["node_id"] == commit_target)
+        .expect("commit node");
+    let key = commit_target["digest"].as_str().expect("commit key");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("a preceding commit must refuse");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::UnsupportedConstruct
+    );
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::DeclarationForm)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{commit}"))
+    );
+    assert_eq!(
+        refusal.locus.as_ref().map(|node| node.digest.as_ref()),
+        Some(key)
+    );
+    let Some(CheckedProtocolRefusalDetail::CommitPosition {
+        profile,
+        member,
+        commit,
+        effect,
+        reason,
+    }) = refusal.protocol_detail.as_deref()
+    else {
+        panic!("commit position detail must be retained");
+    };
+    assert_eq!(profile.identity.as_ref(), "quire.protocol.finite-global/v1");
+    assert_eq!(member.as_ref(), "commit");
+    assert_eq!(commit.digest.as_ref(), key);
+    assert_eq!(
+        effect.digest.as_ref(),
+        effect_target["digest"].as_str().expect("effect key")
+    );
+    assert_eq!(reason.as_ref(), "commit-precedes-effect");
+}
+
+fn compensation_with_branch_before_effect(operator: &str, policy: &str) -> (Value, usize) {
+    let (mut package, compensation, root) = package_with_present_commit();
+    let children = package["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]
+        ["members"]
+        .as_array()
+        .expect("sequence children");
+    let attempt = children[0].clone();
+    let effect = children[1].clone();
+    let event = children[2].clone();
+    let commit = children[3].clone();
+    let role =
+        package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
+    let text = |value: &str| {
+        json!({"term": "literal", "type": node_id(&family_key("a1a1")),
+            "value_kind": "text", "value": value})
+    };
+    let binding =
+        |name: &str, value: Value| json!({"term": "binding", "name": name, "value": value});
+    let left = json!({"term": "aggregate", "members": [
+        binding("label", text("Left")),
+        binding("guard", json!({"term": "literal", "type": node_id(&family_key("aaaa")),
+            "value_kind": "boolean", "value": true})),
+        binding("body", commit.clone())
+    ]});
+    let right = json!({"term": "aggregate", "members": [
+        binding("label", text("Right")),
+        binding("guard", json!({"term": "literal", "type": node_id(&family_key("aaaa")),
+            "value_kind": "boolean", "value": true})),
+        binding("body", event.clone())
+    ]});
+    let mut body = package["semantic_graph"]["nodes"][root]["body"].clone();
+    body["operation"]["member"]["operator"] = json!(operator);
+    body["arguments"] = if operator == "choice" {
+        json!([
+            binding("owner", json!({"term": "reference", "target": role})),
+            binding("visible", json!({"term": "aggregate", "members": []})),
+            binding(
+                "cases",
+                json!({"term": "aggregate", "members": [left, right]})
+            )
+        ])
+    } else {
+        let mut left = left;
+        let mut right = right;
+        left["members"].as_array_mut().expect("fields").remove(1);
+        right["members"].as_array_mut().expect("fields").remove(1);
+        json!([
+            binding("memory", json!({"term": "aggregate", "members": []})),
+            binding(
+                "branches",
+                json!({"term": "aggregate", "members": [left, right]})
+            ),
+            binding(
+                "join",
+                json!({"term": "aggregate", "members": [binding("policy", text(policy))]})
+            ),
+            binding(
+                "joined",
+                json!({"term": "aggregate", "members": [text("Left"), text("Right")]})
+            ),
+            binding("outstanding", json!({"term": "aggregate", "members": []}))
+        ])
+    };
+    let holder = protocol_named_node(
+        "control",
+        &["Example", "OrderFlow", "run", "Main", "Holder"],
+        body,
+        &[],
+    );
+    let holder_target = holder["node_id"].clone();
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    for (target, name) in [(&commit, "Commit"), (&event, "Event")] {
+        let child = nodes
+            .iter_mut()
+            .find(|node| node["node_id"] == target["target"])
+            .expect("branch child");
+        child["declaration"]["qualified_name"] =
+            json!(["Example", "OrderFlow", "run", "Main", "Holder", name]);
+    }
+    nodes.push(holder);
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]["members"] =
+        json!([attempt, {"term": "reference", "target": holder_target}, effect]);
+    settle(&mut package);
+    (package, compensation)
+}
+
+/// Trace: FR-038-AC-289
+#[trace("TC-048")]
+#[test]
+fn compensation_commit_in_one_choice_or_non_all_branch_does_not_dominate() {
+    for (operator, policy) in [("choice", ""), ("parallel", "any")] {
+        let (package, _) = compensation_with_branch_before_effect(operator, policy);
+        assert!(
+            matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+            "{operator}: {:?}",
+            read(&package)
+        );
+    }
+    let (package, _) = compensation_with_branch_before_effect("parallel", "all");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("parallel all commits must dominate");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::UnsupportedConstruct
+    );
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::DeclarationForm)
+    );
+    assert!(matches!(refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::CommitPosition { reason, .. })
+            if reason.as_ref() == "commit-precedes-effect"));
 }
 
 /// Trace: FR-038-AC-288
