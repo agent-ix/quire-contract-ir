@@ -33,3 +33,14 @@ Compared the new related-record order and endpoint checks with FR-038-AC-282/288
 ## Coverage
 
 Plan completion: not assessed. The computed Quoin matrix has tagged FR-038-AC-282/284/288 criteria but no run evidence in its store. Reverse-gap and stub inspection found no new ownerless code or stub. Optional repository-wide semantic review was not requested; changed behavior was compared manually with FR-464/466 and IR FR-038. The complete protocol acceptance criteria remain Planned, and this artifact does not claim to discharge them.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At `0fbe2c533d563b16ab0f598184a20b80d8de6d19`, the public-reader test admits two distinct related tuples in JCS order and refuses the reverse order as `invalid_semantic_graph`. |
+| FND-002 | fixed | At `0fbe2c533d563b16ab0f598184a20b80d8de6d19`, tests assert the exact expected and actual source type, then refuse a malformed `to` end at its pointer with exact target type detail. |
+
+## Disposition verdict
+
+**PASS at 0fbe2c533d563b16ab0f598184a20b80d8de6d19** — Both test evidence gaps were closed in the same PR. Remaining protocol stages and the full FR-038 criteria remain Planned.

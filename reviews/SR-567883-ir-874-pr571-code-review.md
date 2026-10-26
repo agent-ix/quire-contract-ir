@@ -31,6 +31,24 @@ Reviewed the check, fence, send and receive local checks, channel payload type, 
 - **FR-466-AC-9 (examined)**: An `event` is admitted with and without a compensation; a `commit` and a `fence` are admitted; `related` entries name a relationship the clause lists with end terms of the endpoint types, and an unlisted relationship refuses `missing_declaration`/`missing-name` and an ill-typed end `ill_typed`/`type-mismatch`.
 - **FR-464-AC-12 (context_only)**: The protocol step runs after the state, temporal and abstraction steps and before the operation step and reports, in order, placement, operator, declaration, member, membership and clause defects; within a clause the cycle and progress defects precede the slot checks, and within a slot the `over`/model-state refusal precedes the binder-scope refusal, which precedes the decision-fact refusal; a state-step defect and a protocol defect in one package report the state-step defect.
 
+- **FR-038-AC-90 (examined)**: `NominalIdentityPreimage::digest` takes a byte limit: called with the limit equal to the canonical byte length of a preimage of each of its four versions it returns the digest the node key holds, and one byte lower it returns the encoder's byte-limit refusal and no digest; the reader passes its configured `limits.bytes` to it, and no call in the crate source passes `u64::MAX` or a literal cap, each checked by a test that reads the crate source.
+
 ## Coverage
 
 The diff changes no CI workflow or dependency declarations. Rust style and repository rules were checked. The coder's final-head focused evidence was model tests 10/10, public-reader tests 48/48, formatting and string-edge checks passing. `git diff --check` passed in review. Aggregate gates belong to the code lead after the review. No spec or plan file changed, so spec-review methods do not apply. No separate Rust-review artifact is emitted because Rust review is the code-review lane.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | high | Hosted Rust Checks at head `3e78f463` failed two FR-038-AC-90 identity tests: the new related-record sort encoded through `serde_json::to_value` and passed `u64::MAX` to `Limits::new`, violating the repository's checked-package encoding boundary. | crates/quire-contract-model/src/checked_package/v2/protocol_body.rs:435 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-002 | fixed | At `0fbe2c533d563b16ab0f598184a20b80d8de6d19`, related sorting calls `quire_canonical::to_vec` directly on the typed `CheckedTerm` with the reader's `limits.bytes`; neither forbidden encoder path remains. |
+
+## Disposition verdict
+
+**PASS at 0fbe2c533d563b16ab0f598184a20b80d8de6d19** — The newly discovered hosted gate failure was fixed in the same PR. Its final full hosted run remains the code lead's gate.
