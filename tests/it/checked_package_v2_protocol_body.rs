@@ -641,6 +641,7 @@ fn receive_fact_is_visible_to_its_channels_to_role() {
         })
         .expect("effect control");
     let sent = package["semantic_graph"]["nodes"][send]["body"]["arguments"][4]["value"].clone();
+    let sent_binder = sent["target"].clone();
     let sent_constraint =
         package["semantic_graph"]["nodes"][send]["body"]["arguments"][6]["value"].clone();
     let received_constraint =
@@ -669,6 +670,17 @@ fn receive_fact_is_visible_to_its_channels_to_role() {
         read(&package),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
+
+    let mut wrong = package;
+    wrong["semantic_graph"]["nodes"][field]["body"]["arguments"][0]["target"] = sent_binder;
+    settle(&mut wrong);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong) else {
+        panic!("send binder must be ineligible at a receive decision");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::WrongSnapshot);
+    assert!(matches!(refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::DecisionFact { reason, .. })
+        if reason.as_ref() == "ineligible-kind"));
 }
 
 /// Trace: FR-038-AC-291
