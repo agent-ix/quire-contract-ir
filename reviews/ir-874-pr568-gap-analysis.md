@@ -37,3 +37,10 @@ Frozen PR #568 member-prefix review at caf87602eb91320a45eea4309bf83598e85eaad1.
 ## Coverage
 
 Plan completion: not assessed. Scope is the changed prefix and its public-reader tests; the full ACs stay Planned. No QSpec-produced TC-947 vector was presented as evidence. Semantic agreement was checked only for the specific findings above.
+
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Public-reader tests now cover valid replicated-role admission, max precedence, wrong binder with positive max, eligible and float FIFO keys, and a foreign-clause queue; replicated-role tests trace AC-286. Verified at e7c0d239c6384f27b9ee09d41ba368862a621170. |

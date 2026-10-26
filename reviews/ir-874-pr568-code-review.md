@@ -38,3 +38,11 @@ Frozen PR #568 member-prefix review at caf87602eb91320a45eea4309bf83598e85eaad1.
 ## Coverage
 
 Rust lane: rust-review and rust-style applied; reviewed the frozen PR diff and repository conventions. No assurance profile found for this slice. Focused coder evidence was 9 model and 21 integration tests passing; aggregate gates await final reviewed head. This review did not rerun aggregate gates.
+
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Max is checked before binder target/type; the paired public-reader test asserts the max refusal. Verified at e7c0d239c6384f27b9ee09d41ba368862a621170. |
+| FND-002 | fixed | The queue checks its listed clause against its channel and refuses a foreign channel at the target. Verified at e7c0d239c6384f27b9ee09d41ba368862a621170. |
