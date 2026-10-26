@@ -1258,6 +1258,18 @@ fn qspec_hybrid_step_precedes_later_protocol_body_defect() {
                     == "quire.temporal.infinite-trace/v1"
         })
         .expect("published hybrid claim");
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let over = &nodes
+        .iter()
+        .find(|node| node["node_id"] == nodes[claim]["body"]["arguments"][0]["target"])
+        .expect("claim over parameter")["semantic_type"];
+    assert!(nodes.iter().any(|node| {
+        node["node_id"] == *over
+            && node["node_tag"] == "hybrid"
+            && node["semantic_form"] == "hybrid_model"
+    }));
     assert!(matches!(
         read_package(&package).expect("published hybrid claim"),
         CheckedPackageV2ReadResult::Admitted(_)
