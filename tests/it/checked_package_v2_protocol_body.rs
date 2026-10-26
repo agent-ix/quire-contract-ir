@@ -921,10 +921,11 @@ fn repeat_non_boolean_guard_refuses_at_guard_not_wire() {
 #[test]
 fn await_checks_anchor_form_and_event_eligibility() {
     let (package, children) = protocol_holder_case("await");
-    assert!(matches!(
-        read(&package),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ), "{:?}", read(&package));
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "{:?}",
+        read(&package)
+    );
     let holder = holder_position(&package);
 
     let mut wrong_anchor = package.clone();
