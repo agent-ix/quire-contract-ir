@@ -1255,20 +1255,20 @@ fn qspec_hybrid_step_precedes_later_protocol_body_defect() {
             node["node_tag"] == "protocol" && node["semantic_form"] == "protocol_clause"
         })
         .expect("published protocol clause");
-    package["semantic_graph"]["nodes"][protocol]["body"]["operation"]["member"]["operator"] =
-        json!("sequence");
+    package["semantic_graph"]["nodes"][protocol]["body"]["operation"]["laws"][0]["role"] =
+        json!("temporal_profile");
     fixture_support::rekey_application_node(&mut package, protocol);
     fixture_support::refresh_identity(&mut package);
     let read = read_package(&package).expect("QSpec package");
     let CheckedPackageV2ReadResult::Refused(refusal) = read else {
-        panic!("wrong protocol clause member admitted: {read:?}")
+        panic!("wrong protocol clause law admitted: {read:?}")
     };
     assert_eq!(
         (refusal.code, refusal.cause),
-        (Code::InvalidPackage, Some(Cause::OperationMemberMismatch)),
+        (Code::InvalidPackage, Some(Cause::OperationLawMismatch)),
         "{refusal:?}"
     );
-    assert_locus(&refusal, protocol, "/body/operation/member");
+    assert_locus(&refusal, protocol, "/body/operation/laws/0/role");
 
     let model = model_position(&package);
     package["semantic_graph"]["nodes"][model]["body"]["members"][0]["value"]["members"][0]
