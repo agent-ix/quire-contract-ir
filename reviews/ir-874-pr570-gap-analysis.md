@@ -36,3 +36,14 @@ Reviewed repeat and await local member and reference checks at frozen PR #570 he
 ## Coverage
 
 Plan completion: not assessed. Quoin matrix reports FR-038-AC-282/284/288 tagged (2/4/11 bindings), with no run evidence. Reverse-gap and stub inspection found the two evidence gaps above. Optional repository-wide semantic review was not requested; changed behavior was manually compared with FR-464/466 and IR FR-038. The remaining protocol stages are Planned, not discharged by the tags.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The public reader now tests proof plus bound, zero bound, both mismatched optional pairs, and proof without a bound. |
+| FND-002 | fixed | The public reader now admits receive and effect event forms and a compensation anchor. |
+
+## Disposition verdict
+
+**PASS at 0acca5a0c8874294f1a42f6d323aa41a3c539c97** — All original findings in this method are fixed. Remaining protocol stages and the full FR-038 acceptance criteria remain Planned.

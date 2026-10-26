@@ -37,3 +37,15 @@ Reviewed repeat and await local member and reference checks at frozen PR #570 he
 ## Coverage
 
 Rust style and repository conventions inspected; no CI workflow changes. Focused public-reader protocol tests passed 36/36; focused model layout test passed 1/1. No aggregate gate was run during review. The repeat progress and await causal checks are separately Planned and currently admit some invalid graphs; this PR must not claim full criterion completion.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The await local check now compares BigInt bounds and refuses the inverted interval with typed member, expected and actual details. |
+| FND-002 | fixed | Repeat layout admits a literal candidate to local type validation, which now returns ill_typed/non-boolean-root at the guard. |
+| FND-003 | fixed | The new typed detail carries the actual event form and selected protocol profile on the unsupported_construct/declaration-form refusal. |
+
+## Disposition verdict
+
+**PASS at 0acca5a0c8874294f1a42f6d323aa41a3c539c97** — All original findings in this method are fixed. Remaining protocol stages and the full FR-038 acceptance criteria remain Planned.
