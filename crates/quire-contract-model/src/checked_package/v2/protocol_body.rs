@@ -2754,10 +2754,10 @@ fn validate_protocol_membership(
     let mut repeated = vec![false; nodes.len()];
     let mut pending = Vec::new();
     for &clause in index.values() {
-        meter.charge(1, || node_pointer(clause))?;
         if kinds.get(clause) != Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
             continue;
         }
+        meter.charge(1, || node_pointer(clause))?;
         let Some((_, arguments)) = validated[clause] else {
             continue;
         };
@@ -2845,11 +2845,10 @@ fn validate_protocol_membership(
     }
 
     for &position in index.values() {
-        meter.charge(1, || node_pointer(position))?;
         let Some(CheckedNodeKind::Protocol(form)) = kinds.get(position) else {
             continue;
         };
-        if matches!(
+        if !matches!(
             form,
             ProtocolForm::Role
                 | ProtocolForm::Channel
@@ -2857,9 +2856,13 @@ fn validate_protocol_membership(
                 | ProtocolForm::Obligation
                 | ProtocolForm::Control
                 | ProtocolForm::Compensation
-        ) && (owners[position].is_none()
+        ) {
+            continue;
+        }
+        meter.charge(1, || node_pointer(position))?;
+        if owners[position].is_none()
             || repeated[position]
-            || (*form == ProtocolForm::Channel && queue_count[position] != 1))
+            || (*form == ProtocolForm::Channel && queue_count[position] != 1)
         {
             return Err(declaration_defect(position, &nodes[position]));
         }
