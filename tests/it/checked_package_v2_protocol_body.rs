@@ -2217,6 +2217,54 @@ fn compensation_malformed_attempt_count_refuses_without_panicking() {
     );
 }
 
+/// Trace: FR-038-AC-282, FR-038-AC-289
+#[trace("TC-048")]
+#[test]
+fn compensation_text_and_integer_literals_require_their_scalar_types() {
+    let (package, _, compensation) = package_with_admitted_compensation();
+    let cases = [
+        (
+            4,
+            None,
+            format!("/semantic_graph/nodes/{compensation}/body/arguments/4/value"),
+        ),
+        (
+            8,
+            Some(0),
+            format!("/semantic_graph/nodes/{compensation}/body/arguments/8/value/members/0/value"),
+        ),
+        (
+            9,
+            Some(0),
+            format!("/semantic_graph/nodes/{compensation}/body/arguments/9/value/members/0/value"),
+        ),
+    ];
+    for (ordinal, member, path) in cases {
+        let mut wrong = package.clone();
+        let literal = &mut wrong["semantic_graph"]["nodes"][compensation]["body"]["arguments"]
+            [ordinal]["value"];
+        if let Some(member) = member {
+            literal["members"][member]["value"]["type"] = node_id(&family_key("aaaa"));
+        } else {
+            literal["type"] = node_id(&family_key("aaaa"));
+        }
+        settle(&mut wrong);
+        let key = wrong["semantic_graph"]["nodes"][compensation]["node_id"]["digest"]
+            .as_str()
+            .expect("compensation key");
+        assert_eq!(
+            read(&wrong),
+            refusal_at(
+                CheckedPackageRefusalCode::IllTyped,
+                &path,
+                Some(CheckedPackageRefusalCause::TypeMismatch),
+                key,
+            ),
+            "literal at argument {ordinal}"
+        );
+    }
+}
+
 /// Trace: FR-038-AC-289
 #[trace("TC-048")]
 #[test]

@@ -1348,6 +1348,26 @@ impl MemberCheck<'_> {
         }
     }
 
+    fn scalar_literal(
+        &self,
+        term: &CheckedTerm,
+        form: ScalarTypeForm,
+        path: JsonPointer,
+    ) -> Result<(), ValidationFailure> {
+        let CheckedTerm::Literal { type_id, .. } = term else {
+            return Err(self.refuse(Code::MalformedWire, None, path));
+        };
+        if self
+            .index
+            .get(type_id)
+            .is_some_and(|&position| self.is(position, CheckedNodeKind::ScalarType(form)))
+        {
+            Ok(())
+        } else {
+            Err(self.refuse(Code::IllTyped, Some(Cause::TypeMismatch), path))
+        }
+    }
+
     fn same_type(&self, binder: usize, expected: &CheckedNodeId) -> Result<(), ValidationFailure> {
         if &self.nodes[binder].semantic_type == expected {
             Ok(())
@@ -2304,6 +2324,28 @@ fn check_compensation(
         check.argument_path(12).key("members").index(0).key("value"),
         parameter,
     )?;
+    check.scalar_literal(
+        check.at(arguments, 4),
+        ScalarTypeForm::Text,
+        check.argument_path(4),
+    )?;
+    let within = check.at(arguments, 8);
+    for (index, name) in ["lower", "upper"].into_iter().enumerate() {
+        check.scalar_literal(
+            group_value(within, name).expect("validated interval bound"),
+            ScalarTypeForm::Integer,
+            check
+                .argument_path(8)
+                .key("members")
+                .index(index)
+                .key("value"),
+        )?;
+    }
+    check.scalar_literal(
+        group_value(attempts, "maximum").expect("validated maximum"),
+        ScalarTypeForm::Integer,
+        check.argument_path(9).key("members").index(0).key("value"),
+    )?;
     let forward_effect_binder = check.terms[forward]
         .as_ref()
         .and_then(|term| match term {
@@ -2359,7 +2401,6 @@ fn check_compensation(
         group_value(recovery, "predicate").expect("validated recovery predicate"),
         check.argument_path(12).key("members").index(1).key("value"),
     )?;
-    let within = check.at(arguments, 8);
     let (Some(lower), Some(upper)) = (
         group_value(within, "lower").and_then(integer_value),
         group_value(within, "upper").and_then(integer_value),
