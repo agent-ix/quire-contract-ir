@@ -2160,6 +2160,18 @@ mod tests {
             (ProtocolForm::Control, "parallel", "joined") => json!({
                 "term": "aggregate", "members": [text("Left"), text("Right")]
             }),
+            (ProtocolForm::Control, "await", "after") => json!({
+                "term": "aggregate", "members": [
+                    {"term": "binding", "name": "kind", "value": text("event")},
+                    {"term": "binding", "name": "target", "value": example(Shape::Reference)}
+                ]
+            }),
+            (ProtocolForm::Control, "await", "within") => json!({
+                "term": "aggregate", "members": [
+                    {"term": "binding", "name": "lower", "value": example(Shape::Integer)},
+                    {"term": "binding", "name": "upper", "value": example(Shape::Integer)}
+                ]
+            }),
             _ => example(binding.shape),
         }
     }
