@@ -2213,29 +2213,19 @@ fn tc_226_tree_whole_read_work_boundary() {
     };
     // Fixture charge ledger: Tree's three memberships, four first-pass keys
     // (including Integer), three local member preimages and one group digest
-    // cost 37. The remaining 448 are all other pre-protocol charges of this
+    // cost 37. The remaining 448 are all other original charges of this
     // fixture, including the List group and three protocol nodes. Protocol
-    // membership charges five and causal graph/progress seven. Tree's
-    // dependency is charged at 489/490 before protocol binder scope. That
-    // scope adds 52: the 36 measured on the base fixture plus one charge for
-    // each of this fixture's 16 additional graph nodes. The last body target
-    // remains the whole-read 548/549 boundary.
+    // membership charges five. Binder scope adds 47: 36 measured on the
+    // admitted-result fixture, plus one for each of the 11 graph nodes this
+    // recursive fixture has beyond it. Tree's dependency is charged at
+    // 536/537; the remaining seven charges put the last body target at the
+    // whole-read 543/544 boundary.
     // These constants are authored here, not obtained from the reader at runtime.
     const TREE_GROUP_WORK: u64 = 3 + (5 + 4 + 8 + 3) + (4 + 3 + 6 + 1);
-    const OTHER_READ_WORK: u64 = 453;
+    const OTHER_READ_WORK: u64 = 453 + 47;
     const TREE_DEPENDENCY_CHARGE: u64 = OTHER_READ_WORK + TREE_GROUP_WORK;
-    const PROTOCOL_CAUSAL_WORK: u64 = 7;
-    const PROTOCOL_SCOPE_WORK: u64 = 52;
-    const M: u64 = TREE_DEPENDENCY_CHARGE + PROTOCOL_CAUSAL_WORK + PROTOCOL_SCOPE_WORK;
-    for work in TREE_DEPENDENCY_CHARGE - 1..M {
-        if let CheckedPackageV2ReadResult::Incomplete(incomplete) = read_at(work) {
-            eprintln!(
-                "Tree work diagnostic {work}: consumed={} path={:?}",
-                incomplete.consumed,
-                incomplete.path.as_ref().map(|path| path.as_str())
-            );
-        }
-    }
+    const REMAINING_WORK: u64 = 7;
+    const M: u64 = TREE_DEPENDENCY_CHARGE + REMAINING_WORK;
     assert!(matches!(
         read_at(M),
         CheckedPackageV2ReadResult::Admitted(_)
