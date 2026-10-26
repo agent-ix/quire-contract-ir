@@ -134,11 +134,10 @@ Local labels; the repository assigns requirement ids when one is authored.
   (FR-039-AC-1, verified by TC-055).
 - G-2. No item named in FR-039 "Items codegen owns" is exported by the root crate (FR-039-AC-3; verified by TC-055).
 - G-3. A struct-literal `KaniOutcome` outside the `kani` module does not compile (FR-030-AC-5;
-  not true today: all four fields are `pub`, `src/kani/outcome.rs`).
+  implemented: its fields are private, with a `compile_fail` doctest in `src/kani/outcome.rs`).
 - G-4. `Proved` carries a check count and a request with count zero returns `KaniOutcomeError`
-  (FR-030-AC-4; not built: `proved` takes no count and no `proved` request can be refused for
-  a zero count; `non_success` already returns `KaniOutcomeError` for a `Proved` or
-  `Counterexample` request).
+  (FR-030-AC-4; implemented by `proved` and verified by tagged TC-223 tests; `non_success`
+  separately refuses a `Proved` or `Counterexample` request).
 - G-5. Target: neither IR package depends on the codegen or runtime packages, as a cargo-deny `bans` build failure in `make deny` (AD-005 D-2; IR-343); no such entry exists today.
 - G-6. Codegen's lock holds one `quire-contract-model` and one `quire-contract-ir` (existing
   gate).
@@ -158,8 +157,9 @@ What is measured today, what is open and with whom, and what is routed.
      QSL; codegen owns the outcome-to-QSL terminal-value map and used none of these IR items.
   3. IR-347 removed the three Kani family lowerings from IR. Codegen retired arithmetic and
      retains collection and graph lowerers.
-  4. FR-030-AC-4 and AC-5 remain planned or partial in the matrix;
-     `KaniOutcomeError` now exists for the invalid non-success constructor request.
+  4. FR-030-AC-4 and AC-5 are implemented and backed by tagged TC-223 tests for the count,
+     fixed causes and invalid constructor requests; the private-field compile-fail probe is
+     in `src/kani/outcome.rs`.
   5. `proved_from_checks`' doc cites codegen's `classify_run` by file name
      (`src/kani/outcome.rs`): IR's documentation names its consumer, which is a reverse reference
      in prose and goes stale when codegen moves.

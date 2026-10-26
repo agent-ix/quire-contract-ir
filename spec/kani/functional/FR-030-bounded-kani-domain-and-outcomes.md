@@ -193,5 +193,5 @@ fixed causes, exact source/context and wire round trips, including both
 cancellation sources. Paired passing and compile-fail doctests check the public
 signatures, and the broad fallible route still rejects both Boolean kinds.
 The methods share the existing private `NonSuccessKind`/`raise` construction
-path. This does not implement AC-4, AC-5, the live cancellation producer in
-AC-7, or downstream codegen adoption.
+path. The AC-8/AC-9 implementation does not supply the live cancellation
+producer in AC-7 or downstream codegen adoption.
