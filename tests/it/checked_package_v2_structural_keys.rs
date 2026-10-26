@@ -2236,7 +2236,7 @@ fn tc_226_tree_whole_read_work_boundary() {
     assert_eq!(incomplete.consumed, TREE_BOUNDARY);
     assert_eq!(
         incomplete.path.as_ref().map(|path| path.as_str()),
-        Some("/semantic_graph/nodes/38/body/members/0/value/target")
+        Some("/semantic_graph/nodes/38/dependencies/0")
     );
     let CheckedPackageV2ReadResult::Incomplete(incomplete) = read_at(M - 1) else {
         panic!("whole-read boundary minus one must expose no package");
