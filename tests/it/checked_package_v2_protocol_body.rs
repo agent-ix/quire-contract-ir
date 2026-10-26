@@ -299,7 +299,10 @@ fn nested_control_uses_its_holder_path() {
 }
 
 fn protocol_holder_case(operator: &str) -> (Value, Vec<usize>) {
-    let mut package = v2_all_families();
+    protocol_holder_case_on(v2_all_families(), operator)
+}
+
+fn protocol_holder_case_on(mut package: Value, operator: &str) -> (Value, Vec<usize>) {
     let root = protocol_position(&package, "control");
     let leaf_body = package["semantic_graph"]["nodes"][root]["body"].clone();
     let role = protocol_role_node();
@@ -1048,10 +1051,13 @@ fn await_effect_event_requires_an_attempt_source() {
 #[trace("TC-048")]
 #[test]
 fn await_admits_compensation_anchor_form() {
-    let (mut package, _) = protocol_holder_case("await");
+    let (state, _) = crate::checked_package_v2_frame_entries::state_operand_fixture();
+    let (mut package, _) = protocol_holder_case_on(state, "await");
     let holder = holder_position(&package);
-    let compensation =
-        compensation_template(&package, &["Example", "OrderFlow", "compensate", "Undo"]);
+    let compensation = compensation_template(
+        &mut package,
+        &["Example", "OrderFlow", "compensate", "Undo"],
+    );
     let target = compensation["node_id"].clone();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -1071,34 +1077,154 @@ fn await_admits_compensation_anchor_form() {
     );
 }
 
-fn compensation_template(package: &Value, declaration: &[&str]) -> Value {
+fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
     let role =
         package["semantic_graph"]["nodes"][protocol_position(package, "role")]["node_id"].clone();
-    let reference = || json!({"term": "reference", "target": role});
+    let binder = package["semantic_graph"]["nodes"][protocol_position(package, "obligation")]
+        ["body"]["arguments"][0]["value"]["target"]
+        .clone();
+    let anchor = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "operation_anchor")
+        .expect("operation anchor")["node_id"]
+        .clone();
+    let namespace = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "model" && node["semantic_form"] == "namespace")
+        .expect("namespace model")
+        .clone();
+    let mut record_type = namespace;
+    record_type["semantic_form"] = json!("record_value_type");
+    let record_key = structural_key(
+        "model",
+        "record_value_type",
+        record_type["semantic_type"]["digest"].as_str(),
+        &record_type["body"],
+    );
+    record_type["node_id"] = node_id(&record_key);
+    let record_target = record_type["node_id"].clone();
+    let parameter = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "value" && node["semantic_form"] == "parameter")
+        .expect("parameter")
+        .clone();
+    let retry_binder = |name: &str| {
+        let mut node = parameter.clone();
+        node["semantic_type"] = record_target.clone();
+        node["body"]["members"][0]["value"]["value"] = json!(name);
+        node["node_id"] = node_id(&structural_key(
+            "value",
+            "parameter",
+            Some(&record_key),
+            &node["body"],
+        ));
+        node
+    };
+    let earlier = retry_binder("earlier");
+    let later = retry_binder("later");
+    let earlier_target = earlier["node_id"].clone();
+    let later_target = later["node_id"].clone();
     let group = || json!({"term": "aggregate", "members": []});
     let binding =
         |name: &str, value: Value| json!({"term": "binding", "name": name, "value": value});
+    let reference = |target: &Value| json!({"term": "reference", "target": target});
+    let boolean = json!({"term": "literal", "type": node_id(&family_key("aaaa")),
+        "value_kind": "boolean", "value": true});
+    let integer = |value: &str| {
+        json!({"term": "literal", "type": node_id(&family_key("a3a3")),
+        "value_kind": "integer", "value": value})
+    };
+    let root = protocol_position(package, "control");
+    let mut attempt_body = package["semantic_graph"]["nodes"][root]["body"].clone();
+    attempt_body["operation"]["member"]["operator"] = json!("attempt");
+    attempt_body["arguments"] = json!([
+        binding("role", reference(&role)),
+        binding("operation", reference(&anchor)),
+        binding("ordering", group()),
+        binding("contracts", group()),
+        binding("binder", reference(&binder)),
+        binding("related", group()),
+        binding("constraint", boolean)
+    ]);
+    let attempt = protocol_named_node(
+        "control",
+        &["Example", "OrderFlow", "run", "Main", "ForwardAttempt"],
+        attempt_body,
+        &[],
+    );
+    let attempt_target = attempt["node_id"].clone();
+    let mut effect_body = package["semantic_graph"]["nodes"][root]["body"].clone();
+    effect_body["operation"]["member"]["operator"] = json!("effect");
+    effect_body["arguments"] = json!([
+        binding("of", reference(&attempt_target)),
+        binding("binder", reference(&binder)),
+        binding("related", group()),
+        binding("constraint", boolean)
+    ]);
+    let effect = protocol_named_node(
+        "control",
+        &["Example", "OrderFlow", "run", "Main", "ForwardEffect"],
+        effect_body,
+        &[],
+    );
+    let effect_target = effect["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .extend([record_type, earlier, later, attempt, effect]);
     let body =
         package["semantic_graph"]["nodes"][protocol_position(package, "control")]["body"].clone();
     let mut compensation = protocol_named_node("compensation", declaration, body, &[]);
     compensation["body"]["operation"]["member"]["operator"] = json!("compensate");
     compensation["body"]["arguments"] = json!([
-        binding("forward", reference()),
-        binding("forward_binder", reference()),
-        binding("role", reference()),
-        binding("operation", reference()),
+        binding("forward", reference(&effect_target)),
+        binding("forward_binder", reference(&binder)),
+        binding("role", reference(&role)),
+        binding("operation", reference(&anchor)),
         binding(
             "clock",
             json!({"term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "clock"})
         ),
         binding("registration_captures", group()),
-        binding("trigger", group()),
+        binding(
+            "trigger",
+            json!({"term": "aggregate", "members": [
+                binding("binder", reference(&binder)), binding("guard", boolean)
+            ]})
+        ),
         binding("activation_captures", group()),
-        binding("within", group()),
-        binding("attempts", group()),
-        binding("retry", group()),
+        binding(
+            "within",
+            json!({"term": "aggregate", "members": [
+                binding("lower", integer("0")), binding("upper", integer("1"))
+            ]})
+        ),
+        binding(
+            "attempts",
+            json!({"term": "aggregate", "members": [
+                binding("maximum", integer("1")), binding("record_type", reference(&record_target))
+            ]})
+        ),
+        binding(
+            "retry",
+            json!({"term": "aggregate", "members": [
+                binding("earlier", reference(&earlier_target)),
+                binding("later", reference(&later_target)), binding("relation", boolean)
+            ]})
+        ),
         binding("commit", group()),
-        binding("recovery", group())
+        binding(
+            "recovery",
+            json!({"term": "aggregate", "members": [
+                binding("binder", reference(&binder)), binding("predicate", boolean)
+            ]})
+        )
     ]);
     compensation
 }
@@ -1776,11 +1902,8 @@ fn attempt_admits_operation_contract_and_rejects_wrong_contract_kind_and_anchor(
     );
 }
 
-/// Trace: FR-038-AC-288
-#[trace("TC-048")]
-#[test]
-fn effect_admits_a_referenced_attempt_in_the_same_control_tree() {
-    let (mut package, root, _) = package_with_admitted_attempt();
+fn package_with_admitted_effect() -> (Value, usize, Value) {
+    let (mut package, root, anchor) = package_with_admitted_attempt();
     let attempt_body = package["semantic_graph"]["nodes"][root]["body"].clone();
     let binder = attempt_body["arguments"][4]["value"]["target"].clone();
     let attempt = protocol_named_node(
@@ -1806,6 +1929,11 @@ fn effect_admits_a_referenced_attempt_in_the_same_control_tree() {
         &[],
     );
     let effect_key = effect["node_id"].clone();
+    let effect_position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        + 1;
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -1819,6 +1947,14 @@ fn effect_admits_a_referenced_attempt_in_the_same_control_tree() {
         ]}}
     ]);
     settle(&mut package);
+    (package, effect_position, anchor)
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn effect_admits_a_referenced_attempt_in_the_same_control_tree() {
+    let (package, _, _) = package_with_admitted_effect();
     assert!(
         matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
         "{:?}",
@@ -1873,8 +2009,12 @@ fn event_compensation_requires_a_template_target() {
 #[trace("TC-048")]
 #[test]
 fn event_admits_its_clause_template_and_refuses_a_foreign_template() {
-    let (mut package, root) = package_with_step_control("event");
-    let local = compensation_template(&package, &["Example", "OrderFlow", "compensate", "Undo"]);
+    let (state, _) = crate::checked_package_v2_frame_entries::state_operand_fixture();
+    let (mut package, root) = package_with_step_control_on(state, "event");
+    let local = compensation_template(
+        &mut package,
+        &["Example", "OrderFlow", "compensate", "Undo"],
+    );
     let local_key = local["node_id"].clone();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -1892,7 +2032,13 @@ fn event_admits_its_clause_template_and_refuses_a_foreign_template() {
         read(&package)
     );
 
-    let foreign = compensation_template(&package, &["Example", "Elsewhere", "compensate", "Undo"]);
+    let foreign = protocol_named_node(
+        "compensation",
+        &["Example", "Elsewhere", "compensate", "Undo"],
+        package["semantic_graph"]["nodes"][protocol_position(&package, "compensation")]["body"]
+            .clone(),
+        &[],
+    );
     let foreign_key = foreign["node_id"].clone();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
