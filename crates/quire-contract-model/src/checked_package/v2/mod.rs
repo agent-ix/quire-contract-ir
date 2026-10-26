@@ -1112,8 +1112,8 @@ fn classify_dependency_entry_shape_with(
     ValidationFailure::Refused(refusal)
 }
 
-/// The owner variants are a closed wire shape whose unknown members are
-/// `malformed_wire` at `owner`, unlike other closed package members.
+/// Owner variants and the local-only clause model edge are closed wire shapes
+/// whose unknown members are `malformed_wire` at the owner member.
 fn classify_owner_shape(failure: ValidationFailure) -> ValidationFailure {
     let ValidationFailure::Refused(mut refusal) = failure else {
         return failure;
@@ -1122,8 +1122,10 @@ fn classify_owner_shape(failure: ValidationFailure) -> ValidationFailure {
         && refusal.path.as_ref().is_some_and(|path| {
             ["/semantic_graph/nodes/"].iter().any(|prefix| {
                 path.as_str().strip_prefix(prefix).is_some_and(|rest| {
-                    rest.strip_suffix("/owner").is_some_and(|index| {
-                        !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit())
+                    ["/owner", "/owner_model"].iter().any(|member| {
+                        rest.strip_suffix(member).is_some_and(|index| {
+                            !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit())
+                        })
                     })
                 })
             })
