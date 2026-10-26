@@ -795,7 +795,7 @@ fn choice_parallel_repeat_and_await_hold_controls_at_their_own_paths() {
     }
 }
 
-/// Trace: FR-038-AC-289
+/// Trace: FR-038-AC-288
 #[trace("TC-048")]
 #[test]
 fn repeat_checks_owner_body_exhausted_and_optional_pair() {
@@ -842,7 +842,7 @@ fn repeat_checks_owner_body_exhausted_and_optional_pair() {
     assert_ne!(children[0], children[1]);
 }
 
-/// Trace: FR-038-AC-289
+/// Trace: FR-038-AC-288
 #[trace("TC-048")]
 #[test]
 fn await_checks_anchor_form_and_event_eligibility() {
