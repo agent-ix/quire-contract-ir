@@ -170,6 +170,15 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
                                 super::protocol_body::ProtocolLayoutWireDefect::Body => {
                                     at.pointer()
                                 }
+                                super::protocol_body::ProtocolLayoutWireDefect::NegativeQueueCapacity => {
+                                    return Err(ValidationFailure::refused_at(
+                                        CheckedPackageRefusalCode::InvalidPackage,
+                                        at.pointer().key("arguments").index(1).key("value")
+                                            .key("members").index(1).key("value"),
+                                        Some(super::super::shared::CheckedPackageRefusalCause::InvalidValue),
+                                        node.node_id.clone(),
+                                    ));
+                                }
                                 super::protocol_body::ProtocolLayoutWireDefect::EnumValue {
                                     argument,
                                     member,

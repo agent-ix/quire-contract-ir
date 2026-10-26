@@ -1470,7 +1470,7 @@ pub fn protocol_named_node(
 
 /// A declared role target for protocol-reference reader tests.
 pub fn protocol_role_node() -> Value {
-    let model = family_key("a4a4");
+    let model = family_key("1616");
     protocol_named_node(
         "role",
         &["Example", "OrderFlow", "role", "Worker"],
