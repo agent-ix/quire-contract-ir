@@ -3496,6 +3496,27 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                 }
             }
         }
+        for &position in check.index.values() {
+            meter.charge(1, || node_pointer(check.position))?;
+            if !check.is(
+                position,
+                CheckedNodeKind::Protocol(ProtocolForm::Compensation),
+            ) {
+                continue;
+            }
+            let (_, args) = scope.node_arguments(position);
+            for binder in compensation_binders(args) {
+                meter.charge(1, || node_pointer(position))?;
+                let binder = scope.target(binder);
+                let origins = scope.known.entry(binder).or_default();
+                if !origins.iter().any(|origin| origin.owner == position) {
+                    origins.push(ProtocolBinderOrigin {
+                        owner: position,
+                        capture: None,
+                    });
+                }
+            }
+        }
         let finish = scope.target(binding_value(arguments, "finish").expect("validated finish"));
         let (_, args) = scope.node_arguments(finish);
         let finish_binder = scope.target(argument(args, 0).expect("validated finish binder"));
