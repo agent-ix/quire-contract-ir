@@ -963,7 +963,7 @@ fn await_checks_anchor_form_and_event_eligibility() {
         Some(&CheckedProtocolRefusalDetail::AwaitedEvent {
             form: "send".into(),
             profile: quire_contract_model::CheckedArtifactRef {
-                authority: "quire".into(),
+                authority: "agent-ix".into(),
                 identity: "quire.protocol.finite-global/v1".into(),
             },
         })
