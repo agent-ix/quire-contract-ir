@@ -53,3 +53,7 @@ Plan completion: not assessed. `quire matrix --scope . --format tsv` completed: 
 **CONDITIONAL at f683d452** — FND-001 remains fixed. New FND-002 is open on the TC-226 exact-boundary pointer assertion.
 
 **PASS at c877aa9b** — FND-001 remains fixed and FND-002 is fixed. Runtime execution remains with hosted Rust Checks under host backoff.
+
+## Later measured pointer check
+
+At 2b445dd4, TC-226 still asserts the exact whole-read M-1 limit 496, consumed 497 and `/semantic_graph/nodes/22` pointer, with no admitted package. It also asserts the earlier Tree limit 489, consumed 490 and `/semantic_graph/nodes/38/dependencies/0` pointer. Hosted Rust Checks at e3a784a2 measured the latter pointer as the actual first unpaid value (897 passed, one TC-226 failure on the former expected pointer); the corrected expectation matches that measurement. Fixture construction leaves the run control at node 22, and the final causal progress charge targets it. **PASS for the recorded findings at 2b445dd4**, pending hosted execution at this head.
