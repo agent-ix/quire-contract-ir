@@ -2174,6 +2174,27 @@ fn compensation_rejects_zero_attempts_inverted_window_and_non_boolean_guard() {
     );
 }
 
+/// Trace: FR-038-AC-282, FR-038-AC-289
+#[trace("TC-048")]
+#[test]
+fn compensation_negative_window_bound_refuses_at_strict_wire() {
+    let (mut package, _, compensation) = package_with_admitted_compensation();
+    package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][8]["value"]["members"]
+        [0]["value"]["value"] = json!("-1");
+    let key = package["semantic_graph"]["nodes"][compensation]["node_id"]["digest"]
+        .as_str()
+        .expect("compensation key");
+    assert_eq!(
+        read(&package),
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidPackage,
+            &format!("/semantic_graph/nodes/{compensation}/body/arguments/8/value/members/0/value"),
+            Some(CheckedPackageRefusalCause::InvalidValue),
+            key,
+        )
+    );
+}
+
 /// Trace: FR-038-AC-289
 #[trace("TC-048")]
 #[test]
@@ -2208,6 +2229,14 @@ fn compensation_requires_forward_and_retry_binder_types() {
             ),
             "binder at argument {ordinal}"
         );
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong) else {
+            panic!("mismatched binder must refuse");
+        };
+        assert!(matches!(
+            refusal.protocol_detail.as_deref(),
+            Some(CheckedProtocolRefusalDetail::PayloadType { expected, actual })
+                if expected != actual
+        ));
     }
 }
 
