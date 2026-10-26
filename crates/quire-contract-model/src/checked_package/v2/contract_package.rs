@@ -1535,6 +1535,7 @@ fn cause_admitted(code: CheckedPackageRefusalCode, cause: CheckedPackageRefusalC
         | Cause::NonBooleanRoot
         | Cause::InvalidTimeQuantity => code == Code::IllTyped,
         Cause::MissingName => code == Code::MissingDeclaration,
+        Cause::WrongObservation => code == Code::WrongSnapshot,
         Cause::MalformedDeclaration | Cause::WrongExport => code == Code::InvalidModelBinding,
         Cause::DeclarationForm => code == Code::UnsupportedConstruct,
         Cause::MissingSelection => matches!(code, Code::MissingImport | Code::MissingDeclaration),
@@ -1545,6 +1546,23 @@ fn cause_admitted(code: CheckedPackageRefusalCode, cause: CheckedPackageRefusalC
         | Cause::UnpreservedModelMeaning
         | Cause::InexactInteger
         | Cause::InexactNumber => false,
+    }
+}
+
+#[cfg(test)]
+mod refusal_cause_tests {
+    use super::{cause_admitted, CheckedPackageRefusalCause, CheckedPackageRefusalCode};
+
+    #[test]
+    fn wrong_observation_requires_wrong_snapshot() {
+        assert!(cause_admitted(
+            CheckedPackageRefusalCode::WrongSnapshot,
+            CheckedPackageRefusalCause::WrongObservation,
+        ));
+        assert!(!cause_admitted(
+            CheckedPackageRefusalCode::IllTyped,
+            CheckedPackageRefusalCause::WrongObservation,
+        ));
     }
 }
 
