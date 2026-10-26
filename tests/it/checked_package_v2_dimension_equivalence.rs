@@ -242,6 +242,12 @@ fn stale_equal_descending_and_repeated_pairs_refuse() {
     refresh_identity(&mut stale);
     refused(&stale, "/semantic_graph/nodes/2/node_id");
 
+    let mut stale_pair = value.clone();
+    stale_pair["semantic_graph"]["nodes"][2]["nominal_identity_preimage"]["dimension_node_ids"]
+        [1] = value["semantic_graph"]["nodes"][0]["node_id"].clone();
+    refresh_identity(&mut stale_pair);
+    refused(&stale_pair, "/semantic_graph/nodes/2/node_id");
+
     let first = value["semantic_graph"]["nodes"][0]["node_id"].clone();
     let mut equal = value.clone();
     equal["semantic_graph"]["nodes"][2]["nominal_identity_preimage"]["dimension_node_ids"] =
