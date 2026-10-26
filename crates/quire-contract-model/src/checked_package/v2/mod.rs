@@ -2784,6 +2784,7 @@ fn validate_graph(
         &wire.lock,
         &owners,
         meter,
+        limits.bytes,
     )?;
     validate_operations(
         &graph.nodes,

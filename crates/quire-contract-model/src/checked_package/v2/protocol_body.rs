@@ -403,7 +403,7 @@ fn reference_set_is_ordered(term: &CheckedTerm) -> bool {
     })
 }
 
-fn related_records_are_ordered(term: &CheckedTerm) -> bool {
+fn related_records_are_ordered(term: &CheckedTerm, bytes: u64) -> bool {
     let Some(records) = members(term) else {
         return false;
     };
@@ -417,10 +417,10 @@ fn related_records_are_ordered(term: &CheckedTerm) -> bool {
         let Some(relationship) = reference_target(relationship) else {
             return false;
         };
-        let Some(from) = canonical_term_bytes(from) else {
+        let Ok(from) = quire_canonical::to_vec(from, quire_canonical::Limits::new(bytes)) else {
             return false;
         };
-        let Some(to) = canonical_term_bytes(to) else {
+        let Ok(to) = quire_canonical::to_vec(to, quire_canonical::Limits::new(bytes)) else {
             return false;
         };
         let key = (relationship.digest.to_string(), from, to);
@@ -430,11 +430,6 @@ fn related_records_are_ordered(term: &CheckedTerm) -> bool {
         previous = Some(key);
     }
     true
-}
-
-fn canonical_term_bytes(term: &CheckedTerm) -> Option<Vec<u8>> {
-    let value = serde_json::to_value(term).ok()?;
-    quire_canonical::to_vec(&value, quire_canonical::Limits::new(u64::MAX)).ok()
 }
 
 fn argument(arguments: &[CheckedTerm], position: usize) -> Option<&CheckedTerm> {
@@ -741,12 +736,25 @@ fn validate_layout(
         || form == ProtocolForm::Control
             && matches!(operator, "choice" | "repeat")
             && argument(arguments, 1).is_none_or(|set| !reference_set_is_ordered(set))
-        || form == ProtocolForm::Control
-            && matches!(operator, "send" | "receive")
-            && argument(arguments, if operator == "receive" { 3 } else { 2 })
-                .is_none_or(|records| !related_records_are_ordered(records))
     {
         return Err(D::NoncanonicalSet);
+    }
+    Ok(())
+}
+
+#[string_edge]
+fn validate_related_order(
+    form: ProtocolForm,
+    operator: &str,
+    arguments: &[CheckedTerm],
+    bytes: u64,
+) -> Result<(), ProtocolBodyDefect> {
+    if form == ProtocolForm::Control
+        && matches!(operator, "send" | "receive")
+        && argument(arguments, if operator == "receive" { 3 } else { 2 })
+            .is_none_or(|records| !related_records_are_ordered(records, bytes))
+    {
+        return Err(ProtocolBodyDefect::NoncanonicalSet);
     }
     Ok(())
 }
@@ -939,9 +947,11 @@ pub(super) fn validate_protocol_body(
     body: &CheckedTerm,
     semantic_type: &CheckedNodeId,
     selected_profile: Option<&CheckedArtifactRef>,
+    bytes: u64,
 ) -> Result<(), ProtocolBodyDefect> {
     let (operator, arguments) = validate_envelope(form, body, semantic_type, selected_profile)?;
-    validate_layout(form, operator, arguments)
+    validate_layout(form, operator, arguments)?;
+    validate_related_order(form, operator, arguments, bytes)
 }
 
 fn body_defect(
@@ -2281,6 +2291,7 @@ pub(super) fn validate_protocol_nodes(
     lock: &CheckedPackageLockV2,
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
+    bytes: u64,
 ) -> Result<(), ValidationFailure> {
     let selected_profile = lock
         .profile_selections
@@ -2370,6 +2381,8 @@ pub(super) fn validate_protocol_nodes(
             };
             validate_layout(form, operator, arguments)
                 .map_err(|defect| body_defect(position, &nodes[position], defect))?;
+            validate_related_order(form, operator, arguments, bytes)
+                .map_err(|defect| body_defect(position, &nodes[position], defect))?;
             if matches!(
                 form,
                 ProtocolForm::Role
@@ -2414,7 +2427,13 @@ mod tests {
             serde_json::from_value::<CheckedArtifactRef>(value.clone())
                 .expect("valid selected profile fixture")
         });
-        super::validate_protocol_body(form, &term, &type_id, selected.as_ref())
+        super::validate_protocol_body(
+            form,
+            &term,
+            &type_id,
+            selected.as_ref(),
+            crate::checked_package::shared::CheckedPackageReadLimits::bounded().bytes,
+        )
     }
 
     type QSpecFrame = (ProtocolForm, &'static str, &'static [(&'static str, Shape)]);

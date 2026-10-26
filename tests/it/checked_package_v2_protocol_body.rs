@@ -1954,11 +1954,18 @@ fn send_related_requires_listed_relationship_and_typed_ends() {
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
         panic!("wrong related end must refuse");
     };
-    assert!(matches!(refusal.protocol_detail.as_deref(),
-        Some(CheckedProtocolRefusalDetail::RelatedEndType { relationship: actual, end, actual: Some(_), .. })
-            if actual == &serde_json::from_value(relationship).expect("relationship ID")
-                && end.as_ref() == "from"
-    ));
+    assert_eq!(
+        refusal.protocol_detail.as_deref(),
+        Some(&CheckedProtocolRefusalDetail::RelatedEndType {
+            relationship: serde_json::from_value(relationship).expect("relationship ID"),
+            end: "from".into(),
+            expected: serde_json::from_value(node_id(&family_key("1515")))
+                .expect("source endpoint ID"),
+            actual: Some(
+                serde_json::from_value(node_id(&family_key("aaaa"))).expect("Boolean type ID")
+            ),
+        })
+    );
 }
 
 /// Trace: FR-038-AC-288
@@ -2001,6 +2008,14 @@ fn send_related_accepts_selected_relationship_reference_ends() {
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
+        .push(binder.clone());
+
+    binder["body"]["members"][0]["value"]["value"] = json!("peer");
+    let peer_key = structural_key("value", "parameter", Some(&reference_key), &binder["body"]);
+    binder["node_id"] = node_id(&peer_key);
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
         .push(binder);
 
     package["semantic_graph"]["nodes"][channel]["body"]["arguments"][2]["value"]["target"] =
@@ -2022,6 +2037,82 @@ fn send_related_accepts_selected_relationship_reference_ends() {
         matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
         "selected relationship ends of the binder's reference type must admit: {:?}",
         read(&package)
+    );
+
+    let record = |to: &str| {
+        json!({"term": "aggregate", "members": [
+            {"term": "binding", "name": "relationship", "value": {"term": "reference", "target": relationship}},
+            {"term": "binding", "name": "from", "value": {"term": "reference", "target": node_id(&binder_key)}},
+            {"term": "binding", "name": "to", "value": {"term": "reference", "target": node_id(to)}}
+        ]})
+    };
+    let (first, second) = if binder_key < peer_key {
+        (record(&binder_key), record(&peer_key))
+    } else {
+        (record(&peer_key), record(&binder_key))
+    };
+    let related =
+        &mut package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"];
+    *related = json!([first.clone(), second.clone()]);
+    settle(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "distinct related records in JCS order must admit: {:?}",
+        read(&package)
+    );
+
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"] =
+        json!([second, first.clone()]);
+    settle(&mut package);
+    let key = package["semantic_graph"]["nodes"][root]["node_id"]["digest"]
+        .as_str()
+        .expect("send key");
+    assert_eq!(
+        read(&package),
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            &format!("/semantic_graph/nodes/{root}"),
+            None,
+            key,
+        )
+    );
+
+    let mut bad_to = first;
+    bad_to["members"][2]["value"] = json!({
+        "term": "literal", "type": node_id(&family_key("aaaa")),
+        "value_kind": "boolean", "value": true
+    });
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"] =
+        json!([bad_to]);
+    settle(&mut package);
+    let key = package["semantic_graph"]["nodes"][root]["node_id"]["digest"]
+        .as_str()
+        .expect("send key");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("wrong to endpoint must refuse");
+    };
+    assert_eq!(
+        refusal,
+        refusal_at(
+            CheckedPackageRefusalCode::IllTyped,
+            &format!(
+                "/semantic_graph/nodes/{root}/body/arguments/2/value/members/0/members/2/value"
+            ),
+            Some(CheckedPackageRefusalCause::TypeMismatch),
+            key,
+        )
+    );
+    assert_eq!(
+        refusal.protocol_detail.as_deref(),
+        Some(&CheckedProtocolRefusalDetail::RelatedEndType {
+            relationship: serde_json::from_value(relationship).expect("relationship ID"),
+            end: "to".into(),
+            expected: serde_json::from_value(node_id(&family_key("1515")))
+                .expect("target endpoint ID"),
+            actual: Some(
+                serde_json::from_value(node_id(&family_key("aaaa"))).expect("Boolean type ID")
+            ),
+        })
     );
 }
 
