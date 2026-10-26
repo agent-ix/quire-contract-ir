@@ -4,10 +4,11 @@
 //! Public reader checks for the first protocol validation passes.
 
 use crate::support::checked_package::{
-    application_node_key, canonical, domain_package_digest, domain_package_document, evidence_for,
-    family_key, node_id, protocol_named_node, protocol_role_node, rebuild_source_map,
-    refresh_identity, refusal, refusal_at, rekey_application_node, rename_node,
-    selected_interface_model_node, settle, structural_key, v2_all_families,
+    admitted_protocol_families, application_node_key, canonical, domain_package_digest,
+    domain_package_document, evidence_for, family_key, node_id, protocol_named_node,
+    protocol_role_node, rebuild_source_map, refresh_identity, refusal, refusal_at,
+    rekey_application_node, rename_node, selected_interface_model_node, settle, structural_key,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -1299,7 +1300,7 @@ fn clause_position(package: &Value) -> usize {
 #[trace("TC-946")]
 #[test]
 fn protocol_owner_edge_has_closed_wire_presence_and_local_shape() {
-    let package = v2_all_families();
+    let package = admitted_protocol_families();
     let position = clause_position(&package);
     assert!(matches!(
         read(&package),
@@ -1346,7 +1347,7 @@ fn protocol_owner_edge_has_closed_wire_presence_and_local_shape() {
         Some(format!("/semantic_graph/nodes/{position}/owner_model").as_str())
     );
 
-    let mut package = v2_all_families();
+    let mut package = admitted_protocol_families();
     let position = clause_position(&package);
     package["semantic_graph"]["nodes"][position]["owner_model"] = node_id(&family_key("1010"));
     settle(&mut package);
@@ -1368,7 +1369,7 @@ fn protocol_owner_edge_has_closed_wire_presence_and_local_shape() {
 #[trace("TC-946")]
 #[test]
 fn protocol_owner_dependency_precedes_key_and_target_meaning() {
-    let mut package = v2_all_families();
+    let mut package = admitted_protocol_families();
     let position = clause_position(&package);
     let owner = package["semantic_graph"]["nodes"][position]["owner_model"].clone();
     package["semantic_graph"]["nodes"][position]["dependencies"]
@@ -1389,7 +1390,7 @@ fn protocol_owner_dependency_precedes_key_and_target_meaning() {
     );
 
     for duplicate in [true, false] {
-        let mut package = v2_all_families();
+        let mut package = admitted_protocol_families();
         let position = clause_position(&package);
         let entries = package["semantic_graph"]["nodes"][position]["dependencies"]
             .as_array_mut()
@@ -1413,7 +1414,7 @@ fn protocol_owner_dependency_precedes_key_and_target_meaning() {
         );
     }
 
-    let mut package = v2_all_families();
+    let mut package = admitted_protocol_families();
     let position = clause_position(&package);
     package["semantic_graph"]["nodes"][position]["owner_model"] = node_id(&family_key("aaaa"));
     settle(&mut package);
@@ -1435,7 +1436,7 @@ fn protocol_owner_dependency_precedes_key_and_target_meaning() {
 #[trace("TC-946")]
 #[test]
 fn protocol_owner_retarget_with_retained_key_refuses_before_target_meaning() {
-    let mut package = v2_all_families();
+    let mut package = admitted_protocol_families();
     let position = clause_position(&package);
     let old_key = package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
         .as_str()
@@ -1468,7 +1469,7 @@ fn protocol_owner_retarget_with_retained_key_refuses_before_target_meaning() {
 #[trace("TC-946")]
 #[test]
 fn protocol_owner_retarget_to_second_selected_model_changes_package_identity() {
-    let mut package = v2_all_families();
+    let mut package = admitted_protocol_families();
     let position = clause_position(&package);
     let old_key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
     let old_package = package["package_id"].clone();
@@ -1487,7 +1488,9 @@ fn protocol_owner_retarget_to_second_selected_model_changes_package_identity() {
     assert_ne!(package["package_id"], old_package);
     let result = read(&package);
     let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
-        panic!("exact second selected model owner must admit without over-type inference: {result:?}");
+        panic!(
+            "exact second selected model owner must admit without over-type inference: {result:?}"
+        );
     };
     let clause = admitted
         .graph()

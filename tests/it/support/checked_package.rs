@@ -1046,6 +1046,29 @@ pub fn selected_interface_model_node() -> Value {
     )
 }
 
+/// The all-family fixture with a well-typed protocol finish constraint.
+pub fn admitted_protocol_families() -> Value {
+    let mut package = v2_all_families();
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let clause = nodes
+        .iter()
+        .position(|node| node["semantic_form"] == "protocol_clause")
+        .expect("protocol clause");
+    let finish = nodes
+        .iter()
+        .position(|node| node["semantic_form"] == "obligation")
+        .expect("finish obligation");
+    let over = package["semantic_graph"]["nodes"][clause]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    package["semantic_graph"]["nodes"][finish]["body"]["arguments"][1]["value"] =
+        json!({"term": "reference", "target": over});
+    settle(&mut package);
+    package
+}
+
 /// The derived key of the anonymous `scalar_type`/`boolean` node, as a
 /// literal; `structural_key` recomputes it in `tc_226_the_recorded_scalar_keys_are_the_derived_ones`.
 pub const BOOLEAN_KEY: &str = "9964390677844ad66b781babdbfa95933bc2b16ef1e86f67005966b77e6db3aa";
