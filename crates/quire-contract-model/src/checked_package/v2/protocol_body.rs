@@ -4,9 +4,10 @@
 
 use super::model_members::{Budget, ModelOwners};
 use super::{
-    ApplicationOperator, CheckedNodeKind, CheckedPackageLockV2, CheckedSelectionRole, CheckedTerm,
-    CompositeTypeForm, LiteralKind, ModelForm, ProtocolForm, RawSemanticNodeV2, RelationForm,
-    ScalarTypeForm, StateClauseKind, StateForm, TemporalForm, ValueForm, WorkMeter,
+    ApplicationOperator, CheckedNodeKind, CheckedPackageLockV2, CheckedPackageV2,
+    CheckedSelectionRole, CheckedTerm, CompositeTypeForm, LiteralKind, ModelForm, ProtocolForm,
+    RawSemanticNodeV2, RelationForm, ScalarTypeForm, StateClauseKind, StateForm, TemporalForm,
+    ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -19,6 +20,81 @@ use ix_trace_rs::string_edge;
 use num_bigint::BigInt;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+
+/// The activation selected by an admitted protocol clause.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CheckedProtocolActivation {
+    /// The protocol activates at its origin.
+    Origin,
+    /// Each occurrence of the named trigger activates the protocol.
+    Each {
+        /// The admitted trigger parameter node.
+        trigger: CheckedNodeId,
+    },
+}
+
+/// One required temporal clause for an admitted protocol activation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedProtocolActivationRow {
+    /// The admitted protocol clause node.
+    pub clause: CheckedNodeId,
+    /// The clause's authored activation.
+    pub activation: CheckedProtocolActivation,
+    /// The admitted temporal clause named in `requirements`.
+    pub required_temporal: CheckedNodeId,
+}
+
+impl CheckedPackageV2 {
+    /// Derives every local clause's activation requirements from the admitted graph.
+    ///
+    /// The rows are ordered by clause and then required temporal node digest.
+    /// This read-only view does not charge reader work or change package identity.
+    pub fn protocol_activation_relation(&self) -> Vec<CheckedProtocolActivationRow> {
+        let mut rows = Vec::new();
+        for (position, node) in self.wire.semantic_graph.nodes.iter().enumerate() {
+            if self.kinds[position] != CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause) {
+                continue;
+            }
+            let CheckedTerm::Application { arguments, .. } = self.terms[position]
+                .as_ref()
+                .expect("admitted protocol clause has a body")
+            else {
+                unreachable!("admitted protocol clause has an application body");
+            };
+            let activation = binding_value(arguments, "activation")
+                .expect("admitted protocol clause has an activation");
+            let activation = match group_value(activation, "kind").and_then(text_value) {
+                Some("origin") => CheckedProtocolActivation::Origin,
+                Some("each") => CheckedProtocolActivation::Each {
+                    trigger: reference_target(
+                        group_value(activation, "trigger")
+                            .expect("admitted each activation has a trigger"),
+                    )
+                    .expect("admitted each trigger is a reference")
+                    .clone(),
+                },
+                _ => unreachable!("admitted activation has a closed kind"),
+            };
+            let requirements = binding_value(arguments, "requirements")
+                .expect("admitted protocol clause has requirements");
+            for required_temporal in listed_targets(requirements) {
+                rows.push(CheckedProtocolActivationRow {
+                    clause: node.node_id.clone(),
+                    activation: activation.clone(),
+                    required_temporal: required_temporal.clone(),
+                });
+            }
+        }
+        rows.sort_unstable_by(|left, right| {
+            left.clause.digest.cmp(&right.clause.digest).then_with(|| {
+                left.required_temporal
+                    .digest
+                    .cmp(&right.required_temporal.digest)
+            })
+        });
+        rows
+    }
+}
 
 /// A defect in the application envelope or an operator's fixed bindings.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
