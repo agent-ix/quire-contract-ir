@@ -2209,7 +2209,6 @@ fn check_control_prefix(
 }
 
 #[string_edge]
-#[string_edge]
 fn check_compensation(
     check: &MemberCheck<'_>,
     arguments: &[CheckedTerm],
@@ -2237,6 +2236,73 @@ fn check_compensation(
     check.target_at(arguments, 3, |position| {
         check.is(position, CheckedNodeKind::State(StateForm::OperationAnchor))
     })?;
+    for ordinal in [5, 7] {
+        let captures = members(check.at(arguments, ordinal)).expect("validated captures");
+        for (position, record) in captures.iter().enumerate() {
+            let binder = group_value(record, "binder").expect("validated capture binder");
+            check.check_target(
+                binder,
+                check
+                    .argument_path(ordinal)
+                    .key("members")
+                    .index(position)
+                    .key("members")
+                    .index(0)
+                    .key("value"),
+                parameter,
+            )?;
+        }
+    }
+    let trigger = check.at(arguments, 6);
+    check.check_target(
+        group_value(trigger, "binder").expect("validated trigger binder"),
+        check.argument_path(6).key("members").index(0).key("value"),
+        parameter,
+    )?;
+    let attempts = check.at(arguments, 9);
+    let record_type = check.check_target(
+        group_value(attempts, "record_type").expect("validated record type"),
+        check.argument_path(9).key("members").index(1).key("value"),
+        |position| {
+            matches!(
+                check.kinds[position],
+                CheckedNodeKind::Model(ModelForm::RecordValueType | ModelForm::EventType)
+            )
+        },
+    )?;
+    let retry = check.at(arguments, 10);
+    let mut retry_binders = Vec::with_capacity(2);
+    for (position, name) in ["earlier", "later"].into_iter().enumerate() {
+        let binder = check.check_target(
+            group_value(retry, name).expect("validated retry binder"),
+            check
+                .argument_path(10)
+                .key("members")
+                .index(position)
+                .key("value"),
+            parameter,
+        )?;
+        retry_binders.push(binder);
+    }
+    if let Some(commit) = members(check.at(arguments, 11)).and_then(|items| items.first()) {
+        check.check_target(
+            commit,
+            check.argument_path(11).key("members").index(0),
+            |position| {
+                check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Control))
+                    && check.terms[position].as_ref().is_some_and(|term| {
+                        matches!(term, CheckedTerm::Application { operation, .. }
+                            if operation.pointer("/member/operator").and_then(Value::as_str) == Some("commit"))
+                    })
+            },
+        )?;
+    }
+    let recovery = check.at(arguments, 12);
+    check.check_target(
+        group_value(recovery, "binder").expect("validated recovery binder"),
+        check.argument_path(12).key("members").index(0).key("value"),
+        parameter,
+    )?;
     let forward_effect_binder = check.terms[forward]
         .as_ref()
         .and_then(|term| match term {
@@ -2265,32 +2331,32 @@ fn check_compensation(
             },
         ));
     }
-    for ordinal in [5, 7] {
-        let captures = members(check.at(arguments, ordinal)).expect("validated captures");
-        for (position, record) in captures.iter().enumerate() {
-            let binder = group_value(record, "binder").expect("validated capture binder");
-            check.check_target(
-                binder,
-                check
-                    .argument_path(ordinal)
-                    .key("members")
-                    .index(position)
-                    .key("members")
-                    .index(0)
-                    .key("value"),
-                parameter,
-            )?;
+    for binder in retry_binders {
+        let expected = &check.nodes[record_type].node_id;
+        let actual = &check.nodes[binder].semantic_type;
+        if actual != expected {
+            return Err(check.refuse_with_detail(
+                Code::IllTyped,
+                Cause::TypeMismatch,
+                node_pointer(check.position),
+                CheckedProtocolRefusalDetail::PayloadType {
+                    expected: expected.clone(),
+                    actual: actual.clone(),
+                },
+            ));
         }
     }
-    let trigger = check.at(arguments, 6);
-    check.check_target(
-        group_value(trigger, "binder").expect("validated trigger binder"),
-        check.argument_path(6).key("members").index(0).key("value"),
-        parameter,
-    )?;
     check.boolean(
         group_value(trigger, "guard").expect("validated trigger guard"),
         check.argument_path(6).key("members").index(1).key("value"),
+    )?;
+    check.boolean(
+        group_value(retry, "relation").expect("validated retry relation"),
+        check.argument_path(10).key("members").index(2).key("value"),
+    )?;
+    check.boolean(
+        group_value(recovery, "predicate").expect("validated recovery predicate"),
+        check.argument_path(12).key("members").index(1).key("value"),
     )?;
     let within = check.at(arguments, 8);
     let (Some(lower), Some(upper)) = (
@@ -2311,17 +2377,6 @@ fn check_compensation(
             },
         ));
     }
-    let attempts = check.at(arguments, 9);
-    let record_type = check.check_target(
-        group_value(attempts, "record_type").expect("validated record type"),
-        check.argument_path(9).key("members").index(1).key("value"),
-        |position| {
-            matches!(
-                check.kinds[position],
-                CheckedNodeKind::Model(ModelForm::RecordValueType | ModelForm::EventType)
-            )
-        },
-    )?;
     let maximum = group_value(attempts, "maximum")
         .and_then(integer_value)
         .expect("validated maximum");
@@ -2337,61 +2392,10 @@ fn check_compensation(
             },
         ));
     }
-    let retry = check.at(arguments, 10);
-    for (position, name) in ["earlier", "later"].into_iter().enumerate() {
-        let binder = check.check_target(
-            group_value(retry, name).expect("validated retry binder"),
-            check
-                .argument_path(10)
-                .key("members")
-                .index(position)
-                .key("value"),
-            parameter,
-        )?;
-        let expected = &check.nodes[record_type].node_id;
-        let actual = &check.nodes[binder].semantic_type;
-        if actual != expected {
-            return Err(check.refuse_with_detail(
-                Code::IllTyped,
-                Cause::TypeMismatch,
-                node_pointer(check.position),
-                CheckedProtocolRefusalDetail::PayloadType {
-                    expected: expected.clone(),
-                    actual: actual.clone(),
-                },
-            ));
-        }
-    }
-    check.boolean(
-        group_value(retry, "relation").expect("validated retry relation"),
-        check.argument_path(10).key("members").index(2).key("value"),
-    )?;
-    if let Some(commit) = members(check.at(arguments, 11)).and_then(|items| items.first()) {
-        check.check_target(
-            commit,
-            check.argument_path(11).key("members").index(0),
-            |position| {
-                check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Control))
-                    && check.terms[position].as_ref().is_some_and(|term| {
-                        matches!(term, CheckedTerm::Application { operation, .. }
-                            if operation.pointer("/member/operator").and_then(Value::as_str) == Some("commit"))
-                    })
-            },
-        )?;
-    }
-    let recovery = check.at(arguments, 12);
-    check.check_target(
-        group_value(recovery, "binder").expect("validated recovery binder"),
-        check.argument_path(12).key("members").index(0).key("value"),
-        parameter,
-    )?;
-    check.boolean(
-        group_value(recovery, "predicate").expect("validated recovery predicate"),
-        check.argument_path(12).key("members").index(1).key("value"),
-    )?;
     Ok(())
 }
 
+#[string_edge]
 fn check_member(
     check: &MemberCheck<'_>,
     form: ProtocolForm,

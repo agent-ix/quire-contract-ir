@@ -2174,6 +2174,99 @@ fn compensation_rejects_zero_attempts_inverted_window_and_non_boolean_guard() {
     );
 }
 
+/// Trace: FR-038-AC-289
+#[trace("TC-048")]
+#[test]
+fn compensation_requires_forward_and_retry_binder_types() {
+    let (package, _, compensation) = package_with_admitted_compensation();
+    let forward_binder = package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][1]
+        ["value"]["target"]
+        .clone();
+    let earlier_binder = package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][10]
+        ["value"]["members"][0]["value"]["target"]
+        .clone();
+    for (ordinal, replacement) in [(1, earlier_binder), (10, forward_binder)] {
+        let mut wrong = package.clone();
+        if ordinal == 1 {
+            wrong["semantic_graph"]["nodes"][compensation]["body"]["arguments"][1]["value"]
+                ["target"] = replacement;
+        } else {
+            wrong["semantic_graph"]["nodes"][compensation]["body"]["arguments"][10]["value"]
+                ["members"][0]["value"]["target"] = replacement;
+        }
+        settle(&mut wrong);
+        let key = wrong["semantic_graph"]["nodes"][compensation]["node_id"]["digest"]
+            .as_str()
+            .expect("compensation key");
+        assert_eq!(
+            read(&wrong),
+            refusal_at(
+                CheckedPackageRefusalCode::IllTyped,
+                &format!("/semantic_graph/nodes/{compensation}"),
+                Some(CheckedPackageRefusalCause::TypeMismatch),
+                key,
+            ),
+            "binder at argument {ordinal}"
+        );
+    }
+}
+
+/// Trace: FR-038-AC-289
+#[trace("TC-048")]
+#[test]
+fn compensation_admits_present_commit_and_refuses_wrong_record_type() {
+    let (mut package, _, compensation) = package_with_admitted_compensation();
+    let role =
+        package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
+    let binder = package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][1]["value"]
+        ["target"]
+        .clone();
+    let mut body = package["semantic_graph"]["nodes"][compensation]["body"].clone();
+    body["operation"]["member"]["operator"] = json!("commit");
+    body["arguments"] = json!([
+        {"term": "binding", "name": "role", "value": {"term": "reference", "target": role}},
+        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": binder}},
+        {"term": "binding", "name": "constraint", "value": {"term": "literal",
+            "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}}
+    ]);
+    let commit = protocol_named_node(
+        "control",
+        &["Example", "OrderFlow", "run", "Main", "Commit"],
+        body,
+        &[],
+    );
+    let commit_target = commit["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(commit);
+    package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][11]["value"]["members"] =
+        json!([{"term": "reference", "target": commit_target}]);
+    settle(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "{:?}",
+        read(&package)
+    );
+
+    let mut wrong = package;
+    wrong["semantic_graph"]["nodes"][compensation]["body"]["arguments"][9]["value"]["members"][1]
+        ["value"]["target"] = role;
+    settle(&mut wrong);
+    let key = wrong["semantic_graph"]["nodes"][compensation]["node_id"]["digest"]
+        .as_str()
+        .expect("compensation key");
+    assert_eq!(
+        read(&wrong),
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            &format!("/semantic_graph/nodes/{compensation}/body/arguments/9/value/members/1/value/target"),
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            key,
+        )
+    );
+}
+
 /// Trace: FR-038-AC-288
 #[trace("TC-048")]
 #[test]
