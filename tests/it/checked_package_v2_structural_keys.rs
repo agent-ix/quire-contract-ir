@@ -2244,6 +2244,10 @@ fn tc_226_tree_whole_read_work_boundary() {
     assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
     assert_eq!(incomplete.limit, M - 1);
     assert_eq!(incomplete.consumed, M);
+    assert_eq!(
+        incomplete.path.as_ref().map(|path| path.as_str()),
+        Some("/semantic_graph/nodes/22")
+    );
 }
 
 /// A retained group key authenticates each member's bounds and body reference.
