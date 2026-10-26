@@ -2506,6 +2506,8 @@ fn package_with_present_commit() -> (Value, usize, usize) {
 #[test]
 fn compensation_admits_present_commit_and_refuses_wrong_record_type() {
     let (package, compensation, _) = package_with_present_commit();
+    let role =
+        package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
     assert!(
         matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
         "{:?}",
