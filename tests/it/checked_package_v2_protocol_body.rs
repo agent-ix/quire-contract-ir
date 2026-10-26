@@ -25,6 +25,148 @@ fn read(package: &Value) -> CheckedPackageV2ReadResult {
     )
 }
 
+/// Trace: FR-038-AC-291
+#[trace("TC-048")]
+#[test]
+fn protocol_finish_reads_over_at_its_stage() {
+    let mut package = v2_all_families();
+    let clause = clause_position(&package);
+    let finish = protocol_position(&package, "obligation");
+    let over = package["semantic_graph"]["nodes"][clause]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    package["semantic_graph"]["nodes"][finish]["body"]["arguments"][1]["value"] =
+        json!({"term": "reference", "target": over});
+    settle(&mut package);
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
+/// Trace: FR-038-AC-291
+#[trace("TC-048")]
+#[test]
+fn protocol_check_refuses_over_before_scope() {
+    let mut package = v2_all_families();
+    let clause = clause_position(&package);
+    let root = protocol_position(&package, "control");
+    let over = package["semantic_graph"]["nodes"][clause]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    package["semantic_graph"]["nodes"][root]["body"]["operation"]["member"]["operator"] =
+        json!("check");
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"] = json!([
+        {"term": "binding", "name": "condition", "value": {"term": "reference", "target": over}}
+    ]);
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("check must refuse model-state input");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::OperatorIneligible)
+    );
+    assert_eq!(
+        refusal.protocol_detail.as_deref(),
+        Some(&CheckedProtocolRefusalDetail::ModelStateRead {
+            slot: "check.condition".into()
+        })
+    );
+}
+
+/// Trace: FR-038-AC-291
+#[trace("TC-048")]
+#[test]
+fn protocol_check_refuses_finish_binder_before_finish() {
+    let mut package = v2_all_families();
+    let root = protocol_position(&package, "control");
+    let finish = protocol_position(&package, "obligation");
+    let binder = package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    package["semantic_graph"]["nodes"][root]["body"]["operation"]["member"]["operator"] =
+        json!("check");
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"] = json!([
+        {"term": "binding", "name": "condition", "value": {"term": "reference", "target": binder}}
+    ]);
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("check must refuse a finish binder before finish");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert!(matches!(refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::BinderScope { stage, read, .. })
+        if stage.as_ref() == "run" && read.as_ref() == "stage"));
+}
+
+/// Trace: FR-038-AC-291
+#[trace("TC-048")]
+#[test]
+fn await_event_binder_is_readable_on_then_but_not_timeout() {
+    let (mut package, children) = protocol_holder_case("await");
+    let event = children[0];
+    let then = children[1];
+    let timeout = children[2];
+    let binder = package["semantic_graph"]["nodes"][event]["body"]["arguments"][2]["value"]
+        ["target"]
+        .clone();
+    let check_body = json!([
+        {"term": "binding", "name": "condition", "value": {"term": "reference", "target": binder}}
+    ]);
+    package["semantic_graph"]["nodes"][then]["body"]["operation"]["member"]["operator"] =
+        json!("check");
+    package["semantic_graph"]["nodes"][then]["body"]["arguments"] = check_body.clone();
+    settle(&mut package);
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    package["semantic_graph"]["nodes"][then]["body"]["operation"]["member"]["operator"] =
+        json!("sequence");
+    package["semantic_graph"]["nodes"][then]["body"]["arguments"] = json!([
+        {"term": "binding", "name": "children", "value": {"term": "aggregate", "members": []}}
+    ]);
+    package["semantic_graph"]["nodes"][timeout]["body"]["operation"]["member"]["operator"] =
+        json!("check");
+    package["semantic_graph"]["nodes"][timeout]["body"]["arguments"] = check_body;
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("timeout must not read the matched event binder");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert!(matches!(refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::BinderScope { stage, read, .. })
+        if stage.as_ref() == "run" && read.as_ref() == "stage"));
+}
+
+/// Trace: FR-038-AC-291
+#[trace("TC-048")]
+#[test]
+fn sequence_successor_and_finish_read_predecessor_binders() {
+    let (mut package, effect, _) = package_with_admitted_effect();
+    let attempt_binder = package["semantic_graph"]["nodes"][effect - 1]["body"]["arguments"][4]
+        ["value"]["target"]
+        .clone();
+    let effect_binder = package["semantic_graph"]["nodes"][effect]["body"]["arguments"][1]["value"]
+        ["target"]
+        .clone();
+    package["semantic_graph"]["nodes"][effect]["body"]["arguments"][3]["value"] =
+        json!({"term": "reference", "target": attempt_binder});
+    let finish = protocol_position(&package, "obligation");
+    package["semantic_graph"]["nodes"][finish]["body"]["arguments"][1]["value"] =
+        json!({"term": "reference", "target": effect_binder});
+    settle(&mut package);
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
 fn clause_position(package: &Value) -> usize {
     package["semantic_graph"]["nodes"]
         .as_array()
@@ -1754,9 +1896,27 @@ fn await_admits_compensation_anchor_form() {
 fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
     let role =
         package["semantic_graph"]["nodes"][protocol_position(package, "role")]["node_id"].clone();
-    let binder = package["semantic_graph"]["nodes"][protocol_position(package, "obligation")]
-        ["body"]["arguments"][0]["value"]["target"]
-        .clone();
+    let attempt_binder = clause_parameter(package, "attempt", "1");
+    let effect_binder = clause_parameter(package, "effect", "2");
+    let event_binder = clause_parameter(package, "event", "3");
+    let finish_binder = clause_parameter(package, "closed_after_effect", "4");
+    let forward_binder = clause_parameter(package, "forward", "1");
+    let trigger_binder = clause_parameter(package, "trigger", "3");
+    let recovery_binder = clause_parameter(package, "recovery", "7");
+    let finish = protocol_position(package, "obligation");
+    package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]["value"]["target"] =
+        finish_binder;
+    let root_event = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["semantic_form"] == "control"
+                && node["body"]["operation"]["member"]["operator"] == "event"
+        })
+        .expect("event control");
+    package["semantic_graph"]["nodes"][root_event]["body"]["arguments"][2]["value"]["target"] =
+        event_binder;
     let anchor = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -1788,10 +1948,11 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
         .find(|node| node["node_tag"] == "value" && node["semantic_form"] == "parameter")
         .expect("parameter")
         .clone();
-    let retry_binder = |name: &str| {
+    let retry_binder = |name: &str, level: usize| {
         let mut node = parameter.clone();
         node["semantic_type"] = record_target.clone();
         node["body"]["members"][0]["value"]["value"] = json!(name);
+        node["body"]["members"][1]["value"]["value"] = json!(level.to_string());
         node["node_id"] = node_id(&structural_key(
             "value",
             "parameter",
@@ -1800,13 +1961,14 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
         ));
         node
     };
-    let earlier = retry_binder("earlier");
-    let later = retry_binder("later");
+    let earlier = retry_binder("earlier", 5);
+    let later = retry_binder("later", 6);
     let earlier_target = earlier["node_id"].clone();
     let later_target = later["node_id"].clone();
-    let capture_binder = |name: &str| {
+    let capture_binder = |name: &str, level: usize| {
         let mut node = parameter.clone();
         node["body"]["members"][0]["value"]["value"] = json!(name);
+        node["body"]["members"][1]["value"]["value"] = json!(level.to_string());
         node["node_id"] = node_id(&structural_key(
             "value",
             "parameter",
@@ -1815,8 +1977,8 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
         ));
         node
     };
-    let registration = capture_binder("registration");
-    let activation = capture_binder("activation");
+    let registration = capture_binder("registration", 2);
+    let activation = capture_binder("activation", 4);
     let registration_target = registration["node_id"].clone();
     let activation_target = activation["node_id"].clone();
     let group = || json!({"term": "aggregate", "members": []});
@@ -1839,7 +2001,7 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
         binding("operation", reference(&anchor)),
         binding("ordering", group()),
         binding("contracts", group()),
-        binding("binder", reference(&binder)),
+        binding("binder", reference(&attempt_binder)),
         binding("related", group()),
         binding("constraint", boolean())
     ]);
@@ -1854,7 +2016,7 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
     effect_body["operation"]["member"]["operator"] = json!("effect");
     effect_body["arguments"] = json!([
         binding("of", reference(&attempt_target)),
-        binding("binder", reference(&binder)),
+        binding("binder", reference(&effect_binder)),
         binding("related", group()),
         binding("constraint", boolean())
     ]);
@@ -1918,7 +2080,7 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
     compensation["body"]["operation"]["member"]["operator"] = json!("compensate");
     compensation["body"]["arguments"] = json!([
         binding("forward", reference(&effect_target)),
-        binding("forward_binder", reference(&binder)),
+        binding("forward_binder", reference(&forward_binder)),
         binding("role", reference(&role)),
         binding("operation", reference(&anchor)),
         binding(
@@ -1937,7 +2099,7 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
         binding(
             "trigger",
             json!({"term": "aggregate", "members": [
-                binding("binder", reference(&binder)), binding("guard", boolean())
+                binding("binder", reference(&trigger_binder)), binding("guard", boolean())
             ]})
         ),
         binding(
@@ -1972,7 +2134,7 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
         binding(
             "recovery",
             json!({"term": "aggregate", "members": [
-                binding("binder", reference(&binder)), binding("predicate", boolean())
+                binding("binder", reference(&recovery_binder)), binding("predicate", boolean())
             ]})
         )
     ]);
@@ -2449,6 +2611,10 @@ fn package_with_send() -> (Value, usize, usize) {
             "term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true
         }}
     ]);
+    let finish_binder = clause_parameter(&mut package, "finished", "2");
+    let finish = protocol_position(&package, "obligation");
+    package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]["value"]["target"] =
+        finish_binder;
     settle(&mut package);
     (package, root, channel)
 }
@@ -2504,6 +2670,10 @@ fn package_with_step_control_on(package: Value, operator: &str) -> (Value, usize
     let body = &mut package["semantic_graph"]["nodes"][root]["body"];
     body["operation"]["member"]["operator"] = json!(operator);
     body["arguments"] = arguments;
+    let finish_binder = clause_parameter(&mut package, "finished", "2");
+    let finish = protocol_position(&package, "obligation");
+    package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]["value"]["target"] =
+        finish_binder;
     settle(&mut package);
     (package, root)
 }
@@ -2665,7 +2835,7 @@ fn attempt_admits_operation_contract_and_rejects_wrong_contract_kind_and_anchor(
 fn package_with_admitted_effect() -> (Value, usize, Value) {
     let (mut package, root, anchor) = package_with_admitted_attempt();
     let attempt_body = package["semantic_graph"]["nodes"][root]["body"].clone();
-    let binder = attempt_body["arguments"][4]["value"]["target"].clone();
+    let binder = clause_parameter(&mut package, "effect", "2");
     let attempt = protocol_named_node(
         "control",
         &["Example", "OrderFlow", "run", "Main", "Attempt"],
@@ -2706,6 +2876,10 @@ fn package_with_admitted_effect() -> (Value, usize, Value) {
             {"term": "reference", "target": effect_key}
         ]}}
     ]);
+    let finish_binder = clause_parameter(&mut package, "finished_after_effect", "3");
+    let finish = protocol_position(&package, "obligation");
+    package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]["value"]["target"] =
+        finish_binder;
     settle(&mut package);
     (package, effect_position, anchor)
 }
@@ -3158,9 +3332,11 @@ fn package_with_present_commit() -> (Value, usize, usize) {
     let (mut package, _, compensation) = package_with_admitted_compensation();
     let role =
         package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
-    let binder = package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][1]["value"]
-        ["target"]
-        .clone();
+    let binder = clause_parameter(&mut package, "commit", "4");
+    let finish_binder = clause_parameter(&mut package, "closed_after_commit", "5");
+    let finish = protocol_position(&package, "obligation");
+    package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]["value"]["target"] =
+        finish_binder;
     let mut body = package["semantic_graph"]["nodes"][compensation]["body"].clone();
     body["operation"]["member"]["operator"] = json!("commit");
     body["arguments"] = json!([

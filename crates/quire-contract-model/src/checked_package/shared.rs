@@ -393,6 +393,22 @@ pub enum CheckedTerminalDuplicate {
 /// Protocol control information retained at a typed reader refusal.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CheckedProtocolRefusalDetail {
+    /// A protocol expression reads a binder outside its stage's readable set.
+    BinderScope {
+        /// The binder's declared name.
+        name: Box<str>,
+        /// The slot stage.
+        stage: Box<str>,
+        /// The clause or compensation template owning the slot.
+        owner: CheckedNodeId,
+        /// Whether the read is forward, foreign or unavailable at this stage.
+        read: Box<str>,
+    },
+    /// A binders-only slot reaches model state.
+    ModelStateRead {
+        /// The slot that bars model state.
+        slot: Box<str>,
+    },
     /// Controls participating in a derived causal cycle, in control-tree order.
     CausalCycle {
         /// The controls on the cycle.
