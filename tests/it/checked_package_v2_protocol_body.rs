@@ -304,6 +304,9 @@ fn protocol_holder_case(operator: &str) -> (Value, Vec<usize>) {
     let leaf_body = package["semantic_graph"]["nodes"][root]["body"].clone();
     let role = protocol_role_node();
     let role_target = role["node_id"].clone();
+    let binder_target = package["semantic_graph"]["nodes"]
+        [protocol_position(&package, "obligation")]["body"]["arguments"][0]["value"]["target"]
+        .clone();
     let names: &[&str] = if operator == "await" {
         &["Event", "Then", "Timeout"]
     } else {
@@ -327,7 +330,7 @@ fn protocol_holder_case(operator: &str) -> (Value, Vec<usize>) {
             child_body["arguments"] = json!([
                 {"term": "binding", "name": "role", "value": {"term": "reference", "target": role_target}},
                 {"term": "binding", "name": "compensation", "value": {"term": "aggregate", "members": []}},
-                {"term": "binding", "name": "binder", "value": {"term": "reference", "target": role_target}},
+                {"term": "binding", "name": "binder", "value": {"term": "reference", "target": binder_target}},
                 {"term": "binding", "name": "related", "value": {"term": "aggregate", "members": []}},
                 {"term": "binding", "name": "constraint", "value": {"term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}}
             ]);
@@ -1001,7 +1004,7 @@ fn await_inverted_interval_refuses_with_written_bounds() {
 /// Trace: FR-038-AC-288
 #[trace("TC-048")]
 #[test]
-fn await_admits_effect_event_form() {
+fn await_effect_event_requires_an_attempt_source() {
     let (mut package, children) = protocol_holder_case("await");
     let role =
         package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
@@ -1023,10 +1026,21 @@ fn await_admits_effect_event_form() {
         json!("effect");
     package["semantic_graph"]["nodes"][children[0]]["body"]["arguments"] = arguments;
     settle(&mut package);
-    assert!(matches!(
+    let key = package["semantic_graph"]["nodes"][children[0]]["node_id"]["digest"]
+        .as_str()
+        .expect("effect key");
+    assert_eq!(
         read(&package),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ));
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            &format!(
+                "/semantic_graph/nodes/{}/body/arguments/0/value/target",
+                children[0]
+            ),
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            key
+        )
+    );
 }
 
 /// Trace: FR-038-AC-288
