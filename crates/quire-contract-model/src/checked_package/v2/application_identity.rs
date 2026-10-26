@@ -12,6 +12,7 @@ use crate::checked_package::common::{body_term, NODE_DOMAIN};
 use quire_walk::{walk, Children, Walk};
 use serde_json::{json, Value};
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::ops::ControlFlow;
 
@@ -240,6 +241,7 @@ pub fn derive_application_node_id<Body: super::CandidateBody>(
 #[derive(Clone, Copy)]
 pub(super) enum ApplicationGroup<'a> {
     Keys(&'a [&'a CheckedNodeId]),
+    Indexed(&'a BTreeMap<&'a CheckedNodeId, usize>),
     Snapshot {
         nodes: &'a [CheckedSemanticNodeV2],
         label: &'a str,
@@ -251,6 +253,7 @@ impl ApplicationGroup<'_> {
     fn ordinal(self, target: &CheckedNodeId) -> Option<usize> {
         match self {
             Self::Keys(keys) => keys.iter().position(|key| **key == *target),
+            Self::Indexed(ordinals) => ordinals.get(target).copied(),
             Self::Snapshot { nodes, label, .. } => nodes
                 .iter()
                 .filter(|node| node.recursion_group.as_deref() == Some(label))
@@ -261,6 +264,7 @@ impl ApplicationGroup<'_> {
     fn is_empty(self) -> bool {
         match self {
             Self::Keys(keys) => keys.is_empty(),
+            Self::Indexed(ordinals) => ordinals.is_empty(),
             Self::Snapshot { place, .. } => place.size == 0,
         }
     }
@@ -294,6 +298,17 @@ fn application_preimage_with_term<'a>(
             })?;
             Some(GroupPlace {
                 size: u64::try_from(keys.len()).map_err(|_| index_error())?,
+                ordinal: u64::try_from(ordinal).map_err(|_| index_error())?,
+            })
+        }
+        (Some(_), ApplicationGroup::Indexed(ordinals)) => {
+            let ordinal = group.ordinal(&node.node_id).ok_or_else(|| {
+                ApplicationIdentityError::ContextMismatch {
+                    node_id: node.node_id.clone(),
+                }
+            })?;
+            Some(GroupPlace {
+                size: u64::try_from(ordinals.len()).map_err(|_| index_error())?,
                 ordinal: u64::try_from(ordinal).map_err(|_| index_error())?,
             })
         }
