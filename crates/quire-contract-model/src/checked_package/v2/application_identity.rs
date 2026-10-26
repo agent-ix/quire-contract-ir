@@ -318,7 +318,13 @@ fn application_preimage_with_term<'a>(
         semantic_form: &node.semantic_form,
         semantic_type: &node.semantic_type,
         declaration: node.declaration.as_ref(),
-        owner_model: node.owner_model.as_ref(),
+        owner_model: if node.node_tag.as_ref() == "protocol"
+            && node.semantic_form.as_ref() == "protocol_clause"
+        {
+            node.owner_model.as_ref()
+        } else {
+            None
+        },
         recursion,
         body: admitted.map_or_else(
             || group_references(&node.body, group),
