@@ -1558,7 +1558,13 @@ fn check_control_prefix(
             let event = check.target_at(arguments, 3, control)?;
             check.target_at(arguments, 4, control)?;
             check.target_at(arguments, 5, control)?;
-            let event_form = control_operator(event).expect("validated control envelope");
+            let Some(event_form) = control_operator(event) else {
+                return Err(check.refuse(
+                    Code::InvalidModelBinding,
+                    Some(Cause::MalformedDeclaration),
+                    check.argument_path(3).key("target"),
+                ));
+            };
             if !matches!(event_form, "receive" | "effect" | "event") {
                 return Err(check.refuse_with_detail(
                     Code::UnsupportedConstruct,
@@ -1571,12 +1577,12 @@ fn check_control_prefix(
                 ));
             }
             let within = check.at(arguments, 2);
-            let lower = group_value(within, "lower")
-                .and_then(integer_value)
-                .expect("validated interval lower");
-            let upper = group_value(within, "upper")
-                .and_then(integer_value)
-                .expect("validated interval upper");
+            let (Some(lower), Some(upper)) = (
+                group_value(within, "lower").and_then(integer_value),
+                group_value(within, "upper").and_then(integer_value),
+            ) else {
+                return Err(check.refuse(Code::MalformedWire, None, check.argument_path(2)));
+            };
             if lower > upper {
                 return Err(check.refuse_with_detail(
                     Code::IllTyped,
