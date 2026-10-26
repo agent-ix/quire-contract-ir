@@ -750,22 +750,24 @@ mod tests {
     #[trace("TC-048")]
     #[test]
     fn protocol_clause_rejects_short_layout_at_wire_boundary() {
+        let mut node = header_node(
+            "protocol",
+            "protocol_clause",
+            super::super::GRAPH_V2,
+            json!({
+                "term": "application", "operator": "protocol_control",
+                "operation": {
+                    "identity": "quire.op.protocol.control", "laws": [], "mode": null,
+                    "member": {"kind": "profile_operator", "operator": "protocol"},
+                    "leaves": []
+                },
+                "result_type": {"domain": "quire.checked-semantic-node/v1", "digest": "1".repeat(64)},
+                "arguments": []
+            }),
+        );
+        node["declaration"] = json!({"qualified_name": ["Main"]});
         header_refusal(
-            vec![header_node(
-                "protocol",
-                "protocol_clause",
-                super::super::GRAPH_V2,
-                json!({
-                    "term": "application", "operator": "protocol_control",
-                    "operation": {
-                        "identity": "quire.op.protocol.control", "laws": [], "mode": null,
-                        "member": {"kind": "profile_operator", "operator": "protocol"},
-                        "leaves": []
-                    },
-                    "result_type": {"domain": "quire.checked-semantic-node/v1", "digest": "1".repeat(64)},
-                    "arguments": []
-                }),
-            )],
+            vec![node],
             CheckedPackageRefusalCode::MalformedWire,
             "/semantic_graph/nodes/0/body",
         );
