@@ -1561,18 +1561,9 @@ fn package_with_step_control(operator: &str) -> (Value, usize) {
     });
     let arguments = match operator {
         "attempt" => {
-            let anchor = package["semantic_graph"]["nodes"]
-                .as_array()
-                .expect("nodes")
-                .iter()
-                .find(|node| {
-                    node["node_tag"] == "state" && node["semantic_form"] == "operation_anchor"
-                })
-                .expect("state anchor")["node_id"]
-                .clone();
             json!([
                 {"term": "binding", "name": "role", "value": {"term": "reference", "target": role}},
-                {"term": "binding", "name": "operation", "value": {"term": "reference", "target": anchor}},
+                {"term": "binding", "name": "operation", "value": {"term": "reference", "target": role}},
                 {"term": "binding", "name": "ordering", "value": {"term": "aggregate", "members": []}},
                 {"term": "binding", "name": "contracts", "value": {"term": "aggregate", "members": []}},
                 {"term": "binding", "name": "binder", "value": {"term": "reference", "target": binder}},
@@ -1610,19 +1601,15 @@ fn package_with_step_control(operator: &str) -> (Value, usize) {
 /// Trace: FR-038-AC-288
 #[trace("TC-048")]
 #[test]
-fn attempt_event_and_commit_check_local_references_and_boolean_constraints() {
-    for operator in ["attempt", "event", "commit"] {
+fn event_and_commit_check_local_references_and_boolean_constraints() {
+    for operator in ["event", "commit"] {
         let (mut package, root) = package_with_step_control(operator);
         assert!(
             matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
             "{operator}: {:?}",
             read(&package)
         );
-        let ordinal = match operator {
-            "attempt" => 6,
-            "event" => 4,
-            _ => 2,
-        };
+        let ordinal = if operator == "event" { 4 } else { 2 };
         package["semantic_graph"]["nodes"][root]["body"]["arguments"][ordinal]["value"] = json!({"term": "literal", "type": node_id(&family_key("a1a1")),
                 "value_kind": "text", "value": "wrong"});
         settle(&mut package);
@@ -1639,6 +1626,25 @@ fn attempt_event_and_commit_check_local_references_and_boolean_constraints() {
             )
         );
     }
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn attempt_requires_a_state_operation_anchor() {
+    let (package, root) = package_with_step_control("attempt");
+    let key = package["semantic_graph"]["nodes"][root]["node_id"]["digest"]
+        .as_str()
+        .expect("attempt key");
+    assert_eq!(
+        read(&package),
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            &format!("/semantic_graph/nodes/{root}/body/arguments/1/value/target"),
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            key
+        )
+    );
 }
 
 /// Trace: FR-038-AC-288
