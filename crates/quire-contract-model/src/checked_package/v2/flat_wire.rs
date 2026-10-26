@@ -92,6 +92,27 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
                 failure
             }
         })?;
+        if let CheckedNodeKind::Protocol(form) = kind {
+            if form != super::ProtocolForm::ProtocolReference {
+                let expected_role = if form == super::ProtocolForm::Queue {
+                    crate::checked_package::shared::CheckedOccurrenceRole::Generated
+                } else {
+                    crate::checked_package::shared::CheckedOccurrenceRole::Declaration
+                };
+                if node.occurrences.is_empty()
+                    || node
+                        .occurrences
+                        .iter()
+                        .any(|occurrence| occurrence.role != expected_role)
+                    || node.declaration.is_some() != (form != super::ProtocolForm::Queue)
+                {
+                    return Err(ValidationFailure::refused(
+                        CheckedPackageRefusalCode::MalformedWire,
+                        crate::checked_package::common::node_pointer(position),
+                    ));
+                }
+            }
+        }
         let steps = [
             Step::Key("semantic_graph"),
             Step::Key("nodes"),

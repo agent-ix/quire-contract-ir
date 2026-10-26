@@ -13,7 +13,7 @@ use crate::checked_package::shared::{
 };
 use ix_trace_rs::string_edge;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// A defect in the application envelope or an operator's fixed bindings.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -769,8 +769,7 @@ fn body_defect(
 
 /// Checks name collisions involving a protocol declaration at reader step 3.
 /// The earlier generic sweep has already refused collisions entirely among
-/// non-protocol declarations. Prefix and control-path ownership remain for
-/// the graph membership pass.
+/// non-protocol declarations.
 fn validate_protocol_declaration_names(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
@@ -804,6 +803,254 @@ fn validate_protocol_declaration_names(
             }
         } else {
             holders.insert(name, protocol);
+        }
+    }
+    Ok(())
+}
+
+fn reference_target(term: &CheckedTerm) -> Option<&CheckedNodeId> {
+    match term {
+        CheckedTerm::Reference { target } => Some(target),
+        _ => None,
+    }
+}
+
+fn binding_value<'a>(arguments: &'a [CheckedTerm], name: &str) -> Option<&'a CheckedTerm> {
+    arguments.iter().find_map(|argument| match argument {
+        CheckedTerm::Binding {
+            name: actual,
+            value,
+        } if actual.as_ref() == name => Some(value.as_ref()),
+        _ => None,
+    })
+}
+
+fn listed_targets(term: &CheckedTerm) -> impl Iterator<Item = &CheckedNodeId> {
+    members(term)
+        .into_iter()
+        .flatten()
+        .filter_map(reference_target)
+}
+
+#[string_edge]
+fn control_children<'a>(operator: &str, arguments: &'a [CheckedTerm]) -> Vec<&'a CheckedNodeId> {
+    let mut children = Vec::new();
+    match operator {
+        "sequence" => {
+            if let Some(value) = binding_value(arguments, "children") {
+                children.extend(listed_targets(value));
+            }
+        }
+        "choice" | "parallel" => {
+            let field = if operator == "choice" {
+                "cases"
+            } else {
+                "branches"
+            };
+            if let Some(records) = binding_value(arguments, field).and_then(members) {
+                for record in records {
+                    if let Some(target) = members(record)
+                        .and_then(|fields| binding_value(fields, "body"))
+                        .and_then(reference_target)
+                    {
+                        children.push(target);
+                    }
+                }
+            }
+        }
+        "repeat" => {
+            if let Some(target) = binding_value(arguments, "body").and_then(reference_target) {
+                children.push(target);
+            }
+            if let Some(value) = binding_value(arguments, "exhausted") {
+                children.extend(listed_targets(value));
+            }
+        }
+        "await" => {
+            for field in ["event", "then", "timeout"] {
+                if let Some(target) = binding_value(arguments, field).and_then(reference_target) {
+                    children.push(target);
+                }
+            }
+        }
+        _ => {}
+    }
+    children
+}
+
+fn declaration_defect(position: usize, node: &RawSemanticNodeV2) -> ValidationFailure {
+    ValidationFailure::refused_at(
+        Code::InvalidSemanticGraph,
+        node_pointer(position),
+        None,
+        node.node_id.clone(),
+    )
+}
+
+fn record_declared_path(
+    expected: &mut BTreeMap<usize, (Vec<Box<str>>, bool)>,
+    position: usize,
+    path: Vec<Box<str>>,
+) {
+    if let Some((_, repeated)) = expected.get_mut(&position) {
+        *repeated = true;
+    } else {
+        expected.insert(position, (path, false));
+    }
+}
+
+fn charge_path_copy(
+    meter: &mut WorkMeter,
+    position: usize,
+    path: &[Box<str>],
+) -> Result<(), ValidationFailure> {
+    let bytes = path.iter().fold(0_u64, |total, segment| {
+        total.saturating_add(u64::try_from(segment.len()).unwrap_or(u64::MAX))
+    });
+    meter.charge(bytes, || node_pointer(position).key("declaration"))
+}
+
+#[string_edge]
+fn validate_protocol_declaration_paths(
+    nodes: &[RawSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    validated: &[Option<(&str, &[CheckedTerm])>],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let mut expected = BTreeMap::new();
+    let mut pending = Vec::new();
+    for &clause in index.values() {
+        if kinds.get(clause) != Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
+            continue;
+        }
+        let Some(prefix) = nodes[clause]
+            .declaration
+            .as_ref()
+            .map(|d| &d.qualified_name)
+        else {
+            continue;
+        };
+        let Some((_, args)) = validated[clause] else {
+            continue;
+        };
+        for (field, segment, expected_form) in [
+            ("roles", "role", ProtocolForm::Role),
+            ("channels", "channel", ProtocolForm::Channel),
+            ("compensations", "compensate", ProtocolForm::Compensation),
+        ] {
+            if let Some(value) = binding_value(args, field) {
+                for target in listed_targets(value) {
+                    if let Some(&position) = index.get(target) {
+                        if kinds.get(position) != Some(&CheckedNodeKind::Protocol(expected_form)) {
+                            continue;
+                        }
+                        charge_path_copy(meter, position, prefix)?;
+                        let mut path = prefix.clone();
+                        path.push(segment.into());
+                        if let Some(name) = nodes[position]
+                            .declaration
+                            .as_ref()
+                            .and_then(|d| d.qualified_name.last())
+                        {
+                            path.push(name.clone());
+                        }
+                        record_declared_path(&mut expected, position, path);
+                    }
+                }
+            }
+        }
+        for (field, segment) in [("finish", "finish"), ("terminal", "terminal")] {
+            if let Some(value) = binding_value(args, field) {
+                let target = reference_target(value).or_else(|| {
+                    members(value)
+                        .and_then(|items| items.first())
+                        .and_then(reference_target)
+                });
+                if let Some(&position) = target.and_then(|key| index.get(key)) {
+                    if kinds.get(position)
+                        != Some(&CheckedNodeKind::Protocol(ProtocolForm::Obligation))
+                        || validated[position].is_none_or(|(operator, _)| operator != segment)
+                    {
+                        continue;
+                    }
+                    charge_path_copy(meter, position, prefix)?;
+                    let mut path = prefix.clone();
+                    path.push(segment.into());
+                    if segment == "finish" {
+                        if let Some(name) = nodes[position]
+                            .declaration
+                            .as_ref()
+                            .and_then(|d| d.qualified_name.last())
+                        {
+                            path.push(name.clone());
+                        }
+                    }
+                    record_declared_path(&mut expected, position, path);
+                }
+            }
+        }
+        if let Some(&position) = binding_value(args, "run")
+            .and_then(reference_target)
+            .and_then(|key| index.get(key))
+        {
+            if kinds.get(position) == Some(&CheckedNodeKind::Protocol(ProtocolForm::Control)) {
+                charge_path_copy(meter, position, prefix)?;
+                let mut path = prefix.clone();
+                path.push("run".into());
+                pending.push((position, path));
+            }
+        }
+    }
+
+    // The visited set bounds malformed containment cycles. Membership and
+    // repeated holders are checked in the later graph pass.
+    let mut visited = BTreeSet::new();
+    while let Some((position, mut parent_path)) = pending.pop() {
+        let Some(name) = nodes[position]
+            .declaration
+            .as_ref()
+            .and_then(|d| d.qualified_name.last())
+        else {
+            continue;
+        };
+        parent_path.push(name.clone());
+        record_declared_path(&mut expected, position, parent_path.clone());
+        if !visited.insert(position) {
+            continue;
+        }
+        if kinds.get(position) != Some(&CheckedNodeKind::Protocol(ProtocolForm::Control)) {
+            continue;
+        }
+        let Some((operator, args)) = validated[position] else {
+            continue;
+        };
+        for target in control_children(operator, args) {
+            if let Some(&child) = index.get(target) {
+                if kinds.get(child) == Some(&CheckedNodeKind::Protocol(ProtocolForm::Control)) {
+                    charge_path_copy(meter, child, &parent_path)?;
+                    pending.push((child, parent_path.clone()));
+                }
+            }
+        }
+    }
+
+    for &position in index.values() {
+        let Some(CheckedNodeKind::Protocol(form)) = kinds.get(position).copied() else {
+            continue;
+        };
+        if form == ProtocolForm::ProtocolReference {
+            continue;
+        }
+        let node = &nodes[position];
+        if let Some((path, false)) = expected.get(&position) {
+            if node
+                .declaration
+                .as_ref()
+                .is_none_or(|d| &d.qualified_name != path)
+            {
+                return Err(declaration_defect(position, node));
+            }
         }
     }
     Ok(())
@@ -882,6 +1129,7 @@ pub(super) fn validate_protocol_nodes(
         }
     }
     validate_protocol_declaration_names(nodes, kinds, index)?;
+    validate_protocol_declaration_paths(nodes, kinds, &validated, index, meter)?;
     // Local member shapes are visited by form, then by ascending key. The
     // clause follows the members, as FR-464's reader order requires.
     for form in [
