@@ -26,3 +26,13 @@ Ticket: IR-874. Diff-scoped Rust/code review of PR #567 at b72b8e4fcdd3ca58f08d4
 ## Verdict
 
 CONDITIONAL. FND-001 leaves four new containment branches without direct acceptance evidence. No panic, wire-owner violation, duplicate-order defect or trace overclaim was found in the changed code. Later membership, target/binder joins, catalog join and source-produced vectors remain open under IR-874.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At f596a9e02152b63f796fcafd099c04375ba0682d, `choice_parallel_repeat_and_await_hold_controls_at_their_own_paths` independently constructs all four holder layouts, admits each correct tree, and mutates every child path to assert the exact `invalid_semantic_graph` node refusal. The focused public-reader test passed. |
+
+## Current verdict
+
+PASS for the reviewed PR #567 head f596a9e02152b63f796fcafd099c04375ba0682d. The former work-meter regression was removed by comparing holder-relative path slices without new meter charges; the existing TC-226 exact read-work boundary remains an independent guard. Empty protocol occurrence lists now reach the existing source-map refusal path in `v2/mod.rs` while present wrong occurrence roles remain `malformed_wire` in flat-wire validation. Reviewer focused checks passed at this head: `choice_parallel_repeat_and_await_hold_controls_at_their_own_paths`, `tc_226_tree_whole_read_work_boundary`, `ir_v2_inventory_never_completes_a_node_without_source_occurrences`, and `ir987_scalar_and_result_results_bytes_and_work_match_admitted_fixture` (one test each). `git diff --check 4ce1df36...HEAD` passed. The remaining protocol membership, target/binder, catalog and producer-vector stages are outside this slice and stay open under IR-874.
