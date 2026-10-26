@@ -161,6 +161,11 @@ FR-051 specifies `CheckedPackageIdentityPreimageRefV2` and
 default-feature model crate. FR-052 and FR-053 specify
 additional public model APIs that remain planned until they are implemented
 and exported; their owning requirements retain those API obligations.
+FR-038-AC-324 specifies the planned `CheckedProtocolActivation` and
+`CheckedProtocolActivationRow` types and the associated
+`CheckedPackageV2::protocol_activation_relation` method. They SHALL enter
+the implemented Public items inventory when the reader exports them;
+until then FR-038 retains the full API and behavior obligation.
 
 ### Public items
 
