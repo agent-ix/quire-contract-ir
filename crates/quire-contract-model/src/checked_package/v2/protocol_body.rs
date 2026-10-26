@@ -3206,7 +3206,7 @@ mod tests {
     fn example(shape: Shape) -> Value {
         let type_id = json!({"domain": "quire.checked-semantic-node/v1", "digest": "b".repeat(64)});
         match shape {
-            Shape::Reference | Shape::Term => {
+            Shape::Reference | Shape::ReferenceOrText | Shape::Term => {
                 json!({"term": "reference", "target": {"domain": "quire.checked-semantic-node/v1", "digest": "a".repeat(64)}})
             }
             Shape::Text => {
@@ -3464,7 +3464,10 @@ mod tests {
             (
                 ProtocolForm::Role,
                 "role",
-                &[("model", Shape::Reference), ("replication", Shape::Group)],
+                &[
+                    ("model", Shape::ReferenceOrText),
+                    ("replication", Shape::Group),
+                ],
             ),
             (
                 ProtocolForm::Channel,
