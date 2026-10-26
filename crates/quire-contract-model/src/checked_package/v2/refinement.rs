@@ -1292,76 +1292,10 @@ fn class_type_kind(kind: super::CheckedNodeKind) -> bool {
     )
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-enum ConcreteProtocolPresence {
-    Present,
-    Absent,
-    // The later protocol-body step owns the malformed clause's refusal.
-    Deferred,
-}
-
-fn concrete_protocol_presence(
-    model: &CheckedNodeId,
-    graph: &RefinementGraph<'_, '_>,
-    at: &JsonPointer,
-    meter: &mut super::WorkMeter,
-) -> Result<ConcreteProtocolPresence, ValidationFailure> {
-    use super::{CheckedNodeKind as K, ModelForm, ProtocolForm, ValueForm};
-
-    let mut unresolved = false;
-    for &position in graph.index.values() {
-        meter.charge(1, || at.clone())?;
-        if graph.kinds.get(position) != Some(&K::Protocol(ProtocolForm::ProtocolClause)) {
-            continue;
-        }
-        let Some(CheckedTerm::Application { arguments, .. }) =
-            graph.terms.get(position).and_then(Option::as_ref)
-        else {
-            unresolved = true;
-            continue;
-        };
-        let Some(CheckedTerm::Binding { name, value }) = arguments.first() else {
-            unresolved = true;
-            continue;
-        };
-        if name.kind() != super::TermBindingName::Over {
-            unresolved = true;
-            continue;
-        }
-        let CheckedTerm::Reference { target } = value.as_ref() else {
-            unresolved = true;
-            continue;
-        };
-        let Some(&binder) = graph.index.get(target) else {
-            unresolved = true;
-            continue;
-        };
-        if graph.kinds.get(binder) != Some(&K::Value(ValueForm::Parameter)) {
-            unresolved = true;
-            continue;
-        }
-        let binder_type = &graph.nodes[binder].semantic_type;
-        if binder_type == model {
-            return Ok(ConcreteProtocolPresence::Present);
-        }
-        if !graph.index.get(binder_type).is_some_and(|&type_position| {
-            graph.kinds.get(type_position) == Some(&K::Model(ModelForm::StateMachine))
-        }) {
-            unresolved = true;
-        }
-    }
-    Ok(if unresolved {
-        ConcreteProtocolPresence::Deferred
-    } else {
-        ConcreteProtocolPresence::Absent
-    })
-}
-
 fn validate_catalog(
     body: &CheckedTerm,
     position: usize,
     graph: &RefinementGraph<'_, '_>,
-    concrete_model: &CheckedNodeId,
     locus: &CheckedNodeId,
     meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -1375,31 +1309,35 @@ fn validate_catalog(
         return Ok(());
     };
     let root = node_at(position).key("body").key("class_catalog");
-    let row_or_abstract_requires_catalog = protocol.is_some()
-        || steps.iter().any(|step| {
-            step.source_node.is_none()
-                || matches!(step.target, RefinementStepTarget::ProtocolStep { .. })
-        });
-    if row_or_abstract_requires_catalog && class_catalog.is_none() {
+    let mut requires_catalog = protocol.is_some();
+    for step in steps {
+        meter.charge(1, || root.clone())?;
+        requires_catalog |= step.source_node.is_none()
+            || matches!(step.target, RefinementStepTarget::ProtocolStep { .. })
+            || step.source_node.as_ref().is_some_and(|source| {
+                graph.index.get(source).is_some_and(|&source_position| {
+                    matches!(
+                        graph.kinds.get(source_position),
+                        Some(super::CheckedNodeKind::Protocol(_))
+                    )
+                })
+            });
+    }
+    if requires_catalog && class_catalog.is_none() {
         return Err(ValidationFailure::refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             root,
         ));
     }
-    if !row_or_abstract_requires_catalog {
-        let concrete_protocol = concrete_protocol_presence(concrete_model, graph, &root, meter)?;
-        if (class_catalog.is_none() && concrete_protocol == ConcreteProtocolPresence::Present)
-            || (class_catalog.is_some() && concrete_protocol == ConcreteProtocolPresence::Absent)
-        {
-            return Err(ValidationFailure::refused(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                root,
-            ));
-        }
-    }
     let Some(catalog) = class_catalog else {
         return Ok(());
     };
+    if protocol.is_none() && catalog.concrete.is_empty() && catalog.r#abstract.is_empty() {
+        return Err(ValidationFailure::refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            root,
+        ));
+    }
     for (index, entry) in catalog.concrete.iter().enumerate() {
         let at = root.clone().key("concrete").index(index);
         meter.charge(1, || at.clone())?;
@@ -1991,14 +1929,7 @@ pub(super) fn validate_refinements(
         stale_refinement_key(node, position, bytes)?;
         canonical_order(body, position)?;
         check_headers(node, body, position, &graph, lock)?;
-        validate_catalog(
-            body,
-            position,
-            &graph,
-            &node.semantic_type,
-            &node.node_id,
-            meter,
-        )?;
+        validate_catalog(body, position, &graph, &node.node_id, meter)?;
         validate_rows(node, body, position, &graph, owners, meter)?;
     }
     Ok(())
@@ -2196,117 +2127,6 @@ pub(super) fn visit_reference_targets<'a>(
 mod tests {
     use super::*;
     use serde_json::json;
-
-    #[test]
-    fn concrete_protocol_requires_catalog_without_protocol_target_or_memory_row() {
-        fn id(digit: char) -> CheckedNodeId {
-            CheckedNodeId {
-                domain: "quire.checked-semantic-node/v1".into(),
-                digest: digit.to_string().repeat(64).into(),
-            }
-        }
-
-        let model = id('a');
-        let other_model = id('b');
-        let binder = id('c');
-        let clause = id('d');
-        let raw_node = |node_id: CheckedNodeId, semantic_type: CheckedNodeId, tag, form| {
-            serde_json::from_value::<super::super::RawSemanticNodeV2>(json!({
-                "node_id": node_id,
-                "schema_version": "quire.checked-semantic-graph/v2",
-                "node_tag": tag,
-                "semantic_form": form,
-                "semantic_type": semantic_type,
-                "dependencies": [],
-                "occurrences": [],
-                "body": {"term": "aggregate", "members": []}
-            }))
-            .expect("raw node")
-        };
-        let nodes = vec![
-            raw_node(model.clone(), model.clone(), "model", "state_machine"),
-            raw_node(
-                other_model.clone(),
-                other_model.clone(),
-                "model",
-                "state_machine",
-            ),
-            raw_node(binder.clone(), model.clone(), "value", "parameter"),
-            raw_node(clause.clone(), id('e'), "protocol", "protocol_clause"),
-        ];
-        let kinds = vec![
-            super::super::CheckedNodeKind::Model(super::super::ModelForm::StateMachine),
-            super::super::CheckedNodeKind::Model(super::super::ModelForm::StateMachine),
-            super::super::CheckedNodeKind::Value(super::super::ValueForm::Parameter),
-            super::super::CheckedNodeKind::Protocol(super::super::ProtocolForm::ProtocolClause),
-        ];
-        let terms = vec![
-            None,
-            None,
-            None,
-            Some(CheckedTerm::Application {
-                operator: super::super::ApplicationOperator::ProtocolControl,
-                operation: json!({}),
-                result_type: id('e'),
-                arguments: vec![CheckedTerm::Binding {
-                    name: "over".into(),
-                    value: Box::new(CheckedTerm::Reference {
-                        target: binder.clone(),
-                    }),
-                }],
-            }),
-        ];
-        let index = nodes
-            .iter()
-            .enumerate()
-            .map(|(position, node)| (&node.node_id, position))
-            .collect();
-        let dependencies = super::super::SuppliedDependencies::default();
-        let package_id = CheckedSemanticId {
-            domain: "test".into(),
-            algorithm: "sha256".into(),
-            digest: "f".repeat(64).into(),
-        };
-        let graph =
-            RefinementGraph::new(&nodes, &kinds, &terms, &index, &dependencies, &package_id);
-        let body = |catalog: Option<Value>| {
-            let mut value = json!({
-                "term": "refinement", "abstract": model,
-                "profile": {"authority": "test", "identity": "quire.temporal.infinite-trace/v1"},
-                "populations": [], "objects": [],
-                "steps": [{"source_class": "operation", "source_node": binder,
-                    "target": {"kind": "stutter"}}],
-                "histories": [], "assume": [], "ensure": []
-            });
-            if let Some(catalog) = catalog {
-                value["class_catalog"] = catalog;
-            }
-            serde_json::from_value::<CheckedTerm>(value).expect("refinement term")
-        };
-        let catalog_at = node_at(4).key("body").key("class_catalog");
-        let mut meter = super::super::WorkMeter::new(u64::MAX);
-        let refusal = validate_catalog(&body(None), 4, &graph, &model, &id('f'), &mut meter)
-            .expect_err("a concrete protocol requires a catalog");
-        assert_eq!(
-            refusal,
-            ValidationFailure::refused(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                catalog_at.clone()
-            )
-        );
-
-        let present = body(Some(json!({"concrete": [], "abstract": []})));
-        assert!(validate_catalog(&present, 4, &graph, &model, &id('f'), &mut meter).is_ok());
-        assert!(
-            validate_catalog(&body(None), 4, &graph, &other_model, &id('f'), &mut meter).is_ok()
-        );
-        let refusal = validate_catalog(&present, 4, &graph, &other_model, &id('f'), &mut meter)
-            .expect_err("a model-only refinement must omit the catalog");
-        assert_eq!(
-            refusal,
-            ValidationFailure::refused(CheckedPackageRefusalCode::InvalidSemanticGraph, catalog_at)
-        );
-    }
 
     #[test]
     fn refinement_preimage_matches_jcs_value() {

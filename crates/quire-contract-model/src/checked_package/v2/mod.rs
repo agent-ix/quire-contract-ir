@@ -210,7 +210,6 @@ pub(super) enum TermBindingName {
     Body,
     Optional,
     Clause,
-    Over,
     Other,
 }
 
@@ -222,7 +221,6 @@ impl TermBindingName {
             "body" => Self::Body,
             "optional" => Self::Optional,
             "clause" => Self::Clause,
-            "over" => Self::Over,
             _ => Self::Other,
         }
     }
