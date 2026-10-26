@@ -152,10 +152,12 @@ pub(super) fn validate_application_keys(
     bytes: u64,
 ) -> Result<(), ValidationFailure> {
     // Each recursion group's members, in graph order.
-    let mut groups: BTreeMap<&str, Vec<&CheckedNodeId>> = BTreeMap::new();
+    let mut groups: BTreeMap<&str, BTreeMap<&CheckedNodeId, usize>> = BTreeMap::new();
     for node in nodes {
         if let Some(label) = node.recursion_group.as_deref() {
-            groups.entry(label).or_default().push(&node.node_id);
+            let group = groups.entry(label).or_default();
+            let ordinal = group.len();
+            group.insert(&node.node_id, ordinal);
         }
     }
     for (&node_id, &position) in index {
@@ -174,17 +176,15 @@ pub(super) fn validate_application_keys(
         let group = node
             .recursion_group
             .as_deref()
-            .and_then(|label| groups.get(label))
-            .map_or(&[][..], Vec::as_slice);
+            .and_then(|label| groups.get(label));
+        let group = group.map_or(ApplicationGroup::Keys(&[]), ApplicationGroup::Indexed);
         let computed_digest =
-            application_digest_admitted(node, term, ApplicationGroup::Keys(group), bytes).map_err(
-                |_| {
-                    ValidationFailure::refused(
-                        CheckedPackageRefusalCode::InvalidSemanticGraph,
-                        application.node_id(),
-                    )
-                },
-            )?;
+            application_digest_admitted(node, term, group, bytes).map_err(|_| {
+                ValidationFailure::refused(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    application.node_id(),
+                )
+            })?;
         if computed_digest != node_id.digest.as_ref() {
             return Err(ValidationFailure::refused_stale_node_key(
                 application.node_id(),
@@ -4076,7 +4076,9 @@ fn check_leaf_count(
 
 #[cfg(test)]
 mod tests {
-    use super::super::application_identity::{application_preimage, ApplicationGroup};
+    use super::super::application_identity::{
+        application_digest, application_preimage, ApplicationGroup,
+    };
     use super::super::encode::GroupPlace;
     use super::super::CheckedSelectionRole;
     use super::{
@@ -4084,8 +4086,8 @@ mod tests {
         validate_application_keys, Application, ApplicationOperator, CheckedNodeId,
         CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedPackageRefusalCause,
         CheckedPackageRefusalCode, CheckedSemanticNodeV2, DependencyReferences, ExpressionForm,
-        Graph, LawRole, ModelOwners, StructuralTypes, SuppliedDependencies, TemporalForm,
-        ValidationFailure, WorkMeter,
+        Graph, LawRole, ModelOwners, ProtocolForm, StructuralTypes, SuppliedDependencies,
+        TemporalForm, ValidationFailure, WorkMeter,
     };
     use crate::checked_package::common::NODE_DOMAIN;
     use crate::checked_package::shared::{
@@ -5103,6 +5105,100 @@ mod tests {
                 size: 2,
                 ordinal: 0
             })
+        );
+    }
+
+    /// A caller-funded cyclic protocol group keeps graph-order ordinals when
+    /// its key order runs backward, and every application key re-derives.
+    #[trace("TC-048", "FR-038-AC-88")]
+    #[test]
+    fn tc_048_protocol_sized_group_uses_indexed_application_ordinals() {
+        const MEMBERS: usize = 100_000;
+        let provisional = (0..MEMBERS)
+            .map(|position| CheckedNodeId {
+                domain: NODE_DOMAIN.into(),
+                digest: format!("{:064x}", MEMBERS - position).into(),
+            })
+            .collect::<Vec<_>>();
+        let mut nodes = (0..MEMBERS)
+            .map(|position| {
+                let mut node = grouped_node(
+                    2,
+                    json!({
+                        "term": "application",
+                        "operator": "protocol_control",
+                        "operation": {
+                            "identity": "quire.op.protocol.control",
+                            "laws": [], "mode": null, "member": null, "leaves": []
+                        },
+                        "result_type": node_ref(3),
+                        "arguments": [{
+                            "term": "reference",
+                            "target": provisional[(position + 1) % MEMBERS]
+                        }]
+                    }),
+                );
+                node.node_tag = "protocol".into();
+                node.semantic_form = "control".into();
+                node.node_id = provisional[position].clone();
+                node
+            })
+            .collect::<Vec<_>>();
+        let ordinals = provisional
+            .iter()
+            .enumerate()
+            .map(|(ordinal, id)| (id, ordinal))
+            .collect::<BTreeMap<_, _>>();
+        let digests = nodes
+            .iter()
+            .map(|node| {
+                application_digest(node, ApplicationGroup::Indexed(&ordinals), 1 << 20)
+                    .expect("provisional cyclic application key")
+            })
+            .collect::<Vec<_>>();
+        for (position, node) in nodes.iter_mut().enumerate() {
+            node.node_id.digest = digests[position].clone().into();
+            node.body["arguments"][0]["target"]["digest"] =
+                json!(digests[(position + 1) % MEMBERS]);
+        }
+        let indexed = nodes
+            .iter()
+            .enumerate()
+            .map(|(ordinal, node)| (&node.node_id, ordinal))
+            .collect::<BTreeMap<_, _>>();
+        let last = &nodes[MEMBERS - 1];
+        let preimage = application_preimage(last, ApplicationGroup::Indexed(&indexed))
+            .expect("indexed protocol application preimage");
+        let group_size = u64::try_from(MEMBERS).expect("group size fits u64");
+        assert_eq!(
+            preimage.recursion,
+            Some(GroupPlace {
+                size: group_size,
+                ordinal: group_size - 1,
+            })
+        );
+        assert_eq!(
+            preimage.body["arguments"][0],
+            json!({"term": "group_reference", "ordinal": 0})
+        );
+        let kinds = vec![CheckedNodeKind::Protocol(ProtocolForm::Control); MEMBERS];
+        let terms = decoded_terms(&nodes);
+        assert!(terms.iter().all(Option::is_some), "all bodies decode");
+        let index = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(
+            validate_application_keys(
+                &nodes,
+                &kinds,
+                &terms,
+                &index,
+                &mut WorkMeter::new(group_size),
+                1 << 20,
+            ),
+            Ok(())
         );
     }
 
