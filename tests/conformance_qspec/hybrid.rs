@@ -1246,7 +1246,22 @@ fn qspec_protocol_reference_join_refuses_at_its_target() {
 #[trace("TC-048", "FR-038-AC-316")]
 #[test]
 fn qspec_hybrid_step_precedes_later_protocol_body_defect() {
-    let mut package = published_hybrid_package();
+    let mut package = braking_package();
+    let claim = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "temporal"
+                && node["semantic_form"] == "temporal_clause"
+                && node["body"]["operation"]["laws"][0]["definition"]["identity"]
+                    == "quire.temporal.infinite-trace/v1"
+        })
+        .expect("published hybrid claim");
+    assert!(matches!(
+        read_package(&package).expect("published hybrid claim"),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
     let protocol = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -1270,10 +1285,9 @@ fn qspec_hybrid_step_precedes_later_protocol_body_defect() {
     );
     assert_locus(&refusal, protocol, "/body/operation/laws/0/role");
 
-    let model = model_position(&package);
-    package["semantic_graph"]["nodes"][model]["body"]["members"][0]["value"]["members"][0]
-        ["members"][1]["value"]["value"] = json!("clock");
-    rekey_model(&mut package, model);
+    package["semantic_graph"]["nodes"][claim]["body"]["arguments"][1]["value"] = json!("wall-time");
+    fixture_support::rekey_application_node(&mut package, claim);
+    fixture_support::refresh_identity(&mut package);
     let read = read_package(&package).expect("QSpec package");
     let CheckedPackageV2ReadResult::Refused(refusal) = read else {
         panic!("hybrid defect admitted: {read:?}")
@@ -1283,11 +1297,7 @@ fn qspec_hybrid_step_precedes_later_protocol_body_defect() {
         (Code::InvalidPackage, Some(Cause::InvalidValue)),
         "{refusal:?}"
     );
-    assert_locus(
-        &refusal,
-        model,
-        "/body/members/0/value/members/0/members/1/value/value",
-    );
+    assert_locus(&refusal, claim, "/body/arguments/1");
 }
 
 #[trace("TC-048", "FR-038-AC-315")]
