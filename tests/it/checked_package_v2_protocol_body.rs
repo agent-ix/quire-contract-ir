@@ -38,10 +38,11 @@ fn protocol_finish_reads_over_at_its_stage() {
     package["semantic_graph"]["nodes"][finish]["body"]["arguments"][1]["value"] =
         json!({"term": "reference", "target": over});
     settle(&mut package);
-    assert!(matches!(
-        read(&package),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ));
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "{:?}",
+        read(&package)
+    );
 }
 
 /// Trace: FR-038-AC-291
@@ -1484,8 +1485,9 @@ fn protocol_owner_retarget_to_second_selected_model_changes_package_identity() {
         old_key
     );
     assert_ne!(package["package_id"], old_package);
-    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
-        panic!("exact second selected model owner must admit without over-type inference");
+    let result = read(&package);
+    let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
+        panic!("exact second selected model owner must admit without over-type inference: {result:?}");
     };
     let clause = admitted
         .graph()
