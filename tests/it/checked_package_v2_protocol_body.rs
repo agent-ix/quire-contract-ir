@@ -1427,7 +1427,7 @@ fn choice_parallel_repeat_and_await_hold_controls_at_their_own_paths() {
     }
 }
 
-/// Trace: FR-038-AC-288
+/// Trace: FR-038-AC-288, FR-038-AC-290
 #[trace("TC-048")]
 #[test]
 fn repeat_checks_owner_body_exhausted_and_optional_pair() {
@@ -1478,7 +1478,7 @@ fn repeat_checks_owner_body_exhausted_and_optional_pair() {
     assert_ne!(children[0], children[1]);
 }
 
-/// Trace: FR-038-AC-288
+/// Trace: FR-038-AC-288, FR-038-AC-290
 #[trace("TC-048")]
 #[test]
 fn repeat_admits_proof_and_zero_maximum_and_refuses_both_unpaired_directions() {
@@ -1501,6 +1501,21 @@ fn repeat_admits_proof_and_zero_maximum_and_refuses_both_unpaired_directions() {
     settle(&mut zero);
     assert!(matches!(
         read(&zero),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    let mut unbounded_proof = with_proof.clone();
+    unbounded_proof["semantic_graph"]["nodes"][holder]["body"]["arguments"][2]["value"]
+        ["members"] = json!([]);
+    unbounded_proof["semantic_graph"]["nodes"][holder]["body"]["arguments"][6]["value"]
+        ["members"] = json!([]);
+    unbounded_proof["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .remove(children[1]);
+    settle(&mut unbounded_proof);
+    assert!(matches!(
+        read(&unbounded_proof),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
 
@@ -1681,7 +1696,7 @@ fn await_effect_event_requires_an_attempt_source() {
     );
 }
 
-/// Trace: FR-038-AC-288
+/// Trace: FR-038-AC-288, FR-038-AC-290
 #[trace("TC-048")]
 #[test]
 fn await_admits_compensation_anchor_form() {
@@ -1714,6 +1729,26 @@ fn await_admits_compensation_anchor_form() {
         matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
         "compensation anchor must admit"
     );
+
+    let mut late_forward = package;
+    let root = protocol_position(&late_forward, "control");
+    late_forward["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]["members"]
+        .as_array_mut()
+        .expect("root sequence")
+        .rotate_left(2);
+    settle(&mut late_forward);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&late_forward) else {
+        panic!("compensation forward effect after await must cycle");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::DefinitionCycle)
+    );
+    assert!(matches!(
+        refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::CausalCycle { controls }) if controls.len() >= 2
+    ));
 }
 
 fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
@@ -2675,16 +2710,44 @@ fn package_with_admitted_effect() -> (Value, usize, Value) {
     (package, effect_position, anchor)
 }
 
-/// Trace: FR-038-AC-288
+/// Trace: FR-038-AC-288, FR-038-AC-290
 #[trace("TC-048")]
 #[test]
 fn effect_admits_a_referenced_attempt_in_the_same_control_tree() {
-    let (package, _, _) = package_with_admitted_effect();
+    let (package, effect, _) = package_with_admitted_effect();
     assert!(
         matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
         "{:?}",
         read(&package)
     );
+    let mut reversed = package;
+    let root = protocol_position(&reversed, "control");
+    reversed["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]["members"]
+        .as_array_mut()
+        .expect("sequence children")
+        .swap(0, 1);
+    settle(&mut reversed);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&reversed) else {
+        panic!("effect before its attempt must form a causal cycle");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::DefinitionCycle)
+    );
+    let Some(CheckedProtocolRefusalDetail::CausalCycle { controls }) =
+        refusal.protocol_detail.as_deref()
+    else {
+        panic!("cycle must name the effect and attempt");
+    };
+    let expected: Vec<quire_contract_model::CheckedNodeId> = [effect, effect - 1]
+        .into_iter()
+        .map(|position| {
+            serde_json::from_value(reversed["semantic_graph"]["nodes"][position]["node_id"].clone())
+                .expect("control identity")
+        })
+        .collect();
+    assert_eq!(controls, &expected);
 }
 
 /// Trace: FR-038-AC-288
@@ -5135,4 +5198,38 @@ fn await_anchored_to_its_own_event_refuses_causal_cycle() {
         })
         .collect();
     assert_eq!(controls, &expected);
+}
+
+/// Trace: FR-038-AC-284, FR-038-AC-290
+#[trace("TC-048")]
+#[test]
+fn await_after_later_sibling_cycles_before_clause_guard_slot() {
+    let (mut package, _) = protocol_holder_case("await");
+    let root = protocol_position(&package, "control");
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]["members"]
+        .as_array_mut()
+        .expect("sequence children")
+        .swap(0, 1);
+    let trigger = clause_parameter(&mut package, "opened", "1");
+    let clause = clause_position(&package);
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][1]["value"]["members"] = json!([
+        {"term": "binding", "name": "kind", "value": {"term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "each"}},
+        {"term": "binding", "name": "trigger", "value": {"term": "reference", "target": trigger}},
+        {"term": "binding", "name": "guard", "value": {"term": "reference", "target": node_id(&family_key("a1a1"))}}
+    ]);
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("await anchored at a later sibling must cycle");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::DefinitionCycle)
+    );
+    let Some(CheckedProtocolRefusalDetail::CausalCycle { controls }) =
+        refusal.protocol_detail.as_deref()
+    else {
+        panic!("cycle must name the await and later anchor");
+    };
+    assert_eq!(controls.len(), 2);
 }

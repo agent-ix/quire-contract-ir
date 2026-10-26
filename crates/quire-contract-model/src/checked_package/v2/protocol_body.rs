@@ -3257,29 +3257,39 @@ fn check_clause(
     introduce(over, 0)?;
     if let Some(trigger_position) = trigger_position {
         introduce(trigger_position, 1)?;
-        if let Some(guard) = group_value(activation, "guard") {
-            check_member_dependencies(
-                check,
-                guard,
-                check.argument_path(1).key("members").index(2).key("value"),
-            )?;
-            check.boolean(
-                guard,
-                check.argument_path(1).key("members").index(2).key("value"),
-            )?;
-        }
     }
 
-    for (entry, (&binder_position, record)) in capture_positions.iter().zip(captures).enumerate() {
+    for (entry, &binder_position) in capture_positions.iter().enumerate() {
         meter.charge(1, || node_pointer(check.position))?;
+        introduce(binder_position, 1 + usize::from(each) + entry)?;
+    }
+    Ok(())
+}
+
+#[string_edge]
+fn check_clause_slots(
+    check: &MemberCheck<'_>,
+    arguments: &[CheckedTerm],
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let activation = check.at(arguments, 1);
+    if let Some(guard) = group_value(activation, "guard") {
+        let path = check.argument_path(1).key("members").index(2).key("value");
+        check_member_dependencies(check, guard, path.clone())?;
+        check.boolean(guard, path)?;
+    }
+    let captures = members(check.at(arguments, 2)).expect("validated captures");
+    for (entry, record) in captures.iter().enumerate() {
+        meter.charge(1, || node_pointer(check.position))?;
+        let initializer = group_value(record, "initializer").expect("validated initializer");
         let path = check
             .argument_path(2)
             .key("members")
             .index(entry)
-            .key("members");
-        introduce(binder_position, 1 + usize::from(each) + entry)?;
-        let initializer = group_value(record, "initializer").expect("validated initializer");
-        check_member_dependencies(check, initializer, path.index(1).key("value"))?;
+            .key("members")
+            .index(1)
+            .key("value");
+        check_member_dependencies(check, initializer, path)?;
     }
     if let Some(expected) = check.terms[check.position]
         .as_ref()
@@ -3769,6 +3779,7 @@ pub(super) fn validate_protocol_nodes(
         };
         check_clause(&check, arguments, &validated, meter)?;
         check_clause_causality(&check, arguments, &validated, meter)?;
+        check_clause_slots(&check, arguments, meter)?;
     }
     Ok(())
 }
