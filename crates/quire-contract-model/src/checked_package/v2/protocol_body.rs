@@ -57,6 +57,7 @@ pub(super) enum ProtocolLayoutWireDefect {
 #[derive(Clone, Copy)]
 enum Shape {
     Reference,
+    ReferenceOrText,
     Term,
     Text,
     Integer,
@@ -98,7 +99,7 @@ const CLAUSE: &[Binding] = &[
     field("finish", Shape::Reference),
 ];
 const ROLE: &[Binding] = &[
-    field("model", Shape::Reference),
+    field("model", Shape::ReferenceOrText),
     field("replication", Shape::Group),
 ];
 const CHANNEL: &[Binding] = &[
@@ -246,6 +247,9 @@ fn members(value: &CheckedTerm) -> Option<&[CheckedTerm]> {
 fn shape_fits(value: &CheckedTerm, shape: Shape) -> bool {
     match shape {
         Shape::Reference => matches!(value, CheckedTerm::Reference { .. }),
+        Shape::ReferenceOrText => {
+            matches!(value, CheckedTerm::Reference { .. }) || shape_fits(value, Shape::Text)
+        }
         Shape::Term => matches!(
             value,
             CheckedTerm::Reference { .. }
@@ -2407,6 +2411,7 @@ fn check_member(
     arguments: &[CheckedTerm],
     validated: &[Option<(&str, &[CheckedTerm])>],
     owners: &ModelOwners<'_>,
+    lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for (ordinal, term) in arguments.iter().enumerate() {
@@ -2439,33 +2444,54 @@ fn check_member(
     let parameter = |position| check.is(position, CheckedNodeKind::Value(ValueForm::Parameter));
     match form {
         ProtocolForm::Role => {
-            let model = check.target_at(arguments, 0, |position| {
-                matches!(
-                    check.kinds[position],
-                    CheckedNodeKind::Model(
-                        ModelForm::ObjectType
-                            | ModelForm::Process
-                            | ModelForm::StateMachine
-                            | ModelForm::SystemsInterface
-                            | ModelForm::PersistenceInterface
-                    )
-                )
-            })?;
             let replication = check.at(arguments, 1);
-            if !members(replication).is_some_and(|fields| fields.is_empty()) {
-                check.nonnegative(
-                    group_value(replication, "max").expect("validated replication"),
-                    check.argument_path(1).key("members").index(1).key("value"),
-                    true,
-                )?;
-                let binder = group_value(replication, "binder").expect("validated replication");
-                let binder = check.check_target(
-                    binder,
-                    check.argument_path(1).key("members").index(2).key("value"),
-                    parameter,
-                )?;
-                let type_position = check.index.get(&check.nodes[binder].semantic_type).copied();
-                if !type_position.is_some_and(|position| {
+            if let Some(identity) = text_value(check.at(arguments, 0)) {
+                if !lock
+                    .model_selections
+                    .iter()
+                    .any(|row| row.identity.as_ref() == identity)
+                {
+                    return Err(check.refuse(
+                        Code::MissingDeclaration,
+                        Some(Cause::MissingSelection),
+                        node_pointer(check.position),
+                    ));
+                }
+                if !members(replication).is_some_and(|fields| fields.is_empty()) {
+                    return Err(check.refuse(
+                        Code::InvalidModelBinding,
+                        Some(Cause::MalformedDeclaration),
+                        node_pointer(check.position),
+                    ));
+                }
+            } else {
+                let model = check.target_at(arguments, 0, |position| {
+                    matches!(
+                        check.kinds[position],
+                        CheckedNodeKind::Model(
+                            ModelForm::ObjectType
+                                | ModelForm::Process
+                                | ModelForm::StateMachine
+                                | ModelForm::SystemsInterface
+                                | ModelForm::PersistenceInterface
+                        )
+                    )
+                })?;
+                if !members(replication).is_some_and(|fields| fields.is_empty()) {
+                    check.nonnegative(
+                        group_value(replication, "max").expect("validated replication"),
+                        check.argument_path(1).key("members").index(1).key("value"),
+                        true,
+                    )?;
+                    let binder = group_value(replication, "binder").expect("validated replication");
+                    let binder = check.check_target(
+                        binder,
+                        check.argument_path(1).key("members").index(2).key("value"),
+                        parameter,
+                    )?;
+                    let type_position =
+                        check.index.get(&check.nodes[binder].semantic_type).copied();
+                    if !type_position.is_some_and(|position| {
                     check.is(position, CheckedNodeKind::CompositeType(CompositeTypeForm::Reference))
                         && check.terms[position].as_ref().and_then(members).is_some_and(|items| {
                             matches!(items, [CheckedTerm::Reference { target }] if target == &check.nodes[model].node_id)
@@ -2477,8 +2503,9 @@ fn check_member(
                         node_pointer(check.position),
                     ));
                 }
-                if let Some(until) = group_value(replication, "until") {
-                    check.boolean(until, node_pointer(check.position))?;
+                    if let Some(until) = group_value(replication, "until") {
+                        check.boolean(until, node_pointer(check.position))?;
+                    }
                 }
             }
         }
@@ -3121,7 +3148,9 @@ pub(super) fn validate_protocol_nodes(
                 index,
                 profile: selected_profile.expect("validated protocol profile law"),
             };
-            check_member(&check, form, operator, arguments, &validated, owners, meter)?;
+            check_member(
+                &check, form, operator, arguments, &validated, owners, lock, meter,
+            )?;
         }
     }
     validate_protocol_membership(nodes, kinds, &validated, index, meter)?;

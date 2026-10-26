@@ -4,9 +4,9 @@
 //! Public reader checks for the first protocol validation passes.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, family_key, node_id, protocol_named_node, protocol_role_node,
-    rebuild_source_map, refresh_identity, refusal, refusal_at, rekey_application_node, settle,
-    structural_key, v2_all_families,
+    canonical, domain_package_digest, domain_package_document, evidence_for, family_key, node_id,
+    protocol_named_node, protocol_role_node, rebuild_source_map, refresh_identity, refusal,
+    refusal_at, rekey_application_node, settle, structural_key, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -1584,6 +1584,16 @@ fn protocol_application_placement_precedes_duplicate_declaration() {
 
 fn package_with_member_role() -> (Value, usize) {
     package_with_member_role_on(v2_all_families())
+}
+
+fn whole_model_role(identity: &str) -> (Value, usize) {
+    let (mut package, role) = package_with_member_role();
+    package["semantic_graph"]["nodes"][role]["body"]["arguments"][0]["value"] = json!({
+        "term": "literal", "type": node_id(&family_key("a1a1")),
+        "value_kind": "text", "value": identity,
+    });
+    settle(&mut package);
+    (package, role)
 }
 
 fn package_with_member_role_on(mut package: Value) -> (Value, usize) {
@@ -3765,6 +3775,105 @@ fn protocol_role_checks_model_form_at_target() {
             &format!("/semantic_graph/nodes/{position}/body/arguments/0/value/target"),
             Some(CheckedPackageRefusalCause::MalformedDeclaration),
             key,
+        )
+    );
+}
+
+/// Trace: FR-038-AC-282, FR-038-AC-286
+#[trace("TC-947")]
+#[test]
+fn protocol_whole_model_role_admits_selected_text_without_model_dependency() {
+    let (mut package, role) = whole_model_role("test/families");
+    assert_eq!(
+        package["semantic_graph"]["nodes"][role]["dependencies"],
+        json!([])
+    );
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    let first_key = package["semantic_graph"]["nodes"][role]["node_id"].clone();
+    let other = domain_package_document("test/other", "1", Vec::new());
+    package["lock"]["model_selections"]
+        .as_array_mut()
+        .expect("model selections")
+        .push(json!({
+            "identity": "test/other", "digest_domain": "sha256-jcs",
+            "digest": domain_package_digest(&other),
+        }));
+    package["semantic_graph"]["nodes"][role]["body"]["arguments"][0]["value"]["value"] =
+        json!("test/other");
+    settle(&mut package);
+    assert_ne!(
+        package["semantic_graph"]["nodes"][role]["node_id"],
+        first_key
+    );
+    assert_eq!(
+        package["semantic_graph"]["nodes"][role]["dependencies"],
+        json!([])
+    );
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
+/// Trace: FR-038-AC-282, FR-038-AC-286
+#[trace("TC-947")]
+#[test]
+fn protocol_whole_model_role_checks_selection_before_replication() {
+    let (mut package, role) = package_with_replicated_role();
+    package["semantic_graph"]["nodes"][role]["body"]["arguments"][0]["value"] = json!({
+        "term": "literal", "type": node_id(&family_key("a1a1")),
+        "value_kind": "text", "value": "test/missing",
+    });
+    settle(&mut package);
+    let key = package["semantic_graph"]["nodes"][role]["node_id"]["digest"]
+        .as_str()
+        .expect("role key");
+    assert_eq!(
+        read(&package),
+        refusal_at(
+            CheckedPackageRefusalCode::MissingDeclaration,
+            &format!("/semantic_graph/nodes/{role}"),
+            Some(CheckedPackageRefusalCause::MissingSelection),
+            key,
+        )
+    );
+
+    package["semantic_graph"]["nodes"][role]["body"]["arguments"][0]["value"]["value"] =
+        json!("test/families");
+    settle(&mut package);
+    let key = package["semantic_graph"]["nodes"][role]["node_id"]["digest"]
+        .as_str()
+        .expect("role key");
+    assert_eq!(
+        read(&package),
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            &format!("/semantic_graph/nodes/{role}"),
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            key,
+        )
+    );
+}
+
+/// Trace: FR-038-AC-282, FR-038-AC-286
+#[trace("TC-947")]
+#[test]
+fn protocol_role_model_rejects_non_reference_non_text_wire() {
+    let (mut package, role) = package_with_member_role();
+    package["semantic_graph"]["nodes"][role]["body"]["arguments"][0]["value"] = json!({
+        "term": "literal", "type": node_id(&family_key("a3a3")),
+        "value_kind": "integer", "value": "1"
+    });
+    settle(&mut package);
+    assert_eq!(
+        read(&package),
+        refusal(
+            CheckedPackageRefusalCode::MalformedWire,
+            &format!("/semantic_graph/nodes/{role}/body"),
         )
     );
 }
