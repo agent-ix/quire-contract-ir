@@ -94,6 +94,9 @@ pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), V
                 },
             ));
         }
+        if let Some(owner_model) = &node.owner_model {
+            super::validate_node_id(owner_model, || node_pointer(position).key("owner_model"))?;
+        }
         if CheckedNodeTag::from_wire(&node.node_tag)
             .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
             == Some(CheckedNodeKind::Protocol(ProtocolForm::ProtocolReference))
