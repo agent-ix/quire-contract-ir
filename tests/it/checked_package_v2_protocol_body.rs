@@ -1050,6 +1050,24 @@ fn protocol_holder_case_on(mut package: Value, operator: &str) -> (Value, Vec<us
         ]),
         other => panic!("unknown holder fixture: {other}"),
     };
+    let anchor = if operator == "await" {
+        let anchor_body = package["semantic_graph"]["nodes"][positions[0]]["body"].clone();
+        let anchor = protocol_named_node(
+            "control",
+            &["Example", "OrderFlow", "run", "Main", "Anchor"],
+            anchor_body,
+            &[],
+        );
+        let target = anchor["node_id"].clone();
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(anchor);
+        body["arguments"][0]["value"]["members"][1]["value"]["target"] = target.clone();
+        Some(target)
+    } else {
+        None
+    };
     let holder = protocol_named_node(
         "control",
         &["Example", "OrderFlow", "run", "Main", "Holder"],
@@ -1062,7 +1080,11 @@ fn protocol_holder_case_on(mut package: Value, operator: &str) -> (Value, Vec<us
         .expect("nodes")
         .push(holder);
     package["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]["members"] =
-        json!([reference(&holder_key)]);
+        if let Some(anchor) = anchor {
+            json!([reference(&anchor), reference(&holder_key)])
+        } else {
+            json!([reference(&holder_key)])
+        };
     settle(&mut package);
     (package, positions)
 }
@@ -1682,6 +1704,11 @@ fn await_admits_compensation_anchor_form() {
         ["value"]["value"] = json!("compensation");
     package["semantic_graph"]["nodes"][holder]["body"]["arguments"][0]["value"]["members"][1]
         ["value"]["target"] = target;
+    let root = protocol_position(&package, "control");
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]["members"]
+        .as_array_mut()
+        .expect("root sequence")
+        .rotate_right(2);
     settle(&mut package);
     assert!(
         matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
@@ -3719,7 +3746,7 @@ fn receive_requires_a_send_target_before_payload_type_checks() {
     );
 }
 
-/// Trace: FR-038-AC-288
+/// Trace: FR-038-AC-288, FR-038-AC-290
 #[trace("TC-048")]
 #[test]
 fn receive_accepts_its_send_channel_and_refuses_another_channel() {
@@ -3781,6 +3808,56 @@ fn receive_accepts_its_send_channel_and_refuses_another_channel() {
         matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
         "send and receive on one channel must admit locally: {:?}",
         read(&package)
+    );
+
+    let mut reversed = package.clone();
+    reversed["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]["members"]
+        .as_array_mut()
+        .expect("sequence children")
+        .swap(0, 1);
+    settle(&mut reversed);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&reversed) else {
+        panic!("receive sequenced before its send must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::DefinitionCycle)
+    );
+    assert!(matches!(
+        refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::CausalCycle { controls }) if controls.len() >= 2
+    ));
+
+    let mut parallel = package.clone();
+    parallel["semantic_graph"]["nodes"][root]["body"]["operation"]["member"]["operator"] =
+        json!("parallel");
+    parallel["semantic_graph"]["nodes"][root]["body"]["arguments"] = json!([
+        {"term": "binding", "name": "memory", "value": {"term": "aggregate", "members": []}},
+        {"term": "binding", "name": "branches", "value": {"term": "aggregate", "members": [
+            {"term": "aggregate", "members": [
+                {"term": "binding", "name": "label", "value": {"term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "Left"}},
+                {"term": "binding", "name": "body", "value": {"term": "reference", "target": receive_key}}
+            ]},
+            {"term": "aggregate", "members": [
+                {"term": "binding", "name": "label", "value": {"term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "Right"}},
+                {"term": "binding", "name": "body", "value": {"term": "reference", "target": send_key}}
+            ]}
+        ]}},
+        {"term": "binding", "name": "join", "value": {"term": "aggregate", "members": [
+            {"term": "binding", "name": "policy", "value": {"term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "all"}}
+        ]}},
+        {"term": "binding", "name": "joined", "value": {"term": "aggregate", "members": [
+            {"term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "Left"},
+            {"term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "Right"}
+        ]}},
+        {"term": "binding", "name": "outstanding", "value": {"term": "aggregate", "members": []}}
+    ]);
+    settle(&mut parallel);
+    assert!(
+        matches!(read(&parallel), CheckedPackageV2ReadResult::Admitted(_)),
+        "independent parallel send and receive must admit: {:?}",
+        read(&parallel)
     );
 
     let mut wrong_binder = package.clone();
@@ -4973,4 +5050,71 @@ fn await_anchor_reference_does_not_hold_an_unattached_control() {
             key,
         )
     );
+}
+
+/// Trace: FR-038-AC-290
+#[trace("TC-048")]
+#[test]
+fn repeat_body_without_necessary_step_refuses_after_local_checks() {
+    let (mut package, children) = protocol_holder_case("repeat");
+    let body = &mut package["semantic_graph"]["nodes"][children[0]]["body"];
+    body["operation"]["member"]["operator"] = json!("check");
+    body["arguments"] = json!([{
+        "term": "binding", "name": "condition", "value": {
+            "term": "literal", "type": node_id(&family_key("aaaa")),
+            "value_kind": "boolean", "value": true
+        }
+    }]);
+    settle(&mut package);
+    let holder = holder_position(&package);
+    let key = package["semantic_graph"]["nodes"][holder]["node_id"]["digest"]
+        .as_str()
+        .expect("repeat key");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("repeat without progress must refuse");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::UnsupportedConstruct
+    );
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::DeclarationForm)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{holder}"))
+    );
+    assert_eq!(
+        refusal.locus.as_ref().map(|id| id.digest.as_ref()),
+        Some(key)
+    );
+    assert!(matches!(
+        refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::RepeatProgress { .. })
+    ));
+}
+
+/// Trace: FR-038-AC-290
+#[trace("TC-048")]
+#[test]
+fn await_anchored_to_its_own_event_refuses_causal_cycle() {
+    let (mut package, children) = protocol_holder_case("await");
+    let holder = holder_position(&package);
+    let event = package["semantic_graph"]["nodes"][children[0]]["node_id"].clone();
+    package["semantic_graph"]["nodes"][holder]["body"]["arguments"][0]["value"]["members"][1]
+        ["value"]["target"] = event;
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("await after its own event must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::DefinitionCycle)
+    );
+    assert!(matches!(
+        refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::CausalCycle { controls }) if controls.len() == 2
+    ));
 }
