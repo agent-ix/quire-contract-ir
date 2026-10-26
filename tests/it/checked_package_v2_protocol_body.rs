@@ -1130,6 +1130,21 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
     let later = retry_binder("later");
     let earlier_target = earlier["node_id"].clone();
     let later_target = later["node_id"].clone();
+    let capture_binder = |name: &str| {
+        let mut node = parameter.clone();
+        node["body"]["members"][0]["value"]["value"] = json!(name);
+        node["node_id"] = node_id(&structural_key(
+            "value",
+            "parameter",
+            Some(&family_key("aaaa")),
+            &node["body"],
+        ));
+        node
+    };
+    let registration = capture_binder("registration");
+    let activation = capture_binder("activation");
+    let registration_target = registration["node_id"].clone();
+    let activation_target = activation["node_id"].clone();
     let group = || json!({"term": "aggregate", "members": []});
     let binding =
         |name: &str, value: Value| json!({"term": "binding", "name": name, "value": value});
@@ -1179,7 +1194,15 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
-        .extend([record_type, earlier, later, attempt, effect]);
+        .extend([
+            record_type,
+            earlier,
+            later,
+            registration,
+            activation,
+            attempt,
+            effect,
+        ]);
     let body =
         package["semantic_graph"]["nodes"][protocol_position(package, "control")]["body"].clone();
     let mut compensation = protocol_named_node("compensation", declaration, body, &[]);
@@ -1193,14 +1216,30 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
             "clock",
             json!({"term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "clock"})
         ),
-        binding("registration_captures", group()),
+        binding(
+            "registration_captures",
+            json!({"term": "aggregate", "members": [
+                {"term": "aggregate", "members": [
+                    binding("binder", reference(&registration_target)),
+                    binding("initializer", boolean())
+                ]}
+            ]})
+        ),
         binding(
             "trigger",
             json!({"term": "aggregate", "members": [
                 binding("binder", reference(&binder)), binding("guard", boolean())
             ]})
         ),
-        binding("activation_captures", group()),
+        binding(
+            "activation_captures",
+            json!({"term": "aggregate", "members": [
+                {"term": "aggregate", "members": [
+                    binding("binder", reference(&activation_target)),
+                    binding("initializer", boolean())
+                ]}
+            ]})
+        ),
         binding(
             "within",
             json!({"term": "aggregate", "members": [
@@ -2115,6 +2154,64 @@ fn compensation_admits_local_bindings_and_rejects_wrong_target_forms() {
             "argument {ordinal}"
         );
     }
+}
+
+/// Trace: FR-038-AC-282, FR-038-AC-289
+#[trace("TC-048")]
+#[test]
+fn compensation_nonempty_captures_admit_and_check_record_binders() {
+    let (package, _, compensation) = package_with_admitted_compensation();
+    for ordinal in [5, 7] {
+        assert_eq!(
+            package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][ordinal]["value"]
+                ["members"]
+                .as_array()
+                .expect("capture records")
+                .len(),
+            1,
+        );
+    }
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "{:?}",
+        read(&package)
+    );
+
+    let role =
+        package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
+    for ordinal in [5, 7] {
+        let mut wrong_target = package.clone();
+        wrong_target["semantic_graph"]["nodes"][compensation]["body"]["arguments"][ordinal]
+            ["value"]["members"][0]["members"][0]["value"]["target"] = role.clone();
+        settle(&mut wrong_target);
+        let key = wrong_target["semantic_graph"]["nodes"][compensation]["node_id"]["digest"]
+            .as_str()
+            .expect("compensation key");
+        assert_eq!(
+            read(&wrong_target),
+            refusal_at(
+                CheckedPackageRefusalCode::InvalidModelBinding,
+                &format!("/semantic_graph/nodes/{compensation}/body/arguments/{ordinal}/value/members/0/members/0/value/target"),
+                Some(CheckedPackageRefusalCause::MalformedDeclaration),
+                key,
+            ),
+            "capture binder at argument {ordinal}"
+        );
+    }
+
+    let mut wrong_shape = package;
+    wrong_shape["semantic_graph"]["nodes"][compensation]["body"]["arguments"][7]["value"]
+        ["members"][0]["members"]
+        .as_array_mut()
+        .expect("capture fields")
+        .swap(0, 1);
+    assert_eq!(
+        read(&wrong_shape),
+        refusal(
+            CheckedPackageRefusalCode::MalformedWire,
+            &format!("/semantic_graph/nodes/{compensation}/body"),
+        )
+    );
 }
 
 /// Trace: FR-038-AC-282, FR-038-AC-289
