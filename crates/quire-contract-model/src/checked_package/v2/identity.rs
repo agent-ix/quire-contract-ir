@@ -948,6 +948,9 @@ fn validate_equivalence_graph(
     Ok(())
 }
 
+/// Source identity to ordered `(source start, node position, ordinal)` anchors.
+type SourceEquivalenceAnchors<'a> = BTreeMap<(&'a str, &'a str), Vec<(u64, usize, u64)>>;
+
 /// Anchor ordinals count equivalence declarations in source byte order, not
 /// graph order. Source-map admission already established the exact node and
 /// occurrence joins before this check runs.
@@ -956,10 +959,9 @@ pub(super) fn validate_equivalence_occurrences(
     kinds: &[CheckedNodeKind],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    if !kinds
-        .iter()
-        .any(|kind| *kind == CheckedNodeKind::ScalarType(ScalarTypeForm::DimensionEquivalence))
-    {
+    if !kinds.contains(&CheckedNodeKind::ScalarType(
+        ScalarTypeForm::DimensionEquivalence,
+    )) {
         return Ok(());
     }
     meter.charge(
@@ -972,7 +974,7 @@ pub(super) fn validate_equivalence_occurrences(
         .filter(|entry| entry.role == crate::checked_package::shared::CheckedOccurrenceRole::Anchor)
         .map(|entry| (&entry.node_id, entry))
         .collect::<BTreeMap<_, _>>();
-    let mut by_source: BTreeMap<(&str, &str), Vec<(u64, usize, u64)>> = BTreeMap::new();
+    let mut by_source: SourceEquivalenceAnchors<'_> = BTreeMap::new();
     for (position, (node, kind)) in wire.semantic_graph.nodes.iter().zip(kinds).enumerate() {
         if *kind != CheckedNodeKind::ScalarType(ScalarTypeForm::DimensionEquivalence) {
             continue;
