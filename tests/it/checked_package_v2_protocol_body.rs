@@ -1073,7 +1073,7 @@ fn await_admits_compensation_anchor_form() {
 
 fn compensation_template(package: &Value, declaration: &[&str]) -> Value {
     let role =
-        package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
+        package["semantic_graph"]["nodes"][protocol_position(package, "role")]["node_id"].clone();
     let reference = || json!({"term": "reference", "target": role});
     let group = || json!({"term": "aggregate", "members": []});
     let binding =
