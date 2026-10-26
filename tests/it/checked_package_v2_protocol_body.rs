@@ -866,8 +866,17 @@ fn await_checks_anchor_form_and_event_eligibility() {
     );
 
     let mut wrong_event = package;
-    wrong_event["semantic_graph"]["nodes"][holder]["body"]["arguments"][3]["value"]["target"] =
-        wrong_event["semantic_graph"]["nodes"][children[1]]["node_id"].clone();
+    let role = wrong_event["semantic_graph"]["nodes"][protocol_position(&wrong_event, "role")]
+        ["node_id"]
+        .clone();
+    wrong_event["semantic_graph"]["nodes"][children[0]]["body"]["operation"]["member"]
+        ["operator"] = json!("send");
+    wrong_event["semantic_graph"]["nodes"][children[0]]["body"]["arguments"] = json!([
+        {"term": "binding", "name": "channel", "value": {"term": "reference", "target": role}},
+        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": role}},
+        {"term": "binding", "name": "related", "value": {"term": "aggregate", "members": []}},
+        {"term": "binding", "name": "constraint", "value": {"term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}}
+    ]);
     settle(&mut wrong_event);
     holder_refusal(
         &wrong_event,

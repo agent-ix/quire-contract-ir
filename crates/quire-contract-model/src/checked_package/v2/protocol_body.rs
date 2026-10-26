@@ -1539,6 +1539,8 @@ fn check_control_prefix(
                 })?;
             }
             let event = check.target_at(arguments, 3, control)?;
+            check.target_at(arguments, 4, control)?;
+            check.target_at(arguments, 5, control)?;
             if !matches!(
                 control_operator(event),
                 Some("receive" | "effect" | "event")
@@ -1549,8 +1551,6 @@ fn check_control_prefix(
                     node_pointer(check.position),
                 ));
             }
-            check.target_at(arguments, 4, control)?;
-            check.target_at(arguments, 5, control)?;
         }
         _ => {}
     }
