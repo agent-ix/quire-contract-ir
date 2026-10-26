@@ -145,6 +145,9 @@ pub enum CheckedPackageRefusalCause {
     /// `malformed-declaration`: an entry naming a declared dependency whose
     /// tag and semantic form its member does not admit.
     MalformedDeclaration,
+    /// `wrong-export`: a protocol `related.relationship` target is not a
+    /// `relation`/`relationship` declaration of the selected model.
+    WrongExport,
     /// `stale-node-key`: an application node whose retained key is not the
     /// JCS SHA-256 of its own preimage.
     StaleNodeKey,
@@ -390,6 +393,24 @@ pub enum CheckedTerminalDuplicate {
 /// Protocol control information retained at a typed reader refusal.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CheckedProtocolRefusalDetail {
+    /// A payload binder differs from the channel's carried type.
+    PayloadType {
+        /// The channel's carried type.
+        expected: CheckedNodeId,
+        /// The binder's declared type.
+        actual: CheckedNodeId,
+    },
+    /// A protocol relationship end term does not conform to its selected end.
+    RelatedEndType {
+        /// The relationship whose end was checked.
+        relationship: CheckedNodeId,
+        /// The offending end, `from` or `to`.
+        end: Box<str>,
+        /// The selected relationship end's object type declaration.
+        expected: CheckedNodeId,
+        /// The end term's semantic type, when it has one.
+        actual: Option<CheckedNodeId>,
+    },
     /// An awaited control cannot produce the event shape the profile requires.
     AwaitedEvent {
         /// The offending control operator.
@@ -439,7 +460,7 @@ pub struct CheckedPackageRefusal {
     pub actual: Option<CheckedSemanticId>,
     /// Extension clause information at a missing-member or type-mismatch refusal.
     pub extension_detail: Option<Box<CheckedExtensionRefusalDetail>>,
-    /// Protocol event or interval context for a control refusal.
+    /// Protocol event, type or interval context for a control refusal.
     pub protocol_detail: Option<Box<CheckedProtocolRefusalDetail>>,
     /// Both parties to a terminal declaration duplicate, when applicable.
     pub terminal_duplicate: Option<CheckedTerminalDuplicate>,
