@@ -454,6 +454,7 @@ fn group_fields_fit(term: &CheckedTerm, fields: &[(&str, Shape)]) -> bool {
     })
 }
 
+#[string_edge]
 fn local_details_fit(form: ProtocolForm, operator: &str, arguments: &[CheckedTerm]) -> bool {
     match (form, operator) {
         (ProtocolForm::Control, "choice") => {
@@ -1299,6 +1300,7 @@ impl MemberCheck<'_> {
             && other[other.len() - 2].as_ref() == segment
     }
 
+    #[string_edge]
     fn clause_lists_relationship(
         &self,
         relationship: &CheckedNodeId,
