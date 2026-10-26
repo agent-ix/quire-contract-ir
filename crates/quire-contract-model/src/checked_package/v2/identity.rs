@@ -655,6 +655,10 @@ fn validate_dimension_equivalence(
             || site.preimage(&["dimension_node_ids"]).index(position),
         )?;
     }
+    meter.charge(
+        u64::try_from(lock.sources.len()).unwrap_or(u64::MAX),
+        || site.preimage(&["owner"]),
+    )?;
     require(
         lock.sources.iter().any(|source| {
             source.authority == equivalence.owner.authority
