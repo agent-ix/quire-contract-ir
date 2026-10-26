@@ -6,8 +6,8 @@
 use crate::support::checked_package::{
     application_node_key, canonical, domain_package_digest, domain_package_document, evidence_for,
     family_key, node_id, protocol_named_node, protocol_role_node, rebuild_source_map,
-    refresh_identity, refusal, refusal_at, rekey_application_node, rename_node, settle,
-    structural_key, v2_all_families,
+    refresh_identity, refusal, refusal_at, rekey_application_node, rename_node,
+    selected_interface_model_node, settle, structural_key, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -1460,6 +1460,44 @@ fn protocol_owner_retarget_with_retained_key_refuses_before_target_meaning() {
     assert_eq!(
         refusal.path.as_ref().map(|p| p.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/node_id").as_str())
+    );
+}
+
+/// Trace: FR-064-AC-2, FR-064-AC-4
+#[trace("TC-946")]
+#[test]
+fn protocol_owner_retarget_to_second_selected_model_changes_package_identity() {
+    let mut package = v2_all_families();
+    let position = clause_position(&package);
+    let old_key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+    let old_package = package["package_id"].clone();
+    let second_model = selected_interface_model_node();
+    let second_key = second_model["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(second_model);
+    package["semantic_graph"]["nodes"][position]["owner_model"] = second_key.clone();
+    settle(&mut package);
+    assert_ne!(
+        package["semantic_graph"]["nodes"][position]["node_id"],
+        old_key
+    );
+    assert_ne!(package["package_id"], old_package);
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
+        panic!("exact second selected model owner must admit without over-type inference");
+    };
+    let clause = admitted
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| {
+            node.node_tag.as_ref() == "protocol" && node.semantic_form.as_ref() == "protocol_clause"
+        })
+        .expect("clause");
+    assert_eq!(
+        clause.owner_model.as_ref(),
+        Some(&serde_json::from_value(second_key).expect("node id"))
     );
 }
 

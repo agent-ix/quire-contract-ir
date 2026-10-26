@@ -1024,6 +1024,28 @@ fn owned_structural_key(
     sha256_hex(&canonical(&preimage))
 }
 
+/// A second selected local model declaration in the family package.
+pub fn selected_interface_model_node() -> Value {
+    let key = owned_structural_key(
+        "model",
+        "systems_interface",
+        None,
+        model_owner(FAMILY_MODEL_IDENTITY, FAMILY_INTERFACE),
+        Value::Null,
+    );
+    owned_structural_node(
+        plain_node(
+            &key,
+            "model",
+            "systems_interface",
+            &key,
+            &[],
+            empty_aggregate(),
+        ),
+        model_owner(FAMILY_MODEL_IDENTITY, FAMILY_INTERFACE),
+    )
+}
+
 /// The derived key of the anonymous `scalar_type`/`boolean` node, as a
 /// literal; `structural_key` recomputes it in `tc_226_the_recorded_scalar_keys_are_the_derived_ones`.
 pub const BOOLEAN_KEY: &str = "9964390677844ad66b781babdbfa95933bc2b16ef1e86f67005966b77e6db3aa";
