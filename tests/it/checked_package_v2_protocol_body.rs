@@ -1302,10 +1302,13 @@ fn clause_position(package: &Value) -> usize {
 fn protocol_owner_edge_has_closed_wire_presence_and_local_shape() {
     let package = admitted_protocol_families();
     let position = clause_position(&package);
-    assert!(matches!(
-        read(&package),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ));
+    let baseline = read(&package);
+    assert!(
+        matches!(baseline, CheckedPackageV2ReadResult::Admitted(_)),
+        "baseline {baseline:?}; node 10 form={}, dependencies={}",
+        package["semantic_graph"]["nodes"][10]["semantic_form"],
+        package["semantic_graph"]["nodes"][10]["dependencies"]
+    );
 
     let mut absent = package.clone();
     absent["semantic_graph"]["nodes"][position]
@@ -1489,7 +1492,9 @@ fn protocol_owner_retarget_to_second_selected_model_changes_package_identity() {
     let result = read(&package);
     let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
         panic!(
-            "exact second selected model owner must admit without over-type inference: {result:?}"
+            "exact second selected model owner must admit without over-type inference: {result:?}; node 10 form={}, dependencies={}",
+            package["semantic_graph"]["nodes"][10]["semantic_form"],
+            package["semantic_graph"]["nodes"][10]["dependencies"]
         );
     };
     let clause = admitted
