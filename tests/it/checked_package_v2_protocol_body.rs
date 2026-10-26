@@ -368,6 +368,7 @@ fn terminal_origin_reads_over_but_each_has_no_readable_binder() {
         {"term": "binding", "name": "trigger", "value": {
             "term": "reference", "target": trigger}}
     ]);
+    relevel_finish_binder(&mut package, 2);
     settle(&mut package);
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
         panic!("terminal under each must not read over");
@@ -633,6 +634,45 @@ fn clause_parameter(package: &mut Value, name: &str, level: &str) -> Value {
     target
 }
 
+fn relevel_parameter(package: &mut Value, target: &Value, level: usize) -> Value {
+    let mut parameter = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_id"] == *target)
+        .expect("parameter target")
+        .clone();
+    assert_eq!(parameter["semantic_form"], "parameter");
+    parameter["body"]["members"][1]["value"]["value"] = json!(level.to_string());
+    let semantic_type = parameter["semantic_type"]["digest"]
+        .as_str()
+        .expect("parameter type")
+        .to_owned();
+    let key = structural_key(
+        "value",
+        "parameter",
+        Some(&semantic_type),
+        &parameter["body"],
+    );
+    parameter["node_id"] = node_id(&key);
+    let target = parameter["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(parameter);
+    target
+}
+
+fn relevel_finish_binder(package: &mut Value, level: usize) {
+    let finish = protocol_position(package, "obligation");
+    let target = package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    let replacement = relevel_parameter(package, &target, level);
+    package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]["value"]["target"] =
+        replacement;
+}
+
 fn temporal_clause(package: &Value) -> Value {
     package["semantic_graph"]["nodes"]
         .as_array()
@@ -695,6 +735,7 @@ fn activation_relation_has_exact_origin_and_each_rows_without_extras() {
         {"term": "binding", "name": "kind", "value": {"term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "each"}},
         {"term": "binding", "name": "trigger", "value": {"term": "reference", "target": trigger}},
     ]);
+    relevel_finish_binder(&mut package, 2);
     settle(&mut package);
     let admitted = match read(&package) {
         CheckedPackageV2ReadResult::Admitted(package) => package,
@@ -925,6 +966,7 @@ fn clause_each_trigger_admits_and_checks_parameter_level() {
         {"term": "binding", "name": "kind", "value": {"term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "each"}},
         {"term": "binding", "name": "trigger", "value": {"term": "reference", "target": trigger}},
     ]);
+    relevel_finish_binder(&mut package, 2);
     settle(&mut package);
     assert!(matches!(
         read(&package),
@@ -933,8 +975,9 @@ fn clause_each_trigger_admits_and_checks_parameter_level() {
     let trigger_position = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
-        .len()
-        - 1;
+        .iter()
+        .position(|node| node["node_id"] == trigger)
+        .expect("trigger binder");
     package["semantic_graph"]["nodes"][trigger_position]["body"]["members"][1]["value"]["value"] =
         json!("2");
     let wrong_key = structural_key(
@@ -1032,6 +1075,7 @@ fn clause_capture_checks_binder_form_and_ordered_level() {
         {"term": "binding", "name": "binder", "value": {"term": "reference", "target": binder}},
         {"term": "binding", "name": "initializer", "value": {"term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}},
     ]}]);
+    relevel_finish_binder(&mut package, 2);
     settle(&mut package);
     assert!(matches!(
         read(&package),
@@ -1075,6 +1119,7 @@ fn clause_capture_order_sets_each_binder_level() {
     };
     package["semantic_graph"]["nodes"][clause]["body"]["arguments"][2]["value"]["members"] =
         json!([capture(first), capture(second)]);
+    relevel_finish_binder(&mut package, 3);
     settle(&mut package);
     assert!(matches!(
         read(&package),
@@ -1088,8 +1133,9 @@ fn clause_capture_order_sets_each_binder_level() {
     let second_position = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
-        .len()
-        - 1;
+        .iter()
+        .position(|node| node["body"]["members"][0]["value"]["value"] == "second")
+        .expect("second binder");
     let key = package["semantic_graph"]["nodes"][second_position]["node_id"]["digest"]
         .as_str()
         .expect("second binder key");
@@ -2248,12 +2294,18 @@ fn await_effect_event_requires_an_attempt_source() {
 #[test]
 fn await_admits_compensation_anchor_form() {
     let (state, _) = crate::checked_package_v2_frame_entries::state_operand_fixture();
-    let (mut package, _) = protocol_holder_case_on(state, "await");
+    let (mut package, children) = protocol_holder_case_on(state, "await");
     let holder = holder_position(&package);
     let compensation = compensation_template(
         &mut package,
         &["Example", "OrderFlow", "compensate", "Undo"],
     );
+    let awaited = package["semantic_graph"]["nodes"][children[0]]["body"]["arguments"][2]["value"]
+        ["target"]
+        .clone();
+    let awaited = relevel_parameter(&mut package, &awaited, 4);
+    package["semantic_graph"]["nodes"][children[0]]["body"]["arguments"][2]["value"]["target"] =
+        awaited;
     let target = compensation["node_id"].clone();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -2305,9 +2357,9 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
     let nested_await = package["semantic_graph"]["nodes"][root]["body"]["operation"]["member"]
         ["operator"]
         == "sequence";
-    let attempt_binder = clause_parameter(package, "attempt", if nested_await { "2" } else { "1" });
-    let effect_binder = clause_parameter(package, "effect", if nested_await { "3" } else { "2" });
-    let event_binder = clause_parameter(package, "event", if nested_await { "2" } else { "3" });
+    let attempt_binder = clause_parameter(package, "attempt", "1");
+    let effect_binder = clause_parameter(package, "effect", "2");
+    let event_binder = clause_parameter(package, "event", "3");
     let finish_binder = clause_parameter(package, "closed_after_effect", "4");
     let forward_binder = clause_parameter(package, "forward", "1");
     let trigger_binder = clause_parameter(package, "trigger", "3");
@@ -2322,6 +2374,7 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
         .position(|node| {
             node["semantic_form"] == "control"
                 && node["body"]["operation"]["member"]["operator"] == "event"
+                && (!nested_await || node["declaration"]["qualified_name"][4] == "Anchor")
         })
         .expect("event control");
     package["semantic_graph"]["nodes"][root_event]["body"]["arguments"][2]["value"]["target"] =
@@ -3960,6 +4013,25 @@ fn compensation_with_branch_before_effect(operator: &str, policy: &str) -> (Valu
     nodes.push(holder);
     package["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]["members"] =
         json!([attempt, {"term": "reference", "target": holder_target}, effect]);
+    let commit_position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_id"] == commit["target"])
+        .expect("commit control");
+    let event_position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_id"] == event["target"])
+        .expect("event control");
+    let commit_binder = clause_parameter(&mut package, "branch_commit", "2");
+    let event_binder = clause_parameter(&mut package, "branch_event", "2");
+    package["semantic_graph"]["nodes"][commit_position]["body"]["arguments"][1]["value"]
+        ["target"] = commit_binder;
+    package["semantic_graph"]["nodes"][event_position]["body"]["arguments"][2]["value"]["target"] =
+        event_binder;
+    relevel_finish_binder(&mut package, 3);
     settle(&mut package);
     (package, compensation)
 }
@@ -4208,6 +4280,15 @@ fn compensation_commit_in_a_sibling_branch_is_unordered_against_effect() {
             .expect("moved control");
         child["declaration"]["qualified_name"] = path;
     }
+    let event_position = nodes
+        .iter()
+        .position(|node| node["node_id"] == event["target"])
+        .expect("moved event");
+    let event_binder = nodes[event_position]["body"]["arguments"][2]["value"]["target"].clone();
+    let event_binder = relevel_parameter(&mut package, &event_binder, 4);
+    package["semantic_graph"]["nodes"][event_position]["body"]["arguments"][2]["value"]["target"] =
+        event_binder;
+    relevel_finish_binder(&mut package, 5);
     settle(&mut package);
     assert!(
         matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
@@ -4426,6 +4507,8 @@ fn receive_accepts_its_send_channel_and_refuses_another_channel() {
                 "term": "binding", "name": "of", "value": {"term": "reference", "target": send_key}
             }),
         );
+    let receive_binder = clause_parameter(&mut package, "received", "2");
+    receive_body["arguments"][2]["value"]["target"] = receive_binder;
     let receive = protocol_named_node(
         "control",
         &["Example", "OrderFlow", "run", "Main", "Receive"],
@@ -4450,6 +4533,7 @@ fn receive_accepts_its_send_channel_and_refuses_another_channel() {
             {"term": "reference", "target": receive_key}
         ]
     }}]);
+    relevel_finish_binder(&mut package, 3);
     settle(&mut package);
     assert!(
         matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
@@ -4747,6 +4831,7 @@ fn send_related_accepts_selected_relationship_reference_ends() {
         .clone();
     binder["semantic_type"] = node_id(&reference_key);
     binder["body"]["members"][0]["value"]["value"] = json!("payload");
+    binder["body"]["members"][1]["value"]["value"] = json!("1");
     let binder_key = structural_key("value", "parameter", Some(&reference_key), &binder["body"]);
     binder["node_id"] = node_id(&binder_key);
     package["semantic_graph"]["nodes"]
@@ -4799,11 +4884,14 @@ fn send_related_accepts_selected_relationship_reference_ends() {
         &mut package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"];
     *related = json!([first.clone(), second.clone()]);
     settle(&mut package);
-    assert!(
-        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
-        "distinct related records in JCS order must admit: {:?}",
-        read(&package)
-    );
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("related endpoint without an introducing binder must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert!(matches!(refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::BinderScope { stage, .. })
+        if stage.as_ref() == "run"));
 
     package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"] =
         json!([second, first.clone()]);
