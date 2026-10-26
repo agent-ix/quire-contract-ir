@@ -2178,6 +2178,7 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
             | ScalarTypeForm::Uuid
             | ScalarTypeForm::Timestamp
             | ScalarTypeForm::Dimension
+            | ScalarTypeForm::DimensionEquivalence
             | ScalarTypeForm::Unit
             | ScalarTypeForm::Enum
             | ScalarTypeForm::CompoundUnit,
