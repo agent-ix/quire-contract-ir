@@ -2195,6 +2195,23 @@ fn compensation_negative_window_bound_refuses_at_strict_wire() {
     );
 }
 
+/// Trace: FR-038-AC-282, FR-038-AC-289
+#[trace("TC-048")]
+#[test]
+fn compensation_malformed_attempt_count_refuses_without_panicking() {
+    let (mut package, _, compensation) = package_with_admitted_compensation();
+    package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][9]["value"]["members"]
+        [0]["value"]["value"] = json!("not-an-integer");
+    settle(&mut package);
+    assert_eq!(
+        read(&package),
+        refusal(
+            CheckedPackageRefusalCode::MalformedWire,
+            &format!("/semantic_graph/nodes/{compensation}/body/arguments/9/value/members/0/value"),
+        )
+    );
+}
+
 /// Trace: FR-038-AC-289
 #[trace("TC-048")]
 #[test]

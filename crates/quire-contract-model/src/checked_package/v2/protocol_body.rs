@@ -2239,6 +2239,7 @@ fn check_compensation(
     for ordinal in [5, 7] {
         let captures = members(check.at(arguments, ordinal)).expect("validated captures");
         for (position, record) in captures.iter().enumerate() {
+            meter.charge(1, || node_pointer(check.position))?;
             let binder = group_value(record, "binder").expect("validated capture binder");
             check.check_target(
                 binder,
@@ -2377,9 +2378,13 @@ fn check_compensation(
             },
         ));
     }
-    let maximum = group_value(attempts, "maximum")
-        .and_then(integer_value)
-        .expect("validated maximum");
+    let Some(maximum) = group_value(attempts, "maximum").and_then(integer_value) else {
+        return Err(check.refuse(
+            Code::MalformedWire,
+            None,
+            check.argument_path(9).key("members").index(0).key("value"),
+        ));
+    };
     if maximum < BigInt::from(1) {
         return Err(check.refuse_with_detail(
             Code::IllTyped,
