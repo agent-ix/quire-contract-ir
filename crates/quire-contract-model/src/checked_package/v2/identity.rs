@@ -948,8 +948,14 @@ fn validate_equivalence_graph(
     Ok(())
 }
 
-/// Source identity to ordered `(source start, node position, ordinal)` anchors.
-type SourceEquivalenceAnchors<'a> = BTreeMap<(&'a str, &'a str), Vec<(u64, usize, u64)>>;
+/// Source selected by the lock for an equivalence declaration.
+type EquivalenceSource<'a> = (&'a str, &'a str);
+
+/// Source order, graph position and occurrence ordinal of one anchor.
+type EquivalenceAnchor = (u64, usize, u64);
+
+/// Anchors grouped by their declaring source.
+type SourceEquivalenceAnchors<'a> = BTreeMap<EquivalenceSource<'a>, Vec<EquivalenceAnchor>>;
 
 /// Anchor ordinals count equivalence declarations in source byte order, not
 /// graph order. Source-map admission already established the exact node and
