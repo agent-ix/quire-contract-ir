@@ -30,3 +30,13 @@ Reviewed the frozen stage-5 membership diff and hosted Rust Checks at decf372595
 ## Coverage
 
 Rust style, bounded traversal, reader order, refusal types, and scoped public-reader membership tests were checked. Hosted Rust Checks failed 10 of 875 integration tests; seven failures expose incorrect global work charging, two expose invalid protocol-reference fixtures, and one structural-key work boundary also fails. No workflow or dependency file changed.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The clause scan now charges only after recognizing a protocol clause. The final member scan likewise skips nonprotocol nodes before charging. Protocol-only exact work remains unchanged, while protocol fixtures gain five ledgered units. |
+
+## Disposition verdict
+
+**PASS at a72241c2ab8b6c19ca11d8df9cda0becae0c45fd** — FND-001 fixed; full FR-038-AC-282/284/285 remain Planned.

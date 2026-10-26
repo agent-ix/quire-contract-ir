@@ -30,3 +30,13 @@ Reviewed the frozen stage-5 membership diff and hosted Rust Checks at decf372595
 ## Coverage
 
 Plan completion: not assessed. Quire matrix marks FR-038-AC-26/284/285 tagged; the tagged membership tests pass, but two existing protocol-reference admission fixtures fail. Optional repository-wide semantic review was not requested.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | role_target now lists the appended role in the protocol clause and calls settle, so the two protocol-reference admission tests exercise a valid owned role. |
+
+## Disposition verdict
+
+**PASS at a72241c2ab8b6c19ca11d8df9cda0becae0c45fd** — FND-001 fixed; full FR-038-AC-282/284/285 remain Planned.
