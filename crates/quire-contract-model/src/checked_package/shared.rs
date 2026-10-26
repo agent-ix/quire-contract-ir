@@ -177,6 +177,9 @@ pub enum CheckedPackageRefusalCause {
     OperatorIneligible,
     /// `expression-form`: a relationship destination has an unbounded or ordered multiplicity.
     ExpressionForm,
+    /// `declaration-form`: a protocol control's selected profile cannot admit
+    /// the awaited event or a repeat body with a path that makes no step.
+    DeclarationForm,
     /// `declaration-nominal-mismatch`: a node's declared `qualified_name`
     /// differs from its nominal identity preimage's `qualified_declaration`.
     DeclarationNominalMismatch,
@@ -384,6 +387,27 @@ pub enum CheckedTerminalDuplicate {
     },
 }
 
+/// Protocol control information retained at a typed reader refusal.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CheckedProtocolRefusalDetail {
+    /// An awaited control cannot produce the event shape the profile requires.
+    AwaitedEvent {
+        /// The offending control operator.
+        form: Box<str>,
+        /// The lock-selected protocol profile.
+        profile: CheckedArtifactRef,
+    },
+    /// A control interval has its bounds in reverse order.
+    Interval {
+        /// The argument holding the interval.
+        member: Box<str>,
+        /// The required order of the bounds.
+        expected: Box<str>,
+        /// The interval bounds as written.
+        actual: Box<str>,
+    },
+}
+
 /// A typed refusal with a stable code and the location of the value it is
 /// about.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -415,6 +439,8 @@ pub struct CheckedPackageRefusal {
     pub actual: Option<CheckedSemanticId>,
     /// Extension clause information at a missing-member or type-mismatch refusal.
     pub extension_detail: Option<Box<CheckedExtensionRefusalDetail>>,
+    /// Protocol event or interval context for a control refusal.
+    pub protocol_detail: Option<Box<CheckedProtocolRefusalDetail>>,
     /// Both parties to a terminal declaration duplicate, when applicable.
     pub terminal_duplicate: Option<CheckedTerminalDuplicate>,
     /// The key already derived at a stale-node-key refusal site, when one
@@ -446,6 +472,7 @@ impl CheckedPackageRefusal {
             expected: None,
             actual: None,
             extension_detail: None,
+            protocol_detail: None,
             terminal_duplicate: None,
             expected_node_id: None,
         }

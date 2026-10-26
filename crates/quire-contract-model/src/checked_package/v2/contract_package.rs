@@ -1536,6 +1536,7 @@ fn cause_admitted(code: CheckedPackageRefusalCode, cause: CheckedPackageRefusalC
         | Cause::InvalidTimeQuantity => code == Code::IllTyped,
         Cause::MissingName => code == Code::MissingDeclaration,
         Cause::MalformedDeclaration => code == Code::InvalidModelBinding,
+        Cause::DeclarationForm => code == Code::UnsupportedConstruct,
         Cause::MissingSelection => matches!(code, Code::MissingImport | Code::MissingDeclaration),
         Cause::UnsupportedSelection | Cause::WrongSelectionRole => code == Code::UnknownProfile,
         Cause::ExpressionForm

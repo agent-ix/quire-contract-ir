@@ -11,7 +11,7 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedProtocolRefusalDetail,
 };
 use serde_json::{json, Value};
 
@@ -302,6 +302,8 @@ fn protocol_holder_case(operator: &str) -> (Value, Vec<usize>) {
     let mut package = v2_all_families();
     let root = protocol_position(&package, "control");
     let leaf_body = package["semantic_graph"]["nodes"][root]["body"].clone();
+    let role = protocol_role_node();
+    let role_target = role["node_id"].clone();
     let names: &[&str] = if operator == "await" {
         &["Event", "Then", "Timeout"]
     } else {
@@ -309,10 +311,28 @@ fn protocol_holder_case(operator: &str) -> (Value, Vec<usize>) {
     };
     let mut positions = Vec::new();
     let mut targets = Vec::new();
-    for name in names {
+    for (ordinal, name) in names.iter().enumerate() {
         let mut path = vec!["Example", "OrderFlow", "run", "Main", "Holder"];
         path.push(name);
-        let node = protocol_named_node("control", &path, leaf_body.clone(), &[]);
+        let mut child_body = leaf_body.clone();
+        if ordinal == 0 && operator == "repeat" {
+            child_body["operation"]["member"]["operator"] = json!("fence");
+            child_body["arguments"] = json!([{"term": "binding", "name": "ordering", "value": {
+                "term": "literal", "type": node_id(&family_key("a1a1")),
+                "value_kind": "text", "value": "seq_cst"
+            }}]);
+        }
+        if ordinal == 0 && operator == "await" {
+            child_body["operation"]["member"]["operator"] = json!("event");
+            child_body["arguments"] = json!([
+                {"term": "binding", "name": "role", "value": {"term": "reference", "target": role_target}},
+                {"term": "binding", "name": "compensation", "value": {"term": "aggregate", "members": []}},
+                {"term": "binding", "name": "binder", "value": {"term": "reference", "target": role_target}},
+                {"term": "binding", "name": "related", "value": {"term": "aggregate", "members": []}},
+                {"term": "binding", "name": "constraint", "value": {"term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}}
+            ]);
+        }
+        let node = protocol_named_node("control", &path, child_body, &[]);
         targets.push(node["node_id"].clone());
         positions.push(
             package["semantic_graph"]["nodes"]
@@ -325,8 +345,6 @@ fn protocol_holder_case(operator: &str) -> (Value, Vec<usize>) {
             .expect("nodes")
             .push(node);
     }
-    let role = protocol_role_node();
-    let role_target = role["node_id"].clone();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -775,6 +793,339 @@ fn choice_parallel_repeat_and_await_hold_controls_at_their_own_paths() {
             );
         }
     }
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn repeat_checks_owner_body_exhausted_and_optional_pair() {
+    let (package, children) = protocol_holder_case("repeat");
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    let holder = holder_position(&package);
+
+    let mut missing_exhausted = package.clone();
+    missing_exhausted["semantic_graph"]["nodes"][holder]["body"]["arguments"][6]["value"] =
+        json!({"term": "aggregate", "members": []});
+    settle(&mut missing_exhausted);
+    assert_eq!(
+        read(&missing_exhausted),
+        refusal(
+            CheckedPackageRefusalCode::MalformedWire,
+            &format!("/semantic_graph/nodes/{holder}/body")
+        )
+    );
+
+    let mut wrong_body = package.clone();
+    wrong_body["semantic_graph"]["nodes"][holder]["body"]["arguments"][5]["value"]["target"] =
+        package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
+    settle(&mut wrong_body);
+    holder_refusal(
+        &wrong_body,
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration),
+        "/body/arguments/5/value/target",
+    );
+
+    let mut no_bound = package;
+    no_bound["semantic_graph"]["nodes"][holder]["body"]["arguments"][2]["value"]["members"] =
+        json!([]);
+    no_bound["semantic_graph"]["nodes"][holder]["body"]["arguments"][6]["value"]["members"] =
+        json!([]);
+    settle(&mut no_bound);
+    assert!(matches!(
+        read(&no_bound),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    assert_ne!(children[0], children[1]);
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn repeat_admits_proof_and_zero_maximum_and_refuses_both_unpaired_directions() {
+    let (package, _) = protocol_holder_case("repeat");
+    let holder = holder_position(&package);
+    let mut with_proof = package.clone();
+    with_proof["semantic_graph"]["nodes"][holder]["body"]["arguments"][3]["value"]["members"] = json!([
+        {"term": "binding", "name": "invariant", "value": {"term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}},
+        {"term": "binding", "name": "variant", "value": {"term": "literal", "type": node_id(&family_key("a3a3")), "value_kind": "integer", "value": "1"}}
+    ]);
+    settle(&mut with_proof);
+    assert!(matches!(
+        read(&with_proof),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    let mut zero = with_proof.clone();
+    zero["semantic_graph"]["nodes"][holder]["body"]["arguments"][2]["value"]["members"][0]
+        ["value"] = json!("0");
+    settle(&mut zero);
+    assert!(matches!(
+        read(&zero),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    for missing in [2, 6] {
+        let mut unpaired = with_proof.clone();
+        unpaired["semantic_graph"]["nodes"][holder]["body"]["arguments"][missing]["value"]
+            ["members"] = json!([]);
+        settle(&mut unpaired);
+        assert_eq!(
+            read(&unpaired),
+            refusal(
+                CheckedPackageRefusalCode::MalformedWire,
+                &format!("/semantic_graph/nodes/{holder}/body")
+            ),
+            "unpaired argument {missing} must refuse"
+        );
+    }
+
+    let mut proof_only = with_proof;
+    for absent in [2, 6] {
+        proof_only["semantic_graph"]["nodes"][holder]["body"]["arguments"][absent]["value"]
+            ["members"] = json!([]);
+    }
+    settle(&mut proof_only);
+    assert!(matches!(
+        read(&proof_only),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn repeat_non_boolean_guard_refuses_at_guard_not_wire() {
+    let (mut package, _) = protocol_holder_case("repeat");
+    let holder = holder_position(&package);
+    package["semantic_graph"]["nodes"][holder]["body"]["arguments"][4]["value"] = json!({
+        "term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "yes"
+    });
+    settle(&mut package);
+    holder_refusal(
+        &package,
+        CheckedPackageRefusalCode::IllTyped,
+        Some(CheckedPackageRefusalCause::NonBooleanRoot),
+        "/body/arguments/4/value",
+    );
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn await_checks_anchor_form_and_event_eligibility() {
+    let (package, children) = protocol_holder_case("await");
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    let holder = holder_position(&package);
+
+    let mut wrong_anchor = package.clone();
+    wrong_anchor["semantic_graph"]["nodes"][holder]["body"]["arguments"][0]["value"]["members"]
+        [1]["value"]["target"] =
+        wrong_anchor["semantic_graph"]["nodes"][children[1]]["node_id"].clone();
+    settle(&mut wrong_anchor);
+    holder_refusal(
+        &wrong_anchor,
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration),
+        "/body/arguments/0/value/members/1/value/target",
+    );
+
+    let mut wrong_event = package;
+    let role = wrong_event["semantic_graph"]["nodes"][protocol_position(&wrong_event, "role")]
+        ["node_id"]
+        .clone();
+    wrong_event["semantic_graph"]["nodes"][children[0]]["body"]["operation"]["member"]
+        ["operator"] = json!("send");
+    wrong_event["semantic_graph"]["nodes"][children[0]]["body"]["arguments"] = json!([
+        {"term": "binding", "name": "channel", "value": {"term": "reference", "target": role}},
+        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": role}},
+        {"term": "binding", "name": "related", "value": {"term": "aggregate", "members": []}},
+        {"term": "binding", "name": "constraint", "value": {"term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}}
+    ]);
+    settle(&mut wrong_event);
+    holder_refusal(
+        &wrong_event,
+        CheckedPackageRefusalCode::UnsupportedConstruct,
+        Some(CheckedPackageRefusalCause::DeclarationForm),
+        "",
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_event) else {
+        panic!("ineligible send event must refuse");
+    };
+    assert_eq!(
+        refusal.protocol_detail.as_deref(),
+        Some(&CheckedProtocolRefusalDetail::AwaitedEvent {
+            form: "send".into(),
+            profile: quire_contract_model::CheckedArtifactRef {
+                authority: "agent-ix".into(),
+                identity: "quire.protocol.finite-global/v1".into(),
+            },
+        })
+    );
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn await_inverted_interval_refuses_with_written_bounds() {
+    let (mut package, _) = protocol_holder_case("await");
+    let holder = holder_position(&package);
+    package["semantic_graph"]["nodes"][holder]["body"]["arguments"][2]["value"]["members"][0]
+        ["value"]["value"] = json!("2");
+    settle(&mut package);
+    holder_refusal(
+        &package,
+        CheckedPackageRefusalCode::IllTyped,
+        Some(CheckedPackageRefusalCause::TypeMismatch),
+        "/body/arguments/2/value",
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("inverted await interval must refuse");
+    };
+    assert_eq!(
+        refusal.protocol_detail.as_deref(),
+        Some(&CheckedProtocolRefusalDetail::Interval {
+            member: "within".into(),
+            expected: "closed interval with lower <= upper".into(),
+            actual: "[2, 1]".into(),
+        })
+    );
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn await_admits_receive_and_effect_event_forms() {
+    for operator in ["receive", "effect"] {
+        let (mut package, children) = protocol_holder_case("await");
+        let role = package["semantic_graph"]["nodes"][protocol_position(&package, "role")]
+            ["node_id"]
+            .clone();
+        let reference = || json!({"term": "reference", "target": role});
+        let binding =
+            |name: &str, value: Value| json!({"term": "binding", "name": name, "value": value});
+        let mut arguments = Vec::new();
+        if operator == "receive" {
+            arguments.push(binding("channel", reference()));
+        }
+        arguments.push(binding("of", reference()));
+        arguments.push(binding("binder", reference()));
+        arguments.push(binding(
+            "related",
+            json!({"term": "aggregate", "members": []}),
+        ));
+        arguments.push(binding("constraint", json!({
+            "term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true
+        })));
+        package["semantic_graph"]["nodes"][children[0]]["body"]["operation"]["member"]
+            ["operator"] = json!(operator);
+        package["semantic_graph"]["nodes"][children[0]]["body"]["arguments"] = json!(arguments);
+        settle(&mut package);
+        assert!(
+            matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+            "awaited {operator} must admit"
+        );
+    }
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn await_admits_compensation_anchor_form() {
+    let (mut package, _) = protocol_holder_case("await");
+    let holder = holder_position(&package);
+    let role =
+        package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
+    let reference = || json!({"term": "reference", "target": role});
+    let group = || json!({"term": "aggregate", "members": []});
+    let binding =
+        |name: &str, value: Value| json!({"term": "binding", "name": name, "value": value});
+    let body = package["semantic_graph"]["nodes"][holder]["body"].clone();
+    let mut compensation = protocol_named_node(
+        "compensation",
+        &["Example", "OrderFlow", "compensate", "Undo"],
+        body,
+        &[],
+    );
+    compensation["body"]["operation"]["member"]["operator"] = json!("compensate");
+    compensation["body"]["arguments"] = json!([
+        binding("forward", reference()),
+        binding("forward_binder", reference()),
+        binding("role", reference()),
+        binding("operation", reference()),
+        binding(
+            "clock",
+            json!({"term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "clock"})
+        ),
+        binding("registration_captures", group()),
+        binding("trigger", group()),
+        binding("activation_captures", group()),
+        binding("within", group()),
+        binding("attempts", group()),
+        binding("retry", group()),
+        binding("commit", group()),
+        binding("recovery", group())
+    ]);
+    let target = compensation["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(compensation);
+    let clause = clause_position(&package);
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][8]["value"]["members"] =
+        json!([{"term": "reference", "target": target}]);
+    package["semantic_graph"]["nodes"][holder]["body"]["arguments"][0]["value"]["members"][0]
+        ["value"]["value"] = json!("compensation");
+    package["semantic_graph"]["nodes"][holder]["body"]["arguments"][0]["value"]["members"][1]
+        ["value"]["target"] = target;
+    settle(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "compensation anchor must admit"
+    );
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn repeat_maximum_and_await_interval_reject_negative_bounds_at_wire() {
+    let (mut repeated, _) = protocol_holder_case("repeat");
+    let holder = holder_position(&repeated);
+    repeated["semantic_graph"]["nodes"][holder]["body"]["arguments"][2]["value"]["members"][0]
+        ["value"] = json!("-1");
+    assert_eq!(
+        read(&repeated),
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidPackage,
+            &format!("/semantic_graph/nodes/{holder}/body/arguments/2/value/members/0"),
+            Some(CheckedPackageRefusalCause::InvalidValue),
+            repeated["semantic_graph"]["nodes"][holder]["node_id"]["digest"]
+                .as_str()
+                .expect("id"),
+        )
+    );
+
+    let (mut awaited, _) = protocol_holder_case("await");
+    let holder = holder_position(&awaited);
+    awaited["semantic_graph"]["nodes"][holder]["body"]["arguments"][2]["value"]["members"][1]
+        ["value"]["value"] = json!("-1");
+    assert_eq!(
+        read(&awaited),
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidPackage,
+            &format!("/semantic_graph/nodes/{holder}/body/arguments/2/value/members/1/value"),
+            Some(CheckedPackageRefusalCause::InvalidValue),
+            awaited["semantic_graph"]["nodes"][holder]["node_id"]["digest"]
+                .as_str()
+                .expect("id"),
+        )
+    );
 }
 
 #[trace("TC-048")]

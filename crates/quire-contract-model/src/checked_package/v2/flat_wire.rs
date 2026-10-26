@@ -179,6 +179,17 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
                                         node.node_id.clone(),
                                     ));
                                 }
+                                super::protocol_body::ProtocolLayoutWireDefect::NegativeBound { argument, member, binding } => {
+                                    let mut path = at.pointer().key("arguments").index(argument).key("value")
+                                        .key("members").index(member);
+                                    if binding { path = path.key("value"); }
+                                    return Err(ValidationFailure::refused_at(
+                                        CheckedPackageRefusalCode::InvalidPackage,
+                                        path,
+                                        Some(super::super::shared::CheckedPackageRefusalCause::InvalidValue),
+                                        node.node_id.clone(),
+                                    ));
+                                }
                                 super::protocol_body::ProtocolLayoutWireDefect::EnumValue {
                                     argument,
                                     member,

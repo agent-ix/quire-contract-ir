@@ -8,7 +8,9 @@ use super::{
     ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
-use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId};
+use crate::checked_package::shared::{
+    CheckedArtifactRef, CheckedNodeId, CheckedProtocolRefusalDetail,
+};
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, JsonPointer,
 };
@@ -40,6 +42,11 @@ pub(super) enum ProtocolBodyDefect {
 pub(super) enum ProtocolLayoutWireDefect {
     Body,
     NegativeQueueCapacity,
+    NegativeBound {
+        argument: usize,
+        member: usize,
+        binding: bool,
+    },
     EnumValue {
         argument: usize,
         member: Option<(usize, bool)>,
@@ -132,7 +139,7 @@ const REPEAT: &[Binding] = &[
     field("visible", Shape::References),
     field("maximum", Shape::OptionalInteger),
     field("proof", Shape::Group),
-    field("guard", Shape::Boolean),
+    field("guard", Shape::BooleanCandidate),
     field("body", Shape::Reference),
     field("exhausted", Shape::OptionalReference),
 ];
@@ -457,6 +464,39 @@ fn local_details_fit(form: ProtocolForm, operator: &str, arguments: &[CheckedTer
             });
             branches_fit && join_fit
         }
+        (ProtocolForm::Control, "repeat") => {
+            let maximum = argument(arguments, 2).and_then(members);
+            let exhausted = argument(arguments, 6).and_then(members);
+            let proof = argument(arguments, 3);
+            matches!(
+                (maximum, exhausted),
+                (Some([]), Some([])) | (Some([_]), Some([_]))
+            ) && proof.is_some_and(|proof| {
+                members(proof).is_some_and(|fields| {
+                    fields.is_empty()
+                        || group_fields_fit(
+                            proof,
+                            &[
+                                ("invariant", Shape::BooleanCandidate),
+                                ("variant", Shape::Term),
+                            ],
+                        )
+                })
+            })
+        }
+        (ProtocolForm::Control, "await") => {
+            argument(arguments, 0).is_some_and(|after| {
+                group_fields_fit(
+                    after,
+                    &[("kind", Shape::Text), ("target", Shape::Reference)],
+                ) && matches!(argument_text(after, 0), Some("event" | "compensation"))
+            }) && argument(arguments, 2).is_some_and(|within| {
+                group_fields_fit(
+                    within,
+                    &[("lower", Shape::Integer), ("upper", Shape::Integer)],
+                )
+            })
+        }
         (ProtocolForm::ProtocolClause, "protocol") => clause_details_fit(arguments),
         (ProtocolForm::Role, "role") => {
             let Some(replication) = argument(arguments, 1) else {
@@ -646,7 +686,7 @@ fn validate_layout(
             argument(arguments, position).is_none_or(|set| !reference_set_is_ordered(set))
         })
         || form == ProtocolForm::Control
-            && operator == "choice"
+            && matches!(operator, "choice" | "repeat")
             && argument(arguments, 1).is_none_or(|set| !reference_set_is_ordered(set))
     {
         return Err(D::NoncanonicalSet);
@@ -702,6 +742,38 @@ pub(super) fn wire_layout_defect(
             .is_some_and(|value| value < BigInt::from(0))
         {
             return Some(ProtocolLayoutWireDefect::NegativeQueueCapacity);
+        }
+    }
+    if (form, operator) == (ProtocolForm::Control, "repeat")
+        && argument(arguments, 2)
+            .and_then(members)
+            .and_then(|items| items.first())
+            .and_then(integer_value)
+            .is_some_and(|value| value < BigInt::from(0))
+    {
+        return Some(ProtocolLayoutWireDefect::NegativeBound {
+            argument: 2,
+            member: 0,
+            binding: false,
+        });
+    }
+    if (form, operator) == (ProtocolForm::Control, "await") {
+        for member in 0..2 {
+            if argument(arguments, 2)
+                .and_then(members)
+                .and_then(|items| items.get(member))
+                .and_then(|item| match item {
+                    CheckedTerm::Binding { value, .. } => integer_value(value),
+                    _ => None,
+                })
+                .is_some_and(|value| value < BigInt::from(0))
+            {
+                return Some(ProtocolLayoutWireDefect::NegativeBound {
+                    argument: 2,
+                    member,
+                    binding: true,
+                });
+            }
         }
     }
     None
@@ -785,6 +857,9 @@ fn enum_value_defect(
                     })
             };
             optional(0, &["sc", "tso", "ra"]).or_else(|| optional(4, &["continue", "cancel"]))
+        }
+        (ProtocolForm::Control, "await") => {
+            invalid_enum_at(arguments, 0, Some((0, true)), &["event", "compensation"])
         }
         _ => None,
     }
@@ -970,11 +1045,26 @@ struct MemberCheck<'a> {
     kinds: &'a [CheckedNodeKind],
     terms: &'a [Option<CheckedTerm>],
     index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    profile: &'a CheckedArtifactRef,
 }
 
 impl MemberCheck<'_> {
     fn refuse(&self, code: Code, cause: Option<Cause>, path: JsonPointer) -> ValidationFailure {
         ValidationFailure::refused_at(code, path, cause, self.nodes[self.position].node_id.clone())
+    }
+
+    fn refuse_with_detail(
+        &self,
+        code: Code,
+        cause: Cause,
+        path: JsonPointer,
+        detail: CheckedProtocolRefusalDetail,
+    ) -> ValidationFailure {
+        let mut refusal = self.refuse(code, Some(cause), path);
+        if let ValidationFailure::Refused(value) = &mut refusal {
+            value.protocol_detail = Some(Box::new(detail));
+        }
+        refusal
     }
 
     fn argument_path(&self, ordinal: usize) -> JsonPointer {
@@ -1292,6 +1382,17 @@ fn check_control_prefix(
         }
         Ok::<(), ValidationFailure>(())
     };
+    let control_operator =
+        |position: usize| match check.terms.get(position).and_then(Option::as_ref) {
+            Some(CheckedTerm::Application {
+                operator: ApplicationOperator::ProtocolControl,
+                operation,
+                ..
+            }) if control(position) => operation
+                .pointer("/member/operator")
+                .and_then(Value::as_str),
+            _ => None,
+        };
     match operator {
         "sequence" => check_list(0, &control)?,
         "choice" | "parallel" => {
@@ -1408,6 +1509,91 @@ fn check_control_prefix(
                         path,
                     ));
                 }
+            }
+        }
+        "repeat" => {
+            check.target_at(arguments, 0, |position| {
+                check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role))
+            })?;
+            check_list(1, &|position| {
+                matches!(check.kinds[position], CheckedNodeKind::Expression(_))
+            })?;
+            check.target_at(arguments, 5, control)?;
+            if let Some(exhausted) = members(check.at(arguments, 6)).and_then(|items| items.first())
+            {
+                check.check_target(
+                    exhausted,
+                    check.argument_path(6).key("members").index(0),
+                    control,
+                )?;
+            }
+            if members(check.at(arguments, 3)).is_some_and(|items| !items.is_empty()) {
+                check.boolean(
+                    group_value(check.at(arguments, 3), "invariant").expect("validated invariant"),
+                    check.argument_path(3).key("members").index(0).key("value"),
+                )?;
+            }
+            check.boolean(check.at(arguments, 4), check.argument_path(4))?;
+        }
+        "await" => {
+            let after = check.at(arguments, 0);
+            let anchor = group_value(after, "target").expect("validated anchor");
+            let kind = argument_text(after, 0).expect("validated anchor kind");
+            let anchor_path = check.argument_path(0).key("members").index(1).key("value");
+            if kind == "compensation" {
+                check.check_target(anchor, anchor_path, |position| {
+                    check.is(
+                        position,
+                        CheckedNodeKind::Protocol(ProtocolForm::Compensation),
+                    )
+                })?;
+            } else {
+                check.check_target(anchor, anchor_path, |position| {
+                    matches!(
+                        control_operator(position),
+                        Some("send" | "receive" | "attempt" | "effect" | "event" | "commit")
+                    )
+                })?;
+            }
+            let event = check.target_at(arguments, 3, control)?;
+            check.target_at(arguments, 4, control)?;
+            check.target_at(arguments, 5, control)?;
+            let Some(event_form) = control_operator(event) else {
+                return Err(check.refuse(
+                    Code::InvalidModelBinding,
+                    Some(Cause::MalformedDeclaration),
+                    check.argument_path(3).key("target"),
+                ));
+            };
+            if !matches!(event_form, "receive" | "effect" | "event") {
+                return Err(check.refuse_with_detail(
+                    Code::UnsupportedConstruct,
+                    Cause::DeclarationForm,
+                    node_pointer(check.position),
+                    CheckedProtocolRefusalDetail::AwaitedEvent {
+                        form: event_form.into(),
+                        profile: check.profile.clone(),
+                    },
+                ));
+            }
+            let within = check.at(arguments, 2);
+            let (Some(lower), Some(upper)) = (
+                group_value(within, "lower").and_then(integer_value),
+                group_value(within, "upper").and_then(integer_value),
+            ) else {
+                return Err(check.refuse(Code::MalformedWire, None, check.argument_path(2)));
+            };
+            if lower > upper {
+                return Err(check.refuse_with_detail(
+                    Code::IllTyped,
+                    Cause::TypeMismatch,
+                    check.argument_path(2),
+                    CheckedProtocolRefusalDetail::Interval {
+                        member: "within".into(),
+                        expected: "closed interval with lower <= upper".into(),
+                        actual: format!("[{lower}, {upper}]").into(),
+                    },
+                ));
             }
         }
         _ => {}
@@ -1866,6 +2052,7 @@ pub(super) fn validate_protocol_nodes(
                     kinds,
                     terms,
                     index,
+                    profile: selected_profile.expect("validated protocol profile law"),
                 };
                 check_member(&check, form, operator, arguments)?;
             }
@@ -2015,6 +2202,18 @@ mod tests {
             }),
             (ProtocolForm::Control, "parallel", "joined") => json!({
                 "term": "aggregate", "members": [text("Left"), text("Right")]
+            }),
+            (ProtocolForm::Control, "await", "after") => json!({
+                "term": "aggregate", "members": [
+                    {"term": "binding", "name": "kind", "value": text("event")},
+                    {"term": "binding", "name": "target", "value": example(Shape::Reference)}
+                ]
+            }),
+            (ProtocolForm::Control, "await", "within") => json!({
+                "term": "aggregate", "members": [
+                    {"term": "binding", "name": "lower", "value": example(Shape::Integer)},
+                    {"term": "binding", "name": "upper", "value": example(Shape::Integer)}
+                ]
             }),
             _ => example(binding.shape),
         }
@@ -2517,5 +2716,39 @@ mod tests {
         );
         terminal["arguments"][1]["value"]["members"] = json!([example(Shape::Boolean)]);
         assert_eq!(check(ProtocolForm::Obligation, &terminal), Ok(()));
+    }
+
+    /// Trace: FR-038-AC-288
+    #[trace("TC-048")]
+    #[test]
+    fn repeat_and_await_nested_layouts_enforce_pair_and_field_order() {
+        let check = |body: &Value| {
+            validate_protocol_body(ProtocolForm::Control, body, &boolean(), Some(&selected()))
+        };
+        let mut repeat = body(ProtocolForm::Control, "repeat");
+        assert_eq!(check(&repeat), Ok(()));
+        repeat["arguments"][2]["value"]["members"] = json!([example(Shape::Integer)]);
+        assert_eq!(check(&repeat), Err(ProtocolBodyDefect::MalformedLayout));
+        repeat["arguments"][6]["value"]["members"] = json!([example(Shape::Reference)]);
+        assert_eq!(check(&repeat), Ok(()));
+        repeat["arguments"][3]["value"]["members"] = json!([
+            {"term": "binding", "name": "variant", "value": example(Shape::Term)},
+            {"term": "binding", "name": "invariant", "value": example(Shape::Boolean)}
+        ]);
+        assert_eq!(check(&repeat), Err(ProtocolBodyDefect::MalformedLayout));
+
+        let mut awaited = body(ProtocolForm::Control, "await");
+        assert_eq!(check(&awaited), Ok(()));
+        awaited["arguments"][0]["value"]["members"]
+            .as_array_mut()
+            .expect("after")
+            .swap(0, 1);
+        assert_eq!(check(&awaited), Err(ProtocolBodyDefect::MalformedLayout));
+        awaited = body(ProtocolForm::Control, "await");
+        awaited["arguments"][2]["value"]["members"]
+            .as_array_mut()
+            .expect("within")
+            .swap(0, 1);
+        assert_eq!(check(&awaited), Err(ProtocolBodyDefect::MalformedLayout));
     }
 }
