@@ -177,6 +177,9 @@ pub enum CheckedPackageRefusalCause {
     OperatorIneligible,
     /// `expression-form`: a relationship destination has an unbounded or ordered multiplicity.
     ExpressionForm,
+    /// `declaration-form`: a protocol control's selected profile cannot admit
+    /// the awaited event or a repeat body with a path that makes no step.
+    DeclarationForm,
     /// `declaration-nominal-mismatch`: a node's declared `qualified_name`
     /// differs from its nominal identity preimage's `qualified_declaration`.
     DeclarationNominalMismatch,

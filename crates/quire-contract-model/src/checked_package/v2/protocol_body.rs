@@ -40,6 +40,11 @@ pub(super) enum ProtocolBodyDefect {
 pub(super) enum ProtocolLayoutWireDefect {
     Body,
     NegativeQueueCapacity,
+    NegativeBound {
+        argument: usize,
+        member: usize,
+        binding: bool,
+    },
     EnumValue {
         argument: usize,
         member: Option<(usize, bool)>,
@@ -457,6 +462,39 @@ fn local_details_fit(form: ProtocolForm, operator: &str, arguments: &[CheckedTer
             });
             branches_fit && join_fit
         }
+        (ProtocolForm::Control, "repeat") => {
+            let maximum = argument(arguments, 2).and_then(members);
+            let exhausted = argument(arguments, 6).and_then(members);
+            let proof = argument(arguments, 3);
+            matches!(
+                (maximum, exhausted),
+                (Some([]), Some([])) | (Some([_]), Some([_]))
+            ) && proof.is_some_and(|proof| {
+                members(proof).is_some_and(|fields| {
+                    fields.is_empty()
+                        || group_fields_fit(
+                            proof,
+                            &[
+                                ("invariant", Shape::BooleanCandidate),
+                                ("variant", Shape::Term),
+                            ],
+                        )
+                })
+            })
+        }
+        (ProtocolForm::Control, "await") => {
+            argument(arguments, 0).is_some_and(|after| {
+                group_fields_fit(
+                    after,
+                    &[("kind", Shape::Text), ("target", Shape::Reference)],
+                ) && matches!(argument_text(after, 0), Some("event" | "compensation"))
+            }) && argument(arguments, 2).is_some_and(|within| {
+                group_fields_fit(
+                    within,
+                    &[("lower", Shape::Integer), ("upper", Shape::Integer)],
+                )
+            })
+        }
         (ProtocolForm::ProtocolClause, "protocol") => clause_details_fit(arguments),
         (ProtocolForm::Role, "role") => {
             let Some(replication) = argument(arguments, 1) else {
@@ -704,6 +742,39 @@ pub(super) fn wire_layout_defect(
             return Some(ProtocolLayoutWireDefect::NegativeQueueCapacity);
         }
     }
+    if (form, operator) == (ProtocolForm::Control, "repeat") {
+        if argument(arguments, 2)
+            .and_then(members)
+            .and_then(|items| items.first())
+            .and_then(integer_value)
+            .is_some_and(|value| value < BigInt::from(0))
+        {
+            return Some(ProtocolLayoutWireDefect::NegativeBound {
+                argument: 2,
+                member: 0,
+                binding: false,
+            });
+        }
+    }
+    if (form, operator) == (ProtocolForm::Control, "await") {
+        for member in 0..2 {
+            if argument(arguments, 2)
+                .and_then(members)
+                .and_then(|items| items.get(member))
+                .and_then(|item| match item {
+                    CheckedTerm::Binding { value, .. } => integer_value(value),
+                    _ => None,
+                })
+                .is_some_and(|value| value < BigInt::from(0))
+            {
+                return Some(ProtocolLayoutWireDefect::NegativeBound {
+                    argument: 2,
+                    member,
+                    binding: true,
+                });
+            }
+        }
+    }
     None
 }
 
@@ -785,6 +856,9 @@ fn enum_value_defect(
                     })
             };
             optional(0, &["sc", "tso", "ra"]).or_else(|| optional(4, &["continue", "cancel"]))
+        }
+        (ProtocolForm::Control, "await") => {
+            invalid_enum_at(arguments, 0, Some((0, true)), &["event", "compensation"])
         }
         _ => None,
     }
@@ -1292,6 +1366,17 @@ fn check_control_prefix(
         }
         Ok::<(), ValidationFailure>(())
     };
+    let control_operator =
+        |position: usize| match check.terms.get(position).and_then(Option::as_ref) {
+            Some(CheckedTerm::Application {
+                operator: ApplicationOperator::ProtocolControl,
+                operation,
+                ..
+            }) if control(position) => operation
+                .pointer("/member/operator")
+                .and_then(Value::as_str),
+            _ => None,
+        };
     match operator {
         "sequence" => check_list(0, &control)?,
         "choice" | "parallel" => {
@@ -1409,6 +1494,65 @@ fn check_control_prefix(
                     ));
                 }
             }
+        }
+        "repeat" => {
+            check.target_at(arguments, 0, |position| {
+                check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role))
+            })?;
+            check_list(1, &|position| {
+                matches!(check.kinds[position], CheckedNodeKind::Expression(_))
+            })?;
+            check.target_at(arguments, 5, control)?;
+            if let Some(exhausted) = members(check.at(arguments, 6)).and_then(|items| items.first())
+            {
+                check.check_target(
+                    exhausted,
+                    check.argument_path(6).key("members").index(0),
+                    control,
+                )?;
+            }
+            if let Some(proof) = members(check.at(arguments, 3)).filter(|items| !items.is_empty()) {
+                check.boolean(
+                    group_value(check.at(arguments, 3), "invariant").expect("validated invariant"),
+                    check.argument_path(3).key("members").index(0).key("value"),
+                )?;
+                let _ = proof;
+            }
+            check.boolean(check.at(arguments, 4), check.argument_path(4))?;
+        }
+        "await" => {
+            let after = check.at(arguments, 0);
+            let anchor = group_value(after, "target").expect("validated anchor");
+            let kind = argument_text(after, 0).expect("validated anchor kind");
+            let anchor_path = check.argument_path(0).key("members").index(1).key("value");
+            if kind == "compensation" {
+                check.check_target(anchor, anchor_path, |position| {
+                    check.is(
+                        position,
+                        CheckedNodeKind::Protocol(ProtocolForm::Compensation),
+                    )
+                })?;
+            } else {
+                check.check_target(anchor, anchor_path, |position| {
+                    matches!(
+                        control_operator(position),
+                        Some("send" | "receive" | "attempt" | "effect" | "event" | "commit")
+                    )
+                })?;
+            }
+            let event = check.target_at(arguments, 3, control)?;
+            if !matches!(
+                control_operator(event),
+                Some("receive" | "effect" | "event")
+            ) {
+                return Err(check.refuse(
+                    Code::UnsupportedConstruct,
+                    Some(Cause::DeclarationForm),
+                    node_pointer(check.position),
+                ));
+            }
+            check.target_at(arguments, 4, control)?;
+            check.target_at(arguments, 5, control)?;
         }
         _ => {}
     }

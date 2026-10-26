@@ -302,6 +302,8 @@ fn protocol_holder_case(operator: &str) -> (Value, Vec<usize>) {
     let mut package = v2_all_families();
     let root = protocol_position(&package, "control");
     let leaf_body = package["semantic_graph"]["nodes"][root]["body"].clone();
+    let role = protocol_role_node();
+    let role_target = role["node_id"].clone();
     let names: &[&str] = if operator == "await" {
         &["Event", "Then", "Timeout"]
     } else {
@@ -309,10 +311,28 @@ fn protocol_holder_case(operator: &str) -> (Value, Vec<usize>) {
     };
     let mut positions = Vec::new();
     let mut targets = Vec::new();
-    for name in names {
+    for (ordinal, name) in names.iter().enumerate() {
         let mut path = vec!["Example", "OrderFlow", "run", "Main", "Holder"];
         path.push(name);
-        let node = protocol_named_node("control", &path, leaf_body.clone(), &[]);
+        let mut child_body = leaf_body.clone();
+        if ordinal == 0 && operator == "repeat" {
+            child_body["operation"]["member"]["operator"] = json!("fence");
+            child_body["arguments"] = json!([{"term": "binding", "name": "ordering", "value": {
+                "term": "literal", "type": node_id(&family_key("a1a1")),
+                "value_kind": "text", "value": "seq_cst"
+            }}]);
+        }
+        if ordinal == 0 && operator == "await" {
+            child_body["operation"]["member"]["operator"] = json!("event");
+            child_body["arguments"] = json!([
+                {"term": "binding", "name": "role", "value": {"term": "reference", "target": role_target}},
+                {"term": "binding", "name": "compensation", "value": {"term": "aggregate", "members": []}},
+                {"term": "binding", "name": "binder", "value": {"term": "reference", "target": role_target}},
+                {"term": "binding", "name": "related", "value": {"term": "aggregate", "members": []}},
+                {"term": "binding", "name": "constraint", "value": {"term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}}
+            ]);
+        }
+        let node = protocol_named_node("control", &path, child_body, &[]);
         targets.push(node["node_id"].clone());
         positions.push(
             package["semantic_graph"]["nodes"]
@@ -325,8 +345,6 @@ fn protocol_holder_case(operator: &str) -> (Value, Vec<usize>) {
             .expect("nodes")
             .push(node);
     }
-    let role = protocol_role_node();
-    let role_target = role["node_id"].clone();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -775,6 +793,88 @@ fn choice_parallel_repeat_and_await_hold_controls_at_their_own_paths() {
             );
         }
     }
+}
+
+/// Trace: FR-038-AC-289
+#[trace("TC-048")]
+#[test]
+fn repeat_checks_owner_body_exhausted_and_optional_pair() {
+    let (package, children) = protocol_holder_case("repeat");
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    let holder = holder_position(&package);
+
+    let mut missing_exhausted = package.clone();
+    missing_exhausted["semantic_graph"]["nodes"][holder]["body"]["arguments"][6]["value"] =
+        json!({"term": "aggregate", "members": []});
+    settle(&mut missing_exhausted);
+    assert_eq!(
+        read(&missing_exhausted),
+        refusal(
+            CheckedPackageRefusalCode::MalformedWire,
+            &format!("/semantic_graph/nodes/{holder}/body")
+        )
+    );
+
+    let mut wrong_body = package.clone();
+    wrong_body["semantic_graph"]["nodes"][holder]["body"]["arguments"][5]["value"]["target"] =
+        wrong_body["semantic_graph"]["nodes"][clause_position(&package)]["node_id"].clone();
+    settle(&mut wrong_body);
+    holder_refusal(
+        &wrong_body,
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration),
+        "/body/arguments/5/value/target",
+    );
+
+    let mut no_bound = package;
+    no_bound["semantic_graph"]["nodes"][holder]["body"]["arguments"][2]["value"]["members"] =
+        json!([]);
+    no_bound["semantic_graph"]["nodes"][holder]["body"]["arguments"][6]["value"]["members"] =
+        json!([]);
+    settle(&mut no_bound);
+    assert!(matches!(
+        read(&no_bound),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    assert_ne!(children[0], children[1]);
+}
+
+/// Trace: FR-038-AC-289
+#[trace("TC-048")]
+#[test]
+fn await_checks_anchor_form_and_event_eligibility() {
+    let (package, children) = protocol_holder_case("await");
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    let holder = holder_position(&package);
+
+    let mut wrong_anchor = package.clone();
+    wrong_anchor["semantic_graph"]["nodes"][holder]["body"]["arguments"][0]["value"]["members"]
+        [1]["value"]["target"] =
+        wrong_anchor["semantic_graph"]["nodes"][children[1]]["node_id"].clone();
+    settle(&mut wrong_anchor);
+    holder_refusal(
+        &wrong_anchor,
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration),
+        "/body/arguments/0/value/members/1/value/target",
+    );
+
+    let mut wrong_event = package;
+    wrong_event["semantic_graph"]["nodes"][holder]["body"]["arguments"][3]["value"]["target"] =
+        wrong_event["semantic_graph"]["nodes"][children[1]]["node_id"].clone();
+    settle(&mut wrong_event);
+    holder_refusal(
+        &wrong_event,
+        CheckedPackageRefusalCode::UnsupportedConstruct,
+        Some(CheckedPackageRefusalCause::DeclarationForm),
+        "",
+    );
 }
 
 #[trace("TC-048")]
