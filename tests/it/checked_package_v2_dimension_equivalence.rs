@@ -382,3 +382,13 @@ fn derived_ratio_is_fixed_by_base_roots() {
         "/semantic_graph/nodes/5/nominal_identity_preimage/root_scale",
     );
 }
+
+/// Trace: FR-063-AC-1, FR-063-AC-3
+#[trace("FR-063-AC-1", "FR-063-AC-3")]
+#[test]
+fn anchor_ordinal_follows_source_declaration_order() {
+    let mut value = pair();
+    value["semantic_graph"]["nodes"][2]["occurrences"][0]["ordinal"] = json!(1);
+    value["source_map"][2]["ordinal"] = json!(1);
+    refused(&value, "/semantic_graph/nodes/2/occurrences");
+}
