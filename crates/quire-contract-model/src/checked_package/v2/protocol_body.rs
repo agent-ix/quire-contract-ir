@@ -1511,12 +1511,11 @@ fn check_control_prefix(
                     control,
                 )?;
             }
-            if let Some(proof) = members(check.at(arguments, 3)).filter(|items| !items.is_empty()) {
+            if members(check.at(arguments, 3)).is_some_and(|items| !items.is_empty()) {
                 check.boolean(
                     group_value(check.at(arguments, 3), "invariant").expect("validated invariant"),
                     check.argument_path(3).key("members").index(0).key("value"),
                 )?;
-                let _ = proof;
             }
             check.boolean(check.at(arguments, 4), check.argument_path(4))?;
         }
