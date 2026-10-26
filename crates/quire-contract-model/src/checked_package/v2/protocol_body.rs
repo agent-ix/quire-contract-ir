@@ -2188,6 +2188,7 @@ fn check_control_prefix(
 fn check_compensation(
     check: &MemberCheck<'_>,
     arguments: &[CheckedTerm],
+    validated: &[Option<(&str, &[CheckedTerm])>],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let parameter = |position| check.is(position, CheckedNodeKind::Value(ValueForm::Parameter));
@@ -2394,6 +2395,7 @@ fn check_compensation(
             },
         ));
     }
+    validate_compensation_commit_position(check, arguments, validated, meter)?;
     Ok(())
 }
 
@@ -2403,6 +2405,7 @@ fn check_member(
     form: ProtocolForm,
     operator: &str,
     arguments: &[CheckedTerm],
+    validated: &[Option<(&str, &[CheckedTerm])>],
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -2542,7 +2545,7 @@ fn check_member(
             _ => unreachable!("validated protocol operator"),
         },
         ProtocolForm::Control => check_control_prefix(check, operator, arguments, owners, meter)?,
-        ProtocolForm::Compensation => check_compensation(check, arguments, meter)?,
+        ProtocolForm::Compensation => check_compensation(check, arguments, validated, meter)?,
         ProtocolForm::ProtocolClause | ProtocolForm::ProtocolReference => {}
     }
     Ok(())
@@ -2880,8 +2883,12 @@ fn commit_is_taken(
 ) -> Result<bool, ValidationFailure> {
     let mut taken = BTreeMap::new();
     let mut pending = vec![(root, false)];
+    let mut seen = BTreeSet::new();
     while let Some((position, expanded)) = pending.pop() {
         meter.charge(1, || node_pointer(position))?;
+        if !expanded && !seen.insert(position) {
+            continue;
+        }
         let Some((operator, arguments)) = validated[position] else {
             continue;
         };
@@ -2925,17 +2932,29 @@ fn commit_is_taken(
 }
 
 #[string_edge]
-fn validate_compensation_commit_positions(
-    nodes: &[RawSemanticNodeV2],
-    kinds: &[CheckedNodeKind],
+fn validate_compensation_commit_position(
+    check: &MemberCheck<'_>,
+    arguments: &[CheckedTerm],
     validated: &[Option<(&str, &[CheckedTerm])>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
-    profile: &CheckedArtifactRef,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
+    let Some(effect) = argument(arguments, 0)
+        .and_then(reference_target)
+        .and_then(|target| check.index.get(target).copied())
+    else {
+        return Ok(());
+    };
+    let Some(commit) = argument(arguments, 11)
+        .and_then(members)
+        .and_then(|items| items.first())
+        .and_then(reference_target)
+        .and_then(|target| check.index.get(target).copied())
+    else {
+        return Ok(());
+    };
     let mut parents = BTreeMap::new();
-    for &position in index.values() {
-        if kinds[position] != CheckedNodeKind::Protocol(ProtocolForm::Control) {
+    for &position in check.index.values() {
+        if check.kinds[position] != CheckedNodeKind::Protocol(ProtocolForm::Control) {
             continue;
         }
         meter.charge(1, || node_pointer(position))?;
@@ -2944,72 +2963,53 @@ fn validate_compensation_commit_positions(
         };
         for target in control_children(operator, arguments) {
             meter.charge(1, || node_pointer(position))?;
-            if let Some(&child) = index.get(target) {
+            if let Some(&child) = check.index.get(target) {
                 parents.insert(child, position);
             }
         }
     }
-    for &position in index.values() {
-        if kinds[position] != CheckedNodeKind::Protocol(ProtocolForm::Compensation) {
-            continue;
+    let mut child = effect;
+    let mut seen = BTreeSet::new();
+    while let Some(&parent) = parents.get(&child) {
+        if !seen.insert(parent) {
+            break;
         }
-        meter.charge(1, || node_pointer(position))?;
-        let Some((_, arguments)) = validated[position] else {
+        meter.charge(1, || node_pointer(parent))?;
+        let Some(("sequence", parent_arguments)) = validated[parent] else {
+            child = parent;
             continue;
         };
-        let Some(effect) = argument(arguments, 0)
-            .and_then(reference_target)
-            .and_then(|target| index.get(target).copied())
-        else {
-            continue;
-        };
-        let Some(commit) = argument(arguments, 11)
-            .and_then(members)
-            .and_then(|items| items.first())
-            .and_then(reference_target)
-            .and_then(|target| index.get(target).copied())
-        else {
-            continue;
-        };
-        let mut child = effect;
-        while let Some(&parent) = parents.get(&child) {
-            meter.charge(1, || node_pointer(parent))?;
-            let Some(("sequence", parent_arguments)) = validated[parent] else {
-                child = parent;
+        for target in binding_value(parent_arguments, "children")
+            .into_iter()
+            .flat_map(listed_targets)
+        {
+            let Some(&earlier) = check.index.get(target) else {
                 continue;
             };
-            for target in binding_value(parent_arguments, "children")
-                .into_iter()
-                .flat_map(listed_targets)
-            {
-                let Some(&earlier) = index.get(target) else {
-                    continue;
-                };
-                if earlier == child {
-                    break;
-                }
-                if commit_is_taken(earlier, commit, validated, index, meter)? {
-                    let mut failure = ValidationFailure::refused_at(
-                        Code::UnsupportedConstruct,
-                        node_pointer(commit),
-                        Some(Cause::DeclarationForm),
-                        nodes[commit].node_id.clone(),
-                    );
-                    if let ValidationFailure::Refused(ref mut refusal) = failure {
-                        refusal.protocol_detail =
-                            Some(Box::new(CheckedProtocolRefusalDetail::CommitPosition {
-                                profile: profile.clone(),
-                                member: "commit".into(),
-                                commit: nodes[commit].node_id.clone(),
-                                effect: nodes[effect].node_id.clone(),
-                                reason: "commit-precedes-effect".into(),
-                            }));
-                    }
-                    return Err(failure);
-                }
+            if earlier == child {
+                break;
             }
-            child = parent;
+            if commit_is_taken(earlier, commit, validated, check.index, meter)? {
+                let mut failure = ValidationFailure::refused_at(
+                    Code::UnsupportedConstruct,
+                    node_pointer(commit),
+                    Some(Cause::DeclarationForm),
+                    check.nodes[commit].node_id.clone(),
+                );
+                if let ValidationFailure::Refused(ref mut refusal) = failure {
+                    refusal.protocol_detail =
+                        Some(Box::new(CheckedProtocolRefusalDetail::CommitPosition {
+                            profile: check.profile.clone(),
+                            member: "commit".into(),
+                            commit: check.nodes[commit].node_id.clone(),
+                            effect: check.nodes[effect].node_id.clone(),
+                            reason: "commit-precedes-effect".into(),
+                        }));
+                }
+                return Err(failure);
+            }
         }
+        child = parent;
     }
     Ok(())
 }
@@ -3121,18 +3121,10 @@ pub(super) fn validate_protocol_nodes(
                 index,
                 profile: selected_profile.expect("validated protocol profile law"),
             };
-            check_member(&check, form, operator, arguments, owners, meter)?;
+            check_member(&check, form, operator, arguments, &validated, owners, meter)?;
         }
     }
     validate_protocol_membership(nodes, kinds, &validated, index, meter)?;
-    validate_compensation_commit_positions(
-        nodes,
-        kinds,
-        &validated,
-        index,
-        selected_profile.expect("validated protocol profile law"),
-        meter,
-    )?;
     for &position in index.values() {
         if kinds.get(position) != Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
             continue;

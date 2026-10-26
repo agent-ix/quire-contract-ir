@@ -2711,6 +2711,110 @@ fn compensation_commit_in_one_choice_or_non_all_branch_does_not_dominate() {
             if reason.as_ref() == "commit-precedes-effect"));
 }
 
+/// Trace: FR-038-AC-284, FR-038-AC-289
+#[trace("TC-048")]
+#[test]
+fn compensation_commit_in_every_branch_refuses_before_repeated_membership() {
+    for (operator, policy) in [("choice", ""), ("parallel", "any")] {
+        let (mut package, _) = compensation_with_branch_before_effect(operator, policy);
+        let holder = holder_position(&package);
+        let branches = if operator == "choice" { 2 } else { 1 };
+        let body = if operator == "choice" { 2 } else { 1 };
+        let commit = package["semantic_graph"]["nodes"][holder]["body"]["arguments"][branches]
+            ["value"]["members"][0]["members"][body]["value"]
+            .clone();
+        package["semantic_graph"]["nodes"][holder]["body"]["arguments"][branches]["value"]
+            ["members"][1]["members"][body]["value"] = commit;
+        settle(&mut package);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+            panic!("{operator} with commit in every branch must refuse");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::UnsupportedConstruct,
+            "{operator}"
+        );
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::DeclarationForm)
+        );
+    }
+}
+
+/// Trace: FR-038-AC-289
+#[trace("TC-048")]
+#[test]
+fn compensation_commit_in_repeat_body_does_not_dominate() {
+    let (mut package, _) = compensation_with_branch_before_effect("parallel", "all");
+    let holder = holder_position(&package);
+    let role =
+        package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
+    let branches =
+        &package["semantic_graph"]["nodes"][holder]["body"]["arguments"][1]["value"]["members"];
+    let commit = branches[0]["members"][1]["value"].clone();
+    let event = branches[1]["members"][1]["value"].clone();
+    let body = &mut package["semantic_graph"]["nodes"][holder]["body"];
+    body["operation"]["member"]["operator"] = json!("repeat");
+    body["arguments"] = json!([
+        {"term": "binding", "name": "owner", "value": {"term": "reference", "target": role}},
+        {"term": "binding", "name": "visible", "value": {"term": "aggregate", "members": []}},
+        {"term": "binding", "name": "maximum", "value": {"term": "aggregate", "members": [
+            {"term": "literal", "type": node_id(&family_key("a3a3")), "value_kind": "integer", "value": "1"}
+        ]}},
+        {"term": "binding", "name": "proof", "value": {"term": "aggregate", "members": []}},
+        {"term": "binding", "name": "guard", "value": {"term": "literal", "type": node_id(&family_key("aaaa")),
+            "value_kind": "boolean", "value": true}},
+        {"term": "binding", "name": "body", "value": commit},
+        {"term": "binding", "name": "exhausted", "value": {"term": "aggregate", "members": [event]}}
+    ]);
+    settle(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "{:?}",
+        read(&package)
+    );
+}
+
+/// Trace: FR-038-AC-284, FR-038-AC-289
+#[trace("TC-048")]
+#[test]
+fn compensation_dominance_precedes_unattached_control_membership() {
+    let (mut package, _, root) = package_with_present_commit();
+    let children = package["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]
+        ["members"]
+        .as_array_mut()
+        .expect("sequence children");
+    let commit = children.pop().expect("commit child");
+    children.insert(1, commit.clone());
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    let mut orphan_body = nodes
+        .iter()
+        .find(|node| node["node_id"] == commit["target"])
+        .expect("commit node")["body"]
+        .clone();
+    orphan_body["arguments"][2]["value"]["value"] = json!(false);
+    nodes.push(protocol_named_node(
+        "control",
+        &["Example", "OrderFlow", "run", "Main", "Orphan"],
+        orphan_body,
+        &[],
+    ));
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("dominance must precede unattached membership");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::UnsupportedConstruct
+    );
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::DeclarationForm)
+    );
+}
+
 /// Trace: FR-038-AC-289
 #[trace("TC-048")]
 #[test]
