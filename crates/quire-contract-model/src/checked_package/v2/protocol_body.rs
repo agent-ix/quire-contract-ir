@@ -4771,7 +4771,12 @@ pub(super) fn validate_protocol_nodes(
             continue;
         }
         let node = &nodes[position];
-        let owner_model = node.owner_model.as_ref().expect("closed clause owner wire");
+        let Some(owner_model) = node.owner_model.as_ref() else {
+            return Err(ValidationFailure::refused(
+                Code::MalformedWire,
+                node_pointer(position),
+            ));
+        };
         let owner_at = node_pointer(position).key("owner_model");
         let owner_position = index.get(owner_model).copied().ok_or_else(|| {
             ValidationFailure::refused_at(

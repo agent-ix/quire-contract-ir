@@ -1383,7 +1383,10 @@ fn protocol_owner_dependency_precedes_key_and_target_meaning() {
         let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
             panic!("duplicate or out-of-order owner dependency must refuse");
         };
-        assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidSemanticGraph);
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph
+        );
         assert_eq!(
             refusal.path.as_ref().map(|p| p.as_str()),
             Some(format!("/semantic_graph/nodes/{position}/dependencies").as_str())
