@@ -445,6 +445,204 @@ fn protocol_holder_case(operator: &str) -> (Value, Vec<usize>) {
     (package, positions)
 }
 
+fn holder_position(package: &Value) -> usize {
+    package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["declaration"]["qualified_name"]
+                == json!(["Example", "OrderFlow", "run", "Main", "Holder"])
+        })
+        .expect("holder")
+}
+
+fn holder_refusal(
+    package: &Value,
+    code: CheckedPackageRefusalCode,
+    cause: Option<CheckedPackageRefusalCause>,
+    path: &str,
+) {
+    let position = holder_position(package);
+    let key = package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
+        .as_str()
+        .expect("digest");
+    assert_eq!(
+        read(package),
+        refusal_at(
+            code,
+            &format!("/semantic_graph/nodes/{position}{path}"),
+            cause,
+            key
+        )
+    );
+}
+
+/// Trace: FR-038-AC-284, FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn choice_labels_precede_guard_type_and_parallel_join_is_checked() {
+    let (mut package, _) = protocol_holder_case("choice");
+    let holder = holder_position(&package);
+    let cases =
+        &mut package["semantic_graph"]["nodes"][holder]["body"]["arguments"][2]["value"]["members"];
+    cases[1]["members"][0]["value"]["value"] = json!("Left");
+    cases[0]["members"][1]["value"]["value_kind"] = json!("text");
+    cases[0]["members"][1]["value"]["value"] = json!("false");
+    settle(&mut package);
+    holder_refusal(
+        &package,
+        CheckedPackageRefusalCode::AmbiguousDeclaration,
+        Some(CheckedPackageRefusalCause::AmbiguousName),
+        "",
+    );
+
+    let (mut package, _) = protocol_holder_case("parallel");
+    let holder = holder_position(&package);
+    package["semantic_graph"]["nodes"][holder]["body"]["arguments"][3]["value"]["members"]
+        .as_array_mut()
+        .expect("joined")
+        .pop();
+    settle(&mut package);
+    holder_refusal(
+        &package,
+        CheckedPackageRefusalCode::InvalidPackage,
+        Some(CheckedPackageRefusalCause::InvalidValue),
+        "/body/arguments/3/value",
+    );
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn control_choice_guard_and_parallel_join_labels_refuse_at_the_member() {
+    let (mut package, _) = protocol_holder_case("choice");
+    let holder = holder_position(&package);
+    let guard = &mut package["semantic_graph"]["nodes"][holder]["body"]["arguments"][2]["value"]
+        ["members"][0]["members"][1]["value"];
+    guard["value_kind"] = json!("text");
+    guard["value"] = json!("false");
+    settle(&mut package);
+    holder_refusal(
+        &package,
+        CheckedPackageRefusalCode::IllTyped,
+        Some(CheckedPackageRefusalCause::NonBooleanRoot),
+        "/body/arguments/2/value/members/0/members/1/value",
+    );
+
+    let (mut package, _) = protocol_holder_case("parallel");
+    let holder = holder_position(&package);
+    package["semantic_graph"]["nodes"][holder]["body"]["arguments"][3]["value"]["members"][1]
+        ["value"] = json!("Absent");
+    settle(&mut package);
+    holder_refusal(
+        &package,
+        CheckedPackageRefusalCode::MissingDeclaration,
+        Some(CheckedPackageRefusalCause::MissingName),
+        "/body/arguments/3/value/members/1",
+    );
+}
+
+/// Trace: FR-038-AC-284, FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn sequence_admits_ordered_controls_and_refuses_role_child() {
+    let (mut package, children) = protocol_holder_case("parallel");
+    let holder = holder_position(&package);
+    let targets: Vec<Value> = children
+        .iter()
+        .map(|&position| package["semantic_graph"]["nodes"][position]["node_id"].clone())
+        .collect();
+    package["semantic_graph"]["nodes"][holder]["body"]["operation"]["member"]["operator"] =
+        json!("sequence");
+    package["semantic_graph"]["nodes"][holder]["body"]["arguments"] = json!([{
+        "term": "binding", "name": "children", "value": {
+            "term": "aggregate", "members": targets.iter().map(|target| json!({"term": "reference", "target": target})).collect::<Vec<_>>()
+        }
+    }]);
+    settle(&mut package);
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    let mut empty = package.clone();
+    let holder = holder_position(&empty);
+    empty["semantic_graph"]["nodes"][holder]["body"]["arguments"][0]["value"]["members"] =
+        json!([]);
+    settle(&mut empty);
+    assert!(matches!(
+        read(&empty),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    let role = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "role")
+        .expect("role")["node_id"]
+        .clone();
+    let holder = holder_position(&package);
+    package["semantic_graph"]["nodes"][holder]["body"]["arguments"][0]["value"]["members"][0]
+        ["target"] = role;
+    settle(&mut package);
+    holder_refusal(
+        &package,
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration),
+        "/body/arguments/0/value/members/0/target",
+    );
+}
+
+/// Trace: FR-038-AC-282, FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn choice_case_order_and_parallel_quorum_bounds_refuse() {
+    let (mut package, _) = protocol_holder_case("choice");
+    let holder = holder_position(&package);
+    package["semantic_graph"]["nodes"][holder]["body"]["arguments"][2]["value"]["members"]
+        .as_array_mut()
+        .expect("cases")
+        .pop();
+    assert_eq!(
+        read(&package),
+        refusal(
+            CheckedPackageRefusalCode::MalformedWire,
+            &format!("/semantic_graph/nodes/{holder}/body")
+        )
+    );
+
+    let (mut package, _) = protocol_holder_case("choice");
+    let holder = holder_position(&package);
+    package["semantic_graph"]["nodes"][holder]["body"]["arguments"][2]["value"]["members"]
+        .as_array_mut()
+        .expect("cases")
+        .reverse();
+    settle(&mut package);
+    holder_refusal(
+        &package,
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        None,
+        "",
+    );
+
+    let (mut package, _) = protocol_holder_case("parallel");
+    let holder = holder_position(&package);
+    let integer_type = node_id(&family_key("a3a3"));
+    package["semantic_graph"]["nodes"][holder]["body"]["arguments"][2]["value"]["members"] = json!([
+        {"term": "binding", "name": "policy", "value": {"term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "quorum"}},
+        {"term": "binding", "name": "count", "value": {"term": "literal", "type": integer_type, "value_kind": "integer", "value": "3"}}
+    ]);
+    settle(&mut package);
+    holder_refusal(
+        &package,
+        CheckedPackageRefusalCode::InvalidPackage,
+        Some(CheckedPackageRefusalCause::InvalidValue),
+        "/body/arguments/2/value/members/1/value",
+    );
+}
+
 #[trace("TC-048")]
 #[test]
 fn choice_parallel_repeat_and_await_hold_controls_at_their_own_paths() {

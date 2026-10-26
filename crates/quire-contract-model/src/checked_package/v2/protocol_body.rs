@@ -414,6 +414,49 @@ fn group_fields_fit(term: &CheckedTerm, fields: &[(&str, Shape)]) -> bool {
 
 fn local_details_fit(form: ProtocolForm, operator: &str, arguments: &[CheckedTerm]) -> bool {
     match (form, operator) {
+        (ProtocolForm::Control, "choice") => {
+            argument(arguments, 2)
+                .and_then(members)
+                .is_some_and(|cases| {
+                    cases.len() >= 2
+                        && cases.iter().all(|case| {
+                            group_fields_fit(
+                                case,
+                                &[
+                                    ("label", Shape::Text),
+                                    ("guard", Shape::BooleanCandidate),
+                                    ("body", Shape::Reference),
+                                ],
+                            )
+                        })
+                })
+        }
+        (ProtocolForm::Control, "parallel") => {
+            let branches_fit = argument(arguments, 1)
+                .and_then(members)
+                .is_some_and(|branches| {
+                    branches.len() >= 2
+                        && branches.iter().all(|branch| {
+                            group_fields_fit(
+                                branch,
+                                &[("label", Shape::Text), ("body", Shape::Reference)],
+                            )
+                        })
+                });
+            let join = argument(arguments, 2);
+            let join_fit = join.is_some_and(|join| match argument_text(join, 0) {
+                Some("all" | "any") => group_fields_fit(join, &[("policy", Shape::Text)]),
+                Some("quorum") => {
+                    group_fields_fit(join, &[("policy", Shape::Text), ("count", Shape::Integer)])
+                }
+                Some("predicate") => group_fields_fit(
+                    join,
+                    &[("policy", Shape::Text), ("predicate", Shape::Reference)],
+                ),
+                _ => false,
+            });
+            branches_fit && join_fit
+        }
         (ProtocolForm::ProtocolClause, "protocol") => clause_details_fit(arguments),
         (ProtocolForm::Role, "role") => {
             let Some(replication) = argument(arguments, 1) else {
@@ -577,6 +620,7 @@ fn validate_envelope<'a>(
     Ok((operator, arguments))
 }
 
+#[string_edge]
 fn validate_layout(
     form: ProtocolForm,
     operator: &str,
@@ -601,6 +645,9 @@ fn validate_layout(
         && (3..=8).any(|position| {
             argument(arguments, position).is_none_or(|set| !reference_set_is_ordered(set))
         })
+        || form == ProtocolForm::Control
+            && operator == "choice"
+            && argument(arguments, 1).is_none_or(|set| !reference_set_is_ordered(set))
     {
         return Err(D::NoncanonicalSet);
     }
@@ -724,6 +771,20 @@ fn enum_value_defect(
         }
         (ProtocolForm::Obligation, "terminal") => {
             invalid_enum_at(arguments, 0, None, &["any", "when"])
+        }
+        (ProtocolForm::Control, "parallel") => {
+            let optional = |ordinal, allowed: &[&str]| {
+                argument(arguments, ordinal)
+                    .and_then(members)
+                    .and_then(|values| values.first())
+                    .and_then(text_value)
+                    .filter(|value| !allowed.contains(value))
+                    .map(|_| ProtocolLayoutWireDefect::EnumValue {
+                        argument: ordinal,
+                        member: Some((0, false)),
+                    })
+            };
+            optional(0, &["sc", "tso", "ra"]).or_else(|| optional(4, &["continue", "cancel"]))
         }
         _ => None,
     }
@@ -1211,6 +1272,150 @@ fn check_member_dependencies(
 }
 
 #[string_edge]
+fn check_control_prefix(
+    check: &MemberCheck<'_>,
+    operator: &str,
+    arguments: &[CheckedTerm],
+) -> Result<(), ValidationFailure> {
+    let control = |position| check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Control));
+    let check_list = |ordinal, expected: &dyn Fn(usize) -> bool| {
+        for (position, target) in members(check.at(arguments, ordinal))
+            .expect("validated list")
+            .iter()
+            .enumerate()
+        {
+            check.check_target(
+                target,
+                check.argument_path(ordinal).key("members").index(position),
+                expected,
+            )?;
+        }
+        Ok::<(), ValidationFailure>(())
+    };
+    match operator {
+        "sequence" => check_list(0, &control)?,
+        "choice" | "parallel" => {
+            let (records_ordinal, body_ordinal) = if operator == "choice" {
+                check.target_at(arguments, 0, |position| {
+                    check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role))
+                })?;
+                check_list(1, &|position| {
+                    matches!(check.kinds[position], CheckedNodeKind::Expression(_))
+                })?;
+                (2, 2)
+            } else {
+                (1, 1)
+            };
+            let records = members(check.at(arguments, records_ordinal)).expect("validated records");
+            for (position, record) in records.iter().enumerate() {
+                let fields = members(record).expect("validated record");
+                let path = check
+                    .argument_path(records_ordinal)
+                    .key("members")
+                    .index(position);
+                check.check_target(
+                    argument(fields, body_ordinal).expect("validated body"),
+                    path.clone().key("members").index(body_ordinal).key("value"),
+                    control,
+                )?;
+            }
+            if operator == "parallel" {
+                let join = check.at(arguments, 2);
+                if argument_text(join, 0) == Some("predicate") {
+                    check.check_target(
+                        group_value(join, "predicate").expect("validated predicate"),
+                        check.argument_path(2).key("members").index(1).key("value"),
+                        |position| matches!(check.kinds[position], CheckedNodeKind::Function(_)),
+                    )?;
+                }
+            }
+            let mut previous: Option<&str> = None;
+            let mut labels = BTreeSet::new();
+            for record in records {
+                let label = argument_text(record, 0).expect("validated label");
+                if !labels.insert(label) {
+                    return Err(check.refuse(
+                        Code::AmbiguousDeclaration,
+                        Some(Cause::AmbiguousName),
+                        node_pointer(check.position),
+                    ));
+                }
+                if previous.is_some_and(|prior| prior.as_bytes() > label.as_bytes()) {
+                    return Err(check.refuse(
+                        Code::InvalidSemanticGraph,
+                        None,
+                        node_pointer(check.position),
+                    ));
+                }
+                previous = Some(label);
+            }
+            if operator == "choice" {
+                for (position, record) in records.iter().enumerate() {
+                    check.boolean(
+                        group_value(record, "guard").expect("validated guard"),
+                        check
+                            .argument_path(2)
+                            .key("members")
+                            .index(position)
+                            .key("members")
+                            .index(1)
+                            .key("value"),
+                    )?;
+                }
+            }
+            if operator == "parallel" {
+                let join = check.at(arguments, 2);
+                let joined = members(check.at(arguments, 3)).expect("validated joined");
+                let mut prior: Option<&str> = None;
+                for (position, item) in joined.iter().enumerate() {
+                    let label = text_value(item).expect("validated joined label");
+                    if !labels.contains(label) {
+                        return Err(check.refuse(
+                            Code::MissingDeclaration,
+                            Some(Cause::MissingName),
+                            check.argument_path(3).key("members").index(position),
+                        ));
+                    }
+                    if prior.is_some_and(|previous| previous.as_bytes() >= label.as_bytes()) {
+                        return Err(check.refuse(
+                            Code::InvalidSemanticGraph,
+                            None,
+                            node_pointer(check.position),
+                        ));
+                    }
+                    prior = Some(label);
+                }
+                let policy = argument_text(join, 0).expect("validated policy");
+                let invalid = match policy {
+                    "all" => joined.len() != labels.len(),
+                    "any" | "predicate" => joined.is_empty(),
+                    "quorum" => group_value(join, "count")
+                        .and_then(integer_value)
+                        .is_none_or(|count| {
+                            count < BigInt::from(1) || count > BigInt::from(joined.len())
+                        }),
+                    _ => unreachable!("validated join policy"),
+                };
+                if invalid {
+                    let path = if policy == "quorum" {
+                        check.argument_path(2).key("members").index(1).key("value")
+                    } else {
+                        check.argument_path(3)
+                    };
+                    return Err(check.refuse(
+                        Code::InvalidPackage,
+                        Some(Cause::InvalidValue),
+                        path,
+                    ));
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+#[string_edge]
 fn check_member(
     check: &MemberCheck<'_>,
     form: ProtocolForm,
@@ -1359,7 +1564,8 @@ fn check_member(
             }
             _ => unreachable!("validated protocol operator"),
         },
-        ProtocolForm::Control | ProtocolForm::Compensation => {}
+        ProtocolForm::Control => check_control_prefix(check, operator, arguments)?,
+        ProtocolForm::Compensation => {}
         ProtocolForm::ProtocolClause | ProtocolForm::ProtocolReference => {}
     }
     Ok(())
@@ -1652,6 +1858,7 @@ pub(super) fn validate_protocol_nodes(
                     | ProtocolForm::Channel
                     | ProtocolForm::Queue
                     | ProtocolForm::Obligation
+                    | ProtocolForm::Control
             ) {
                 let check = MemberCheck {
                     position,
