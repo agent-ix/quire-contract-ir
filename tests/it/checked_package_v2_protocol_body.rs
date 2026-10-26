@@ -1001,37 +1001,32 @@ fn await_inverted_interval_refuses_with_written_bounds() {
 /// Trace: FR-038-AC-288
 #[trace("TC-048")]
 #[test]
-fn await_admits_receive_and_effect_event_forms() {
-    for operator in ["receive", "effect"] {
-        let (mut package, children) = protocol_holder_case("await");
-        let role = package["semantic_graph"]["nodes"][protocol_position(&package, "role")]
-            ["node_id"]
-            .clone();
-        let reference = || json!({"term": "reference", "target": role});
-        let binding =
-            |name: &str, value: Value| json!({"term": "binding", "name": name, "value": value});
-        let mut arguments = Vec::new();
-        if operator == "receive" {
-            arguments.push(binding("channel", reference()));
-        }
-        arguments.push(binding("of", reference()));
-        arguments.push(binding("binder", reference()));
-        arguments.push(binding(
-            "related",
-            json!({"term": "aggregate", "members": []}),
-        ));
-        arguments.push(binding("constraint", json!({
-            "term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true
-        })));
-        package["semantic_graph"]["nodes"][children[0]]["body"]["operation"]["member"]
-            ["operator"] = json!(operator);
-        package["semantic_graph"]["nodes"][children[0]]["body"]["arguments"] = json!(arguments);
-        settle(&mut package);
-        assert!(
-            matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
-            "awaited {operator} must admit"
-        );
-    }
+fn await_admits_effect_event_form() {
+    let (mut package, children) = protocol_holder_case("await");
+    let role =
+        package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
+    let reference = || json!({"term": "reference", "target": role});
+    let binding =
+        |name: &str, value: Value| json!({"term": "binding", "name": name, "value": value});
+    let arguments = json!([
+        binding("of", reference()),
+        binding("binder", reference()),
+        binding("related", json!({"term": "aggregate", "members": []})),
+        binding(
+            "constraint",
+            json!({
+                "term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true
+            })
+        )
+    ]);
+    package["semantic_graph"]["nodes"][children[0]]["body"]["operation"]["member"]["operator"] =
+        json!("effect");
+    package["semantic_graph"]["nodes"][children[0]]["body"]["arguments"] = arguments;
+    settle(&mut package);
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
 }
 
 /// Trace: FR-038-AC-288
@@ -1425,6 +1420,11 @@ fn package_with_replicated_role() -> (Value, usize) {
 
 fn package_with_member_channel() -> (Value, usize, usize) {
     let (mut package, role) = package_with_member_role();
+    let position = add_member_channel(&mut package, role);
+    (package, role, position)
+}
+
+fn add_member_channel(package: &mut Value, role: usize) -> usize {
     let role_key = package["semantic_graph"]["nodes"][role]["node_id"].clone();
     let boolean = node_id(&family_key("aaaa"));
     let text = |value: &str| {
@@ -1437,7 +1437,7 @@ fn package_with_member_channel() -> (Value, usize, usize) {
         |name: &str, value: Value| json!({"term": "binding", "name": name, "value": value});
     let reference = |target: &Value| json!({"term": "reference", "target": target});
     let mut body =
-        package["semantic_graph"]["nodes"][protocol_position(&package, "control")]["body"].clone();
+        package["semantic_graph"]["nodes"][protocol_position(package, "control")]["body"].clone();
     body["operation"]["member"]["operator"] = json!("channel");
     body["arguments"] = json!([
         binding("from", reference(&role_key)),
@@ -1467,11 +1467,11 @@ fn package_with_member_channel() -> (Value, usize, usize) {
         .as_array_mut()
         .expect("nodes")
         .push(channel);
-    let clause = clause_position(&package);
+    let clause = clause_position(package);
     package["semantic_graph"]["nodes"][clause]["body"]["arguments"][5]["value"]["members"] =
         json!([reference(&channel_key)]);
-    settle(&mut package);
-    (package, role, position)
+    settle(package);
+    position
 }
 
 fn package_with_member_queue() -> (Value, usize) {
@@ -1523,6 +1523,597 @@ fn package_with_member_queue() -> (Value, usize) {
         json!([{"term": "reference", "target": queue_key}]);
     settle(&mut package);
     (package, position)
+}
+
+fn package_with_send() -> (Value, usize, usize) {
+    let (mut package, _) = package_with_member_queue();
+    let channel = protocol_position(&package, "channel");
+    let root = protocol_position(&package, "control");
+    let binder = package["semantic_graph"]["nodes"][protocol_position(&package, "obligation")]
+        ["body"]["arguments"][0]["value"]["target"]
+        .clone();
+    let channel_key = package["semantic_graph"]["nodes"][channel]["node_id"].clone();
+    let body = &mut package["semantic_graph"]["nodes"][root]["body"];
+    body["operation"]["member"]["operator"] = json!("send");
+    body["arguments"] = json!([
+        {"term": "binding", "name": "channel", "value": {"term": "reference", "target": channel_key}},
+        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": binder}},
+        {"term": "binding", "name": "related", "value": {"term": "aggregate", "members": []}},
+        {"term": "binding", "name": "constraint", "value": {
+            "term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true
+        }}
+    ]);
+    settle(&mut package);
+    (package, root, channel)
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn check_condition_refuses_non_boolean_at_its_slot_and_fence_rejects_relaxed() {
+    let mut package = v2_all_families();
+    let root = protocol_position(&package, "control");
+    let body = &mut package["semantic_graph"]["nodes"][root]["body"];
+    body["operation"]["member"]["operator"] = json!("check");
+    body["arguments"] = json!([{"term": "binding", "name": "condition", "value": {
+        "term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true
+    }}]);
+    settle(&mut package);
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"] = json!({
+        "term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "yes"
+    });
+    settle(&mut package);
+    let key = package["semantic_graph"]["nodes"][root]["node_id"]["digest"]
+        .as_str()
+        .expect("check key");
+    assert_eq!(
+        read(&package),
+        refusal_at(
+            CheckedPackageRefusalCode::IllTyped,
+            &format!("/semantic_graph/nodes/{root}/body/arguments/0/value"),
+            Some(CheckedPackageRefusalCause::NonBooleanRoot),
+            key,
+        )
+    );
+
+    let body = &mut package["semantic_graph"]["nodes"][root]["body"];
+    body["operation"]["member"]["operator"] = json!("fence");
+    body["arguments"] = json!([{"term": "binding", "name": "ordering", "value": {
+        "term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "seq_cst"
+    }}]);
+    settle(&mut package);
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]["value"] =
+        json!("relaxed");
+    assert_eq!(
+        read(&package),
+        refusal(
+            CheckedPackageRefusalCode::MalformedWire,
+            &format!("/semantic_graph/nodes/{root}/body/arguments/0/value"),
+        )
+    );
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn send_admits_channel_payload_and_checks_binder_type_and_condition() {
+    let (package, root, channel) = package_with_send();
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    let mut wrong_channel = package.clone();
+    wrong_channel["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]["target"] =
+        wrong_channel["semantic_graph"]["nodes"][protocol_position(&wrong_channel, "role")]
+            ["node_id"]
+            .clone();
+    settle(&mut wrong_channel);
+    let key = wrong_channel["semantic_graph"]["nodes"][root]["node_id"]["digest"]
+        .as_str()
+        .expect("send key");
+    assert_eq!(
+        read(&wrong_channel),
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            &format!("/semantic_graph/nodes/{root}/body/arguments/0/value/target"),
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            key,
+        )
+    );
+
+    let mut wrong_type = package.clone();
+    wrong_type["semantic_graph"]["nodes"][channel]["body"]["arguments"][2]["value"]["target"] =
+        node_id(&family_key("a1a1"));
+    settle(&mut wrong_type);
+    let key = wrong_type["semantic_graph"]["nodes"][root]["node_id"]["digest"]
+        .as_str()
+        .expect("send key");
+    assert_eq!(
+        read(&wrong_type),
+        refusal_at(
+            CheckedPackageRefusalCode::IllTyped,
+            &format!("/semantic_graph/nodes/{root}"),
+            Some(CheckedPackageRefusalCause::TypeMismatch),
+            key,
+        )
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_type) else {
+        panic!("wrong payload type must refuse");
+    };
+    assert_eq!(
+        refusal.protocol_detail.as_deref(),
+        Some(&CheckedProtocolRefusalDetail::PayloadType {
+            expected: serde_json::from_value(node_id(&family_key("a1a1"))).expect("text ID"),
+            actual: serde_json::from_value(node_id(&family_key("aaaa"))).expect("boolean ID"),
+        })
+    );
+
+    let mut non_boolean = package;
+    non_boolean["semantic_graph"]["nodes"][root]["body"]["arguments"][3]["value"] = json!({
+        "term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "yes"
+    });
+    settle(&mut non_boolean);
+    let key = non_boolean["semantic_graph"]["nodes"][root]["node_id"]["digest"]
+        .as_str()
+        .expect("send key");
+    assert_eq!(
+        read(&non_boolean),
+        refusal_at(
+            CheckedPackageRefusalCode::IllTyped,
+            &format!("/semantic_graph/nodes/{root}/body/arguments/3/value"),
+            Some(CheckedPackageRefusalCause::NonBooleanRoot),
+            key,
+        )
+    );
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn receive_requires_a_send_target_before_payload_type_checks() {
+    let (mut package, root, _) = package_with_send();
+    let role =
+        package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
+    let body = &mut package["semantic_graph"]["nodes"][root]["body"];
+    body["operation"]["member"]["operator"] = json!("receive");
+    let arguments = body["arguments"].as_array_mut().expect("send arguments");
+    arguments.insert(
+        1,
+        json!({
+            "term": "binding", "name": "of", "value": {"term": "reference", "target": role}
+        }),
+    );
+    settle(&mut package);
+    let key = package["semantic_graph"]["nodes"][root]["node_id"]["digest"]
+        .as_str()
+        .expect("receive key");
+    assert_eq!(
+        read(&package),
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            &format!("/semantic_graph/nodes/{root}/body/arguments/1/value/target"),
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            key,
+        )
+    );
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn receive_accepts_its_send_channel_and_refuses_another_channel() {
+    let (mut package, root, channel) = package_with_send();
+    let send_body = package["semantic_graph"]["nodes"][root]["body"].clone();
+    let send = protocol_named_node(
+        "control",
+        &["Example", "OrderFlow", "run", "Main", "Send"],
+        send_body.clone(),
+        &[],
+    );
+    let send_key = send["node_id"].clone();
+    let send_position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(send);
+
+    let mut receive_body = send_body;
+    receive_body["operation"]["member"]["operator"] = json!("receive");
+    receive_body["arguments"]
+        .as_array_mut()
+        .expect("arguments")
+        .insert(
+            1,
+            json!({
+                "term": "binding", "name": "of", "value": {"term": "reference", "target": send_key}
+            }),
+        );
+    let receive = protocol_named_node(
+        "control",
+        &["Example", "OrderFlow", "run", "Main", "Receive"],
+        receive_body,
+        &[],
+    );
+    let receive_position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    let receive_key = receive["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(receive);
+
+    let root_body = &mut package["semantic_graph"]["nodes"][root]["body"];
+    root_body["operation"]["member"]["operator"] = json!("sequence");
+    root_body["arguments"] = json!([{"term": "binding", "name": "children", "value": {
+        "term": "aggregate", "members": [
+            {"term": "reference", "target": send_key},
+            {"term": "reference", "target": receive_key}
+        ]
+    }}]);
+    settle(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "send and receive on one channel must admit locally: {:?}",
+        read(&package)
+    );
+
+    let mut wrong_binder = package.clone();
+    let mut text_binder = wrong_binder["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "value" && node["semantic_form"] == "parameter")
+        .expect("parameter")
+        .clone();
+    text_binder["semantic_type"] = node_id(&family_key("a1a1"));
+    text_binder["body"]["members"][0]["value"]["value"] = json!("wrong_receive");
+    let text_key = structural_key(
+        "value",
+        "parameter",
+        Some(&family_key("a1a1")),
+        &text_binder["body"],
+    );
+    text_binder["node_id"] = node_id(&text_key);
+    wrong_binder["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(text_binder);
+    wrong_binder["semantic_graph"]["nodes"][receive_position]["body"]["arguments"][2]["value"]
+        ["target"] = node_id(&text_key);
+    settle(&mut wrong_binder);
+    let wrong_key = wrong_binder["semantic_graph"]["nodes"][receive_position]["node_id"]["digest"]
+        .as_str()
+        .expect("receive key");
+    assert_eq!(
+        read(&wrong_binder),
+        refusal_at(
+            CheckedPackageRefusalCode::IllTyped,
+            &format!("/semantic_graph/nodes/{receive_position}"),
+            Some(CheckedPackageRefusalCause::TypeMismatch),
+            wrong_key,
+        )
+    );
+
+    let other = protocol_named_node(
+        "channel",
+        &["Example", "OrderFlow", "channel", "Other"],
+        package["semantic_graph"]["nodes"][channel]["body"].clone(),
+        &[],
+    );
+    let other_key = other["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(other);
+    let clause = clause_position(&package);
+    let channels = package["semantic_graph"]["nodes"][clause]["body"]["arguments"][5]["value"]
+        ["members"]
+        .as_array_mut()
+        .expect("channels");
+    channels.push(json!({"term": "reference", "target": other_key}));
+    channels.sort_by(|left, right| {
+        left["target"]["digest"]
+            .as_str()
+            .cmp(&right["target"]["digest"].as_str())
+    });
+    package["semantic_graph"]["nodes"][receive_position]["body"]["arguments"][0]["value"]
+        ["target"] = other_key;
+    settle(&mut package);
+    let key = package["semantic_graph"]["nodes"][receive_position]["node_id"]["digest"]
+        .as_str()
+        .expect("receive key");
+    assert_eq!(
+        read(&package),
+        refusal_at(
+            CheckedPackageRefusalCode::IllTyped,
+            &format!("/semantic_graph/nodes/{receive_position}"),
+            Some(CheckedPackageRefusalCause::OperatorIneligible),
+            key,
+        )
+    );
+    assert_ne!(send_position, receive_position);
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn send_related_records_require_exact_shape_and_canonical_order() {
+    let (mut package, root, _) = package_with_send();
+    let role =
+        package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
+    let record = json!({"term": "aggregate", "members": [
+        {"term": "binding", "name": "relationship", "value": {"term": "reference", "target": role}},
+        {"term": "binding", "name": "from", "value": {"term": "reference", "target": role}},
+        {"term": "binding", "name": "to", "value": {"term": "reference", "target": role}}
+    ]});
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"] =
+        json!([record.clone(), record]);
+    settle(&mut package);
+    let key = package["semantic_graph"]["nodes"][root]["node_id"]["digest"]
+        .as_str()
+        .expect("send key");
+    assert_eq!(
+        read(&package),
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            &format!("/semantic_graph/nodes/{root}"),
+            None,
+            key,
+        )
+    );
+
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"]
+        .as_array_mut()
+        .expect("related")
+        .pop();
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"][0]
+        ["members"][1]["name"] = json!("wrong");
+    assert_eq!(
+        read(&package),
+        refusal(
+            CheckedPackageRefusalCode::MalformedWire,
+            &format!("/semantic_graph/nodes/{root}/body"),
+        )
+    );
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn send_related_requires_listed_relationship_and_typed_ends() {
+    let (mut package, root, _) = package_with_send();
+    let relationship = node_id(&family_key("2020"));
+    let role =
+        package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
+    let record = |target: Value| {
+        json!({"term": "aggregate", "members": [
+            {"term": "binding", "name": "relationship", "value": {"term": "reference", "target": target}},
+            {"term": "binding", "name": "from", "value": {"term": "literal",
+                "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}},
+            {"term": "binding", "name": "to", "value": {"term": "literal",
+                "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}}
+        ]})
+    };
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"] =
+        json!([record(role)]);
+    settle(&mut package);
+    let key = package["semantic_graph"]["nodes"][root]["node_id"]["digest"]
+        .as_str()
+        .expect("send key");
+    assert_eq!(read(&package), refusal_at(
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        &format!("/semantic_graph/nodes/{root}/body/arguments/2/value/members/0/members/0/value/target"),
+        Some(CheckedPackageRefusalCause::WrongExport), key,
+    ));
+
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"] =
+        json!([record(relationship.clone())]);
+    settle(&mut package);
+    let key = package["semantic_graph"]["nodes"][root]["node_id"]["digest"]
+        .as_str()
+        .expect("send key");
+    assert_eq!(read(&package), refusal_at(
+        CheckedPackageRefusalCode::MissingDeclaration,
+        &format!("/semantic_graph/nodes/{root}/body/arguments/2/value/members/0/members/0/value/target"),
+        Some(CheckedPackageRefusalCause::MissingName), key,
+    ));
+
+    let clause = clause_position(&package);
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][4]["value"]["members"] =
+        json!([{"term": "reference", "target": relationship.clone()}]);
+    settle(&mut package);
+    let key = package["semantic_graph"]["nodes"][root]["node_id"]["digest"]
+        .as_str()
+        .expect("send key");
+    assert_eq!(
+        read(&package),
+        refusal_at(
+            CheckedPackageRefusalCode::IllTyped,
+            &format!(
+                "/semantic_graph/nodes/{root}/body/arguments/2/value/members/0/members/1/value"
+            ),
+            Some(CheckedPackageRefusalCause::TypeMismatch),
+            key,
+        )
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("wrong related end must refuse");
+    };
+    assert_eq!(
+        refusal.protocol_detail.as_deref(),
+        Some(&CheckedProtocolRefusalDetail::RelatedEndType {
+            relationship: serde_json::from_value(relationship).expect("relationship ID"),
+            end: "from".into(),
+            expected: serde_json::from_value(node_id(&family_key("1515")))
+                .expect("source endpoint ID"),
+            actual: Some(
+                serde_json::from_value(node_id(&family_key("aaaa"))).expect("Boolean type ID")
+            ),
+        })
+    );
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn send_related_accepts_selected_relationship_reference_ends() {
+    let (mut package, root, channel) = package_with_send();
+    let object = node_id(&family_key("1515"));
+    let mut reference_type = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "composite_type" && node["semantic_form"] == "option")
+        .expect("option type")
+        .clone();
+    reference_type["semantic_form"] = json!("reference");
+    reference_type["body"] = json!({"term": "aggregate", "members": [
+        {"term": "reference", "target": object}
+    ]});
+    let reference_key =
+        structural_key("composite_type", "reference", None, &reference_type["body"]);
+    reference_type["node_id"] = node_id(&reference_key);
+    reference_type["semantic_type"] = node_id(&reference_key);
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(reference_type);
+
+    let mut binder = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "value" && node["semantic_form"] == "parameter")
+        .expect("parameter")
+        .clone();
+    binder["semantic_type"] = node_id(&reference_key);
+    binder["body"]["members"][0]["value"]["value"] = json!("payload");
+    let binder_key = structural_key("value", "parameter", Some(&reference_key), &binder["body"]);
+    binder["node_id"] = node_id(&binder_key);
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(binder.clone());
+
+    binder["body"]["members"][0]["value"]["value"] = json!("peer");
+    let peer_key = structural_key("value", "parameter", Some(&reference_key), &binder["body"]);
+    binder["node_id"] = node_id(&peer_key);
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(binder);
+
+    package["semantic_graph"]["nodes"][channel]["body"]["arguments"][2]["value"]["target"] =
+        node_id(&reference_key);
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"][1]["value"]["target"] =
+        node_id(&binder_key);
+    let relationship = node_id(&family_key("2020"));
+    let related_end = json!({"term": "reference", "target": node_id(&binder_key)});
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"] = json!([{"term": "aggregate", "members": [
+        {"term": "binding", "name": "relationship", "value": {"term": "reference", "target": relationship}},
+        {"term": "binding", "name": "from", "value": related_end},
+        {"term": "binding", "name": "to", "value": related_end}
+    ]}]);
+    let clause = clause_position(&package);
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][4]["value"]["members"] =
+        json!([{"term": "reference", "target": relationship}]);
+    settle(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "selected relationship ends of the binder's reference type must admit: {:?}",
+        read(&package)
+    );
+
+    let record = |to: &str| {
+        json!({"term": "aggregate", "members": [
+            {"term": "binding", "name": "relationship", "value": {"term": "reference", "target": relationship}},
+            {"term": "binding", "name": "from", "value": {"term": "reference", "target": node_id(&binder_key)}},
+            {"term": "binding", "name": "to", "value": {"term": "reference", "target": node_id(to)}}
+        ]})
+    };
+    let (first, second) = if binder_key < peer_key {
+        (record(&binder_key), record(&peer_key))
+    } else {
+        (record(&peer_key), record(&binder_key))
+    };
+    let related =
+        &mut package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"];
+    *related = json!([first.clone(), second.clone()]);
+    settle(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "distinct related records in JCS order must admit: {:?}",
+        read(&package)
+    );
+
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"] =
+        json!([second, first.clone()]);
+    settle(&mut package);
+    let key = package["semantic_graph"]["nodes"][root]["node_id"]["digest"]
+        .as_str()
+        .expect("send key");
+    assert_eq!(
+        read(&package),
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            &format!("/semantic_graph/nodes/{root}"),
+            None,
+            key,
+        )
+    );
+
+    let mut bad_to = first;
+    bad_to["members"][2]["value"] = json!({
+        "term": "literal", "type": node_id(&family_key("aaaa")),
+        "value_kind": "boolean", "value": true
+    });
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"] =
+        json!([bad_to]);
+    settle(&mut package);
+    let key = package["semantic_graph"]["nodes"][root]["node_id"]["digest"]
+        .as_str()
+        .expect("send key");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("wrong to endpoint must refuse");
+    };
+    assert_eq!(
+        refusal,
+        refusal_at(
+            CheckedPackageRefusalCode::IllTyped,
+            &format!(
+                "/semantic_graph/nodes/{root}/body/arguments/2/value/members/0/members/2/value"
+            ),
+            Some(CheckedPackageRefusalCause::TypeMismatch),
+            key,
+        )
+    );
+    assert_eq!(
+        refusal.protocol_detail.as_deref(),
+        Some(&CheckedProtocolRefusalDetail::RelatedEndType {
+            relationship: serde_json::from_value(relationship).expect("relationship ID"),
+            end: "to".into(),
+            expected: serde_json::from_value(node_id(&family_key("1515")))
+                .expect("target endpoint ID"),
+            actual: Some(
+                serde_json::from_value(node_id(&family_key("aaaa"))).expect("Boolean type ID")
+            ),
+        })
+    );
 }
 
 /// Trace: FR-038-AC-286

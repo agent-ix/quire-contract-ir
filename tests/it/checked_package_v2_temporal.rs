@@ -1169,6 +1169,7 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::InexactNumber => "inexact-number",
         Cause::ExpressionForm => "expression-form",
         Cause::DeclarationForm => "declaration-form",
+        Cause::WrongExport => "wrong-export",
     }
 }
 

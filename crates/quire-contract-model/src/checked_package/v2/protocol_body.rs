@@ -2,10 +2,11 @@
 //!
 //! The protocol step runs after refinement and timed models, before operations.
 
+use super::model_members::{Budget, ModelOwners};
 use super::{
     ApplicationOperator, CheckedNodeKind, CheckedPackageLockV2, CheckedSelectionRole, CheckedTerm,
-    CompositeTypeForm, LiteralKind, ModelForm, ProtocolForm, RawSemanticNodeV2, ScalarTypeForm,
-    ValueForm, WorkMeter,
+    CompositeTypeForm, LiteralKind, ModelForm, ProtocolForm, RawSemanticNodeV2, RelationForm,
+    ScalarTypeForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -151,19 +152,19 @@ const AWAIT: &[Binding] = &[
     field("then", Shape::Reference),
     field("timeout", Shape::Reference),
 ];
-const CHECK: &[Binding] = &[field("condition", Shape::Boolean)];
+const CHECK: &[Binding] = &[field("condition", Shape::BooleanCandidate)];
 const SEND: &[Binding] = &[
     field("channel", Shape::Reference),
     field("binder", Shape::Reference),
     field("related", Shape::Records),
-    field("constraint", Shape::Boolean),
+    field("constraint", Shape::BooleanCandidate),
 ];
 const RECEIVE: &[Binding] = &[
     field("channel", Shape::Reference),
     field("of", Shape::Reference),
     field("binder", Shape::Reference),
     field("related", Shape::Records),
-    field("constraint", Shape::Boolean),
+    field("constraint", Shape::BooleanCandidate),
 ];
 const ATTEMPT: &[Binding] = &[
     field("role", Shape::Reference),
@@ -402,6 +403,35 @@ fn reference_set_is_ordered(term: &CheckedTerm) -> bool {
     })
 }
 
+fn related_records_are_ordered(term: &CheckedTerm, bytes: u64) -> bool {
+    let Some(records) = members(term) else {
+        return false;
+    };
+    let mut previous: Option<(String, Vec<u8>, Vec<u8>)> = None;
+    for record in records {
+        let Some([relationship, from, to]) = named_fields(record, &["relationship", "from", "to"])
+            .and_then(|fields| <[_; 3]>::try_from(fields).ok())
+        else {
+            return false;
+        };
+        let Some(relationship) = reference_target(relationship) else {
+            return false;
+        };
+        let Ok(from) = quire_canonical::to_vec(from, quire_canonical::Limits::new(bytes)) else {
+            return false;
+        };
+        let Ok(to) = quire_canonical::to_vec(to, quire_canonical::Limits::new(bytes)) else {
+            return false;
+        };
+        let key = (relationship.digest.to_string(), from, to);
+        if previous.as_ref().is_some_and(|previous| previous >= &key) {
+            return false;
+        }
+        previous = Some(key);
+    }
+    true
+}
+
 fn argument(arguments: &[CheckedTerm], position: usize) -> Option<&CheckedTerm> {
     match arguments.get(position)? {
         CheckedTerm::Binding { value, .. } => Some(value),
@@ -419,6 +449,7 @@ fn group_fields_fit(term: &CheckedTerm, fields: &[(&str, Shape)]) -> bool {
     })
 }
 
+#[string_edge]
 fn local_details_fit(form: ProtocolForm, operator: &str, arguments: &[CheckedTerm]) -> bool {
     match (form, operator) {
         (ProtocolForm::Control, "choice") => {
@@ -496,6 +527,23 @@ fn local_details_fit(form: ProtocolForm, operator: &str, arguments: &[CheckedTer
                     &[("lower", Shape::Integer), ("upper", Shape::Integer)],
                 )
             })
+        }
+        (ProtocolForm::Control, "send" | "receive") => {
+            let related = if operator == "receive" { 3 } else { 2 };
+            argument(arguments, related)
+                .and_then(members)
+                .is_some_and(|records| {
+                    records.iter().all(|record| {
+                        group_fields_fit(
+                            record,
+                            &[
+                                ("relationship", Shape::Reference),
+                                ("from", Shape::Term),
+                                ("to", Shape::Term),
+                            ],
+                        )
+                    })
+                })
         }
         (ProtocolForm::ProtocolClause, "protocol") => clause_details_fit(arguments),
         (ProtocolForm::Role, "role") => {
@@ -694,6 +742,23 @@ fn validate_layout(
     Ok(())
 }
 
+#[string_edge]
+fn validate_related_order(
+    form: ProtocolForm,
+    operator: &str,
+    arguments: &[CheckedTerm],
+    bytes: u64,
+) -> Result<(), ProtocolBodyDefect> {
+    if form == ProtocolForm::Control
+        && matches!(operator, "send" | "receive")
+        && argument(arguments, if operator == "receive" { 3 } else { 2 })
+            .is_none_or(|records| !related_records_are_ordered(records, bytes))
+    {
+        return Err(ProtocolBodyDefect::NoncanonicalSet);
+    }
+    Ok(())
+}
+
 /// Strict-wire subset: known operators' fixed shapes, before any graph step.
 /// Unknown or misplaced operators retain their protocol-step refusal.
 pub(super) fn wire_layout_defect(
@@ -861,6 +926,12 @@ fn enum_value_defect(
         (ProtocolForm::Control, "await") => {
             invalid_enum_at(arguments, 0, Some((0, true)), &["event", "compensation"])
         }
+        (ProtocolForm::Control, "fence") => invalid_enum_at(
+            arguments,
+            0,
+            None,
+            &["acquire", "release", "acq_rel", "seq_cst"],
+        ),
         _ => None,
     }
 }
@@ -876,9 +947,11 @@ pub(super) fn validate_protocol_body(
     body: &CheckedTerm,
     semantic_type: &CheckedNodeId,
     selected_profile: Option<&CheckedArtifactRef>,
+    bytes: u64,
 ) -> Result<(), ProtocolBodyDefect> {
     let (operator, arguments) = validate_envelope(form, body, semantic_type, selected_profile)?;
-    validate_layout(form, operator, arguments)
+    validate_layout(form, operator, arguments)?;
+    validate_related_order(form, operator, arguments, bytes)
 }
 
 fn body_defect(
@@ -1238,6 +1311,56 @@ impl MemberCheck<'_> {
     }
 
     #[string_edge]
+    fn clause_lists_relationship(
+        &self,
+        relationship: &CheckedNodeId,
+        meter: &mut WorkMeter,
+    ) -> Result<bool, ValidationFailure> {
+        let Some(path) = self.nodes[self.position]
+            .declaration
+            .as_ref()
+            .map(|declaration| declaration.qualified_name.as_slice())
+        else {
+            return Ok(false);
+        };
+        for &clause in self.index.values() {
+            meter.charge(1, || node_pointer(self.position))?;
+            if !self.is(
+                clause,
+                CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause),
+            ) {
+                continue;
+            }
+            let Some(prefix) = self.nodes[clause]
+                .declaration
+                .as_ref()
+                .map(|declaration| declaration.qualified_name.as_slice())
+            else {
+                continue;
+            };
+            if path.len() <= prefix.len()
+                || !path.starts_with(prefix)
+                || path[prefix.len()].as_ref() != "run"
+            {
+                continue;
+            }
+            if self.terms[clause]
+                .as_ref()
+                .and_then(|term| match term {
+                    CheckedTerm::Application { arguments, .. } => {
+                        binding_value(arguments, "relationships")
+                    }
+                    _ => None,
+                })
+                .is_some_and(|items| listed_targets(items).any(|target| target == relationship))
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    #[string_edge]
     fn queue_channel_same_clause(&self, channel: usize) -> bool {
         let Some(channel_path) = self.nodes[channel]
             .declaration
@@ -1361,11 +1484,161 @@ fn check_member_dependencies(
     Ok(())
 }
 
+fn check_related_references(
+    check: &MemberCheck<'_>,
+    arguments: &[CheckedTerm],
+    ordinal: usize,
+    owners: &ModelOwners<'_>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let records = members(check.at(arguments, ordinal)).expect("validated related records");
+    for (index, record) in records.iter().enumerate() {
+        let relationship = group_value(record, "relationship").expect("validated relationship");
+        let path = check
+            .argument_path(ordinal)
+            .key("members")
+            .index(index)
+            .key("members")
+            .index(0)
+            .key("value");
+        let position = check.check_target(relationship, path.clone(), |_| true)?;
+        if !check.is(
+            position,
+            CheckedNodeKind::Relation(RelationForm::Relationship),
+        ) || owners
+            .recover(&check.nodes[position])
+            .ok()
+            .is_none_or(|owner| !owner.package.relationships.contains_key(owner.node))
+        {
+            return Err(check.refuse(
+                Code::InvalidModelBinding,
+                Some(Cause::WrongExport),
+                path.key("target"),
+            ));
+        }
+        if !check.clause_lists_relationship(&check.nodes[position].node_id, meter)? {
+            return Err(check.refuse(
+                Code::MissingDeclaration,
+                Some(Cause::MissingName),
+                path.key("target"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn check_related_types(
+    check: &MemberCheck<'_>,
+    arguments: &[CheckedTerm],
+    ordinal: usize,
+    owners: &ModelOwners<'_>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let records = members(check.at(arguments, ordinal)).expect("validated related records");
+    for (index, record) in records.iter().enumerate() {
+        let relationship = group_value(record, "relationship")
+            .and_then(reference_target)
+            .expect("validated relationship reference");
+        let relation_position = *check
+            .index
+            .get(relationship)
+            .expect("validated relationship target");
+        let owner = owners
+            .recover(&check.nodes[relation_position])
+            .expect("validated relationship owner");
+        let declaration = owner
+            .package
+            .relationships
+            .get(owner.node)
+            .expect("validated selected relationship");
+        for (end_index, (end_name, declared)) in [
+            ("from", &declaration.source.type_ref),
+            ("to", &declaration.target.type_ref),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let term = group_value(record, end_name).expect("validated related end");
+            let actual = check.term_type(term);
+            let Some(Ok(expected_key)) = owner.package.end_declaration_key(declared) else {
+                return Err(check.refuse(
+                    Code::InvalidModelBinding,
+                    Some(Cause::WrongExport),
+                    check
+                        .argument_path(ordinal)
+                        .key("members")
+                        .index(index)
+                        .key("members")
+                        .index(0)
+                        .key("value")
+                        .key("target"),
+                ));
+            };
+            let expected = CheckedNodeId {
+                domain: crate::checked_package::common::NODE_DOMAIN.into(),
+                digest: expected_key.into(),
+            };
+            let actual_owner = actual
+                .and_then(|id| check.index.get(id))
+                .filter(|&&position| {
+                    check.is(
+                        position,
+                        CheckedNodeKind::CompositeType(CompositeTypeForm::Reference),
+                    )
+                })
+                .and_then(|&position| check.terms[position].as_ref())
+                .and_then(members)
+                .and_then(|members| match members {
+                    [term] => reference_target(term),
+                    _ => None,
+                })
+                .and_then(|id| check.index.get(id))
+                .and_then(|&position| owners.recover(&check.nodes[position]).ok());
+            let conforms = if let Some(actual_owner) = actual_owner {
+                if actual_owner.object_type().is_some()
+                    && std::ptr::eq(owner.package, actual_owner.package)
+                {
+                    let mut budget = Budget::new(meter, owner.selection, owner.package.bytes);
+                    owner
+                        .package
+                        .conforms_to(actual_owner.node, declared, &mut budget)?
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if !conforms {
+                return Err(check.refuse_with_detail(
+                    Code::IllTyped,
+                    Cause::TypeMismatch,
+                    check
+                        .argument_path(ordinal)
+                        .key("members")
+                        .index(index)
+                        .key("members")
+                        .index(end_index + 1)
+                        .key("value"),
+                    CheckedProtocolRefusalDetail::RelatedEndType {
+                        relationship: relationship.clone(),
+                        end: end_name.into(),
+                        expected,
+                        actual: actual.cloned(),
+                    },
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[string_edge]
 fn check_control_prefix(
     check: &MemberCheck<'_>,
     operator: &str,
     arguments: &[CheckedTerm],
+    owners: &ModelOwners<'_>,
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let control = |position| check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Control));
     let check_list = |ordinal, expected: &dyn Fn(usize) -> bool| {
@@ -1394,6 +1667,72 @@ fn check_control_prefix(
             _ => None,
         };
     match operator {
+        "check" => check.boolean(check.at(arguments, 0), check.argument_path(0))?,
+        "fence" => {}
+        "send" | "receive" => {
+            let channel = check.target_at(arguments, 0, |position| {
+                check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Channel))
+            })?;
+            let binder_ordinal = if operator == "receive" { 2 } else { 1 };
+            let send = if operator == "receive" {
+                Some(check.target_at(arguments, 1, |position| {
+                    control_operator(position) == Some("send")
+                })?)
+            } else {
+                None
+            };
+            let binder = check.target_at(arguments, binder_ordinal, |position| {
+                check.is(position, CheckedNodeKind::Value(ValueForm::Parameter))
+            })?;
+            let related_ordinal = if operator == "receive" { 3 } else { 2 };
+            check_related_references(check, arguments, related_ordinal, owners, meter)?;
+            let carries = check.terms[channel]
+                .as_ref()
+                .and_then(|term| match term {
+                    CheckedTerm::Application { arguments, .. } => {
+                        binding_value(arguments, "carries")
+                    }
+                    _ => None,
+                })
+                .and_then(reference_target)
+                .expect("validated channel carries");
+            if &check.nodes[binder].semantic_type != carries {
+                return Err(check.refuse_with_detail(
+                    Code::IllTyped,
+                    Cause::TypeMismatch,
+                    node_pointer(check.position),
+                    CheckedProtocolRefusalDetail::PayloadType {
+                        expected: carries.clone(),
+                        actual: check.nodes[binder].semantic_type.clone(),
+                    },
+                ));
+            }
+            if let Some(send) = send {
+                let same_channel = check.terms[send]
+                    .as_ref()
+                    .and_then(|term| match term {
+                        CheckedTerm::Application { arguments, .. } => {
+                            binding_value(arguments, "channel")
+                        }
+                        _ => None,
+                    })
+                    .and_then(reference_target)
+                    == Some(&check.nodes[channel].node_id);
+                if !same_channel {
+                    return Err(check.refuse(
+                        Code::IllTyped,
+                        Some(Cause::OperatorIneligible),
+                        node_pointer(check.position),
+                    ));
+                }
+            }
+            let constraint_ordinal = if operator == "receive" { 4 } else { 3 };
+            check.boolean(
+                check.at(arguments, constraint_ordinal),
+                check.argument_path(constraint_ordinal),
+            )?;
+            check_related_types(check, arguments, related_ordinal, owners, meter)?;
+        }
         "sequence" => check_list(0, &control)?,
         "choice" | "parallel" => {
             let (records_ordinal, body_ordinal) = if operator == "choice" {
@@ -1607,6 +1946,8 @@ fn check_member(
     form: ProtocolForm,
     operator: &str,
     arguments: &[CheckedTerm],
+    owners: &ModelOwners<'_>,
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for (ordinal, term) in arguments.iter().enumerate() {
         check_member_dependencies(
@@ -1750,7 +2091,7 @@ fn check_member(
             }
             _ => unreachable!("validated protocol operator"),
         },
-        ProtocolForm::Control => check_control_prefix(check, operator, arguments)?,
+        ProtocolForm::Control => check_control_prefix(check, operator, arguments, owners, meter)?,
         ProtocolForm::Compensation => {}
         ProtocolForm::ProtocolClause | ProtocolForm::ProtocolReference => {}
     }
@@ -1948,7 +2289,9 @@ pub(super) fn validate_protocol_nodes(
     terms: &[Option<CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
     lock: &CheckedPackageLockV2,
+    owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
+    bytes: u64,
 ) -> Result<(), ValidationFailure> {
     let selected_profile = lock
         .profile_selections
@@ -2038,6 +2381,8 @@ pub(super) fn validate_protocol_nodes(
             };
             validate_layout(form, operator, arguments)
                 .map_err(|defect| body_defect(position, &nodes[position], defect))?;
+            validate_related_order(form, operator, arguments, bytes)
+                .map_err(|defect| body_defect(position, &nodes[position], defect))?;
             if matches!(
                 form,
                 ProtocolForm::Role
@@ -2054,7 +2399,7 @@ pub(super) fn validate_protocol_nodes(
                     index,
                     profile: selected_profile.expect("validated protocol profile law"),
                 };
-                check_member(&check, form, operator, arguments)?;
+                check_member(&check, form, operator, arguments, owners, meter)?;
             }
         }
     }
@@ -2082,7 +2427,13 @@ mod tests {
             serde_json::from_value::<CheckedArtifactRef>(value.clone())
                 .expect("valid selected profile fixture")
         });
-        super::validate_protocol_body(form, &term, &type_id, selected.as_ref())
+        super::validate_protocol_body(
+            form,
+            &term,
+            &type_id,
+            selected.as_ref(),
+            crate::checked_package::shared::CheckedPackageReadLimits::bounded().bytes,
+        )
     }
 
     type QSpecFrame = (ProtocolForm, &'static str, &'static [(&'static str, Shape)]);
@@ -2492,7 +2843,7 @@ mod tests {
             Err(ProtocolBodyDefect::MalformedLayout)
         );
         let mut check = body(ProtocolForm::Control, "check");
-        check["arguments"][0]["value"] = example(Shape::Integer);
+        check["arguments"][0]["value"] = example(Shape::References);
         assert_eq!(
             validate_protocol_body(ProtocolForm::Control, &check, &boolean(), Some(&selected())),
             Err(ProtocolBodyDefect::MalformedLayout)

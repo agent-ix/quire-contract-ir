@@ -2782,7 +2782,9 @@ fn validate_graph(
         &terms,
         &index,
         &wire.lock,
+        &owners,
         meter,
+        limits.bytes,
     )?;
     validate_operations(
         &graph.nodes,
