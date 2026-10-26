@@ -1086,6 +1086,50 @@ impl MemberCheck<'_> {
             && other[other.len() - 2].as_ref() == segment
     }
 
+    #[string_edge]
+    fn queue_channel_same_clause(&self, channel: usize) -> bool {
+        let Some(channel_path) = self.nodes[channel]
+            .declaration
+            .as_ref()
+            .map(|declaration| declaration.qualified_name.as_slice())
+        else {
+            return false;
+        };
+        for &clause in self.index.values() {
+            if !self.is(
+                clause,
+                CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause),
+            ) {
+                continue;
+            }
+            let Some(CheckedTerm::Application { arguments, .. }) = self.terms[clause].as_ref()
+            else {
+                continue;
+            };
+            let listed = binding_value(arguments, "queues").is_some_and(|queues| {
+                listed_targets(queues).any(|target| target == &self.nodes[self.position].node_id)
+            });
+            if !listed {
+                continue;
+            }
+            let Some(prefix) = self.nodes[clause]
+                .declaration
+                .as_ref()
+                .map(|declaration| declaration.qualified_name.as_slice())
+            else {
+                return false;
+            };
+            if channel_path.len() != prefix.len() + 2
+                || !channel_path.starts_with(prefix)
+                || channel_path[prefix.len()].as_ref() != "channel"
+            {
+                return false;
+            }
+        }
+        // An unlisted queue is diagnosed by the later membership pass.
+        true
+    }
+
     fn nonnegative(
         &self,
         term: &CheckedTerm,
@@ -1166,6 +1210,7 @@ fn check_member_dependencies(
     Ok(())
 }
 
+#[string_edge]
 fn check_member(
     check: &MemberCheck<'_>,
     form: ProtocolForm,
@@ -1216,6 +1261,11 @@ fn check_member(
             })?;
             let replication = check.at(arguments, 1);
             if !members(replication).is_some_and(|fields| fields.is_empty()) {
+                check.nonnegative(
+                    group_value(replication, "max").expect("validated replication"),
+                    check.argument_path(1).key("members").index(1).key("value"),
+                    true,
+                )?;
                 let binder = group_value(replication, "binder").expect("validated replication");
                 let binder = check.check_target(
                     binder,
@@ -1235,11 +1285,6 @@ fn check_member(
                         node_pointer(check.position),
                     ));
                 }
-                check.nonnegative(
-                    group_value(replication, "max").expect("validated replication"),
-                    check.argument_path(1).key("members").index(1).key("value"),
-                    true,
-                )?;
                 if let Some(until) = group_value(replication, "until") {
                     check.boolean(until, node_pointer(check.position))?;
                 }
@@ -1289,9 +1334,16 @@ fn check_member(
             }
         }
         ProtocolForm::Queue => {
-            check.target_at(arguments, 0, |position| {
+            let channel = check.target_at(arguments, 0, |position| {
                 check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Channel))
             })?;
+            if !check.queue_channel_same_clause(channel) {
+                return Err(check.refuse(
+                    Code::InvalidModelBinding,
+                    Some(Cause::MalformedDeclaration),
+                    check.argument_path(0).key("target"),
+                ));
+            }
         }
         ProtocolForm::Obligation => match operator {
             "finish" => {
