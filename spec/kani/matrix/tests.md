@@ -14,7 +14,7 @@ type: TestMatrix
 | FR-031 | FR-031-AC-1 | TC-042 | 🚧 AC-1 implemented and verified by TC-042. FR-031-AC-5, the `KaniOutcome` to QSL `qsl_replay::TerminalValue` map, is retired and its ID is not reused (ADR-0056): the map is owned by agent-ix/quire-contract-codegen, tracked there under Linear IR-358. IR retains the three-family dispatch index and no family lowerings. Codegen retains collection and graph lowerers; arithmetic was retired under FR-015-AC-109. |
 | FR-036 | FR-036-AC-1 through FR-036-AC-5 | TC-045 | 🚧 planned; shared by Contract IR's `ContractPackage` and the codegen provider, neither implemented |
 | FR-037 | FR-037-AC-6 | TC-055 | ✅ TC-055 checks the public surface and source for replay and witness absence. |
-| FR-039 | FR-039-AC-1 through FR-039-AC-4 | TC-055 | 🚧 AC-1 through AC-3 are backed by exact inventory, excluded-item compile-fail probes and source checks. AC-4 has typed no-panic TC-042 negative cases but remains partial: TC-041 has no Kani negative corpus, although AC-4 and TC-055 require one; the owner must resolve that reference without narrowing AC-4. |
+| FR-039 | FR-039-AC-1 through FR-039-AC-4 | TC-055 | ✅ AC-1 through AC-3 are backed by exact inventory, excluded-item compile-fail probes and source checks. AC-4 is backed by typed no-panic TC-042 negative cases under `catch_unwind`. |
 
 ## Test Case Summary
 
@@ -25,7 +25,7 @@ type: TestMatrix
 | TC-443 | A Kani outcome and its error carry a typed STD-001 code | Integration | P0 | FR-030-AC-6 | 🚧 partly implemented: `tc_443_the_outcome_and_its_error_carry_a_typed_std001_code` in `tests/it/kani_shared.rs`; the string-argument probes are `compile_fail` doctests on `KaniOutcome::non_success`, run by `make test`; the clause for a `proved` request with a count of zero is planned with FR-030-AC-4 |
 | TC-449 | Kani cancellation carries the producer's requested or deadline origin | Integration | P0 | FR-030-AC-7 | 🚧 IR carrier and serialization tests tagged in `tests/it/kani_shared.rs`; CG IR-701 still owns the actual Kani event-to-outcome reversal control and QSL map |
 | TC-045 | Exact backend capability negotiation conforms | Integration | P0 | FR-036 | 🚧 planned; mirrors quire-specification:TC-218; binds the no-advertised-capability absence path (quire-specification:FR-290 vocabulary) |
-| TC-055 | The root crate's public interface is exactly the listed items and names no QSL-owned replay type | Integration | P0 | FR-039, FR-037-AC-6 | 🚧 inventory, forbidden-source checks, per-item compile-fail probes and TC-042 no-panic negatives implemented; TC-041 has no Kani negative corpus, leaving the literal procedure incomplete pending owner resolution |
+| TC-055 | The root crate's public interface is exactly the listed items and names no QSL-owned replay type | Integration | P0 | FR-039, FR-037-AC-6 | ✅ inventory, forbidden-source checks, per-item compile-fail probes and TC-042 no-panic negatives implemented |
 
 ## Coverage Design
 

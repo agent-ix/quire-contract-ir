@@ -31,8 +31,8 @@ or `objects` module. Compile one probe per item in FR-039's "Items QSL owns"
 and "Items codegen owns" sections through `quire_contract_ir` and expect each
 to fail, and search `src/` for any function from a `KaniOutcome` to a QSL
 `TerminalValue`: that map is owned by `agent-ix/quire-contract-codegen`
-(tracked there under Linear IR-358) and must be absent. Run the TC-041 and
-TC-042 negative corpora under `catch_unwind`.
+(tracked there under Linear IR-358) and must be absent. Run the TC-042
+negative corpus under `catch_unwind`.
 
 ## Expected Results
 
@@ -43,4 +43,4 @@ under `src/`; no negative case panics.
 
 ## Status
 
-Partially implemented by `tests/it/public_interface.rs`, `tests/it/kani_shared.rs`, and the per-item compile-fail probes in `src/kani/mod.rs`. The TC-042 negative Kani paths run under `catch_unwind`. TC-041 defines dependency-graph and model-boundary cases, with no Kani negative corpus to run; the TC-041 reference in this procedure and FR-039-AC-4 awaits owner resolution. The acceptance criterion and procedure remain unchanged.
+Implemented by `tests/it/public_interface.rs`, `tests/it/kani_shared.rs`, and the per-item compile-fail probes in `src/kani/mod.rs`. The TC-042 negative Kani paths run under `catch_unwind`. TC-041 covers the Cargo dependency graph and model boundary, and supplies no Kani negative cases.

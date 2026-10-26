@@ -152,8 +152,8 @@ Local labels; the repository assigns requirement ids when one is authored.
 - D-3. No public item of either IR crate is a replay, witness, envelope, terminal-record or
   obligation-identity type. IR-347 removed `KaniProviderResult` and `KaniProviderRecord` from
   `src/kani/outcome.rs` and their re-exports from `src/kani/mod.rs` (FR-039-AC-3). The complete
-  TC-055 public-inventory check is implemented; its TC-041 negative-corpus reference
-  remains unresolved (FR-039-AC-4).
+  TC-055 public-inventory check and its TC-042 negative Kani corpus are implemented
+  (FR-039-AC-4).
 - D-4. Every public item QSL reads is exported by name from the model crate's root, with no
   glob (FR-019; implemented under IR-347).
 - D-5. A package QSL emits for each node family and semantic form QSL can produce is admitted at
