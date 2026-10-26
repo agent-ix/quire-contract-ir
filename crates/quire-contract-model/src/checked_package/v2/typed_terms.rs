@@ -872,6 +872,9 @@ mod tests {
         let known: CheckedBindingName = serde_json::from_value(json!("parameters")).unwrap();
         assert_eq!(known.kind(), super::super::TermBindingName::Parameters);
         assert_eq!(serde_json::to_value(&known).unwrap(), json!("parameters"));
+        let over: CheckedBindingName = serde_json::from_value(json!("over")).unwrap();
+        assert_eq!(over.kind(), super::super::TermBindingName::Over);
+        assert_eq!(serde_json::to_value(&over).unwrap(), json!("over"));
         let open: CheckedBindingName = serde_json::from_value(json!("user-field")).unwrap();
         assert_eq!(open.kind(), super::super::TermBindingName::Other);
         assert_eq!(open.as_ref(), "user-field");

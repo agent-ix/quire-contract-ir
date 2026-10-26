@@ -1310,10 +1310,10 @@ fn concrete_protocol_presence(
 
     let mut unresolved = false;
     for &position in graph.index.values() {
+        meter.charge(1, || at.clone())?;
         if graph.kinds.get(position) != Some(&K::Protocol(ProtocolForm::ProtocolClause)) {
             continue;
         }
-        meter.charge(1, || at.clone())?;
         let Some(CheckedTerm::Application { arguments, .. }) =
             graph.terms.get(position).and_then(Option::as_ref)
         else {
@@ -1324,7 +1324,7 @@ fn concrete_protocol_presence(
             unresolved = true;
             continue;
         };
-        if name.as_ref() != "over" {
+        if name.kind() != super::TermBindingName::Over {
             unresolved = true;
             continue;
         }
