@@ -2492,17 +2492,22 @@ fn check_member(
                     let type_position =
                         check.index.get(&check.nodes[binder].semantic_type).copied();
                     if !type_position.is_some_and(|position| {
-                    check.is(position, CheckedNodeKind::CompositeType(CompositeTypeForm::Reference))
-                        && check.terms[position].as_ref().and_then(members).is_some_and(|items| {
-                            matches!(items, [CheckedTerm::Reference { target }] if target == &check.nodes[model].node_id)
-                        })
-                }) {
-                    return Err(check.refuse(
-                        Code::IllTyped,
-                        Some(Cause::TypeMismatch),
-                        node_pointer(check.position),
-                    ));
-                }
+                        check.is(
+                            position,
+                            CheckedNodeKind::CompositeType(CompositeTypeForm::Reference),
+                        ) && check.terms[position]
+                            .as_ref()
+                            .and_then(members)
+                            .is_some_and(|items| {
+                                matches!(items, [CheckedTerm::Reference { target }] if target == &check.nodes[model].node_id)
+                            })
+                    }) {
+                        return Err(check.refuse(
+                            Code::IllTyped,
+                            Some(Cause::TypeMismatch),
+                            node_pointer(check.position),
+                        ));
+                    }
                     if let Some(until) = group_value(replication, "until") {
                         check.boolean(until, node_pointer(check.position))?;
                     }
