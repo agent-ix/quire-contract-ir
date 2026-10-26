@@ -35,3 +35,26 @@ Ticket: IR-874. Compared the frozen PR #586 early presence check with FR-038-AC-
 - The direct unit fixture calls `validate_catalog` without going through key, header, graph, protocol-body and public-read stages. It proves the helper returns a pointer, but cannot prove that an otherwise admitted checked package reaches that helper or preserves the specified earlier refusal.
 - Plan completion: not assessed.
 - Optional repository-wide semantic review was not requested; intent, test, and changed code were compared only for this PR diff.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At fix head `83d1b4bdaa3ebe09f89b6d75307cc63fcd7a97c9`, `refinement_catalog_presence_precedes_declaration_backed_step_joins` calls the public reader and carries `Trace: FR-038-AC-325`. It asserts the absent concrete-protocol catalog pointer and code before a declaration-backed row join, demonstrates a present catalog reaches row joining, and checks model-only admission and extra-catalog refusal. The computed matrix now binds AC-325 to that test. |
+| FND-001 | still-open | Hosted Rust Checks on `83d1b4bdaa3ebe09f89b6d75307cc63fcd7a97c9` ran the new public-reader test and failed: the first case refused at `/semantic_graph/nodes/26/semantic_type` rather than the expected refinement `/semantic_graph/nodes/27/body/class_catalog`. The fixture has an earlier defect, so it does not yet verify the catalog precedence. |
+
+## Disposition Verdict
+
+**PASS on reviewed fixes** — the slice-specific test gap is closed. This does not qualify all FR-038-AC-325 class reconstruction or pending memory behavior.
+
+## Disposition Round 2
+
+**CONDITIONAL** — the exact-head hosted test falsified the earlier code-inspection disposition for FND-001. The latest outcome is still-open until an admitted fixture reaches the intended catalog check.
+
+## Disposition Round 3
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | still-open | The `a2b7b5b170744f96e045090153316cb27c3339ca` replacement fixture uses `OrderFlow::Closed` from `v2_all_families`, but that clause's `over` parameter is Boolean-typed and does not denote the selected `test/refinement/Machine` model. Its catalog refusal therefore does not verify FR-375's same-model presence rule. The new test's `Trace: FR-038-AC-325` still claims more than it proves. |
+
+**CONDITIONAL** — the latest public-reader test is tagged but lacks an admitted same-model protocol subject. The full class graph join and memory behavior remain Planned.

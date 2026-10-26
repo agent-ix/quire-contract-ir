@@ -37,3 +37,28 @@ Ticket: IR-874. Reviewed the frozen PR #586 diff, its caller and direct test, QS
 - Hosted Rust Checks at `4a322bb13c354c04ef2c79b35c5067a693a0b310` failed `make lint`: `qsl-string-edge` reported one unmarked, unlisted branch-gating occurrence at `refinement.rs:1327` in `concrete_protocol_presence`. The allow-list is empty; adding this post-intake function to it or marking the broad validator would violate FR-056.
 - `concrete_protocol_presence` loops over `graph.index.values()` for each refinement. It charges only after finding `ProtocolClause`; nonprotocol entries incur no per-entry charge. The default allows 10,000 nodes and 1,000,000 work units.
 - No CI workflow, rules file, dependency, or gate configuration changed in the PR diff. The hosted supply-chain and language-boundary jobs passed. Local Cargo and Make gates were not run because the shared build lock was occupied.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At fix head `83d1b4bdaa3ebe09f89b6d75307cc63fcd7a97c9`, the existing marked `TermBindingName::from_wire` intake classifies `over` as `Over`, and `concrete_protocol_presence` compares the typed variant. No marker or allow-list entry was added to the post-intake validator. |
+| FND-002 | fixed | The scan now charges one work unit at the start of every `graph.index.values()` iteration, including nonprotocol nodes, before inspecting that entry. |
+
+## Disposition Verdict
+
+**PASS on reviewed fixes** — both original code findings are resolved in the fix diff. Exact-head hosted Rust Checks were still running when these dispositions were written; they remain the merge gate.
+
+## New findings (disposition pass 3)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | medium | Catalog presence is inferred from any `steps[].source_node` with Protocol kind, even when its clause does not belong to the selected concrete model; FR-375 derives the catalog from same-model admitted clauses independently of emitted rows. This can replace a foreign-row binding refusal with an incorrect early catalog refusal and misses same-model clauses absent from rows. | crates/quire-contract-model/src/checked_package/v2/refinement.rs:1325 |
+
+## Disposition Round 3
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-003 | still-open | At `a2b7b5b170744f96e045090153316cb27c3339ca`, the source-node kind check has no authoritative clause-to-selected-model ownership edge. The new fixture takes `OrderFlow::Closed` from `v2_all_families`, whose clause `over` parameter is Boolean-typed, while the refinement's concrete model is the added `test/refinement/Machine`. The coder confirmed the mismatch; the PR remains draft pending that edge. |
+
+**CONDITIONAL** — the new catalog-presence rule is unsound for foreign protocol rows and does not establish the selected-model criterion. The original FND-001 and FND-002 remain fixed by removal of the respective code paths.
