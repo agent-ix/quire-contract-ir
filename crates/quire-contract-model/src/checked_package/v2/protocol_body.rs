@@ -3602,7 +3602,7 @@ mod tests {
             Err(ProtocolBodyDefect::MalformedLayout)
         );
         let mut literal_target = body(ProtocolForm::Role, "role");
-        literal_target["arguments"][0]["value"] = example(Shape::Text);
+        literal_target["arguments"][0]["value"] = example(Shape::Integer);
         assert_eq!(
             validate_protocol_body(
                 ProtocolForm::Role,
