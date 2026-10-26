@@ -3595,7 +3595,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                     Code::IllTyped,
                     node_pointer(position),
                     Some(Cause::OperatorIneligible),
-                    self.check.nodes[owner].node_id.clone(),
+                    self.check.nodes[position].node_id.clone(),
                 );
                 if let ValidationFailure::Refused(ref mut refusal) = failure {
                     refusal.protocol_detail =
@@ -3919,7 +3919,22 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                         continue;
                     }
                     for binder in out.difference(&parent.input) {
-                        if !parent.output.insert(*binder) {
+                        let name = self.check.terms[*binder]
+                            .as_ref()
+                            .and_then(|body| group_value(body, "name"))
+                            .and_then(text_value)
+                            .expect("validated binder name");
+                        let mut duplicate = parent.output.contains(binder);
+                        for previous in parent.output.difference(&parent.input) {
+                            meter.charge(1, || node_pointer(*binder))?;
+                            let previous_name = self.check.terms[*previous]
+                                .as_ref()
+                                .and_then(|body| group_value(body, "name"))
+                                .and_then(text_value)
+                                .expect("validated binder name");
+                            duplicate |= name == previous_name;
+                        }
+                        if duplicate {
                             return Err(ValidationFailure::refused_at(
                                 Code::AmbiguousDeclaration,
                                 node_pointer(*binder),
@@ -3927,6 +3942,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                                 self.check.nodes[*binder].node_id.clone(),
                             ));
                         }
+                        parent.output.insert(*binder);
                     }
                 }
             } else {
@@ -4092,6 +4108,7 @@ struct ControlScopeFrame {
     next: usize,
 }
 
+#[string_edge]
 fn model_state_operation(identity: &str) -> bool {
     matches!(
         identity,
@@ -4106,6 +4123,7 @@ fn model_state_operation(identity: &str) -> bool {
     )
 }
 
+#[string_edge]
 fn control_binder<'a>(operator: &str, args: &'a [CheckedTerm]) -> Option<&'a CheckedTerm> {
     let ordinal = match operator {
         "send" | "commit" => 1,

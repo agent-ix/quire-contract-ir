@@ -167,6 +167,161 @@ fn sequence_successor_and_finish_read_predecessor_binders() {
     ));
 }
 
+/// Trace: FR-038-AC-291
+#[trace("TC-048")]
+#[test]
+fn choice_case_binder_does_not_escape_to_finish() {
+    let (mut package, children) = protocol_holder_case("choice");
+    let branch = children[0];
+    let binder = clause_parameter(&mut package, "branch", "1");
+    let role =
+        package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
+    let body = &mut package["semantic_graph"]["nodes"][branch]["body"];
+    body["operation"]["member"]["operator"] = json!("event");
+    body["arguments"] = json!([
+        {"term": "binding", "name": "role", "value": {"term": "reference", "target": role}},
+        {"term": "binding", "name": "compensation", "value": {"term": "aggregate", "members": []}},
+        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": binder}},
+        {"term": "binding", "name": "related", "value": {"term": "aggregate", "members": []}},
+        {"term": "binding", "name": "constraint", "value": {"term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}}
+    ]);
+    let finish = protocol_position(&package, "obligation");
+    package["semantic_graph"]["nodes"][finish]["body"]["arguments"][1]["value"] =
+        json!({"term": "reference", "target": binder});
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("choice case binder must not escape to finish");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert!(matches!(refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::BinderScope { stage, read, .. })
+        if stage.as_ref() == "finish" && read.as_ref() == "stage"));
+}
+
+/// Trace: FR-038-AC-291
+#[trace("TC-048")]
+#[test]
+fn all_join_exposes_branch_binder_and_any_join_does_not() {
+    let (mut package, children) = protocol_holder_case("parallel");
+    let branch = children[0];
+    let binder = clause_parameter(&mut package, "branch", "1");
+    let role =
+        package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
+    let body = &mut package["semantic_graph"]["nodes"][branch]["body"];
+    body["operation"]["member"]["operator"] = json!("event");
+    body["arguments"] = json!([
+        {"term": "binding", "name": "role", "value": {"term": "reference", "target": role}},
+        {"term": "binding", "name": "compensation", "value": {"term": "aggregate", "members": []}},
+        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": binder}},
+        {"term": "binding", "name": "related", "value": {"term": "aggregate", "members": []}},
+        {"term": "binding", "name": "constraint", "value": {"term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}}
+    ]);
+    let finish = protocol_position(&package, "obligation");
+    let original_finish_binder = package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]
+        ["value"]["target"]
+        .clone();
+    let joined_finish_binder = clause_parameter(&mut package, "joined_finish", "2");
+    package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]["value"]["target"] =
+        joined_finish_binder;
+    package["semantic_graph"]["nodes"][finish]["body"]["arguments"][1]["value"] =
+        json!({"term": "reference", "target": binder});
+    settle(&mut package);
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    let holder = holder_position(&package);
+    package["semantic_graph"]["nodes"][holder]["body"]["arguments"][2]["value"]["members"][0]
+        ["value"]["value"] = json!("any");
+    package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]["value"]["target"] =
+        original_finish_binder;
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("any join must not expose an optional branch binder");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert!(matches!(refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::BinderScope { stage, .. }) if stage.as_ref() == "finish"));
+}
+
+/// Trace: FR-038-AC-291
+#[trace("TC-048")]
+#[test]
+fn compensation_capture_stages_and_trigger_guard_scope() {
+    let (mut package, _, compensation) = package_with_admitted_compensation();
+    let forward = package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][1]["value"]
+        ["target"]
+        .clone();
+    let clause = clause_position(&package);
+    let over = package["semantic_graph"]["nodes"][clause]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][5]["value"]["members"]
+        [0]["members"][1]["value"] = json!({"term": "reference", "target": forward});
+    package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][7]["value"]["members"]
+        [0]["members"][1]["value"] = json!({"term": "reference", "target": over});
+    settle(&mut package);
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][6]["value"]["members"]
+        [1]["value"] = json!({"term": "reference", "target": forward});
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("trigger guard must not read forward binder");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert!(matches!(refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::BinderScope { stage, read, .. })
+        if stage.as_ref() == "trigger-guard" && read.as_ref() == "stage"));
+
+    package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][6]["value"]["members"]
+        [1]["value"] = json!({"term": "reference", "target": over});
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("trigger guard must bar model state before scope");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::OperatorIneligible)
+    );
+    assert_eq!(
+        refusal.protocol_detail.as_deref(),
+        Some(&CheckedProtocolRefusalDetail::ModelStateRead {
+            slot: "trigger.guard".into()
+        })
+    );
+}
+
+/// Trace: FR-038-AC-291
+#[trace("TC-048")]
+#[test]
+fn protocol_capture_initializer_refuses_its_own_forward_read() {
+    let mut package = v2_all_families();
+    let capture = clause_parameter(&mut package, "captured", "1");
+    let clause = clause_position(&package);
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][2]["value"]["members"] = json!([{"term": "aggregate", "members": [
+        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": capture}},
+        {"term": "binding", "name": "initializer", "value": {"term": "reference", "target": capture}}
+    ]}]);
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("capture must not read itself before it is initialized");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert!(matches!(refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::BinderScope { stage, read, .. })
+        if stage.as_ref() == "protocol-capture" && read.as_ref() == "forward"));
+}
+
 fn clause_position(package: &Value) -> usize {
     package["semantic_graph"]["nodes"]
         .as_array()
@@ -1896,9 +2051,13 @@ fn await_admits_compensation_anchor_form() {
 fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
     let role =
         package["semantic_graph"]["nodes"][protocol_position(package, "role")]["node_id"].clone();
-    let attempt_binder = clause_parameter(package, "attempt", "1");
-    let effect_binder = clause_parameter(package, "effect", "2");
-    let event_binder = clause_parameter(package, "event", "3");
+    let root = protocol_position(package, "control");
+    let nested_await = package["semantic_graph"]["nodes"][root]["body"]["operation"]["member"]
+        ["operator"]
+        == "sequence";
+    let attempt_binder = clause_parameter(package, "attempt", if nested_await { "2" } else { "1" });
+    let effect_binder = clause_parameter(package, "effect", if nested_await { "3" } else { "2" });
+    let event_binder = clause_parameter(package, "event", if nested_await { "2" } else { "3" });
     let finish_binder = clause_parameter(package, "closed_after_effect", "4");
     let forward_binder = clause_parameter(package, "forward", "1");
     let trigger_binder = clause_parameter(package, "trigger", "3");
@@ -1993,7 +2152,6 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
         json!({"term": "literal", "type": node_id(&family_key("a3a3")),
         "value_kind": "integer", "value": value})
     };
-    let root = protocol_position(package, "control");
     let mut attempt_body = package["semantic_graph"]["nodes"][root]["body"].clone();
     attempt_body["operation"]["member"]["operator"] = json!("attempt");
     attempt_body["arguments"] = json!([
