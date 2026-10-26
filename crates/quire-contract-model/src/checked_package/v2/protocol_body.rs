@@ -1331,51 +1331,59 @@ impl MemberCheck<'_> {
         true
     }
 
-    fn same_clause(&self, target: usize, segment: &str) -> bool {
+    fn same_clause(
+        &self,
+        target: usize,
+        segment: &str,
+        meter: &mut WorkMeter,
+    ) -> Result<bool, ValidationFailure> {
         let Some(own) = self.nodes[self.position].declaration.as_ref() else {
-            return false;
+            return Ok(false);
         };
         let Some(other) = self.nodes[target].declaration.as_ref() else {
-            return false;
+            return Ok(false);
         };
         let own = own.qualified_name.as_slice();
         let other = other.qualified_name.as_slice();
         let own_segment = match self.kinds[self.position] {
             CheckedNodeKind::Protocol(ProtocolForm::Channel) => {
-                return own.len() >= 2
+                return Ok(own.len() >= 2
                     && other.len() >= 2
                     && own[..own.len() - 2] == other[..other.len() - 2]
-                    && other[other.len() - 2].as_ref() == segment;
+                    && other[other.len() - 2].as_ref() == segment);
             }
             CheckedNodeKind::Protocol(ProtocolForm::Control) => "run",
-            _ => return false,
+            _ => return Ok(false),
         };
-        let clause = self
-            .index
-            .values()
-            .filter_map(|&position| {
-                if !self.is(
-                    position,
-                    CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause),
-                ) {
-                    return None;
-                }
-                let prefix = self.nodes[position]
-                    .declaration
-                    .as_ref()?
-                    .qualified_name
-                    .as_slice();
-                (own.len() >= prefix.len() + 2
-                    && own.starts_with(prefix)
-                    && own[prefix.len()].as_ref() == own_segment)
-                    .then_some(prefix)
-            })
-            .max_by_key(|prefix| prefix.len());
-        clause.is_some_and(|prefix| {
+        let mut clause: Option<&[Box<str>]> = None;
+        for &position in self.index.values() {
+            meter.charge(1, || node_pointer(self.position))?;
+            if !self.is(
+                position,
+                CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause),
+            ) {
+                continue;
+            }
+            let Some(prefix) = self.nodes[position]
+                .declaration
+                .as_ref()
+                .map(|declaration| declaration.qualified_name.as_slice())
+            else {
+                continue;
+            };
+            if own.len() >= prefix.len() + 2
+                && own.starts_with(prefix)
+                && own[prefix.len()].as_ref() == own_segment
+                && clause.is_none_or(|previous| prefix.len() > previous.len())
+            {
+                clause = Some(prefix);
+            }
+        }
+        Ok(clause.is_some_and(|prefix| {
             other.len() == prefix.len() + 2
                 && other.starts_with(prefix)
                 && other[prefix.len()].as_ref() == segment
-        })
+        }))
     }
 
     #[string_edge]
@@ -1805,7 +1813,7 @@ fn check_control_prefix(
             let role = check.target_at(arguments, 0, |position| {
                 check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role))
             })?;
-            if !check.same_clause(role, "role") {
+            if !check.same_clause(role, "role", meter)? {
                 return Err(check.refuse(
                     Code::InvalidModelBinding,
                     Some(Cause::MalformedDeclaration),
@@ -1867,7 +1875,7 @@ fn check_control_prefix(
             let role = check.target_at(arguments, 0, |position| {
                 check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role))
             })?;
-            if !check.same_clause(role, "role") {
+            if !check.same_clause(role, "role", meter)? {
                 return Err(check.refuse(
                     Code::InvalidModelBinding,
                     Some(Cause::MalformedDeclaration),
@@ -1884,7 +1892,7 @@ fn check_control_prefix(
                         CheckedNodeKind::Protocol(ProtocolForm::Compensation),
                     )
                 })?;
-                if !check.same_clause(template, "compensate") {
+                if !check.same_clause(template, "compensate", meter)? {
                     return Err(check.refuse(
                         Code::InvalidModelBinding,
                         Some(Cause::MalformedDeclaration),
@@ -1903,7 +1911,7 @@ fn check_control_prefix(
             let role = check.target_at(arguments, 0, |position| {
                 check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role))
             })?;
-            if !check.same_clause(role, "role") {
+            if !check.same_clause(role, "role", meter)? {
                 return Err(check.refuse(
                     Code::InvalidModelBinding,
                     Some(Cause::MalformedDeclaration),
@@ -2207,7 +2215,7 @@ fn check_member(
         ProtocolForm::Channel => {
             for ordinal in [0, 1] {
                 let target = check.target_at(arguments, ordinal, role)?;
-                if !check.same_clause(target, "role") {
+                if !check.same_clause(target, "role", meter)? {
                     return Err(check.refuse(
                         Code::InvalidModelBinding,
                         Some(Cause::MalformedDeclaration),
