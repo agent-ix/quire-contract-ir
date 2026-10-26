@@ -46,7 +46,8 @@ pub(super) struct GroupPlace {
 
 /// QSpec FR-322's `application_node_preimage` of one node: `{version,
 /// node_tag, semantic_form, semantic_type, declaration, recursion, body}`,
-/// where `declaration` and `recursion` are `null` when the node has none. The
+/// plus `owner_model` only for a protocol clause. `declaration` and
+/// `recursion` are `null` when the node has none. The
 /// body is a `Value`, so the type implements [`Encode`] and not `FixedShape`.
 pub(super) struct ApplicationNodePreimage<'a> {
     pub(super) node_tag: &'a str,

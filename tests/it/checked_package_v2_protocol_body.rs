@@ -1294,7 +1294,7 @@ fn clause_position(package: &Value) -> usize {
         .expect("protocol clause")
 }
 
-/// Trace: FR-064-AC-3, FR-064-AC-6
+/// Trace: FR-064-AC-3, FR-064-AC-4, FR-064-AC-6
 #[trace("TC-946")]
 #[test]
 fn protocol_owner_edge_has_closed_wire_presence_and_local_shape() {
@@ -1330,14 +1330,33 @@ fn protocol_owner_edge_has_closed_wire_presence_and_local_shape() {
     );
 
     let mut external = package;
+    let package_id = external["package_id"].clone();
+    let target = external["semantic_graph"]["nodes"][position]["owner_model"].clone();
     external["semantic_graph"]["nodes"][position]["owner_model"] = json!({
-        "package": external["package_id"],
-        "node": external["semantic_graph"]["nodes"][position]["owner_model"],
+        "package": package_id,
+        "node": target,
     });
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&external) else {
         panic!("external owner key must fail closed wire decoding");
     };
     assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+    assert_eq!(
+        refusal.path.as_ref().map(|p| p.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/owner_model").as_str())
+    );
+
+    let mut package = v2_all_families();
+    let position = clause_position(&package);
+    package["semantic_graph"]["nodes"][position]["owner_model"] = node_id(&family_key("1010"));
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("unselected model declaration must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
+    );
     assert_eq!(
         refusal.path.as_ref().map(|p| p.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/owner_model").as_str())

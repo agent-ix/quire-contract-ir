@@ -958,9 +958,9 @@ pub fn source_ref(authority: &str, identity: &str, domain: &str, digest: &str) -
 /// (`v2::operations::validate_application_keys`) re-derives for every node
 /// whose body is an `application` term: SHA-256 of the RFC-8785 canonical
 /// bytes of `{version, node_tag, semantic_form, semantic_type, declaration,
-/// recursion, body}`. Every application-bodied fixture node this generator
-/// builds carries no `declaration` and no `recursion_group`, so both are
-/// `null` here unconditionally.
+/// recursion, body}`. A protocol clause additionally binds `owner_model`;
+/// every undeclared non-clause fixture built here has null declaration and
+/// recursion members.
 fn application_key(
     node_tag: &str,
     semantic_form: &str,

@@ -345,6 +345,7 @@ fn code_word(code: Code) -> &'static str {
         Code::InvalidModelBinding => "invalid_model_binding",
         Code::InvalidPackage => "invalid_package",
         Code::IllTyped => "ill_typed",
+        Code::WrongSnapshot => "wrong_snapshot",
         Code::AmbiguousDeclaration => "ambiguous_declaration",
         Code::MissingImport => "missing_import",
         Code::UnknownProfile => "unknown_profile",
@@ -402,6 +403,7 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::ExpressionForm => "expression-form",
         Cause::DeclarationForm => "declaration-form",
         Cause::WrongExport => "wrong-export",
+        Cause::WrongObservation => "wrong-observation",
     }
 }
 
