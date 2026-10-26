@@ -3370,6 +3370,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         self.validated[position].expect("validated protocol member")
     }
 
+    #[string_edge]
     fn new(
         check: &'a MemberCheck<'b>,
         arguments: &'a [CheckedTerm],
@@ -3756,6 +3757,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         Ok(())
     }
 
+    #[string_edge]
     fn control_entry(
         &self,
         position: usize,
@@ -3877,6 +3879,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         })
     }
 
+    #[string_edge]
     fn check_control_slots(&self, meter: &mut WorkMeter) -> Result<(), ValidationFailure> {
         let root = self.target(binding_value(self.arguments, "run").expect("run"));
         let base = self.c0.iter().copied().collect::<BTreeSet<_>>();
