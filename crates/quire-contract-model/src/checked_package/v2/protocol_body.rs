@@ -567,6 +567,64 @@ fn local_details_fit(form: ProtocolForm, operator: &str, arguments: &[CheckedTer
                     })
                 })
         }
+        (ProtocolForm::Compensation, "compensate") => {
+            let captures_fit = [5, 7].into_iter().all(|ordinal| {
+                argument(arguments, ordinal)
+                    .and_then(members)
+                    .is_some_and(|records| {
+                        records.iter().all(|record| {
+                            group_fields_fit(
+                                record,
+                                &[("binder", Shape::Reference), ("initializer", Shape::Term)],
+                            )
+                        })
+                    })
+            });
+            captures_fit
+                && argument(arguments, 6).is_some_and(|trigger| {
+                    group_fields_fit(
+                        trigger,
+                        &[
+                            ("binder", Shape::Reference),
+                            ("guard", Shape::BooleanCandidate),
+                        ],
+                    )
+                })
+                && argument(arguments, 8).is_some_and(|within| {
+                    group_fields_fit(
+                        within,
+                        &[("lower", Shape::Integer), ("upper", Shape::Integer)],
+                    )
+                })
+                && argument(arguments, 9).is_some_and(|attempts| {
+                    group_fields_fit(
+                        attempts,
+                        &[
+                            ("maximum", Shape::Integer),
+                            ("record_type", Shape::Reference),
+                        ],
+                    )
+                })
+                && argument(arguments, 10).is_some_and(|retry| {
+                    group_fields_fit(
+                        retry,
+                        &[
+                            ("earlier", Shape::Reference),
+                            ("later", Shape::Reference),
+                            ("relation", Shape::BooleanCandidate),
+                        ],
+                    )
+                })
+                && argument(arguments, 12).is_some_and(|recovery| {
+                    group_fields_fit(
+                        recovery,
+                        &[
+                            ("binder", Shape::Reference),
+                            ("predicate", Shape::BooleanCandidate),
+                        ],
+                    )
+                })
+        }
         (ProtocolForm::ProtocolClause, "protocol") => clause_details_fit(arguments),
         (ProtocolForm::Role, "role") => {
             let Some(replication) = argument(arguments, 1) else {
@@ -865,6 +923,25 @@ pub(super) fn wire_layout_defect(
             {
                 return Some(ProtocolLayoutWireDefect::NegativeBound {
                     argument: 2,
+                    member,
+                    binding: true,
+                });
+            }
+        }
+    }
+    if (form, operator) == (ProtocolForm::Compensation, "compensate") {
+        for member in 0..2 {
+            if argument(arguments, 8)
+                .and_then(members)
+                .and_then(|items| items.get(member))
+                .and_then(|item| match item {
+                    CheckedTerm::Binding { value, .. } => integer_value(value),
+                    _ => None,
+                })
+                .is_some_and(|value| value < BigInt::from(0))
+            {
+                return Some(ProtocolLayoutWireDefect::NegativeBound {
+                    argument: 8,
                     member,
                     binding: true,
                 });
@@ -1353,6 +1430,7 @@ impl MemberCheck<'_> {
                     && other[other.len() - 2].as_ref() == segment);
             }
             CheckedNodeKind::Protocol(ProtocolForm::Control) => "run",
+            CheckedNodeKind::Protocol(ProtocolForm::Compensation) => "compensate",
             _ => return Ok(false),
         };
         let mut clause: Option<&[Box<str>]> = None;
@@ -2131,6 +2209,189 @@ fn check_control_prefix(
 }
 
 #[string_edge]
+#[string_edge]
+fn check_compensation(
+    check: &MemberCheck<'_>,
+    arguments: &[CheckedTerm],
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let parameter = |position| check.is(position, CheckedNodeKind::Value(ValueForm::Parameter));
+    let forward = check.target_at(arguments, 0, |position| {
+        check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Control))
+            && check.terms[position].as_ref().is_some_and(|term| {
+                matches!(term, CheckedTerm::Application { operation, .. }
+                    if operation.pointer("/member/operator").and_then(Value::as_str) == Some("effect"))
+            })
+    })?;
+    let forward_binder = check.target_at(arguments, 1, parameter)?;
+    let role = check.target_at(arguments, 2, |position| {
+        check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role))
+    })?;
+    if !check.same_clause(role, "role", meter)? {
+        return Err(check.refuse(
+            Code::InvalidModelBinding,
+            Some(Cause::MalformedDeclaration),
+            check.argument_path(2).key("target"),
+        ));
+    }
+    check.target_at(arguments, 3, |position| {
+        check.is(position, CheckedNodeKind::State(StateForm::OperationAnchor))
+    })?;
+    let forward_effect_binder = check.terms[forward]
+        .as_ref()
+        .and_then(|term| match term {
+            CheckedTerm::Application { arguments, .. } => argument(arguments, 1),
+            _ => None,
+        })
+        .and_then(reference_target)
+        .and_then(|target| check.index.get(target).copied());
+    let Some(effect_binder) = forward_effect_binder.filter(|&position| parameter(position)) else {
+        return Err(check.refuse(
+            Code::InvalidModelBinding,
+            Some(Cause::MalformedDeclaration),
+            check.argument_path(0).key("target"),
+        ));
+    };
+    let expected = &check.nodes[effect_binder].semantic_type;
+    let actual = &check.nodes[forward_binder].semantic_type;
+    if actual != expected {
+        return Err(check.refuse_with_detail(
+            Code::IllTyped,
+            Cause::TypeMismatch,
+            node_pointer(check.position),
+            CheckedProtocolRefusalDetail::PayloadType {
+                expected: expected.clone(),
+                actual: actual.clone(),
+            },
+        ));
+    }
+    for ordinal in [5, 7] {
+        let captures = members(check.at(arguments, ordinal)).expect("validated captures");
+        for (position, record) in captures.iter().enumerate() {
+            let binder = group_value(record, "binder").expect("validated capture binder");
+            check.check_target(
+                binder,
+                check
+                    .argument_path(ordinal)
+                    .key("members")
+                    .index(position)
+                    .key("members")
+                    .index(0)
+                    .key("value"),
+                parameter,
+            )?;
+        }
+    }
+    let trigger = check.at(arguments, 6);
+    check.check_target(
+        group_value(trigger, "binder").expect("validated trigger binder"),
+        check.argument_path(6).key("members").index(0).key("value"),
+        parameter,
+    )?;
+    check.boolean(
+        group_value(trigger, "guard").expect("validated trigger guard"),
+        check.argument_path(6).key("members").index(1).key("value"),
+    )?;
+    let within = check.at(arguments, 8);
+    let (Some(lower), Some(upper)) = (
+        group_value(within, "lower").and_then(integer_value),
+        group_value(within, "upper").and_then(integer_value),
+    ) else {
+        return Err(check.refuse(Code::MalformedWire, None, check.argument_path(8)));
+    };
+    if lower > upper {
+        return Err(check.refuse_with_detail(
+            Code::IllTyped,
+            Cause::TypeMismatch,
+            check.argument_path(8),
+            CheckedProtocolRefusalDetail::Interval {
+                member: "within".into(),
+                expected: "closed interval with lower <= upper".into(),
+                actual: format!("[{lower}, {upper}]").into(),
+            },
+        ));
+    }
+    let attempts = check.at(arguments, 9);
+    let record_type = check.check_target(
+        group_value(attempts, "record_type").expect("validated record type"),
+        check.argument_path(9).key("members").index(1).key("value"),
+        |position| {
+            matches!(
+                check.kinds[position],
+                CheckedNodeKind::Model(ModelForm::RecordValueType | ModelForm::EventType)
+            )
+        },
+    )?;
+    let maximum = group_value(attempts, "maximum")
+        .and_then(integer_value)
+        .expect("validated maximum");
+    if maximum < BigInt::from(1) {
+        return Err(check.refuse_with_detail(
+            Code::IllTyped,
+            Cause::TypeMismatch,
+            check.argument_path(9).key("members").index(0).key("value"),
+            CheckedProtocolRefusalDetail::Interval {
+                member: "attempts".into(),
+                expected: "count of at least one".into(),
+                actual: maximum.to_string().into(),
+            },
+        ));
+    }
+    let retry = check.at(arguments, 10);
+    for (position, name) in ["earlier", "later"].into_iter().enumerate() {
+        let binder = check.check_target(
+            group_value(retry, name).expect("validated retry binder"),
+            check
+                .argument_path(10)
+                .key("members")
+                .index(position)
+                .key("value"),
+            parameter,
+        )?;
+        let expected = &check.nodes[record_type].node_id;
+        let actual = &check.nodes[binder].semantic_type;
+        if actual != expected {
+            return Err(check.refuse_with_detail(
+                Code::IllTyped,
+                Cause::TypeMismatch,
+                node_pointer(check.position),
+                CheckedProtocolRefusalDetail::PayloadType {
+                    expected: expected.clone(),
+                    actual: actual.clone(),
+                },
+            ));
+        }
+    }
+    check.boolean(
+        group_value(retry, "relation").expect("validated retry relation"),
+        check.argument_path(10).key("members").index(2).key("value"),
+    )?;
+    if let Some(commit) = members(check.at(arguments, 11)).and_then(|items| items.first()) {
+        check.check_target(
+            commit,
+            check.argument_path(11).key("members").index(0),
+            |position| {
+                check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Control))
+                    && check.terms[position].as_ref().is_some_and(|term| {
+                        matches!(term, CheckedTerm::Application { operation, .. }
+                            if operation.pointer("/member/operator").and_then(Value::as_str) == Some("commit"))
+                    })
+            },
+        )?;
+    }
+    let recovery = check.at(arguments, 12);
+    check.check_target(
+        group_value(recovery, "binder").expect("validated recovery binder"),
+        check.argument_path(12).key("members").index(0).key("value"),
+        parameter,
+    )?;
+    check.boolean(
+        group_value(recovery, "predicate").expect("validated recovery predicate"),
+        check.argument_path(12).key("members").index(1).key("value"),
+    )?;
+    Ok(())
+}
+
 fn check_member(
     check: &MemberCheck<'_>,
     form: ProtocolForm,
@@ -2282,7 +2543,7 @@ fn check_member(
             _ => unreachable!("validated protocol operator"),
         },
         ProtocolForm::Control => check_control_prefix(check, operator, arguments, owners, meter)?,
-        ProtocolForm::Compensation => {}
+        ProtocolForm::Compensation => check_compensation(check, arguments, meter)?,
         ProtocolForm::ProtocolClause | ProtocolForm::ProtocolReference => {}
     }
     Ok(())
@@ -2580,6 +2841,7 @@ pub(super) fn validate_protocol_nodes(
                     | ProtocolForm::Queue
                     | ProtocolForm::Obligation
                     | ProtocolForm::Control
+                    | ProtocolForm::Compensation
             ) {
                 let check = MemberCheck {
                     position,
@@ -2754,6 +3016,37 @@ mod tests {
                 "term": "aggregate", "members": [
                     {"term": "binding", "name": "lower", "value": example(Shape::Integer)},
                     {"term": "binding", "name": "upper", "value": example(Shape::Integer)}
+                ]
+            }),
+            (ProtocolForm::Compensation, "compensate", "trigger") => json!({
+                "term": "aggregate", "members": [
+                    {"term": "binding", "name": "binder", "value": example(Shape::Reference)},
+                    {"term": "binding", "name": "guard", "value": example(Shape::Boolean)}
+                ]
+            }),
+            (ProtocolForm::Compensation, "compensate", "within") => json!({
+                "term": "aggregate", "members": [
+                    {"term": "binding", "name": "lower", "value": example(Shape::Integer)},
+                    {"term": "binding", "name": "upper", "value": example(Shape::Integer)}
+                ]
+            }),
+            (ProtocolForm::Compensation, "compensate", "attempts") => json!({
+                "term": "aggregate", "members": [
+                    {"term": "binding", "name": "maximum", "value": example(Shape::Integer)},
+                    {"term": "binding", "name": "record_type", "value": example(Shape::Reference)}
+                ]
+            }),
+            (ProtocolForm::Compensation, "compensate", "retry") => json!({
+                "term": "aggregate", "members": [
+                    {"term": "binding", "name": "earlier", "value": example(Shape::Reference)},
+                    {"term": "binding", "name": "later", "value": example(Shape::Reference)},
+                    {"term": "binding", "name": "relation", "value": example(Shape::Boolean)}
+                ]
+            }),
+            (ProtocolForm::Compensation, "compensate", "recovery") => json!({
+                "term": "aggregate", "members": [
+                    {"term": "binding", "name": "binder", "value": example(Shape::Reference)},
+                    {"term": "binding", "name": "predicate", "value": example(Shape::Boolean)}
                 ]
             }),
             _ => example(binding.shape),
@@ -3058,6 +3351,43 @@ mod tests {
                 &choice,
                 &boolean(),
                 Some(&selected())
+            ),
+            Err(ProtocolBodyDefect::MalformedLayout)
+        );
+    }
+
+    /// Trace: FR-038-AC-282, FR-038-AC-289
+    #[trace("TC-048")]
+    #[test]
+    fn compensation_nested_groups_require_their_fixed_bindings() {
+        let valid = body(ProtocolForm::Compensation, "compensate");
+        for ordinal in [6, 8, 9, 10, 12] {
+            let mut missing = valid.clone();
+            missing["arguments"][ordinal]["value"]["members"] = json!([]);
+            assert_eq!(
+                validate_protocol_body(
+                    ProtocolForm::Compensation,
+                    &missing,
+                    &boolean(),
+                    Some(&selected()),
+                ),
+                Err(ProtocolBodyDefect::MalformedLayout),
+                "nested group at argument {ordinal}"
+            );
+        }
+        let mut captures = valid;
+        captures["arguments"][5]["value"]["members"] = json!([{
+            "term": "aggregate", "members": [
+                {"term": "binding", "name": "initializer", "value": example(Shape::Term)},
+                {"term": "binding", "name": "binder", "value": example(Shape::Reference)}
+            ]
+        }]);
+        assert_eq!(
+            validate_protocol_body(
+                ProtocolForm::Compensation,
+                &captures,
+                &boolean(),
+                Some(&selected()),
             ),
             Err(ProtocolBodyDefect::MalformedLayout)
         );
