@@ -141,6 +141,10 @@ defines its reader-admitted QSL and adverse controls.
 defines the typed V2 envelope encoder implemented in the model crate; its
 focused IR controls are
 [TC-451](checked_package/matrix/TC-451-typed-v2-envelope-encoding.md).
+[FR-063](checked_package/functional/FR-063-dimension-equivalence-node.md)
+specifies typed V2 encoding and strict admission of QSpec FR-322-AC-118
+dimension equivalence nodes, including identity, graph consistency and
+refusal cases.
 [FR-054](checked_package/functional/FR-054-admitted-scalar-operand-projection.md)
 defines the admitted V1 package's typed, ordered scalar operand view, with
 [TC-458](checked_package/matrix/TC-458-admitted-scalar-operands.md) covering
