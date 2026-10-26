@@ -727,6 +727,56 @@ fn package_with_member_role() -> (Value, usize) {
     (package, position)
 }
 
+fn package_with_replicated_role() -> (Value, usize) {
+    let (mut package, role) = package_with_member_role();
+    let model =
+        package["semantic_graph"]["nodes"][role]["body"]["arguments"][0]["value"]["target"].clone();
+    let reference_body = json!({"term": "aggregate", "members": [
+        {"term": "reference", "target": model}
+    ]});
+    let reference_type = structural_key("composite_type", "reference", None, &reference_body);
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(json!({
+            "node_id": node_id(&reference_type),
+            "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "composite_type", "semantic_form": "reference",
+            "semantic_type": node_id(&reference_type), "dependencies": [model],
+            "occurrences": [{"role": "type", "ordinal": 0}],
+            "body": reference_body,
+        }));
+    let mut binder = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_id"] == node_id(&family_key("p-close")))
+        .expect("parameter")
+        .clone();
+    binder["semantic_type"] = node_id(&reference_type);
+    let binder_key = structural_key("value", "parameter", Some(&reference_type), &binder["body"]);
+    binder["node_id"] = node_id(&binder_key);
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(binder);
+    package["semantic_graph"]["nodes"][role]["body"]["arguments"][1]["value"]["members"] = json!([
+        {"term": "binding", "name": "population", "value": {
+            "term": "literal", "type": node_id(&family_key("a1a1")),
+            "value_kind": "text", "value": "orders"}},
+        {"term": "binding", "name": "max", "value": {
+            "term": "literal", "type": node_id(&family_key("a3a3")),
+            "value_kind": "integer", "value": "2"}},
+        {"term": "binding", "name": "binder", "value": {
+            "term": "reference", "target": node_id(&binder_key)}},
+        {"term": "binding", "name": "lifetime", "value": {
+            "term": "literal", "type": node_id(&family_key("a1a1")),
+            "value_kind": "text", "value": "workflow"}},
+    ]);
+    settle(&mut package);
+    (package, role)
+}
+
 fn package_with_member_channel() -> (Value, usize, usize) {
     let (mut package, role) = package_with_member_role();
     let role_key = package["semantic_graph"]["nodes"][role]["node_id"].clone();
@@ -1100,7 +1150,7 @@ fn protocol_role_dependency_precedes_wrong_model_form() {
     );
 }
 
-/// Trace: FR-038-AC-285
+/// Trace: FR-038-AC-286
 #[trace("TC-947")]
 #[test]
 fn protocol_role_max_precedes_wrong_replication_binder_type() {
@@ -1129,6 +1179,39 @@ fn protocol_role_max_precedes_wrong_replication_binder_type() {
         refusal_at(
             CheckedPackageRefusalCode::IllTyped,
             &format!("/semantic_graph/nodes/{role}/body/arguments/1/value/members/1/value"),
+            Some(CheckedPackageRefusalCause::TypeMismatch),
+            key,
+        )
+    );
+}
+
+/// Trace: FR-038-AC-286
+#[trace("TC-947")]
+#[test]
+fn protocol_replicated_role_admits_positive_max_and_reference_binder() {
+    let (package, _) = package_with_replicated_role();
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
+/// Trace: FR-038-AC-286
+#[trace("TC-947")]
+#[test]
+fn protocol_replicated_role_rejects_wrong_binder_type_after_positive_max() {
+    let (mut package, role) = package_with_replicated_role();
+    package["semantic_graph"]["nodes"][role]["body"]["arguments"][1]["value"]["members"][2]
+        ["value"]["target"] = node_id(&family_key("p-close"));
+    settle(&mut package);
+    let key = package["semantic_graph"]["nodes"][role]["node_id"]["digest"]
+        .as_str()
+        .expect("digest");
+    assert_eq!(
+        read(&package),
+        refusal_at(
+            CheckedPackageRefusalCode::IllTyped,
+            &format!("/semantic_graph/nodes/{role}"),
             Some(CheckedPackageRefusalCause::TypeMismatch),
             key,
         )
