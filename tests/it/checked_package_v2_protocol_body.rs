@@ -1305,9 +1305,7 @@ fn protocol_owner_edge_has_closed_wire_presence_and_local_shape() {
     let baseline = read(&package);
     assert!(
         matches!(baseline, CheckedPackageV2ReadResult::Admitted(_)),
-        "baseline {baseline:?}; node 10 form={}, dependencies={}",
-        package["semantic_graph"]["nodes"][10]["semantic_form"],
-        package["semantic_graph"]["nodes"][10]["dependencies"]
+        "baseline {baseline:?}"
     );
 
     let mut absent = package.clone();
@@ -1492,9 +1490,7 @@ fn protocol_owner_retarget_to_second_selected_model_changes_package_identity() {
     let result = read(&package);
     let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
         panic!(
-            "exact second selected model owner must admit without over-type inference: {result:?}; node 10 form={}, dependencies={}",
-            package["semantic_graph"]["nodes"][10]["semantic_form"],
-            package["semantic_graph"]["nodes"][10]["dependencies"]
+            "exact second selected model owner must admit without over-type inference: {result:?}"
         );
     };
     let clause = admitted

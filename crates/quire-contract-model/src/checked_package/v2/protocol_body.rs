@@ -3273,22 +3273,6 @@ fn check_clause_slots(
     validated: &[Option<(&str, &[CheckedTerm])>],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    if let Some(expected) = check.terms[check.position]
-        .as_ref()
-        .and_then(super::structural::application_dependencies)
-    {
-        if !check.nodes[check.position]
-            .dependencies
-            .iter()
-            .eq(expected.iter())
-        {
-            return Err(check.refuse(
-                Code::InvalidSemanticGraph,
-                None,
-                node_pointer(check.position).key("dependencies"),
-            ));
-        }
-    }
     let scope = ProtocolScope::new(check, arguments, validated, meter)?;
     let activation = check.at(arguments, 1);
     if let Some(guard) = group_value(activation, "guard") {
