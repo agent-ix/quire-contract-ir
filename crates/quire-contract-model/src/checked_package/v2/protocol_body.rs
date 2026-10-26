@@ -3754,48 +3754,50 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                             if self
                                 .check
                                 .is(binder, CheckedNodeKind::Value(ValueForm::Parameter))
-                                && !self.captures.contains(&binder)
                             {
-                                let reason = match self.fact_roles.get(&binder) {
-                                    Some(&role) if role != owner => Some("other-role"),
-                                    Some(_)
-                                        if matches!(use_at, DecisionFactUse::Guard)
-                                            && !listed.contains(&position) =>
-                                    {
-                                        Some("unlisted")
-                                    }
-                                    Some(_) => None,
-                                    None => Some("ineligible-kind"),
-                                };
-                                if let Some(reason) = reason {
-                                    let node = self.check.nodes[position].node_id.clone();
-                                    let mut failure = ValidationFailure::refused_at(
-                                        Code::WrongSnapshot,
-                                        node_pointer(position),
-                                        Some(Cause::WrongObservation),
-                                        node.clone(),
-                                    );
-                                    if let ValidationFailure::Refused(ref mut refusal) = failure {
-                                        refusal.protocol_detail = Some(Box::new(
-                                            CheckedProtocolRefusalDetail::DecisionFact {
-                                                node,
-                                                owner: self.check.nodes[owner].node_id.clone(),
-                                                read: CheckedProtocolDecisionRead {
-                                                    binder: self.check.nodes[binder]
-                                                        .node_id
-                                                        .clone(),
-                                                    field: field.into(),
+                                if !self.captures.contains(&binder) {
+                                    let reason = match self.fact_roles.get(&binder) {
+                                        Some(&role) if role != owner => Some("other-role"),
+                                        Some(_)
+                                            if matches!(use_at, DecisionFactUse::Guard)
+                                                && !listed.contains(&position) =>
+                                        {
+                                            Some("unlisted")
+                                        }
+                                        Some(_) => None,
+                                        None => Some("ineligible-kind"),
+                                    };
+                                    if let Some(reason) = reason {
+                                        let node = self.check.nodes[position].node_id.clone();
+                                        let mut failure = ValidationFailure::refused_at(
+                                            Code::WrongSnapshot,
+                                            node_pointer(position),
+                                            Some(Cause::WrongObservation),
+                                            node.clone(),
+                                        );
+                                        if let ValidationFailure::Refused(ref mut refusal) = failure
+                                        {
+                                            refusal.protocol_detail = Some(Box::new(
+                                                CheckedProtocolRefusalDetail::DecisionFact {
+                                                    node,
+                                                    owner: self.check.nodes[owner].node_id.clone(),
+                                                    read: CheckedProtocolDecisionRead {
+                                                        binder: self.check.nodes[binder]
+                                                            .node_id
+                                                            .clone(),
+                                                        field: field.into(),
+                                                    },
+                                                    reason: reason.into(),
                                                 },
-                                                reason: reason.into(),
-                                            },
-                                        ));
+                                            ));
+                                        }
+                                        return Err(failure);
                                     }
-                                    return Err(failure);
                                 }
+                                continue;
                             }
                         }
                     }
-                    continue;
                 }
             }
             for target in self.check.nodes[position].dependencies.iter().rev() {
