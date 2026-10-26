@@ -30,3 +30,13 @@ Reviewed the frozen commit-dominance diff against QSpec FR-464/466 and IR FR-038
 ## Coverage
 
 Plan completion: not assessed. Computed Quire matrix inspected for the changed criteria. Reverse-gap and stub inspection found no ownerless changed behavior or stub. The optional repository-wide semantic review was not requested. FR-038-AC-284/289 remain Planned.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Public-reader tests now exercise intersection for choice and non-all parallel when every branch contains the selected commit; repeat-body test admits the package because taken(repeat) is empty. |
+
+## Disposition verdict
+
+**PASS at 2c2dbab52186dac7e0ddcabba1fabecdc1a63714** — FND-001 is fixed in PR #576. No new finding in the fix diff; full FR-038-AC-284/289 remain Planned.

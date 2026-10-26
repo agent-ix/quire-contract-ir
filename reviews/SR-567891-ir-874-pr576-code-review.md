@@ -30,3 +30,13 @@ Reviewed the frozen commit-dominance diff against QSpec FR-464/466 and IR FR-038
 ## Coverage
 
 The diff changes Rust model code and public-reader tests only; no CI, dependency, spec or plan file changed. FR-038-AC-284/289 remain Planned.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Dominance is now called immediately after the template bounds check, within the digest-ordered compensation member loop. The membership pass follows all local member checks. Public tests assert precedence over an unattached control and a later-digest template with invalid bounds. |
+
+## Disposition verdict
+
+**PASS at 2c2dbab52186dac7e0ddcabba1fabecdc1a63714** — FND-001 is fixed in PR #576. No new finding in the fix diff; full FR-038-AC-284/289 remain Planned.
