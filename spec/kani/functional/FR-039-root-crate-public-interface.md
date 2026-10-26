@@ -113,7 +113,7 @@ panicking; `KaniOutcomeError` codes are registered in STD-001. The `code` of a
 | FR-039-AC-1 | The root crate's public items are exactly those the Public items table lists, checked by a public-signature inventory of `src/` that fails on an added or missing item; `src/lib.rs` re-exports no `quire_contract_model` item, and code naming a model item through `quire_contract_ir` fails to compile. | Test (TC-055) |
 | FR-039-AC-2 | No public item names a `quire_spec_language::runtime` type and no source file under `src/` names `quire_spec_language::runtime`. | Test (TC-055) |
 | FR-039-AC-3 | Code naming any item the "Items QSL owns" or "Items codegen owns" section lists through `quire_contract_ir` fails to compile, and no public item of the root crate names `qsl_replay::TerminalValue` or maps a `KaniOutcome` to one. | Test (TC-055) |
-| FR-039-AC-4 | Every public `kani` function over untrusted input returns a typed error with no public panic path under the negative corpora of TC-041 and TC-042. | Test (TC-055) |
+| FR-039-AC-4 | Every public `kani` function over untrusted input returns a typed error with no public panic path. | Test (TC-055) |
 
 ## Dependencies
 
