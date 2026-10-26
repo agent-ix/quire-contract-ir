@@ -23,10 +23,11 @@ relationships:
 When a checked-package V2 graph contains a `scalar_type` node with semantic
 form `dimension_equivalence`, the Contract IR typed writer SHALL encode its
 complete QSpec nominal preimage and graph members, and the strict reader SHALL
-admit it only under QSpec FR-322-AC-118. An invalid equivalence SHALL refuse
-the package with the QSpec `invalid_semantic_graph` result at the offending
-node. IR neither infers an equivalence from names nor rewrites a producer's
-pair or scale.
+admit it only under QSpec FR-322-AC-118. For an invalid equivalence, the strict
+reader SHALL refuse the package at the first applicable QSpec FR-322 wire,
+graph, identity, or semantic check, with no partial admitted package. IR
+neither infers an equivalence from names nor rewrites a producer's pair or
+scale.
 
 ## Inputs
 
