@@ -34,3 +34,14 @@ The computed Quoin matrix tags FR-038-AC-282/284/288, but the changed tests do n
 ## Coverage
 
 Plan completion: not assessed. Quoin matrix reports FR-038-AC-282/284/288 tagged (2/4/28 binders) with no run evidence in its store. Reverse-gap and stub inspection found no ownerless changed code or stub. The optional repository-wide semantic review was not requested; changed behavior was compared manually with FR-464/466 and IR FR-038. Full protocol criteria remain Planned.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The public reader now admits an operation-anchored attempt and an effect of that attempt, then checks wrong contract kind and anchor. |
+| FND-002 | fixed | The public reader now admits an event with a listed same-clause compensation and refuses an otherwise shaped foreign target at the exact pointer. |
+
+## Disposition verdict
+
+**PASS at dbd78036bfaf0217a76a8d5277f5ee5bc6e9b282** — All original findings were fixed on this PR; the complete FR-038-AC-282/284/288 criteria remain Planned.

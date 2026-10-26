@@ -34,3 +34,13 @@ The new local control checks follow the typed reference and refusal patterns, bu
 ## Coverage
 
 The change touches Rust model code and public-reader tests only; no CI workflow, dependency, spec or plan file changed. Reviewed malformed-input paths, local refusal order, nested-clause lookup and changed tests. Focused test run is recorded by the code lead; no aggregate gate was run in review.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The clause scan now charges one work unit per node before inspecting it; exhaustion returns through `Result` at the control node. |
+
+## Disposition verdict
+
+**PASS at dbd78036bfaf0217a76a8d5277f5ee5bc6e9b282** — All original findings were fixed on this PR; the complete FR-038-AC-282/284/288 criteria remain Planned.
