@@ -812,6 +812,9 @@ fn equivalence_potentials(
     base_only: bool,
     meter: &mut WorkMeter,
 ) -> Result<BTreeMap<CheckedNodeId, BasePotential>, ValidationFailure> {
+    meter.charge(u64::try_from(graph.nodes.len()).unwrap_or(u64::MAX), || {
+        JsonPointer::root().key("semantic_graph").key("nodes")
+    })?;
     let mut adjacency: BTreeMap<CheckedNodeId, Vec<(CheckedNodeId, ExactRatio, usize)>> =
         BTreeMap::new();
     for (position, edge) in edges {
@@ -947,7 +950,24 @@ fn validate_equivalence_graph(
 pub(super) fn validate_equivalence_occurrences(
     wire: &RawCheckedPackageWireV2,
     kinds: &[CheckedNodeKind],
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
+    if !kinds
+        .iter()
+        .any(|kind| *kind == CheckedNodeKind::ScalarType(ScalarTypeForm::DimensionEquivalence))
+    {
+        return Ok(());
+    }
+    meter.charge(
+        u64::try_from(wire.source_map.len()).unwrap_or(u64::MAX),
+        || JsonPointer::root().key("source_map"),
+    )?;
+    let anchors = wire
+        .source_map
+        .iter()
+        .filter(|entry| entry.role == crate::checked_package::shared::CheckedOccurrenceRole::Anchor)
+        .map(|entry| (&entry.node_id, entry))
+        .collect::<BTreeMap<_, _>>();
     let mut by_source: BTreeMap<(&str, &str), Vec<(u64, usize, u64)>> = BTreeMap::new();
     for (position, (node, kind)) in wire.semantic_graph.nodes.iter().zip(kinds).enumerate() {
         if *kind != CheckedNodeKind::ScalarType(ScalarTypeForm::DimensionEquivalence) {
@@ -958,10 +978,8 @@ pub(super) fn validate_equivalence_occurrences(
         else {
             continue;
         };
-        let Some(entry) = wire.source_map.iter().find(|entry| {
-            entry.node_id == node.node_id
-                && entry.role == crate::checked_package::shared::CheckedOccurrenceRole::Anchor
-        }) else {
+        meter.charge(1, || node_pointer(position).key("occurrences"))?;
+        let Some(entry) = anchors.get(&node.node_id) else {
             return Err(invalid(node_pointer(position).key("occurrences")));
         };
         let Some(start) = entry
