@@ -325,7 +325,7 @@ impl NominalOwnerKind {
 
 impl NominalKind {
     /// The nominal identity a node of this kind must carry, if any. Only the
-    /// four nominal forms carry one; every other form is decided here too, so
+    /// five nominal forms carry one; every other form is decided here too, so
     /// a new form is a compile error until it is.
     fn required_by(kind: CheckedNodeKind) -> Option<Self> {
         use CheckedNodeKind as K;
@@ -482,8 +482,8 @@ impl NominalKind {
 }
 
 impl NominalIdentityPreimage {
-    /// The declaring owner, for the forms that carry one; an enum member is
-    /// owned through its declaration.
+    /// The declaring owner for forms that use `NominalOwner`; an enum member
+    /// is owned through its declaration and an equivalence uses `SourceOwner`.
     pub(crate) fn owner(&self) -> Option<&NominalOwner> {
         match self {
             Self::EnumDeclaration(declaration) => Some(&declaration.owner),
@@ -915,6 +915,9 @@ fn validate_equivalence_graph(
     edges: &[(usize, &DimensionEquivalencePreimage)],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
+    if edges.is_empty() {
+        return Ok(());
+    }
     let bases = equivalence_potentials(graph, edges, true, meter)?;
     for (position, edge) in edges {
         let ids = &edge.dimension_node_ids;
