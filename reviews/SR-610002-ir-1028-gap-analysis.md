@@ -1,5 +1,5 @@
 ---
-id: SR-590009
+id: SR-610002
 title: "Gap analysis — IR-1028 indexed application group key lookup"
 type: SpecReview
 analysis: gap-analysis
