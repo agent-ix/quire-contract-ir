@@ -2227,6 +2227,15 @@ fn tc_226_tree_whole_read_work_boundary() {
     const PROTOCOL_CAUSAL_WORK: u64 = 7;
     const PROTOCOL_SCOPE_WORK: u64 = 52;
     const M: u64 = TREE_DEPENDENCY_CHARGE + PROTOCOL_CAUSAL_WORK + PROTOCOL_SCOPE_WORK;
+    for work in TREE_DEPENDENCY_CHARGE - 1..M {
+        if let CheckedPackageV2ReadResult::Incomplete(incomplete) = read_at(work) {
+            eprintln!(
+                "Tree work diagnostic {work}: consumed={} path={:?}",
+                incomplete.consumed,
+                incomplete.path.as_ref().map(|path| path.as_str())
+            );
+        }
+    }
     assert!(matches!(
         read_at(M),
         CheckedPackageV2ReadResult::Admitted(_)

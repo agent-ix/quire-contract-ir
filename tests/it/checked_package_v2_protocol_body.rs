@@ -627,14 +627,6 @@ fn clause_parameter(package: &mut Value, name: &str, level: &str) -> Value {
     );
     parameter["node_id"] = node_id(&key);
     let target = parameter["node_id"].clone();
-    if package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .any(|node| node["node_id"] == target)
-    {
-        return target;
-    }
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -664,6 +656,14 @@ fn relevel_parameter(package: &mut Value, target: &Value, level: usize) -> Value
     );
     parameter["node_id"] = node_id(&key);
     let target = parameter["node_id"].clone();
+    if package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .any(|node| node["node_id"] == target)
+    {
+        return target;
+    }
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
