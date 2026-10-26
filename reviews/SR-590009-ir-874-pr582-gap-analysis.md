@@ -44,9 +44,12 @@ Plan completion: not assessed. `quire matrix --scope . --format tsv` completed: 
 | --- | --- | --- |
 | FND-001 | fixed | At 8fabf73f, AC-290 tags now cover existing bounded and unbounded repeat admissions and compensation-anchor admission; an added unbounded-with-proof repeat admits. Public tests newly assert effect-before-attempt and compensation-forward-effect causal cycles, and a later-sibling await cycle that wins over a conflicting guard. |
 | FND-002 | still-open | At f683d452, TC-226's `read_at(M - 1)` outcome checks `limit_kind`, `limit` and `consumed` but does not assert `incomplete.path`, although FR-038-AC-149 requires the first unpaid value's pointer at this exact whole-read boundary. |
+| FND-002 | fixed | At c877aa9b, TC-226 now asserts `/semantic_graph/nodes/22` for the exact whole-read M-1 refusal. Fixture `base()` puts the empty sequence root at node 22, `recursive()` appends nodes without moving it, and `check_clause_causality`'s seventh and final work charge is the reverse-preorder progress visit at that root. The earlier Tree 489/490 pointer assertion remains. |
 
 ## Disposition verdict
 
 **PASS at 8fabf73f** for the recorded gap-analysis finding. Test execution remains pending hosted Rust Checks because host backoff barred new local jobs.
 
 **CONDITIONAL at f683d452** — FND-001 remains fixed. New FND-002 is open on the TC-226 exact-boundary pointer assertion.
+
+**PASS at c877aa9b** — FND-001 remains fixed and FND-002 is fixed. Runtime execution remains with hosted Rust Checks under host backoff.
