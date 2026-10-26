@@ -1168,6 +1168,7 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::InexactInteger => "inexact-integer",
         Cause::InexactNumber => "inexact-number",
         Cause::ExpressionForm => "expression-form",
+        Cause::DeclarationForm => "declaration-form",
     }
 }
 
