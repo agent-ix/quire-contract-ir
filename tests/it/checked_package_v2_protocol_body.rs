@@ -413,11 +413,22 @@ fn decision_fact_other_role_and_composite_entry_do_not_grant_observation() {
         .expect("reference expression")
         .clone();
     let field_target = composite["semantic_graph"]["nodes"][field]["node_id"].clone();
-    entry["body"] = json!({"term": "reference", "target": field_target});
-    entry["node_id"] = node_id(&structural_key(
+    entry["semantic_form"] = json!("binary");
+    entry["body"] = json!({
+        "term": "application", "operator": "binary",
+        "operation": {"identity": "quire.op.boolean.and", "laws": [], "mode": null,
+            "member": null, "leaves": []},
+        "result_type": node_id(&family_key("aaaa")),
+        "arguments": [
+            {"term": "reference", "target": field_target},
+            {"term": "literal", "type": node_id(&family_key("aaaa")),
+                "value_kind": "boolean", "value": true}
+        ]
+    });
+    entry["node_id"] = node_id(&application_node_key(
         "expression",
-        "reference",
-        Some(&family_key("aaaa")),
+        "binary",
+        &family_key("aaaa"),
         &entry["body"],
     ));
     entry["dependencies"] = json!([field_target]);
