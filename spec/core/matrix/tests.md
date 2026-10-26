@@ -36,7 +36,7 @@ type: TestMatrix
 
 | Registry | Verification | Test Cases | Status |
 |---|---|---|---|
-| STD-001 | exact registered code sets, precedence, structured fields, and no message parsing | TC-015 through TC-018, TC-223, TC-442, TC-443 | 🚧 closed code catalogs implemented and verified by TC-015 through TC-018; the typed `Std001Code`, the registered Kani cause codes and `invalid_code_form` are implemented and verified by TC-442; `kani_outcome_invalid` is raised for zero-count `proved` requests and invalid broad non-success requests, verified by TC-223 and TC-443 (FR-030-AC-4 through AC-6) |
+| STD-001 | exact registered code sets, precedence, structured fields, and no message parsing | TC-015 through TC-018, TC-223, TC-442, TC-443 | ✅ closed code catalogs implemented and verified by TC-015 through TC-018; the typed `Std001Code`, the registered Kani cause codes and `invalid_code_form` are implemented and verified by TC-442; `kani_outcome_invalid` is raised for zero-count `proved` requests and invalid broad non-success requests, verified by TC-223 and TC-443 (FR-030-AC-4 through AC-6) |
 
 ## Test Case Summary
 
