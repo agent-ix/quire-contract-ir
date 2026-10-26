@@ -7,7 +7,7 @@ use crate::support::checked_package::{canonical, evidence_for, v2_all_families, 
 use ix_trace_rs::trace;
 use quire_canonical::{Error, Limits};
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedCapability, CheckedDiagnosticsV2,
+    encode_checked_package_v2, CheckedCapability, CheckedDiagnosticsV2, CheckedNodeProjectionV2,
     CheckedPackageIdentityPreimageRefV2, CheckedPackageIdentityPreimageV2, CheckedPackageLockV2,
     CheckedPackageReadLimits, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult, CheckedSemanticGraphV2, CheckedSemanticId, CheckedSemanticNodeV2,
@@ -110,15 +110,21 @@ fn typed_writer_round_trips_protocol_clause_owner_model() {
         .expect("protocol clause");
     let owner = clause.owner_model.as_ref().expect("exact owner edge");
     assert!(clause.dependencies.contains(owner));
-    let projection = first
-        .identity_preimage()
-        .identity_projection
-        .iter()
-        .find(|node| node.node_id == clause.node_id)
-        .expect("identity projection");
+    let projection = CheckedNodeProjectionV2::from(clause);
     assert_eq!(projection.owner_model.as_ref(), Some(owner));
 
     let bytes = encode(&value, Limits::new(u64::MAX)).expect("typed writer");
+    let written: Value = serde_json::from_slice(&bytes).expect("encoded JSON");
+    let written_clause = written["identity_preimage"]["identity_projection"]
+        .as_array()
+        .expect("projection")
+        .iter()
+        .find(|node| node["node_id"] == serde_json::to_value(&clause.node_id).expect("id"))
+        .expect("projected clause");
+    assert_eq!(
+        written_clause["owner_model"],
+        serde_json::to_value(owner).expect("owner")
+    );
     let CheckedPackageV2ReadResult::Admitted(second) =
         CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence)
     else {
