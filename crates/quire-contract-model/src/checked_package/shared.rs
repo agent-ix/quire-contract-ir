@@ -418,6 +418,19 @@ pub enum CheckedProtocolRefusalDetail {
         /// The lock-selected protocol profile.
         profile: CheckedArtifactRef,
     },
+    /// A commit is unconditionally taken before its paired forward effect.
+    CommitPosition {
+        /// The lock-selected protocol profile.
+        profile: CheckedArtifactRef,
+        /// The offending template member.
+        member: Box<str>,
+        /// The commit control.
+        commit: CheckedNodeId,
+        /// The forward effect control.
+        effect: CheckedNodeId,
+        /// The stable reason for rejecting this placement.
+        reason: Box<str>,
+    },
     /// A control interval has its bounds in reverse order.
     Interval {
         /// The argument holding the interval.
