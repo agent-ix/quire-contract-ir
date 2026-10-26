@@ -1982,6 +1982,40 @@ mod tests {
             (ProtocolForm::Queue, "queue", "overflow") => text("reject"),
             (ProtocolForm::Channel, "channel", "delivery") => text("unknown"),
             (ProtocolForm::Obligation, "terminal", "mode") => text("any"),
+            (ProtocolForm::Control, "choice", "cases") => json!({
+                "term": "aggregate", "members": [
+                    {"term": "aggregate", "members": [
+                        {"term": "binding", "name": "label", "value": text("Left")},
+                        {"term": "binding", "name": "guard", "value": example(Shape::Boolean)},
+                        {"term": "binding", "name": "body", "value": example(Shape::Reference)}
+                    ]},
+                    {"term": "aggregate", "members": [
+                        {"term": "binding", "name": "label", "value": text("Right")},
+                        {"term": "binding", "name": "guard", "value": example(Shape::Boolean)},
+                        {"term": "binding", "name": "body", "value": example(Shape::Reference)}
+                    ]}
+                ]
+            }),
+            (ProtocolForm::Control, "parallel", "branches") => json!({
+                "term": "aggregate", "members": [
+                    {"term": "aggregate", "members": [
+                        {"term": "binding", "name": "label", "value": text("Left")},
+                        {"term": "binding", "name": "body", "value": example(Shape::Reference)}
+                    ]},
+                    {"term": "aggregate", "members": [
+                        {"term": "binding", "name": "label", "value": text("Right")},
+                        {"term": "binding", "name": "body", "value": example(Shape::Reference)}
+                    ]}
+                ]
+            }),
+            (ProtocolForm::Control, "parallel", "join") => json!({
+                "term": "aggregate", "members": [
+                    {"term": "binding", "name": "policy", "value": text("all")}
+                ]
+            }),
+            (ProtocolForm::Control, "parallel", "joined") => json!({
+                "term": "aggregate", "members": [text("Left"), text("Right")]
+            }),
             _ => example(binding.shape),
         }
     }

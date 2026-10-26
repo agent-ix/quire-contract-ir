@@ -643,6 +643,103 @@ fn choice_case_order_and_parallel_quorum_bounds_refuse() {
     );
 }
 
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn parallel_any_quorum_and_predicate_joins_admit() {
+    for policy in ["any", "quorum", "predicate"] {
+        let (mut package, _) = protocol_holder_case("parallel");
+        let holder = holder_position(&package);
+        let function = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["node_tag"] == "function")
+            .expect("function")["node_id"]
+            .clone();
+        let text = |value: &str| {
+            json!({
+                "term": "literal", "type": node_id(&family_key("a1a1")),
+                "value_kind": "text", "value": value
+            })
+        };
+        let mut fields = vec![json!({"term": "binding", "name": "policy", "value": text(policy)})];
+        if policy == "quorum" {
+            fields.push(json!({"term": "binding", "name": "count", "value": {
+                "term": "literal", "type": node_id(&family_key("a3a3")),
+                "value_kind": "integer", "value": "1"
+            }}));
+        }
+        if policy == "predicate" {
+            fields.push(json!({"term": "binding", "name": "predicate", "value": {
+                "term": "reference", "target": function
+            }}));
+        }
+        package["semantic_graph"]["nodes"][holder]["body"]["arguments"][2]["value"]["members"] =
+            json!(fields);
+        package["semantic_graph"]["nodes"][holder]["body"]["arguments"][3]["value"]["members"] =
+            json!([text("Left")]);
+        settle(&mut package);
+        assert!(
+            matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+            "{policy} join"
+        );
+    }
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn parallel_predicate_target_requires_function_form() {
+    let (mut package, _) = protocol_holder_case("parallel");
+    let holder = holder_position(&package);
+    let role = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "role")
+        .expect("role")["node_id"]
+        .clone();
+    package["semantic_graph"]["nodes"][holder]["body"]["arguments"][2]["value"]["members"] = json!([
+        {"term": "binding", "name": "policy", "value": {
+            "term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "predicate"
+        }},
+        {"term": "binding", "name": "predicate", "value": {"term": "reference", "target": role}}
+    ]);
+    settle(&mut package);
+    holder_refusal(
+        &package,
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration),
+        "/body/arguments/2/value/members/1/value/target",
+    );
+}
+
+/// Trace: FR-038-AC-282, FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn parallel_memory_and_outstanding_reject_unknown_spelling_at_wire_boundary() {
+    for (argument, value) in [(0, "weak"), (4, "pause")] {
+        let (mut package, _) = protocol_holder_case("parallel");
+        let holder = holder_position(&package);
+        package["semantic_graph"]["nodes"][holder]["body"]["arguments"][argument]["value"]
+            ["members"] = json!([{
+            "term": "literal", "type": node_id(&family_key("a1a1")),
+            "value_kind": "text", "value": value
+        }]);
+        assert_eq!(
+            read(&package),
+            refusal(
+                CheckedPackageRefusalCode::MalformedWire,
+                &format!(
+                    "/semantic_graph/nodes/{holder}/body/arguments/{argument}/value/members/0"
+                )
+            ),
+            "{value}"
+        );
+    }
+}
+
 #[trace("TC-048")]
 #[test]
 fn choice_parallel_repeat_and_await_hold_controls_at_their_own_paths() {
