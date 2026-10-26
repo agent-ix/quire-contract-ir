@@ -2215,9 +2215,11 @@ fn tc_226_tree_whole_read_work_boundary() {
     // (including Integer), three local member preimages and one group digest
     // cost 37. The remaining 448 are all other work charges of this complete
     // fixture, including the List group and three protocol nodes. These
-    // constants are authored here, not obtained from the reader at runtime.
+    // Protocol membership charges one clause, one finish reference, one run
+    // traversal and two member checks: 448 + 5.
+    // These constants are authored here, not obtained from the reader at runtime.
     const TREE_GROUP_WORK: u64 = 3 + (5 + 4 + 8 + 3) + (4 + 3 + 6 + 1);
-    const OTHER_READ_WORK: u64 = 448;
+    const OTHER_READ_WORK: u64 = 453;
     const M: u64 = OTHER_READ_WORK + TREE_GROUP_WORK;
     assert!(matches!(
         read_at(M),

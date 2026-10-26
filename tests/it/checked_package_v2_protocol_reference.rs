@@ -6,7 +6,7 @@
 use crate::support::checked_package::{
     admitted_dependency, canonical, evidence_for, family_key, fixture_source, node_id,
     protocol_role_node, read_with_dependencies, rebuild_source_map, refresh_identity, refusal_at,
-    rekey_application_node, source_owner, structural_key, v2_all_families, v2_nominal,
+    rekey_application_node, settle, source_owner, structural_key, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -68,6 +68,17 @@ fn role_target(package: &mut Value) -> Value {
         .as_array_mut()
         .expect("nodes")
         .push(role);
+    let clause = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "protocol" && node["semantic_form"] == "protocol_clause"
+        })
+        .expect("protocol clause");
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][3]["value"]["members"] =
+        json!([{"term": "reference", "target": target}]);
+    settle(package);
     target
 }
 

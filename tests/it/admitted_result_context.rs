@@ -1117,7 +1117,9 @@ fn ir987_scalar_and_result_results_bytes_and_work_match_admitted_fixture() {
     else {
         panic!("work boundary");
     };
-    assert_eq!((high, incomplete.consumed), (339, 339));
+    // Protocol membership charges one clause, one finish reference, one run
+    // traversal and two member checks: 339 + 5.
+    assert_eq!((high, incomplete.consumed), (344, 344));
 
     let contract = package(&checked, &[add.node_id.clone(), narrow.node_id.clone()]);
     let result = contract.result_context(
