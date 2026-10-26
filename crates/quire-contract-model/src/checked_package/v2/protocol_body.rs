@@ -11,7 +11,7 @@ use super::{
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
-    CheckedArtifactRef, CheckedNodeId, CheckedProtocolRefusalDetail,
+    CheckedArtifactRef, CheckedNodeId, CheckedProtocolDecisionRead, CheckedProtocolRefusalDetail,
 };
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, JsonPointer,
@@ -3357,6 +3357,7 @@ struct ProtocolScope<'a, 'b> {
     activation: Option<usize>,
     captures: Vec<usize>,
     known: BTreeMap<usize, Vec<ProtocolBinderOrigin>>,
+    fact_roles: BTreeMap<usize, usize>,
 }
 
 impl<'a, 'b> ProtocolScope<'a, 'b> {
@@ -3423,6 +3424,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             activation,
             captures,
             known,
+            fact_roles: BTreeMap::new(),
         };
         for field in ["roles", "channels", "compensations"] {
             for target in listed_targets(binding_value(arguments, field).expect("validated list")) {
@@ -3539,6 +3541,20 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             let (operator, args) = scope.node_arguments(position);
             if let Some(binder) = control_binder(operator, args) {
                 let binder = scope.target(binder);
+                let fact_role = match operator {
+                    "receive" => {
+                        let channel = scope.target(argument(args, 0).expect("receive channel"));
+                        let (_, channel_args) = scope.node_arguments(channel);
+                        Some(scope.target(argument(channel_args, 1).expect("channel to role")))
+                    }
+                    "attempt" | "event" => {
+                        Some(scope.target(argument(args, 0).expect("control role")))
+                    }
+                    _ => None,
+                };
+                if let Some(role) = fact_role {
+                    scope.fact_roles.insert(binder, role);
+                }
                 scope
                     .known
                     .entry(binder)
@@ -3687,6 +3703,98 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         Ok(())
     }
 
+    #[string_edge]
+    fn decision_facts(
+        &self,
+        term: &CheckedTerm,
+        owner: usize,
+        listed: &BTreeSet<usize>,
+        stop_at_listed: bool,
+        meter: &mut WorkMeter,
+    ) -> Result<(), ValidationFailure> {
+        let CheckedTerm::Reference { target } = term else {
+            return Ok(());
+        };
+        let Some(&root) = self.check.index.get(target) else {
+            return Ok(());
+        };
+        let mut pending = vec![root];
+        let mut visited = BTreeSet::new();
+        while let Some(position) = pending.pop() {
+            meter.charge(1, || node_pointer(owner))?;
+            if !visited.insert(position) || (stop_at_listed && listed.contains(&position)) {
+                continue;
+            }
+            if matches!(self.check.kinds[position], CheckedNodeKind::Function(_)) {
+                continue;
+            }
+            if let Some(CheckedTerm::Application {
+                operation,
+                arguments,
+                ..
+            }) = &self.check.terms[position]
+            {
+                if operation.get("identity").and_then(Value::as_str)
+                    == Some("quire.op.record.project")
+                    && operation.pointer("/member/kind").and_then(Value::as_str) == Some("field")
+                {
+                    if let (Some(CheckedTerm::Reference { target }), Some(field)) = (
+                        arguments.first(),
+                        operation.pointer("/member/name").and_then(Value::as_str),
+                    ) {
+                        if let Some(&binder) = self.check.index.get(target) {
+                            if self
+                                .check
+                                .is(binder, CheckedNodeKind::Value(ValueForm::Parameter))
+                                && !self.captures.contains(&binder)
+                            {
+                                let reason = match self.fact_roles.get(&binder) {
+                                    Some(&role) if role != owner => Some("other-role"),
+                                    Some(_) if !listed.contains(&position) => Some("unlisted"),
+                                    Some(_) => None,
+                                    None => Some("ineligible-kind"),
+                                };
+                                if let Some(reason) = reason {
+                                    let node = self.check.nodes[position].node_id.clone();
+                                    let mut failure = ValidationFailure::refused_at(
+                                        Code::WrongSnapshot,
+                                        node_pointer(position),
+                                        Some(Cause::WrongObservation),
+                                        node.clone(),
+                                    );
+                                    if let ValidationFailure::Refused(ref mut refusal) = failure {
+                                        refusal.protocol_detail = Some(Box::new(
+                                            CheckedProtocolRefusalDetail::DecisionFact {
+                                                node,
+                                                owner: self.check.nodes[owner].node_id.clone(),
+                                                read: CheckedProtocolDecisionRead {
+                                                    binder: self.check.nodes[binder]
+                                                        .node_id
+                                                        .clone(),
+                                                    field: field.into(),
+                                                },
+                                                reason: reason.into(),
+                                            },
+                                        ));
+                                    }
+                                    return Err(failure);
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                }
+            }
+            for target in self.check.nodes[position].dependencies.iter().rev() {
+                meter.charge(1, || node_pointer(owner))?;
+                if let Some(&next) = self.check.index.get(target) {
+                    pending.push(next);
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn introduce(
         &self,
         position: usize,
@@ -3798,8 +3906,15 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         match operator {
             "choice" | "repeat" => {
                 let visible = argument(args, 1).expect("visible");
+                let listed = members(visible)
+                    .expect("visible entries")
+                    .iter()
+                    .map(|entry| self.target(entry))
+                    .collect::<BTreeSet<_>>();
+                let owner = self.target(argument(args, 0).expect("decision owner"));
                 for entry in members(visible).expect("visible entries") {
                     self.slot(position, entry, &input, "run", Some("visible"), None, meter)?;
+                    self.decision_facts(entry, owner, &listed, false, meter)?;
                 }
                 if operator == "choice" {
                     for case in members(argument(args, 2).expect("cases")).expect("cases") {
@@ -3813,6 +3928,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                             None,
                             meter,
                         )?;
+                        self.decision_facts(guard, owner, &listed, true, meter)?;
                     }
                 } else {
                     let guard = argument(args, 4).expect("repeat guard");
@@ -3825,6 +3941,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                         None,
                         meter,
                     )?;
+                    self.decision_facts(guard, owner, &listed, true, meter)?;
                     let proof = argument(args, 3).expect("repeat proof");
                     for item in members(proof).expect("proof") {
                         if let CheckedTerm::Binding { value, .. } = item {

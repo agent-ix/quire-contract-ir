@@ -114,6 +114,8 @@ pub enum CheckedPackageRefusalCode {
     /// [`CheckedPackageRefusalCause::UnsupportedSelection`] or
     /// [`CheckedPackageRefusalCause::WrongSelectionRole`].
     UnknownProfile,
+    /// A decision reads a fact unavailable in its owner's observation.
+    WrongSnapshot,
 }
 
 /// Stable machine cause paired with a [`CheckedPackageRefusalCode`] under
@@ -142,6 +144,8 @@ pub enum CheckedPackageRefusalCause {
     /// `missing-name`: an entry naming no node of the graph, or a node that
     /// is not a declared dependency of the frame node that names it.
     MissingName,
+    /// A decision reads a fact of another role, an ineligible kind, or an unlisted fact.
+    WrongObservation,
     /// `malformed-declaration`: an entry naming a declared dependency whose
     /// tag and semantic form its member does not admit.
     MalformedDeclaration,
@@ -409,6 +413,17 @@ pub enum CheckedProtocolRefusalDetail {
         /// The slot that bars model state.
         slot: Box<str>,
     },
+    /// A choice or repeat decision reads a fact outside its visible observation.
+    DecisionFact {
+        /// The field-read expression node.
+        node: CheckedNodeId,
+        /// The role making the decision.
+        owner: CheckedNodeId,
+        /// The record binder and field read by the expression.
+        read: CheckedProtocolDecisionRead,
+        /// `other-role`, `ineligible-kind`, or `unlisted`.
+        reason: Box<str>,
+    },
     /// Controls participating in a derived causal cycle, in control-tree order.
     CausalCycle {
         /// The controls on the cycle.
@@ -468,6 +483,15 @@ pub enum CheckedProtocolRefusalDetail {
         /// The interval bounds as written.
         actual: Box<str>,
     },
+}
+
+/// The record binder and field named by a decision-fact read.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedProtocolDecisionRead {
+    /// The record binder node.
+    pub binder: CheckedNodeId,
+    /// The field selected from that binder.
+    pub field: Box<str>,
 }
 
 /// A typed refusal with a stable code and the location of the value it is
