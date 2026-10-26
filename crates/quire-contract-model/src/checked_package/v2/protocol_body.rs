@@ -1341,7 +1341,12 @@ impl MemberCheck<'_> {
         let own = own.qualified_name.as_slice();
         let other = other.qualified_name.as_slice();
         let own_segment = match self.kinds[self.position] {
-            CheckedNodeKind::Protocol(ProtocolForm::Channel) => "channel",
+            CheckedNodeKind::Protocol(ProtocolForm::Channel) => {
+                return own.len() >= 2
+                    && other.len() >= 2
+                    && own[..own.len() - 2] == other[..other.len() - 2]
+                    && other[other.len() - 2].as_ref() == segment;
+            }
             CheckedNodeKind::Protocol(ProtocolForm::Control) => "run",
             _ => return false,
         };
