@@ -446,9 +446,19 @@ pub(super) fn validate_structural_nodes(
         if let Some(defect) = defect.or(role) {
             return Err(refuse(defect));
         }
-        if let Some(expected) = term.and_then(application_dependencies) {
-            if !node.dependencies.iter().eq(expected.iter()) {
-                return Err(refuse(Defect::Dependencies));
+        if !matches!(
+            kinds.get(position),
+            Some(CheckedNodeKind::Protocol(
+                ProtocolForm::Role
+                    | ProtocolForm::Channel
+                    | ProtocolForm::Queue
+                    | ProtocolForm::Obligation
+            ))
+        ) {
+            if let Some(expected) = term.and_then(application_dependencies) {
+                if !node.dependencies.iter().eq(expected.iter()) {
+                    return Err(refuse(Defect::Dependencies));
+                }
             }
         }
     }

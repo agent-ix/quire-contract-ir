@@ -4,14 +4,16 @@
 
 use super::{
     ApplicationOperator, CheckedNodeKind, CheckedPackageLockV2, CheckedSelectionRole, CheckedTerm,
-    LiteralKind, ProtocolForm, RawSemanticNodeV2, ScalarTypeForm, WorkMeter,
+    CompositeTypeForm, LiteralKind, ModelForm, ProtocolForm, RawSemanticNodeV2, ScalarTypeForm,
+    ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId};
 use crate::checked_package::shared::{
-    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
+    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, JsonPointer,
 };
 use ix_trace_rs::string_edge;
+use num_bigint::BigInt;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -37,6 +39,7 @@ pub(super) enum ProtocolBodyDefect {
 /// A malformed protocol wire shape, with the offending enum term when known.
 pub(super) enum ProtocolLayoutWireDefect {
     Body,
+    NegativeQueueCapacity,
     EnumValue {
         argument: usize,
         member: Option<(usize, bool)>,
@@ -50,12 +53,13 @@ enum Shape {
     Text,
     Integer,
     Boolean,
+    BooleanCandidate,
     References,
     Texts,
     OptionalReference,
     OptionalText,
     OptionalInteger,
-    OptionalBoolean,
+    OptionalBooleanCandidate,
     Group,
     Records,
 }
@@ -104,11 +108,11 @@ const QUEUE: &[Binding] = &[
 ];
 const FINISH: &[Binding] = &[
     field("binder", Shape::Reference),
-    field("constraint", Shape::Boolean),
+    field("constraint", Shape::BooleanCandidate),
 ];
 const TERMINAL: &[Binding] = &[
     field("mode", Shape::Text),
-    field("condition", Shape::OptionalBoolean),
+    field("condition", Shape::OptionalBooleanCandidate),
 ];
 const SEQUENCE: &[Binding] = &[field("children", Shape::References)];
 const CHOICE: &[Binding] = &[
@@ -257,15 +261,12 @@ fn shape_fits(value: &CheckedTerm, shape: Shape) -> bool {
         ),
         Shape::Boolean => {
             matches!(value, CheckedTerm::Reference { .. })
-                || matches!(
-                    value,
-                    CheckedTerm::Literal {
-                        value_kind: LiteralKind::Boolean,
-                        value,
-                        ..
-                    } if value.as_bool().is_some()
-                )
+                || matches!(value, CheckedTerm::Literal { value_kind: LiteralKind::Boolean, value, .. } if value.as_bool().is_some())
         }
+        Shape::BooleanCandidate => matches!(
+            value,
+            CheckedTerm::Reference { .. } | CheckedTerm::Literal { .. }
+        ),
         Shape::References => members(value)
             .is_some_and(|items| items.iter().all(|item| shape_fits(item, Shape::Reference))),
         Shape::Texts => members(value)
@@ -279,8 +280,11 @@ fn shape_fits(value: &CheckedTerm, shape: Shape) -> bool {
         Shape::OptionalInteger => members(value).is_some_and(|items| {
             items.len() <= 1 && items.iter().all(|item| shape_fits(item, Shape::Integer))
         }),
-        Shape::OptionalBoolean => members(value).is_some_and(|items| {
-            items.len() <= 1 && items.iter().all(|item| shape_fits(item, Shape::Boolean))
+        Shape::OptionalBooleanCandidate => members(value).is_some_and(|items| {
+            items.len() <= 1
+                && items
+                    .iter()
+                    .all(|item| shape_fits(item, Shape::BooleanCandidate))
         }),
         Shape::Group => members(value).is_some_and(|items| {
             items
@@ -432,7 +436,7 @@ fn local_details_fit(form: ProtocolForm, operator: &str, arguments: &[CheckedTer
                         ("max", Shape::Integer),
                         ("binder", Shape::Reference),
                         ("lifetime", Shape::Text),
-                        ("until", Shape::Boolean),
+                        ("until", Shape::BooleanCandidate),
                     ],
                 ) && argument_text(replication, 3) == Some("until")
         }
@@ -637,11 +641,23 @@ pub(super) fn wire_layout_defect(
     if let Some(defect) = enum_value_defect(form, operator, arguments) {
         return Some(defect);
     }
-    matches!(
+    if matches!(
         validate_layout(form, operator, arguments),
         Err(ProtocolBodyDefect::MalformedLayout)
-    )
-    .then_some(ProtocolLayoutWireDefect::Body)
+    ) {
+        return Some(ProtocolLayoutWireDefect::Body);
+    }
+    if (form, operator) == (ProtocolForm::Queue, "queue") {
+        let capacity = argument(arguments, 1);
+        if capacity
+            .and_then(|capacity| group_value(capacity, "value"))
+            .and_then(integer_value)
+            .is_some_and(|value| value < BigInt::from(0))
+        {
+            return Some(ProtocolLayoutWireDefect::NegativeQueueCapacity);
+        }
+    }
+    None
 }
 
 fn invalid_enum_at(
@@ -885,6 +901,468 @@ fn declaration_defect(position: usize, node: &RawSemanticNodeV2) -> ValidationFa
         None,
         node.node_id.clone(),
     )
+}
+
+struct MemberCheck<'a> {
+    position: usize,
+    nodes: &'a [RawSemanticNodeV2],
+    kinds: &'a [CheckedNodeKind],
+    terms: &'a [Option<CheckedTerm>],
+    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+}
+
+impl MemberCheck<'_> {
+    fn refuse(&self, code: Code, cause: Option<Cause>, path: JsonPointer) -> ValidationFailure {
+        ValidationFailure::refused_at(code, path, cause, self.nodes[self.position].node_id.clone())
+    }
+
+    fn argument_path(&self, ordinal: usize) -> JsonPointer {
+        node_pointer(self.position)
+            .key("body")
+            .key("arguments")
+            .index(ordinal)
+            .key("value")
+    }
+
+    fn check_target(
+        &self,
+        term: &CheckedTerm,
+        path: JsonPointer,
+        expected: impl Fn(usize) -> bool,
+    ) -> Result<usize, ValidationFailure> {
+        let Some(target) = reference_target(term) else {
+            return Err(self.refuse(Code::MalformedWire, None, path));
+        };
+        let target_path = path.key("target");
+        if !self.nodes[self.position].dependencies.contains(target) {
+            return Err(self.refuse(
+                Code::MissingDeclaration,
+                Some(Cause::MissingName),
+                target_path,
+            ));
+        }
+        let Some(&position) = self.index.get(target) else {
+            return Err(self.refuse(
+                Code::MissingDeclaration,
+                Some(Cause::MissingName),
+                target_path,
+            ));
+        };
+        if !expected(position) {
+            return Err(self.refuse(
+                Code::InvalidModelBinding,
+                Some(Cause::MalformedDeclaration),
+                target_path,
+            ));
+        }
+        Ok(position)
+    }
+
+    fn at<'a>(&self, arguments: &'a [CheckedTerm], ordinal: usize) -> &'a CheckedTerm {
+        // The strict wire layout and validate_layout establish this binding.
+        argument(arguments, ordinal).expect("validated protocol layout")
+    }
+
+    fn target_at(
+        &self,
+        arguments: &[CheckedTerm],
+        ordinal: usize,
+        expected: impl Fn(usize) -> bool,
+    ) -> Result<usize, ValidationFailure> {
+        self.check_target(
+            self.at(arguments, ordinal),
+            self.argument_path(ordinal),
+            expected,
+        )
+    }
+
+    fn is(&self, position: usize, kind: CheckedNodeKind) -> bool {
+        self.kinds.get(position) == Some(&kind)
+    }
+
+    fn boolean(&self, term: &CheckedTerm, path: JsonPointer) -> Result<(), ValidationFailure> {
+        let valid = match term {
+            CheckedTerm::Literal {
+                type_id,
+                value_kind: LiteralKind::Boolean,
+                ..
+            } => self.index.get(type_id).is_some_and(|&position| {
+                self.is(
+                    position,
+                    CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean),
+                )
+            }),
+            CheckedTerm::Reference { target } => self.index.get(target).is_some_and(|&position| {
+                self.index
+                    .get(&self.nodes[position].semantic_type)
+                    .is_some_and(|&type_position| {
+                        self.is(
+                            type_position,
+                            CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean),
+                        )
+                    })
+            }),
+            _ => false,
+        };
+        if valid {
+            Ok(())
+        } else {
+            Err(self.refuse(Code::IllTyped, Some(Cause::NonBooleanRoot), path))
+        }
+    }
+
+    fn same_type(&self, binder: usize, expected: &CheckedNodeId) -> Result<(), ValidationFailure> {
+        if &self.nodes[binder].semantic_type == expected {
+            Ok(())
+        } else {
+            Err(self.refuse(
+                Code::IllTyped,
+                Some(Cause::TypeMismatch),
+                node_pointer(self.position),
+            ))
+        }
+    }
+
+    fn term_type<'a>(&'a self, term: &'a CheckedTerm) -> Option<&'a CheckedNodeId> {
+        match term {
+            CheckedTerm::Literal { type_id, .. } => Some(type_id),
+            CheckedTerm::Reference { target } => self
+                .index
+                .get(target)
+                .map(|&position| &self.nodes[position].semantic_type),
+            _ => None,
+        }
+    }
+
+    fn equality_stable(&self, type_id: &CheckedNodeId) -> bool {
+        let mut pending = vec![type_id];
+        let mut visited = BTreeSet::new();
+        while let Some(type_id) = pending.pop() {
+            let Some(&position) = self.index.get(type_id) else {
+                return false;
+            };
+            if !visited.insert(position) {
+                continue;
+            }
+            match self.kinds[position] {
+                CheckedNodeKind::ScalarType(
+                    ScalarTypeForm::Boolean
+                    | ScalarTypeForm::Integer
+                    | ScalarTypeForm::Rational
+                    | ScalarTypeForm::Decimal
+                    | ScalarTypeForm::Text
+                    | ScalarTypeForm::String
+                    | ScalarTypeForm::Uuid
+                    | ScalarTypeForm::Timestamp
+                    | ScalarTypeForm::Enum,
+                ) => {}
+                CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) => {}
+                CheckedNodeKind::CompositeType(_) => {
+                    let Some(term) = self.terms[position].as_ref() else {
+                        return false;
+                    };
+                    if !collect_type_children(term, &mut pending) {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
+        }
+        true
+    }
+
+    fn same_clause(&self, target: usize, segment: &str) -> bool {
+        let Some(own) = self.nodes[self.position].declaration.as_ref() else {
+            return false;
+        };
+        let Some(other) = self.nodes[target].declaration.as_ref() else {
+            return false;
+        };
+        let own = own.qualified_name.as_slice();
+        let other = other.qualified_name.as_slice();
+        own.len() >= 2
+            && other.len() >= 2
+            && own[..own.len() - 2] == other[..other.len() - 2]
+            && other[other.len() - 2].as_ref() == segment
+    }
+
+    #[string_edge]
+    fn queue_channel_same_clause(&self, channel: usize) -> bool {
+        let Some(channel_path) = self.nodes[channel]
+            .declaration
+            .as_ref()
+            .map(|declaration| declaration.qualified_name.as_slice())
+        else {
+            return false;
+        };
+        for &clause in self.index.values() {
+            if !self.is(
+                clause,
+                CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause),
+            ) {
+                continue;
+            }
+            let Some(CheckedTerm::Application { arguments, .. }) = self.terms[clause].as_ref()
+            else {
+                continue;
+            };
+            let listed = binding_value(arguments, "queues").is_some_and(|queues| {
+                listed_targets(queues).any(|target| target == &self.nodes[self.position].node_id)
+            });
+            if !listed {
+                continue;
+            }
+            let Some(prefix) = self.nodes[clause]
+                .declaration
+                .as_ref()
+                .map(|declaration| declaration.qualified_name.as_slice())
+            else {
+                return false;
+            };
+            if channel_path.len() != prefix.len() + 2
+                || !channel_path.starts_with(prefix)
+                || channel_path[prefix.len()].as_ref() != "channel"
+            {
+                return false;
+            }
+        }
+        // An unlisted queue is diagnosed by the later membership pass.
+        true
+    }
+
+    fn nonnegative(
+        &self,
+        term: &CheckedTerm,
+        path: JsonPointer,
+        positive: bool,
+    ) -> Result<(), ValidationFailure> {
+        let Some(value) = integer_value(term) else {
+            return Ok(());
+        };
+        if (positive && value == BigInt::from(0)) || value < BigInt::from(0) {
+            Err(self.refuse(Code::IllTyped, Some(Cause::TypeMismatch), path))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+fn integer_value(term: &CheckedTerm) -> Option<BigInt> {
+    let CheckedTerm::Literal {
+        value_kind: LiteralKind::Integer,
+        value,
+        ..
+    } = term
+    else {
+        return None;
+    };
+    value.as_str().and_then(|number| number.parse().ok())
+}
+
+fn collect_type_children<'a>(term: &'a CheckedTerm, pending: &mut Vec<&'a CheckedNodeId>) -> bool {
+    match term {
+        CheckedTerm::Reference { target } => {
+            pending.push(target);
+            true
+        }
+        CheckedTerm::Aggregate { members } => members
+            .iter()
+            .all(|member| collect_type_children(member, pending)),
+        CheckedTerm::Binding { value, .. } => collect_type_children(value, pending),
+        CheckedTerm::Literal { .. } => true,
+        _ => false,
+    }
+}
+
+fn group_value<'a>(term: &'a CheckedTerm, name: &str) -> Option<&'a CheckedTerm> {
+    binding_value(members(term)?, name)
+}
+
+fn check_member_dependencies(
+    check: &MemberCheck<'_>,
+    term: &CheckedTerm,
+    path: JsonPointer,
+) -> Result<(), ValidationFailure> {
+    match term {
+        CheckedTerm::Reference { target } => {
+            if !check.nodes[check.position].dependencies.contains(target) {
+                return Err(check.refuse(
+                    Code::MissingDeclaration,
+                    Some(Cause::MissingName),
+                    path.key("target"),
+                ));
+            }
+        }
+        CheckedTerm::Binding { value, .. } => {
+            check_member_dependencies(check, value, path.key("value"))?
+        }
+        CheckedTerm::Aggregate { members } => {
+            for (position, member) in members.iter().enumerate() {
+                check_member_dependencies(
+                    check,
+                    member,
+                    path.clone().key("members").index(position),
+                )?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+#[string_edge]
+fn check_member(
+    check: &MemberCheck<'_>,
+    form: ProtocolForm,
+    operator: &str,
+    arguments: &[CheckedTerm],
+) -> Result<(), ValidationFailure> {
+    for (ordinal, term) in arguments.iter().enumerate() {
+        check_member_dependencies(
+            check,
+            term,
+            node_pointer(check.position)
+                .key("body")
+                .key("arguments")
+                .index(ordinal),
+        )?;
+    }
+    if let Some(expected) = check.terms[check.position]
+        .as_ref()
+        .and_then(super::structural::application_dependencies)
+    {
+        if !check.nodes[check.position]
+            .dependencies
+            .iter()
+            .eq(expected.iter())
+        {
+            return Err(check.refuse(
+                Code::InvalidSemanticGraph,
+                None,
+                node_pointer(check.position).key("dependencies"),
+            ));
+        }
+    }
+    let role = |position| check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role));
+    let parameter = |position| check.is(position, CheckedNodeKind::Value(ValueForm::Parameter));
+    match form {
+        ProtocolForm::Role => {
+            let model = check.target_at(arguments, 0, |position| {
+                matches!(
+                    check.kinds[position],
+                    CheckedNodeKind::Model(
+                        ModelForm::ObjectType
+                            | ModelForm::Process
+                            | ModelForm::StateMachine
+                            | ModelForm::SystemsInterface
+                            | ModelForm::PersistenceInterface
+                    )
+                )
+            })?;
+            let replication = check.at(arguments, 1);
+            if !members(replication).is_some_and(|fields| fields.is_empty()) {
+                check.nonnegative(
+                    group_value(replication, "max").expect("validated replication"),
+                    check.argument_path(1).key("members").index(1).key("value"),
+                    true,
+                )?;
+                let binder = group_value(replication, "binder").expect("validated replication");
+                let binder = check.check_target(
+                    binder,
+                    check.argument_path(1).key("members").index(2).key("value"),
+                    parameter,
+                )?;
+                let type_position = check.index.get(&check.nodes[binder].semantic_type).copied();
+                if !type_position.is_some_and(|position| {
+                    check.is(position, CheckedNodeKind::CompositeType(CompositeTypeForm::Reference))
+                        && check.terms[position].as_ref().and_then(members).is_some_and(|items| {
+                            matches!(items, [CheckedTerm::Reference { target }] if target == &check.nodes[model].node_id)
+                        })
+                }) {
+                    return Err(check.refuse(
+                        Code::IllTyped,
+                        Some(Cause::TypeMismatch),
+                        node_pointer(check.position),
+                    ));
+                }
+                if let Some(until) = group_value(replication, "until") {
+                    check.boolean(until, node_pointer(check.position))?;
+                }
+            }
+        }
+        ProtocolForm::Channel => {
+            for ordinal in [0, 1] {
+                let target = check.target_at(arguments, ordinal, role)?;
+                if !check.same_clause(target, "role") {
+                    return Err(check.refuse(
+                        Code::InvalidModelBinding,
+                        Some(Cause::MalformedDeclaration),
+                        check.argument_path(ordinal).key("target"),
+                    ));
+                }
+            }
+            let carries = check.target_at(arguments, 2, |position| {
+                matches!(
+                    check.kinds[position],
+                    CheckedNodeKind::ScalarType(_)
+                        | CheckedNodeKind::CompositeType(_)
+                        | CheckedNodeKind::Model(
+                            ModelForm::RecordValueType
+                                | ModelForm::EventType
+                                | ModelForm::VariantType
+                        )
+                )
+            })?;
+            let ordering = check.at(arguments, 3);
+            if argument_text(ordering, 0) == Some("fifo") {
+                let binder = group_value(ordering, "binder").expect("validated fifo");
+                let position = check.check_target(
+                    binder,
+                    check.argument_path(3).key("members").index(1).key("value"),
+                    parameter,
+                )?;
+                check.same_type(position, &check.nodes[carries].node_id)?;
+                let key = group_value(ordering, "key").expect("validated fifo");
+                let key_type = check.term_type(key);
+                if !key_type.is_some_and(|type_id| check.equality_stable(type_id)) {
+                    return Err(check.refuse(
+                        Code::IllTyped,
+                        Some(Cause::OperatorIneligible),
+                        check.argument_path(3).key("members").index(2).key("value"),
+                    ));
+                }
+            }
+        }
+        ProtocolForm::Queue => {
+            let channel = check.target_at(arguments, 0, |position| {
+                check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Channel))
+            })?;
+            if !check.queue_channel_same_clause(channel) {
+                return Err(check.refuse(
+                    Code::InvalidModelBinding,
+                    Some(Cause::MalformedDeclaration),
+                    check.argument_path(0).key("target"),
+                ));
+            }
+        }
+        ProtocolForm::Obligation => match operator {
+            "finish" => {
+                check.target_at(arguments, 0, parameter)?;
+                check.boolean(check.at(arguments, 1), node_pointer(check.position))?;
+            }
+            "terminal" => {
+                if let Some(condition) =
+                    members(check.at(arguments, 1)).and_then(|items| items.first())
+                {
+                    check.boolean(condition, node_pointer(check.position))?;
+                }
+            }
+            _ => unreachable!("validated protocol operator"),
+        },
+        ProtocolForm::Control | ProtocolForm::Compensation => {}
+        ProtocolForm::ProtocolClause | ProtocolForm::ProtocolReference => {}
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy)]
@@ -1168,6 +1646,22 @@ pub(super) fn validate_protocol_nodes(
             };
             validate_layout(form, operator, arguments)
                 .map_err(|defect| body_defect(position, &nodes[position], defect))?;
+            if matches!(
+                form,
+                ProtocolForm::Role
+                    | ProtocolForm::Channel
+                    | ProtocolForm::Queue
+                    | ProtocolForm::Obligation
+            ) {
+                let check = MemberCheck {
+                    position,
+                    nodes,
+                    kinds,
+                    terms,
+                    index,
+                };
+                check_member(&check, form, operator, arguments)?;
+            }
         }
     }
     Ok(())
@@ -1211,7 +1705,7 @@ mod tests {
             Shape::Integer => {
                 json!({"term": "literal", "value_kind": "integer", "value": 1, "type": type_id})
             }
-            Shape::Boolean => {
+            Shape::Boolean | Shape::BooleanCandidate => {
                 json!({"term": "literal", "value_kind": "boolean", "value": true, "type": type_id})
             }
             Shape::References
@@ -1219,7 +1713,7 @@ mod tests {
             | Shape::OptionalReference
             | Shape::OptionalText
             | Shape::OptionalInteger
-            | Shape::OptionalBoolean
+            | Shape::OptionalBooleanCandidate
             | Shape::Group
             | Shape::Records => json!({"term": "aggregate", "members": []}),
         }
@@ -1409,12 +1903,18 @@ mod tests {
             (
                 ProtocolForm::Obligation,
                 "finish",
-                &[("binder", Shape::Reference), ("constraint", Shape::Boolean)],
+                &[
+                    ("binder", Shape::Reference),
+                    ("constraint", Shape::BooleanCandidate),
+                ],
             ),
             (
                 ProtocolForm::Obligation,
                 "terminal",
-                &[("mode", Shape::Text), ("condition", Shape::OptionalBoolean)],
+                &[
+                    ("mode", Shape::Text),
+                    ("condition", Shape::OptionalBooleanCandidate),
+                ],
             ),
             (
                 ProtocolForm::Control,
