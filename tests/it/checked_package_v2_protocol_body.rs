@@ -820,7 +820,7 @@ fn repeat_checks_owner_body_exhausted_and_optional_pair() {
 
     let mut wrong_body = package.clone();
     wrong_body["semantic_graph"]["nodes"][holder]["body"]["arguments"][5]["value"]["target"] =
-        wrong_body["semantic_graph"]["nodes"][clause_position(&package)]["node_id"].clone();
+        package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
     settle(&mut wrong_body);
     holder_refusal(
         &wrong_body,
@@ -874,6 +874,43 @@ fn await_checks_anchor_form_and_event_eligibility() {
         CheckedPackageRefusalCode::UnsupportedConstruct,
         Some(CheckedPackageRefusalCause::DeclarationForm),
         "",
+    );
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn repeat_maximum_and_await_interval_reject_negative_bounds_at_wire() {
+    let (mut repeated, _) = protocol_holder_case("repeat");
+    let holder = holder_position(&repeated);
+    repeated["semantic_graph"]["nodes"][holder]["body"]["arguments"][2]["value"]["members"][0]
+        ["value"] = json!("-1");
+    assert_eq!(
+        read(&repeated),
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidPackage,
+            &format!("/semantic_graph/nodes/{holder}/body/arguments/2/value/members/0"),
+            Some(CheckedPackageRefusalCause::InvalidValue),
+            repeated["semantic_graph"]["nodes"][holder]["node_id"]["digest"]
+                .as_str()
+                .expect("id"),
+        )
+    );
+
+    let (mut awaited, _) = protocol_holder_case("await");
+    let holder = holder_position(&awaited);
+    awaited["semantic_graph"]["nodes"][holder]["body"]["arguments"][2]["value"]["members"][1]
+        ["value"]["value"] = json!("-1");
+    assert_eq!(
+        read(&awaited),
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidPackage,
+            &format!("/semantic_graph/nodes/{holder}/body/arguments/2/value/members/1/value"),
+            Some(CheckedPackageRefusalCause::InvalidValue),
+            awaited["semantic_graph"]["nodes"][holder]["node_id"]["digest"]
+                .as_str()
+                .expect("id"),
+        )
     );
 }
 

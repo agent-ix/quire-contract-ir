@@ -684,7 +684,7 @@ fn validate_layout(
             argument(arguments, position).is_none_or(|set| !reference_set_is_ordered(set))
         })
         || form == ProtocolForm::Control
-            && operator == "choice"
+            && matches!(operator, "choice" | "repeat")
             && argument(arguments, 1).is_none_or(|set| !reference_set_is_ordered(set))
     {
         return Err(D::NoncanonicalSet);
@@ -2673,5 +2673,39 @@ mod tests {
         );
         terminal["arguments"][1]["value"]["members"] = json!([example(Shape::Boolean)]);
         assert_eq!(check(ProtocolForm::Obligation, &terminal), Ok(()));
+    }
+
+    /// Trace: FR-038-AC-288
+    #[trace("TC-048")]
+    #[test]
+    fn repeat_and_await_nested_layouts_enforce_pair_and_field_order() {
+        let check = |body: &Value| {
+            validate_protocol_body(ProtocolForm::Control, body, &boolean(), Some(&selected()))
+        };
+        let mut repeat = body(ProtocolForm::Control, "repeat");
+        assert_eq!(check(&repeat), Ok(()));
+        repeat["arguments"][2]["value"]["members"] = json!([example(Shape::Integer)]);
+        assert_eq!(check(&repeat), Err(ProtocolBodyDefect::MalformedLayout));
+        repeat["arguments"][6]["value"]["members"] = json!([example(Shape::Reference)]);
+        assert_eq!(check(&repeat), Ok(()));
+        repeat["arguments"][3]["value"]["members"] = json!([
+            {"term": "binding", "name": "variant", "value": example(Shape::Term)},
+            {"term": "binding", "name": "invariant", "value": example(Shape::Boolean)}
+        ]);
+        assert_eq!(check(&repeat), Err(ProtocolBodyDefect::MalformedLayout));
+
+        let mut awaited = body(ProtocolForm::Control, "await");
+        assert_eq!(check(&awaited), Ok(()));
+        awaited["arguments"][0]["value"]["members"]
+            .as_array_mut()
+            .expect("after")
+            .swap(0, 1);
+        assert_eq!(check(&awaited), Err(ProtocolBodyDefect::MalformedLayout));
+        awaited = body(ProtocolForm::Control, "await");
+        awaited["arguments"][2]["value"]["members"]
+            .as_array_mut()
+            .expect("within")
+            .swap(0, 1);
+        assert_eq!(check(&awaited), Err(ProtocolBodyDefect::MalformedLayout));
     }
 }
