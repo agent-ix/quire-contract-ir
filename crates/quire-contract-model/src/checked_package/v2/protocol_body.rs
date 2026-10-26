@@ -2446,11 +2446,15 @@ fn check_member(
         ProtocolForm::Role => {
             let replication = check.at(arguments, 1);
             if let Some(identity) = text_value(check.at(arguments, 0)) {
-                if !lock
-                    .model_selections
-                    .iter()
-                    .any(|row| row.identity.as_ref() == identity)
-                {
+                let mut selected = false;
+                for row in &lock.model_selections {
+                    meter.charge(1, || node_pointer(check.position))?;
+                    if row.identity.as_ref() == identity {
+                        selected = true;
+                        break;
+                    }
+                }
+                if !selected {
                     return Err(check.refuse(
                         Code::MissingDeclaration,
                         Some(Cause::MissingSelection),
