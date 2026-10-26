@@ -1783,6 +1783,7 @@ fn check_control_prefix(
             let operation = check.target_at(arguments, 1, |position| {
                 check.is(position, CheckedNodeKind::State(StateForm::OperationAnchor))
             })?;
+            let mut contracts = Vec::new();
             for (ordinal, contract) in members(check.at(arguments, 3))
                 .expect("validated contracts")
                 .iter()
@@ -1792,6 +1793,13 @@ fn check_control_prefix(
                 let clause = check.check_target(contract, path.clone(), |position| {
                     check.is(position, CheckedNodeKind::State(StateForm::StateClause))
                 })?;
+                contracts.push((clause, path));
+            }
+            check.target_at(arguments, 4, |position| {
+                check.is(position, CheckedNodeKind::Value(ValueForm::Parameter))
+            })?;
+            check_related_references(check, arguments, 5, owners, meter)?;
+            for (clause, path) in contracts {
                 let valid = check.terms[clause]
                     .as_ref()
                     .and_then(super::structural::typed_clause_body)
@@ -1809,10 +1817,6 @@ fn check_control_prefix(
                     ));
                 }
             }
-            check.target_at(arguments, 4, |position| {
-                check.is(position, CheckedNodeKind::Value(ValueForm::Parameter))
-            })?;
-            check_related_references(check, arguments, 5, owners, meter)?;
             check.boolean(check.at(arguments, 6), check.argument_path(6))?;
             check_related_types(check, arguments, 5, owners, meter)?;
         }
