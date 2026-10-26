@@ -35,3 +35,13 @@ Reviewed only PR #580's clause reference, activation, and capture changes agains
 ## Coverage
 
 The three changed files were inspected; no CI, dependency, spec, or plan file changed. `quoin matrix --repo . --json` completed; focused public-reader tests cover references, trigger dependency, guard root and capture levels. The new clause code has an owning requirement and no stub. No full gate was run; the lead runs final exact-head gates. Full FR-038 protocol criteria remain Planned.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At 0ecbde3a, `check_clause` introduces `over`, the optional `each` trigger, then each capture into one readable-name set and refuses the second occurrence as `AmbiguousDeclaration`/`AmbiguousName` at the second parameter node. The new public-reader test uses two distinct parameter nodes named `captured` at levels 1 and 2 and asserts the exact refusal. |
+
+## Disposition verdict
+
+**PASS at 0ecbde3a** — the recorded code finding is fixed. This disposition covers only the frozen #580 review scope.
