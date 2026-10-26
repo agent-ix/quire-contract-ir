@@ -393,6 +393,18 @@ pub enum CheckedTerminalDuplicate {
 /// Protocol control information retained at a typed reader refusal.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CheckedProtocolRefusalDetail {
+    /// Controls participating in a derived causal cycle, in control-tree order.
+    CausalCycle {
+        /// The controls on the cycle.
+        controls: Vec<CheckedNodeId>,
+    },
+    /// A repeat body has a path that does not take a step.
+    RepeatProgress {
+        /// The offending repeat control.
+        control: CheckedNodeId,
+        /// The lock-selected protocol profile.
+        profile: CheckedArtifactRef,
+    },
     /// A payload binder differs from the channel's carried type.
     PayloadType {
         /// The channel's carried type.

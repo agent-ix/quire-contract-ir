@@ -3257,29 +3257,39 @@ fn check_clause(
     introduce(over, 0)?;
     if let Some(trigger_position) = trigger_position {
         introduce(trigger_position, 1)?;
-        if let Some(guard) = group_value(activation, "guard") {
-            check_member_dependencies(
-                check,
-                guard,
-                check.argument_path(1).key("members").index(2).key("value"),
-            )?;
-            check.boolean(
-                guard,
-                check.argument_path(1).key("members").index(2).key("value"),
-            )?;
-        }
     }
 
-    for (entry, (&binder_position, record)) in capture_positions.iter().zip(captures).enumerate() {
+    for (entry, &binder_position) in capture_positions.iter().enumerate() {
         meter.charge(1, || node_pointer(check.position))?;
+        introduce(binder_position, 1 + usize::from(each) + entry)?;
+    }
+    Ok(())
+}
+
+#[string_edge]
+fn check_clause_slots(
+    check: &MemberCheck<'_>,
+    arguments: &[CheckedTerm],
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let activation = check.at(arguments, 1);
+    if let Some(guard) = group_value(activation, "guard") {
+        let path = check.argument_path(1).key("members").index(2).key("value");
+        check_member_dependencies(check, guard, path.clone())?;
+        check.boolean(guard, path)?;
+    }
+    let captures = members(check.at(arguments, 2)).expect("validated captures");
+    for (entry, record) in captures.iter().enumerate() {
+        meter.charge(1, || node_pointer(check.position))?;
+        let initializer = group_value(record, "initializer").expect("validated initializer");
         let path = check
             .argument_path(2)
             .key("members")
             .index(entry)
-            .key("members");
-        introduce(binder_position, 1 + usize::from(each) + entry)?;
-        let initializer = group_value(record, "initializer").expect("validated initializer");
-        check_member_dependencies(check, initializer, path.index(1).key("value"))?;
+            .key("members")
+            .index(1)
+            .key("value");
+        check_member_dependencies(check, initializer, path)?;
     }
     if let Some(expected) = check.terms[check.position]
         .as_ref()
@@ -3295,6 +3305,339 @@ fn check_clause(
                 None,
                 node_pointer(check.position).key("dependencies"),
             ));
+        }
+    }
+    Ok(())
+}
+
+fn causal_edge(
+    edges: &mut [Vec<usize>],
+    from: usize,
+    to: usize,
+    position: usize,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    meter.charge(1, || node_pointer(position))?;
+    edges[from].push(to);
+    Ok(())
+}
+
+#[string_edge]
+fn check_clause_causality(
+    check: &MemberCheck<'_>,
+    arguments: &[CheckedTerm],
+    validated: &[Option<(&str, &[CheckedTerm])>],
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let root = binding_value(arguments, "run")
+        .and_then(reference_target)
+        .and_then(|target| check.index.get(target).copied())
+        .expect("validated clause root");
+    let mut preorder = Vec::new();
+    let mut order = vec![None; check.nodes.len()];
+    let mut pending = vec![root];
+    while let Some(position) = pending.pop() {
+        meter.charge(1, || node_pointer(position))?;
+        if order[position].is_some() {
+            continue;
+        }
+        order[position] = Some(preorder.len());
+        preorder.push(position);
+        let (operator, args) = validated[position].expect("validated control");
+        for target in control_children(operator, args).into_iter().rev() {
+            if let Some(&child) = check.index.get(target) {
+                pending.push(child);
+            }
+        }
+    }
+    let mut edges = vec![Vec::new(); preorder.len() * 2];
+    let port =
+        |position: usize, exit: bool| order[position].map(|index| index * 2 + usize::from(exit));
+    let cross_port = |target: usize, exit: bool, owner: usize, path: JsonPointer| {
+        port(target, exit).ok_or_else(|| {
+            ValidationFailure::refused_at(
+                Code::InvalidModelBinding,
+                path,
+                Some(Cause::MalformedDeclaration),
+                check.nodes[owner].node_id.clone(),
+            )
+        })
+    };
+    for &position in &preorder {
+        meter.charge(1, || node_pointer(position))?;
+        let (operator, args) = validated[position].expect("validated control");
+        let enter = port(position, false).expect("tree member");
+        let exit = enter + 1;
+        let children: Vec<usize> = control_children(operator, args)
+            .into_iter()
+            .filter_map(|target| check.index.get(target).copied())
+            .collect();
+        match operator {
+            "sequence" => {
+                let mut previous = enter;
+                for &child in &children {
+                    causal_edge(
+                        &mut edges,
+                        previous,
+                        port(child, false).expect("tree child"),
+                        position,
+                        meter,
+                    )?;
+                    previous = port(child, true).expect("tree child");
+                }
+                causal_edge(&mut edges, previous, exit, position, meter)?;
+            }
+            "choice" => {
+                for &child in &children {
+                    causal_edge(
+                        &mut edges,
+                        enter,
+                        port(child, false).expect("tree child"),
+                        position,
+                        meter,
+                    )?;
+                    causal_edge(
+                        &mut edges,
+                        port(child, true).expect("tree child"),
+                        exit,
+                        position,
+                        meter,
+                    )?;
+                }
+            }
+            "parallel" => {
+                let branches = binding_value(args, "branches")
+                    .and_then(members)
+                    .expect("validated branches");
+                let joined: BTreeSet<&str> = binding_value(args, "joined")
+                    .into_iter()
+                    .flat_map(|term| members(term).into_iter().flatten())
+                    .filter_map(text_value)
+                    .collect();
+                for (branch, &child) in branches.iter().zip(&children) {
+                    causal_edge(
+                        &mut edges,
+                        enter,
+                        port(child, false).expect("tree child"),
+                        position,
+                        meter,
+                    )?;
+                    let label = group_value(branch, "label")
+                        .and_then(text_value)
+                        .expect("validated label");
+                    if joined.contains(label) {
+                        causal_edge(
+                            &mut edges,
+                            port(child, true).expect("tree child"),
+                            exit,
+                            position,
+                            meter,
+                        )?;
+                    }
+                }
+            }
+            "repeat" => {
+                let body = children[0];
+                causal_edge(
+                    &mut edges,
+                    enter,
+                    port(body, false).expect("tree child"),
+                    position,
+                    meter,
+                )?;
+                causal_edge(
+                    &mut edges,
+                    port(body, true).expect("tree child"),
+                    exit,
+                    position,
+                    meter,
+                )?;
+                if let Some(&exhausted) = children.get(1) {
+                    causal_edge(
+                        &mut edges,
+                        enter,
+                        port(exhausted, false).expect("tree child"),
+                        position,
+                        meter,
+                    )?;
+                    causal_edge(
+                        &mut edges,
+                        port(exhausted, true).expect("tree child"),
+                        exit,
+                        position,
+                        meter,
+                    )?;
+                }
+            }
+            "await" => {
+                let [event, then, timeout] = children.as_slice() else {
+                    unreachable!("validated await")
+                };
+                for (from, to) in [
+                    (enter, port(*event, false)),
+                    (port(*event, true).expect("tree child"), port(*then, false)),
+                    (enter, port(*timeout, false)),
+                    (port(*then, true).expect("tree child"), Some(exit)),
+                    (port(*timeout, true).expect("tree child"), Some(exit)),
+                ] {
+                    causal_edge(&mut edges, from, to.expect("tree child"), position, meter)?;
+                }
+                let after = binding_value(args, "after").expect("validated after");
+                let target = group_value(after, "target")
+                    .and_then(reference_target)
+                    .and_then(|id| check.index.get(id).copied())
+                    .expect("validated anchor");
+                let anchor =
+                    if group_value(after, "kind").and_then(text_value) == Some("compensation") {
+                        let (_, template_args) = validated[target].expect("validated template");
+                        let effect = binding_value(template_args, "forward")
+                            .and_then(reference_target)
+                            .and_then(|id| check.index.get(id).copied())
+                            .expect("validated forward effect");
+                        cross_port(
+                            effect,
+                            false,
+                            position,
+                            node_pointer(position)
+                                .key("body")
+                                .key("arguments")
+                                .index(0)
+                                .key("value")
+                                .key("members")
+                                .index(1)
+                                .key("value")
+                                .key("target"),
+                        )?
+                    } else {
+                        cross_port(
+                            target,
+                            true,
+                            position,
+                            node_pointer(position)
+                                .key("body")
+                                .key("arguments")
+                                .index(0)
+                                .key("value")
+                                .key("members")
+                                .index(1)
+                                .key("value")
+                                .key("target"),
+                        )?
+                    };
+                causal_edge(&mut edges, anchor, enter, position, meter)?;
+            }
+            "receive" | "effect" => {
+                causal_edge(&mut edges, enter, exit, position, meter)?;
+                let source = binding_value(args, "of")
+                    .and_then(reference_target)
+                    .and_then(|id| check.index.get(id).copied())
+                    .expect("validated source");
+                let source_port = cross_port(
+                    source,
+                    true,
+                    position,
+                    node_pointer(position)
+                        .key("body")
+                        .key("arguments")
+                        .index(usize::from(operator == "receive"))
+                        .key("value")
+                        .key("target"),
+                )?;
+                causal_edge(&mut edges, source_port, enter, position, meter)?;
+            }
+            _ => causal_edge(&mut edges, enter, exit, position, meter)?,
+        }
+    }
+
+    let mut colors = vec![0_u8; edges.len()];
+    for start in 0..edges.len() {
+        if colors[start] != 0 {
+            continue;
+        }
+        colors[start] = 1;
+        let mut stack = vec![(start, 0_usize)];
+        while let Some((vertex, next)) = stack.last_mut() {
+            meter.charge(1, || node_pointer(preorder[*vertex / 2]))?;
+            if let Some(&successor) = edges[*vertex].get(*next) {
+                *next += 1;
+                if colors[successor] == 1 {
+                    let first = stack
+                        .iter()
+                        .position(|(node, _)| *node == successor)
+                        .expect("gray node in stack");
+                    let controls = stack[first..]
+                        .iter()
+                        .map(|(node, _)| *node / 2)
+                        .collect::<BTreeSet<_>>()
+                        .into_iter()
+                        .map(|ordinal| check.nodes[preorder[ordinal]].node_id.clone())
+                        .collect();
+                    let position = preorder[successor / 2];
+                    let mut failure = ValidationFailure::refused_at(
+                        Code::InvalidPackage,
+                        node_pointer(position),
+                        Some(Cause::DefinitionCycle),
+                        check.nodes[position].node_id.clone(),
+                    );
+                    if let ValidationFailure::Refused(ref mut refusal) = failure {
+                        refusal.protocol_detail =
+                            Some(Box::new(CheckedProtocolRefusalDetail::CausalCycle {
+                                controls,
+                            }));
+                    }
+                    return Err(failure);
+                }
+                if colors[successor] == 0 {
+                    colors[successor] = 1;
+                    stack.push((successor, 0));
+                }
+            } else {
+                colors[*vertex] = 2;
+                stack.pop();
+            }
+        }
+    }
+
+    let mut steps = vec![false; check.nodes.len()];
+    for &position in preorder.iter().rev() {
+        meter.charge(1, || node_pointer(position))?;
+        let (operator, args) = validated[position].expect("validated control");
+        let children = control_children(operator, args)
+            .into_iter()
+            .filter_map(|id| check.index.get(id).copied())
+            .collect::<Vec<_>>();
+        steps[position] = match operator {
+            "send" | "receive" | "attempt" | "effect" | "event" | "commit" | "fence" | "await"
+            | "parallel" => true,
+            "sequence" => children.iter().any(|&child| steps[child]),
+            "choice" => children.iter().all(|&child| steps[child]),
+            "repeat" | "check" => false,
+            _ => unreachable!("validated control operator"),
+        };
+    }
+    for &position in &preorder {
+        let Some(("repeat", args)) = validated[position] else {
+            continue;
+        };
+        let body = binding_value(args, "body")
+            .and_then(reference_target)
+            .and_then(|id| check.index.get(id).copied())
+            .expect("validated repeat body");
+        if !steps[body] {
+            let mut failure = ValidationFailure::refused_at(
+                Code::UnsupportedConstruct,
+                node_pointer(position),
+                Some(Cause::DeclarationForm),
+                check.nodes[position].node_id.clone(),
+            );
+            if let ValidationFailure::Refused(ref mut refusal) = failure {
+                refusal.protocol_detail =
+                    Some(Box::new(CheckedProtocolRefusalDetail::RepeatProgress {
+                        control: check.nodes[position].node_id.clone(),
+                        profile: check.profile.clone(),
+                    }));
+            }
+            return Err(failure);
         }
     }
     Ok(())
@@ -3435,6 +3778,8 @@ pub(super) fn validate_protocol_nodes(
             profile: selected_profile.expect("validated protocol profile law"),
         };
         check_clause(&check, arguments, &validated, meter)?;
+        check_clause_causality(&check, arguments, &validated, meter)?;
+        check_clause_slots(&check, arguments, meter)?;
     }
     Ok(())
 }
