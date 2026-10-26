@@ -627,6 +627,14 @@ fn clause_parameter(package: &mut Value, name: &str, level: &str) -> Value {
     );
     parameter["node_id"] = node_id(&key);
     let target = parameter["node_id"].clone();
+    if package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .any(|node| node["node_id"] == target)
+    {
+        return target;
+    }
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -4593,6 +4601,12 @@ fn receive_accepts_its_send_channel_and_refuses_another_channel() {
         ]}},
         {"term": "binding", "name": "outstanding", "value": {"term": "aggregate", "members": []}}
     ]);
+    let receive_binder = parallel["semantic_graph"]["nodes"][receive_position]["body"]["arguments"]
+        [2]["value"]["target"]
+        .clone();
+    let receive_binder = relevel_parameter(&mut parallel, &receive_binder, 1);
+    parallel["semantic_graph"]["nodes"][receive_position]["body"]["arguments"][2]["value"]
+        ["target"] = receive_binder;
     settle(&mut parallel);
     assert!(
         matches!(read(&parallel), CheckedPackageV2ReadResult::Admitted(_)),
@@ -4831,7 +4845,7 @@ fn send_related_accepts_selected_relationship_reference_ends() {
         .clone();
     binder["semantic_type"] = node_id(&reference_key);
     binder["body"]["members"][0]["value"]["value"] = json!("payload");
-    binder["body"]["members"][1]["value"]["value"] = json!("1");
+    binder["body"]["members"][1]["value"]["value"] = json!("2");
     let binder_key = structural_key("value", "parameter", Some(&reference_key), &binder["body"]);
     binder["node_id"] = node_id(&binder_key);
     package["semantic_graph"]["nodes"]
@@ -4840,6 +4854,7 @@ fn send_related_accepts_selected_relationship_reference_ends() {
         .push(binder.clone());
 
     binder["body"]["members"][0]["value"]["value"] = json!("peer");
+    binder["body"]["members"][1]["value"]["value"] = json!("1");
     let peer_key = structural_key("value", "parameter", Some(&reference_key), &binder["body"]);
     binder["node_id"] = node_id(&peer_key);
     package["semantic_graph"]["nodes"]
@@ -4861,6 +4876,48 @@ fn send_related_accepts_selected_relationship_reference_ends() {
     let clause = clause_position(&package);
     package["semantic_graph"]["nodes"][clause]["body"]["arguments"][4]["value"]["members"] =
         json!([{"term": "reference", "target": relationship}]);
+    let role =
+        package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
+    let mut event_body = package["semantic_graph"]["nodes"][root]["body"].clone();
+    event_body["operation"]["member"]["operator"] = json!("event");
+    event_body["arguments"] = json!([
+        {"term": "binding", "name": "role", "value": {"term": "reference", "target": role}},
+        {"term": "binding", "name": "compensation", "value": {"term": "aggregate", "members": []}},
+        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": node_id(&peer_key)}},
+        {"term": "binding", "name": "related", "value": {"term": "aggregate", "members": []}},
+        {"term": "binding", "name": "constraint", "value": {"term": "literal",
+            "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}}
+    ]);
+    let event = protocol_named_node(
+        "control",
+        &["Example", "OrderFlow", "run", "Main", "Peer"],
+        event_body,
+        &[],
+    );
+    let event_key = event["node_id"].clone();
+    let send_key = package["semantic_graph"]["nodes"][root]["node_id"].clone();
+    package["semantic_graph"]["nodes"][root]["declaration"]["qualified_name"] =
+        json!(["Example", "OrderFlow", "run", "Main", "Send"]);
+    let mut sequence_body = package["semantic_graph"]["nodes"][root]["body"].clone();
+    sequence_body["operation"]["member"]["operator"] = json!("sequence");
+    sequence_body["arguments"] = json!([{"term": "binding", "name": "children", "value": {
+    "term": "aggregate", "members": [
+        {"term": "reference", "target": event_key},
+        {"term": "reference", "target": send_key}
+    ]}}]);
+    let sequence = protocol_named_node(
+        "control",
+        &["Example", "OrderFlow", "run", "Main"],
+        sequence_body,
+        &[],
+    );
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][11]["value"]["target"] =
+        sequence["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .extend([event, sequence]);
+    relevel_finish_binder(&mut package, 3);
     settle(&mut package);
     assert!(
         matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
@@ -4884,14 +4941,11 @@ fn send_related_accepts_selected_relationship_reference_ends() {
         &mut package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"];
     *related = json!([first.clone(), second.clone()]);
     settle(&mut package);
-    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
-        panic!("related endpoint without an introducing binder must refuse");
-    };
-    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
-    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
-    assert!(matches!(refusal.protocol_detail.as_deref(),
-        Some(CheckedProtocolRefusalDetail::BinderScope { stage, .. })
-        if stage.as_ref() == "run"));
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "distinct related records in JCS order must admit: {:?}",
+        read(&package)
+    );
 
     package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"] =
         json!([second, first.clone()]);
