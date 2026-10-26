@@ -780,9 +780,10 @@ fn validate_related_order(
         (ProtocolForm::Control, "attempt") => Some(5),
         _ => None,
     };
-    if related.is_some_and(|ordinal| argument(arguments, ordinal)
+    if related.is_some_and(|ordinal| {
+        argument(arguments, ordinal)
             .is_none_or(|records| !related_records_are_ordered(records, bytes))
-    ) {
+    }) {
         return Err(ProtocolBodyDefect::NoncanonicalSet);
     }
     Ok(())
@@ -1842,7 +1843,10 @@ fn check_control_prefix(
             {
                 let path = check.argument_path(1).key("members").index(0);
                 let template = check.check_target(compensation, path.clone(), |position| {
-                    check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Compensation))
+                    check.is(
+                        position,
+                        CheckedNodeKind::Protocol(ProtocolForm::Compensation),
+                    )
                 })?;
                 if !check.same_clause(template, "compensate") {
                     return Err(check.refuse(

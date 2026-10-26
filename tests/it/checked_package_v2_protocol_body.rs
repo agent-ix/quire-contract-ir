@@ -1550,9 +1550,8 @@ fn package_with_send() -> (Value, usize, usize) {
 fn package_with_step_control(operator: &str) -> (Value, usize) {
     let (mut package, _) = package_with_member_role();
     let root = protocol_position(&package, "control");
-    let role = package["semantic_graph"]["nodes"][protocol_position(&package, "role")]
-        ["node_id"]
-        .clone();
+    let role =
+        package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
     let binder = package["semantic_graph"]["nodes"][protocol_position(&package, "obligation")]
         ["body"]["arguments"][0]["value"]["target"]
         .clone();
@@ -1566,8 +1565,11 @@ fn package_with_step_control(operator: &str) -> (Value, usize) {
                 .as_array()
                 .expect("nodes")
                 .iter()
-                .find(|node| node["node_tag"] == "state" && node["semantic_form"] == "operation_anchor")
-                .expect("state anchor")["node_id"].clone();
+                .find(|node| {
+                    node["node_tag"] == "state" && node["semantic_form"] == "operation_anchor"
+                })
+                .expect("state anchor")["node_id"]
+                .clone();
             json!([
                 {"term": "binding", "name": "role", "value": {"term": "reference", "target": role}},
                 {"term": "binding", "name": "operation", "value": {"term": "reference", "target": anchor}},
@@ -1611,19 +1613,31 @@ fn package_with_step_control(operator: &str) -> (Value, usize) {
 fn attempt_event_and_commit_check_local_references_and_boolean_constraints() {
     for operator in ["attempt", "event", "commit"] {
         let (mut package, root) = package_with_step_control(operator);
-        assert!(matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
-            "{operator}: {:?}", read(&package));
-        let ordinal = match operator { "attempt" => 6, "event" => 4, _ => 2 };
-        package["semantic_graph"]["nodes"][root]["body"]["arguments"][ordinal]["value"] =
-            json!({"term": "literal", "type": node_id(&family_key("a1a1")),
+        assert!(
+            matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+            "{operator}: {:?}",
+            read(&package)
+        );
+        let ordinal = match operator {
+            "attempt" => 6,
+            "event" => 4,
+            _ => 2,
+        };
+        package["semantic_graph"]["nodes"][root]["body"]["arguments"][ordinal]["value"] = json!({"term": "literal", "type": node_id(&family_key("a1a1")),
                 "value_kind": "text", "value": "wrong"});
         settle(&mut package);
         let key = package["semantic_graph"]["nodes"][root]["node_id"]["digest"]
-            .as_str().expect("control key");
-        assert_eq!(read(&package), refusal_at(
-            CheckedPackageRefusalCode::IllTyped,
-            &format!("/semantic_graph/nodes/{root}/body/arguments/{ordinal}/value"),
-            Some(CheckedPackageRefusalCause::NonBooleanRoot), key));
+            .as_str()
+            .expect("control key");
+        assert_eq!(
+            read(&package),
+            refusal_at(
+                CheckedPackageRefusalCode::IllTyped,
+                &format!("/semantic_graph/nodes/{root}/body/arguments/{ordinal}/value"),
+                Some(CheckedPackageRefusalCause::NonBooleanRoot),
+                key
+            )
+        );
     }
 }
 
@@ -1633,11 +1647,17 @@ fn attempt_event_and_commit_check_local_references_and_boolean_constraints() {
 fn effect_requires_an_attempt_target() {
     let (package, root) = package_with_step_control("effect");
     let key = package["semantic_graph"]["nodes"][root]["node_id"]["digest"]
-        .as_str().expect("effect key");
-    assert_eq!(read(&package), refusal_at(
-        CheckedPackageRefusalCode::InvalidModelBinding,
-        &format!("/semantic_graph/nodes/{root}/body/arguments/0/value/target"),
-        Some(CheckedPackageRefusalCause::MalformedDeclaration), key));
+        .as_str()
+        .expect("effect key");
+    assert_eq!(
+        read(&package),
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            &format!("/semantic_graph/nodes/{root}/body/arguments/0/value/target"),
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            key
+        )
+    );
 }
 
 /// Trace: FR-038-AC-288
