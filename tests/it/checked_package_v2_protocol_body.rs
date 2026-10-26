@@ -2815,6 +2815,64 @@ fn compensation_dominance_precedes_unattached_control_membership() {
     );
 }
 
+/// Trace: FR-038-AC-284, FR-038-AC-289
+#[trace("TC-048")]
+#[test]
+fn compensation_first_template_dominance_precedes_later_template_bounds() {
+    let (mut package, compensation, root) = package_with_present_commit();
+    let children = package["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]
+        ["members"]
+        .as_array_mut()
+        .expect("sequence children");
+    let commit = children.pop().expect("commit child");
+    children.insert(1, commit);
+    settle(&mut package);
+    let first = package["semantic_graph"]["nodes"][compensation]["node_id"].clone();
+    let first_digest = first["digest"].as_str().expect("first digest");
+    let mut later = None;
+    for ordinal in 0..32 {
+        let mut body = package["semantic_graph"]["nodes"][compensation]["body"].clone();
+        body["arguments"][9]["value"]["members"][0]["value"]["value"] = json!("0");
+        body["arguments"][4]["value"]["value"] = json!(format!("later-{ordinal}"));
+        let candidate = protocol_named_node(
+            "compensation",
+            &["Example", "OrderFlow", "compensate", "Later"],
+            body,
+            &[],
+        );
+        if candidate["node_id"]["digest"]
+            .as_str()
+            .is_some_and(|digest| digest > first_digest)
+        {
+            later = Some(candidate);
+            break;
+        }
+    }
+    let later = later.expect("a later digest candidate");
+    let later_target = later["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(later);
+    let clause = clause_position(&package);
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][8]["value"]["members"] = json!([
+        {"term": "reference", "target": first},
+        {"term": "reference", "target": later_target}
+    ]);
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("first template dominance must precede later bounds");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::UnsupportedConstruct
+    );
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::DeclarationForm)
+    );
+}
+
 /// Trace: FR-038-AC-289
 #[trace("TC-048")]
 #[test]
