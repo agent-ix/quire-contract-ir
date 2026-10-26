@@ -1684,6 +1684,46 @@ fn effect_requires_an_attempt_target() {
 /// Trace: FR-038-AC-288
 #[trace("TC-048")]
 #[test]
+fn event_compensation_requires_a_template_target() {
+    let (mut package, root) = package_with_step_control("event");
+    let role =
+        package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"][1]["value"]["members"] =
+        json!([{"term": "reference", "target": role}]);
+    settle(&mut package);
+    let key = package["semantic_graph"]["nodes"][root]["node_id"]["digest"]
+        .as_str()
+        .expect("event key");
+    assert_eq!(
+        read(&package),
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            &format!("/semantic_graph/nodes/{root}/body/arguments/1/value/members/0/target"),
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            key
+        )
+    );
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn attempt_ordering_rejects_an_unknown_spelling_at_wire_validation() {
+    let (mut package, root) = package_with_step_control("attempt");
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"][2]["value"]["members"] = json!([{"term": "literal", "type": node_id(&family_key("a1a1")),
+            "value_kind": "text", "value": "unordered"}]);
+    assert_eq!(
+        read(&package),
+        refusal(
+            CheckedPackageRefusalCode::MalformedWire,
+            &format!("/semantic_graph/nodes/{root}/body/arguments/2/value/members/0")
+        )
+    );
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
 fn check_condition_refuses_non_boolean_at_its_slot_and_fence_rejects_relaxed() {
     let mut package = v2_all_families();
     let root = protocol_position(&package, "control");
