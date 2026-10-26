@@ -83,6 +83,7 @@ pub use model_fields::{
     CheckedModelObjectFields,
 };
 pub use parameter_declaration::{CheckedParameterDeclaration, CheckedParameterDeclarationError};
+pub use protocol_body::{CheckedProtocolActivation, CheckedProtocolActivationRow};
 pub use reaches_population::CheckedReachesPopulationError;
 pub use refinement::*;
 pub use relationship_end::{CheckedRelationshipEnd, CheckedRelationshipEndError};

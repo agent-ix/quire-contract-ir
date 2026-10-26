@@ -4,14 +4,16 @@
 //! Public reader checks for the first protocol validation passes.
 
 use crate::support::checked_package::{
-    canonical, domain_package_digest, domain_package_document, evidence_for, family_key, node_id,
-    protocol_named_node, protocol_role_node, rebuild_source_map, refresh_identity, refusal,
-    refusal_at, rekey_application_node, settle, structural_key, v2_all_families,
+    application_node_key, canonical, domain_package_digest, domain_package_document, evidence_for,
+    family_key, node_id, protocol_named_node, protocol_role_node, rebuild_source_map,
+    refresh_identity, refusal, refusal_at, rekey_application_node, settle, structural_key,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedProtocolRefusalDetail,
+    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedProtocolActivation,
+    CheckedProtocolActivationRow, CheckedProtocolRefusalDetail,
 };
 use serde_json::{json, Value};
 
@@ -95,6 +97,231 @@ fn clause_parameter(package: &mut Value, name: &str, level: &str) -> Value {
     target
 }
 
+fn temporal_clause(package: &Value) -> Value {
+    package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "temporal" && node["semantic_form"] == "temporal_clause")
+        .expect("temporal clause")
+        .clone()
+}
+
+fn require_temporal(package: &mut Value, keys: &[Value]) {
+    let clause = clause_position(package);
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][7]["value"]["members"] =
+        Value::Array(
+            keys.iter()
+                .map(|key| json!({"term": "reference", "target": key}))
+                .collect(),
+        );
+    settle(package);
+}
+
+/// Trace: FR-038-AC-324
+#[trace("TC-048")]
+#[test]
+fn activation_relation_has_exact_origin_and_each_rows_without_extras() {
+    let mut package = v2_all_families();
+    let clause = clause_position(&package);
+    let temporal = temporal_clause(&package)["node_id"].clone();
+    let empty = match read(&package) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("base protocol should admit: {other:?}"),
+    };
+    assert!(empty.protocol_activation_relation().is_empty());
+
+    require_temporal(&mut package, std::slice::from_ref(&temporal));
+    let clause_key = package["semantic_graph"]["nodes"][clause]["node_id"]["digest"]
+        .as_str()
+        .expect("clause key");
+    let expected = vec![CheckedProtocolActivationRow {
+        clause: serde_json::from_value(node_id(clause_key)).expect("clause key"),
+        activation: CheckedProtocolActivation::Origin,
+        required_temporal: serde_json::from_value(temporal.clone()).expect("temporal key"),
+    }];
+    let admitted = match read(&package) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("origin protocol should admit: {other:?}"),
+    };
+    let before = admitted.clone();
+    assert_eq!(admitted.protocol_activation_relation(), expected);
+    assert_eq!(admitted.protocol_activation_relation(), expected);
+    assert_eq!(*admitted, *before);
+    let equal = match read(&package) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("equal protocol should admit: {other:?}"),
+    };
+    assert_eq!(equal.protocol_activation_relation(), expected);
+
+    let trigger = clause_parameter(&mut package, "opened", "1");
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][1]["value"]["members"] = json!([
+        {"term": "binding", "name": "kind", "value": {"term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "each"}},
+        {"term": "binding", "name": "trigger", "value": {"term": "reference", "target": trigger}},
+    ]);
+    settle(&mut package);
+    let admitted = match read(&package) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("each protocol should admit: {other:?}"),
+    };
+    assert_eq!(
+        admitted.protocol_activation_relation(),
+        vec![CheckedProtocolActivationRow {
+            clause: serde_json::from_value(
+                package["semantic_graph"]["nodes"][clause]["node_id"].clone()
+            )
+            .expect("clause key"),
+            activation: CheckedProtocolActivation::Each {
+                trigger: serde_json::from_value(trigger).expect("trigger key")
+            },
+            required_temporal: serde_json::from_value(temporal).expect("temporal key"),
+        }]
+    );
+}
+
+/// Trace: FR-038-AC-324
+#[trace("TC-048")]
+#[test]
+fn activation_relation_orders_distinct_requirements_and_ignores_other_temporal_clauses() {
+    let mut package = v2_all_families();
+    let first = temporal_clause(&package)["node_id"].clone();
+    let mut second = temporal_clause(&package);
+    second["body"]["arguments"][1]["value"] = json!("other-clause");
+    let second_key = application_node_key(
+        "temporal",
+        "temporal_clause",
+        &family_key("aaaa"),
+        &second["body"],
+    );
+    second["node_id"] = node_id(&second_key);
+    let second_id = second["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(second);
+    settle(&mut package);
+
+    require_temporal(&mut package, std::slice::from_ref(&first));
+    let admitted = match read(&package) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("unrelated temporal clause should admit: {other:?}"),
+    };
+    assert_eq!(admitted.protocol_activation_relation().len(), 1);
+    assert_eq!(
+        admitted.protocol_activation_relation()[0].required_temporal,
+        serde_json::from_value(first.clone()).expect("first key")
+    );
+
+    let mut keys = [first, second_id];
+    keys.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    require_temporal(&mut package, &keys);
+    let admitted = match read(&package) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("two requirements should admit: {other:?}"),
+    };
+    let rows = admitted.protocol_activation_relation();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        rows.iter()
+            .map(|row| row.required_temporal.digest.as_ref())
+            .collect::<Vec<_>>(),
+        keys.iter()
+            .map(|key| key["digest"].as_str().expect("digest"))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(rows[0].clause, rows[1].clause);
+    assert_eq!(rows[0].activation, CheckedProtocolActivation::Origin);
+    assert_eq!(rows[1].activation, CheckedProtocolActivation::Origin);
+}
+
+/// Trace: FR-038-AC-324
+#[trace("TC-048")]
+#[test]
+fn activation_relation_orders_rows_across_local_protocol_clauses() {
+    let mut package = v2_all_families();
+    let clause = clause_position(&package);
+    let temporal = temporal_clause(&package)["node_id"].clone();
+    require_temporal(&mut package, std::slice::from_ref(&temporal));
+
+    let clone_member = |package: &Value, form: &str, name: &str| {
+        let original = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["node_tag"] == "protocol" && node["semantic_form"] == form)
+            .expect("protocol member");
+        let dependencies = original["dependencies"]
+            .as_array()
+            .expect("dependencies")
+            .iter()
+            .map(|id| id["digest"].as_str().expect("digest").to_owned())
+            .collect::<Vec<_>>();
+        protocol_named_node(
+            form,
+            &["Example", "OtherFlow", name, "Main"],
+            original["body"].clone(),
+            &dependencies,
+        )
+    };
+    let run = clone_member(&package, "control", "run");
+    let finish = {
+        let original = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["node_tag"] == "protocol" && node["semantic_form"] == "obligation")
+            .expect("finish");
+        let dependencies = original["dependencies"]
+            .as_array()
+            .expect("dependencies")
+            .iter()
+            .map(|id| id["digest"].as_str().expect("digest").to_owned())
+            .collect::<Vec<_>>();
+        protocol_named_node(
+            "obligation",
+            &["Example", "OtherFlow", "finish", "Closed"],
+            original["body"].clone(),
+            &dependencies,
+        )
+    };
+    let run_id = run["node_id"].clone();
+    let finish_id = finish["node_id"].clone();
+    let mut body = package["semantic_graph"]["nodes"][clause]["body"].clone();
+    body["arguments"][11]["value"]["target"] = run_id.clone();
+    body["arguments"][12]["value"]["target"] = finish_id.clone();
+    let over = body["arguments"][0]["value"]["target"]["digest"]
+        .as_str()
+        .expect("over");
+    let dependencies = [
+        over,
+        run_id["digest"].as_str().expect("run"),
+        finish_id["digest"].as_str().expect("finish"),
+        temporal["digest"].as_str().expect("temporal"),
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect::<Vec<_>>();
+    let other = protocol_named_node(
+        "protocol_clause",
+        &["Example", "OtherFlow"],
+        body,
+        &dependencies,
+    );
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .extend([run, finish, other]);
+    settle(&mut package);
+    let admitted = match read(&package) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("two local protocols should admit: {other:?}"),
+    };
+    let rows = admitted.protocol_activation_relation();
+    assert_eq!(rows.len(), 2);
+    assert!(rows[0].clause.digest < rows[1].clause.digest);
+    assert_eq!(rows[0].required_temporal, rows[1].required_temporal);
+}
+
 /// Trace: FR-038-AC-284, FR-038-AC-285
 #[trace("TC-048")]
 #[test]
@@ -151,7 +378,7 @@ fn clause_relationship_wrong_export_has_distinct_cause() {
     );
 }
 
-/// Trace: FR-038-AC-284, FR-038-AC-291
+/// Trace: FR-038-AC-284, FR-038-AC-291, FR-038-AC-324
 #[trace("TC-048")]
 #[test]
 fn clause_each_trigger_admits_and_checks_parameter_level() {
@@ -198,7 +425,7 @@ fn clause_each_trigger_admits_and_checks_parameter_level() {
     );
 }
 
-/// Trace: FR-038-AC-284
+/// Trace: FR-038-AC-284, FR-038-AC-324
 #[trace("TC-048")]
 #[test]
 fn clause_each_trigger_requires_declared_dependency() {
@@ -377,7 +604,7 @@ fn clause_rejects_second_capture_with_readable_name() {
     );
 }
 
-/// Trace: FR-038-AC-284
+/// Trace: FR-038-AC-284, FR-038-AC-324
 #[trace("TC-048")]
 #[test]
 fn clause_required_temporal_target_is_checked_after_membership() {
