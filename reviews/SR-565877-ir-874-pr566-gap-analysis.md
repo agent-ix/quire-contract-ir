@@ -43,3 +43,7 @@ Plan completion: not assessed. Full matrix was unavailable during this review; a
 | --- | --- | --- |
 | FND-001 | fixed | Verified at PR #566 head 156e59c0; see new term-pointer logic or narrowed trace tag. |
 | FND-002 | fixed | Verified at PR #566 head 156e59c0; see new term-pointer logic or narrowed trace tag. |
+
+## Supplemental review at 39996a46
+
+The hosted-CI repair diff changes no criterion trace tags or acceptance wording. The claim-terminal and resource-boundary assertions still exercise their original IR criteria. No new traceability finding.

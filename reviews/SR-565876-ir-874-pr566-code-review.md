@@ -63,3 +63,9 @@ A package can contain a protocol node whose body applies another root operator (
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-002 | fixed | At 5b1680e2, the generic name sweep skips protocol nodes, and the protocol step checks protocol-involved duplicates after placement and operator checks. The combined-defect test now yields IllTyped/OperatorIneligible; a valid duplicate yields AmbiguousDeclaration. Existing non-protocol declaration precedence tests still pass. |
+
+## Supplemental review at 39996a46
+
+Reviewed only the hosted-CI repair diff since 57a5afd3. The selected protocol profile is borrowed as `CheckedArtifactRef`; the law definition is compared by its exact two-field `{authority, identity}` shape and values, matching the typed reference contract without serializing the lock. The `ProtocolLayoutWireDefect` rename changes no refusal branch. The claim-terminal tests replace the former fixed insertion indices with the length of their immutable base fixture; node-key, package-id, source-map, dependency, duplicate-locus and precedence assertions remain in place. Frame, TC-226, complete-v1 edge and byte oracles retain explicit exact-budget or exact-pointer assertions. The byte oracle changes only the measured canonical length.
+
+Focused reviewer checks: protocol-body unit tests 9/9; claim-terminal integration tests 11/11; the selected-frame-work, scoped-delete-work, TC-226 tree-work, complete-v1 edge and contract-package byte-limit cases each passed 1/1; `git diff --check` passed. No new findings.
