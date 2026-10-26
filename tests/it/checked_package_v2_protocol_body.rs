@@ -3824,10 +3824,19 @@ fn receive_accepts_its_send_channel_and_refuses_another_channel() {
         refusal.cause,
         Some(CheckedPackageRefusalCause::DefinitionCycle)
     );
-    assert!(matches!(
-        refusal.protocol_detail.as_deref(),
-        Some(CheckedProtocolRefusalDetail::CausalCycle { controls }) if controls.len() >= 2
-    ));
+    let Some(CheckedProtocolRefusalDetail::CausalCycle { controls }) =
+        refusal.protocol_detail.as_deref()
+    else {
+        panic!("cycle must name its controls");
+    };
+    let expected: Vec<quire_contract_model::CheckedNodeId> = [receive_position, send_position]
+        .into_iter()
+        .map(|position| {
+            serde_json::from_value(reversed["semantic_graph"]["nodes"][position]["node_id"].clone())
+                .expect("control identity")
+        })
+        .collect();
+    assert_eq!(controls, &expected);
 
     let mut parallel = package.clone();
     parallel["semantic_graph"]["nodes"][root]["body"]["operation"]["member"]["operator"] =
@@ -5113,8 +5122,17 @@ fn await_anchored_to_its_own_event_refuses_causal_cycle() {
         refusal.cause,
         Some(CheckedPackageRefusalCause::DefinitionCycle)
     );
-    assert!(matches!(
-        refusal.protocol_detail.as_deref(),
-        Some(CheckedProtocolRefusalDetail::CausalCycle { controls }) if controls.len() == 2
-    ));
+    let Some(CheckedProtocolRefusalDetail::CausalCycle { controls }) =
+        refusal.protocol_detail.as_deref()
+    else {
+        panic!("cycle must name its controls");
+    };
+    let expected: Vec<quire_contract_model::CheckedNodeId> = [holder, children[0]]
+        .into_iter()
+        .map(|position| {
+            serde_json::from_value(package["semantic_graph"]["nodes"][position]["node_id"].clone())
+                .expect("control identity")
+        })
+        .collect();
+    assert_eq!(controls, &expected);
 }
