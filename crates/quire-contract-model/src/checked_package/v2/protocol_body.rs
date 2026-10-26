@@ -8,7 +8,9 @@ use super::{
     ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
-use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId};
+use crate::checked_package::shared::{
+    CheckedArtifactRef, CheckedNodeId, CheckedProtocolRefusalDetail,
+};
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, JsonPointer,
 };
@@ -137,7 +139,7 @@ const REPEAT: &[Binding] = &[
     field("visible", Shape::References),
     field("maximum", Shape::OptionalInteger),
     field("proof", Shape::Group),
-    field("guard", Shape::Boolean),
+    field("guard", Shape::BooleanCandidate),
     field("body", Shape::Reference),
     field("exhausted", Shape::OptionalReference),
 ];
@@ -1043,11 +1045,26 @@ struct MemberCheck<'a> {
     kinds: &'a [CheckedNodeKind],
     terms: &'a [Option<CheckedTerm>],
     index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    profile: &'a CheckedArtifactRef,
 }
 
 impl MemberCheck<'_> {
     fn refuse(&self, code: Code, cause: Option<Cause>, path: JsonPointer) -> ValidationFailure {
         ValidationFailure::refused_at(code, path, cause, self.nodes[self.position].node_id.clone())
+    }
+
+    fn refuse_with_detail(
+        &self,
+        code: Code,
+        cause: Cause,
+        path: JsonPointer,
+        detail: CheckedProtocolRefusalDetail,
+    ) -> ValidationFailure {
+        let mut refusal = self.refuse(code, Some(cause), path);
+        if let ValidationFailure::Refused(value) = &mut refusal {
+            value.protocol_detail = Some(Box::new(detail));
+        }
+        refusal
     }
 
     fn argument_path(&self, ordinal: usize) -> JsonPointer {
@@ -1541,14 +1558,35 @@ fn check_control_prefix(
             let event = check.target_at(arguments, 3, control)?;
             check.target_at(arguments, 4, control)?;
             check.target_at(arguments, 5, control)?;
-            if !matches!(
-                control_operator(event),
-                Some("receive" | "effect" | "event")
-            ) {
-                return Err(check.refuse(
+            let event_form = control_operator(event).expect("validated control envelope");
+            if !matches!(event_form, "receive" | "effect" | "event") {
+                return Err(check.refuse_with_detail(
                     Code::UnsupportedConstruct,
-                    Some(Cause::DeclarationForm),
+                    Cause::DeclarationForm,
                     node_pointer(check.position),
+                    CheckedProtocolRefusalDetail::AwaitedEvent {
+                        form: event_form.into(),
+                        profile: check.profile.clone(),
+                    },
+                ));
+            }
+            let within = check.at(arguments, 2);
+            let lower = group_value(within, "lower")
+                .and_then(integer_value)
+                .expect("validated interval lower");
+            let upper = group_value(within, "upper")
+                .and_then(integer_value)
+                .expect("validated interval upper");
+            if lower > upper {
+                return Err(check.refuse_with_detail(
+                    Code::IllTyped,
+                    Cause::TypeMismatch,
+                    check.argument_path(2),
+                    CheckedProtocolRefusalDetail::Interval {
+                        member: "within".into(),
+                        expected: "closed interval with lower <= upper".into(),
+                        actual: format!("[{lower}, {upper}]").into(),
+                    },
                 ));
             }
         }
@@ -2008,6 +2046,7 @@ pub(super) fn validate_protocol_nodes(
                     kinds,
                     terms,
                     index,
+                    profile: selected_profile.expect("validated protocol profile law"),
                 };
                 check_member(&check, form, operator, arguments)?;
             }
