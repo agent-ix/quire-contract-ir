@@ -92,6 +92,28 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
                 failure
             }
         })?;
+        if let CheckedNodeKind::Protocol(form) = kind {
+            if form != super::ProtocolForm::ProtocolReference {
+                let expected_role = if form == super::ProtocolForm::Queue {
+                    crate::checked_package::shared::CheckedOccurrenceRole::Generated
+                } else {
+                    crate::checked_package::shared::CheckedOccurrenceRole::Declaration
+                };
+                // Empty occurrences are diagnosed by the source-map pass;
+                // a present occurrence with the wrong role is a wire defect.
+                if node
+                    .occurrences
+                    .iter()
+                    .any(|occurrence| occurrence.role != expected_role)
+                    || node.declaration.is_some() != (form != super::ProtocolForm::Queue)
+                {
+                    return Err(ValidationFailure::refused(
+                        CheckedPackageRefusalCode::MalformedWire,
+                        crate::checked_package::common::node_pointer(position),
+                    ));
+                }
+            }
+        }
         let steps = [
             Step::Key("semantic_graph"),
             Step::Key("nodes"),
@@ -728,22 +750,24 @@ mod tests {
     #[trace("TC-048")]
     #[test]
     fn protocol_clause_rejects_short_layout_at_wire_boundary() {
+        let mut node = header_node(
+            "protocol",
+            "protocol_clause",
+            super::super::GRAPH_V2,
+            json!({
+                "term": "application", "operator": "protocol_control",
+                "operation": {
+                    "identity": "quire.op.protocol.control", "laws": [], "mode": null,
+                    "member": {"kind": "profile_operator", "operator": "protocol"},
+                    "leaves": []
+                },
+                "result_type": {"domain": "quire.checked-semantic-node/v1", "digest": "1".repeat(64)},
+                "arguments": []
+            }),
+        );
+        node["declaration"] = json!({"qualified_name": ["Main"]});
         header_refusal(
-            vec![header_node(
-                "protocol",
-                "protocol_clause",
-                super::super::GRAPH_V2,
-                json!({
-                    "term": "application", "operator": "protocol_control",
-                    "operation": {
-                        "identity": "quire.op.protocol.control", "laws": [], "mode": null,
-                        "member": {"kind": "profile_operator", "operator": "protocol"},
-                        "leaves": []
-                    },
-                    "result_type": {"domain": "quire.checked-semantic-node/v1", "digest": "1".repeat(64)},
-                    "arguments": []
-                }),
-            )],
+            vec![node],
             CheckedPackageRefusalCode::MalformedWire,
             "/semantic_graph/nodes/0/body",
         );

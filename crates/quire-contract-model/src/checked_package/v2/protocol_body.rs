@@ -13,7 +13,7 @@ use crate::checked_package::shared::{
 };
 use ix_trace_rs::string_edge;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// A defect in the application envelope or an operator's fixed bindings.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -769,8 +769,7 @@ fn body_defect(
 
 /// Checks name collisions involving a protocol declaration at reader step 3.
 /// The earlier generic sweep has already refused collisions entirely among
-/// non-protocol declarations. Prefix and control-path ownership remain for
-/// the graph membership pass.
+/// non-protocol declarations.
 fn validate_protocol_declaration_names(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
@@ -804,6 +803,268 @@ fn validate_protocol_declaration_names(
             }
         } else {
             holders.insert(name, protocol);
+        }
+    }
+    Ok(())
+}
+
+fn reference_target(term: &CheckedTerm) -> Option<&CheckedNodeId> {
+    match term {
+        CheckedTerm::Reference { target } => Some(target),
+        _ => None,
+    }
+}
+
+fn binding_value<'a>(arguments: &'a [CheckedTerm], name: &str) -> Option<&'a CheckedTerm> {
+    arguments.iter().find_map(|argument| match argument {
+        CheckedTerm::Binding {
+            name: actual,
+            value,
+        } if actual.as_ref() == name => Some(value.as_ref()),
+        _ => None,
+    })
+}
+
+fn listed_targets(term: &CheckedTerm) -> impl Iterator<Item = &CheckedNodeId> {
+    members(term)
+        .into_iter()
+        .flatten()
+        .filter_map(reference_target)
+}
+
+#[string_edge]
+fn control_children<'a>(operator: &str, arguments: &'a [CheckedTerm]) -> Vec<&'a CheckedNodeId> {
+    let mut children = Vec::new();
+    match operator {
+        "sequence" => {
+            if let Some(value) = binding_value(arguments, "children") {
+                children.extend(listed_targets(value));
+            }
+        }
+        "choice" | "parallel" => {
+            let field = if operator == "choice" {
+                "cases"
+            } else {
+                "branches"
+            };
+            if let Some(records) = binding_value(arguments, field).and_then(members) {
+                for record in records {
+                    if let Some(target) = members(record)
+                        .and_then(|fields| binding_value(fields, "body"))
+                        .and_then(reference_target)
+                    {
+                        children.push(target);
+                    }
+                }
+            }
+        }
+        "repeat" => {
+            if let Some(target) = binding_value(arguments, "body").and_then(reference_target) {
+                children.push(target);
+            }
+            if let Some(value) = binding_value(arguments, "exhausted") {
+                children.extend(listed_targets(value));
+            }
+        }
+        "await" => {
+            for field in ["event", "then", "timeout"] {
+                if let Some(target) = binding_value(arguments, field).and_then(reference_target) {
+                    children.push(target);
+                }
+            }
+        }
+        _ => {}
+    }
+    children
+}
+
+fn declaration_defect(position: usize, node: &RawSemanticNodeV2) -> ValidationFailure {
+    ValidationFailure::refused_at(
+        Code::InvalidSemanticGraph,
+        node_pointer(position),
+        None,
+        node.node_id.clone(),
+    )
+}
+
+#[derive(Clone, Copy)]
+enum PathHolder {
+    ClauseMember {
+        clause: usize,
+        member: &'static str,
+        own: bool,
+    },
+    Control {
+        holder: usize,
+    },
+}
+
+fn record_declared_path(
+    expected: &mut BTreeMap<usize, (PathHolder, bool)>,
+    position: usize,
+    holder: PathHolder,
+) {
+    if let Some((_, repeated)) = expected.get_mut(&position) {
+        *repeated = true;
+    } else {
+        expected.insert(position, (holder, false));
+    }
+}
+
+#[string_edge]
+fn validate_protocol_declaration_paths(
+    nodes: &[RawSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    validated: &[Option<(&str, &[CheckedTerm])>],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+) -> Result<(), ValidationFailure> {
+    let mut expected = BTreeMap::new();
+    let mut pending = Vec::new();
+    for &clause in index.values() {
+        if kinds.get(clause) != Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
+            continue;
+        }
+        if nodes[clause].declaration.is_none() {
+            continue;
+        }
+        let Some((_, args)) = validated[clause] else {
+            continue;
+        };
+        for (field, segment, expected_form) in [
+            ("roles", "role", ProtocolForm::Role),
+            ("channels", "channel", ProtocolForm::Channel),
+            ("compensations", "compensate", ProtocolForm::Compensation),
+        ] {
+            if let Some(value) = binding_value(args, field) {
+                for target in listed_targets(value) {
+                    if let Some(&position) = index.get(target) {
+                        if kinds.get(position) != Some(&CheckedNodeKind::Protocol(expected_form)) {
+                            continue;
+                        }
+                        record_declared_path(
+                            &mut expected,
+                            position,
+                            PathHolder::ClauseMember {
+                                clause,
+                                member: segment,
+                                own: true,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+        for (field, segment) in [("finish", "finish"), ("terminal", "terminal")] {
+            if let Some(value) = binding_value(args, field) {
+                let target = reference_target(value).or_else(|| {
+                    members(value)
+                        .and_then(|items| items.first())
+                        .and_then(reference_target)
+                });
+                if let Some(&position) = target.and_then(|key| index.get(key)) {
+                    if kinds.get(position)
+                        != Some(&CheckedNodeKind::Protocol(ProtocolForm::Obligation))
+                        || validated[position].is_none_or(|(operator, _)| operator != segment)
+                    {
+                        continue;
+                    }
+                    record_declared_path(
+                        &mut expected,
+                        position,
+                        PathHolder::ClauseMember {
+                            clause,
+                            member: segment,
+                            own: segment == "finish",
+                        },
+                    );
+                }
+            }
+        }
+        if let Some(&position) = binding_value(args, "run")
+            .and_then(reference_target)
+            .and_then(|key| index.get(key))
+        {
+            if kinds.get(position) == Some(&CheckedNodeKind::Protocol(ProtocolForm::Control)) {
+                pending.push((
+                    position,
+                    PathHolder::ClauseMember {
+                        clause,
+                        member: "run",
+                        own: true,
+                    },
+                ));
+            }
+        }
+    }
+
+    // The visited set bounds malformed containment cycles. Membership and
+    // repeated holders are checked in the later graph pass.
+    let mut visited = BTreeSet::new();
+    while let Some((position, holder)) = pending.pop() {
+        record_declared_path(&mut expected, position, holder);
+        if !visited.insert(position) {
+            continue;
+        }
+        if kinds.get(position) != Some(&CheckedNodeKind::Protocol(ProtocolForm::Control)) {
+            continue;
+        }
+        let Some((operator, args)) = validated[position] else {
+            continue;
+        };
+        for target in control_children(operator, args) {
+            if let Some(&child) = index.get(target) {
+                if kinds.get(child) == Some(&CheckedNodeKind::Protocol(ProtocolForm::Control)) {
+                    pending.push((child, PathHolder::Control { holder: position }));
+                }
+            }
+        }
+    }
+
+    for &position in index.values() {
+        let Some(CheckedNodeKind::Protocol(form)) = kinds.get(position).copied() else {
+            continue;
+        };
+        if form == ProtocolForm::ProtocolReference {
+            continue;
+        }
+        let node = &nodes[position];
+        if let Some((holder, false)) = expected.get(&position) {
+            let Some(path) = node
+                .declaration
+                .as_ref()
+                .map(|d| d.qualified_name.as_slice())
+            else {
+                return Err(declaration_defect(position, node));
+            };
+            let matches = match holder {
+                PathHolder::ClauseMember {
+                    clause,
+                    member,
+                    own,
+                } => {
+                    let prefix = nodes[*clause]
+                        .declaration
+                        .as_ref()
+                        .map(|d| d.qualified_name.as_slice());
+                    prefix.is_some_and(|prefix| {
+                        path.len() == prefix.len() + 1 + usize::from(*own)
+                            && path.starts_with(prefix)
+                            && path[prefix.len()].as_ref() == *member
+                    })
+                }
+                PathHolder::Control { holder } => {
+                    let prefix = nodes[*holder]
+                        .declaration
+                        .as_ref()
+                        .map(|d| d.qualified_name.as_slice());
+                    prefix.is_some_and(|prefix| {
+                        path.len() == prefix.len() + 1 && path.starts_with(prefix)
+                    })
+                }
+            };
+            if !matches {
+                return Err(declaration_defect(position, node));
+            }
         }
     }
     Ok(())
@@ -882,6 +1143,7 @@ pub(super) fn validate_protocol_nodes(
         }
     }
     validate_protocol_declaration_names(nodes, kinds, index)?;
+    validate_protocol_declaration_paths(nodes, kinds, &validated, index)?;
     // Local member shapes are visited by form, then by ascending key. The
     // clause follows the members, as FR-464's reader order requires.
     for form in [
