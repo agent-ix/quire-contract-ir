@@ -1134,8 +1134,10 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
     let binding =
         |name: &str, value: Value| json!({"term": "binding", "name": name, "value": value});
     let reference = |target: &Value| json!({"term": "reference", "target": target});
-    let boolean = json!({"term": "literal", "type": node_id(&family_key("aaaa")),
-        "value_kind": "boolean", "value": true});
+    let boolean = || {
+        json!({"term": "literal", "type": node_id(&family_key("aaaa")),
+        "value_kind": "boolean", "value": true})
+    };
     let integer = |value: &str| {
         json!({"term": "literal", "type": node_id(&family_key("a3a3")),
         "value_kind": "integer", "value": value})
@@ -1150,7 +1152,7 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
         binding("contracts", group()),
         binding("binder", reference(&binder)),
         binding("related", group()),
-        binding("constraint", boolean)
+        binding("constraint", boolean())
     ]);
     let attempt = protocol_named_node(
         "control",
@@ -1165,7 +1167,7 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
         binding("of", reference(&attempt_target)),
         binding("binder", reference(&binder)),
         binding("related", group()),
-        binding("constraint", boolean)
+        binding("constraint", boolean())
     ]);
     let effect = protocol_named_node(
         "control",
@@ -1195,7 +1197,7 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
         binding(
             "trigger",
             json!({"term": "aggregate", "members": [
-                binding("binder", reference(&binder)), binding("guard", boolean)
+                binding("binder", reference(&binder)), binding("guard", boolean())
             ]})
         ),
         binding("activation_captures", group()),
@@ -1215,14 +1217,14 @@ fn compensation_template(package: &mut Value, declaration: &[&str]) -> Value {
             "retry",
             json!({"term": "aggregate", "members": [
                 binding("earlier", reference(&earlier_target)),
-                binding("later", reference(&later_target)), binding("relation", boolean)
+                binding("later", reference(&later_target)), binding("relation", boolean())
             ]})
         ),
         binding("commit", group()),
         binding(
             "recovery",
             json!({"term": "aggregate", "members": [
-                binding("binder", reference(&binder)), binding("predicate", boolean)
+                binding("binder", reference(&binder)), binding("predicate", boolean())
             ]})
         )
     ]);
@@ -2005,10 +2007,7 @@ fn event_compensation_requires_a_template_target() {
     );
 }
 
-/// Trace: FR-038-AC-288
-#[trace("TC-048")]
-#[test]
-fn event_admits_its_clause_template_and_refuses_a_foreign_template() {
+fn package_with_admitted_compensation() -> (Value, usize, usize) {
     let (state, _) = crate::checked_package_v2_frame_entries::state_operand_fixture();
     let (mut package, root) = package_with_step_control_on(state, "event");
     let local = compensation_template(
@@ -2026,6 +2025,15 @@ fn event_admits_its_clause_template_and_refuses_a_foreign_template() {
     package["semantic_graph"]["nodes"][root]["body"]["arguments"][1]["value"]["members"] =
         json!([{"term": "reference", "target": local_key}]);
     settle(&mut package);
+    let compensation = protocol_position(&package, "compensation");
+    (package, root, compensation)
+}
+
+/// Trace: FR-038-AC-288
+#[trace("TC-048")]
+#[test]
+fn event_admits_its_clause_template_and_refuses_a_foreign_template() {
+    let (mut package, root, compensation) = package_with_admitted_compensation();
     assert!(
         matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
         "{:?}",
@@ -2035,8 +2043,7 @@ fn event_admits_its_clause_template_and_refuses_a_foreign_template() {
     let foreign = protocol_named_node(
         "compensation",
         &["Example", "Elsewhere", "compensate", "Undo"],
-        package["semantic_graph"]["nodes"][protocol_position(&package, "compensation")]["body"]
-            .clone(),
+        package["semantic_graph"]["nodes"][compensation]["body"].clone(),
         &[],
     );
     let foreign_key = foreign["node_id"].clone();
@@ -2057,6 +2064,112 @@ fn event_admits_its_clause_template_and_refuses_a_foreign_template() {
             &format!("/semantic_graph/nodes/{root}/body/arguments/1/value/members/0/target"),
             Some(CheckedPackageRefusalCause::MalformedDeclaration),
             key
+        )
+    );
+}
+
+/// Trace: FR-038-AC-282, FR-038-AC-289
+#[trace("TC-048")]
+#[test]
+fn compensation_admits_local_bindings_and_rejects_wrong_target_forms() {
+    let (package, _, compensation) = package_with_admitted_compensation();
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "{:?}",
+        read(&package)
+    );
+    let role =
+        package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
+    for (ordinal, pointer) in [
+        (
+            0,
+            format!("/semantic_graph/nodes/{compensation}/body/arguments/0/value/target"),
+        ),
+        (
+            11,
+            format!(
+                "/semantic_graph/nodes/{compensation}/body/arguments/11/value/members/0/target"
+            ),
+        ),
+    ] {
+        let mut wrong = package.clone();
+        if ordinal == 0 {
+            wrong["semantic_graph"]["nodes"][compensation]["body"]["arguments"][0]["value"]
+                ["target"] = role.clone();
+        } else {
+            wrong["semantic_graph"]["nodes"][compensation]["body"]["arguments"][11]["value"]
+                ["members"] = json!([{"term": "reference", "target": role}]);
+        }
+        settle(&mut wrong);
+        let key = wrong["semantic_graph"]["nodes"][compensation]["node_id"]["digest"]
+            .as_str()
+            .expect("compensation key");
+        assert_eq!(
+            read(&wrong),
+            refusal_at(
+                CheckedPackageRefusalCode::InvalidModelBinding,
+                &pointer,
+                Some(CheckedPackageRefusalCause::MalformedDeclaration),
+                key,
+            ),
+            "argument {ordinal}"
+        );
+    }
+}
+
+/// Trace: FR-038-AC-282, FR-038-AC-289
+#[trace("TC-048")]
+#[test]
+fn compensation_rejects_zero_attempts_inverted_window_and_non_boolean_guard() {
+    let (package, _, compensation) = package_with_admitted_compensation();
+    let cases = [
+        (
+            9,
+            0,
+            "0",
+            CheckedPackageRefusalCode::IllTyped,
+            CheckedPackageRefusalCause::TypeMismatch,
+        ),
+        (
+            8,
+            0,
+            "2",
+            CheckedPackageRefusalCode::IllTyped,
+            CheckedPackageRefusalCause::TypeMismatch,
+        ),
+    ];
+    for (ordinal, member, value, code, cause) in cases {
+        let mut wrong = package.clone();
+        wrong["semantic_graph"]["nodes"][compensation]["body"]["arguments"][ordinal]["value"]
+            ["members"][member]["value"]["value"] = json!(value);
+        settle(&mut wrong);
+        let path = if ordinal == 9 {
+            format!("/semantic_graph/nodes/{compensation}/body/arguments/9/value/members/0/value")
+        } else {
+            format!("/semantic_graph/nodes/{compensation}/body/arguments/8/value")
+        };
+        let key = wrong["semantic_graph"]["nodes"][compensation]["node_id"]["digest"]
+            .as_str()
+            .expect("compensation key");
+        assert_eq!(read(&wrong), refusal_at(code, &path, Some(cause), key));
+    }
+    let mut wrong = package;
+    wrong["semantic_graph"]["nodes"][compensation]["body"]["arguments"][6]["value"]["members"][1]
+        ["value"] = json!({
+        "term": "literal", "type": node_id(&family_key("a3a3")),
+        "value_kind": "integer", "value": "1"
+    });
+    settle(&mut wrong);
+    let key = wrong["semantic_graph"]["nodes"][compensation]["node_id"]["digest"]
+        .as_str()
+        .expect("compensation key");
+    assert_eq!(
+        read(&wrong),
+        refusal_at(
+            CheckedPackageRefusalCode::IllTyped,
+            &format!("/semantic_graph/nodes/{compensation}/body/arguments/6/value/members/1/value"),
+            Some(CheckedPackageRefusalCause::NonBooleanRoot),
+            key,
         )
     );
 }
