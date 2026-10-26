@@ -322,6 +322,245 @@ fn protocol_capture_initializer_refuses_its_own_forward_read() {
         if stage.as_ref() == "protocol-capture" && read.as_ref() == "forward"));
 }
 
+/// Trace: FR-038-AC-291
+#[trace("TC-048")]
+#[test]
+fn terminal_origin_reads_over_but_each_has_no_readable_binder() {
+    let mut package = v2_all_families();
+    let clause = clause_position(&package);
+    let over = package["semantic_graph"]["nodes"][clause]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    let finish = protocol_position(&package, "obligation");
+    let mut body = package["semantic_graph"]["nodes"][finish]["body"].clone();
+    body["operation"]["member"]["operator"] = json!("terminal");
+    body["arguments"] = json!([
+        {"term": "binding", "name": "mode", "value": {
+            "term": "literal", "type": node_id(&family_key("a1a1")),
+            "value_kind": "text", "value": "when"}},
+        {"term": "binding", "name": "condition", "value": {
+            "term": "aggregate", "members": [{"term": "reference", "target": over}]}}
+    ]);
+    let terminal = protocol_named_node(
+        "obligation",
+        &["Example", "OrderFlow", "terminal"],
+        body,
+        &[],
+    );
+    let terminal_key = terminal["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(terminal);
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][9]["value"]["members"] =
+        json!([{"term": "reference", "target": terminal_key}]);
+    settle(&mut package);
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    let trigger = clause_parameter(&mut package, "opened", "1");
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][1]["value"]["members"] = json!([
+        {"term": "binding", "name": "kind", "value": {
+            "term": "literal", "type": node_id(&family_key("a1a1")),
+            "value_kind": "text", "value": "each"}},
+        {"term": "binding", "name": "trigger", "value": {
+            "term": "reference", "target": trigger}}
+    ]);
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("terminal under each must not read over");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert!(matches!(refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::BinderScope { stage, read, .. })
+        if stage.as_ref() == "terminal" && read.as_ref() == "stage"));
+}
+
+/// Trace: FR-038-AC-291
+#[trace("TC-048")]
+#[test]
+fn role_lifetime_reads_c0_and_refuses_a_finish_binder() {
+    let (mut package, role) = package_with_replicated_role();
+    let clause = clause_position(&package);
+    let over = package["semantic_graph"]["nodes"][clause]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    let finish = protocol_position(&package, "obligation");
+    let finish_binder = package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    let replication =
+        &mut package["semantic_graph"]["nodes"][role]["body"]["arguments"][1]["value"]["members"];
+    replication[3]["value"]["value"] = json!("until");
+    replication
+        .as_array_mut()
+        .expect("replication")
+        .push(json!({
+            "term": "binding", "name": "until", "value": {"term": "reference", "target": over}
+        }));
+    settle(&mut package);
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    package["semantic_graph"]["nodes"][role]["body"]["arguments"][1]["value"]["members"][4]
+        ["value"]["target"] = finish_binder;
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("role lifetime must not read finish binder");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert!(matches!(refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::BinderScope { stage, .. })
+        if stage.as_ref() == "role-lifetime"));
+}
+
+/// Trace: FR-038-AC-291
+#[trace("TC-048")]
+#[test]
+fn fifo_key_reads_message_binder_and_refuses_a_finish_binder() {
+    let (mut package, _) = package_with_member_queue();
+    let channel = protocol_position(&package, "channel");
+    let binder = clause_parameter(&mut package, "message", "1");
+    let finish = protocol_position(&package, "obligation");
+    let finish_binder = package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    package["semantic_graph"]["nodes"][channel]["body"]["arguments"][3]["value"]["members"] = json!([
+        {"term": "binding", "name": "kind", "value": {
+            "term": "literal", "type": node_id(&family_key("a1a1")),
+            "value_kind": "text", "value": "fifo"}},
+        {"term": "binding", "name": "binder", "value": {
+            "term": "reference", "target": binder}},
+        {"term": "binding", "name": "key", "value": {
+            "term": "reference", "target": binder}}
+    ]);
+    settle(&mut package);
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    package["semantic_graph"]["nodes"][channel]["body"]["arguments"][3]["value"]["members"][2]
+        ["value"]["target"] = finish_binder;
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("FIFO key must not read finish binder");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert!(matches!(refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::BinderScope { stage, .. })
+        if stage.as_ref() == "channel-key"));
+}
+
+/// Trace: FR-038-AC-291
+#[trace("TC-048")]
+#[test]
+fn repeat_body_binder_is_readable_there_but_does_not_escape_to_finish() {
+    let (mut package, children) = protocol_holder_case("repeat");
+    let body = children[0];
+    let binder = clause_parameter(&mut package, "repeated_event", "1");
+    let role =
+        package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();
+    package["semantic_graph"]["nodes"][body]["body"]["operation"]["member"]["operator"] =
+        json!("event");
+    package["semantic_graph"]["nodes"][body]["body"]["arguments"] = json!([
+        {"term": "binding", "name": "role", "value": {"term": "reference", "target": role}},
+        {"term": "binding", "name": "compensation", "value": {"term": "aggregate", "members": []}},
+        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": binder}},
+        {"term": "binding", "name": "related", "value": {"term": "aggregate", "members": []}},
+        {"term": "binding", "name": "constraint", "value": {"term": "reference", "target": binder}}
+    ]);
+    settle(&mut package);
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    let finish = protocol_position(&package, "obligation");
+    package["semantic_graph"]["nodes"][finish]["body"]["arguments"][1]["value"] =
+        json!({"term": "reference", "target": binder});
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("repeat body binder must not escape to finish");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert!(matches!(refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::BinderScope { stage, .. })
+        if stage.as_ref() == "finish"));
+}
+
+/// Trace: FR-038-AC-291
+#[trace("TC-048")]
+#[test]
+fn compensation_retry_and_recovery_read_captures_but_bar_over() {
+    let (mut package, _, compensation) = package_with_admitted_compensation();
+    let clause = clause_position(&package);
+    let over = package["semantic_graph"]["nodes"][clause]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    let registration = package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][5]
+        ["value"]["members"][0]["members"][0]["value"]["target"]
+        .clone();
+    let recovery = package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][12]
+        ["value"]["members"][0]["value"]["target"]
+        .clone();
+    package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][10]["value"]["members"]
+        [2]["value"] = json!({"term": "reference", "target": registration});
+    package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][12]["value"]["members"]
+        [1]["value"] = json!({"term": "reference", "target": recovery});
+    settle(&mut package);
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][10]["value"]["members"]
+        [2]["value"] = json!({"term": "reference", "target": over});
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("retry relation must bar over");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::OperatorIneligible)
+    );
+    assert_eq!(
+        refusal.protocol_detail.as_deref(),
+        Some(&CheckedProtocolRefusalDetail::ModelStateRead {
+            slot: "retry.relation".into()
+        })
+    );
+
+    package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][10]["value"]["members"]
+        [2]["value"] = json!({"term": "reference", "target": registration});
+    package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][12]["value"]["members"]
+        [1]["value"] = json!({"term": "reference", "target": over});
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("recovery predicate must bar over");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::OperatorIneligible)
+    );
+    assert_eq!(
+        refusal.protocol_detail.as_deref(),
+        Some(&CheckedProtocolRefusalDetail::ModelStateRead {
+            slot: "recovery.predicate".into()
+        })
+    );
+}
+
 fn clause_position(package: &Value) -> usize {
     package["semantic_graph"]["nodes"]
         .as_array()

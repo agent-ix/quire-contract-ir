@@ -3396,10 +3396,10 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             c0.push(trigger);
         }
         c0.extend(captures.iter().copied());
-        let mut known = BTreeMap::new();
+        let mut known: BTreeMap<usize, Vec<ProtocolBinderOrigin>> = BTreeMap::new();
         for (index, &position) in c0.iter().enumerate() {
             meter.charge(1, || node_pointer(check.position))?;
-            let capture = if index >= 1 + usize::from(activation.is_some()) {
+            let capture = if index > usize::from(activation.is_some()) {
                 Some((
                     "protocol-capture",
                     index - 1 - usize::from(activation.is_some()),
@@ -4010,8 +4010,9 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         else {
             return Ok(());
         };
-        let mut allowed = BTreeSet::from([self.c0[0]]);
+        let mut allowed = BTreeSet::new();
         if self.activation.is_none() {
+            allowed.insert(self.c0[0]);
             allowed.extend(self.captures.iter().copied());
         }
         self.slot(terminal, condition, &allowed, "terminal", None, None, meter)
