@@ -3,7 +3,9 @@
 
 //! External default-feature consumer of the typed V2 envelope encoder.
 
-use crate::support::checked_package::{canonical, evidence_for, v2_all_families, v2_nominal};
+use crate::support::checked_package::{
+    canonical, evidence_for, selected_interface_model_node, settle, v2_all_families, v2_nominal,
+};
 use ix_trace_rs::trace;
 use quire_canonical::{Error, Limits};
 use quire_contract_model::{
@@ -91,7 +93,12 @@ fn refused(
 #[trace("TC-946")]
 #[test]
 fn typed_writer_round_trips_protocol_clause_owner_model() {
-    let value = v2_all_families();
+    let mut value = v2_all_families();
+    value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(selected_interface_model_node());
+    settle(&mut value);
     let evidence = evidence_for(&value);
     let CheckedPackageV2ReadResult::Admitted(first) = CheckedPackageV2::read(
         &canonical(&value),
