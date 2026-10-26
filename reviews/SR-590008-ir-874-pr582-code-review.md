@@ -33,3 +33,13 @@ Reviewed the derived causal graph, cycle reporting, repeat progress, public read
 ## Coverage
 
 The graph has a port per control entry and exit; sequencing, choice, parallel join, repeat, await, send/receive and attempt/effect edges follow FR-464. Iterative traversal and edge/DFS charges bound work. The new cycle details retain controls in tree order. Public reader tests assert cycle code, cause and control identities for receive-before-send and self-anchored await, and admit independent parallel branches. Host backoff barred Cargo, Rustc, Make and test jobs during this review; no gates were started. No applicable AssuranceProfile was found under `spec/`.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At 8fabf73f, `check_clause` retains clause references, activation form and capture binder declarations, then `check_clause_causality` checks cycle and progress, and `check_clause_slots` checks the activation guard and capture initializers. The new public test combines a later-sibling await cycle with a conflicting guard and asserts the cycle refusal. |
+
+## Disposition verdict
+
+**PASS at 8fabf73f** for the recorded code-review finding. Host backoff left runtime gates to the final exact-head CI run.

@@ -31,3 +31,13 @@ The changed public reader tests trace FR-038-AC-290 for receive/send, parallel i
 ## Coverage
 
 Plan completion: not assessed. `quire matrix --scope . --format tsv` completed: FR-038-AC-290 is tagged by three public-reader tests at lines 3525, 4840 and 4883. The tags do not establish the missing positive repeat and cross-edge cases. No repository-wide assurance claim is made from this scoped PR review. The changed production code has FR-038-AC-290 as owner and no new stub. Optional repository-wide semantic review was not requested; this review compared the changed public-reader assertions to the criterion. Host backoff barred Cargo, Rustc, Make and test jobs; no tests were started.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At 8fabf73f, AC-290 tags now cover existing bounded and unbounded repeat admissions and compensation-anchor admission; an added unbounded-with-proof repeat admits. Public tests newly assert effect-before-attempt and compensation-forward-effect causal cycles, and a later-sibling await cycle that wins over a conflicting guard. |
+
+## Disposition verdict
+
+**PASS at 8fabf73f** for the recorded gap-analysis finding. Test execution remains pending hosted Rust Checks because host backoff barred new local jobs.
