@@ -1,5 +1,5 @@
 //! Closed nominal node identity preimages (enum declaration, enum member,
-//! dimension, declared unit) and their semantic and cross-field rules.
+//! dimension, dimension equivalence, declared unit) and their semantic and cross-field rules.
 //!
 //! The node key of a nominal form is SHA-256 of the RFC 8785 canonical bytes
 //! of its preimage, computed by `quire-canonical`. Every violation is
@@ -36,6 +36,9 @@ pub enum NominalIdentityPreimage {
     /// `quire.dimension-node/v1`.
     #[serde(rename = "quire.dimension-node/v1")]
     Dimension(DimensionPreimage),
+    /// `quire.dimension-equivalence-node/v1`.
+    #[serde(rename = "quire.dimension-equivalence-node/v1")]
+    DimensionEquivalence(DimensionEquivalencePreimage),
     /// `quire.unit-node/v1`.
     #[serde(rename = "quire.unit-node/v1")]
     Unit(UnitPreimage),
@@ -116,6 +119,38 @@ pub struct DimensionTerm {
     pub exponent: Box<str>,
 }
 
+/// Exact equivalence between a digest-ordered pair of dimensions.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[serde(deny_unknown_fields)]
+pub struct DimensionEquivalencePreimage {
+    /// Source containing the equivalence declaration.
+    pub owner: SourceOwner,
+    /// Exactly two distinct dimension keys, in ascending digest order.
+    pub dimension_node_ids: [CheckedNodeId; 2],
+    /// Positive reduced ratio from the first canonical root to the second.
+    pub root_scale: CheckedRational,
+}
+
+/// Source owner of a dimension equivalence.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[serde(deny_unknown_fields)]
+pub struct SourceOwner {
+    /// The only admitted owner kind.
+    pub kind: SourceOwnerKind,
+    /// Source authority selected by the lock.
+    pub authority: Box<str>,
+    /// Source identity selected by the lock.
+    pub identity: Box<str>,
+}
+
+/// Closed source-owner discriminant.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceOwnerKind {
+    /// A locked source.
+    Source,
+}
+
 /// Declared unit identity preimage.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
@@ -175,6 +210,9 @@ pub(in crate::checked_package) fn locate_preimage_failure(
             locate_closed_value_failure::<EnumMemberPreimage>(&members)
         }
         Some(NominalKind::Dimension) => locate_closed_value_failure::<DimensionPreimage>(&members),
+        Some(NominalKind::DimensionEquivalence) => {
+            locate_closed_value_failure::<DimensionEquivalencePreimage>(&members)
+        }
         Some(NominalKind::Unit) => locate_closed_value_failure::<UnitPreimage>(&members),
         None => return (at.key("version"), false),
     };
@@ -224,6 +262,7 @@ enum NominalKind {
     EnumDeclaration,
     EnumMember,
     Dimension,
+    DimensionEquivalence,
     Unit,
 }
 
@@ -234,6 +273,7 @@ impl NominalKind {
             "quire.enum-declaration-node/v1" => Some(Self::EnumDeclaration),
             "quire.enum-member-node/v1" => Some(Self::EnumMember),
             "quire.dimension-node/v1" => Some(Self::Dimension),
+            "quire.dimension-equivalence-node/v1" => Some(Self::DimensionEquivalence),
             "quire.unit-node/v1" => Some(Self::Unit),
             _ => None,
         }
@@ -269,6 +309,9 @@ impl NominalKind {
             K::ScalarType(ScalarTypeForm::Enum) => Some(Self::EnumDeclaration),
             K::Value(ValueForm::EnumValue) => Some(Self::EnumMember),
             K::ScalarType(ScalarTypeForm::Dimension) => Some(Self::Dimension),
+            K::ScalarType(ScalarTypeForm::DimensionEquivalence) => {
+                Some(Self::DimensionEquivalence)
+            }
             K::ScalarType(ScalarTypeForm::Unit) => Some(Self::Unit),
             K::ScalarType(
                 ScalarTypeForm::Boolean
@@ -409,6 +452,7 @@ impl NominalKind {
             NominalIdentityPreimage::EnumDeclaration(_) => Self::EnumDeclaration,
             NominalIdentityPreimage::EnumMember(_) => Self::EnumMember,
             NominalIdentityPreimage::Dimension(_) => Self::Dimension,
+            NominalIdentityPreimage::DimensionEquivalence(_) => Self::DimensionEquivalence,
             NominalIdentityPreimage::Unit(_) => Self::Unit,
         }
     }
@@ -421,6 +465,7 @@ impl NominalIdentityPreimage {
         match self {
             Self::EnumDeclaration(declaration) => Some(&declaration.owner),
             Self::Dimension(dimension) => Some(&dimension.owner),
+            Self::DimensionEquivalence(_) => None,
             Self::Unit(unit) => Some(&unit.owner),
             Self::EnumMember(_) => None,
         }
@@ -433,6 +478,7 @@ impl NominalIdentityPreimage {
         match self {
             Self::EnumDeclaration(declaration) => Some(&declaration.qualified_declaration),
             Self::Dimension(dimension) => Some(&dimension.qualified_declaration),
+            Self::DimensionEquivalence(_) => None,
             Self::Unit(unit) => Some(&unit.qualified_declaration),
             Self::EnumMember(_) => None,
         }
@@ -513,6 +559,7 @@ pub(super) fn validate_nominal_nodes(
         selected_models,
     };
     let mut roots = BTreeSet::new();
+    let mut equivalence_pairs = BTreeSet::new();
     for (position, (node, kind)) in nodes.iter().zip(kinds).enumerate() {
         let site = Site { node, position };
         let required = NominalKind::required_by(*kind);
@@ -540,6 +587,13 @@ pub(super) fn validate_nominal_nodes(
             NominalIdentityPreimage::Dimension(dimension) => {
                 validate_dimension(&site, dimension, &graph, lock, meter, bytes)?;
             }
+            NominalIdentityPreimage::DimensionEquivalence(equivalence) => {
+                validate_dimension_equivalence(&site, equivalence, &graph, lock, meter)?;
+                require(
+                    equivalence_pairs.insert(&equivalence.dimension_node_ids),
+                    || site.preimage(&["dimension_node_ids"]),
+                )?;
+            }
             NominalIdentityPreimage::Unit(unit) => {
                 validate_unit(&site, unit, &graph, lock, meter)?;
                 if unit.target_unit_node_id.is_none() {
@@ -551,6 +605,53 @@ pub(super) fn validate_nominal_nodes(
             }
         }
     }
+    Ok(())
+}
+
+fn validate_dimension_equivalence(
+    site: &Site<'_>,
+    equivalence: &DimensionEquivalencePreimage,
+    graph: &NominalGraph<'_>,
+    lock: &CheckedPackageLockV2,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let ids = &equivalence.dimension_node_ids;
+    require(
+        ids[0].digest < ids[1].digest,
+        || site.preimage(&["dimension_node_ids"]),
+    )?;
+    for (position, id) in ids.iter().enumerate() {
+        meter.charge(1, || site.preimage(&["dimension_node_ids"]).index(position))?;
+        require(
+            matches!(graph.preimage(id), Some(NominalIdentityPreimage::Dimension(_))),
+            || site.preimage(&["dimension_node_ids"]).index(position),
+        )?;
+    }
+    require(
+        lock.sources.iter().any(|source| {
+            source.authority == equivalence.owner.authority
+                && source.identity == equivalence.owner.identity
+        }),
+        || site.preimage(&["owner"]),
+    )?;
+    require(
+        positive_integer(&equivalence.root_scale.numerator)
+            && positive_integer(&equivalence.root_scale.denominator),
+        || site.preimage(&["root_scale"]),
+    )?;
+    validate_rational(&equivalence.root_scale, meter, &|| site.preimage(&["root_scale"]))?;
+    require(site.node.semantic_type == site.node.node_id, || {
+        site.member("semantic_type")
+    })?;
+    require(site.node.declaration.is_none(), || site.member("declaration"))?;
+    require(site.node.dependencies.as_slice() == ids, || {
+        site.member("dependencies")
+    })?;
+    require(
+        matches!(site.node.occurrences.as_slice(), [occurrence]
+            if occurrence.role == crate::checked_package::shared::CheckedOccurrenceRole::Anchor),
+        || site.member("occurrences"),
+    )?;
     Ok(())
 }
 

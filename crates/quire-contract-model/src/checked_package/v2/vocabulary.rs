@@ -131,6 +131,7 @@ closed_vocabulary! {
         Uuid => "uuid",
         Timestamp => "timestamp",
         Dimension => "dimension",
+        DimensionEquivalence => "dimension_equivalence",
         Unit => "unit",
         Enum => "enum",
         CompoundUnit => "compound_unit",

@@ -413,6 +413,11 @@ impl CheckedSemanticNodeV2 {
                         replace(&mut term.dimension_node_id, old, new);
                     }
                 }
+                NominalIdentityPreimage::DimensionEquivalence(value) => {
+                    for id in &mut value.dimension_node_ids {
+                        replace(id, old, new);
+                    }
+                }
                 NominalIdentityPreimage::Unit(value) => {
                     replace_owner(&mut value.owner, old, new);
                     replace(&mut value.dimension_node_id, old, new);
@@ -1956,6 +1961,7 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | ScalarTypeForm::Uuid
             | ScalarTypeForm::Timestamp
             | ScalarTypeForm::Dimension
+            | ScalarTypeForm::DimensionEquivalence
             | ScalarTypeForm::Unit
             | ScalarTypeForm::Enum,
         ) => false,
