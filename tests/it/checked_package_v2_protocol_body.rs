@@ -2203,11 +2203,16 @@ fn compensation_malformed_attempt_count_refuses_without_panicking() {
     package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][9]["value"]["members"]
         [0]["value"]["value"] = json!("not-an-integer");
     settle(&mut package);
+    let key = package["semantic_graph"]["nodes"][compensation]["node_id"]["digest"]
+        .as_str()
+        .expect("compensation key");
     assert_eq!(
         read(&package),
-        refusal(
+        refusal_at(
             CheckedPackageRefusalCode::MalformedWire,
             &format!("/semantic_graph/nodes/{compensation}/body/arguments/9/value/members/0/value"),
+            None,
+            key,
         )
     );
 }
