@@ -173,25 +173,25 @@ const ATTEMPT: &[Binding] = &[
     field("contracts", Shape::References),
     field("binder", Shape::Reference),
     field("related", Shape::Records),
-    field("constraint", Shape::Boolean),
+    field("constraint", Shape::BooleanCandidate),
 ];
 const EFFECT: &[Binding] = &[
     field("of", Shape::Reference),
     field("binder", Shape::Reference),
     field("related", Shape::Records),
-    field("constraint", Shape::Boolean),
+    field("constraint", Shape::BooleanCandidate),
 ];
 const EVENT: &[Binding] = &[
     field("role", Shape::Reference),
     field("compensation", Shape::OptionalReference),
     field("binder", Shape::Reference),
     field("related", Shape::Records),
-    field("constraint", Shape::Boolean),
+    field("constraint", Shape::BooleanCandidate),
 ];
 const COMMIT: &[Binding] = &[
     field("role", Shape::Reference),
     field("binder", Shape::Reference),
-    field("constraint", Shape::Boolean),
+    field("constraint", Shape::BooleanCandidate),
 ];
 const FENCE: &[Binding] = &[field("ordering", Shape::Text)];
 const COMPENSATE: &[Binding] = &[
