@@ -3270,27 +3270,9 @@ fn check_clause(
 fn check_clause_slots(
     check: &MemberCheck<'_>,
     arguments: &[CheckedTerm],
+    validated: &[Option<(&str, &[CheckedTerm])>],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let activation = check.at(arguments, 1);
-    if let Some(guard) = group_value(activation, "guard") {
-        let path = check.argument_path(1).key("members").index(2).key("value");
-        check_member_dependencies(check, guard, path.clone())?;
-        check.boolean(guard, path)?;
-    }
-    let captures = members(check.at(arguments, 2)).expect("validated captures");
-    for (entry, record) in captures.iter().enumerate() {
-        meter.charge(1, || node_pointer(check.position))?;
-        let initializer = group_value(record, "initializer").expect("validated initializer");
-        let path = check
-            .argument_path(2)
-            .key("members")
-            .index(entry)
-            .key("members")
-            .index(1)
-            .key("value");
-        check_member_dependencies(check, initializer, path)?;
-    }
     if let Some(expected) = check.terms[check.position]
         .as_ref()
         .and_then(super::structural::application_dependencies)
@@ -3307,7 +3289,897 @@ fn check_clause_slots(
             ));
         }
     }
+    let scope = ProtocolScope::new(check, arguments, validated, meter)?;
+    let activation = check.at(arguments, 1);
+    if let Some(guard) = group_value(activation, "guard") {
+        let path = check.argument_path(1).key("members").index(2).key("value");
+        check_member_dependencies(check, guard, path.clone())?;
+        let mut allowed = BTreeSet::new();
+        if let Some(trigger) = scope.activation {
+            allowed.insert(trigger);
+        }
+        scope.slot(
+            check.position,
+            guard,
+            &allowed,
+            "protocol-activation",
+            Some("activation.guard"),
+            None,
+            meter,
+        )?;
+        check.boolean(guard, path)?;
+    }
+    let captures = members(check.at(arguments, 2)).expect("validated captures");
+    for (entry, record) in captures.iter().enumerate() {
+        meter.charge(1, || node_pointer(check.position))?;
+        let initializer = group_value(record, "initializer").expect("validated initializer");
+        let path = check
+            .argument_path(2)
+            .key("members")
+            .index(entry)
+            .key("members")
+            .index(1)
+            .key("value");
+        check_member_dependencies(check, initializer, path)?;
+        let mut allowed = scope.c0[..1 + usize::from(scope.activation.is_some())]
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        allowed.extend(scope.captures[..entry].iter().copied());
+        scope.slot(
+            check.position,
+            initializer,
+            &allowed,
+            "protocol-capture",
+            None,
+            Some(entry),
+            meter,
+        )?;
+    }
+    scope.check_declaration_slots(meter)?;
+    scope.check_control_slots(meter)?;
+    scope.check_finish_terminal(meter)?;
+    scope.check_compensation_slots(meter)?;
     Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct ProtocolBinderOrigin {
+    owner: usize,
+    capture: Option<(&'static str, usize)>,
+}
+
+struct ProtocolScope<'a, 'b> {
+    check: &'a MemberCheck<'b>,
+    arguments: &'a [CheckedTerm],
+    validated: &'a [Option<(&'a str, &'a [CheckedTerm])>],
+    c0: Vec<usize>,
+    activation: Option<usize>,
+    captures: Vec<usize>,
+    known: BTreeMap<usize, Vec<ProtocolBinderOrigin>>,
+}
+
+impl<'a, 'b> ProtocolScope<'a, 'b> {
+    fn target(&self, term: &CheckedTerm) -> usize {
+        reference_target(term)
+            .and_then(|target| self.check.index.get(target).copied())
+            .expect("validated protocol reference")
+    }
+
+    fn node_arguments(&self, position: usize) -> (&'a str, &'a [CheckedTerm]) {
+        self.validated[position].expect("validated protocol member")
+    }
+
+    #[string_edge]
+    fn new(
+        check: &'a MemberCheck<'b>,
+        arguments: &'a [CheckedTerm],
+        validated: &'a [Option<(&'a str, &'a [CheckedTerm])>],
+        meter: &mut WorkMeter,
+    ) -> Result<Self, ValidationFailure> {
+        let over = check.target_at(arguments, 0, |_| true)?;
+        let activation = group_value(check.at(arguments, 1), "trigger")
+            .and_then(reference_target)
+            .and_then(|id| check.index.get(id).copied());
+        let captures = members(check.at(arguments, 2))
+            .expect("validated captures")
+            .iter()
+            .map(|record| {
+                group_value(record, "binder")
+                    .and_then(reference_target)
+                    .and_then(|id| check.index.get(id).copied())
+                    .expect("validated capture binder")
+            })
+            .collect::<Vec<_>>();
+        let mut c0 = vec![over];
+        if let Some(trigger) = activation {
+            c0.push(trigger);
+        }
+        c0.extend(captures.iter().copied());
+        let mut known: BTreeMap<usize, Vec<ProtocolBinderOrigin>> = BTreeMap::new();
+        for (index, &position) in c0.iter().enumerate() {
+            meter.charge(1, || node_pointer(check.position))?;
+            let capture = if index > usize::from(activation.is_some()) {
+                Some((
+                    "protocol-capture",
+                    index - 1 - usize::from(activation.is_some()),
+                ))
+            } else {
+                None
+            };
+            known
+                .entry(position)
+                .or_default()
+                .push(ProtocolBinderOrigin {
+                    owner: check.position,
+                    capture,
+                });
+        }
+        let mut scope = Self {
+            check,
+            arguments,
+            validated,
+            c0,
+            activation,
+            captures,
+            known,
+        };
+        for field in ["roles", "channels", "compensations"] {
+            for target in listed_targets(binding_value(arguments, field).expect("validated list")) {
+                meter.charge(1, || node_pointer(check.position))?;
+                let position = *check.index.get(target).expect("validated member");
+                let (_, args) = scope.node_arguments(position);
+                match field {
+                    "roles" => {
+                        if let Some(binder) =
+                            group_value(argument(args, 1).expect("role replication"), "binder")
+                        {
+                            let binder = scope.target(binder);
+                            scope
+                                .known
+                                .entry(binder)
+                                .or_default()
+                                .push(ProtocolBinderOrigin {
+                                    owner: check.position,
+                                    capture: None,
+                                });
+                        }
+                    }
+                    "channels" => {
+                        if let Some(binder) =
+                            group_value(argument(args, 3).expect("channel ordering"), "binder")
+                        {
+                            let binder = scope.target(binder);
+                            scope
+                                .known
+                                .entry(binder)
+                                .or_default()
+                                .push(ProtocolBinderOrigin {
+                                    owner: check.position,
+                                    capture: None,
+                                });
+                        }
+                    }
+                    "compensations" => {
+                        let registration_count =
+                            members(argument(args, 5).expect("registration captures"))
+                                .expect("registration captures")
+                                .len();
+                        let activation_count =
+                            members(argument(args, 7).expect("activation captures"))
+                                .expect("activation captures")
+                                .len();
+                        for (ordinal, binder) in compensation_binders(args).into_iter().enumerate()
+                        {
+                            meter.charge(1, || node_pointer(position))?;
+                            let capture = if ordinal > 0 && ordinal <= registration_count {
+                                Some(("registration-capture", ordinal - 1))
+                            } else if ordinal > registration_count + 1
+                                && ordinal <= registration_count + 1 + activation_count
+                            {
+                                Some(("activation-capture", ordinal - registration_count - 2))
+                            } else {
+                                None
+                            };
+                            let binder = scope.target(binder);
+                            scope
+                                .known
+                                .entry(binder)
+                                .or_default()
+                                .push(ProtocolBinderOrigin {
+                                    owner: position,
+                                    capture,
+                                });
+                        }
+                    }
+                    _ => unreachable!("fixed protocol lists"),
+                }
+            }
+        }
+        for &position in check.index.values() {
+            meter.charge(1, || node_pointer(check.position))?;
+            if !check.is(
+                position,
+                CheckedNodeKind::Protocol(ProtocolForm::Compensation),
+            ) {
+                continue;
+            }
+            let (_, args) = scope.node_arguments(position);
+            for binder in compensation_binders(args) {
+                meter.charge(1, || node_pointer(position))?;
+                let binder = scope.target(binder);
+                let origins = scope.known.entry(binder).or_default();
+                if !origins.iter().any(|origin| origin.owner == position) {
+                    origins.push(ProtocolBinderOrigin {
+                        owner: position,
+                        capture: None,
+                    });
+                }
+            }
+        }
+        let finish = scope.target(binding_value(arguments, "finish").expect("validated finish"));
+        let (_, args) = scope.node_arguments(finish);
+        let finish_binder = scope.target(argument(args, 0).expect("validated finish binder"));
+        scope
+            .known
+            .entry(finish_binder)
+            .or_default()
+            .push(ProtocolBinderOrigin {
+                owner: check.position,
+                capture: None,
+            });
+        let root = scope.target(binding_value(arguments, "run").expect("validated root"));
+        let mut pending = vec![root];
+        let mut visited = BTreeSet::new();
+        while let Some(position) = pending.pop() {
+            meter.charge(1, || node_pointer(position))?;
+            if !visited.insert(position) {
+                continue;
+            }
+            let (operator, args) = scope.node_arguments(position);
+            if let Some(binder) = control_binder(operator, args) {
+                let binder = scope.target(binder);
+                scope
+                    .known
+                    .entry(binder)
+                    .or_default()
+                    .push(ProtocolBinderOrigin {
+                        owner: check.position,
+                        capture: None,
+                    });
+            }
+            for child in control_children(operator, args) {
+                meter.charge(1, || node_pointer(position))?;
+                pending.push(*check.index.get(child).expect("validated child"));
+            }
+        }
+        Ok(scope)
+    }
+
+    fn slot(
+        &self,
+        owner: usize,
+        term: &CheckedTerm,
+        allowed: &BTreeSet<usize>,
+        stage: &'static str,
+        barred_slot: Option<&'static str>,
+        capture: Option<usize>,
+        meter: &mut WorkMeter,
+    ) -> Result<(), ValidationFailure> {
+        let mut pending = Vec::new();
+        if let CheckedTerm::Reference { target } = term {
+            if let Some(&position) = self.check.index.get(target) {
+                pending.push(position);
+            }
+        }
+        let mut visited = BTreeSet::new();
+        let mut reads = BTreeSet::new();
+        let mut state_read = None;
+        while let Some(position) = pending.pop() {
+            meter.charge(1, || node_pointer(owner))?;
+            if !visited.insert(position) {
+                continue;
+            }
+            if self
+                .check
+                .is(position, CheckedNodeKind::Value(ValueForm::Parameter))
+            {
+                reads.insert(position);
+                continue;
+            }
+            if matches!(self.check.kinds[position], CheckedNodeKind::Function(_)) {
+                continue;
+            }
+            if let Some(CheckedTerm::Application { operation, .. }) = &self.check.terms[position] {
+                if operation
+                    .get("identity")
+                    .and_then(Value::as_str)
+                    .is_some_and(model_state_operation)
+                {
+                    state_read = Some(position);
+                }
+            }
+            for target in &self.check.nodes[position].dependencies {
+                meter.charge(1, || node_pointer(owner))?;
+                if let Some(&next) = self.check.index.get(target) {
+                    pending.push(next);
+                }
+            }
+        }
+        if let Some(slot) = barred_slot {
+            let barred = reads
+                .iter()
+                .copied()
+                .find(|&position| position == self.c0[0])
+                .or(state_read);
+            if let Some(position) = barred {
+                let mut failure = ValidationFailure::refused_at(
+                    Code::IllTyped,
+                    node_pointer(position),
+                    Some(Cause::OperatorIneligible),
+                    self.check.nodes[position].node_id.clone(),
+                );
+                if let ValidationFailure::Refused(ref mut refusal) = failure {
+                    refusal.protocol_detail =
+                        Some(Box::new(CheckedProtocolRefusalDetail::ModelStateRead {
+                            slot: slot.into(),
+                        }));
+                }
+                return Err(failure);
+            }
+        }
+        for position in reads {
+            if allowed.contains(&position) {
+                continue;
+            }
+            let origins = self.known.get(&position).map(Vec::as_slice).unwrap_or(&[]);
+            let name = self.check.terms[position]
+                .as_ref()
+                .and_then(|body| group_value(body, "name"))
+                .and_then(text_value)
+                .expect("validated binder name");
+            let read = if origins.iter().any(|origin| {
+                origin.owner == owner
+                    && origin.capture.is_some_and(|(group, index)| {
+                        group == stage && capture.is_some_and(|current| index >= current)
+                    })
+            }) || (owner == self.check.position
+                && origins.iter().any(|origin| {
+                    origin.capture.is_some_and(|(group, index)| {
+                        group == stage && capture.is_some_and(|current| index >= current)
+                    })
+                })) {
+                "forward"
+            } else if !origins.is_empty()
+                && origins
+                    .iter()
+                    .all(|origin| origin.owner != self.check.position && origin.owner != owner)
+            {
+                "foreign"
+            } else {
+                "stage"
+            };
+            let mut failure = ValidationFailure::refused_at(
+                Code::MissingDeclaration,
+                node_pointer(owner),
+                Some(Cause::MissingName),
+                self.check.nodes[owner].node_id.clone(),
+            );
+            if let ValidationFailure::Refused(ref mut refusal) = failure {
+                let scope_owner = if self
+                    .check
+                    .is(owner, CheckedNodeKind::Protocol(ProtocolForm::Compensation))
+                {
+                    owner
+                } else {
+                    self.check.position
+                };
+                refusal.protocol_detail =
+                    Some(Box::new(CheckedProtocolRefusalDetail::BinderScope {
+                        name: name.into(),
+                        stage: stage.into(),
+                        owner: self.check.nodes[scope_owner].node_id.clone(),
+                        read: read.into(),
+                    }));
+            }
+            return Err(failure);
+        }
+        Ok(())
+    }
+
+    fn introduce(
+        &self,
+        position: usize,
+        input: &BTreeSet<usize>,
+        meter: &mut WorkMeter,
+    ) -> Result<BTreeSet<usize>, ValidationFailure> {
+        meter.charge(1, || node_pointer(position))?;
+        let actual = self.check.terms[position]
+            .as_ref()
+            .and_then(|body| group_value(body, "level"))
+            .and_then(integer_value);
+        if actual != Some(BigInt::from(input.len())) {
+            return Err(ValidationFailure::refused_at(
+                Code::InvalidSemanticGraph,
+                node_pointer(position),
+                None,
+                self.check.nodes[position].node_id.clone(),
+            ));
+        }
+        let name = self.check.terms[position]
+            .as_ref()
+            .and_then(|body| group_value(body, "name"))
+            .and_then(text_value)
+            .expect("validated binder name");
+        for &other in input {
+            meter.charge(1, || node_pointer(position))?;
+            let other_name = self.check.terms[other]
+                .as_ref()
+                .and_then(|body| group_value(body, "name"))
+                .and_then(text_value)
+                .expect("validated binder name");
+            if name == other_name {
+                return Err(ValidationFailure::refused_at(
+                    Code::AmbiguousDeclaration,
+                    node_pointer(position),
+                    Some(Cause::AmbiguousName),
+                    self.check.nodes[position].node_id.clone(),
+                ));
+            }
+        }
+        let mut output = input.clone();
+        output.insert(position);
+        Ok(output)
+    }
+
+    fn check_declaration_slots(&self, meter: &mut WorkMeter) -> Result<(), ValidationFailure> {
+        let base = self.c0.iter().copied().collect::<BTreeSet<_>>();
+        for target in listed_targets(binding_value(self.arguments, "roles").expect("roles")) {
+            meter.charge(1, || node_pointer(self.check.position))?;
+            let role = *self.check.index.get(target).expect("validated role");
+            let (_, args) = self.node_arguments(role);
+            let replication = argument(args, 1).expect("replication");
+            if let Some(binder) = group_value(replication, "binder") {
+                let with_binder = self.introduce(self.target(binder), &base, meter)?;
+                if let Some(until) = group_value(replication, "until") {
+                    self.slot(
+                        role,
+                        until,
+                        &with_binder,
+                        "role-lifetime",
+                        None,
+                        None,
+                        meter,
+                    )?;
+                }
+            }
+        }
+        for target in listed_targets(binding_value(self.arguments, "channels").expect("channels")) {
+            meter.charge(1, || node_pointer(self.check.position))?;
+            let channel = *self.check.index.get(target).expect("validated channel");
+            let (_, args) = self.node_arguments(channel);
+            let ordering = argument(args, 3).expect("ordering");
+            if let Some(binder) = group_value(ordering, "binder") {
+                self.introduce(self.target(binder), &base, meter)?;
+                if let Some(key) = group_value(ordering, "key") {
+                    let allowed = BTreeSet::from([self.target(binder)]);
+                    self.slot(
+                        channel,
+                        key,
+                        &allowed,
+                        "channel-key",
+                        Some("channel.key"),
+                        None,
+                        meter,
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[string_edge]
+    fn control_entry(
+        &self,
+        position: usize,
+        input: BTreeSet<usize>,
+        meter: &mut WorkMeter,
+    ) -> Result<ControlScopeFrame, ValidationFailure> {
+        meter.charge(1, || node_pointer(position))?;
+        let (operator, args) = self.node_arguments(position);
+        for _ in &input {
+            meter.charge(1, || node_pointer(position))?;
+        }
+        let output = if let Some(binder) = control_binder(operator, args) {
+            self.introduce(self.target(binder), &input, meter)?
+        } else {
+            input.clone()
+        };
+        match operator {
+            "choice" | "repeat" => {
+                let visible = argument(args, 1).expect("visible");
+                for entry in members(visible).expect("visible entries") {
+                    self.slot(position, entry, &input, "run", Some("visible"), None, meter)?;
+                }
+                if operator == "choice" {
+                    for case in members(argument(args, 2).expect("cases")).expect("cases") {
+                        let guard = group_value(case, "guard").expect("guard");
+                        self.slot(
+                            position,
+                            guard,
+                            &input,
+                            "run",
+                            Some("choice.guard"),
+                            None,
+                            meter,
+                        )?;
+                    }
+                } else {
+                    let guard = argument(args, 4).expect("repeat guard");
+                    self.slot(
+                        position,
+                        guard,
+                        &input,
+                        "run",
+                        Some("repeat.guard"),
+                        None,
+                        meter,
+                    )?;
+                    let proof = argument(args, 3).expect("repeat proof");
+                    for item in members(proof).expect("proof") {
+                        if let CheckedTerm::Binding { value, .. } = item {
+                            self.slot(position, value, &input, "run", None, None, meter)?;
+                        }
+                    }
+                }
+            }
+            "check" => {
+                self.slot(
+                    position,
+                    argument(args, 0).expect("condition"),
+                    &input,
+                    "run",
+                    Some("check.condition"),
+                    None,
+                    meter,
+                )?;
+            }
+            "send" | "receive" | "attempt" | "effect" | "event" | "commit" => {
+                let constraint = match operator {
+                    "send" => 3,
+                    "receive" => 4,
+                    "attempt" => 6,
+                    "effect" => 3,
+                    "event" => 4,
+                    "commit" => 2,
+                    _ => unreachable!("step control"),
+                };
+                self.slot(
+                    position,
+                    argument(args, constraint).expect("constraint"),
+                    &output,
+                    "run",
+                    None,
+                    None,
+                    meter,
+                )?;
+                if matches!(
+                    operator,
+                    "send" | "receive" | "attempt" | "effect" | "event"
+                ) {
+                    let related = constraint - 1;
+                    for record in
+                        members(argument(args, related).expect("related")).expect("related list")
+                    {
+                        for end in ["from", "to"] {
+                            self.slot(
+                                position,
+                                group_value(record, end).expect("related end"),
+                                &output,
+                                "run",
+                                None,
+                                None,
+                                meter,
+                            )?;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        let children = control_children(operator, args)
+            .into_iter()
+            .map(|target| *self.check.index.get(target).expect("validated child"))
+            .collect();
+        Ok(ControlScopeFrame {
+            position,
+            input,
+            output,
+            children,
+            next: 0,
+        })
+    }
+
+    #[string_edge]
+    fn check_control_slots(&self, meter: &mut WorkMeter) -> Result<(), ValidationFailure> {
+        let root = self.target(binding_value(self.arguments, "run").expect("run"));
+        let base = self.c0.iter().copied().collect::<BTreeSet<_>>();
+        let mut frames = vec![self.control_entry(root, base, meter)?];
+        while let Some(frame) = frames.last_mut() {
+            let (operator, args) = self.node_arguments(frame.position);
+            if let Some(&child) = frame.children.get(frame.next) {
+                let child_number = frame.next;
+                frame.next += 1;
+                let child_input = match operator {
+                    "sequence" => frame.output.clone(),
+                    "await" if child_number == 1 => frame.output.clone(),
+                    _ => frame.input.clone(),
+                };
+                frames.push(self.control_entry(child, child_input, meter)?);
+                continue;
+            }
+            let all_join = operator == "parallel"
+                && group_value(argument(args, 2).expect("parallel join"), "policy")
+                    .and_then(text_value)
+                    == Some("all");
+            let out = if operator == "sequence" || all_join {
+                frame.output.clone()
+            } else if matches!(operator, "choice" | "repeat" | "parallel" | "await") {
+                frame.input.clone()
+            } else {
+                frame.output.clone()
+            };
+            frames.pop();
+            if let Some(parent) = frames.last_mut() {
+                let (parent_operator, _) = self.node_arguments(parent.position);
+                if parent_operator == "sequence" || parent_operator == "await" {
+                    parent.output = out;
+                } else if parent_operator == "parallel" {
+                    let (_, args) = self.node_arguments(parent.position);
+                    let all = group_value(argument(args, 2).expect("parallel join"), "policy")
+                        .and_then(text_value)
+                        == Some("all");
+                    if !all {
+                        continue;
+                    }
+                    for binder in out.difference(&parent.input) {
+                        let name = self.check.terms[*binder]
+                            .as_ref()
+                            .and_then(|body| group_value(body, "name"))
+                            .and_then(text_value)
+                            .expect("validated binder name");
+                        let mut duplicate = parent.output.contains(binder);
+                        for previous in parent.output.difference(&parent.input) {
+                            meter.charge(1, || node_pointer(*binder))?;
+                            let previous_name = self.check.terms[*previous]
+                                .as_ref()
+                                .and_then(|body| group_value(body, "name"))
+                                .and_then(text_value)
+                                .expect("validated binder name");
+                            duplicate |= name == previous_name;
+                        }
+                        if duplicate {
+                            return Err(ValidationFailure::refused_at(
+                                Code::AmbiguousDeclaration,
+                                node_pointer(*binder),
+                                Some(Cause::AmbiguousName),
+                                self.check.nodes[*binder].node_id.clone(),
+                            ));
+                        }
+                        parent.output.insert(*binder);
+                    }
+                }
+            } else {
+                self.check_finish_slot(&out, meter)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn check_finish_slot(
+        &self,
+        input: &BTreeSet<usize>,
+        meter: &mut WorkMeter,
+    ) -> Result<(), ValidationFailure> {
+        let finish = self.target(binding_value(self.arguments, "finish").expect("finish"));
+        let (_, args) = self.node_arguments(finish);
+        let binder = self.target(argument(args, 0).expect("finish binder"));
+        let allowed = self.introduce(binder, input, meter)?;
+        self.slot(
+            finish,
+            argument(args, 1).expect("finish constraint"),
+            &allowed,
+            "finish",
+            None,
+            None,
+            meter,
+        )
+    }
+
+    fn check_finish_terminal(&self, meter: &mut WorkMeter) -> Result<(), ValidationFailure> {
+        let Some(term) = binding_value(self.arguments, "terminal") else {
+            return Ok(());
+        };
+        let Some(target) = listed_targets(term).next() else {
+            return Ok(());
+        };
+        let terminal = *self.check.index.get(target).expect("validated terminal");
+        let (_, args) = self.node_arguments(terminal);
+        let Some(condition) =
+            members(argument(args, 1).expect("terminal condition")).and_then(|items| items.first())
+        else {
+            return Ok(());
+        };
+        let mut allowed = BTreeSet::new();
+        if self.activation.is_none() {
+            allowed.insert(self.c0[0]);
+            allowed.extend(self.captures.iter().copied());
+        }
+        self.slot(terminal, condition, &allowed, "terminal", None, None, meter)
+    }
+
+    fn check_compensation_slots(&self, meter: &mut WorkMeter) -> Result<(), ValidationFailure> {
+        let base = self.c0.iter().copied().collect::<BTreeSet<_>>();
+        for target in
+            listed_targets(binding_value(self.arguments, "compensations").expect("compensations"))
+        {
+            meter.charge(1, || node_pointer(self.check.position))?;
+            let template = *self.check.index.get(target).expect("validated template");
+            let (_, args) = self.node_arguments(template);
+            let forward = self.target(argument(args, 1).expect("forward binder"));
+            let mut level_set = self.introduce(forward, &base, meter)?;
+            let mut registration = Vec::new();
+            for (ordinal, capture) in members(argument(args, 5).expect("registration captures"))
+                .expect("registration captures")
+                .iter()
+                .enumerate()
+            {
+                let initializer = group_value(capture, "initializer").expect("initializer");
+                self.slot(
+                    template,
+                    initializer,
+                    &level_set,
+                    "registration-capture",
+                    None,
+                    Some(ordinal),
+                    meter,
+                )?;
+                let binder = self.target(group_value(capture, "binder").expect("capture binder"));
+                level_set = self.introduce(binder, &level_set, meter)?;
+                registration.push(binder);
+            }
+            let trigger = argument(args, 6).expect("trigger");
+            let trigger_binder =
+                self.target(group_value(trigger, "binder").expect("trigger binder"));
+            level_set = self.introduce(trigger_binder, &level_set, meter)?;
+            let mut guard_allowed = self.captures.iter().copied().collect::<BTreeSet<_>>();
+            guard_allowed.extend(registration.iter().copied());
+            guard_allowed.insert(trigger_binder);
+            self.slot(
+                template,
+                group_value(trigger, "guard").expect("trigger guard"),
+                &guard_allowed,
+                "trigger-guard",
+                Some("trigger.guard"),
+                None,
+                meter,
+            )?;
+            let mut activation = Vec::new();
+            for (ordinal, capture) in members(argument(args, 7).expect("activation captures"))
+                .expect("activation captures")
+                .iter()
+                .enumerate()
+            {
+                let initializer = group_value(capture, "initializer").expect("initializer");
+                let mut allowed = guard_allowed.clone();
+                allowed.insert(self.c0[0]);
+                allowed.extend(activation.iter().copied());
+                self.slot(
+                    template,
+                    initializer,
+                    &allowed,
+                    "activation-capture",
+                    None,
+                    Some(ordinal),
+                    meter,
+                )?;
+                let binder = self.target(group_value(capture, "binder").expect("capture binder"));
+                level_set = self.introduce(binder, &level_set, meter)?;
+                activation.push(binder);
+            }
+            let retry = argument(args, 10).expect("retry");
+            let earlier = self.target(group_value(retry, "earlier").expect("earlier"));
+            level_set = self.introduce(earlier, &level_set, meter)?;
+            let later = self.target(group_value(retry, "later").expect("later"));
+            level_set = self.introduce(later, &level_set, meter)?;
+            let mut captured = self.captures.iter().copied().collect::<BTreeSet<_>>();
+            captured.extend(registration.iter().copied());
+            captured.extend(activation.iter().copied());
+            let mut retry_allowed = captured.clone();
+            retry_allowed.extend([earlier, later]);
+            self.slot(
+                template,
+                group_value(retry, "relation").expect("retry relation"),
+                &retry_allowed,
+                "retry",
+                Some("retry.relation"),
+                None,
+                meter,
+            )?;
+            let recovery = argument(args, 12).expect("recovery");
+            let recovery_binder =
+                self.target(group_value(recovery, "binder").expect("recovery binder"));
+            self.introduce(recovery_binder, &level_set, meter)?;
+            captured.insert(recovery_binder);
+            self.slot(
+                template,
+                group_value(recovery, "predicate").expect("recovery predicate"),
+                &captured,
+                "recovery",
+                Some("recovery.predicate"),
+                None,
+                meter,
+            )?;
+        }
+        Ok(())
+    }
+}
+
+struct ControlScopeFrame {
+    position: usize,
+    input: BTreeSet<usize>,
+    output: BTreeSet<usize>,
+    children: Vec<usize>,
+    next: usize,
+}
+
+#[string_edge]
+fn model_state_operation(identity: &str) -> bool {
+    matches!(
+        identity,
+        "quire.op.state.pre"
+            | "quire.op.model.deref"
+            | "quire.op.model.navigate"
+            | "quire.op.model.reaches"
+            | "quire.op.model.reaches_field"
+            | "quire.op.model.lookup"
+            | "quire.op.model.all_instances"
+            | "quire.op.model.dispatch_call"
+    )
+}
+
+#[string_edge]
+fn control_binder<'a>(operator: &str, args: &'a [CheckedTerm]) -> Option<&'a CheckedTerm> {
+    let ordinal = match operator {
+        "send" | "commit" => 1,
+        "receive" => 2,
+        "attempt" => 4,
+        "effect" => 1,
+        "event" => 2,
+        _ => return None,
+    };
+    argument(args, ordinal)
+}
+
+fn compensation_binders(args: &[CheckedTerm]) -> Vec<&CheckedTerm> {
+    let mut binders = vec![argument(args, 1).expect("forward binder")];
+    for capture in members(argument(args, 5).expect("registration captures")).expect("capture list")
+    {
+        binders.push(group_value(capture, "binder").expect("capture binder"));
+    }
+    binders
+        .push(group_value(argument(args, 6).expect("trigger"), "binder").expect("trigger binder"));
+    for capture in members(argument(args, 7).expect("activation captures")).expect("capture list") {
+        binders.push(group_value(capture, "binder").expect("capture binder"));
+    }
+    let retry = argument(args, 10).expect("retry");
+    for name in ["earlier", "later"] {
+        binders.push(group_value(retry, name).expect("retry binder"));
+    }
+    binders.push(
+        group_value(argument(args, 12).expect("recovery"), "binder").expect("recovery binder"),
+    );
+    binders
 }
 
 fn causal_edge(
@@ -3779,7 +4651,7 @@ pub(super) fn validate_protocol_nodes(
         };
         check_clause(&check, arguments, &validated, meter)?;
         check_clause_causality(&check, arguments, &validated, meter)?;
-        check_clause_slots(&check, arguments, meter)?;
+        check_clause_slots(&check, arguments, &validated, meter)?;
     }
     Ok(())
 }
