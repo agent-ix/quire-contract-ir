@@ -1534,50 +1534,6 @@ impl MemberCheck<'_> {
         Ok(false)
     }
 
-    #[string_edge]
-    fn queue_channel_same_clause(&self, channel: usize) -> bool {
-        let Some(channel_path) = self.nodes[channel]
-            .declaration
-            .as_ref()
-            .map(|declaration| declaration.qualified_name.as_slice())
-        else {
-            return false;
-        };
-        for &clause in self.index.values() {
-            if !self.is(
-                clause,
-                CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause),
-            ) {
-                continue;
-            }
-            let Some(CheckedTerm::Application { arguments, .. }) = self.terms[clause].as_ref()
-            else {
-                continue;
-            };
-            let listed = binding_value(arguments, "queues").is_some_and(|queues| {
-                listed_targets(queues).any(|target| target == &self.nodes[self.position].node_id)
-            });
-            if !listed {
-                continue;
-            }
-            let Some(prefix) = self.nodes[clause]
-                .declaration
-                .as_ref()
-                .map(|declaration| declaration.qualified_name.as_slice())
-            else {
-                return false;
-            };
-            if channel_path.len() != prefix.len() + 2
-                || !channel_path.starts_with(prefix)
-                || channel_path[prefix.len()].as_ref() != "channel"
-            {
-                return false;
-            }
-        }
-        // An unlisted queue is diagnosed by the later membership pass.
-        true
-    }
-
     fn nonnegative(
         &self,
         term: &CheckedTerm,
@@ -2567,16 +2523,9 @@ fn check_member(
             }
         }
         ProtocolForm::Queue => {
-            let channel = check.target_at(arguments, 0, |position| {
+            check.target_at(arguments, 0, |position| {
                 check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Channel))
             })?;
-            if !check.queue_channel_same_clause(channel) {
-                return Err(check.refuse(
-                    Code::InvalidModelBinding,
-                    Some(Cause::MalformedDeclaration),
-                    check.argument_path(0).key("target"),
-                ));
-            }
         }
         ProtocolForm::Obligation => match operator {
             "finish" => {
@@ -2782,8 +2731,143 @@ fn validate_protocol_declaration_paths(
     Ok(())
 }
 
-/// First protocol reader passes: placement, operator/law and local layout.
-/// Graph member joins, membership and clause scope follow in later passes.
+fn record_member_owner(
+    owners: &mut [Option<usize>],
+    repeated: &mut [bool],
+    node: usize,
+    clause: usize,
+) {
+    if owners[node].replace(clause).is_some() {
+        repeated[node] = true;
+    }
+}
+
+#[string_edge]
+fn validate_protocol_membership(
+    nodes: &[RawSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    validated: &[Option<(&str, &[CheckedTerm])>],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let mut owners = vec![None; nodes.len()];
+    let mut repeated = vec![false; nodes.len()];
+    let mut pending = Vec::new();
+    for &clause in index.values() {
+        meter.charge(1, || node_pointer(clause))?;
+        if kinds.get(clause) != Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
+            continue;
+        }
+        let Some((_, arguments)) = validated[clause] else {
+            continue;
+        };
+        for (field, form) in [
+            ("roles", ProtocolForm::Role),
+            ("channels", ProtocolForm::Channel),
+            ("queues", ProtocolForm::Queue),
+            ("compensations", ProtocolForm::Compensation),
+        ] {
+            if let Some(value) = binding_value(arguments, field) {
+                for target in listed_targets(value) {
+                    meter.charge(1, || node_pointer(clause))?;
+                    if let Some(&position) = index.get(target) {
+                        if kinds.get(position) == Some(&CheckedNodeKind::Protocol(form)) {
+                            record_member_owner(&mut owners, &mut repeated, position, clause);
+                        }
+                    }
+                }
+            }
+        }
+        for field in ["finish", "terminal"] {
+            if let Some(value) = binding_value(arguments, field) {
+                for target in listed_targets(value).chain(reference_target(value)) {
+                    meter.charge(1, || node_pointer(clause))?;
+                    if let Some(&position) = index.get(target) {
+                        if kinds.get(position)
+                            == Some(&CheckedNodeKind::Protocol(ProtocolForm::Obligation))
+                        {
+                            record_member_owner(&mut owners, &mut repeated, position, clause);
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(&position) = binding_value(arguments, "run")
+            .and_then(reference_target)
+            .and_then(|target| index.get(target))
+        {
+            if kinds.get(position) == Some(&CheckedNodeKind::Protocol(ProtocolForm::Control)) {
+                pending.push((position, clause));
+            }
+        }
+    }
+
+    let mut visited = BTreeSet::new();
+    while let Some((position, clause)) = pending.pop() {
+        meter.charge(1, || node_pointer(position))?;
+        record_member_owner(&mut owners, &mut repeated, position, clause);
+        if !visited.insert(position) {
+            continue;
+        }
+        let Some((operator, arguments)) = validated[position] else {
+            continue;
+        };
+        for target in control_children(operator, arguments) {
+            meter.charge(1, || node_pointer(position))?;
+            if let Some(&child) = index.get(target) {
+                if kinds.get(child) == Some(&CheckedNodeKind::Protocol(ProtocolForm::Control)) {
+                    pending.push((child, clause));
+                }
+            }
+        }
+    }
+
+    let mut queue_count = vec![0u8; nodes.len()];
+    for &position in index.values() {
+        if kinds.get(position) != Some(&CheckedNodeKind::Protocol(ProtocolForm::Queue)) {
+            continue;
+        }
+        meter.charge(1, || node_pointer(position))?;
+        let Some((_, arguments)) = validated[position] else {
+            continue;
+        };
+        if let Some(&channel) = binding_value(arguments, "channel")
+            .and_then(reference_target)
+            .and_then(|target| index.get(target))
+        {
+            if kinds.get(channel) == Some(&CheckedNodeKind::Protocol(ProtocolForm::Channel)) {
+                queue_count[channel] = queue_count[channel].saturating_add(1);
+                if owners[position].is_some() && owners[position] != owners[channel] {
+                    repeated[position] = true;
+                }
+            }
+        }
+    }
+
+    for &position in index.values() {
+        meter.charge(1, || node_pointer(position))?;
+        let Some(CheckedNodeKind::Protocol(form)) = kinds.get(position) else {
+            continue;
+        };
+        if matches!(
+            form,
+            ProtocolForm::Role
+                | ProtocolForm::Channel
+                | ProtocolForm::Queue
+                | ProtocolForm::Obligation
+                | ProtocolForm::Control
+                | ProtocolForm::Compensation
+        ) && (owners[position].is_none()
+            || repeated[position]
+            || (*form == ProtocolForm::Channel && queue_count[position] != 1))
+        {
+            return Err(declaration_defect(position, &nodes[position]));
+        }
+    }
+    Ok(())
+}
+
+/// Validate protocol placement, local members, membership and clause layout.
 pub(super) fn validate_protocol_nodes(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
@@ -2858,8 +2942,7 @@ pub(super) fn validate_protocol_nodes(
     }
     validate_protocol_declaration_names(nodes, kinds, index)?;
     validate_protocol_declaration_paths(nodes, kinds, &validated, index)?;
-    // Local member shapes are visited by form, then by ascending key. The
-    // clause follows the members, as FR-464's reader order requires.
+    // Local member shapes precede membership, which precedes clause checks.
     for form in [
         ProtocolForm::Role,
         ProtocolForm::Channel,
@@ -2867,7 +2950,6 @@ pub(super) fn validate_protocol_nodes(
         ProtocolForm::Obligation,
         ProtocolForm::Control,
         ProtocolForm::Compensation,
-        ProtocolForm::ProtocolClause,
     ] {
         for &position in index.values() {
             if kinds.get(position) != Some(&CheckedNodeKind::Protocol(form)) {
@@ -2884,26 +2966,31 @@ pub(super) fn validate_protocol_nodes(
                 .map_err(|defect| body_defect(position, &nodes[position], defect))?;
             validate_related_order(form, operator, arguments, bytes)
                 .map_err(|defect| body_defect(position, &nodes[position], defect))?;
-            if matches!(
-                form,
-                ProtocolForm::Role
-                    | ProtocolForm::Channel
-                    | ProtocolForm::Queue
-                    | ProtocolForm::Obligation
-                    | ProtocolForm::Control
-                    | ProtocolForm::Compensation
-            ) {
-                let check = MemberCheck {
-                    position,
-                    nodes,
-                    kinds,
-                    terms,
-                    index,
-                    profile: selected_profile.expect("validated protocol profile law"),
-                };
-                check_member(&check, form, operator, arguments, owners, meter)?;
-            }
+            let check = MemberCheck {
+                position,
+                nodes,
+                kinds,
+                terms,
+                index,
+                profile: selected_profile.expect("validated protocol profile law"),
+            };
+            check_member(&check, form, operator, arguments, owners, meter)?;
         }
+    }
+    validate_protocol_membership(nodes, kinds, &validated, index, meter)?;
+    for &position in index.values() {
+        if kinds.get(position) != Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
+            continue;
+        }
+        let Some((operator, arguments)) = validated[position] else {
+            return Err(body_defect(
+                position,
+                &nodes[position],
+                ProtocolBodyDefect::OperatorIneligible,
+            ));
+        };
+        validate_layout(ProtocolForm::ProtocolClause, operator, arguments)
+            .map_err(|defect| body_defect(position, &nodes[position], defect))?;
     }
     Ok(())
 }
