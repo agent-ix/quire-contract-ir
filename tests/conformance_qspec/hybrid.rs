@@ -1199,9 +1199,9 @@ fn qspec_hybrid_call_refuses_ineligible_function_signature() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-316")]
+#[trace("TC-048")]
 #[test]
-fn qspec_hybrid_step_precedes_protocol_reference_join() {
+fn qspec_protocol_reference_join_refuses_at_its_target() {
     let mut package = published_hybrid_package();
     let boolean = package["semantic_graph"]["nodes"]
         .as_array()
@@ -1241,6 +1241,32 @@ fn qspec_hybrid_step_precedes_protocol_reference_join() {
         "{refusal:?}"
     );
     assert_locus(&refusal, carrier_position, "/body/target");
+}
+
+#[trace("TC-048", "FR-038-AC-316")]
+#[test]
+fn qspec_hybrid_step_precedes_later_protocol_body_defect() {
+    let mut package = published_hybrid_package();
+    let protocol = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "protocol" && node["semantic_form"] == "protocol_clause")
+        .expect("published protocol clause");
+    package["semantic_graph"]["nodes"][protocol]["body"]["operation"]["member"]
+        ["operator"] = json!("sequence");
+    fixture_support::rekey_application_node(&mut package, protocol);
+    fixture_support::refresh_identity(&mut package);
+    let read = read_package(&package).expect("QSpec package");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read else {
+        panic!("wrong protocol clause member admitted: {read:?}")
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::OperationMemberMismatch)),
+        "{refusal:?}"
+    );
+    assert_locus(&refusal, protocol, "/body/operation/member");
 
     let model = model_position(&package);
     package["semantic_graph"]["nodes"][model]["body"]["members"][0]["value"]["members"][0]
