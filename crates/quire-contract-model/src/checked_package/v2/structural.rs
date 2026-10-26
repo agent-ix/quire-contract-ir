@@ -453,6 +453,10 @@ pub(super) fn validate_structural_nodes(
             ) {
                 expected.insert(owner_model.clone());
                 if !node.dependencies.iter().eq(expected.iter()) {
+                    eprintln!(
+                        "owner dependencies expected={expected:?} actual={:?}",
+                        node.dependencies
+                    );
                     return Err(refuse(Defect::Dependencies));
                 }
             }
