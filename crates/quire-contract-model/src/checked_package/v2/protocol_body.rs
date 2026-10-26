@@ -6,7 +6,7 @@ use super::model_members::{Budget, ModelOwners};
 use super::{
     ApplicationOperator, CheckedNodeKind, CheckedPackageLockV2, CheckedSelectionRole, CheckedTerm,
     CompositeTypeForm, LiteralKind, ModelForm, ProtocolForm, RawSemanticNodeV2, RelationForm,
-    ScalarTypeForm, ValueForm, WorkMeter,
+    ScalarTypeForm, StateClauseKind, StateForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -545,6 +545,28 @@ fn local_details_fit(form: ProtocolForm, operator: &str, arguments: &[CheckedTer
                     })
                 })
         }
+        (ProtocolForm::Control, "attempt" | "effect" | "event") => {
+            let related = match operator {
+                "attempt" => 5,
+                "effect" => 2,
+                "event" => 3,
+                _ => unreachable!("validated protocol operator"),
+            };
+            argument(arguments, related)
+                .and_then(members)
+                .is_some_and(|records| {
+                    records.iter().all(|record| {
+                        group_fields_fit(
+                            record,
+                            &[
+                                ("relationship", Shape::Reference),
+                                ("from", Shape::Term),
+                                ("to", Shape::Term),
+                            ],
+                        )
+                    })
+                })
+        }
         (ProtocolForm::ProtocolClause, "protocol") => clause_details_fit(arguments),
         (ProtocolForm::Role, "role") => {
             let Some(replication) = argument(arguments, 1) else {
@@ -736,6 +758,9 @@ fn validate_layout(
         || form == ProtocolForm::Control
             && matches!(operator, "choice" | "repeat")
             && argument(arguments, 1).is_none_or(|set| !reference_set_is_ordered(set))
+        || form == ProtocolForm::Control
+            && operator == "attempt"
+            && argument(arguments, 3).is_none_or(|set| !reference_set_is_ordered(set))
     {
         return Err(D::NoncanonicalSet);
     }
@@ -749,11 +774,15 @@ fn validate_related_order(
     arguments: &[CheckedTerm],
     bytes: u64,
 ) -> Result<(), ProtocolBodyDefect> {
-    if form == ProtocolForm::Control
-        && matches!(operator, "send" | "receive")
-        && argument(arguments, if operator == "receive" { 3 } else { 2 })
+    let related = match (form, operator) {
+        (ProtocolForm::Control, "send" | "effect") => Some(2),
+        (ProtocolForm::Control, "receive" | "event") => Some(3),
+        (ProtocolForm::Control, "attempt") => Some(5),
+        _ => None,
+    };
+    if related.is_some_and(|ordinal| argument(arguments, ordinal)
             .is_none_or(|records| !related_records_are_ordered(records, bytes))
-    {
+    ) {
         return Err(ProtocolBodyDefect::NoncanonicalSet);
     }
     Ok(())
@@ -926,6 +955,12 @@ fn enum_value_defect(
         (ProtocolForm::Control, "await") => {
             invalid_enum_at(arguments, 0, Some((0, true)), &["event", "compensation"])
         }
+        (ProtocolForm::Control, "attempt") => invalid_enum_at(
+            arguments,
+            2,
+            Some((0, false)),
+            &["relaxed", "acquire", "release", "acq_rel", "seq_cst"],
+        ),
         (ProtocolForm::Control, "fence") => invalid_enum_at(
             arguments,
             0,
@@ -1732,6 +1767,113 @@ fn check_control_prefix(
                 check.argument_path(constraint_ordinal),
             )?;
             check_related_types(check, arguments, related_ordinal, owners, meter)?;
+        }
+        "attempt" => {
+            let role = check.target_at(arguments, 0, |position| {
+                check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role))
+            })?;
+            if !check.same_clause(role, "role") {
+                return Err(check.refuse(
+                    Code::InvalidModelBinding,
+                    Some(Cause::MalformedDeclaration),
+                    check.argument_path(0).key("target"),
+                ));
+            }
+            let operation = check.target_at(arguments, 1, |position| {
+                check.is(position, CheckedNodeKind::State(StateForm::OperationAnchor))
+            })?;
+            for (ordinal, contract) in members(check.at(arguments, 3))
+                .expect("validated contracts")
+                .iter()
+                .enumerate()
+            {
+                let path = check.argument_path(3).key("members").index(ordinal);
+                let clause = check.check_target(contract, path.clone(), |position| {
+                    check.is(position, CheckedNodeKind::State(StateForm::StateClause))
+                })?;
+                let valid = check.terms[clause]
+                    .as_ref()
+                    .and_then(super::structural::typed_clause_body)
+                    .is_some_and(|body| {
+                        matches!(
+                            body.clause,
+                            StateClauseKind::Precondition | StateClauseKind::Postcondition
+                        ) && body.anchor == check.nodes[operation].node_id
+                    });
+                if !valid {
+                    return Err(check.refuse(
+                        Code::InvalidModelBinding,
+                        Some(Cause::MalformedDeclaration),
+                        path.key("target"),
+                    ));
+                }
+            }
+            check.target_at(arguments, 4, |position| {
+                check.is(position, CheckedNodeKind::Value(ValueForm::Parameter))
+            })?;
+            check_related_references(check, arguments, 5, owners, meter)?;
+            check.boolean(check.at(arguments, 6), check.argument_path(6))?;
+            check_related_types(check, arguments, 5, owners, meter)?;
+        }
+        "effect" => {
+            check.target_at(arguments, 0, |position| {
+                control_operator(position) == Some("attempt")
+            })?;
+            check.target_at(arguments, 1, |position| {
+                check.is(position, CheckedNodeKind::Value(ValueForm::Parameter))
+            })?;
+            check_related_references(check, arguments, 2, owners, meter)?;
+            check.boolean(check.at(arguments, 3), check.argument_path(3))?;
+            check_related_types(check, arguments, 2, owners, meter)?;
+        }
+        "event" => {
+            let role = check.target_at(arguments, 0, |position| {
+                check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role))
+            })?;
+            if !check.same_clause(role, "role") {
+                return Err(check.refuse(
+                    Code::InvalidModelBinding,
+                    Some(Cause::MalformedDeclaration),
+                    check.argument_path(0).key("target"),
+                ));
+            }
+            if let Some(compensation) =
+                members(check.at(arguments, 1)).and_then(|items| items.first())
+            {
+                let path = check.argument_path(1).key("members").index(0);
+                let template = check.check_target(compensation, path.clone(), |position| {
+                    check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Compensation))
+                })?;
+                if !check.same_clause(template, "compensate") {
+                    return Err(check.refuse(
+                        Code::InvalidModelBinding,
+                        Some(Cause::MalformedDeclaration),
+                        path.key("target"),
+                    ));
+                }
+            }
+            check.target_at(arguments, 2, |position| {
+                check.is(position, CheckedNodeKind::Value(ValueForm::Parameter))
+            })?;
+            check_related_references(check, arguments, 3, owners, meter)?;
+            check.boolean(check.at(arguments, 4), check.argument_path(4))?;
+            check_related_types(check, arguments, 3, owners, meter)?;
+        }
+        "commit" => {
+            let role = check.target_at(arguments, 0, |position| {
+                check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role))
+            })?;
+            if !check.same_clause(role, "role") {
+                return Err(check.refuse(
+                    Code::InvalidModelBinding,
+                    Some(Cause::MalformedDeclaration),
+                    check.argument_path(0).key("target"),
+                ));
+            }
+            check.target_at(arguments, 1, |position| {
+                check.is(position, CheckedNodeKind::Value(ValueForm::Parameter))
+            })?;
+            check.boolean(check.at(arguments, 2), check.argument_path(2))?;
         }
         "sequence" => check_list(0, &control)?,
         "choice" | "parallel" => {
