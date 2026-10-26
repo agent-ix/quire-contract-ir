@@ -55,10 +55,7 @@ impl CheckedPackageV2 {
             if self.kinds[position] != CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause) {
                 continue;
             }
-            let CheckedTerm::Application { arguments, .. } = self.terms[position]
-                .as_ref()
-                .expect("admitted protocol clause has a body")
-            else {
+            let CheckedTerm::Application { arguments, .. } = &self.terms[position] else {
                 unreachable!("admitted protocol clause has an application body");
             };
             let activation = binding_value(arguments, "activation")
