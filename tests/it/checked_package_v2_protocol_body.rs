@@ -5204,7 +5204,7 @@ fn await_anchored_to_its_own_event_refuses_causal_cycle() {
 #[trace("TC-048")]
 #[test]
 fn await_after_later_sibling_cycles_before_clause_guard_slot() {
-    let (mut package, _) = protocol_holder_case("await");
+    let (mut package, children) = protocol_holder_case("await");
     let root = protocol_position(&package, "control");
     package["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]["members"]
         .as_array_mut()
@@ -5231,5 +5231,21 @@ fn await_after_later_sibling_cycles_before_clause_guard_slot() {
     else {
         panic!("cycle must name the await and later anchor");
     };
-    assert_eq!(controls.len(), 2);
+    let holder = holder_position(&package);
+    let expected: Vec<quire_contract_model::CheckedNodeId> = [holder, children[0], children[1]]
+        .into_iter()
+        .map(|position| {
+            serde_json::from_value(package["semantic_graph"]["nodes"][position]["node_id"].clone())
+                .expect("control identity")
+        })
+        .chain(std::iter::once(
+            serde_json::from_value(
+                package["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]
+                    ["members"][1]["target"]
+                    .clone(),
+            )
+            .expect("later anchor identity"),
+        ))
+        .collect();
+    assert_eq!(controls, &expected);
 }

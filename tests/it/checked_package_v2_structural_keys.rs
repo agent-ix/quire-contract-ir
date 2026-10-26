@@ -2214,27 +2214,36 @@ fn tc_226_tree_whole_read_work_boundary() {
     // Fixture charge ledger: Tree's three memberships, four first-pass keys
     // (including Integer), three local member preimages and one group digest
     // cost 37. The remaining 448 are all other work charges of this complete
-    // fixture, including the List group and three protocol nodes. These
-    // Protocol membership charges one clause, one finish reference, one run
-    // traversal and two member checks: 448 + 5.
+    // fixture, including the List group and three protocol nodes. Protocol
+    // membership charges one clause, one finish reference, one run
+    // traversal and two member checks: 448 + 5. The causal graph and progress
+    // pass adds 7 after the Tree boundary.
     // These constants are authored here, not obtained from the reader at runtime.
     const TREE_GROUP_WORK: u64 = 3 + (5 + 4 + 8 + 3) + (4 + 3 + 6 + 1);
     const OTHER_READ_WORK: u64 = 453;
-    const M: u64 = OTHER_READ_WORK + TREE_GROUP_WORK;
+    const TREE_BOUNDARY: u64 = OTHER_READ_WORK + TREE_GROUP_WORK;
+    const PROTOCOL_CAUSAL_WORK: u64 = 7;
+    const M: u64 = TREE_BOUNDARY + PROTOCOL_CAUSAL_WORK;
     assert!(matches!(
         read_at(M),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
-    let CheckedPackageV2ReadResult::Incomplete(incomplete) = read_at(M - 1) else {
-        panic!("Tree M-1 must expose no package");
+    let CheckedPackageV2ReadResult::Incomplete(incomplete) = read_at(TREE_BOUNDARY - 1) else {
+        panic!("Tree boundary minus one must expose no package");
     };
     assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
-    assert_eq!(incomplete.limit, M - 1);
-    assert_eq!(incomplete.consumed, M);
+    assert_eq!(incomplete.limit, TREE_BOUNDARY - 1);
+    assert_eq!(incomplete.consumed, TREE_BOUNDARY);
     assert_eq!(
         incomplete.path.as_ref().map(|path| path.as_str()),
         Some("/semantic_graph/nodes/38/body/members/0/value/target")
     );
+    let CheckedPackageV2ReadResult::Incomplete(incomplete) = read_at(M - 1) else {
+        panic!("whole-read boundary minus one must expose no package");
+    };
+    assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+    assert_eq!(incomplete.limit, M - 1);
+    assert_eq!(incomplete.consumed, M);
 }
 
 /// A retained group key authenticates each member's bounds and body reference.

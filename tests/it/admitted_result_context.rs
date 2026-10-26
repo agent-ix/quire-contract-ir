@@ -1118,8 +1118,8 @@ fn ir987_scalar_and_result_results_bytes_and_work_match_admitted_fixture() {
         panic!("work boundary");
     };
     // Protocol membership charges one clause, one finish reference, one run
-    // traversal and two member checks: 339 + 5.
-    assert_eq!((high, incomplete.consumed), (344, 344));
+    // traversal and two member checks, then causal graph/progress: 339 + 5 + 7.
+    assert_eq!((high, incomplete.consumed), (351, 351));
 
     let contract = package(&checked, &[add.node_id.clone(), narrow.node_id.clone()]);
     let result = contract.result_context(
