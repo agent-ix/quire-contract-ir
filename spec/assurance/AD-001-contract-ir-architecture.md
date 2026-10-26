@@ -59,7 +59,7 @@ integrations, which need other owners' crates (FR-039), and it re-exports no
 
 | Module | Owns | Requirement |
 | --- | --- | --- |
-| `kani` | the `kani-bounded/1` profile, finite input ABI, dispatch index, typed outcome, and the Kani outcome to QSL terminal-value map | FR-029 through FR-031 |
+| `kani` | the `kani-bounded/1` profile, finite input ABI, dispatch index and typed outcome | FR-029 through FR-031 |
 | `temporal` (planned) | Native-to-TL formula and valuation projection, strict owner-reader validation, correspondence identity and native/TL result joining | FR-350 |
 
 The conformance runner (`src/bin/`) and its fixtures stay in the root
