@@ -887,27 +887,28 @@ fn declaration_defect(position: usize, node: &RawSemanticNodeV2) -> ValidationFa
     )
 }
 
+#[derive(Clone, Copy)]
+enum PathHolder {
+    ClauseMember {
+        clause: usize,
+        member: &'static str,
+        own: bool,
+    },
+    Control {
+        holder: usize,
+    },
+}
+
 fn record_declared_path(
-    expected: &mut BTreeMap<usize, (Vec<Box<str>>, bool)>,
+    expected: &mut BTreeMap<usize, (PathHolder, bool)>,
     position: usize,
-    path: Vec<Box<str>>,
+    holder: PathHolder,
 ) {
     if let Some((_, repeated)) = expected.get_mut(&position) {
         *repeated = true;
     } else {
-        expected.insert(position, (path, false));
+        expected.insert(position, (holder, false));
     }
-}
-
-fn charge_path_copy(
-    meter: &mut WorkMeter,
-    position: usize,
-    path: &[Box<str>],
-) -> Result<(), ValidationFailure> {
-    let bytes = path.iter().fold(0_u64, |total, segment| {
-        total.saturating_add(u64::try_from(segment.len()).unwrap_or(u64::MAX))
-    });
-    meter.charge(bytes, || node_pointer(position).key("declaration"))
 }
 
 #[string_edge]
@@ -916,7 +917,6 @@ fn validate_protocol_declaration_paths(
     kinds: &[CheckedNodeKind],
     validated: &[Option<(&str, &[CheckedTerm])>],
     index: &BTreeMap<&CheckedNodeId, usize>,
-    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let mut expected = BTreeMap::new();
     let mut pending = Vec::new();
@@ -924,13 +924,9 @@ fn validate_protocol_declaration_paths(
         if kinds.get(clause) != Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
             continue;
         }
-        let Some(prefix) = nodes[clause]
-            .declaration
-            .as_ref()
-            .map(|d| &d.qualified_name)
-        else {
+        if nodes[clause].declaration.is_none() {
             continue;
-        };
+        }
         let Some((_, args)) = validated[clause] else {
             continue;
         };
@@ -945,17 +941,15 @@ fn validate_protocol_declaration_paths(
                         if kinds.get(position) != Some(&CheckedNodeKind::Protocol(expected_form)) {
                             continue;
                         }
-                        charge_path_copy(meter, position, prefix)?;
-                        let mut path = prefix.clone();
-                        path.push(segment.into());
-                        if let Some(name) = nodes[position]
-                            .declaration
-                            .as_ref()
-                            .and_then(|d| d.qualified_name.last())
-                        {
-                            path.push(name.clone());
-                        }
-                        record_declared_path(&mut expected, position, path);
+                        record_declared_path(
+                            &mut expected,
+                            position,
+                            PathHolder::ClauseMember {
+                                clause,
+                                member: segment,
+                                own: true,
+                            },
+                        );
                     }
                 }
             }
@@ -974,19 +968,15 @@ fn validate_protocol_declaration_paths(
                     {
                         continue;
                     }
-                    charge_path_copy(meter, position, prefix)?;
-                    let mut path = prefix.clone();
-                    path.push(segment.into());
-                    if segment == "finish" {
-                        if let Some(name) = nodes[position]
-                            .declaration
-                            .as_ref()
-                            .and_then(|d| d.qualified_name.last())
-                        {
-                            path.push(name.clone());
-                        }
-                    }
-                    record_declared_path(&mut expected, position, path);
+                    record_declared_path(
+                        &mut expected,
+                        position,
+                        PathHolder::ClauseMember {
+                            clause,
+                            member: segment,
+                            own: segment == "finish",
+                        },
+                    );
                 }
             }
         }
@@ -995,10 +985,14 @@ fn validate_protocol_declaration_paths(
             .and_then(|key| index.get(key))
         {
             if kinds.get(position) == Some(&CheckedNodeKind::Protocol(ProtocolForm::Control)) {
-                charge_path_copy(meter, position, prefix)?;
-                let mut path = prefix.clone();
-                path.push("run".into());
-                pending.push((position, path));
+                pending.push((
+                    position,
+                    PathHolder::ClauseMember {
+                        clause,
+                        member: "run",
+                        own: true,
+                    },
+                ));
             }
         }
     }
@@ -1006,16 +1000,8 @@ fn validate_protocol_declaration_paths(
     // The visited set bounds malformed containment cycles. Membership and
     // repeated holders are checked in the later graph pass.
     let mut visited = BTreeSet::new();
-    while let Some((position, mut parent_path)) = pending.pop() {
-        let Some(name) = nodes[position]
-            .declaration
-            .as_ref()
-            .and_then(|d| d.qualified_name.last())
-        else {
-            continue;
-        };
-        parent_path.push(name.clone());
-        record_declared_path(&mut expected, position, parent_path.clone());
+    while let Some((position, holder)) = pending.pop() {
+        record_declared_path(&mut expected, position, holder);
         if !visited.insert(position) {
             continue;
         }
@@ -1028,8 +1014,7 @@ fn validate_protocol_declaration_paths(
         for target in control_children(operator, args) {
             if let Some(&child) = index.get(target) {
                 if kinds.get(child) == Some(&CheckedNodeKind::Protocol(ProtocolForm::Control)) {
-                    charge_path_copy(meter, child, &parent_path)?;
-                    pending.push((child, parent_path.clone()));
+                    pending.push((child, PathHolder::Control { holder: position }));
                 }
             }
         }
@@ -1043,12 +1028,41 @@ fn validate_protocol_declaration_paths(
             continue;
         }
         let node = &nodes[position];
-        if let Some((path, false)) = expected.get(&position) {
-            if node
+        if let Some((holder, false)) = expected.get(&position) {
+            let Some(path) = node
                 .declaration
                 .as_ref()
-                .is_none_or(|d| &d.qualified_name != path)
-            {
+                .map(|d| d.qualified_name.as_slice())
+            else {
+                return Err(declaration_defect(position, node));
+            };
+            let matches = match holder {
+                PathHolder::ClauseMember {
+                    clause,
+                    member,
+                    own,
+                } => {
+                    let prefix = nodes[*clause]
+                        .declaration
+                        .as_ref()
+                        .map(|d| d.qualified_name.as_slice());
+                    prefix.is_some_and(|prefix| {
+                        path.len() == prefix.len() + 1 + usize::from(*own)
+                            && path.starts_with(prefix)
+                            && path[prefix.len()].as_ref() == *member
+                    })
+                }
+                PathHolder::Control { holder } => {
+                    let prefix = nodes[*holder]
+                        .declaration
+                        .as_ref()
+                        .map(|d| d.qualified_name.as_slice());
+                    prefix.is_some_and(|prefix| {
+                        path.len() == prefix.len() + 1 && path.starts_with(prefix)
+                    })
+                }
+            };
+            if !matches {
                 return Err(declaration_defect(position, node));
             }
         }
@@ -1129,7 +1143,7 @@ pub(super) fn validate_protocol_nodes(
         }
     }
     validate_protocol_declaration_names(nodes, kinds, index)?;
-    validate_protocol_declaration_paths(nodes, kinds, &validated, index, meter)?;
+    validate_protocol_declaration_paths(nodes, kinds, &validated, index)?;
     // Local member shapes are visited by form, then by ascending key. The
     // clause follows the members, as FR-464's reader order requires.
     for form in [

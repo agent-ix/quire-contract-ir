@@ -4,8 +4,9 @@
 //! Public reader checks for the first protocol validation passes.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, protocol_named_node, protocol_role_node, rebuild_source_map,
-    refresh_identity, refusal, refusal_at, rekey_application_node, settle, v2_all_families,
+    canonical, evidence_for, family_key, node_id, protocol_named_node, protocol_role_node,
+    rebuild_source_map, refresh_identity, refusal, refusal_at, rekey_application_node, settle,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -295,6 +296,190 @@ fn nested_control_uses_its_holder_path() {
         read(&package),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
+}
+
+fn protocol_holder_case(operator: &str) -> (Value, Vec<usize>) {
+    let mut package = v2_all_families();
+    let root = protocol_position(&package, "control");
+    let leaf_body = package["semantic_graph"]["nodes"][root]["body"].clone();
+    let names: &[&str] = if operator == "await" {
+        &["Event", "Then", "Timeout"]
+    } else {
+        &["Left", "Right"]
+    };
+    let mut positions = Vec::new();
+    let mut targets = Vec::new();
+    for name in names {
+        let mut path = vec!["Example", "OrderFlow", "run", "Main", "Holder"];
+        path.push(name);
+        let node = protocol_named_node("control", &path, leaf_body.clone(), &[]);
+        targets.push(node["node_id"].clone());
+        positions.push(
+            package["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .len(),
+        );
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(node);
+    }
+    let role = protocol_role_node();
+    let role_target = role["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(role);
+    let clause = clause_position(&package);
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][3]["value"]["members"] =
+        json!([{"term": "reference", "target": role_target}]);
+    let reference = |target: &Value| json!({"term": "reference", "target": target});
+    let binding =
+        |name: &str, value: Value| json!({"term": "binding", "name": name, "value": value});
+    let group = |members: Vec<Value>| json!({"term": "aggregate", "members": members});
+    let text = |value: &str| {
+        json!({
+            "term": "literal", "type": node_id(&family_key("a1a1")),
+            "value_kind": "text", "value": value
+        })
+    };
+    let integer = |value: &str| {
+        json!({
+            "term": "literal", "type": node_id(&family_key("a3a3")),
+            "value_kind": "integer", "value": value
+        })
+    };
+    let boolean = || {
+        json!({
+            "term": "literal", "type": node_id(&family_key("aaaa")),
+            "value_kind": "boolean", "value": true
+        })
+    };
+    let mut body = leaf_body;
+    body["operation"]["member"]["operator"] = json!(operator);
+    body["arguments"] = match operator {
+        "choice" => json!([
+            binding("owner", reference(&role_target)),
+            binding("visible", group(vec![])),
+            binding(
+                "cases",
+                group(vec![
+                    group(vec![
+                        binding("label", text("Left")),
+                        binding("guard", boolean()),
+                        binding("body", reference(&targets[0]))
+                    ]),
+                    group(vec![
+                        binding("label", text("Right")),
+                        binding("guard", boolean()),
+                        binding("body", reference(&targets[1]))
+                    ]),
+                ])
+            ),
+        ]),
+        "parallel" => json!([
+            binding("memory", group(vec![])),
+            binding(
+                "branches",
+                group(vec![
+                    group(vec![
+                        binding("label", text("Left")),
+                        binding("body", reference(&targets[0]))
+                    ]),
+                    group(vec![
+                        binding("label", text("Right")),
+                        binding("body", reference(&targets[1]))
+                    ]),
+                ])
+            ),
+            binding("join", group(vec![binding("policy", text("all"))])),
+            binding("joined", group(vec![text("Left"), text("Right")])),
+            binding("outstanding", group(vec![])),
+        ]),
+        "repeat" => json!([
+            binding("owner", reference(&role_target)),
+            binding("visible", group(vec![])),
+            binding("maximum", group(vec![integer("1")])),
+            binding("proof", group(vec![])),
+            binding("guard", boolean()),
+            binding("body", reference(&targets[0])),
+            binding("exhausted", group(vec![reference(&targets[1])])),
+        ]),
+        "await" => json!([
+            binding(
+                "after",
+                group(vec![
+                    binding("kind", text("event")),
+                    binding("target", reference(&targets[0]))
+                ])
+            ),
+            binding("clock", text("clock")),
+            binding(
+                "within",
+                group(vec![
+                    binding("lower", integer("0")),
+                    binding("upper", integer("1"))
+                ])
+            ),
+            binding("event", reference(&targets[0])),
+            binding("then", reference(&targets[1])),
+            binding("timeout", reference(&targets[2])),
+        ]),
+        other => panic!("unknown holder fixture: {other}"),
+    };
+    let holder = protocol_named_node(
+        "control",
+        &["Example", "OrderFlow", "run", "Main", "Holder"],
+        body,
+        &[],
+    );
+    let holder_key = holder["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(holder);
+    package["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]["members"] =
+        json!([reference(&holder_key)]);
+    settle(&mut package);
+    (package, positions)
+}
+
+#[trace("TC-048")]
+#[test]
+fn choice_parallel_repeat_and_await_hold_controls_at_their_own_paths() {
+    for operator in ["choice", "parallel", "repeat", "await"] {
+        let (package, children) = protocol_holder_case(operator);
+        assert!(
+            matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+            "{operator} holder with correctly named children must admit"
+        );
+        for (child_index, &position) in children.iter().enumerate() {
+            let mut wrong = package.clone();
+            let name = wrong["semantic_graph"]["nodes"][position]["declaration"]["qualified_name"]
+                .as_array()
+                .expect("path")
+                .last()
+                .expect("name")
+                .clone();
+            wrong["semantic_graph"]["nodes"][position]["declaration"]["qualified_name"] =
+                json!(["Example", "OrderFlow", "run", "Main", name]);
+            settle(&mut wrong);
+            let key = wrong["semantic_graph"]["nodes"][position]["node_id"]["digest"]
+                .as_str()
+                .expect("digest");
+            assert_eq!(
+                read(&wrong),
+                refusal_at(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    &format!("/semantic_graph/nodes/{position}"),
+                    None,
+                    key,
+                ),
+                "{operator} child {child_index} must use its holder path"
+            );
+        }
+    }
 }
 
 #[trace("TC-048")]

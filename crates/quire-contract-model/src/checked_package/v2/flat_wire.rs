@@ -99,11 +99,12 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
                 } else {
                     crate::checked_package::shared::CheckedOccurrenceRole::Declaration
                 };
-                if node.occurrences.is_empty()
-                    || node
-                        .occurrences
-                        .iter()
-                        .any(|occurrence| occurrence.role != expected_role)
+                // Empty occurrences are diagnosed by the source-map pass;
+                // a present occurrence with the wrong role is a wire defect.
+                if node
+                    .occurrences
+                    .iter()
+                    .any(|occurrence| occurrence.role != expected_role)
                     || node.declaration.is_some() != (form != super::ProtocolForm::Queue)
                 {
                     return Err(ValidationFailure::refused(
