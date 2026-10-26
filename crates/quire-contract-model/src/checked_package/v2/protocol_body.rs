@@ -1340,10 +1340,37 @@ impl MemberCheck<'_> {
         };
         let own = own.qualified_name.as_slice();
         let other = other.qualified_name.as_slice();
-        own.len() >= 2
-            && other.len() >= 2
-            && own[..own.len() - 2] == other[..other.len() - 2]
-            && other[other.len() - 2].as_ref() == segment
+        let own_segment = match self.kinds[self.position] {
+            CheckedNodeKind::Protocol(ProtocolForm::Channel) => "channel",
+            CheckedNodeKind::Protocol(ProtocolForm::Control) => "run",
+            _ => return false,
+        };
+        let clause = self
+            .index
+            .values()
+            .filter_map(|&position| {
+                if !self.is(
+                    position,
+                    CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause),
+                ) {
+                    return None;
+                }
+                let prefix = self.nodes[position]
+                    .declaration
+                    .as_ref()?
+                    .qualified_name
+                    .as_slice();
+                (own.len() >= prefix.len() + 2
+                    && own.starts_with(prefix)
+                    && own[prefix.len()].as_ref() == own_segment)
+                    .then_some(prefix)
+            })
+            .max_by_key(|prefix| prefix.len());
+        clause.is_some_and(|prefix| {
+            other.len() == prefix.len() + 2
+                && other.starts_with(prefix)
+                && other[prefix.len()].as_ref() == segment
+        })
     }
 
     #[string_edge]
