@@ -3090,16 +3090,41 @@ fn check_clause(
             )?,
         );
     }
-    let level = |position: usize, expected: usize| {
+    let mut readable_names = BTreeSet::<Box<str>>::new();
+    let mut introduce = |position: usize, expected: usize| {
         let actual = check.terms[position]
             .as_ref()
             .and_then(|body| group_value(body, "level"))
             .and_then(integer_value);
-        if actual == Some(BigInt::from(expected)) {
-            Ok(())
-        } else {
-            Err(check.refuse(Code::InvalidSemanticGraph, None, node_pointer(position)))
+        if actual != Some(BigInt::from(expected)) {
+            return Err(ValidationFailure::refused_at(
+                Code::InvalidSemanticGraph,
+                node_pointer(position),
+                None,
+                check.nodes[position].node_id.clone(),
+            ));
         }
+        let Some(name) = check.terms[position]
+            .as_ref()
+            .and_then(|body| group_value(body, "name"))
+            .and_then(text_value)
+        else {
+            return Err(ValidationFailure::refused_at(
+                Code::MalformedWire,
+                node_pointer(position).key("body"),
+                None,
+                check.nodes[position].node_id.clone(),
+            ));
+        };
+        if !readable_names.insert(name.into()) {
+            return Err(ValidationFailure::refused_at(
+                Code::AmbiguousDeclaration,
+                node_pointer(position),
+                Some(Cause::AmbiguousName),
+                check.nodes[position].node_id.clone(),
+            ));
+        }
+        Ok(())
     };
     for (ordinal, expected) in [
         (3, CheckedNodeKind::Protocol(ProtocolForm::Role)),
@@ -3156,9 +3181,9 @@ fn check_clause(
         })?;
     }
 
-    level(over, 0)?;
+    introduce(over, 0)?;
     if let Some(trigger_position) = trigger_position {
-        level(trigger_position, 1)?;
+        introduce(trigger_position, 1)?;
         if let Some(guard) = group_value(activation, "guard") {
             check_member_dependencies(
                 check,
@@ -3179,7 +3204,7 @@ fn check_clause(
             .key("members")
             .index(entry)
             .key("members");
-        level(binder_position, 1 + usize::from(each) + entry)?;
+        introduce(binder_position, 1 + usize::from(each) + entry)?;
         let initializer = group_value(record, "initializer").expect("validated initializer");
         check_member_dependencies(check, initializer, path.index(1).key("value"))?;
     }

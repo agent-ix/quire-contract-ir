@@ -151,7 +151,7 @@ fn clause_relationship_wrong_export_has_distinct_cause() {
     );
 }
 
-/// Trace: FR-038-AC-284, FR-038-AC-324
+/// Trace: FR-038-AC-284, FR-038-AC-291
 #[trace("TC-048")]
 #[test]
 fn clause_each_trigger_admits_and_checks_parameter_level() {
@@ -184,7 +184,7 @@ fn clause_each_trigger_admits_and_checks_parameter_level() {
     package["semantic_graph"]["nodes"][clause]["body"]["arguments"][1]["value"]["members"][1]
         ["value"]["target"] = node_id(&wrong_key);
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][clause]["node_id"]["digest"]
+    let key = package["semantic_graph"]["nodes"][trigger_position]["node_id"]["digest"]
         .as_str()
         .expect("clause key");
     assert_eq!(
@@ -198,7 +198,7 @@ fn clause_each_trigger_admits_and_checks_parameter_level() {
     );
 }
 
-/// Trace: FR-038-AC-284, FR-038-AC-324
+/// Trace: FR-038-AC-284
 #[trace("TC-048")]
 #[test]
 fn clause_each_trigger_requires_declared_dependency() {
@@ -296,7 +296,7 @@ fn clause_capture_checks_binder_form_and_ordered_level() {
     );
 }
 
-/// Trace: FR-038-AC-284
+/// Trace: FR-038-AC-284, FR-038-AC-291
 #[trace("TC-048")]
 #[test]
 fn clause_capture_order_sets_each_binder_level() {
@@ -322,14 +322,14 @@ fn clause_capture_order_sets_each_binder_level() {
         .expect("captures")
         .swap(0, 1);
     settle(&mut package);
-    let key = package["semantic_graph"]["nodes"][clause]["node_id"]["digest"]
-        .as_str()
-        .expect("clause key");
     let second_position = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .len()
         - 1;
+    let key = package["semantic_graph"]["nodes"][second_position]["node_id"]["digest"]
+        .as_str()
+        .expect("second binder key");
     assert_eq!(
         read(&package),
         refusal_at(
@@ -341,7 +341,43 @@ fn clause_capture_order_sets_each_binder_level() {
     );
 }
 
-/// Trace: FR-038-AC-284, FR-038-AC-324
+/// Trace: FR-038-AC-291
+#[trace("TC-048")]
+#[test]
+fn clause_rejects_second_capture_with_readable_name() {
+    let mut package = v2_all_families();
+    let first = clause_parameter(&mut package, "captured", "1");
+    let second = clause_parameter(&mut package, "captured", "2");
+    let clause = clause_position(&package);
+    let capture = |binder: Value| {
+        json!({"term": "aggregate", "members": [
+            {"term": "binding", "name": "binder", "value": {"term": "reference", "target": binder}},
+            {"term": "binding", "name": "initializer", "value": {"term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}},
+        ]})
+    };
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][2]["value"]["members"] =
+        json!([capture(first), capture(second)]);
+    settle(&mut package);
+    let second_position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    let key = package["semantic_graph"]["nodes"][second_position]["node_id"]["digest"]
+        .as_str()
+        .expect("second binder key");
+    assert_eq!(
+        read(&package),
+        refusal_at(
+            CheckedPackageRefusalCode::AmbiguousDeclaration,
+            &format!("/semantic_graph/nodes/{second_position}"),
+            Some(CheckedPackageRefusalCause::AmbiguousName),
+            key,
+        )
+    );
+}
+
+/// Trace: FR-038-AC-284
 #[trace("TC-048")]
 #[test]
 fn clause_required_temporal_target_is_checked_after_membership() {
@@ -4158,8 +4194,26 @@ fn protocol_whole_model_role_admits_selected_text_without_model_dependency() {
 #[trace("TC-947")]
 #[test]
 fn protocol_clause_admits_two_whole_model_roles_across_over_types() {
-    for over in [family_key("1616"), family_key("a1a1")] {
+    for over in [family_key("a3a3"), family_key("a1a1")] {
         let (mut package, first) = whole_model_role("test/families");
+        let mut over_parameter = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| {
+                node["node_tag"] == "value"
+                    && node["semantic_form"] == "parameter"
+                    && node["body"]["members"][0]["value"]["value"] == "over"
+            })
+            .expect("over parameter")
+            .clone();
+        over_parameter["semantic_type"] = node_id(&over);
+        let over_key = structural_key("value", "parameter", Some(&over), &over_parameter["body"]);
+        over_parameter["node_id"] = node_id(&over_key);
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(over_parameter);
         let other = domain_package_document("test/other", "1", Vec::new());
         package["lock"]["model_selections"]
             .as_array_mut()
@@ -4191,7 +4245,7 @@ fn protocol_clause_admits_two_whole_model_roles_across_over_types() {
         role_keys.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
         let clause = clause_position(&package);
         package["semantic_graph"]["nodes"][clause]["body"]["arguments"][0]["value"] =
-            json!({"term": "reference", "target": node_id(&over)});
+            json!({"term": "reference", "target": node_id(&over_key)});
         package["semantic_graph"]["nodes"][clause]["body"]["arguments"][3]["value"]["members"] =
             json!(role_keys
                 .iter()
@@ -4209,10 +4263,11 @@ fn protocol_clause_admits_two_whole_model_roles_across_over_types() {
             package["semantic_graph"]["nodes"][second]["dependencies"],
             json!([])
         );
-        assert!(matches!(
-            read(&package),
-            CheckedPackageV2ReadResult::Admitted(_)
-        ));
+        assert!(
+            matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+            "typed over parameter should admit: {:?}",
+            read(&package)
+        );
 
         package["lock"]["model_selections"]
             .as_array_mut()
