@@ -1769,6 +1769,11 @@ step-relation, hybrid and timed-model steps and before the operation step,
 the reader SHALL run the protocol step
 in QSpec FR-464 order: placement;
 operator and law; declarations; member nodes; membership; then clauses.
+Each `protocol`/`protocol_clause` node SHALL carry the exact local
+`owner_model` edge of [FR-064](./FR-064-bind-protocol-clause-to-owner-model.md).
+The reader SHALL use that identity-bound edge, rather than the `over`
+parameter's type or a step row, to decide which selected model owns the
+clause and which clauses contribute refinement classes.
 Within a clause it SHALL check references, activation and captures, the
 derived causal relation and progress, then slots. Within a slot it SHALL
 check forbidden `over` and model-state reads before binder scope and
@@ -4147,6 +4152,10 @@ node even when its body is an aggregate without an application, carries a `node_
 SHA-256 of the RFC 8785 bytes of its own preimage, `{version, node_tag,
 semantic_form, semantic_type, declaration, recursion, body}`, with `version`
 `quire.application-node/v1` (QSpec FR-322 `application_node_preimage`). The
+preimage additionally contains `owner_model` exactly for a
+`protocol`/`protocol_clause` node as
+[FR-064](./FR-064-bind-protocol-clause-to-owner-model.md) specifies; it is
+absent for every other application node. The
 `recursion` member is `{size, ordinal}` of the node within its `recursion_group`,
 the members of the group taken in graph order, and `null` outside a group. Each
 `reference` in the body to a member of the node's own group becomes
