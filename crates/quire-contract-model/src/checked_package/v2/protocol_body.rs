@@ -742,19 +742,18 @@ pub(super) fn wire_layout_defect(
             return Some(ProtocolLayoutWireDefect::NegativeQueueCapacity);
         }
     }
-    if (form, operator) == (ProtocolForm::Control, "repeat") {
-        if argument(arguments, 2)
+    if (form, operator) == (ProtocolForm::Control, "repeat")
+        && argument(arguments, 2)
             .and_then(members)
             .and_then(|items| items.first())
             .and_then(integer_value)
             .is_some_and(|value| value < BigInt::from(0))
-        {
-            return Some(ProtocolLayoutWireDefect::NegativeBound {
-                argument: 2,
-                member: 0,
-                binding: false,
-            });
-        }
+    {
+        return Some(ProtocolLayoutWireDefect::NegativeBound {
+            argument: 2,
+            member: 0,
+            binding: false,
+        });
     }
     if (form, operator) == (ProtocolForm::Control, "await") {
         for member in 0..2 {
