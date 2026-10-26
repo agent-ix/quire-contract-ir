@@ -2709,6 +2709,67 @@ fn compensation_commit_in_one_choice_or_non_all_branch_does_not_dominate() {
             if reason.as_ref() == "commit-precedes-effect"));
 }
 
+/// Trace: FR-038-AC-289
+#[trace("TC-048")]
+#[test]
+fn compensation_commit_in_a_sibling_branch_is_unordered_against_effect() {
+    let (mut package, _) = compensation_with_branch_before_effect("parallel", "all");
+    let clause = clause_position(&package);
+    let root_target = package["semantic_graph"]["nodes"][clause]["body"]["arguments"][11]["value"]
+        ["target"]
+        .clone();
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    let root = nodes
+        .iter()
+        .position(|node| node["node_id"] == root_target)
+        .expect("root");
+    let children = nodes[root]["body"]["arguments"][0]["value"]["members"]
+        .as_array()
+        .expect("sequence children");
+    let effect = children[2].clone();
+    let holder_target = children[1]["target"].clone();
+    let holder = nodes
+        .iter()
+        .position(|node| node["node_id"] == holder_target)
+        .expect("holder");
+    let event =
+        nodes[holder]["body"]["arguments"][1]["value"]["members"][1]["members"][1]["value"].clone();
+    nodes[holder]["body"]["arguments"][1]["value"]["members"][1]["members"][1]["value"] =
+        effect.clone();
+    nodes[root]["body"]["arguments"][0]["value"]["members"][2] = event.clone();
+    for (target, path) in [
+        (
+            &effect,
+            json!([
+                "Example",
+                "OrderFlow",
+                "run",
+                "Main",
+                "Holder",
+                "ForwardEffect"
+            ]),
+        ),
+        (
+            &event,
+            json!(["Example", "OrderFlow", "run", "Main", "Event"]),
+        ),
+    ] {
+        let child = nodes
+            .iter_mut()
+            .find(|node| node["node_id"] == target["target"])
+            .expect("moved control");
+        child["declaration"]["qualified_name"] = path;
+    }
+    settle(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "{:?}",
+        read(&package)
+    );
+}
+
 /// Trace: FR-038-AC-288
 #[trace("TC-048")]
 #[test]
