@@ -169,7 +169,7 @@ fn typed_pair_round_trips_with_normalized_key_and_anchor() {
             .expect("preimage")
             .digest(u64::MAX)
             .expect("canonical key"),
-        edge.node_id.digest
+        edge.node_id.digest.as_ref()
     );
     let first = value["semantic_graph"]["nodes"][0]["node_id"]["digest"]
         .as_str()
