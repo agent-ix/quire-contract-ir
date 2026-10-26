@@ -70,6 +70,8 @@ struct BorrowedNode<'a> {
     declaration: Option<CheckedDeclaration>,
     #[serde(default)]
     owner: Option<CheckedNodeOwner>,
+    #[serde(default)]
+    owner_model: Option<CheckedNodeId>,
     #[serde(borrow)]
     body: &'a RawValue,
 }
@@ -129,6 +131,7 @@ pub(super) fn decode_borrowed_wire(
             nominal_identity_preimage: node.nominal_identity_preimage,
             declaration: node.declaration,
             owner: node.owner,
+            owner_model: node.owner_model,
             body,
         });
     }

@@ -41,6 +41,7 @@ fn node(value: u8, body: Value) -> CheckedSemanticNodeV2 {
         nominal_identity_preimage: None,
         declaration: None,
         owner: None,
+        owner_model: None,
         body,
     }
 }

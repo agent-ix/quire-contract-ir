@@ -53,6 +53,7 @@ pub(super) struct ApplicationNodePreimage<'a> {
     pub(super) semantic_form: &'a str,
     pub(super) semantic_type: &'a CheckedNodeId,
     pub(super) declaration: Option<&'a CheckedDeclaration>,
+    pub(super) owner_model: Option<&'a CheckedNodeId>,
     pub(super) recursion: Option<GroupPlace>,
     pub(super) body: Cow<'a, Value>,
 }
@@ -80,6 +81,9 @@ impl Encode for ApplicationNodePreimage<'_> {
         match self.declaration {
             Some(declaration) => writer.serialize(declaration)?,
             None => writer.null()?,
+        }
+        if let Some(owner_model) = self.owner_model {
+            member(writer, "owner_model", owner_model)?;
         }
         writer.name("recursion")?;
         match self.recursion {
@@ -344,6 +348,7 @@ struct ProjectionFields<'a, Body> {
     nominal_identity_preimage: Option<&'a NominalIdentityPreimage>,
     declaration: Option<&'a CheckedDeclaration>,
     owner: Option<&'a CheckedNodeOwner>,
+    owner_model: Option<&'a CheckedNodeId>,
     body: &'a Body,
 }
 
@@ -360,6 +365,7 @@ impl<'a, Body> ProjectionFields<'a, Body> {
             nominal_identity_preimage: node.nominal_identity_preimage.as_ref(),
             declaration: node.declaration.as_ref(),
             owner: node.owner.as_ref(),
+            owner_model: node.owner_model.as_ref(),
             body: &node.body,
         }
     }
@@ -376,6 +382,7 @@ impl<'a, Body> ProjectionFields<'a, Body> {
             nominal_identity_preimage: node.nominal_identity_preimage.as_ref(),
             declaration: node.declaration.as_ref(),
             owner: node.owner.as_ref(),
+            owner_model: node.owner_model.as_ref(),
             body: &node.body,
         }
     }
@@ -401,6 +408,9 @@ impl<Body: Encode> Encode for ProjectionFields<'_, Body> {
         }
         if let Some(owner) = self.owner {
             member(writer, "owner", owner)?;
+        }
+        if let Some(owner_model) = self.owner_model {
+            member(writer, "owner_model", owner_model)?;
         }
         encoded(writer, "body", self.body)?;
         writer.end_object()
@@ -440,6 +450,7 @@ impl<Body: Encode> Encode for CheckedSemanticNodeV2<Body> {
         )?;
         present(writer, "declaration", &self.declaration)?;
         present(writer, "owner", &self.owner)?;
+        present(writer, "owner_model", &self.owner_model)?;
         encoded(writer, "body", &self.body)?;
         writer.end_object()
     }

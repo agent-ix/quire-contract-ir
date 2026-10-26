@@ -285,6 +285,9 @@ pub struct CheckedSemanticNodeV2<Body = CheckedTerm> {
     /// Structural owner, present exactly for declared or model-owned nodes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<CheckedNodeOwner>,
+    /// Exact local model declaration owning a protocol clause.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_model: Option<CheckedNodeId>,
     /// Typed public semantic term.
     pub body: Body,
 }
@@ -353,6 +356,7 @@ impl RawSemanticNodeV2 {
             nominal_identity_preimage: self.nominal_identity_preimage,
             declaration: self.declaration,
             owner: self.owner,
+            owner_model: self.owner_model,
             body,
         }
     }
@@ -384,6 +388,9 @@ impl CheckedSemanticNodeV2 {
         replace(&mut self.semantic_type, old, new);
         for id in &mut self.dependencies {
             replace(id, old, new);
+        }
+        if let Some(owner_model) = &mut self.owner_model {
+            replace(owner_model, old, new);
         }
         if let Some(CheckedNodeOwner::Model { node, .. }) = &mut self.owner {
             if PackageWireTag::from_wire(&old.domain) == Some(PackageWireTag::NodeDomain)
@@ -437,6 +444,7 @@ impl<Body: Serialize> CheckedSemanticNodeV2<Body> {
             nominal_identity_preimage: self.nominal_identity_preimage.clone(),
             declaration: self.declaration.clone(),
             owner: self.owner.clone(),
+            owner_model: self.owner_model.clone(),
             body: serde_json::to_value(&self.body)?,
         })
     }
@@ -470,6 +478,9 @@ pub struct CheckedNodeProjectionV2<Body = CheckedTerm> {
     /// The corresponding node's structural owner.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<CheckedNodeOwner>,
+    /// Exact local model declaration owning a protocol clause.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_model: Option<CheckedNodeId>,
     /// Typed semantic term.
     pub body: Body,
 }
@@ -487,6 +498,7 @@ impl<Body: Clone> From<&CheckedSemanticNodeV2<Body>> for CheckedNodeProjectionV2
             nominal_identity_preimage: node.nominal_identity_preimage.clone(),
             declaration: node.declaration.clone(),
             owner: node.owner.clone(),
+            owner_model: node.owner_model.clone(),
             body: node.body.clone(),
         }
     }

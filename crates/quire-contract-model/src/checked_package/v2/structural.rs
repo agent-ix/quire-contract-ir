@@ -446,6 +446,19 @@ pub(super) fn validate_structural_nodes(
         if let Some(defect) = defect.or(role) {
             return Err(refuse(defect));
         }
+        if kinds.get(position)
+            == Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause))
+        {
+            if let (Some(mut expected), Some(owner_model)) =
+                (term.and_then(application_dependencies), node.owner_model.as_ref())
+            {
+                expected.insert(owner_model.clone());
+                if !node.dependencies.iter().eq(expected.iter()) {
+                    return Err(refuse(Defect::Dependencies));
+                }
+            }
+            continue;
+        }
         // These protocol readers check each reference before the aggregate
         // dependency join, so a missing target has its own locus.
         if !matches!(
@@ -455,7 +468,6 @@ pub(super) fn validate_structural_nodes(
                     | ProtocolForm::Channel
                     | ProtocolForm::Queue
                     | ProtocolForm::Obligation
-                    | ProtocolForm::ProtocolClause
             ))
         ) {
             if let Some(expected) = term.and_then(application_dependencies) {

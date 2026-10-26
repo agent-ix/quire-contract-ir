@@ -4770,6 +4770,34 @@ pub(super) fn validate_protocol_nodes(
         if kinds.get(position) != Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
             continue;
         }
+        let node = &nodes[position];
+        let owner_model = node.owner_model.as_ref().expect("closed clause owner wire");
+        let owner_at = node_pointer(position).key("owner_model");
+        let owner_position = index.get(owner_model).copied().ok_or_else(|| {
+            ValidationFailure::refused_at(
+                Code::MissingDeclaration,
+                owner_at.clone(),
+                Some(Cause::MissingName),
+                node.node_id.clone(),
+            )
+        })?;
+        let target = &nodes[owner_position];
+        if !owners.is_model_declaration_node(target, kinds[owner_position].tag()) {
+            return Err(ValidationFailure::refused_at(
+                Code::IllTyped,
+                owner_at,
+                Some(Cause::OperatorIneligible),
+                node.node_id.clone(),
+            ));
+        }
+        if let Err(failure) = owners.recover(target) {
+            return Err(ValidationFailure::refused_at(
+                failure.code,
+                owner_at,
+                Some(failure.cause),
+                node.node_id.clone(),
+            ));
+        }
         let Some((operator, arguments)) = validated[position] else {
             return Err(body_defect(
                 position,
