@@ -446,6 +446,8 @@ pub(super) fn validate_structural_nodes(
         if let Some(defect) = defect.or(role) {
             return Err(refuse(defect));
         }
+        // These protocol readers check each reference before the aggregate
+        // dependency join, so a missing target has its own locus.
         if !matches!(
             kinds.get(position),
             Some(CheckedNodeKind::Protocol(
@@ -453,6 +455,7 @@ pub(super) fn validate_structural_nodes(
                     | ProtocolForm::Channel
                     | ProtocolForm::Queue
                     | ProtocolForm::Obligation
+                    | ProtocolForm::ProtocolClause
             ))
         ) {
             if let Some(expected) = term.and_then(application_dependencies) {

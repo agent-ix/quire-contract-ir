@@ -6,7 +6,7 @@ use super::model_members::{Budget, ModelOwners};
 use super::{
     ApplicationOperator, CheckedNodeKind, CheckedPackageLockV2, CheckedSelectionRole, CheckedTerm,
     CompositeTypeForm, LiteralKind, ModelForm, ProtocolForm, RawSemanticNodeV2, RelationForm,
-    ScalarTypeForm, StateClauseKind, StateForm, ValueForm, WorkMeter,
+    ScalarTypeForm, StateClauseKind, StateForm, TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -3050,6 +3050,183 @@ fn validate_compensation_commit_position(
     Ok(())
 }
 
+#[string_edge]
+fn check_clause(
+    check: &MemberCheck<'_>,
+    arguments: &[CheckedTerm],
+    validated: &[Option<(&str, &[CheckedTerm])>],
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let parameter = |position| check.is(position, CheckedNodeKind::Value(ValueForm::Parameter));
+    let over = check.target_at(arguments, 0, parameter)?;
+    let activation = check.at(arguments, 1);
+    let each = group_value(activation, "kind").and_then(text_value) == Some("each");
+    let trigger_position = if each {
+        let trigger = group_value(activation, "trigger").expect("validated each trigger");
+        Some(check.check_target(
+            trigger,
+            check.argument_path(1).key("members").index(1).key("value"),
+            parameter,
+        )?)
+    } else {
+        None
+    };
+    let captures = members(check.at(arguments, 2)).expect("validated captures");
+    let mut capture_positions = Vec::with_capacity(captures.len());
+    for (entry, record) in captures.iter().enumerate() {
+        meter.charge(1, || node_pointer(check.position))?;
+        let binder = group_value(record, "binder").expect("validated capture binder");
+        capture_positions.push(
+            check.check_target(
+                binder,
+                check
+                    .argument_path(2)
+                    .key("members")
+                    .index(entry)
+                    .key("members")
+                    .index(0)
+                    .key("value"),
+                parameter,
+            )?,
+        );
+    }
+    let mut readable_names = BTreeSet::<Box<str>>::new();
+    let mut introduce = |position: usize, expected: usize| {
+        let actual = check.terms[position]
+            .as_ref()
+            .and_then(|body| group_value(body, "level"))
+            .and_then(integer_value);
+        if actual != Some(BigInt::from(expected)) {
+            return Err(ValidationFailure::refused_at(
+                Code::InvalidSemanticGraph,
+                node_pointer(position),
+                None,
+                check.nodes[position].node_id.clone(),
+            ));
+        }
+        let Some(name) = check.terms[position]
+            .as_ref()
+            .and_then(|body| group_value(body, "name"))
+            .and_then(text_value)
+        else {
+            return Err(ValidationFailure::refused_at(
+                Code::MalformedWire,
+                node_pointer(position).key("body"),
+                None,
+                check.nodes[position].node_id.clone(),
+            ));
+        };
+        if !readable_names.insert(name.into()) {
+            return Err(ValidationFailure::refused_at(
+                Code::AmbiguousDeclaration,
+                node_pointer(position),
+                Some(Cause::AmbiguousName),
+                check.nodes[position].node_id.clone(),
+            ));
+        }
+        Ok(())
+    };
+    for (ordinal, expected) in [
+        (3, CheckedNodeKind::Protocol(ProtocolForm::Role)),
+        (4, CheckedNodeKind::Relation(RelationForm::Relationship)),
+        (5, CheckedNodeKind::Protocol(ProtocolForm::Channel)),
+        (6, CheckedNodeKind::Protocol(ProtocolForm::Queue)),
+        (7, CheckedNodeKind::Temporal(TemporalForm::TemporalClause)),
+        (8, CheckedNodeKind::Protocol(ProtocolForm::Compensation)),
+    ] {
+        for (entry, target) in members(check.at(arguments, ordinal))
+            .expect("validated clause set")
+            .iter()
+            .enumerate()
+        {
+            meter.charge(1, || node_pointer(check.position))?;
+            let path = check.argument_path(ordinal).key("members").index(entry);
+            let position = check.check_target(target, path.clone(), |_| true)?;
+            if !check.is(position, expected) {
+                let cause = if ordinal == 4 {
+                    Cause::WrongExport
+                } else {
+                    Cause::MalformedDeclaration
+                };
+                return Err(check.refuse(
+                    Code::InvalidModelBinding,
+                    Some(cause),
+                    path.key("target"),
+                ));
+            }
+        }
+    }
+    if let Some(terminal) = members(check.at(arguments, 9)).and_then(|items| items.first()) {
+        check.check_target(
+            terminal,
+            check.argument_path(9).key("members").index(0),
+            |position| {
+                check.is(
+                    position,
+                    CheckedNodeKind::Protocol(ProtocolForm::Obligation),
+                ) && validated[position].is_some_and(|(operator, _)| operator == "terminal")
+            },
+        )?;
+    }
+    for ordinal in [11, 12] {
+        let expected = if ordinal == 11 {
+            ProtocolForm::Control
+        } else {
+            ProtocolForm::Obligation
+        };
+        check.target_at(arguments, ordinal, |position| {
+            check.is(position, CheckedNodeKind::Protocol(expected))
+                && (ordinal == 11
+                    || validated[position].is_some_and(|(operator, _)| operator == "finish"))
+        })?;
+    }
+
+    introduce(over, 0)?;
+    if let Some(trigger_position) = trigger_position {
+        introduce(trigger_position, 1)?;
+        if let Some(guard) = group_value(activation, "guard") {
+            check_member_dependencies(
+                check,
+                guard,
+                check.argument_path(1).key("members").index(2).key("value"),
+            )?;
+            check.boolean(
+                guard,
+                check.argument_path(1).key("members").index(2).key("value"),
+            )?;
+        }
+    }
+
+    for (entry, (&binder_position, record)) in capture_positions.iter().zip(captures).enumerate() {
+        meter.charge(1, || node_pointer(check.position))?;
+        let path = check
+            .argument_path(2)
+            .key("members")
+            .index(entry)
+            .key("members");
+        introduce(binder_position, 1 + usize::from(each) + entry)?;
+        let initializer = group_value(record, "initializer").expect("validated initializer");
+        check_member_dependencies(check, initializer, path.index(1).key("value"))?;
+    }
+    if let Some(expected) = check.terms[check.position]
+        .as_ref()
+        .and_then(super::structural::application_dependencies)
+    {
+        if !check.nodes[check.position]
+            .dependencies
+            .iter()
+            .eq(expected.iter())
+        {
+            return Err(check.refuse(
+                Code::InvalidSemanticGraph,
+                None,
+                node_pointer(check.position).key("dependencies"),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Validate protocol placement, local members, membership and clause layout.
 pub(super) fn validate_protocol_nodes(
     nodes: &[RawSemanticNodeV2],
@@ -3176,6 +3353,15 @@ pub(super) fn validate_protocol_nodes(
         };
         validate_layout(ProtocolForm::ProtocolClause, operator, arguments)
             .map_err(|defect| body_defect(position, &nodes[position], defect))?;
+        let check = MemberCheck {
+            position,
+            nodes,
+            kinds,
+            terms,
+            index,
+            profile: selected_profile.expect("validated protocol profile law"),
+        };
+        check_clause(&check, arguments, &validated, meter)?;
     }
     Ok(())
 }
