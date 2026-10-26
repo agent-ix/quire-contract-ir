@@ -1251,10 +1251,12 @@ fn qspec_hybrid_step_precedes_later_protocol_body_defect() {
         .as_array()
         .expect("nodes")
         .iter()
-        .position(|node| node["node_tag"] == "protocol" && node["semantic_form"] == "protocol_clause")
+        .position(|node| {
+            node["node_tag"] == "protocol" && node["semantic_form"] == "protocol_clause"
+        })
         .expect("published protocol clause");
-    package["semantic_graph"]["nodes"][protocol]["body"]["operation"]["member"]
-        ["operator"] = json!("sequence");
+    package["semantic_graph"]["nodes"][protocol]["body"]["operation"]["member"]["operator"] =
+        json!("sequence");
     fixture_support::rekey_application_node(&mut package, protocol);
     fixture_support::refresh_identity(&mut package);
     let read = read_package(&package).expect("QSpec package");
