@@ -426,7 +426,7 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         &edge_evidence,
         CheckedPackageLimit::Edges,
         edges_with_one_more - 1,
-        Some("/semantic_graph/nodes/18/dependencies/0"),
+        Some("/semantic_graph/nodes/23/dependencies/0"),
     );
 
     // diagnostics: likewise, the boundary is proven on a variant with exactly

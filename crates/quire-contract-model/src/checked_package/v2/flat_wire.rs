@@ -145,8 +145,10 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
                         if let Some(defect) = super::protocol_body::wire_layout_defect(form, &body)
                         {
                             let path = match defect {
-                                super::protocol_body::ProtocolWireDefect::Body => at.pointer(),
-                                super::protocol_body::ProtocolWireDefect::EnumValue {
+                                super::protocol_body::ProtocolLayoutWireDefect::Body => {
+                                    at.pointer()
+                                }
+                                super::protocol_body::ProtocolLayoutWireDefect::EnumValue {
                                     argument,
                                     member,
                                 } => {

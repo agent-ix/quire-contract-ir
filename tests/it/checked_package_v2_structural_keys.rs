@@ -2213,11 +2213,11 @@ fn tc_226_tree_whole_read_work_boundary() {
     };
     // Fixture charge ledger: Tree's three memberships, four first-pass keys
     // (including Integer), three local member preimages and one group digest
-    // cost 37. The remaining 372 are all other work charges of this complete
-    // fixture, including the List group. These constants are authored here, not
-    // obtained by asking the reader for its consumed work at runtime.
+    // cost 37. The remaining 448 are all other work charges of this complete
+    // fixture, including the List group and three protocol nodes. These
+    // constants are authored here, not obtained from the reader at runtime.
     const TREE_GROUP_WORK: u64 = 3 + (5 + 4 + 8 + 3) + (4 + 3 + 6 + 1);
-    const OTHER_READ_WORK: u64 = 372;
+    const OTHER_READ_WORK: u64 = 448;
     const M: u64 = OTHER_READ_WORK + TREE_GROUP_WORK;
     assert!(matches!(
         read_at(M),
@@ -2231,7 +2231,7 @@ fn tc_226_tree_whole_read_work_boundary() {
     assert_eq!(incomplete.consumed, M);
     assert_eq!(
         incomplete.path.as_ref().map(|path| path.as_str()),
-        Some("/semantic_graph/nodes/35/body/members/0/value/target")
+        Some("/semantic_graph/nodes/38/body/members/0/value/target")
     );
 }
 

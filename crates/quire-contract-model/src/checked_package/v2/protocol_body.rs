@@ -7,7 +7,7 @@ use super::{
     LiteralKind, ProtocolForm, RawSemanticNodeV2, ScalarTypeForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
-use crate::checked_package::shared::CheckedNodeId;
+use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId};
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
 };
@@ -35,7 +35,7 @@ pub(super) enum ProtocolBodyDefect {
 }
 
 /// A malformed protocol wire shape, with the offending enum term when known.
-pub(super) enum ProtocolWireDefect {
+pub(super) enum ProtocolLayoutWireDefect {
     Body,
     EnumValue {
         argument: usize,
@@ -500,7 +500,7 @@ fn validate_envelope<'a>(
     form: ProtocolForm,
     body: &'a CheckedTerm,
     semantic_type: &CheckedNodeId,
-    selected_profile: Option<&Value>,
+    selected_profile: Option<&CheckedArtifactRef>,
 ) -> Result<(&'a str, &'a [CheckedTerm]), ProtocolBodyDefect> {
     use ProtocolBodyDefect as D;
     let CheckedTerm::Application {
@@ -529,7 +529,17 @@ fn validate_envelope<'a>(
     if law.get("role").and_then(Value::as_str) != Some("protocol_profile") {
         return Err(D::LawMismatch);
     }
-    if selected_profile.is_none() || selected_profile != law.get("definition") {
+    if !selected_profile.is_some_and(|selected| {
+        law.get("definition")
+            .and_then(Value::as_object)
+            .is_some_and(|definition| {
+                definition.len() == 2
+                    && definition.get("authority").and_then(Value::as_str)
+                        == Some(selected.authority.as_ref())
+                    && definition.get("identity").and_then(Value::as_str)
+                        == Some(selected.identity.as_ref())
+            })
+    }) {
         return Err(D::LawUnselected);
     }
     if !operation.get("mode").is_some_and(Value::is_null)
@@ -598,7 +608,7 @@ fn validate_layout(
 pub(super) fn wire_layout_defect(
     form: ProtocolForm,
     body: &CheckedTerm,
-) -> Option<ProtocolWireDefect> {
+) -> Option<ProtocolLayoutWireDefect> {
     let CheckedTerm::Application {
         operator: ApplicationOperator::ProtocolControl,
         operation,
@@ -618,7 +628,7 @@ pub(super) fn wire_layout_defect(
             .and_then(Value::as_array)
             .is_some_and(Vec::is_empty)
     {
-        return Some(ProtocolWireDefect::Body);
+        return Some(ProtocolLayoutWireDefect::Body);
     }
     let operator = operation
         .pointer("/member/operator")
@@ -631,7 +641,7 @@ pub(super) fn wire_layout_defect(
         validate_layout(form, operator, arguments),
         Err(ProtocolBodyDefect::MalformedLayout)
     )
-    .then_some(ProtocolWireDefect::Body)
+    .then_some(ProtocolLayoutWireDefect::Body)
 }
 
 fn invalid_enum_at(
@@ -639,7 +649,7 @@ fn invalid_enum_at(
     argument_position: usize,
     member: Option<(usize, bool)>,
     allowed: &[&str],
-) -> Option<ProtocolWireDefect> {
+) -> Option<ProtocolLayoutWireDefect> {
     let mut term = argument(arguments, argument_position)?;
     if let Some((position, binding)) = member {
         term = members(term)?.get(position)?;
@@ -651,7 +661,7 @@ fn invalid_enum_at(
         }
     }
     let spelling = text_value(term)?;
-    (!allowed.contains(&spelling)).then_some(ProtocolWireDefect::EnumValue {
+    (!allowed.contains(&spelling)).then_some(ProtocolLayoutWireDefect::EnumValue {
         argument: argument_position,
         member,
     })
@@ -662,7 +672,7 @@ fn enum_value_defect(
     form: ProtocolForm,
     operator: &str,
     arguments: &[CheckedTerm],
-) -> Option<ProtocolWireDefect> {
+) -> Option<ProtocolLayoutWireDefect> {
     match (form, operator) {
         (ProtocolForm::ProtocolClause, "protocol") => {
             invalid_enum_at(arguments, 1, Some((0, true)), &["origin", "each"])
@@ -713,7 +723,7 @@ pub(super) fn validate_protocol_body(
     form: ProtocolForm,
     body: &CheckedTerm,
     semantic_type: &CheckedNodeId,
-    selected_profile: Option<&Value>,
+    selected_profile: Option<&CheckedArtifactRef>,
 ) -> Result<(), ProtocolBodyDefect> {
     let (operator, arguments) = validate_envelope(form, body, semantic_type, selected_profile)?;
     validate_layout(form, operator, arguments)
@@ -813,7 +823,7 @@ pub(super) fn validate_protocol_nodes(
         .profile_selections
         .iter()
         .find(|selection| selection.role == CheckedSelectionRole::ProtocolProfile)
-        .and_then(|selection| serde_json::to_value(&selection.definition).ok());
+        .map(|selection| &selection.definition);
     let has_temporal_profile = lock
         .profile_selections
         .iter()
@@ -858,7 +868,7 @@ pub(super) fn validate_protocol_nodes(
             ));
         };
         let (operator, arguments) =
-            validate_envelope(form, body, &node.semantic_type, selected_profile.as_ref())
+            validate_envelope(form, body, &node.semantic_type, selected_profile)
                 .map_err(|defect| body_defect(position, node, defect))?;
         validated[position] = Some((operator, arguments));
 
@@ -918,7 +928,11 @@ mod tests {
         let term = CheckedTerm::decode_admitted(body).expect("valid admitted term fixture");
         let type_id: CheckedNodeId =
             serde_json::from_value(semantic_type.clone()).expect("valid semantic type fixture");
-        super::validate_protocol_body(form, &term, &type_id, selected_profile)
+        let selected = selected_profile.map(|value| {
+            serde_json::from_value::<CheckedArtifactRef>(value.clone())
+                .expect("valid selected profile fixture")
+        });
+        super::validate_protocol_body(form, &term, &type_id, selected.as_ref())
     }
 
     type QSpecFrame = (ProtocolForm, &'static str, &'static [(&'static str, Shape)]);

@@ -2092,7 +2092,7 @@ fn tc_056_selected_record_fields_obey_exact_work_limit() {
             );
             assert_eq!(
                 record.path.as_ref().map(|path| path.as_str()),
-                Some("/semantic_graph/nodes/35/body/arguments/2/target")
+                Some("/semantic_graph/nodes/38/body/arguments/2/target")
             );
         }
         other => panic!("one unit below exact must be incomplete: {other:?}"),
@@ -2571,17 +2571,18 @@ fn tc_056_scoped_delete_parameter_scan_charges_validation_work() {
     let parameter = ModelPackage::new().edit(frame, |node| {
         node["body"]["deletes_scoped"] = json!([{"kind": "parameter", "name": "n"}]);
     });
-    let incomplete = match read_model_with_work(&parameter.value, 292) {
+    // The three protocol nodes add 52 charges before this scoped scan.
+    let incomplete = match read_model_with_work(&parameter.value, 344) {
         CheckedPackageV2ReadResult::Incomplete(incomplete) => incomplete,
         other => panic!("expected work limit at scoped parameter scan, got {other:?}"),
     };
     assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
-    assert_eq!(incomplete.consumed, 293);
+    assert_eq!(incomplete.consumed, 345);
     assert_eq!(
         incomplete.path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{frame}/body").as_str())
     );
-    let refusal = match read_model_with_work(&parameter.value, 293) {
+    let refusal = match read_model_with_work(&parameter.value, 345) {
         CheckedPackageV2ReadResult::Refused(refusal) => refusal,
         other => panic!("expected missing-name after paying for scan, got {other:?}"),
     };
