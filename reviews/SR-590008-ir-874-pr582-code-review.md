@@ -43,3 +43,7 @@ The graph has a port per control entry and exit; sequencing, choice, parallel jo
 ## Disposition verdict
 
 **PASS at 8fabf73f** for the recorded code-review finding. Host backoff left runtime gates to the final exact-head CI run.
+
+## Later test-only check
+
+At f683d452, the regression fix changes tests and review artifacts only. The later-sibling await test now asserts the exact four control identities in the cycle, preserving the FR-464 tree-order oracle. FND-001 remains fixed. No local Cargo, Make or test jobs were started during host backoff.
