@@ -1173,12 +1173,14 @@ pub fn family_key(prefix: &str) -> String {
             &node_id(&family_key("aaaa")),
             &holds_formula_body(),
         ),
-        "5050" => application_key(
-            "protocol",
+        "5050" => protocol_named_key(
             "protocol_clause",
-            &node_id(&family_key("aaaa")),
+            &["Example", "OrderFlow"],
             &protocol_control_body(),
         ),
+        "p-run" => protocol_run_key(),
+        "p-finish" => protocol_finish_key(),
+        "p-close" => closing_parameter_key(),
         "6060" => application_key(
             "claim",
             "verification_claim",
@@ -1304,7 +1306,7 @@ fn protocol_profile_law() -> Value {
         "role": "protocol_profile",
         "definition": definition_ref(
             FIXTURE_SOURCE_AUTHORITY,
-            "quire.fixture.protocol-profile/v1",
+            "quire.protocol.finite-global/v1",
         ),
     })
 }
@@ -1391,6 +1393,14 @@ fn eventually_formula_body() -> Value {
 }
 
 fn protocol_control_body() -> Value {
+    let over = family_key("a4a4");
+    let run = protocol_run_key();
+    let finish = protocol_finish_key();
+    let reference = |target: &str| json!({"term": "reference", "target": node_id(target)});
+    let binding =
+        |name: &str, value: Value| json!({"term": "binding", "name": name, "value": value});
+    let group = |members: Vec<Value>| json!({"term": "aggregate", "members": members});
+    let empty = || group(Vec::new());
     json!({
         "term": "application",
         "operator": "protocol_control",
@@ -1398,12 +1408,162 @@ fn protocol_control_body() -> Value {
             "identity": "quire.op.protocol.control",
             "laws": [protocol_profile_law()],
             "mode": Value::Null,
-            "member": {"kind": "profile_operator"},
+            "member": {"kind": "profile_operator", "operator": "protocol"},
             "leaves": Value::Array(Vec::new()),
         },
         "result_type": node_id(&family_key("aaaa")),
-        "arguments": Value::Array(Vec::new()),
+        "arguments": [
+            binding("over", reference(&over)),
+            binding("activation", group(vec![binding("kind", json!({
+                "term": "literal", "type": node_id(&family_key("a1a1")),
+                "value_kind": "text", "value": "origin"
+            }))])),
+            binding("captures", empty()),
+            binding("roles", empty()),
+            binding("relationships", empty()),
+            binding("channels", empty()),
+            binding("queues", empty()),
+            binding("requirements", empty()),
+            binding("compensations", empty()),
+            binding("terminal", empty()),
+            binding("scheduling", empty()),
+            binding("run", reference(&run)),
+            binding("finish", reference(&finish)),
+        ],
     })
+}
+
+fn protocol_named_key(form: &str, declaration: &[&str], body: &Value) -> String {
+    application_preimage_key(
+        "protocol",
+        form,
+        &node_id(&family_key("aaaa")),
+        &json!({"qualified_name": declaration}),
+        &Value::Null,
+        body,
+    )
+}
+
+pub fn protocol_named_node(
+    form: &str,
+    declaration: &[&str],
+    body: Value,
+    dependencies: &[String],
+) -> Value {
+    let key = protocol_named_key(form, declaration, &body);
+    let ordered = dependencies
+        .iter()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut node = plain_node(
+        &key,
+        "protocol",
+        form,
+        &family_key("aaaa"),
+        &ordered.into_iter().collect::<Vec<_>>(),
+        body,
+    );
+    node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
+    node["declaration"] = json!({"qualified_name": declaration});
+    node
+}
+
+/// A declared role target for protocol-reference reader tests.
+pub fn protocol_role_node() -> Value {
+    let model = family_key("a4a4");
+    protocol_named_node(
+        "role",
+        &["Example", "OrderFlow", "role", "Worker"],
+        json!({
+            "term": "application", "operator": "protocol_control",
+            "operation": {
+                "identity": "quire.op.protocol.control", "laws": [protocol_profile_law()],
+                "mode": Value::Null,
+                "member": {"kind": "profile_operator", "operator": "role"},
+                "leaves": []
+            },
+            "result_type": node_id(&family_key("aaaa")),
+            "arguments": [
+                {"term": "binding", "name": "model", "value": {
+                    "term": "reference", "target": node_id(&model)
+                }},
+                {"term": "binding", "name": "replication", "value": {
+                    "term": "aggregate", "members": []
+                }}
+            ]
+        }),
+        &[model],
+    )
+}
+
+fn protocol_run_body() -> Value {
+    json!({
+        "term": "application", "operator": "protocol_control",
+        "operation": {
+            "identity": "quire.op.protocol.control", "laws": [protocol_profile_law()],
+            "mode": Value::Null, "member": {"kind": "profile_operator", "operator": "sequence"},
+            "leaves": []
+        },
+        "result_type": node_id(&family_key("aaaa")),
+        "arguments": [{"term": "binding", "name": "children", "value": {
+            "term": "aggregate", "members": []
+        }}]
+    })
+}
+
+fn protocol_run_key() -> String {
+    protocol_named_key(
+        "control",
+        &["Example", "OrderFlow", "run", "Main"],
+        &protocol_run_body(),
+    )
+}
+
+fn closing_parameter_body() -> Value {
+    json!({"term": "aggregate", "members": [
+        {"term": "binding", "name": "name", "value": {
+            "term": "literal", "type": node_id(&family_key("a1a1")),
+            "value_kind": "text", "value": "closed"}},
+        {"term": "binding", "name": "level", "value": {
+            "term": "literal", "type": node_id(&family_key("a3a3")),
+            "value_kind": "integer", "value": "1"}}
+    ]})
+}
+
+fn closing_parameter_key() -> String {
+    structural_key(
+        "value",
+        "parameter",
+        Some(&family_key("aaaa")),
+        &closing_parameter_body(),
+    )
+}
+
+fn protocol_finish_body() -> Value {
+    json!({
+        "term": "application", "operator": "protocol_control",
+        "operation": {
+            "identity": "quire.op.protocol.control", "laws": [protocol_profile_law()],
+            "mode": Value::Null, "member": {"kind": "profile_operator", "operator": "finish"},
+            "leaves": []
+        },
+        "result_type": node_id(&family_key("aaaa")),
+        "arguments": [
+            {"term": "binding", "name": "binder", "value": {
+                "term": "reference", "target": node_id(&closing_parameter_key())}},
+            {"term": "binding", "name": "constraint", "value": {
+                "term": "literal", "type": node_id(&family_key("aaaa")),
+                "value_kind": "boolean", "value": true}}
+        ]
+    })
+}
+
+fn protocol_finish_key() -> String {
+    protocol_named_key(
+        "obligation",
+        &["Example", "OrderFlow", "finish", "Closed"],
+        &protocol_finish_body(),
+    )
 }
 
 fn claim_clause_body() -> Value {
@@ -1675,10 +1835,12 @@ fn fixture_application_key(node: &Value, nodes: &Value) -> String {
             .collect::<Vec<_>>();
         application_key_in_group(node, &group)
     } else {
-        application_key(
+        application_preimage_key(
             node["node_tag"].as_str().expect("tag"),
             node["semantic_form"].as_str().expect("form"),
             &node["semantic_type"],
+            &node.get("declaration").cloned().unwrap_or(Value::Null),
+            &Value::Null,
             &node["body"],
         )
     }
@@ -2023,14 +2185,15 @@ fn build_v2_all_families() -> Value {
                 .map(String::as_str)
                 .collect::<Vec<_>>(),
         ),
-        application_node(
-            "protocol",
+        protocol_named_node(
             "protocol_clause",
-            "protocol_control",
-            protocol_control_body()["operation"].clone(),
-            &aaaa,
-            Vec::new(),
-            &[],
+            &["Example", "OrderFlow"],
+            protocol_control_body(),
+            &[
+                family_key("a4a4"),
+                protocol_run_key(),
+                protocol_finish_key(),
+            ],
         ),
         application_node(
             "claim",
@@ -2151,6 +2314,30 @@ fn build_v2_all_families() -> Value {
                             "value_kind": "integer", "value": "0"}},
                     ],
                 }),
+            );
+            parameter["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
+            parameter
+        },
+        protocol_named_node(
+            "control",
+            &["Example", "OrderFlow", "run", "Main"],
+            protocol_run_body(),
+            &[],
+        ),
+        protocol_named_node(
+            "obligation",
+            &["Example", "OrderFlow", "finish", "Closed"],
+            protocol_finish_body(),
+            &[closing_parameter_key()],
+        ),
+        {
+            let mut parameter = plain_node(
+                &closing_parameter_key(),
+                "value",
+                "parameter",
+                &aaaa,
+                &[],
+                closing_parameter_body(),
             );
             parameter["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
             parameter

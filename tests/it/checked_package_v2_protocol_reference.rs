@@ -5,7 +5,7 @@
 
 use crate::support::checked_package::{
     admitted_dependency, canonical, evidence_for, family_key, fixture_source, node_id,
-    read_with_dependencies, rebuild_source_map, refresh_identity, refusal_at,
+    protocol_role_node, read_with_dependencies, rebuild_source_map, refresh_identity, refusal_at,
     rekey_application_node, source_owner, structural_key, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
@@ -62,23 +62,12 @@ fn retarget(package: &mut Value, position: usize, target: &Value) {
 }
 
 fn role_target(package: &mut Value) -> Value {
-    let body = json!({"term": "aggregate", "members": []});
-    let semantic_type = node_id(&family_key("aaaa"));
-    let key = structural_key("protocol", "role", Some(&family_key("aaaa")), &body);
-    let target = node_id(&key);
+    let role = protocol_role_node();
+    let target = role["node_id"].clone();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
-        .push(json!({
-            "node_id": target,
-            "schema_version": "quire.checked-semantic-graph/v2",
-            "node_tag": "protocol",
-            "semantic_form": "role",
-            "semantic_type": semantic_type,
-            "dependencies": [],
-            "occurrences": [{"role": "generated", "ordinal": 0}],
-            "body": body,
-        }));
+        .push(role);
     target
 }
 

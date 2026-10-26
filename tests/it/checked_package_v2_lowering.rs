@@ -147,6 +147,22 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
                 reached.sort();
                 reached
             }
+            // The declared protocol clause reaches its source parameter,
+            // empty run sequence, finish obligation and closing parameter;
+            // the two parameter bodies bring in their text/integer types.
+            "5050" => {
+                let mut reached = vec![
+                    id("a1a1"),
+                    id("a3a3"),
+                    id("a4a4"),
+                    id("aaaa"),
+                    id("p-run"),
+                    id("p-finish"),
+                    id("p-close"),
+                ];
+                reached.sort();
+                reached
+            }
             _ => vec![id("aaaa")],
         };
         expected_dependencies.sort();

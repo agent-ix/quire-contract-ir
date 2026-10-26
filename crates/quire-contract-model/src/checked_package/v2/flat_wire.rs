@@ -124,7 +124,55 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
             // application at the root of an abstraction relation body is a
             // term of the closed grammar, placed by the abstraction step.
             BodyGrammar::Frame => scan_members(&node.body, &at).map(|_| ()),
-            BodyGrammar::Term => check_term(&node.body, &at, Place::BodyRoot, false),
+            BodyGrammar::Term => {
+                if kind == CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolReference)
+                    && body_term(&node.body) == Some(BodyTerm::Application)
+                    && application_operator(&node.body)
+                        == Some(ApplicationOperator::ProtocolControl)
+                {
+                    Err(ValidationFailure::refused(
+                        CheckedPackageRefusalCode::MalformedWire,
+                        at.pointer(),
+                    ))
+                } else {
+                    check_term(&node.body, &at, Place::BodyRoot, false).and_then(|_| {
+                        let CheckedNodeKind::Protocol(form) = kind else {
+                            return Ok(());
+                        };
+                        let Some(body) = CheckedTerm::decode_admitted(&node.body).ok() else {
+                            return Ok(());
+                        };
+                        if let Some(defect) = super::protocol_body::wire_layout_defect(form, &body)
+                        {
+                            let path = match defect {
+                                super::protocol_body::ProtocolLayoutWireDefect::Body => {
+                                    at.pointer()
+                                }
+                                super::protocol_body::ProtocolLayoutWireDefect::EnumValue {
+                                    argument,
+                                    member,
+                                } => {
+                                    let mut path =
+                                        at.pointer().key("arguments").index(argument).key("value");
+                                    if let Some((position, binding)) = member {
+                                        path = path.key("members").index(position);
+                                        if binding {
+                                            path = path.key("value");
+                                        }
+                                    }
+                                    path
+                                }
+                            };
+                            Err(ValidationFailure::refused(
+                                CheckedPackageRefusalCode::MalformedWire,
+                                path,
+                            ))
+                        } else {
+                            Ok(())
+                        }
+                    })
+                }
+            }
             BodyGrammar::TimedModel => {
                 let CheckedNodeKind::TimedModel(form) = kind else {
                     unreachable!("timed grammar requires a timed kind")
@@ -657,6 +705,48 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// QSpec TC-946 V6: a carrier cannot become a protocol declaration.
+    #[trace("TC-048")]
+    #[test]
+    fn protocol_reference_rejects_protocol_application_at_wire_boundary() {
+        header_refusal(
+            vec![header_node(
+                "protocol",
+                "protocol_reference",
+                super::super::GRAPH_V2,
+                json!({"term": "application", "operator": "protocol_control", "arguments": []}),
+            )],
+            CheckedPackageRefusalCode::MalformedWire,
+            "/semantic_graph/nodes/0/body",
+        );
+    }
+
+    /// QSpec FR-464 step 1 rejects a known operator's damaged fixed layout
+    /// before semantic graph validation can report a later defect.
+    #[trace("TC-048")]
+    #[test]
+    fn protocol_clause_rejects_short_layout_at_wire_boundary() {
+        header_refusal(
+            vec![header_node(
+                "protocol",
+                "protocol_clause",
+                super::super::GRAPH_V2,
+                json!({
+                    "term": "application", "operator": "protocol_control",
+                    "operation": {
+                        "identity": "quire.op.protocol.control", "laws": [], "mode": null,
+                        "member": {"kind": "profile_operator", "operator": "protocol"},
+                        "leaves": []
+                    },
+                    "result_type": {"domain": "quire.checked-semantic-node/v1", "digest": "1".repeat(64)},
+                    "arguments": []
+                }),
+            )],
+            CheckedPackageRefusalCode::MalformedWire,
+            "/semantic_graph/nodes/0/body",
+        );
     }
 
     #[trace("TC-048")]

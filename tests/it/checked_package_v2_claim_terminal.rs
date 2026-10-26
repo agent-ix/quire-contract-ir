@@ -19,6 +19,18 @@ use quire_contract_model::{
 };
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
+use std::sync::OnceLock;
+
+/// The shared V2 fixture grows as independent families become admissible.
+fn base_node_index() -> usize {
+    static COUNT: OnceLock<usize> = OnceLock::new();
+    *COUNT.get_or_init(|| {
+        v2_all_families()["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("fixture nodes")
+            .len()
+    })
+}
 
 fn binding(name: &str, value: Value) -> Value {
     json!({"term": "binding", "name": name, "value": value})
@@ -797,7 +809,7 @@ fn terminal_when_and_mode_refusals() {
     wrong_condition["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
-        .insert(22, expression);
+        .insert(base_node_index(), expression);
     settle(&mut wrong_condition);
     refused(
         &wrong_condition,
@@ -828,18 +840,18 @@ fn state_graph_identity_and_shared_occurrences() {
         &deps,
     ));
     assert_ne!(
-        possible["semantic_graph"]["nodes"][22]["node_id"],
-        always["semantic_graph"]["nodes"][22]["node_id"]
+        possible["semantic_graph"]["nodes"][base_node_index()]["node_id"],
+        always["semantic_graph"]["nodes"][base_node_index()]["node_id"]
     );
     assert_ne!(possible["package_id"], always["package_id"]);
     let respelled = source_spelling(
         &possible,
-        22,
+        base_node_index(),
         b"possible ReachesTwo using v over (c: Config::ConfigVersion) { /* same */ c.versionNumber = 2 }",
     );
     assert_eq!(
-        possible["semantic_graph"]["nodes"][22],
-        respelled["semantic_graph"]["nodes"][22]
+        possible["semantic_graph"]["nodes"][base_node_index()],
+        respelled["semantic_graph"]["nodes"][base_node_index()]
     );
     assert_eq!(possible["package_id"], respelled["package_id"]);
     assert_ne!(possible["source_map"], respelled["source_map"]);
@@ -849,30 +861,33 @@ fn state_graph_identity_and_shared_occurrences() {
     assert_eq!(respelled_read.source_map(), expected_source);
     assert_eq!(respelled_reread.source_map(), respelled_read.source_map());
     assert_eq!(
-        respelled_reread.graph().nodes[22],
-        respelled_read.graph().nodes[22]
+        respelled_reread.graph().nodes[base_node_index()],
+        respelled_read.graph().nodes[base_node_index()]
     );
     let mut instance_a = possible.clone();
-    instance_a["source_map"][22]["regions"][0]["start"] = json!(100);
-    instance_a["source_map"][22]["regions"][0]["end"] = json!(101);
+    instance_a["source_map"][base_node_index()]["regions"][0]["start"] = json!(100);
+    instance_a["source_map"][base_node_index()]["regions"][0]["end"] = json!(101);
     let mut instance_b = possible.clone();
-    instance_b["source_map"][22]["regions"][0]["start"] = json!(200);
-    instance_b["source_map"][22]["regions"][0]["end"] = json!(201);
+    instance_b["source_map"][base_node_index()]["regions"][0]["start"] = json!(200);
+    instance_b["source_map"][base_node_index()]["regions"][0]["end"] = json!(201);
     for instance in [&instance_a, &instance_b] {
         let read = admitted(instance);
         let written = reread_written(instance);
         assert_eq!(
-            read.graph().nodes[22].node_id,
-            admitted(&possible).graph().nodes[22].node_id
+            read.graph().nodes[base_node_index()].node_id,
+            admitted(&possible).graph().nodes[base_node_index()].node_id
         );
         assert_eq!(read.package_id(), admitted(&possible).package_id());
         assert_eq!(written.source_map(), read.source_map());
-        assert_eq!(written.graph().nodes[22], read.graph().nodes[22]);
+        assert_eq!(
+            written.graph().nodes[base_node_index()],
+            read.graph().nodes[base_node_index()]
+        );
     }
     assert_ne!(instance_a["source_map"], instance_b["source_map"]);
     assert_eq!(
-        instance_a["semantic_graph"]["nodes"][22],
-        instance_b["semantic_graph"]["nodes"][22]
+        instance_a["semantic_graph"]["nodes"][base_node_index()],
+        instance_b["semantic_graph"]["nodes"][base_node_index()]
     );
     let mut shared = possible.clone();
     second_claim_occurrence(&mut shared);
@@ -970,15 +985,15 @@ fn terminal_identity_and_uniqueness_per_model() {
         &[model.clone(), predicate.clone()],
     ));
     assert_ne!(
-        any["semantic_graph"]["nodes"][22]["node_id"],
-        when["semantic_graph"]["nodes"][22]["node_id"]
+        any["semantic_graph"]["nodes"][base_node_index()]["node_id"],
+        when["semantic_graph"]["nodes"][base_node_index()]["node_id"]
     );
     assert_ne!(any["package_id"], when["package_id"]);
-    let done = source_spelling(&any, 22, b"terminal Done for M any");
-    let stop = source_spelling(&any, 22, b"terminal Stop for M any");
+    let done = source_spelling(&any, base_node_index(), b"terminal Done for M any");
+    let stop = source_spelling(&any, base_node_index(), b"terminal Stop for M any");
     assert_eq!(
-        done["semantic_graph"]["nodes"][22],
-        stop["semantic_graph"]["nodes"][22]
+        done["semantic_graph"]["nodes"][base_node_index()],
+        stop["semantic_graph"]["nodes"][base_node_index()]
     );
     assert_eq!(done["package_id"], stop["package_id"]);
     assert_ne!(done["source_map"], stop["source_map"]);
@@ -986,12 +1001,15 @@ fn terminal_identity_and_uniqueness_per_model() {
         let read = admitted(named);
         let written = reread_written(named);
         assert_eq!(
-            read.graph().nodes[22].node_id,
-            admitted(&any).graph().nodes[22].node_id
+            read.graph().nodes[base_node_index()].node_id,
+            admitted(&any).graph().nodes[base_node_index()].node_id
         );
         assert_eq!(read.package_id(), admitted(&any).package_id());
         assert_eq!(written.source_map(), read.source_map());
-        assert_eq!(written.graph().nodes[22], read.graph().nodes[22]);
+        assert_eq!(
+            written.graph().nodes[base_node_index()],
+            read.graph().nodes[base_node_index()]
+        );
     }
     assert_ne!(any["package_id"], v2_all_families()["package_id"]);
     let changed_body = reference(&predicate);
@@ -1021,15 +1039,15 @@ fn terminal_identity_and_uniqueness_per_model() {
     ]);
     let _ = admitted(&changed);
     assert_ne!(
-        when["semantic_graph"]["nodes"][22]["node_id"],
-        changed["semantic_graph"]["nodes"][23]["node_id"]
+        when["semantic_graph"]["nodes"][base_node_index()]["node_id"],
+        changed["semantic_graph"]["nodes"][base_node_index() + 1]["node_id"]
     );
     assert_ne!(when["package_id"], changed["package_id"]);
     let mut duplicate = any.clone();
     duplicate["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
-        .push(when["semantic_graph"]["nodes"][22].clone());
+        .push(when["semantic_graph"]["nodes"][base_node_index()].clone());
     settle(&mut duplicate);
     let duplicate_result = terminal_duplicate(&duplicate);
     assert_eq!(
@@ -1042,8 +1060,10 @@ fn terminal_identity_and_uniqueness_per_model() {
         "nodes"
     );
     let (first, second) = duplicate_parties(&duplicate_result);
-    let any_id: CheckedNodeId = typed(&any["semantic_graph"]["nodes"][22]["node_id"]);
-    let when_id: CheckedNodeId = typed(&when["semantic_graph"]["nodes"][22]["node_id"]);
+    let any_id: CheckedNodeId =
+        typed(&any["semantic_graph"]["nodes"][base_node_index()]["node_id"]);
+    let when_id: CheckedNodeId =
+        typed(&when["semantic_graph"]["nodes"][base_node_index()]["node_id"]);
     assert_eq!(
         first,
         if any_id < when_id {
@@ -1067,12 +1087,12 @@ fn terminal_identity_and_uniqueness_per_model() {
     reversed["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
-        .swap(22, 23);
+        .swap(base_node_index(), base_node_index() + 1);
     settle(&mut reversed);
     let reversed_result = terminal_duplicate(&reversed);
     assert_eq!(duplicate_parties(&reversed_result), (first, second));
     let mut bad_target = duplicate.clone();
-    let terminal = &mut bad_target["semantic_graph"]["nodes"][23];
+    let terminal = &mut bad_target["semantic_graph"]["nodes"][base_node_index() + 1];
     terminal["body"]["members"][3]["value"] = reference(&model);
     terminal["dependencies"] = json!([node_id(&model)]);
     rekey(terminal);
@@ -1099,14 +1119,15 @@ fn terminal_identity_and_uniqueness_per_model() {
     assert_eq!(repeated_result.cause, Some(Cause::AmbiguousName));
     assert_eq!(
         repeated_result.path.as_ref().map(AsRef::as_ref),
-        Some("/semantic_graph/nodes/22")
+        Some(format!("/semantic_graph/nodes/{}", base_node_index()).as_str())
     );
     assert_eq!(repeated_result.document_pointer, None);
     assert_eq!(repeated_result.related_path, None);
     assert_eq!(repeated_result.expected, None);
     assert_eq!(repeated_result.actual, None);
     assert_eq!(repeated_result.extension_detail, None);
-    let repeated_id: CheckedNodeId = typed(&repeated["semantic_graph"]["nodes"][22]["node_id"]);
+    let repeated_id: CheckedNodeId =
+        typed(&repeated["semantic_graph"]["nodes"][base_node_index()]["node_id"]);
     let (first_occurrence, second_occurrence) = match repeated_result.terminal_duplicate {
         Some(CheckedTerminalDuplicate::Occurrences {
             node,
@@ -1154,8 +1175,8 @@ fn terminal_identity_and_uniqueness_per_model() {
         CheckedPackageV2ReadResult::Admitted(_)
     ));
     assert_ne!(
-        first_model["semantic_graph"]["nodes"][23]["node_id"],
-        second_model["semantic_graph"]["nodes"][23]["node_id"]
+        first_model["semantic_graph"]["nodes"][base_node_index() + 1]["node_id"],
+        second_model["semantic_graph"]["nodes"][base_node_index() + 1]["node_id"]
     );
     assert_ne!(first_model["package_id"], second_model["package_id"]);
 }
@@ -1179,7 +1200,7 @@ fn terminal_self_parameter_must_have_right_name_level_and_type() {
     terminal["dependencies"]
         .as_array_mut()
         .expect("dependencies")
-        .retain(|id| *id != valid["semantic_graph"]["nodes"][23]["node_id"]);
+        .retain(|id| *id != valid["semantic_graph"]["nodes"][base_node_index() + 1]["node_id"]);
     rekey(terminal);
     settle(&mut omitted);
     match read_with_population(&omitted) {
@@ -1336,7 +1357,11 @@ fn graph_shape_then_state_graph_then_terminal_order() {
         Some(Cause::InvalidValue),
         &format!(
             "/semantic_graph/nodes/{}/body/members/0",
-            if second_digest < first_digest { 22 } else { 23 }
+            if second_digest < first_digest {
+                base_node_index()
+            } else {
+                base_node_index() + 1
+            }
         ),
     );
     let no_dependency = state_graph(
