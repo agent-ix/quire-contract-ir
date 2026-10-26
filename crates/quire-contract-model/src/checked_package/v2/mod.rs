@@ -1496,6 +1496,7 @@ fn validate(
         &wire.lock.sources,
         limits,
     )?;
+    identity::validate_equivalence_occurrences(wire, &kinds)?;
     extension::validate_source_regions(wire, &kinds)?;
     validate_capabilities(wire, evidence)?;
     validate_diagnostics(wire, limits, &mut meter)?;

@@ -1057,7 +1057,11 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ScalarTypeForm::Enum),
         ) => Some(form.as_wire()),
         K::ScalarType(ScalarTypeForm::Unit) => Some("quantity"),
-        K::ScalarType(ScalarTypeForm::Dimension | ScalarTypeForm::CompoundUnit) => None,
+        K::ScalarType(
+            ScalarTypeForm::Dimension
+            | ScalarTypeForm::DimensionEquivalence
+            | ScalarTypeForm::CompoundUnit,
+        ) => None,
         K::CompositeType(
             form @ (CompositeTypeForm::Option
             | CompositeTypeForm::Sequence
@@ -1203,6 +1207,7 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | ScalarTypeForm::Uuid
             | ScalarTypeForm::Timestamp
             | ScalarTypeForm::Dimension
+            | ScalarTypeForm::DimensionEquivalence
             | ScalarTypeForm::Unit
             | ScalarTypeForm::Enum
             | ScalarTypeForm::CompoundUnit,

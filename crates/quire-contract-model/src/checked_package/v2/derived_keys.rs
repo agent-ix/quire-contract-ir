@@ -54,6 +54,7 @@ impl Shape {
                 | ScalarTypeForm::Uuid
                 | ScalarTypeForm::Timestamp
                 | ScalarTypeForm::Dimension
+                | ScalarTypeForm::DimensionEquivalence
                 | ScalarTypeForm::Unit
                 | ScalarTypeForm::Enum
                 | ScalarTypeForm::CompoundUnit => None,
