@@ -1205,6 +1205,16 @@ fn protocol_holder_case_on(mut package: Value, operator: &str) -> (Value, Vec<us
     let binder_target = package["semantic_graph"]["nodes"]
         [protocol_position(&package, "obligation")]["body"]["arguments"][0]["value"]["target"]
         .clone();
+    let awaited_binder = if operator == "await" {
+        let matched = clause_parameter(&mut package, "matched", "2");
+        let finished = clause_parameter(&mut package, "finished_after_await", "2");
+        let finish = protocol_position(&package, "obligation");
+        package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]["value"]["target"] =
+            finished;
+        Some(matched)
+    } else {
+        None
+    };
     let names: &[&str] = if operator == "await" {
         &["Event", "Then", "Timeout"]
     } else {
@@ -1228,7 +1238,7 @@ fn protocol_holder_case_on(mut package: Value, operator: &str) -> (Value, Vec<us
             child_body["arguments"] = json!([
                 {"term": "binding", "name": "role", "value": {"term": "reference", "target": role_target}},
                 {"term": "binding", "name": "compensation", "value": {"term": "aggregate", "members": []}},
-                {"term": "binding", "name": "binder", "value": {"term": "reference", "target": binder_target}},
+                {"term": "binding", "name": "binder", "value": {"term": "reference", "target": awaited_binder.as_ref().expect("awaited binder")}},
                 {"term": "binding", "name": "related", "value": {"term": "aggregate", "members": []}},
                 {"term": "binding", "name": "constraint", "value": {"term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}}
             ]);
@@ -1348,7 +1358,8 @@ fn protocol_holder_case_on(mut package: Value, operator: &str) -> (Value, Vec<us
         other => panic!("unknown holder fixture: {other}"),
     };
     let anchor = if operator == "await" {
-        let anchor_body = package["semantic_graph"]["nodes"][positions[0]]["body"].clone();
+        let mut anchor_body = package["semantic_graph"]["nodes"][positions[0]]["body"].clone();
+        anchor_body["arguments"][2]["value"]["target"] = binder_target;
         let anchor = protocol_named_node(
             "control",
             &["Example", "OrderFlow", "run", "Main", "Anchor"],
