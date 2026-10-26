@@ -503,6 +503,174 @@ fn repeat_decision_uses_visible_facts_after_binder_scope() {
         if reason.as_ref() == "unlisted"));
 }
 
+/// Trace: FR-038-AC-292
+#[trace("TC-048")]
+#[test]
+fn event_fact_is_visible_to_its_role() {
+    let (mut package, _, field, event_binder_position) = decision_fact_fixture();
+    let record = package["semantic_graph"]["nodes"][field]["body"]["operation"]["member"]
+        ["declaration"]
+        .clone();
+    let old_binder = package["semantic_graph"]["nodes"][event_binder_position]["node_id"].clone();
+    package["semantic_graph"]["nodes"][event_binder_position]["semantic_type"] = record.clone();
+    let binder_body = package["semantic_graph"]["nodes"][event_binder_position]["body"].clone();
+    let binder_key = structural_key(
+        "value",
+        "parameter",
+        Some(record["digest"].as_str().expect("record key")),
+        &binder_body,
+    );
+    rename_node(
+        &mut package,
+        old_binder["digest"].as_str().expect("old binder key"),
+        &binder_key,
+    );
+    let event_binder = node_id(&binder_key);
+    let event = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "protocol"
+                && node["semantic_form"] == "control"
+                && node["body"]["operation"]["member"]["operator"] == "effect"
+        })
+        .expect("effect control");
+    let attempt = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "protocol"
+                && node["semantic_form"] == "control"
+                && node["body"]["operation"]["member"]["operator"] == "attempt"
+        })
+        .expect("attempt control");
+    let role = package["semantic_graph"]["nodes"][attempt]["body"]["arguments"][0]["value"].clone();
+    let constraint =
+        package["semantic_graph"]["nodes"][event]["body"]["arguments"][3]["value"].clone();
+    package["semantic_graph"]["nodes"][event]["body"]["operation"]["member"]["operator"] =
+        json!("event");
+    package["semantic_graph"]["nodes"][event]["body"]["arguments"] = json!([
+        {"term": "binding", "name": "role", "value": role},
+        {"term": "binding", "name": "compensation", "value": {"term": "aggregate", "members": []}},
+        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": event_binder}},
+        {"term": "binding", "name": "related", "value": {"term": "aggregate", "members": []}},
+        {"term": "binding", "name": "constraint", "value": constraint}
+    ]);
+    package["semantic_graph"]["nodes"][field]["body"]["arguments"][0]["target"] = event_binder;
+    settle(&mut package);
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
+/// Trace: FR-038-AC-292
+#[trace("TC-048")]
+#[test]
+fn receive_fact_is_visible_to_its_channels_to_role() {
+    let (mut package, _, field, receive_binder_position) = decision_fact_fixture();
+    let record = package["semantic_graph"]["nodes"][field]["body"]["operation"]["member"]
+        ["declaration"]
+        .clone();
+    let old_binder = package["semantic_graph"]["nodes"][receive_binder_position]["node_id"].clone();
+    package["semantic_graph"]["nodes"][receive_binder_position]["semantic_type"] = record.clone();
+    let binder_body = package["semantic_graph"]["nodes"][receive_binder_position]["body"].clone();
+    let binder_key = structural_key(
+        "value",
+        "parameter",
+        Some(record["digest"].as_str().expect("record key")),
+        &binder_body,
+    );
+    rename_node(
+        &mut package,
+        old_binder["digest"].as_str().expect("old binder key"),
+        &binder_key,
+    );
+    let received = node_id(&binder_key);
+    let role = protocol_position(&package, "role");
+    let channel = add_member_channel(&mut package, role);
+    package["semantic_graph"]["nodes"][channel]["body"]["arguments"][2]["value"] =
+        json!({"term": "reference", "target": record});
+    let channel_target = package["semantic_graph"]["nodes"][channel]["node_id"].clone();
+    let mut queue_body = package["semantic_graph"]["nodes"][channel]["body"].clone();
+    queue_body["operation"]["member"]["operator"] = json!("queue");
+    queue_body["arguments"] = json!([
+        {"term": "binding", "name": "channel", "value": {"term": "reference", "target": channel_target}},
+        {"term": "binding", "name": "capacity", "value": {"term": "aggregate", "members": [
+            {"term": "binding", "name": "kind", "value": {"term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "literal"}},
+            {"term": "binding", "name": "value", "value": {"term": "literal", "type": node_id(&family_key("a3a3")), "value_kind": "integer", "value": "4"}}
+        ]}},
+        {"term": "binding", "name": "overflow", "value": {"term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "reject"}},
+        {"term": "binding", "name": "loss", "value": {"term": "aggregate", "members": []}}
+    ]);
+    let mut queue = protocol_named_node("queue", &[], queue_body, &[]);
+    queue
+        .as_object_mut()
+        .expect("queue node")
+        .remove("declaration");
+    queue["occurrences"][0]["role"] = json!("generated");
+    let queue_target = queue["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(queue);
+    let clause = clause_position(&package);
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][6]["value"]["members"] =
+        json!([{"term": "reference", "target": queue_target}]);
+
+    let send = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "protocol"
+                && node["semantic_form"] == "control"
+                && node["body"]["operation"]["member"]["operator"] == "attempt"
+        })
+        .expect("attempt control");
+    let receive = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "protocol"
+                && node["semantic_form"] == "control"
+                && node["body"]["operation"]["member"]["operator"] == "effect"
+        })
+        .expect("effect control");
+    let sent = package["semantic_graph"]["nodes"][send]["body"]["arguments"][4]["value"].clone();
+    let sent_constraint =
+        package["semantic_graph"]["nodes"][send]["body"]["arguments"][6]["value"].clone();
+    let received_constraint =
+        package["semantic_graph"]["nodes"][receive]["body"]["arguments"][3]["value"].clone();
+    let send_target = package["semantic_graph"]["nodes"][send]["node_id"].clone();
+    package["semantic_graph"]["nodes"][send]["body"]["operation"]["member"]["operator"] =
+        json!("send");
+    package["semantic_graph"]["nodes"][send]["body"]["arguments"] = json!([
+        {"term": "binding", "name": "channel", "value": {"term": "reference", "target": channel_target}},
+        {"term": "binding", "name": "binder", "value": sent},
+        {"term": "binding", "name": "related", "value": {"term": "aggregate", "members": []}},
+        {"term": "binding", "name": "constraint", "value": sent_constraint}
+    ]);
+    package["semantic_graph"]["nodes"][receive]["body"]["operation"]["member"]["operator"] =
+        json!("receive");
+    package["semantic_graph"]["nodes"][receive]["body"]["arguments"] = json!([
+        {"term": "binding", "name": "channel", "value": {"term": "reference", "target": channel_target}},
+        {"term": "binding", "name": "of", "value": {"term": "reference", "target": send_target}},
+        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": received}},
+        {"term": "binding", "name": "related", "value": {"term": "aggregate", "members": []}},
+        {"term": "binding", "name": "constraint", "value": received_constraint}
+    ]);
+    package["semantic_graph"]["nodes"][field]["body"]["arguments"][0]["target"] = received;
+    settle(&mut package);
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
 /// Trace: FR-038-AC-291
 #[trace("TC-048")]
 #[test]
