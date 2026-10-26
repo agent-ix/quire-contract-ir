@@ -34,3 +34,13 @@ Reviewed the first ordered FR-466 control prefix at frozen PR #569 head 786722d4
 ## Coverage
 
 Plan completion: not assessed. Quoin matrix reports all three FR-038 criteria tagged but no run evidence. The full criteria and other controls remain Planned. Reverse-gap and stub inspection found no further defect in the changed code.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Public-reader tests now admit any, quorum and predicate joins, reject a wrong-form predicate target, and reject invalid memory and outstanding spellings at their wire loci; 33 tests pass at cee96d69. |
+
+## Disposition verdict
+
+**PASS at cee96d69a0e5aec656b14368abff1aa71496ede3** — FND-001 is fixed. The unimplemented FR-466 operators and protocol stages remain Planned.

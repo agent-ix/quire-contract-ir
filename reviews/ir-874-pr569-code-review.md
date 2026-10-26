@@ -34,3 +34,13 @@ Reviewed the first ordered FR-466 control prefix at frozen PR #569 head 786722d4
 ## Coverage
 
 Rust style and repository conventions reviewed; no CI workflow changed. Focused public-reader tests are running independently. Aggregate gates remain for the final reviewed head.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The QSpec frame fixture now supplies two sorted choice cases; both previously failing model tests pass at cee96d69. |
+
+## Disposition verdict
+
+**PASS at cee96d69a0e5aec656b14368abff1aa71496ede3** — FND-001 is fixed. The unimplemented FR-466 operators and protocol stages remain Planned.
