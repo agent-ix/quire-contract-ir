@@ -234,6 +234,94 @@ fn activation_relation_orders_distinct_requirements_and_ignores_other_temporal_c
     assert_eq!(rows[1].activation, CheckedProtocolActivation::Origin);
 }
 
+/// Trace: FR-038-AC-324
+#[trace("TC-048")]
+#[test]
+fn activation_relation_orders_rows_across_local_protocol_clauses() {
+    let mut package = v2_all_families();
+    let clause = clause_position(&package);
+    let temporal = temporal_clause(&package)["node_id"].clone();
+    require_temporal(&mut package, std::slice::from_ref(&temporal));
+
+    let clone_member = |package: &Value, form: &str, name: &str| {
+        let original = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["node_tag"] == "protocol" && node["semantic_form"] == form)
+            .expect("protocol member");
+        let dependencies = original["dependencies"]
+            .as_array()
+            .expect("dependencies")
+            .iter()
+            .map(|id| id["digest"].as_str().expect("digest").to_owned())
+            .collect::<Vec<_>>();
+        protocol_named_node(
+            form,
+            &["Example", "OtherFlow", name, "Main"],
+            original["body"].clone(),
+            &dependencies,
+        )
+    };
+    let run = clone_member(&package, "control", "run");
+    let finish = {
+        let original = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["node_tag"] == "protocol" && node["semantic_form"] == "obligation")
+            .expect("finish");
+        let dependencies = original["dependencies"]
+            .as_array()
+            .expect("dependencies")
+            .iter()
+            .map(|id| id["digest"].as_str().expect("digest").to_owned())
+            .collect::<Vec<_>>();
+        protocol_named_node(
+            "obligation",
+            &["Example", "OtherFlow", "finish", "Closed"],
+            original["body"].clone(),
+            &dependencies,
+        )
+    };
+    let run_id = run["node_id"].clone();
+    let finish_id = finish["node_id"].clone();
+    let mut body = package["semantic_graph"]["nodes"][clause]["body"].clone();
+    body["arguments"][11]["value"]["target"] = run_id.clone();
+    body["arguments"][12]["value"]["target"] = finish_id.clone();
+    let over = body["arguments"][0]["value"]["target"]["digest"]
+        .as_str()
+        .expect("over");
+    let dependencies = [
+        over,
+        run_id["digest"].as_str().expect("run"),
+        finish_id["digest"].as_str().expect("finish"),
+        temporal["digest"].as_str().expect("temporal"),
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect::<Vec<_>>();
+    let other = protocol_named_node(
+        "protocol_clause",
+        &["Example", "OtherFlow"],
+        body,
+        &dependencies,
+    );
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .extend([run, finish, other]);
+    settle(&mut package);
+    let admitted = match read(&package) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("two local protocols should admit: {other:?}"),
+    };
+    let rows = admitted.protocol_activation_relation();
+    assert_eq!(rows.len(), 2);
+    assert!(rows[0].clause.digest < rows[1].clause.digest);
+    assert_eq!(rows[0].required_temporal, rows[1].required_temporal);
+}
+
 /// Trace: FR-038-AC-284, FR-038-AC-285
 #[trace("TC-048")]
 #[test]
@@ -290,7 +378,7 @@ fn clause_relationship_wrong_export_has_distinct_cause() {
     );
 }
 
-/// Trace: FR-038-AC-284, FR-038-AC-291
+/// Trace: FR-038-AC-284, FR-038-AC-291, FR-038-AC-324
 #[trace("TC-048")]
 #[test]
 fn clause_each_trigger_admits_and_checks_parameter_level() {
@@ -337,7 +425,7 @@ fn clause_each_trigger_admits_and_checks_parameter_level() {
     );
 }
 
-/// Trace: FR-038-AC-284
+/// Trace: FR-038-AC-284, FR-038-AC-324
 #[trace("TC-048")]
 #[test]
 fn clause_each_trigger_requires_declared_dependency() {
@@ -370,7 +458,7 @@ fn clause_each_trigger_requires_declared_dependency() {
     );
 }
 
-/// Trace: FR-038-AC-284
+/// Trace: FR-038-AC-284, FR-038-AC-324
 #[trace("TC-048")]
 #[test]
 fn clause_each_guard_requires_boolean_root() {
