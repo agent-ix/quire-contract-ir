@@ -3349,6 +3349,12 @@ struct ProtocolBinderOrigin {
     capture: Option<(&'static str, usize)>,
 }
 
+#[derive(Clone, Copy)]
+enum DecisionFactUse {
+    VisibleEntry,
+    Guard,
+}
+
 struct ProtocolScope<'a, 'b> {
     check: &'a MemberCheck<'b>,
     arguments: &'a [CheckedTerm],
@@ -3709,7 +3715,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         term: &CheckedTerm,
         owner: usize,
         listed: &BTreeSet<usize>,
-        stop_at_listed: bool,
+        use_at: DecisionFactUse,
         meter: &mut WorkMeter,
     ) -> Result<(), ValidationFailure> {
         let CheckedTerm::Reference { target } = term else {
@@ -3722,7 +3728,9 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         let mut visited = BTreeSet::new();
         while let Some(position) = pending.pop() {
             meter.charge(1, || node_pointer(owner))?;
-            if !visited.insert(position) || (stop_at_listed && listed.contains(&position)) {
+            if !visited.insert(position)
+                || (matches!(use_at, DecisionFactUse::Guard) && listed.contains(&position))
+            {
                 continue;
             }
             if matches!(self.check.kinds[position], CheckedNodeKind::Function(_)) {
@@ -3750,7 +3758,12 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                             {
                                 let reason = match self.fact_roles.get(&binder) {
                                     Some(&role) if role != owner => Some("other-role"),
-                                    Some(_) if !listed.contains(&position) => Some("unlisted"),
+                                    Some(_)
+                                        if matches!(use_at, DecisionFactUse::Guard)
+                                            && !listed.contains(&position) =>
+                                    {
+                                        Some("unlisted")
+                                    }
                                     Some(_) => None,
                                     None => Some("ineligible-kind"),
                                 };
@@ -3914,7 +3927,13 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                 let owner = self.target(argument(args, 0).expect("decision owner"));
                 for entry in members(visible).expect("visible entries") {
                     self.slot(position, entry, &input, "run", Some("visible"), None, meter)?;
-                    self.decision_facts(entry, owner, &listed, false, meter)?;
+                    self.decision_facts(
+                        entry,
+                        owner,
+                        &listed,
+                        DecisionFactUse::VisibleEntry,
+                        meter,
+                    )?;
                 }
                 if operator == "choice" {
                     for case in members(argument(args, 2).expect("cases")).expect("cases") {
@@ -3928,7 +3947,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                             None,
                             meter,
                         )?;
-                        self.decision_facts(guard, owner, &listed, true, meter)?;
+                        self.decision_facts(guard, owner, &listed, DecisionFactUse::Guard, meter)?;
                     }
                 } else {
                     let guard = argument(args, 4).expect("repeat guard");
@@ -3941,7 +3960,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                         None,
                         meter,
                     )?;
-                    self.decision_facts(guard, owner, &listed, true, meter)?;
+                    self.decision_facts(guard, owner, &listed, DecisionFactUse::Guard, meter)?;
                     let proof = argument(args, 3).expect("repeat proof");
                     for item in members(proof).expect("proof") {
                         if let CheckedTerm::Binding { value, .. } = item {
