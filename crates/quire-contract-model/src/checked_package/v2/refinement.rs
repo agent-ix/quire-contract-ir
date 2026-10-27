@@ -2003,7 +2003,7 @@ pub(super) fn validate_catalog_graph(
             &graph.nodes[position].node_id,
             meter,
         )?;
-        let abstract_classes = match protocol {
+        let abstract_classes = match protocol.as_deref() {
             Some(RefinementKey::Local(clause)) => {
                 let Some(model) = abstract_key.local() else {
                     continue;
