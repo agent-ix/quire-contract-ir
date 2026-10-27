@@ -914,7 +914,7 @@ fn check_catalog_wire(value: &Value, at: &Trail<'_>) -> Result<(), ValidationFai
                     return Err(malformed(entry_at.key("memory_model")));
                 }
                 if class == "memory drain" {
-                    if entry.get("drain") != Some(&Value::String("store-buffer-flush".into())) {
+                    if entry.get("drain").and_then(Value::as_str) != Some("store-buffer-flush") {
                         return Err(malformed(entry_at.key("drain")));
                     }
                 }
