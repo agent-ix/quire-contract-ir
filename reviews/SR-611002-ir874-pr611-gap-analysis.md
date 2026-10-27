@@ -42,3 +42,7 @@ CONDITIONAL. FND-001 is a concrete missed adverse ordering case. Repository-wide
 ## Current verdict
 
 PASS for the changed AC-325 trace and reverse-gap claims at PR #611 head 065dc191a7dafdf265103079e2e82b5737d8e810. The repository-wide strict-coverage backlog remains separate.
+
+## Integration check
+
+PASS at PR #611 merge head 46a1bcb88a4d0087a10ebd73e084af1ffa143a4a. The IR #603 owner-join source and its tagged public-reader tests are preserved, and the FR-038-AC-325 activation tests remain tagged. No new trace or reverse gap was introduced by the merge resolution. The final aggregate gate remains pending.
