@@ -1676,6 +1676,7 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
         "{admitted:?}"
     );
     let written = writer_bytes(&package);
+    assert_eq!(written, canonical(&package));
     let written_read =
         CheckedPackageV2::read(&written, CheckedPackageReadLimits::bounded(), &evidence);
     let CheckedPackageV2ReadResult::Admitted(round_trip) = written_read else {
@@ -1684,6 +1685,16 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
     assert_eq!(
         serde_json::to_value(round_trip.package_id()).expect("package id"),
         package["package_id"]
+    );
+    let round_trip_refinement = round_trip
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "refinement")
+        .expect("admitted refinement");
+    assert_eq!(
+        serde_json::to_value(&round_trip_refinement.node_id).expect("node id"),
+        package["semantic_graph"]["nodes"][position]["node_id"]
     );
 
     let mut omitted = package.clone();

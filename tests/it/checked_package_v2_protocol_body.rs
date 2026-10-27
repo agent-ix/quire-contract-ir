@@ -1352,12 +1352,12 @@ fn protocol_owner_edge_has_closed_wire_presence_and_local_shape() {
     package["semantic_graph"]["nodes"][position]["owner_model"] = node_id(&family_key("1010"));
     settle(&mut package);
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
-        panic!("unselected model declaration must refuse");
+        panic!("namespace node must not own a protocol clause");
     };
-    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
     assert_eq!(
         refusal.cause,
-        Some(CheckedPackageRefusalCause::MissingSelection)
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
     assert_eq!(
         refusal.path.as_ref().map(|p| p.as_str()),
@@ -1421,10 +1421,10 @@ fn protocol_owner_dependency_precedes_key_and_target_meaning() {
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
         panic!("non-model owner target must refuse");
     };
-    assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
     assert_eq!(
         refusal.cause,
-        Some(CheckedPackageRefusalCause::OperatorIneligible)
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
     assert_eq!(
         refusal.path.as_ref().map(|p| p.as_str()),
