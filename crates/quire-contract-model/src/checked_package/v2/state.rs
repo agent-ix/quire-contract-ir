@@ -571,6 +571,12 @@ fn input_at(position: usize, index: usize) -> JsonPointer {
         .key("target")
 }
 
+/// Recognize the receiver parameter's exact wire spelling at the state intake boundary.
+#[ix_trace_rs::string_edge]
+fn is_self_parameter(name: &str, level: &str) -> bool {
+    name == "self" && level == "0"
+}
+
 /// FR-341's ordered transition joins, after every anchor and clause has passed.
 fn check_transition(
     transition: &CheckedSemanticNodeV2,
@@ -700,7 +706,7 @@ fn check_transition(
         .get(self_position)
         .and_then(Option::as_ref)
         .and_then(|term| typed_parameter_binding(term, &|id| graph.node(id).map(|(_, kind)| kind)))
-        .is_some_and(|(name, level)| name == "self" && level == "0");
+        .is_some_and(|(name, level)| is_self_parameter(name, level));
     if !is_self
         || graph
             .node(&self_node.semantic_type)
