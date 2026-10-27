@@ -1576,7 +1576,12 @@ fn protocol_owner_retarget_to_selected_non_object_model_refuses() {
 #[test]
 fn protocol_owner_unselected_object_refuses_at_target_before_clause() {
     let mut package = admitted_protocol_families();
+    let capture = clause_parameter(&mut package, "captured", "1");
     let clause = clause_position(&package);
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][2]["value"]["members"] = json!([{"term": "aggregate", "members": [
+        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": capture}},
+        {"term": "binding", "name": "initializer", "value": {"term": "reference", "target": capture}}
+    ]}]);
     let mut unselected = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -1662,6 +1667,34 @@ fn protocol_owner_selected_wrong_kinds_and_missing_target_refuse_at_edge() {
             "{label}"
         );
     }
+}
+
+/// Trace: FR-064-AC-4
+#[trace("TC-048", "TC-946")]
+#[test]
+fn protocol_owner_wrong_kind_precedes_same_clause_capture_scope() {
+    let mut package = admitted_protocol_families();
+    let capture = clause_parameter(&mut package, "captured", "1");
+    let clause = clause_position(&package);
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][2]["value"]["members"] = json!([{"term": "aggregate", "members": [
+        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": capture}},
+        {"term": "binding", "name": "initializer", "value": {"term": "reference", "target": capture}}
+    ]}]);
+    package["semantic_graph"]["nodes"][clause]["owner_model"] = node_id(&family_key("2020"));
+    settle(&mut package);
+
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("wrong-kind owner must refuse before capture scope");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{clause}/owner_model").as_str())
+    );
 }
 
 fn append_duplicate_clause(package: &mut Value, body: Value) -> (usize, String) {
