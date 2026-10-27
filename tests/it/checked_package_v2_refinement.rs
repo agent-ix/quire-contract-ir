@@ -265,7 +265,10 @@ fn rekey_refinement(package: &mut Value, position: usize) {
             entry["node_id"] = replacement.clone();
         }
     }
-    if let Some(rows) = package["refinement_step_rows"].as_array_mut() {
+    if let Some(rows) = package
+        .get_mut("refinement_step_rows")
+        .and_then(Value::as_array_mut)
+    {
         for row in rows {
             if row["node_id"] == old {
                 row["node_id"] = replacement.clone();
