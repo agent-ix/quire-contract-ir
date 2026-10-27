@@ -1,5 +1,5 @@
 ---
-id: SR-610005
+id: SR-591001
 title: "IR-1032 code and Rust review at 4eb2ab4a"
 type: SpecReview
 analysis: code-review
@@ -32,7 +32,7 @@ Ticket: IR-1032. Reviewed PR #591 at 4eb2ab4ac003ac9e74ac4f11c6c0eb21dcd63bad ag
 
 ## Method
 
-Applied code-review with rust-review and rust-style, including API, exhaustive closed vocabulary, exact arithmetic, graph traversal, panic/resource boundaries, wire decoding and trace-bearing assertions. No applicable AssuranceProfile was found under `spec/`. No CI workflow or gate file changed. The existing source-owned synthetic graph tests pass, but the separate acceptance evidence gaps are recorded in SR-610006.
+Applied code-review with rust-review and rust-style, including API, exhaustive closed vocabulary, exact arithmetic, graph traversal, panic/resource boundaries, wire decoding and trace-bearing assertions. No applicable AssuranceProfile was found under `spec/`. No CI workflow or gate file changed. The existing source-owned synthetic graph tests pass, but the separate acceptance evidence gaps are recorded in SR-591002.
 
 ## Dispositions
 
