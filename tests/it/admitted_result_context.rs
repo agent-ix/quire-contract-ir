@@ -1146,8 +1146,8 @@ fn ir987_scalar_and_result_results_bytes_and_work_match_admitted_fixture() {
     };
     // Protocol membership charges five, causal graph/progress seven, and the
     // binder-scope pass charges 36 on the pre-root fixture: 340 + 5 + 7 + 36.
-    // The selected root adds four validation visits to the admitted wire.
-    assert_eq!((high, incomplete.consumed), (388 + 4, 392));
+    // The selected root adds five validation visits to the admitted wire.
+    assert_eq!((high, incomplete.consumed), (388 + 5, 393));
 
     let contract = package(&checked, &[add.node_id.clone(), narrow.node_id.clone()]);
     let result = contract.result_context(

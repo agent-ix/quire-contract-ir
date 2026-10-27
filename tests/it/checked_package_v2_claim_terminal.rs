@@ -986,7 +986,10 @@ fn terminal_identity_and_uniqueness_per_model() {
     ));
     assert_ne!(
         any["semantic_graph"]["nodes"][base_node_index()]["node_id"],
-        when["semantic_graph"]["nodes"][base_node_index()]["node_id"]
+        when["semantic_graph"]["nodes"][base_node_index()]["node_id"],
+        "forms: {:?} {:?}",
+        any["semantic_graph"]["nodes"][base_node_index()]["semantic_form"],
+        when["semantic_graph"]["nodes"][base_node_index()]["semantic_form"]
     );
     assert_ne!(any["package_id"], when["package_id"]);
     let done = source_spelling(&any, base_node_index(), b"terminal Done for M any");
