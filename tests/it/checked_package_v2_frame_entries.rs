@@ -16,10 +16,12 @@ use crate::support::checked_package::{
     typed_node_id, v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
+use quire_canonical::Limits;
 use quire_contract_model::{
-    CheckedComparisonPath, CheckedComparisonRefusal, CheckedMemberType, CheckedNodeId,
-    CheckedNodeTag, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    encode_checked_package_v2, CheckedComparisonPath, CheckedComparisonRefusal, CheckedMemberType,
+    CheckedNodeId, CheckedNodeTag, CheckedPackageIdentityPreimageRefV2, CheckedPackageLimit,
+    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
     CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
 };
 use serde_json::{json, Value};
@@ -1220,11 +1222,46 @@ fn tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects() {
             serde_json::to_value(&admitted.graph().nodes[clause].body).expect("typed clause"),
             package.value["semantic_graph"]["nodes"][clause]["body"]
         );
-        let encoded_graph = serde_json::to_value(admitted.graph()).expect("writer graph");
+        let preimage = admitted.identity_preimage();
+        let borrowed = CheckedPackageIdentityPreimageRefV2 {
+            version: &preimage.version,
+            edition: &preimage.edition,
+            profile_selections: &preimage.profile_selections,
+            definition_selections: &preimage.definition_selections,
+            model_selections: &preimage.model_selections,
+            required_features: &preimage.required_features,
+            dependency_selections: &preimage.dependency_selections,
+            identity_projection: &admitted.graph().nodes,
+        };
+        let encoded = encode_checked_package_v2(
+            &borrowed,
+            admitted.package_id(),
+            admitted.lock(),
+            admitted.graph(),
+            CheckedPackageSourceCorrespondenceRef {
+                source_map: admitted.source_map(),
+                refinement_step_rows: admitted.refinement_step_rows(),
+            },
+            admitted.capability_report(),
+            admitted.diagnostics(),
+            Limits::new(u64::MAX),
+        )
+        .expect("encode admitted package");
+        let encoded_json: Value = serde_json::from_slice(&encoded).expect("writer JSON");
         assert_eq!(
-            encoded_graph["nodes"][anchor]["body"]["members"][3]["value"],
+            encoded_json["semantic_graph"]["nodes"][anchor]["body"]["members"][3]["value"],
             *point
         );
+        let read_back = match CheckedPackageV2::read(
+            &encoded,
+            CheckedPackageReadLimits::bounded(),
+            &evidence_for(&package.value),
+        ) {
+            CheckedPackageV2ReadResult::Admitted(read_back) => read_back,
+            other => panic!("writer output refused: {other:?}"),
+        };
+        assert_eq!(read_back.package_id(), admitted.package_id());
+        assert_eq!(read_back.graph(), admitted.graph());
     }
     for package in [&pre, &post] {
         assert_ne!(
@@ -1257,6 +1294,32 @@ fn tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects() {
             point
         );
     }
+}
+
+#[trace("TC-056", "FR-040-AC-32")]
+#[test]
+fn tc_056_same_operation_admits_distinct_anchor_points() {
+    let mut package = pointed_state_package(
+        Some(json!({"kind": "pre", "operation": "deposit"})),
+        Some(json!({"kind": "pre", "operation": "deposit"})),
+    );
+    let anchor = package.at("state", "operation_anchor");
+    let mut second = package.value["semantic_graph"]["nodes"][anchor].clone();
+    second["node_id"] = node_id(&"d9".repeat(32));
+    second["body"]["members"][3]["value"]["kind"] = json!("post");
+    package.value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(second);
+    mint_ungrouped_structural_keys(&mut package.value);
+    settle(&mut package.value);
+    admits(&package.value);
+    let anchors = nodes(&package.value)
+        .iter()
+        .filter(|node| node["semantic_form"] == "operation_anchor")
+        .collect::<Vec<_>>();
+    assert_eq!(anchors.len(), 2);
+    assert_ne!(anchors[0]["node_id"], anchors[1]["node_id"]);
 }
 
 #[trace("TC-056", "FR-040-AC-32", "FR-040-AC-34", "FR-040-AC-35")]
