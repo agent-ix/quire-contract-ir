@@ -1705,16 +1705,17 @@ vector or schema is copied into this repository.
    typed read/write/read to admit with the same keys, package identity,
    root, owner and catalog (FR-064-AC-1/AC-5, FR-038-AC-325). The vector
    SHALL fail if the reader equates R and O or reconstructs only step rows.
-10. From that independently valid package, make one identity-consistent
-    mutation per case, rebuilding every affected node key, dependency and
-    package identity: retarget C to B's object-type node; retarget it to a
-    selected `state_machine`, `process`, `record_value_type`, relation or
-    `model_root` node; and retarget it to a source-local or unselected
-    declaration node. Require the FR-064-AC-4 typed edge refusal for each
-    wrong-kind or unselected target, and require B's otherwise valid clause
-    to contribute only to B's catalog, never A's. A source producer given
-    C declared over A SHALL emit O even when B is selected; this producer
-    check is separate from the reader's identity-bound edge check.
+10. Rebuild every affected node key, dependency and package identity after
+    each owner mutation. First retarget C to selected B's object-type node:
+    this is a valid reader owner edge, so require admission with a complete
+    B catalog and require C's class to be absent from A's catalog. A source
+    producer given C declared over A SHALL still emit O; its candidate B
+    edge fails producer conformance, a separate check from reader admission.
+    In independent packages, retarget C to a selected `state_machine`,
+    `process`, `record_value_type`, relation or `model_root` node, then to a
+    source-local or unselected declaration node. Require FR-064-AC-4's typed
+    edge refusal for each wrong-kind or unselected target. The reader SHALL
+    not infer or cross-check ownership from the source `over` parameter.
 11. Keeping the positive package's owner join and protocol body valid,
     mutate the concrete catalog separately to omit C's class, add B's
     foreign class, duplicate or reorder an entry, change C's class node or
@@ -1734,7 +1735,7 @@ vector or schema is copied into this repository.
     FR-038-AC-284/AC-325; QSpec TC-310/TC-946). Consume QSpec's published
     vectors from the selected checkout; do not copy them into this repo.
 12. For owned source `parallel` nodes, derive separate valid catalogs with
-    source defaults `sc`, `tso` and `ra`. Require a node-free, binder-free
+    single source defaults `sc`, `tso` and `ra`. Require a node-free, binder-free
     `memory drain` entry with `drain: store-buffer-flush` for each default;
     require `memory flush` with `memory_model: tso` only for `tso`. Keep the
     memory class when no refinement step row names it. In separate rekeyed
@@ -1747,6 +1748,12 @@ vector or schema is copied into this repository.
     protocol-body defect to require the body defect first. Two analysis
     requests with different memory overrides SHALL leave the admitted
     catalog and package identity equal (FR-038-AC-325; QSpec TC-310).
+    Also retain QSpec TC-310 `CC-12`'s one-subject multi-default case with
+    distinct `memory drain` entries for `sc`, `tso` and `ra` and a `tso`
+    `memory flush` entry. Its exact uniqueness, order and admission oracle
+    awaits the STD-499 QSpec ruling; no present spelling-only order may be
+    counted as passing evidence. The IR-1034 source-default drain
+    implementation is also required before executing the readback vector.
 
 Expected: the positive packages admit with their authored keys, every adverse
 vector refuses with the QSpec code, cause and locus, and no runtime workflow

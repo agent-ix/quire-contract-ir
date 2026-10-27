@@ -129,7 +129,9 @@ class or default owner.
   check order, identity and refinement class-catalog graph joins.
 - [FR-051](./FR-051-encode-checked-package-v2-envelope.md) owns the public
   typed writer; [FR-061](./FR-061-admit-refinement-nodes.md) owns the closed
-  refinement node.
+  refinement node. Its Behavior "Keys, graph and identity" and AC-1/AC-3/AC-7
+  require the same canonical selected `model_root` for `semantic_type` and
+  `abstract`; the clause's object-type `owner_model` remains distinct.
 - QSpec FR-322-AC-130, FR-375-AC-23 and FR-464-AC-16 own the published
   wire and preimage shapes, exact owner relation and catalog semantics.
 

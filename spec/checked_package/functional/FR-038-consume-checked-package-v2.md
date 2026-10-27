@@ -1809,6 +1809,13 @@ These entries have no declaration node or binder types. The reader SHALL
 compare their class spelling, source-default model and drain member against
 the admitted source `parallel`; it SHALL NOT derive them from a later request
 memory override or silently skip a memory entry because no step row names it.
+Where one subject selects multiple source-default models, QSpec TC-310
+requires distinct `memory drain` entries for those models, while QSpec
+FR-375's current unique class-spelling and ordering text does not yet define
+their combined canonical order. STD-499 owns that upstream ruling. The
+complete multi-default case remains required, but its exact admission and
+order evidence cannot be accepted until that ruling is incorporated; the
+IR-1034 drain implementation is a separate execution prerequisite.
 The step SHALL use the typed refusal code, cause, pointer
 and node locus that QSpec FR-464 through FR-466 state; an earlier body-step
 defect SHALL win over a protocol defect, and a
