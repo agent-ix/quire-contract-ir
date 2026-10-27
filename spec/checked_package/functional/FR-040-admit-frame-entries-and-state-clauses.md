@@ -354,7 +354,11 @@ step; within it the reader checks, each in ascending node-id digest order,
 the placement of every `quire.op.state.clause` application, then every
 operation anchor (including the scoped-deletes and point checks), then tuple
 uniqueness among anchors whose own checks passed, then every state clause,
-and reports the first defect.
+then every `state`/`transition` node under
+[FR-067](./FR-067-admit-boolean-state-transition.md), and reports the first
+defect. The state step checks the placement of a
+`quire.op.state.transition` application before the anchor checks, as QSpec
+FR-341 requires.
 
 ## Acceptance Criteria
 
