@@ -2248,7 +2248,9 @@ enum CatalogOperator {
     Send,
     Receive,
     Fence,
-    Await,
+    /// The timeout step owned by an await node (FR-426), with FR-432's bare
+    /// node-path spelling.
+    TimeoutFromAwait,
     Finish,
 }
 
@@ -2266,7 +2268,7 @@ fn catalog_operator(kind: super::CheckedNodeKind, operator: &str) -> Option<Cata
         (Protocol(ProtocolForm::Control), "send") => CatalogOperator::Send,
         (Protocol(ProtocolForm::Control), "receive") => CatalogOperator::Receive,
         (Protocol(ProtocolForm::Control), "fence") => CatalogOperator::Fence,
-        (Protocol(ProtocolForm::Control), "await") => CatalogOperator::Await,
+        (Protocol(ProtocolForm::Control), "await") => CatalogOperator::TimeoutFromAwait,
         (Protocol(ProtocolForm::Obligation), "finish") => CatalogOperator::Finish,
         _ => return None,
     })
@@ -2322,7 +2324,7 @@ fn protocol_binder_types(
         | CatalogOperator::Parallel
         | CatalogOperator::Attempt
         | CatalogOperator::Fence
-        | CatalogOperator::Await => return Ok(Some(Vec::new())),
+        | CatalogOperator::TimeoutFromAwait => return Ok(Some(Vec::new())),
     };
     if signatures.is_record(binder_type) {
         Ok(signatures.record_binder_types(binder_type))
@@ -2359,7 +2361,7 @@ fn protocol_member_classes(
         | CatalogOperator::Send
         | CatalogOperator::Receive
         | CatalogOperator::Fence
-        | CatalogOperator::Await
+        | CatalogOperator::TimeoutFromAwait
         | CatalogOperator::Finish => Some(vec![path]),
         CatalogOperator::Channel => {
             let delivery = super::protocol_body::binding_value(arguments, "delivery")
@@ -2469,13 +2471,24 @@ fn compare_abstract_classes(
     locus: &CheckedNodeId,
     meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let mut expected = expected.iter();
+    let mut expected = expected.iter().peekable();
     for (index, entry) in actual.iter().enumerate() {
         if matches!(entry, RefinementAbstractClass::Memory(_)) {
             continue;
         }
         let entry_at = at.clone().index(index);
         meter.charge(1, || entry_at.clone())?;
+        if expected
+            .peek()
+            .is_some_and(|item| item.class.as_str() < entry.class())
+        {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                at,
+                None,
+                locus.clone(),
+            ));
+        }
         let Some(found) = expected.next() else {
             return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,

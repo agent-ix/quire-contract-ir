@@ -1141,6 +1141,100 @@ fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
         refusal.path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete").as_str())
     );
+
+    let mut abstract_package = package.clone();
+    let clause = abstract_package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "protocol_clause")
+        .expect("clause")["node_id"]
+        .clone();
+    let node = &mut abstract_package["semantic_graph"]["nodes"][position];
+    node["body"]["protocol"] = clause.clone();
+    let concrete_entries = node["body"]["class_catalog"]["concrete"].clone();
+    node["body"]["class_catalog"]["abstract"] = concrete_entries;
+    node["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .push(clause);
+    node["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    rekey_refinement(&mut abstract_package, position);
+    let admitted = read(&abstract_package, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "{admitted:?}"
+    );
+
+    let abstract_entries = abstract_package["semantic_graph"]["nodes"][position]["body"]
+        ["class_catalog"]["abstract"]
+        .as_array_mut()
+        .expect("abstract classes");
+    abstract_entries.remove(1); // omit fork before the still present join
+    rekey_refinement(&mut abstract_package, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&abstract_package, &evidence) else {
+        panic!("missing earlier abstract fork admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/abstract").as_str())
+    );
+}
+
+/// Provenance: IR-874 timeout class on an admitted await node.
+#[test]
+fn refinement_catalog_joins_timeout_on_await_node() {
+    let (base, _) = crate::checked_package_v2_protocol_body::protocol_holder_case_on(
+        v2_all_families(),
+        "await",
+    );
+    let (mut package, evidence) = concrete_protocol_refinement_on(
+        base,
+        ProtocolStepRows::Empty,
+        ProtocolClauseOwner::SelectedModel,
+    );
+    let binder = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let mut entries = Vec::new();
+    for node in package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+    {
+        let Some(operator) = node["body"]["operation"]["member"]["operator"].as_str() else {
+            continue;
+        };
+        let Some(name) = node["declaration"]["qualified_name"]
+            .as_array()
+            .and_then(|name| name.last())
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        let binder_types = match operator {
+            "await" => json!([]),
+            "event" | "finish" => json!([binder]),
+            _ => continue,
+        };
+        entries.push(json!({
+            "class": format!("OrderFlow::{name}"),
+            "node": node["node_id"],
+            "binder_types": binder_types
+        }));
+    }
+    entries.sort_by(|left, right| left["class"].as_str().cmp(&right["class"].as_str()));
+    assert_eq!(entries.len(), 4, "finish, event, two await timeouts");
+    set_concrete_catalog(&mut package, entries);
+    let admitted = read(&package, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "{admitted:?}"
+    );
 }
 
 /// Provenance: IR-874 catalog graph join.
