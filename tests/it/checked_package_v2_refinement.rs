@@ -944,6 +944,130 @@ fn refinement_catalog_presence_uses_clause_owner_without_step_rows() {
     );
 }
 
+/// Provenance: IR-874 catalog graph join.
+#[test]
+fn refinement_catalog_joins_owned_finish_without_a_step_row() {
+    let (mut package, evidence) =
+        concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::SelectedModel);
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let finish = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "protocol" && node["semantic_form"] == "obligation")
+        .expect("finish")["node_id"]
+        .clone();
+    let binder_type = nodes
+        .iter()
+        .find(|node| {
+            node["node_id"]["digest"] == json!(crate::support::checked_package::family_key("aaaa"))
+        })
+        .expect("binder type")["node_id"]
+        .clone();
+    let position = nodes.len() - 1;
+    package["semantic_graph"]["nodes"][position]["body"]["class_catalog"] = json!({
+        "concrete": [{"class": "OrderFlow::Closed", "node": finish, "binder_types": [binder_type]}],
+        "abstract": []
+    });
+    let dependencies = package["semantic_graph"]["nodes"][position]["dependencies"]
+        .as_array_mut()
+        .expect("dependencies");
+    dependencies.push(finish.clone());
+    dependencies.push(binder_type.clone());
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.dedup();
+    rekey_refinement(&mut package, position);
+    let admitted = read(&package, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "{admitted:?}"
+    );
+
+    let mut omitted = package.clone();
+    omitted["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"] = json!([]);
+    omitted["semantic_graph"]["nodes"][position]["dependencies"] =
+        json!([omitted["semantic_graph"]["nodes"][position]["semantic_type"].clone()]);
+    rekey_refinement(&mut omitted, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&omitted, &evidence) else {
+        panic!("omitted owned class admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete").as_str())
+    );
+
+    let mut wrong_node = package.clone();
+    let control = wrong_node["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "protocol" && node["semantic_form"] == "control")
+        .expect("control")["node_id"]
+        .clone();
+    wrong_node["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"][0]
+        ["node"] = control.clone();
+    wrong_node["semantic_graph"]["nodes"][position]["dependencies"] = json!([
+        control,
+        binder_type,
+        wrong_node["semantic_graph"]["nodes"][position]["semantic_type"].clone()
+    ]);
+    wrong_node["semantic_graph"]["nodes"][position]["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    rekey_refinement(&mut wrong_node, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_node, &evidence) else {
+        panic!("wrong declaration association admitted");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/0").as_str())
+    );
+
+    let (mut foreign, evidence) =
+        concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::OtherModel);
+    let position = foreign["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    foreign["semantic_graph"]["nodes"][position]["body"]["class_catalog"] = package
+        ["semantic_graph"]["nodes"][package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1]["body"]["class_catalog"]
+        .clone();
+    foreign["semantic_graph"]["nodes"][position]["dependencies"] = package["semantic_graph"]
+        ["nodes"][package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1]["dependencies"]
+        .clone();
+    rekey_refinement(&mut foreign, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&foreign, &evidence) else {
+        panic!("foreign owned class admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/0").as_str())
+    );
+}
+
 #[test]
 fn refinement_state_machine_owner_and_kind_are_exact() {
     let (package, evidence) = machine_package();
