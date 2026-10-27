@@ -14,8 +14,8 @@ use quire_contract_model::{
     CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
     CheckedPackageV2, CheckedPackageV2ReadResult, CheckedRefinementStepRowRegion,
     CheckedSemanticGraphV2, CheckedSemanticId, CheckedSourceMapEntry, CheckedTerm,
-    RefinementConcreteClass, RefinementDrain, RefinementMemoryClass, RefinementMemoryModel,
-    RefinementTsoModel,
+    RefinementClassCatalog, RefinementConcreteClass, RefinementDrain, RefinementMemoryClass,
+    RefinementMemoryModel, RefinementTsoModel,
 };
 use serde_json::{json, Value};
 
@@ -386,12 +386,33 @@ fn memory_catalog_package() -> (Value, CheckedPackageEvidence, usize) {
             json!({"class":format!("join OrderFlow::{name}"), "node":parallel, "binder_types":[]}),
         );
     }
-    entries.extend([
-        json!({"class":"memory drain", "memory_model":"ra", "drain":"store-buffer-flush"}),
-        json!({"class":"memory drain", "memory_model":"sc", "drain":"store-buffer-flush"}),
-        json!({"class":"memory drain", "memory_model":"tso", "drain":"store-buffer-flush"}),
-        json!({"class":"memory flush", "memory_model":"tso"}),
-    ]);
+    let mut concrete: Vec<RefinementConcreteClass> = entries
+        .into_iter()
+        .map(|entry| serde_json::from_value(entry).expect("declared class"))
+        .collect();
+    for memory_model in [
+        RefinementMemoryModel::Ra,
+        RefinementMemoryModel::Sc,
+        RefinementMemoryModel::Tso,
+    ] {
+        concrete.push(RefinementConcreteClass::Memory(
+            RefinementMemoryClass::Drain {
+                memory_model,
+                drain: RefinementDrain::StoreBufferFlush,
+            },
+        ));
+    }
+    concrete.push(RefinementConcreteClass::Memory(
+        RefinementMemoryClass::Flush {
+            memory_model: RefinementTsoModel::Tso,
+        },
+    ));
+    let catalog = RefinementClassCatalog {
+        concrete,
+        r#abstract: vec![],
+    };
+    let encoded = serde_json::to_value(catalog).expect("typed catalog");
+    let entries = encoded["concrete"].as_array().expect("catalog").clone();
     let position = set_concrete_catalog(&mut package, entries);
     (package, evidence, position)
 }
