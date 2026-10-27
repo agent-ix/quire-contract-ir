@@ -31,3 +31,13 @@ Ticket: IR-874. Reviewed test-only PR #614 at df7e4ee68987856433aaef7baa9c146339
 ## Review scope
 
 No production, API, Cargo, CI or spec files change. The helper that constructs `visible` reads wraps non-expression targets in a graph reference; the guard reads target the graph node directly. The two-reader precedence cases use real conjunction nodes. The QSpec DF6b/DF7d–DF7f case set was checked against the four test functions. The full repository gate is pending at the review head.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At PR #614 head 27cdd6450784ca8c701aed8d6f0067f6c5a329d1, `assert_protocol_refusal_at` checks exact `/semantic_graph/nodes/{position}` and typed node locus for every new refusal. `BinderScope` assertions compare the clause owner, and `DecisionFact` compares the decision role owner, field node and binder key. The existing code/cause/stage/slot/reason checks remain. |
+
+## Current verdict
+
+**PASS** for the reviewed diff and the recorded finding at 27cdd6450784ca8c701aed8d6f0067f6c5a329d1. The assertion helper derives expected position and key from the fixture's targeted node, so a wrong reader path or locus fails. This is a narrow same-PR disposition; hosted checks and the later integrated-head gate remain the code lead's merge checks.
