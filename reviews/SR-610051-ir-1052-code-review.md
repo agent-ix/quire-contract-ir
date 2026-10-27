@@ -24,3 +24,9 @@ Independent code-review review of PR #607 at e52bde10a26c5a059b0814e14ff05e8acb1
 ## Coverage
 
 Plan completion: not assessed. The computed Quire matrix marks FR-067-AC-1 through AC-6 tagged and AC-7 untagged. No specification file changed in this PR; spec-review was not applicable. Formal aggregate gates are reserved for the final reviewed head by the code lead.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | KnownOperation::ProtocolControl now refuses transition, alongside StateTransition refusing other members; isolated operation-step test asserts XT-19 and XT-20 with code, cause and locus. |

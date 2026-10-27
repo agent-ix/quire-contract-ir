@@ -26,3 +26,11 @@ Independent gap-analysis review of PR #607 at e52bde10a26c5a059b0814e14ff05e8acb
 ## Coverage
 
 Plan completion: not assessed. The computed Quire matrix marks FR-067-AC-1 through AC-6 tagged and AC-7 untagged. No specification file changed in this PR; spec-review was not applicable. Formal aggregate gates are reserved for the final reviewed head by the code lead.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Duplicate test derives later node by digest and checks both its path and typed locus. |
+| FND-002 | fixed | New two-defect tests cover graph/dependency and selected owner ahead of frame, anchor ahead of transition, and state ahead of operation law; earlier tests cover remaining boundaries. |
+| FND-003 | fixed | The public-reader QSpec fixture test now carries AC-7, so the IR-owned half is tagged. QSL-authored source/claim evidence remains open on QSL-1163 and cannot be claimed by this fix. |
