@@ -6,7 +6,8 @@
 use super::{fixture_support, fixtures_dir, proposal_dir_of, read_json};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult, NominalIdentityPreimage,
+    CheckedNodeOwner, CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
+    NominalIdentityPreimage,
 };
 use serde_json::{json, Value};
 
@@ -126,7 +127,7 @@ fn tc_233_published_model_owned_time_graph_admits_as_one_class() {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("published three-package Time graph must admit: {other:?}"),
     };
-    assert_eq!(admitted.graph().nodes.len(), names.len());
+    assert_eq!(admitted.graph().nodes.len(), names.len() + 3);
     for (position, (preimage, published_key)) in members.iter().enumerate() {
         let node = &admitted.graph().nodes[position];
         assert_eq!(node.node_id.digest.as_ref(), published_key, "{position}");
@@ -135,10 +136,31 @@ fn tc_233_published_model_owned_time_graph_admits_as_one_class() {
         assert_eq!(node.nominal_identity_preimage.as_ref(), Some(&expected));
     }
     assert_eq!(
-        admitted.graph().nodes[3..]
+        admitted.graph().nodes[3..names.len()]
             .iter()
             .map(|node| node.occurrences[0].ordinal)
             .collect::<Vec<_>>(),
         [0, 1, 2]
     );
+    for (offset, selection) in package["lock"]["model_selections"]
+        .as_array()
+        .expect("three selected models")
+        .iter()
+        .enumerate()
+    {
+        let root = &admitted.graph().nodes[names.len() + offset];
+        assert_eq!(root.semantic_form.as_ref(), "model_root");
+        let Some(CheckedNodeOwner::ModelRoot { identity, digest }) = root.owner.as_ref() else {
+            panic!("selected model root owner at {offset}");
+        };
+        assert_eq!(
+            identity.as_ref(),
+            selection["identity"].as_str().expect("identity")
+        );
+        assert_eq!(
+            digest.as_ref(),
+            selection["digest"].as_str().expect("digest")
+        );
+        assert_eq!(root.occurrences[0].ordinal, 0);
+    }
 }

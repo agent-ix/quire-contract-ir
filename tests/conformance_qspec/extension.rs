@@ -90,6 +90,7 @@ fn record_extension_case(actual: &str) -> (Value, Value, usize) {
         .to_string();
     package["lock"]["model_selections"][0]["digest"] = json!(digest);
     package["identity_preimage"]["model_selections"][0]["digest"] = json!(digest);
+    fixture_support::ensure_model_roots(&mut package);
 
     let mut actual_id = Value::Null;
     for (offset, name) in ["Base", "Child", "Unrelated"].iter().enumerate() {

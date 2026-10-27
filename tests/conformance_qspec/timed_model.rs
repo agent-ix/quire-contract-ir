@@ -5,11 +5,39 @@
 //! Suite-only traces retain the structural/round-trip and scoped refusal evidence;
 //! full timed semantic criterion qualification belongs to the follow-on slice.
 use super::*;
-use quire_contract_model::{encode_checked_package_v2, CheckedPackageIdentityPreimageRefV2};
+use quire_contract_model::{
+    encode_checked_package_v2, CheckedPackageIdentityPreimageRefV2, CheckedTerm,
+};
 
 fn published() -> Value {
     read_json(&fixtures_dir().join("positive-timed-model-nodes.json"))
         .expect("published timed model must be available")
+}
+
+#[trace("TC-048", "FR-038-AC-323")]
+#[test]
+fn timed_model_published_tick_retains_typed_operation_anchor() {
+    let wire = read_json(&fixtures_dir().join("positive-tick-timed-model-nodes.json"))
+        .expect("published tick model");
+    let CheckedPackageV2ReadResult::Admitted(package) = read_package(&wire).expect("tick read")
+    else {
+        panic!("healthy published tick model must admit");
+    };
+    let anchor = package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| {
+            node.node_tag.as_ref() == "state" && node.semantic_form.as_ref() == "operation_anchor"
+        })
+        .expect("published tick operation anchor");
+    let CheckedTerm::OperationAnchorBody(body) =
+        package.term(&anchor.node_id).expect("retained anchor")
+    else {
+        panic!("tick anchor must retain its typed body");
+    };
+    assert_eq!(body.members.len(), 3);
+    assert!(body.execution_point.is_none());
 }
 
 #[trace("TC-048")]
@@ -18,7 +46,7 @@ fn timed_model_published_fixture_round_trips_complete_nodes() {
     let wire = published();
     assert_eq!(
         wire["semantic_graph"]["nodes"].as_array().unwrap().len(),
-        57
+        58
     );
     let CheckedPackageV2ReadResult::Admitted(package) = read_package(&wire).unwrap() else {
         panic!(
