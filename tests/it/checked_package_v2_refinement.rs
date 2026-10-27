@@ -1645,7 +1645,8 @@ fn refinement_catalog_presence_uses_clause_owner_without_step_rows() {
     );
 }
 
-/// Provenance: IR-874 catalog graph join.
+/// Trace: FR-038-AC-325, FR-064-AC-5
+/// Provenance: IR-1053 catalog graph join.
 #[test]
 fn refinement_catalog_joins_owned_finish_without_a_step_row() {
     let (mut package, evidence) =
@@ -1673,6 +1674,16 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
     assert!(
         matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
         "{admitted:?}"
+    );
+    let written = writer_bytes(&package);
+    let written_read =
+        CheckedPackageV2::read(&written, CheckedPackageReadLimits::bounded(), &evidence);
+    let CheckedPackageV2ReadResult::Admitted(round_trip) = written_read else {
+        panic!("typed writer output must read back: {written_read:?}");
+    };
+    assert_eq!(
+        serde_json::to_value(round_trip.package_id()).expect("package id"),
+        package["package_id"]
     );
 
     let mut omitted = package.clone();

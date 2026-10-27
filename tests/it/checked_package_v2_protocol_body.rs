@@ -1538,7 +1538,7 @@ fn protocol_owner_retarget_with_retained_key_refuses_before_target_meaning() {
 /// Trace: FR-064-AC-2, FR-064-AC-4
 #[trace("TC-946")]
 #[test]
-fn protocol_owner_retarget_to_second_selected_model_changes_package_identity() {
+fn protocol_owner_retarget_to_selected_non_object_model_refuses() {
     let mut package = admitted_protocol_families();
     let position = clause_position(&package);
     let old_key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
@@ -1557,22 +1557,17 @@ fn protocol_owner_retarget_to_second_selected_model_changes_package_identity() {
     );
     assert_ne!(package["package_id"], old_package);
     let result = read(&package);
-    let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
-        panic!(
-            "exact second selected model owner must admit without over-type inference: {result:?}"
-        );
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("selected interface model must not own a protocol clause: {result:?}");
     };
-    let clause = admitted
-        .graph()
-        .nodes
-        .iter()
-        .find(|node| {
-            node.node_tag.as_ref() == "protocol" && node.semantic_form.as_ref() == "protocol_clause"
-        })
-        .expect("clause");
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
     assert_eq!(
-        clause.owner_model.as_ref(),
-        Some(&serde_json::from_value(second_key).expect("node id"))
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/owner_model").as_str())
     );
 }
 
