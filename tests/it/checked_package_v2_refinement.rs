@@ -486,7 +486,7 @@ fn refinement_catalog_activate_each_uses_clause_and_trigger_signature() {
         .find(|node| node["body"]["operation"]["member"]["operator"] == "finish")
         .expect("finish")["node_id"]
         .clone();
-    set_concrete_catalog(
+    let origin_position = set_concrete_catalog(
         &mut origin,
         vec![
             json!({"class":"OrderFlow::Closed", "node":origin_finish, "binder_types":[boolean]}),
@@ -502,7 +502,10 @@ fn refinement_catalog_activate_each_uses_clause_and_trigger_signature() {
     );
     assert_eq!(
         refusal.path.as_ref().map(|path| path.as_str()),
-        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1").as_str())
+        Some(
+            format!("/semantic_graph/nodes/{origin_position}/body/class_catalog/concrete/1")
+                .as_str()
+        )
     );
 }
 
