@@ -2211,12 +2211,15 @@ fn protocol_classes(
             else {
                 continue;
             };
+            let Some(operator) = catalog_operator(member.kind, operator) else {
+                continue;
+            };
             let Some(classes_for_node) =
                 protocol_member_classes(operator, arguments, &name.qualified_name)
             else {
                 continue;
             };
-            let binder_types = if operator == "role" {
+            let binder_types = if matches!(operator, CatalogOperator::Role) {
                 None
             } else {
                 protocol_binder_types(operator, arguments, nodes, signatures, meter)?
@@ -2235,14 +2238,48 @@ fn protocol_classes(
     Ok(classes)
 }
 
+#[derive(Clone, Copy)]
+enum CatalogOperator {
+    Role,
+    Channel,
+    Parallel,
+    Attempt,
+    Event,
+    Send,
+    Receive,
+    Fence,
+    Await,
+    Finish,
+}
+
+/// Classify the admitted protocol operator once, together with its checked
+/// node form; catalog reconstruction below uses only this closed set.
+#[ix_trace_rs::string_edge]
+fn catalog_operator(kind: super::CheckedNodeKind, operator: &str) -> Option<CatalogOperator> {
+    use super::{CheckedNodeKind::Protocol, ProtocolForm};
+    Some(match (kind, operator) {
+        (Protocol(ProtocolForm::Role), "role") => CatalogOperator::Role,
+        (Protocol(ProtocolForm::Channel), "channel") => CatalogOperator::Channel,
+        (Protocol(ProtocolForm::Control), "parallel") => CatalogOperator::Parallel,
+        (Protocol(ProtocolForm::Control), "attempt") => CatalogOperator::Attempt,
+        (Protocol(ProtocolForm::Control), "event") => CatalogOperator::Event,
+        (Protocol(ProtocolForm::Control), "send") => CatalogOperator::Send,
+        (Protocol(ProtocolForm::Control), "receive") => CatalogOperator::Receive,
+        (Protocol(ProtocolForm::Control), "fence") => CatalogOperator::Fence,
+        (Protocol(ProtocolForm::Control), "await") => CatalogOperator::Await,
+        (Protocol(ProtocolForm::Obligation), "finish") => CatalogOperator::Finish,
+        _ => return None,
+    })
+}
+
 fn protocol_binder_types(
-    operator: &str,
+    operator: CatalogOperator,
     arguments: &[CheckedTerm],
     nodes: &[ProtocolCatalogNode<'_>],
     signatures: CatalogSignatures<'_, '_>,
     meter: &mut super::WorkMeter,
 ) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
-    if operator == "attempt" {
+    if matches!(operator, CatalogOperator::Attempt) {
         let Some(anchor) = bound_reference(arguments, "operation")
             .and_then(|id| nodes.iter().find(|node| node.id == id))
             .and_then(|node| node.term)
@@ -2253,7 +2290,7 @@ fn protocol_binder_types(
         return signatures.operation_binder_types(&anchor.context, anchor.operation, meter);
     }
     let binder_type = match operator {
-        "send" | "receive" => {
+        CatalogOperator::Send | CatalogOperator::Receive => {
             let Some(channel) = bound_reference(arguments, "channel")
                 .and_then(|id| nodes.iter().find(|node| node.id == id))
                 .and_then(|node| node.term)
@@ -2272,7 +2309,7 @@ fn protocol_binder_types(
             };
             carries
         }
-        "event" | "finish" => {
+        CatalogOperator::Event | CatalogOperator::Finish => {
             let Some(binder) = bound_reference(arguments, "binder")
                 .and_then(|id| nodes.iter().find(|node| node.id == id))
             else {
@@ -2280,7 +2317,12 @@ fn protocol_binder_types(
             };
             binder.semantic_type
         }
-        _ => return Ok(Some(Vec::new())),
+        CatalogOperator::Role
+        | CatalogOperator::Channel
+        | CatalogOperator::Parallel
+        | CatalogOperator::Attempt
+        | CatalogOperator::Fence
+        | CatalogOperator::Await => return Ok(Some(Vec::new())),
     };
     if signatures.is_record(binder_type) {
         Ok(signatures.record_binder_types(binder_type))
@@ -2299,9 +2341,11 @@ fn bound_reference<'a>(arguments: &'a [CheckedTerm], field: &str) -> Option<&'a 
     })
 }
 
+/// Interprets the admitted delivery and replication literals that determine
+/// FR-432 channel and role classes.
 #[ix_trace_rs::string_edge]
 fn protocol_member_classes(
-    operator: &str,
+    operator: CatalogOperator,
     arguments: &[CheckedTerm],
     name: &[Box<str>],
 ) -> Option<Vec<String>> {
@@ -2309,9 +2353,15 @@ fn protocol_member_classes(
     let node = name.last()?.as_ref();
     let path = format!("{clause}::{node}");
     match operator {
-        "parallel" => Some(vec![format!("fork {path}"), format!("join {path}")]),
-        "attempt" | "event" | "send" | "receive" | "fence" | "await" | "finish" => Some(vec![path]),
-        "channel" => {
+        CatalogOperator::Parallel => Some(vec![format!("fork {path}"), format!("join {path}")]),
+        CatalogOperator::Attempt
+        | CatalogOperator::Event
+        | CatalogOperator::Send
+        | CatalogOperator::Receive
+        | CatalogOperator::Fence
+        | CatalogOperator::Await
+        | CatalogOperator::Finish => Some(vec![path]),
+        CatalogOperator::Channel => {
             let delivery = super::protocol_body::binding_value(arguments, "delivery")
                 .and_then(super::protocol_body::text_value)?;
             Some(match delivery {
@@ -2322,7 +2372,7 @@ fn protocol_member_classes(
                 _ => return None,
             })
         }
-        "role" => {
+        CatalogOperator::Role => {
             let replication = super::protocol_body::binding_value(arguments, "replication")?;
             let CheckedTerm::Aggregate { members } = replication else {
                 return None;
@@ -2339,7 +2389,6 @@ fn protocol_member_classes(
             }
             Some(classes)
         }
-        _ => None,
     }
 }
 
