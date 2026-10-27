@@ -1170,7 +1170,7 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
 
 /// Provenance: IR-874 selected model operation class join.
 #[test]
-fn refinement_catalog_joins_concrete_model_operation_without_a_step_row() {
+fn refinement_catalog_joins_concrete_operation_and_abstract_protocol_without_step_rows() {
     let (document, worker, reference, receiver_type) = operation_model_nodes();
     let worker_key = worker["node_id"].clone();
     let (mut package, evidence) = concrete_protocol_refinement_with_model(
@@ -1198,6 +1198,46 @@ fn refinement_catalog_joins_concrete_model_operation_without_a_step_row() {
     assert!(
         matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
         "concrete operation class must join through the selected root: {admitted:?}"
+    );
+
+    let clause = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "protocol_clause")
+        .expect("selected abstract clause")["node_id"]
+        .clone();
+    let mut abstract_protocol = package.clone();
+    let refinement = &mut abstract_protocol["semantic_graph"]["nodes"][position];
+    refinement["body"]["protocol"] = clause.clone();
+    refinement["body"]["class_catalog"]["abstract"] = json!([entries[0].clone()]);
+    let dependencies = refinement["dependencies"]
+        .as_array_mut()
+        .expect("dependencies");
+    dependencies.push(clause);
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.dedup();
+    rekey_refinement(&mut abstract_protocol, position);
+    let admitted = read(&abstract_protocol, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "selected abstract protocol and concrete operation must both join: {admitted:?}"
+    );
+
+    let mut absent_abstract = abstract_protocol;
+    absent_abstract["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["abstract"] =
+        json!([]);
+    rekey_refinement(&mut absent_abstract, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&absent_abstract, &evidence) else {
+        panic!("selected abstract protocol class omitted from catalog admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/abstract").as_str())
     );
 
     let mut omitted = package.clone();
