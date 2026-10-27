@@ -113,6 +113,23 @@ fn refused(value: &Value, path: &str) {
     }
 }
 
+fn malformed(value: &Value, position: usize) {
+    match CheckedPackageV2::read(
+        &canonical(value),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(value),
+    ) {
+        CheckedPackageV2ReadResult::Refused(result) => {
+            assert_eq!(result.code, CheckedPackageRefusalCode::MalformedWire);
+            assert_eq!(
+                result.path,
+                Some(pointer(&format!("/semantic_graph/nodes/{position}")))
+            );
+        }
+        other => panic!("expected malformed wire at node {position}, got {other:?}"),
+    }
+}
+
 fn rekey_equivalence(value: &mut Value, position: usize) {
     let node = &value["semantic_graph"]["nodes"][position];
     let fresh = sha256_hex(&canonical(&node["nominal_identity_preimage"]));
@@ -178,6 +195,75 @@ fn typed_pair_round_trips_with_normalized_key_and_anchor() {
         admitted.package_id(),
         &typed::<CheckedSemanticId>(&value["package_id"])
     );
+}
+
+/// Trace: FR-063-AC-5
+#[trace("FR-063-AC-5")]
+#[test]
+fn equivalence_schema_defects_refuse_at_the_node_before_identity_checks() {
+    let value = pair();
+    let mut absent = value.clone();
+    absent["semantic_graph"]["nodes"][2]["nominal_identity_preimage"]
+        .as_object_mut()
+        .expect("preimage")
+        .remove("root_scale");
+    malformed(&absent, 2);
+
+    let mut one_id = value.clone();
+    one_id["semantic_graph"]["nodes"][2]["nominal_identity_preimage"]["dimension_node_ids"]
+        .as_array_mut()
+        .expect("dimension ids")
+        .pop();
+    malformed(&one_id, 2);
+
+    for member in ["numerator", "denominator"] {
+        for spelling in ["0", "-1"] {
+            let mut invalid = value.clone();
+            invalid["semantic_graph"]["nodes"][2]["nominal_identity_preimage"]["root_scale"]
+                [member] = json!(spelling);
+            malformed(&invalid, 2);
+        }
+    }
+
+    let mut declared = value;
+    declared["semantic_graph"]["nodes"][2]["declaration"] =
+        json!({"qualified_name":["Example","TimeJoin"]});
+    malformed(&declared, 2);
+}
+
+/// Trace: FR-063-AC-5
+#[trace("FR-063-AC-5")]
+#[test]
+fn nominal_negative_zero_spellings_refuse_at_wire_stage() {
+    let first = dimension("RpcTime", json!([]));
+    let derived = dimension(
+        "RpcTimeSquared",
+        json!([{"dimension_node_id":node_id(&first.1),"exponent":"2"}]),
+    );
+    let mut bad_dimension = nominal_package(&[first.clone(), derived]);
+    bad_dimension["semantic_graph"]["nodes"][1]["nominal_identity_preimage"]["terms"][0]
+        ["exponent"] = json!("-0");
+    malformed(&bad_dimension, 1);
+
+    let unit = json!({
+        "version":"quire.unit-node/v1",
+        "owner":source_owner(&fixture_source()),
+        "qualified_declaration":["Example","Second"],
+        "dimension_node_id":node_id(&first.1),
+        "target_unit_node_id":null,
+        "scale":{"numerator":"1","denominator":"1"},
+        "offset":{"numerator":"0","denominator":"1"},
+    });
+    let key = sha256_hex(&canonical(&unit));
+    let value = nominal_package(&[first, (unit, key)]);
+    for field in ["scale", "offset"] {
+        for member in ["numerator", "denominator"] {
+            let mut bad_unit = value.clone();
+            bad_unit["semantic_graph"]["nodes"][1]["nominal_identity_preimage"][field][member] =
+                json!("-0");
+            malformed(&bad_unit, 1);
+        }
+    }
 }
 
 /// Trace: FR-063-AC-2

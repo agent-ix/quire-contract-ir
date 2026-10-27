@@ -2,8 +2,8 @@
 //! dimension, dimension equivalence, declared unit) and their semantic and cross-field rules.
 //!
 //! The node key of a nominal form is SHA-256 of the RFC 8785 canonical bytes
-//! of its preimage, computed by `quire-canonical`. Every violation is
-//! `invalid_semantic_graph`.
+//! of its preimage, computed by `quire-canonical`. Closed wire defects refuse
+//! before the remaining nominal graph checks.
 
 use super::model_members::DomainModel;
 use super::natural::coprime;
@@ -233,6 +233,79 @@ pub(in crate::checked_package) fn locate_preimage_failure(
         }
     }
     (located, unknown_member)
+}
+
+/// Whether a failed nominal decode is one of the closed-schema defects that
+/// belongs to the wire stage rather than nominal graph validation.
+pub(in crate::checked_package) fn schema_invalid_preimage(preimage: &Value) -> bool {
+    let Some(object) = preimage.as_object() else {
+        return false;
+    };
+    if object
+        .get("version")
+        .and_then(Value::as_str)
+        .and_then(NominalKind::from_version)
+        .is_some_and(|kind| {
+            matches!(
+                kind,
+                NominalKind::EnumDeclaration | NominalKind::Dimension | NominalKind::Unit
+            )
+        })
+        && object
+            .get("owner")
+            .and_then(Value::as_object)
+            .is_some_and(|owner| {
+                owner.get("kind").and_then(Value::as_str) == Some("model")
+                    && owner.contains_key("version")
+            })
+    {
+        return true;
+    }
+    object.get("version").and_then(Value::as_str) == Some("quire.dimension-equivalence-node/v1")
+        && (object.get("root_scale").is_none()
+            || object
+                .get("dimension_node_ids")
+                .and_then(Value::as_array)
+                .is_some_and(|ids| ids.len() != 2))
+}
+
+/// The lexical and node-shape rules of nominal preimages that Serde's field
+/// types cannot express. This runs before the package identity or graph check.
+pub(in crate::checked_package) fn check_nominal_wire(
+    nodes: &[CheckedSemanticNodeV2],
+) -> Result<(), ValidationFailure> {
+    for (position, node) in nodes.iter().enumerate() {
+        let at = node_pointer(position);
+        let malformed = match &node.nominal_identity_preimage {
+            Some(NominalIdentityPreimage::Dimension(dimension)) => dimension
+                .terms
+                .iter()
+                .any(|term| integer_magnitude(&term.exponent).is_none()),
+            Some(NominalIdentityPreimage::DimensionEquivalence(equivalence)) => {
+                !positive_integer(&equivalence.root_scale.numerator)
+                    || !positive_integer(&equivalence.root_scale.denominator)
+                    || node.declaration.is_some()
+            }
+            Some(NominalIdentityPreimage::Unit(unit)) => {
+                [&unit.scale, &unit.offset].iter().any(|ratio| {
+                    integer_magnitude(&ratio.numerator).is_none()
+                        || !positive_integer(&ratio.denominator)
+                })
+            }
+            Some(
+                NominalIdentityPreimage::EnumDeclaration(_)
+                | NominalIdentityPreimage::EnumMember(_),
+            )
+            | None => false,
+        };
+        if malformed {
+            return Err(ValidationFailure::refused(
+                CheckedPackageRefusalCode::MalformedWire,
+                at,
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn locate_source_owner_failure(at: JsonPointer, owner: &Value) -> (JsonPointer, bool) {
@@ -672,19 +745,11 @@ fn validate_dimension_equivalence(
         }),
         || site.preimage(&["owner"]),
     )?;
-    require(
-        positive_integer(&equivalence.root_scale.numerator)
-            && positive_integer(&equivalence.root_scale.denominator),
-        || site.preimage(&["root_scale"]),
-    )?;
     validate_rational(&equivalence.root_scale, meter, &|| {
         site.preimage(&["root_scale"])
     })?;
     require(site.node.semantic_type == site.node.node_id, || {
         site.member("semantic_type")
-    })?;
-    require(site.node.declaration.is_none(), || {
-        site.member("declaration")
     })?;
     require(site.node.dependencies.as_slice() == ids, || {
         site.member("dependencies")
