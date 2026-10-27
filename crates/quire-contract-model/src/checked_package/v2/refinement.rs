@@ -229,18 +229,46 @@ pub enum RefinementAbstractClass {
     Memory(RefinementMemoryClass),
 }
 
-/// One memory step defined by a selected source-default memory model.
+/// A source-default memory class, distinguished by its closed step semantics.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
-#[serde(deny_unknown_fields)]
-pub struct RefinementMemoryClass {
-    /// Alias-free `memory <kind>` spelling.
-    pub class: Box<str>,
-    /// The selected source-default memory model.
-    pub memory_model: RefinementMemoryModel,
+#[serde(tag = "class", deny_unknown_fields)]
+pub enum RefinementMemoryClass {
+    /// Drain pending writes under the selected source-default model.
+    #[serde(rename = "memory drain")]
+    Drain {
+        /// The source-default model selected by a parallel control.
+        memory_model: RefinementMemoryModel,
+        /// The sole admitted drain operation.
+        drain: RefinementDrain,
+    },
+    /// Remove the oldest buffered TSO write.
+    #[serde(rename = "memory flush")]
+    Flush {
+        /// The sole source-default model that defines flush.
+        memory_model: RefinementTsoModel,
+    },
+}
+
+/// Closed operation performed by a memory drain step.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[serde(rename_all = "kebab-case")]
+pub enum RefinementDrain {
+    /// Drain the thread's store buffer until its writes are visible.
+    StoreBufferFlush,
+}
+
+/// The only source-default model that defines a flush class.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[serde(rename_all = "snake_case")]
+pub enum RefinementTsoModel {
+    /// Total store order.
+    Tso,
 }
 
 /// Closed source-default memory model vocabulary.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(
+    Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize, FixedShape,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum RefinementMemoryModel {
     /// Sequential consistency.
@@ -254,9 +282,8 @@ pub enum RefinementMemoryModel {
 impl RefinementConcreteClass {
     fn class(&self) -> &str {
         match self {
-            Self::Declared { class, .. } | Self::Memory(RefinementMemoryClass { class, .. }) => {
-                class
-            }
+            Self::Declared { class, .. } => class,
+            Self::Memory(memory) => memory.class(),
         }
     }
 }
@@ -264,10 +291,49 @@ impl RefinementConcreteClass {
 impl RefinementAbstractClass {
     fn class(&self) -> &str {
         match self {
-            Self::Declared { class, .. } | Self::Memory(RefinementMemoryClass { class, .. }) => {
-                class
-            }
+            Self::Declared { class, .. } => class,
+            Self::Memory(memory) => memory.class(),
         }
+    }
+}
+
+impl RefinementMemoryClass {
+    fn class(&self) -> &'static str {
+        match self {
+            Self::Drain { .. } => "memory drain",
+            Self::Flush { .. } => "memory flush",
+        }
+    }
+
+    fn model(&self) -> RefinementMemoryModel {
+        match self {
+            Self::Drain { memory_model, .. } => *memory_model,
+            Self::Flush { .. } => RefinementMemoryModel::Tso,
+        }
+    }
+}
+
+impl RefinementMemoryModel {
+    fn as_wire(self) -> &'static str {
+        match self {
+            Self::Ra => "ra",
+            Self::Sc => "sc",
+            Self::Tso => "tso",
+        }
+    }
+}
+
+fn concrete_catalog_key(entry: &RefinementConcreteClass) -> (&str, &str) {
+    match entry {
+        RefinementConcreteClass::Declared { class, .. } => (class, ""),
+        RefinementConcreteClass::Memory(memory) => (memory.class(), memory.model().as_wire()),
+    }
+}
+
+fn abstract_catalog_key(entry: &RefinementAbstractClass) -> (&str, &str) {
+    match entry {
+        RefinementAbstractClass::Declared { class, .. } => (class, ""),
+        RefinementAbstractClass::Memory(memory) => (memory.class(), memory.model().as_wire()),
     }
 }
 
@@ -621,18 +687,9 @@ fn class_kind(class: &str) -> Option<RefinementClassKind> {
     }
 }
 
-/// Check the raw source-default memory class grammar at the catalog intake.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RefinementMemoryClassKind {
-    Valid,
-}
-
 #[ix_trace_rs::string_edge]
-fn memory_class_kind(class: &str) -> Option<RefinementMemoryClassKind> {
-    class
-        .strip_prefix("memory ")
-        .filter(|kind| !kind.is_empty() && !kind.contains(' '))
-        .map(|_| RefinementMemoryClassKind::Valid)
+fn memory_class_kind(class: &str) -> bool {
+    matches!(class, "memory drain" | "memory flush")
 }
 
 /// Convert the untrusted argument-only special term before row admission.
@@ -818,6 +875,7 @@ fn check_body_header(body: &Value, at: &Trail<'_>) -> Result<(), ValidationFailu
     Ok(())
 }
 
+#[ix_trace_rs::string_edge]
 fn check_catalog_wire(value: &Value, at: &Trail<'_>) -> Result<(), ValidationFailure> {
     let Some(object) = value.as_object() else {
         return Err(invalid(at));
@@ -836,19 +894,44 @@ fn check_catalog_wire(value: &Value, at: &Trail<'_>) -> Result<(), ValidationFai
                 return Err(invalid(&entry_at.key("class")));
             };
             let memory = class_kind(class) == Some(RefinementClassKind::Memory);
-            let valid = if memory {
-                memory_class_kind(class).is_some()
-                    && entry.len() == 2
-                    && entry.get("memory_model").is_some_and(|value| {
-                        serde_json::from_value::<RefinementMemoryModel>(value.clone()).is_ok()
-                    })
-            } else {
-                !class.is_empty()
-                    && entry.len() == 3
-                    && entry.contains_key("node")
-                    && entry.contains_key("binder_types")
-            };
-            if !valid {
+            if memory {
+                let malformed = |at: Trail<'_>| {
+                    ValidationFailure::refused(
+                        CheckedPackageRefusalCode::MalformedWire,
+                        at.pointer(),
+                    )
+                };
+                if !memory_class_kind(class) {
+                    return Err(malformed(entry_at.key("class")));
+                }
+                let Some(model) = entry.get("memory_model") else {
+                    return Err(malformed(entry_at.key("memory_model")));
+                };
+                let Ok(model) = serde_json::from_value::<RefinementMemoryModel>(model.clone())
+                else {
+                    return Err(malformed(entry_at.key("memory_model")));
+                };
+                if class == "memory flush" && model != RefinementMemoryModel::Tso {
+                    return Err(malformed(entry_at.key("memory_model")));
+                }
+                if class == "memory drain"
+                    && entry.get("drain").and_then(Value::as_str) != Some("store-buffer-flush")
+                {
+                    return Err(malformed(entry_at.key("drain")));
+                }
+                let allowed: &[&str] = if class == "memory drain" {
+                    &["class", "memory_model", "drain"]
+                } else {
+                    &["class", "memory_model"]
+                };
+                if let Some(extra) = entry.keys().find(|key| !allowed.contains(&key.as_str())) {
+                    return Err(malformed(entry_at.key(extra)));
+                }
+            } else if class.is_empty()
+                || entry.len() != 3
+                || !entry.contains_key("node")
+                || !entry.contains_key("binder_types")
+            {
                 return Err(invalid(&entry_at));
             }
         }
@@ -1052,7 +1135,7 @@ fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), Validation
     }
     if let Some(catalog) = class_catalog {
         for (index, pair) in catalog.concrete.windows(2).enumerate() {
-            if pair[0].class() >= pair[1].class() {
+            if concrete_catalog_key(&pair[0]) >= concrete_catalog_key(&pair[1]) {
                 return Err(ValidationFailure::refused(
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
                     node_at(position)
@@ -1064,7 +1147,7 @@ fn canonical_order(body: &CheckedTerm, position: usize) -> Result<(), Validation
             }
         }
         for (index, pair) in catalog.r#abstract.windows(2).enumerate() {
-            if pair[0].class() >= pair[1].class() {
+            if abstract_catalog_key(&pair[0]) >= abstract_catalog_key(&pair[1]) {
                 return Err(ValidationFailure::refused(
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
                     node_at(position)
@@ -2041,18 +2124,35 @@ pub(super) fn validate_catalog_graph(
             &graph.nodes[position].node_id,
             meter,
         )?;
-        let abstract_classes = match protocol.as_deref() {
+        let concrete_memory = protocol_memory_models(
+            &local,
+            &graph.nodes[position].semantic_type,
+            None,
+            &root,
+            meter,
+        )?;
+        compare_concrete_memory(
+            &catalog.concrete,
+            &concrete_memory,
+            root.clone().key("concrete"),
+            &graph.nodes[position].node_id,
+            meter,
+        )?;
+        let (abstract_classes, abstract_memory) = match protocol.as_deref() {
             Some(RefinementKey::Local(clause)) => match abstract_key.as_ref() {
-                RefinementKey::Local(model) => protocol_classes(
-                    &local,
-                    model,
-                    Some(clause),
-                    None,
-                    CatalogSignatures::Local(owners),
-                    &root,
-                    meter,
-                )?,
-                RefinementKey::External(_) => Vec::new(),
+                RefinementKey::Local(model) => (
+                    protocol_classes(
+                        &local,
+                        model,
+                        Some(clause),
+                        None,
+                        CatalogSignatures::Local(owners),
+                        &root,
+                        meter,
+                    )?,
+                    protocol_memory_models(&local, model, Some(clause), &root, meter)?,
+                ),
+                RefinementKey::External(_) => (Vec::new(), BTreeSet::new()),
             },
             Some(RefinementKey::External(clause)) => match abstract_key.as_ref() {
                 RefinementKey::External(model) if model.package == clause.package => {
@@ -2068,23 +2168,39 @@ pub(super) fn validate_catalog_graph(
                             )
                         })?;
                     let dependency = dependency_protocol_nodes(selected);
-                    protocol_classes(
-                        &dependency,
-                        &model.node,
-                        Some(&clause.node),
-                        Some(&clause.package),
-                        CatalogSignatures::External(&selected.models),
-                        &root,
-                        meter,
-                    )?
+                    (
+                        protocol_classes(
+                            &dependency,
+                            &model.node,
+                            Some(&clause.node),
+                            Some(&clause.package),
+                            CatalogSignatures::External(&selected.models),
+                            &root,
+                            meter,
+                        )?,
+                        protocol_memory_models(
+                            &dependency,
+                            &model.node,
+                            Some(&clause.node),
+                            &root,
+                            meter,
+                        )?,
+                    )
                 }
-                _ => Vec::new(),
+                _ => (Vec::new(), BTreeSet::new()),
             },
-            _ => Vec::new(),
+            _ => (Vec::new(), BTreeSet::new()),
         };
         compare_abstract_classes(
             &catalog.r#abstract,
             &abstract_classes,
+            root.clone().key("abstract"),
+            &graph.nodes[position].node_id,
+            meter,
+        )?;
+        compare_abstract_memory(
+            &catalog.r#abstract,
+            &abstract_memory,
             root.key("abstract"),
             &graph.nodes[position].node_id,
             meter,
@@ -2287,6 +2403,201 @@ fn protocol_classes(
     }
     classes.sort_unstable_by(|left, right| left.class.cmp(&right.class));
     Ok(classes)
+}
+
+/// Collect only source defaults from parallel controls of the selected subject.
+#[ix_trace_rs::string_edge]
+fn protocol_memory_models(
+    nodes: &[ProtocolCatalogNode<'_>],
+    model: &CheckedNodeId,
+    selected_clause: Option<&CheckedNodeId>,
+    at: &JsonPointer,
+    meter: &mut super::WorkMeter,
+) -> Result<BTreeSet<RefinementMemoryModel>, ValidationFailure> {
+    let mut by_id = BTreeMap::new();
+    for node in nodes {
+        meter.charge(1, || at.clone())?;
+        by_id.insert(node.id, node);
+    }
+    let selected_identity = by_id.get(model).and_then(|node| {
+        if let Some(super::CheckedNodeOwner::ModelRoot { identity, .. }) = node.owner {
+            Some(identity.as_ref())
+        } else {
+            None
+        }
+    });
+    let mut models = BTreeSet::new();
+    for clause in nodes {
+        let clause_identity = clause
+            .owner_model
+            .and_then(|owner| by_id.get(owner))
+            .and_then(|owner| match owner.owner {
+                Some(super::CheckedNodeOwner::Model { identity, .. }) => Some(identity.as_ref()),
+                _ => None,
+            });
+        if clause.kind != super::CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolClause)
+            || selected_identity.is_none()
+            || clause_identity != selected_identity
+            || selected_clause.is_some_and(|selected| selected != clause.id)
+        {
+            continue;
+        }
+        let Some(clause_name) = clause.name else {
+            continue;
+        };
+        for member in nodes {
+            meter.charge(1, || at.clone())?;
+            let Some(name) = member.name else {
+                continue;
+            };
+            if member.kind != super::CheckedNodeKind::Protocol(super::ProtocolForm::Control)
+                || name.qualified_name.len() <= clause_name.qualified_name.len()
+                || !name.qualified_name.starts_with(&clause_name.qualified_name)
+            {
+                continue;
+            }
+            let Some(CheckedTerm::Application {
+                operation,
+                arguments,
+                ..
+            }) = member.term
+            else {
+                continue;
+            };
+            if operation
+                .get("member")
+                .and_then(|member| member.get("operator"))
+                .and_then(Value::as_str)
+                != Some("parallel")
+            {
+                continue;
+            }
+            let Some(CheckedTerm::Aggregate { members }) =
+                super::protocol_body::binding_value(arguments, "memory")
+            else {
+                return Err(ValidationFailure::refused(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    at.clone(),
+                ));
+            };
+            let selected = match members.as_slice() {
+                [] => "sc",
+                [value] => super::protocol_body::text_value(value).ok_or_else(|| {
+                    ValidationFailure::refused(
+                        CheckedPackageRefusalCode::InvalidSemanticGraph,
+                        at.clone(),
+                    )
+                })?,
+                _ => {
+                    return Err(ValidationFailure::refused(
+                        CheckedPackageRefusalCode::InvalidSemanticGraph,
+                        at.clone(),
+                    ))
+                }
+            };
+            let model = match selected {
+                "sc" => RefinementMemoryModel::Sc,
+                "tso" => RefinementMemoryModel::Tso,
+                "ra" => RefinementMemoryModel::Ra,
+                _ => {
+                    return Err(ValidationFailure::refused(
+                        CheckedPackageRefusalCode::InvalidSemanticGraph,
+                        at.clone(),
+                    ))
+                }
+            };
+            models.insert(model);
+        }
+    }
+    Ok(models)
+}
+
+fn expected_memory_classes(
+    models: &BTreeSet<RefinementMemoryModel>,
+) -> BTreeSet<(&'static str, RefinementMemoryModel)> {
+    let mut expected = BTreeSet::new();
+    for model in models {
+        expected.insert(("memory drain", *model));
+        if *model == RefinementMemoryModel::Tso {
+            expected.insert(("memory flush", *model));
+        }
+    }
+    expected
+}
+
+fn compare_memory<'a>(
+    actual: impl Iterator<Item = (usize, &'a RefinementMemoryClass)>,
+    models: &BTreeSet<RefinementMemoryModel>,
+    at: JsonPointer,
+    locus: &CheckedNodeId,
+    meter: &mut super::WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let mut expected = expected_memory_classes(models);
+    for (index, memory) in actual {
+        let entry_at = at.clone().index(index);
+        meter.charge(1, || entry_at.clone())?;
+        if !expected.remove(&(memory.class(), memory.model())) {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                entry_at,
+                None,
+                locus.clone(),
+            ));
+        }
+    }
+    if !expected.is_empty() {
+        return Err(ValidationFailure::refused_at(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            at,
+            None,
+            locus.clone(),
+        ));
+    }
+    Ok(())
+}
+
+fn compare_concrete_memory(
+    actual: &[RefinementConcreteClass],
+    models: &BTreeSet<RefinementMemoryModel>,
+    at: JsonPointer,
+    locus: &CheckedNodeId,
+    meter: &mut super::WorkMeter,
+) -> Result<(), ValidationFailure> {
+    compare_memory(
+        actual
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entry)| match entry {
+                RefinementConcreteClass::Memory(memory) => Some((index, memory)),
+                RefinementConcreteClass::Declared { .. } => None,
+            }),
+        models,
+        at,
+        locus,
+        meter,
+    )
+}
+
+fn compare_abstract_memory(
+    actual: &[RefinementAbstractClass],
+    models: &BTreeSet<RefinementMemoryModel>,
+    at: JsonPointer,
+    locus: &CheckedNodeId,
+    meter: &mut super::WorkMeter,
+) -> Result<(), ValidationFailure> {
+    compare_memory(
+        actual
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entry)| match entry {
+                RefinementAbstractClass::Memory(memory) => Some((index, memory)),
+                RefinementAbstractClass::Declared { .. } => None,
+            }),
+        models,
+        at,
+        locus,
+        meter,
+    )
 }
 
 #[derive(Clone, Copy)]

@@ -1155,7 +1155,7 @@ mod tests {
             "ensure":[{"operation":node,"kind":"strong","granularity":"whole"}],
             "protocol":node,"abstract_internal":["history"],
             "class_catalog":{"concrete":[{"class":"finish","node":node,
-                "binder_types":[node]},{"class":"memory flush","memory_model":"sc"}],
+                "binder_types":[node]},{"class":"memory flush","memory_model":"tso"}],
                 "abstract":[{"class":"finish","node":node,"binder_types":[node]}]}
         });
         let extension = json!({
