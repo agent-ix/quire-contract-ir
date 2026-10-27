@@ -85,6 +85,15 @@ fn tc_233_published_model_owned_time_graph_admits_as_one_class() {
         )
     });
     let mut package = fixture_support::nominal_package(&members);
+    let published_package = read_json(&fixtures_dir().join("positive-nominal-identities.json"))
+        .expect("QSpec nominal package");
+    let source = published_package["lock"]["sources"][0].clone();
+    assert_eq!(source["authority"], members[3].0["owner"]["authority"]);
+    assert_eq!(source["identity"], members[3].0["owner"]["identity"]);
+    package["lock"]["sources"][0] = source.clone();
+    for entry in package["source_map"].as_array_mut().expect("source map") {
+        entry["regions"][0]["source"] = source.clone();
+    }
     let mut selections = members[..3]
         .iter()
         .map(|(preimage, _)| {
