@@ -1989,9 +1989,11 @@ pub(super) fn validate_catalog_graph(
             continue;
         };
         let root = node_at(position).key("body").key("class_catalog");
-        let concrete = local_protocol_classes(
-            &graph,
+        let local = local_protocol_nodes(&graph);
+        let concrete = protocol_classes(
+            &local,
             &graph.nodes[position].semantic_type,
+            None,
             None,
             &root,
             meter,
@@ -2004,12 +2006,30 @@ pub(super) fn validate_catalog_graph(
             meter,
         )?;
         let abstract_classes = match protocol.as_deref() {
-            Some(RefinementKey::Local(clause)) => {
-                let Some(model) = abstract_key.local() else {
-                    continue;
-                };
-                local_protocol_classes(&graph, model, Some(clause), &root, meter)?
-            }
+            Some(RefinementKey::Local(clause)) => match abstract_key.as_ref() {
+                RefinementKey::Local(model) => {
+                    protocol_classes(&local, model, Some(clause), None, &root, meter)?
+                }
+                RefinementKey::External(_) => Vec::new(),
+            },
+            Some(RefinementKey::External(clause)) => match abstract_key.as_ref() {
+                RefinementKey::External(model) if model.package == clause.package => {
+                    let selected = graph
+                        .dependencies
+                        .selected_package(&clause.package)
+                        .expect("refinement header resolved selected dependency");
+                    let dependency = dependency_protocol_nodes(selected);
+                    protocol_classes(
+                        &dependency,
+                        &model.node,
+                        Some(&clause.node),
+                        Some(&clause.package),
+                        &root,
+                        meter,
+                    )?
+                }
+                _ => Vec::new(),
+            },
             _ => Vec::new(),
         };
         compare_abstract_classes(
@@ -2026,40 +2046,87 @@ pub(super) fn validate_catalog_graph(
 #[derive(Clone)]
 struct DeclaredGraphClass {
     class: String,
-    node: CheckedNodeId,
-    binder_types: Vec<CheckedNodeId>,
+    node: RefinementKey,
+    binder_types: Vec<RefinementKey>,
 }
 
-fn local_protocol_classes(
-    graph: &RefinementGraph<'_, '_>,
+struct ProtocolCatalogNode<'a> {
+    id: &'a CheckedNodeId,
+    kind: super::CheckedNodeKind,
+    name: Option<&'a super::CheckedDeclaration>,
+    owner_model: Option<&'a CheckedNodeId>,
+    semantic_type: &'a CheckedNodeId,
+    term: Option<&'a CheckedTerm>,
+}
+
+fn local_protocol_nodes<'a>(graph: &'a RefinementGraph<'_, '_>) -> Vec<ProtocolCatalogNode<'a>> {
+    graph
+        .index
+        .values()
+        .map(|&position| {
+            let node = &graph.nodes[position];
+            ProtocolCatalogNode {
+                id: &node.node_id,
+                kind: graph.kinds[position],
+                name: node.declaration.as_ref(),
+                owner_model: node.owner_model.as_ref(),
+                semantic_type: &node.semantic_type,
+                term: graph.terms[position].as_ref(),
+            }
+        })
+        .collect()
+}
+
+fn dependency_protocol_nodes(package: &super::CheckedPackageV2) -> Vec<ProtocolCatalogNode<'_>> {
+    package
+        .graph()
+        .nodes
+        .iter()
+        .zip(package.node_kinds())
+        .map(|(node, &kind)| ProtocolCatalogNode {
+            id: &node.node_id,
+            kind,
+            name: node.declaration.as_ref(),
+            owner_model: node.owner_model.as_ref(),
+            semantic_type: &node.semantic_type,
+            term: Some(&node.body),
+        })
+        .collect()
+}
+
+fn protocol_classes(
+    nodes: &[ProtocolCatalogNode<'_>],
     model: &CheckedNodeId,
     selected_clause: Option<&CheckedNodeId>,
+    package: Option<&CheckedSemanticId>,
     at: &JsonPointer,
     meter: &mut super::WorkMeter,
 ) -> Result<Vec<DeclaredGraphClass>, ValidationFailure> {
     let mut classes = Vec::new();
-    for &clause_position in graph.index.values() {
-        if graph.kinds[clause_position]
-            != super::CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolClause)
-            || graph.nodes[clause_position].owner_model.as_ref() != Some(model)
-            || selected_clause
-                .is_some_and(|selected| selected != &graph.nodes[clause_position].node_id)
+    let key = |id: &CheckedNodeId| match package {
+        Some(package) => RefinementKey::External(RefinementPackageNodeKey {
+            package: package.clone(),
+            node: id.clone(),
+        }),
+        None => RefinementKey::Local(id.clone()),
+    };
+    for clause in nodes {
+        if clause.kind != super::CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolClause)
+            || clause.owner_model != Some(model)
+            || selected_clause.is_some_and(|selected| selected != clause.id)
         {
             continue;
         }
-        let Some(clause_name) = graph.nodes[clause_position].declaration.as_ref() else {
+        let Some(clause_name) = clause.name else {
             continue;
         };
-        for &member_position in graph.index.values() {
+        for member in nodes {
             meter.charge(1, || at.clone())?;
-            let member = &graph.nodes[member_position];
-            let Some(name) = member.declaration.as_ref() else {
+            let Some(name) = member.name else {
                 continue;
             };
-            if !matches!(
-                graph.kinds[member_position],
-                super::CheckedNodeKind::Protocol(_)
-            ) || name.qualified_name.len() <= clause_name.qualified_name.len()
+            if !matches!(member.kind, super::CheckedNodeKind::Protocol(_))
+                || name.qualified_name.len() <= clause_name.qualified_name.len()
                 || !name.qualified_name.starts_with(&clause_name.qualified_name)
             {
                 continue;
@@ -2068,7 +2135,7 @@ fn local_protocol_classes(
                 operation,
                 arguments,
                 ..
-            }) = graph.terms[member_position].as_ref()
+            }) = member.term
             else {
                 continue;
             };
@@ -2083,14 +2150,15 @@ fn local_protocol_classes(
             else {
                 continue;
             };
-            let binder_types = arguments
+            let binder_types: Vec<RefinementKey> = arguments
                 .iter()
                 .find_map(|argument| match argument {
                     CheckedTerm::Binding { name, value } if name.as_ref() == "binder" => {
                         if let CheckedTerm::Reference { target } = value.as_ref() {
-                            graph
-                                .local_node(target)
-                                .map(|binder| vec![binder.semantic_type.clone()])
+                            nodes
+                                .iter()
+                                .find(|candidate| candidate.id == target)
+                                .map(|binder| vec![key(binder.semantic_type)])
                         } else {
                             None
                         }
@@ -2101,7 +2169,7 @@ fn local_protocol_classes(
             for class in classes_for_node {
                 classes.push(DeclaredGraphClass {
                     class,
-                    node: member.node_id.clone(),
+                    node: key(member.id),
                     binder_types: binder_types.clone(),
                 });
             }
@@ -2168,7 +2236,12 @@ fn compare_declared_classes(
             RefinementConcreteClass::Declared {
                 node, binder_types, ..
             } => {
-                if node != &found.node || binder_types != &found.binder_types {
+                if found.node.local() != Some(node)
+                    || binder_types
+                        .iter()
+                        .map(|binder| Some(binder))
+                        .ne(found.binder_types.iter().map(RefinementKey::local))
+                {
                     return Err(wrong_binding(entry_at, locus));
                 }
             }
@@ -2220,15 +2293,7 @@ fn compare_abstract_classes(
             RefinementAbstractClass::Declared {
                 node, binder_types, ..
             } => {
-                if node != &RefinementKey::Local(found.node.clone())
-                    || binder_types
-                        != &found
-                            .binder_types
-                            .iter()
-                            .cloned()
-                            .map(RefinementKey::Local)
-                            .collect::<Vec<_>>()
-                {
+                if node != &found.node || binder_types != &found.binder_types {
                     return Err(wrong_binding(entry_at, locus));
                 }
             }
