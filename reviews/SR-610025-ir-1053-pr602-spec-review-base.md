@@ -33,3 +33,9 @@ Ticket IR-1053. Independent review of quire-contract-ir PR #602 at 2da06ffc3b406
 ## Verdict
 
 Findings require a fix or resolved upstream prerequisite before merge.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | TC-048 step 10 now separates selected B's valid owner edge/admission and B-only catalog from typed refusals for wrong-kind or unselected targets. The producer-over-A check remains separate. |

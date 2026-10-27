@@ -33,3 +33,9 @@ Ticket IR-1053. Independent review of PR #602 at 2da06ffc3b40620500d8810c93974e7
 ## Verdict
 
 Findings require a fix or resolved upstream prerequisite before merge.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | TC-048 step 12 now retains CC-12's full multi-default scope, identifies STD-499 as the prerequisite for exact order/admission, and identifies IR-1034 as the implementation prerequisite. FR-038 also names the unresolved QSpec uniqueness conflict. |

@@ -33,3 +33,9 @@ Ticket IR-1053. Independent review of PR #602 at 2da06ffc3b40620500d8810c93974e7
 ## Verdict
 
 Findings require a fix or resolved upstream prerequisite before merge.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | FR-061 Behavior and AC-1/AC-3/AC-7 now require canonical selected model_root keys, matching FR-064-AC-5. The abstract root and exact protocol clause remain distinct. |
