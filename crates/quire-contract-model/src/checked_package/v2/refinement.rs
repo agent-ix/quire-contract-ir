@@ -2223,7 +2223,7 @@ fn protocol_classes(
                 None
             } else {
                 protocol_binder_types(operator, arguments, nodes, signatures, meter)?
-                    .map(|types| types.into_iter().map(&key).collect())
+                    .map(|types| types.iter().map(&key).collect())
             };
             for class in classes_for_node {
                 classes.push(DeclaredGraphClass {
