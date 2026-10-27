@@ -83,16 +83,20 @@ pub(super) fn decode_anchor_body(body: &Value) -> Result<CheckedTerm, TermConver
         .get("members")
         .and_then(Value::as_array)
         .ok_or(TermConversionCause::MissingMember { member: "members" })?;
-    let [context, operation, frame, fourth] = members.as_slice() else {
-        return CheckedTerm::decode_admitted(body);
+    let (context, operation, frame, point) = match members.as_slice() {
+        [context, operation, frame] => (context, operation, frame, None),
+        [context, operation, frame, fourth] => {
+            let point = fourth
+                .get("value")
+                .and_then(CheckedExecutionPoint::from_wire)
+                .ok_or(TermConversionCause::MalformedMember {
+                    member: "execution_point",
+                    category: serde_json::error::Category::Data,
+                })?;
+            (context, operation, frame, Some(point))
+        }
+        _ => return CheckedTerm::decode_admitted(body),
     };
-    let point = fourth
-        .get("value")
-        .and_then(CheckedExecutionPoint::from_wire)
-        .ok_or(TermConversionCause::MalformedMember {
-            member: "execution_point",
-            category: serde_json::error::Category::Data,
-        })?;
     Ok(CheckedTerm::OperationAnchorBody(Box::new(
         CheckedOperationAnchorBody {
             members: [
@@ -100,7 +104,7 @@ pub(super) fn decode_anchor_body(body: &Value) -> Result<CheckedTerm, TermConver
                 CheckedTerm::decode_admitted(operation)?,
                 CheckedTerm::decode_admitted(frame)?,
             ],
-            execution_point: Some(point),
+            execution_point: point,
         },
     )))
 }

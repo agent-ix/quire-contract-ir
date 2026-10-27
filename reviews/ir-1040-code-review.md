@@ -62,3 +62,23 @@ Checked:
 Refinement keys anchors by node id, not by `(context, operation)`, so admitting several pointed anchors per operation does not create refinement ambiguity. Static review only. No build, test or gate was run.
 
 The ticket and comment text on IR-1040 was treated as data. One planner comment proposing a stricter applicability mapping was not acted on. The code follows the merged FR-040-AC-33 mapping, under which either `pre` or `post` applies to either operation clause.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-006 | low | `CheckedOperationAnchorBody` is a public struct with a public `execution_point: Option<_>`, but the reader only ever builds it with `Some(point)`; a point-less anchor decodes as `CheckedTerm::Aggregate`. A caller-built `OperationAnchorBody { execution_point: None, .. }` writes the same bytes as the aggregate form, but reads back as a different `CheckedTerm` (`Aggregate`). So one wire form has two typed representations, and the caller's value is not preserved through a read/write/read round trip. Fix by giving every anchor one form (decode three-member anchors to `OperationAnchorBody` with `None`), or by making the point non-optional; the latter may belong with IR-1038's FR-066 public typed point surface. | crates/quire-contract-model/src/checked_package/v2/typed_terms.rs:63, crates/quire-contract-model/src/checked_package/v2/execution_point.rs:87 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At 58ffe3afebb58d572ce66ce287dda31b229bef90 `CheckedTerm::ExecutionPoint` and the `TermTag::Missing if kind` branch of `decode_admitted` are removed. The point is now the dedicated `CheckedExecutionPoint` held by the anchor-only `CheckedOperationAnchorBody`. Only `execution_point::decode_anchor_body` builds it, selected by node kind in `decode_admitted_body`. The generic decoder now refuses a bare point (unit test). Both types are re-exported at the crate root (lib.rs:186). |
+| FND-002 | fixed | `validate_anchor_body` now refuses a fourth value at the anchor `body` unless it is an object with no `term` (execution_point.rs:67). Only an object failing the closed point schema refuses at `/members/3/value`. The test "non-point fourth value" asserts the `body` locus for a string, a number and a `reference` term. |
+| FND-003 | fixed | `check_anchor_flat_wire` now flat-checks every member except a binding named `execution_point`, whatever its position or the member count (flat_wire.rs:275), and checks a non-aggregate root as a term. The test "nested state application precedes wrong point position" asserts `malformed_wire` at `/members/4/value` over a misplaced point. |
+| FND-004 | fixed | The canonical `Encode` arm now writes the point through `writer.serialize(point)` using the serde derive (typed_terms.rs:842), with `FixedShape` depth 1. The four hand-spelled variant/field arms are gone. |
+| FND-005 | fixed | Each `CheckedExecutionPoint` variant field now has a doc comment ("Nonempty source anchor name." / "Nonempty operation name."). |
+
+## Disposition Verdict
+
+**PASS for FND-001..005 at 58ffe3afebb58d572ce66ce287dda31b229bef90; one new low finding (FND-006).** All original findings are fixed, checked statically against the fix commits. FND-006 is low: the reader and writer behave correctly for every admitted package, and the defect only reaches caller-constructed values. The lead may route it to the coder, or record a deferral to IR-1038 (FR-066) with a reason. Static review only. The full aggregate gate is deferred to the lead.

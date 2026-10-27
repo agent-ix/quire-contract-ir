@@ -22,7 +22,7 @@ use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageIdentityPreimageRefV2, CheckedPackageLimit,
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
 };
 use serde_json::{json, Value};
 use std::sync::LazyLock;
@@ -1322,6 +1322,11 @@ fn tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects() {
             .as_array()
             .and_then(|members| members.get(3))
             .map(|member| &member["value"]);
+        let CheckedTerm::OperationAnchorBody(typed_anchor) = &admitted.graph().nodes[anchor].body
+        else {
+            panic!("admitted anchor must have one typed form");
+        };
+        assert_eq!(typed_anchor.execution_point.is_some(), point.is_some());
         if let Some(point) = point {
             assert!(point.get("term").is_none(), "anchor point is not a term");
         }

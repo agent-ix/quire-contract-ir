@@ -53,3 +53,17 @@ Tags found per criterion:
 Bindings were inspected against the assertions in each test. All are correct, and AC-35 is thin (FND-001). The optional semantic review was not invoked as a separate exercise. The intent-to-test gaps above came from the changed-code review.
 
 Existing focused evidence, reported by the lead and not re-run here: 30/30 frame-entry tests and the 1/1 model anchor test. The full aggregate gate is deferred to the lead after review. The QSL producer-origin TC-056 fixture (QSL-1082) remains open and is not claimed.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At 58ffe3afebb58d572ce66ce287dda31b229bef90 the new test `tc_056_point_checks_follow_anchor_joins_and_clause_signature` (tagged FR-040-AC-35) asserts that operation resolution and scoped deletes come before anchor point applicability, and that the clause signature comes before clause/anchor point agreement. `tc_056_same_operation_admits_distinct_anchor_points` (now also tagged AC-35) asserts that anchor point applicability comes before duplicate-tuple detection. |
+| FND-002 | fixed | `tc_056_execution_point_shape_and_agreement_refuse_at_their_stage` now loops over `initialization{startup}`, `handler{tick}`, `pre{withdraw}` and `post{withdraw}` on the anchor. Each expects `invalid_model_binding`/`malformed-declaration` at the anchor node. |
+| FND-003 | fixed | The new `assert_pointed_writer_round_trip` helper runs the encoder plus read/write/read for invariant clause points (`initialization`/`handler`) and constraint clause points, comparing body bytes, package id and graph equality. |
+| FND-004 | fixed | The constraint test now asserts a package-id and node-digest difference from an absent-point constraint. It also asserts refusals for a `pre` point on a constraint (`malformed-declaration` at the node), an operation-anchor target (`malformed-declaration` at `arguments/1/target`) and a two-parameter signature (`ill_typed`/`operator-ineligible` at `arguments/0`). |
+| FND-005 | fixed | The "non-point fourth value" case covers a string, a number and a `reference` term in the fourth binding, each expecting `invalid_semantic_graph` with no cause at the anchor `body`. |
+
+## Disposition Verdict
+
+**PASS for FND-001..005 at 58ffe3afebb58d572ce66ce287dda31b229bef90.** No new gap findings. The QSL producer-origin TC-056 vector remains the open follow-up QSL-1082 and is not claimed. Plan completion: not assessed. Static review only, with the coder's focused tests reported green and not re-run here. The full aggregate gate is deferred to the lead.
