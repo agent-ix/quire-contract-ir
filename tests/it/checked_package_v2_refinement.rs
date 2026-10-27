@@ -1143,6 +1143,155 @@ fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
     );
 }
 
+/// Provenance: IR-874 catalog graph join.
+#[test]
+fn refinement_catalog_joins_selected_abstract_clause_and_binder() {
+    let (mut package, evidence) =
+        concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::SelectedModel);
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let clause = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "protocol_clause")
+        .expect("clause")["node_id"]
+        .clone();
+    let finish = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "protocol" && node["semantic_form"] == "obligation")
+        .expect("finish")["node_id"]
+        .clone();
+    let binder = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let position = set_concrete_catalog(
+        &mut package,
+        vec![json!({"class":"OrderFlow::Closed", "node":finish,
+            "binder_types":[binder]})],
+    );
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["body"]["protocol"] = clause.clone();
+    node["body"]["class_catalog"]["abstract"] = json!([{
+        "class":"OrderFlow::Closed", "node":finish, "binder_types":[binder]
+    }]);
+    let mut dependencies = node["dependencies"]
+        .as_array()
+        .expect("dependencies")
+        .clone();
+    dependencies.push(clause);
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.dedup();
+    node["dependencies"] = json!(dependencies);
+    rekey_refinement(&mut package, position);
+    let admitted = read(&package, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "{admitted:?}"
+    );
+
+    let mut wrong_binder = package.clone();
+    wrong_binder["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["abstract"][0]
+        ["binder_types"] = json!([]);
+    rekey_refinement(&mut wrong_binder, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_binder, &evidence) else {
+        panic!("abstract class with wrong binder admitted");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/abstract/0").as_str())
+    );
+}
+
+/// Provenance: IR-874 catalog graph join.
+#[test]
+fn refinement_catalog_joins_abstract_class_from_direct_dependency() {
+    let (mut dependency_wire, dependency_evidence) =
+        concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::SelectedModel);
+    let dependency_nodes = dependency_wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let abstract_model = dependency_nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "state_machine")
+        .expect("model")["node_id"]
+        .clone();
+    let abstract_clause = dependency_nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "protocol_clause")
+        .expect("clause")["node_id"]
+        .clone();
+    let abstract_finish = dependency_nodes
+        .iter()
+        .find(|node| node["node_tag"] == "protocol" && node["semantic_form"] == "obligation")
+        .expect("finish")["node_id"]
+        .clone();
+    let binder = node_id(&crate::support::checked_package::family_key("aaaa"));
+    set_concrete_catalog(
+        &mut dependency_wire,
+        vec![json!({"class":"OrderFlow::Closed", "node":abstract_finish,
+            "binder_types":[binder]})],
+    );
+    let CheckedPackageV2ReadResult::Admitted(dependency) =
+        read(&dependency_wire, &dependency_evidence)
+    else {
+        panic!("direct dependency fixture must admit");
+    };
+    let dependency_id = dependency_wire["package_id"].clone();
+    let external = |node: Value| json!({"package":dependency_id, "node":node});
+
+    let (mut package, mut evidence) =
+        concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::SelectedModel);
+    let concrete_finish = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "protocol" && node["semantic_form"] == "obligation")
+        .expect("finish")["node_id"]
+        .clone();
+    let position = set_concrete_catalog(
+        &mut package,
+        vec![json!({"class":"OrderFlow::Closed", "node":concrete_finish,
+            "binder_types":[binder]})],
+    );
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["body"]["abstract"] = external(abstract_model);
+    node["body"]["protocol"] = external(abstract_clause);
+    node["body"]["class_catalog"]["abstract"] = json!([{
+        "class":"OrderFlow::Closed", "node":external(abstract_finish),
+        "binder_types":[external(binder.clone())]
+    }]);
+    node["dependencies"] = json!([concrete_finish, binder]);
+    node["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    rekey_refinement(&mut package, position);
+    package["lock"]["dependency_selections"] = json!([{
+        "identity":"test/abstract-protocol", "package_id":dependency_id
+    }]);
+    refresh_identity(&mut package);
+    evidence
+        .insert_dependency_package("test/abstract-protocol", *dependency)
+        .expect("selected dependency");
+    let admitted = read(&package, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "{admitted:?}"
+    );
+
+    let mut wrong_binder = package.clone();
+    wrong_binder["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["abstract"][0]
+        ["binder_types"] = json!([]);
+    rekey_refinement(&mut wrong_binder, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_binder, &evidence) else {
+        panic!("external abstract class with wrong binder admitted");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/abstract/0").as_str())
+    );
+}
+
 #[test]
 fn refinement_state_machine_owner_and_kind_are_exact() {
     let (package, evidence) = machine_package();

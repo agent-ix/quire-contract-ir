@@ -1119,16 +1119,15 @@ impl RefinementGraph<'_, '_> {
         self.nodes.get(*self.index.get(id)?)
     }
 
-    fn key_semantic_type(&self, key: &RefinementKey) -> Option<&CheckedNodeId> {
+    fn key_owner_model(&self, key: &RefinementKey) -> Option<&CheckedNodeId> {
         match key {
-            RefinementKey::Local(id) => Some(&self.local_node(id)?.semantic_type),
-            RefinementKey::External(external) => Some(
-                &self
-                    .dependencies
-                    .selected_package(&external.package)?
-                    .node(&external.node)?
-                    .semantic_type,
-            ),
+            RefinementKey::Local(id) => self.local_node(id)?.owner_model.as_ref(),
+            RefinementKey::External(external) => self
+                .dependencies
+                .selected_package(&external.package)?
+                .node(&external.node)?
+                .owner_model
+                .as_ref(),
         }
     }
 
@@ -1660,7 +1659,7 @@ fn check_headers(
             RefinementKey::Local(id) => id,
             RefinementKey::External(key) => &key.node,
         };
-        if graph.key_semantic_type(protocol) != Some(abstract_id) {
+        if graph.key_owner_model(protocol) != Some(abstract_id) {
             return Err(wrong_binding(
                 root.clone().key("body").key("protocol"),
                 locus,
@@ -2017,7 +2016,14 @@ pub(super) fn validate_catalog_graph(
                     let selected = graph
                         .dependencies
                         .selected_package(&clause.package)
-                        .expect("refinement header resolved selected dependency");
+                        .ok_or_else(|| {
+                            ValidationFailure::refused_at(
+                                CheckedPackageRefusalCode::InvalidModelBinding,
+                                node_at(position).key("body").key("protocol"),
+                                Some(CheckedPackageRefusalCause::MalformedDeclaration),
+                                graph.nodes[position].node_id.clone(),
+                            )
+                        })?;
                     let dependency = dependency_protocol_nodes(selected);
                     protocol_classes(
                         &dependency,
