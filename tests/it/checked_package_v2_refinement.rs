@@ -324,6 +324,36 @@ fn memory_catalog_package() -> (Value, CheckedPackageEvidence, usize) {
             "term":"literal", "type": node_id(&crate::support::checked_package::family_key("a1a1")),
             "value_kind":"text", "value":model
         }]);
+        for (branch, name) in ["Left", "Right"].iter().enumerate() {
+            let child = base["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .iter()
+                .find(|node| {
+                    node["declaration"]["qualified_name"]
+                        == json!(["Example", "OrderFlow", "run", "Main", "Holder", name])
+                })
+                .expect("parallel child");
+            let copied = crate::support::checked_package::protocol_named_node(
+                "control",
+                &[
+                    "Example",
+                    "OrderFlow",
+                    "run",
+                    "Main",
+                    &format!("Holder{suffix}"),
+                    name,
+                ],
+                child["body"].clone(),
+                &[],
+            );
+            body["arguments"][1]["value"]["members"][branch]["members"][1]["value"]["target"] =
+                copied["node_id"].clone();
+            base["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("nodes")
+                .push(copied);
+        }
         let copy = crate::support::checked_package::protocol_named_node(
             "control",
             &[
@@ -336,6 +366,19 @@ fn memory_catalog_package() -> (Value, CheckedPackageEvidence, usize) {
             body,
             &[],
         );
+        let root = base["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .position(|node| {
+                node["declaration"]["qualified_name"]
+                    == json!(["Example", "OrderFlow", "run", "Main"])
+            })
+            .expect("sequence root");
+        base["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]["members"]
+            .as_array_mut()
+            .expect("children")
+            .push(json!({"term":"reference", "target":copy["node_id"]}));
         base["semantic_graph"]["nodes"]
             .as_array_mut()
             .expect("nodes")
@@ -493,7 +536,7 @@ fn abstract_protocol_memory_default_is_catalogued_from_its_own_clause() {
     let (mut package, evidence) = concrete_protocol_refinement_on(
         base,
         ProtocolStepRows::Empty,
-        ProtocolClauseOwner::OtherModel,
+        ProtocolClauseOwner::SelectedModel,
     );
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
@@ -527,7 +570,7 @@ fn abstract_protocol_memory_default_is_catalogued_from_its_own_clause() {
     dependencies.dedup();
     let refinement = &mut package["semantic_graph"]["nodes"][position];
     refinement["body"]["protocol"] = clause;
-    refinement["body"]["class_catalog"] = json!({"concrete":[], "abstract":entries});
+    refinement["body"]["class_catalog"] = json!({"concrete":entries, "abstract":entries});
     refinement["dependencies"] = json!(dependencies);
     rekey_refinement(&mut package, position);
     let admitted = read(&package, &evidence);
