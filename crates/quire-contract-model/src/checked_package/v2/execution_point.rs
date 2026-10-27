@@ -52,6 +52,16 @@ pub(super) fn validate_anchor_body(
     {
         return Err(body_refusal());
     }
+    let mut work = 3_u64; // aggregate, fourth binding, and point object
+    for (index, member) in members.iter().take(3).enumerate() {
+        work = work.saturating_add(validate_term(
+            member,
+            TermGrammar::V2,
+            false,
+            &at.key("members").index(index),
+            visit,
+        )?);
+    }
     let point_at = at.key("members").index(3).key("value");
     if fourth
         .get("value")
@@ -62,16 +72,6 @@ pub(super) fn validate_anchor_body(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             point_at.pointer(),
         ));
-    }
-    let mut work = 3_u64; // aggregate, fourth binding, and point object
-    for (index, member) in members.iter().take(3).enumerate() {
-        work = work.saturating_add(validate_term(
-            member,
-            TermGrammar::V2,
-            false,
-            &at.key("members").index(index),
-            visit,
-        )?);
     }
     Ok(work)
 }

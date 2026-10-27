@@ -1079,6 +1079,20 @@ fn pointed_state_package(anchor_point: Option<Value>, clause_point: Option<Value
     package
 }
 
+fn with_postcondition(mut package: StatePackage, point: Option<Value>) -> StatePackage {
+    let anchor = package.at("state", "operation_anchor");
+    let mut node = clause_node("postcondition", &[self_key()], &package.digest(anchor));
+    if let Some(point) = point {
+        node["body"]["operation"]["member"]["execution_point"] = point;
+    }
+    package.value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(node);
+    settle(&mut package.value);
+    package
+}
+
 fn pointed_invariant(point: Value) -> StatePackage {
     let mut package = StatePackage::new();
     let clause = package.clause("invariant");
@@ -1224,6 +1238,25 @@ fn tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects() {
         digest(&post.value, post.at("state", "operation_anchor"))
     );
     assert_ne!(pre.value["package_id"], post.value["package_id"]);
+    for point in [
+        json!({"kind": "pre", "operation": "deposit"}),
+        json!({"kind": "post", "operation": "deposit"}),
+    ] {
+        let package = with_postcondition(
+            pointed_state_package(Some(point.clone()), Some(point.clone())),
+            Some(point.clone()),
+        );
+        let clause = package.clause("postcondition");
+        let admitted = match read(&package.value) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("postcondition with either operation point refused: {other:?}"),
+        };
+        assert_eq!(
+            serde_json::to_value(&admitted.graph().nodes[clause].body)
+                .expect("typed postcondition")["operation"]["member"]["execution_point"],
+            point
+        );
+    }
 }
 
 #[trace("TC-056", "FR-040-AC-32", "FR-040-AC-34", "FR-040-AC-35")]
