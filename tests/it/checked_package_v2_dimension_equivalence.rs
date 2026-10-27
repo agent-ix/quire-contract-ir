@@ -171,16 +171,6 @@ fn typed_pair_round_trips_with_normalized_key_and_anchor() {
             .expect("canonical key"),
         edge.node_id.digest.as_ref()
     );
-    let first = value["semantic_graph"]["nodes"][0]["node_id"]["digest"]
-        .as_str()
-        .expect("first");
-    let second = value["semantic_graph"]["nodes"][1]["node_id"]["digest"]
-        .as_str()
-        .expect("second");
-    assert_eq!(
-        equivalence(first, second, "1", "1"),
-        equivalence(second, first, "1", "1")
-    );
     let mut retained = value.clone();
     retained["semantic_graph"] = serde_json::to_value(admitted.graph()).expect("retained graph");
     assert_eq!(encode(&retained), bytes);
@@ -188,6 +178,54 @@ fn typed_pair_round_trips_with_normalized_key_and_anchor() {
         admitted.package_id(),
         &typed::<CheckedSemanticId>(&value["package_id"])
     );
+}
+
+/// Trace: FR-063-AC-2
+#[trace("FR-063-AC-2")]
+#[test]
+fn reversed_source_operands_preserve_the_public_writer_and_reader_identity() {
+    let first = dimension("RpcTime", json!([]));
+    let second = dimension("FlowTime", json!([]));
+    let mut canonical_ids = [first.1.as_str(), second.1.as_str()];
+    canonical_ids.sort();
+
+    let forward = nominal_package(&[
+        first.clone(),
+        second.clone(),
+        equivalence(canonical_ids[0], canonical_ids[1], "2", "1"),
+    ]);
+
+    // The independently authored reverse declaration says high/low = 1/2.
+    // Inverting its ratio when ordering the retained pair yields low/high = 2/1.
+    let reverse_operands = [canonical_ids[1], canonical_ids[0]];
+    let reverse_ratio = ("1", "2");
+    assert!(reverse_operands[0] > reverse_operands[1]);
+    let reversed_preimage = json!({
+        "version": "quire.dimension-equivalence-node/v1",
+        "owner": source_owner(&fixture_source()),
+        "dimension_node_ids": [node_id(reverse_operands[1]), node_id(reverse_operands[0])],
+        "root_scale": {
+            "numerator": reverse_ratio.1,
+            "denominator": reverse_ratio.0,
+        },
+    });
+    let reversed_key = sha256_hex(&canonical(&reversed_preimage));
+    let reverse = nominal_package(&[first, second, (reversed_preimage, reversed_key)]);
+
+    let forward_bytes = encode(&forward);
+    let reverse_bytes = encode(&reverse);
+    assert_eq!(forward_bytes, reverse_bytes);
+    let forward_admitted = admit(&forward);
+    let reverse_admitted = admit(&reverse);
+    let forward_edge = forward_admitted.graph().nodes.last().expect("forward edge");
+    let reverse_edge = reverse_admitted.graph().nodes.last().expect("reverse edge");
+    assert_eq!(forward_edge.node_id, reverse_edge.node_id);
+    assert_eq!(forward_edge.dependencies, reverse_edge.dependencies);
+    assert_eq!(
+        forward_edge.nominal_identity_preimage,
+        reverse_edge.nominal_identity_preimage
+    );
+    assert_eq!(forward_admitted.package_id(), reverse_admitted.package_id());
 }
 
 /// Trace: FR-063-AC-3, FR-063-AC-4

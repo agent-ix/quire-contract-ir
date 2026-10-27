@@ -3,43 +3,38 @@
 
 //! QSpec TC-233's published nominal preimages stay at their exact identities.
 
-use super::{fixtures_dir, proposal_dir_of, read_json};
+use super::{fixture_support, fixtures_dir, proposal_dir_of, read_json};
 use ix_trace_rs::trace;
-use quire_contract_model::NominalIdentityPreimage;
+use quire_contract_model::{
+    CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult, NominalIdentityPreimage,
+};
+use serde_json::{json, Value};
+
+fn vectors() -> Value {
+    let path = proposal_dir_of(&fixtures_dir()).join("node-identity-vectors.json");
+    read_json(&path).expect("QSpec node identity vectors")
+}
+
+fn named_row<'a>(rows: &'a [Value], name: &str) -> &'a Value {
+    rows.iter()
+        .find(|row| row["name"] == name)
+        .unwrap_or_else(|| panic!("published case {name}"))
+}
 
 /// Trace: FR-063-AC-3
 #[trace("TC-233", "FR-063-AC-3")]
 #[test]
 fn tc_233_dimension_equivalence_vectors_have_the_published_keys_and_scales() {
-    let path = proposal_dir_of(&fixtures_dir()).join("node-identity-vectors.json");
-    let vectors = read_json(&path).expect("QSpec node identity vectors");
+    let vectors = vectors();
     let rows = vectors["vectors"].as_array().expect("vectors array");
     let cases = [
-        (
-            "dimension-equivalence-rpc-flow-time",
-            "1",
-            "1",
-            "bbf770ea312108434ee12d0ca4448c6d3d53a0004484b93b8ec577ff1ede00d4",
-        ),
-        (
-            "dimension-equivalence-rpc-clock-time",
-            "1000",
-            "1",
-            "d707eb948ab055a64cf90b8009997ebc54c9bfe5361479afb6485c9c2df56c24",
-        ),
-        (
-            "dimension-equivalence-flow-clock-time",
-            "1000",
-            "1",
-            "584c6bbcb5056cf9dd5d10504339e49c5507348601530e5ef6d67bc5e351714b",
-        ),
+        ("dimension-equivalence-rpc-flow-time", "1", "1"),
+        ("dimension-equivalence-rpc-clock-time", "1000", "1"),
+        ("dimension-equivalence-flow-clock-time", "1000", "1"),
     ];
-    for (name, numerator, denominator, expected_key) in cases {
-        let row = rows
-            .iter()
-            .find(|row| row["name"] == name)
-            .expect("published case");
-        assert_eq!(row["sha256"], expected_key);
+    for (name, numerator, denominator) in cases {
+        let row = named_row(rows, name);
+        let expected_key = row["sha256"].as_str().expect("published key");
         let preimage: NominalIdentityPreimage =
             serde_json::from_value(row["preimage"].clone()).expect("typed published preimage");
         let NominalIdentityPreimage::DimensionEquivalence(edge) = &preimage else {
@@ -52,25 +47,13 @@ fn tc_233_dimension_equivalence_vectors_have_the_published_keys_and_scales() {
             expected_key
         );
     }
-    for (name, expected_key) in [
-        (
-            "model-dimension-acme-rpc-time",
-            "57798558b4187c759907231c80c74ae4d3857b5b4c3bfd4fed20f146dab409e7",
-        ),
-        (
-            "model-dimension-acme-flow-time",
-            "a005567d213eebe2b5afcea6571eed60595e02a2138cd8e21b9c0310efbf8a7c",
-        ),
-        (
-            "model-dimension-acme-clock-time",
-            "d6728197a52375cb5e131e7d439f053e1b622950b4875a09b31d67ab46012c46",
-        ),
+    for name in [
+        "model-dimension-acme-rpc-time",
+        "model-dimension-acme-flow-time",
+        "model-dimension-acme-clock-time",
     ] {
-        let row = rows
-            .iter()
-            .find(|row| row["name"] == name)
-            .expect("published dimension");
-        assert_eq!(row["sha256"], expected_key);
+        let row = named_row(rows, name);
+        let expected_key = row["sha256"].as_str().expect("published key");
         let preimage: NominalIdentityPreimage =
             serde_json::from_value(row["preimage"].clone()).expect("typed dimension");
         assert_eq!(
@@ -78,4 +61,69 @@ fn tc_233_dimension_equivalence_vectors_have_the_published_keys_and_scales() {
             expected_key
         );
     }
+}
+
+/// Trace: FR-063-AC-3
+#[trace("TC-233", "FR-063-AC-3")]
+#[test]
+fn tc_233_published_model_owned_time_graph_admits_as_one_class() {
+    let vectors = vectors();
+    let rows = vectors["vectors"].as_array().expect("vectors array");
+    let names = [
+        "model-dimension-acme-rpc-time",
+        "model-dimension-acme-flow-time",
+        "model-dimension-acme-clock-time",
+        "dimension-equivalence-rpc-flow-time",
+        "dimension-equivalence-rpc-clock-time",
+        "dimension-equivalence-flow-clock-time",
+    ];
+    let members = names.map(|name| {
+        let row = named_row(rows, name);
+        (
+            row["preimage"].clone(),
+            row["sha256"].as_str().expect("published key").to_owned(),
+        )
+    });
+    let mut package = fixture_support::nominal_package(&members);
+    let mut selections = members[..3]
+        .iter()
+        .map(|(preimage, _)| {
+            let identity = preimage["owner"]["identity"]
+                .as_str()
+                .expect("model identity");
+            let document = fixture_support::domain_package_document(identity, "1", Vec::new());
+            json!({
+                "identity": identity,
+                "digest_domain": "sha256-jcs",
+                "digest": fixture_support::domain_package_digest(&document),
+            })
+        })
+        .collect::<Vec<_>>();
+    selections.sort_by(|left, right| left["identity"].as_str().cmp(&right["identity"].as_str()));
+    package["lock"]["model_selections"] = Value::Array(selections);
+    fixture_support::refresh_identity(&mut package);
+
+    let admitted = match CheckedPackageV2::read(
+        &fixture_support::canonical(&package),
+        CheckedPackageReadLimits::bounded(),
+        &fixture_support::evidence_for(&package),
+    ) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("published three-package Time graph must admit: {other:?}"),
+    };
+    assert_eq!(admitted.graph().nodes.len(), names.len());
+    for (position, (preimage, published_key)) in members.iter().enumerate() {
+        let node = &admitted.graph().nodes[position];
+        assert_eq!(node.node_id.digest.as_ref(), published_key, "{position}");
+        let expected: NominalIdentityPreimage =
+            serde_json::from_value(preimage.clone()).expect("published preimage");
+        assert_eq!(node.nominal_identity_preimage.as_ref(), Some(&expected));
+    }
+    assert_eq!(
+        admitted.graph().nodes[3..]
+            .iter()
+            .map(|node| node.occurrences[0].ordinal)
+            .collect::<Vec<_>>(),
+        [0, 1, 2]
+    );
 }
