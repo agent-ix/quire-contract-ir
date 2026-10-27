@@ -278,9 +278,19 @@ fn rekey_refinement(package: &mut Value, position: usize) {
     refresh_identity(package);
 }
 
+enum ProtocolStepRows {
+    Empty,
+    Declared,
+}
+
+enum ProtocolClauseOwner {
+    SelectedModel,
+    OtherModel,
+}
+
 fn concrete_protocol_refinement(
-    with_step: bool,
-    same_model: bool,
+    step_rows: ProtocolStepRows,
+    clause_owner: ProtocolClauseOwner,
 ) -> (Value, CheckedPackageEvidence) {
     let (machine, _) = machine_package();
     let model = machine["semantic_graph"]["nodes"]
@@ -302,7 +312,7 @@ fn concrete_protocol_refinement(
         .as_array_mut()
         .expect("nodes")
         .push(model.clone());
-    if same_model {
+    if matches!(clause_owner, ProtocolClauseOwner::SelectedModel) {
         let clause = package["semantic_graph"]["nodes"]
             .as_array_mut()
             .expect("nodes")
@@ -321,7 +331,7 @@ fn concrete_protocol_refinement(
         .expect("declared finish")["node_id"]
         .clone();
     let profiles = package["lock"]["profile_selections"].clone();
-    if with_step {
+    if matches!(step_rows, ProtocolStepRows::Declared) {
         one_step_refinement_with_step(
             &mut package,
             json!({
@@ -646,7 +656,10 @@ fn refinement_row_empty_model_refinement_is_admitted() {
 #[trace("TC-048")]
 #[test]
 fn refinement_catalog_presence_precedes_declaration_backed_step_joins() {
-    let (mut package, evidence) = concrete_protocol_refinement(true, true);
+    let (mut package, evidence) = concrete_protocol_refinement(
+        ProtocolStepRows::Declared,
+        ProtocolClauseOwner::SelectedModel,
+    );
     let refinement = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -741,7 +754,8 @@ fn refinement_catalog_presence_precedes_declaration_backed_step_joins() {
 #[trace("TC-048")]
 #[test]
 fn refinement_catalog_presence_uses_clause_owner_without_step_rows() {
-    let (owned, evidence) = concrete_protocol_refinement(false, true);
+    let (owned, evidence) =
+        concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::SelectedModel);
     let position = owned["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -760,7 +774,8 @@ fn refinement_catalog_presence_uses_clause_owner_without_step_rows() {
         Some(catalog_at.as_str())
     );
 
-    let (mut foreign, evidence) = concrete_protocol_refinement(false, false);
+    let (mut foreign, evidence) =
+        concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::OtherModel);
     let result = read(&foreign, &evidence);
     assert!(
         matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
@@ -786,7 +801,8 @@ fn refinement_catalog_presence_uses_clause_owner_without_step_rows() {
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog").as_str())
     );
 
-    let (foreign_row, evidence) = concrete_protocol_refinement(true, false);
+    let (foreign_row, evidence) =
+        concrete_protocol_refinement(ProtocolStepRows::Declared, ProtocolClauseOwner::OtherModel);
     let position = foreign_row["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
