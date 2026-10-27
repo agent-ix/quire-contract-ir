@@ -77,6 +77,25 @@ both require `kind` `weak` or `strong` and `granularity` `each` or `whole`.
 Composite expressions use their own node references; an application nested
 beyond FR-322's body-term grammar is refused.
 
+The public `RefinementMemoryClass` SHALL retain the closed source-default
+memory class variant through typed read/write/read. A `memory drain` entry
+has exactly `class: "memory drain"`, `memory_model` in `sc`, `tso`, `ra`,
+and `drain: "store-buffer-flush"`. A `memory flush` entry has exactly
+`class: "memory flush"` and `memory_model: "tso"`, with no `drain`.
+Neither variant has `node` or `binder_types`.
+The typed `drain` vocabulary SHALL contain only `store-buffer-flush`; the
+reader and writer SHALL NOT omit, infer, or default it. For each source-default
+`sc`, `tso`, or `ra` model selected by a source `parallel` in a subject, its
+catalog SHALL include `memory drain`; a source-default `tso` also contributes
+the separate `memory flush` class. A request-time memory override SHALL NOT
+change either checked-package catalog or package identity. The drain class
+means that the thread's pending writes become visible according to the
+selected model's visibility rule: `sc` is a no-op, `tso` flushes the store
+buffer in FIFO order, and `ra` has no store-buffer entries to remove and
+grants no additional visibility or ordering beyond QSpec FR-437. The
+separate TSO flush class removes only the oldest buffered write for one
+thread.
+
 ### Keys, graph and identity
 
 `RefinementKey` SHALL be a local `NodeRef` for a node in this graph, or the
@@ -104,8 +123,9 @@ NOT be replaced by one of its package's object-type or state-machine
 declarations. `dependencies` SHALL be exactly the unique, digest-ascending local
 keys named by `abstract`, optional `protocol`, row declarations and types,
 and expression reference targets and application member declarations and
-populations. Local header keys remain dependencies when all arrays are
-empty. An external `PackageNodeKey`, profile `DefinitionRef`, literal type,
+populations, plus local `class_catalog` class nodes and binder type keys.
+Local header keys remain dependencies when all arrays are empty. An external
+`PackageNodeKey`, profile `DefinitionRef`, literal type,
 application result type and standalone `semantic_type` are not dependencies
 unless another listed body key names the same local node. A dependency
 mismatch SHALL refuse `invalid_semantic_graph` at `/dependencies` in
@@ -114,7 +134,8 @@ FR-322's graph-shape stage, before refinement meaning joins.
 The node id SHALL be the JCS SHA-256 of the closed
 `{version: "quire.refinement-node/v1", semantic_type, body}` preimage. The
 same complete body enters FR-322's package identity projection. A changed
-row, profile, abstract or protocol target, internal list, or concrete model
+row, profile, abstract or protocol target, internal list, catalog class,
+source-default memory model or drain member, or concrete model
 SHALL change the node id and package id when identities are recomputed; a
 stale retained key SHALL refuse at FR-322's earlier key stage. A source row
 reorder that yields the same canonical arrays SHALL change neither identity.
@@ -144,14 +165,31 @@ SHALL visit nodes in ascending retained node-id digest order and, within each
 node, follow FR-375's stages: recompute the dedicated refinement identity;
 check canonical order in `populations`, `objects` (including `fields`),
 `steps`, `histories` (including `updates`), `assume`, `ensure`, then optional
-`abstract_internal`; join the header in `semantic_type`, `abstract`, optional
-`protocol`, `profile` order; then join rows in the same array and nested-array
-order as the canonical check. Within an array or nested array it SHALL visit
-ascending indices; within one row at one stage it SHALL visit members in the
-published schema's declared order where FR-375 fixes no further tie-break.
-A malformed closed body or row refuses `invalid_semantic_graph` at its body or offending
-entry (IR reading); a malformed term already assigned `malformed_wire` by
-FR-038 keeps that earlier refusal. A wrong body on another `relation` form
+`abstract_internal` and `class_catalog` (`concrete`, then `abstract`), with
+catalog classes ordered by their alias-free UTF-8 spelling; join the header
+in `semantic_type`, `abstract`, optional `protocol`, `profile` order; check
+catalog presence and entries before row joins; then join rows in the same
+array and nested-array order as the canonical check. Within an array or
+nested array it SHALL visit ascending indices; within one row at one stage
+it SHALL visit members in the published schema's declared order where
+FR-375 fixes no further tie-break.
+A missing `drain`, a `drain` on `memory flush`, a wrong `drain` value, a
+wrong model for `memory flush`, or an extra class-entry member SHALL refuse
+`malformed_wire` at the offending node/member in the earlier closed-wire
+stage, before identity or catalog joins. A schema-valid but out-of-order or
+duplicate catalog entry SHALL refuse `invalid_semantic_graph` at the first
+offending entry in the refinement canonical-order stage. A stale node key
+SHALL refuse `invalid_package`/`stale-node-key` at its `node_id` before
+canonical-order, header, catalog or row checks. A schema-valid but
+semantically absent or extra source-default memory class in a present catalog SHALL refuse
+`invalid_semantic_graph` at its catalog array or entry in the later protocol
+graph join of [FR-038](./FR-038-consume-checked-package-v2.md); a wrong
+subject, node association or binder signature SHALL refuse
+`invalid_model_binding`/`malformed-declaration` at the catalog entry. A
+malformed closed row that passed schema validation refuses
+`invalid_semantic_graph` at its body or offending entry (IR reading); a
+malformed term already assigned `malformed_wire` by FR-038 keeps that
+earlier refusal. A wrong body on another `relation` form
 does not become a refinement, and a valid refinement body on an unknown form
 still refuses at `semantic_form`.
 
@@ -167,7 +205,11 @@ still refuses at `semantic_form`.
 | FR-061-AC-6 | The exact local dependency set includes body header keys and every direct row declaration/type and expression/member target, excludes external keys and annotations, and is digest-ascending. An omitted, extra or misordered dependency refuses `invalid_semantic_graph` at `/dependencies` before any row-meaning defect. | Test |
 | FR-061-AC-7 | Two row-empty refinements over one abstract model and profile but distinct selected concrete model packages have equal bodies, distinct canonical `model_root` `semantic_type` keys and distinct `quire.refinement-node/v1` node ids, even when their declaration counts or shapes coincide. Mutating any meaning-bearing body row or optional internal list with recomputed identities changes node and package ids; retaining a stale key refuses at the earlier key stage; source row permutation that canonicalizes to the same arrays changes neither id. | Test |
 | FR-061-AC-8 | A proof-eligible refinement with `n` steps admits exactly its declaration occurrence 0 and generated occurrences 0 through `n`; an owner with a hidden field, a history or an `any` step admits only declaration occurrence 0. Duplicate, extra-role, extra-ordinal or wrong-region source-map entries refuse `invalid_package`/`invalid-value` at the offending entry; a missing required occurrence refuses the same pair at `/source_map` after every present entry passes. No derived per-step node is synthesized. | Test |
-| FR-061-AC-9 | The reader reports the earlier FR-322 strict-wire, graph-shape, key, declaration or source-map defect before a later refinement meaning defect. Among two refinement nodes with separate meaning defects, the lower node id wins. Within one node, a stale dedicated refinement key precedes canonical array-order defects; canonical defects precede header-join defects; header joins run in `semantic_type`, `abstract`, optional `protocol`, `profile` order and precede row joins; canonical and row checks each visit `populations`, `objects`/`fields`, `steps`, `histories`/`updates`, `assume`, `ensure`, optional `abstract_internal` in FR-375 order, then ascending index and schema-declared entry-member order where FR-375 fixes no further tie-break. An invalid body of another `relation` form never enters the refinement body path. | Test |
+| FR-061-AC-9 | The reader reports the earlier FR-322 strict-wire, graph-shape, key, declaration or source-map defect before a later refinement meaning defect. Among two refinement nodes with separate meaning defects, the lower node id wins. Within one node, a stale dedicated refinement key precedes canonical array-order defects; canonical defects precede header-join defects; header joins run in `semantic_type`, `abstract`, optional `protocol`, `profile` order and precede catalog and row joins; canonical checks visit `populations`, `objects`/`fields`, `steps`, `histories`/`updates`, `assume`, `ensure`, optional `abstract_internal`, then optional `class_catalog` (`concrete`, `abstract`) in FR-375 order; row checks retain their existing six-array order. Within each array checks visit ascending index and schema-declared entry-member order where FR-375 fixes no further tie-break. An invalid body of another `relation` form never enters the refinement body path. | Test |
+| FR-061-AC-10 | An external consumer builds a typed refinement catalog for each source-default model `sc`, `tso` and `ra` with the exact `{class: "memory drain", memory_model, drain: "store-buffer-flush"}` entry, and for `tso` with the separate `{class: "memory flush", memory_model: "tso"}` entry. The public writer encodes each without extra members; the strict reader admits each and retains the typed drain value and model through read/write/read with unchanged node and package identities. The typed drain variant is distinct from the TSO-only flush variant. | Test |
+| FR-061-AC-11 | Starting from an otherwise valid package, deleting `drain` from `memory drain`, changing its value or type, adding it to `memory flush`, assigning `memory flush` model `sc` or `ra`, or adding `node`, `binder_types` or another unknown entry member refuses `malformed_wire` at the closed-wire stage, with the offending node/member location and no admitted package or defaulted field. A schema-valid duplicate or misordered memory catalog entry refuses `invalid_semantic_graph` at the first offending entry after the dedicated key check. | Test |
+| FR-061-AC-12 | A protocol refinement catalog includes `memory drain` for every `sc`, `tso` or `ra` source-default `parallel` selected in its subject and additionally `memory flush` for a TSO source default. In a present catalog, an omitted required drain or TSO flush, an extra memory class, or a memory class from another selected subject refuses `invalid_semantic_graph` at the catalog array or entry after the protocol-body check; a wholly absent required catalog refuses earlier in the refinement step. A request-time memory override changes neither catalog nor package id. | Test |
+| FR-061-AC-13 | With all identities recomputed, changing a schema-valid drain entry's `memory_model` changes the dedicated refinement node id and package id; retaining its old node id refuses `invalid_package`/`stale-node-key` at `node_id` before catalog joins. A local catalog class node or binder type omitted from the exact `dependencies` list refuses `invalid_semantic_graph` at `/dependencies` before the dedicated key check, while no memory entry contributes a node or binder dependency. | Test |
 
 ## Dependencies
 
