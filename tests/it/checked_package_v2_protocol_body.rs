@@ -39,11 +39,10 @@ fn protocol_finish_reads_over_at_its_stage() {
     package["semantic_graph"]["nodes"][finish]["body"]["arguments"][1]["value"] =
         json!({"term": "reference", "target": over});
     settle(&mut package);
-    assert!(
-        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
-        "{:?}",
-        read(&package)
-    );
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
 }
 
 /// Trace: FR-038-AC-291
