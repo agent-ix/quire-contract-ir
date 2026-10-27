@@ -54,7 +54,10 @@ arrays `populations`, `objects`, `steps`, `histories`, `assume`, `ensure`.
 Every array is required, including when empty. `protocol` is present exactly
 for a protocol abstract subject. `abstract_internal` is absent for an empty
 list and otherwise a nonempty ascending array of alias-free class spellings,
-permitted only with `protocol`. No field outside this body is admitted.
+permitted only with `protocol`. `class_catalog` is present exactly when either
+selected subject contributes a protocol or memory step class, and is absent
+for a model-only refinement with neither kind of class. No field outside
+this body is admitted.
 
 The row entries SHALL match QSpec's closed `RefinementPopulationEntry`,
 `RefinementObjectEntry`, `RefinementStepEntry`,
@@ -79,7 +82,8 @@ beyond FR-322's body-term grammar is refused.
 `RefinementKey` SHALL be a local `NodeRef` for a node in this graph, or the
 closed `{package, node}` `PackageNodeKey` for a node of a directly selected
 dependency package. The current package id SHALL NOT be embedded in its own
-body. `abstract` names the abstract model; optional `protocol` names the
+body. `abstract` names the selected abstract model's canonical `model_root`;
+optional `protocol` names the
 selected protocol clause; `profile` is the selected infinite-trace
 `DefinitionRef`, never the source alias. Local row declaration and type keys
 are `NodeRef`s; abstract-side keys can be `RefinementKey`s. The reader SHALL
@@ -90,8 +94,14 @@ refuse `invalid_model_binding`/`malformed-declaration`, at that key. A
 schema-invalid key or row SHALL refuse before such a meaning join. No
 unresolved row, key or expression is dropped.
 
-The node's `semantic_type` SHALL be the concrete model declaration's local
-`NodeRef`. `dependencies` SHALL be exactly the unique, digest-ascending local
+The node's `semantic_type` SHALL be the unique canonical local `model_root`
+`NodeRef` identity-bound to the selected concrete model package, regardless
+of its object-type or state-machine declaration count. The `abstract` key
+SHALL name the selected abstract model's canonical `model_root`, locally or
+through its directly selected dependency package; `protocol`, when present,
+SHALL name the exact clause of that abstract model. A model-root key SHALL
+NOT be replaced by one of its package's object-type or state-machine
+declarations. `dependencies` SHALL be exactly the unique, digest-ascending local
 keys named by `abstract`, optional `protocol`, row declarations and types,
 and expression reference targets and application member declarations and
 populations. Local header keys remain dependencies when all arrays are
@@ -149,13 +159,13 @@ still refuses at `semantic_form`.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-061-AC-1 | A positive model-subject refinement with one population, object, operation-step, history and fairness row admits as one `relation`/`refinement` node with the exact nine required body members and its complete rows; empty arrays are retained, optional `protocol` and `abstract_internal` are absent, `semantic_type` names the concrete model, and the public writer's output reads back to the same node and package identities. | Test |
+| FR-061-AC-1 | A positive model-subject refinement with one population, object, operation-step, history and fairness row admits as one `relation`/`refinement` node with the exact nine required body members and its complete rows; empty arrays are retained, optional `protocol` and `abstract_internal` are absent, `class_catalog` is absent when neither subject has a protocol or memory class, `semantic_type` names the selected concrete package's canonical `model_root` rather than a declaration node, `abstract` names the selected abstract package's canonical `model_root`, and the public writer's output reads back to the same node and package identities. | Test |
 | FR-061-AC-2 | For each of the six arrays, a missing array, extra body or entry member, wrong key shape, wrong row scalar or an out-of-grammar nested term refuses the whole package at the closed-schema/body stage; `open` is admitted only in `operation` or `protocol_step` argument arrays, while an `open` receiver, field expression, history expression or body root refuses. An unknown `relation` form still refuses `invalid_semantic_graph` at `semantic_form`. | Test |
-| FR-061-AC-3 | A local abstract model or protocol clause uses `NodeRef` and appears in `dependencies` even with all rows empty; the same clause from a directly selected dependency uses `PackageNodeKey`, joins through that selection and is absent from local dependencies. A `PackageNodeKey` for a local target, a bare `NodeRef` for a dependency target, a key for an unselected dependency, and the current package id in its own body each refuse without admission or dropped content. | Test |
+| FR-061-AC-3 | With zero, one or multiple concrete object-type or state-machine declarations, `semantic_type` names the unique local `model_root` identity-bound to the selected concrete model package; an object-type or state-machine declaration substituted at `semantic_type`, or a root owned by another selected model, refuses `invalid_model_binding`/`malformed-declaration` at `semantic_type`. A local abstract model uses its canonical `model_root` `NodeRef` and a local protocol subject additionally uses its exact clause `NodeRef`; both appear in `dependencies` even with all rows empty. The same abstract root and clause from a directly selected dependency use `PackageNodeKey`, join through that selection and are absent from local dependencies. A `PackageNodeKey` for a local target, a bare `NodeRef` for a dependency target, a key for an unselected dependency, and the current package id in its own body each refuse without admission or dropped content. | Test |
 | FR-061-AC-4 | The reader admits all four closed step target kinds, requires `source_node` and protocol target `node` exactly for declaration-naming classes, omits them for memory classes, and preserves canonical tied protocol-step and memory ordering through read/write/read. A mismatched source class/node, wrong-kind operation or protocol target, or missing declared row target refuses at the named key or entry with its typed graph/model-binding result. | Test |
 | FR-061-AC-5 | A history `initial` literal and a local history-literal reference both admit; a dependency-package history-literal reference, an application initial, duplicate history update, duplicate object field, invalid fairness kind/granularity, or unsorted arrays/fields/updates refuses, with no reordered or defaulted output. | Test |
 | FR-061-AC-6 | The exact local dependency set includes body header keys and every direct row declaration/type and expression/member target, excludes external keys and annotations, and is digest-ascending. An omitted, extra or misordered dependency refuses `invalid_semantic_graph` at `/dependencies` before any row-meaning defect. | Test |
-| FR-061-AC-7 | Two row-empty refinements over one abstract model and profile but distinct concrete models have equal bodies, distinct `semantic_type` keys and distinct `quire.refinement-node/v1` node ids. Mutating any meaning-bearing body row or optional internal list with recomputed identities changes node and package ids; retaining a stale key refuses at the earlier key stage; source row permutation that canonicalizes to the same arrays changes neither id. | Test |
+| FR-061-AC-7 | Two row-empty refinements over one abstract model and profile but distinct selected concrete model packages have equal bodies, distinct canonical `model_root` `semantic_type` keys and distinct `quire.refinement-node/v1` node ids, even when their declaration counts or shapes coincide. Mutating any meaning-bearing body row or optional internal list with recomputed identities changes node and package ids; retaining a stale key refuses at the earlier key stage; source row permutation that canonicalizes to the same arrays changes neither id. | Test |
 | FR-061-AC-8 | A proof-eligible refinement with `n` steps admits exactly its declaration occurrence 0 and generated occurrences 0 through `n`; an owner with a hidden field, a history or an `any` step admits only declaration occurrence 0. Duplicate, extra-role, extra-ordinal or wrong-region source-map entries refuse `invalid_package`/`invalid-value` at the offending entry; a missing required occurrence refuses the same pair at `/source_map` after every present entry passes. No derived per-step node is synthesized. | Test |
 | FR-061-AC-9 | The reader reports the earlier FR-322 strict-wire, graph-shape, key, declaration or source-map defect before a later refinement meaning defect. Among two refinement nodes with separate meaning defects, the lower node id wins. Within one node, a stale dedicated refinement key precedes canonical array-order defects; canonical defects precede header-join defects; header joins run in `semantic_type`, `abstract`, optional `protocol`, `profile` order and precede row joins; canonical and row checks each visit `populations`, `objects`/`fields`, `steps`, `histories`/`updates`, `assume`, `ensure`, optional `abstract_internal` in FR-375 order, then ascending index and schema-declared entry-member order where FR-375 fixes no further tie-break. An invalid body of another `relation` form never enters the refinement body path. | Test |
 
