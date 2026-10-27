@@ -318,14 +318,47 @@ fn decision_fact_fixture() -> (Value, usize, usize, usize) {
 
 fn decision_slot_read(package: &mut Value, operator: &str, slot: &str, target: &Value) {
     let decision = holder_position(package);
-    let read = json!({"term": "reference", "target": target});
+    let mut read_target = target.clone();
     if slot == "visible" {
+        let is_expression = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["node_id"] == *target)
+            .is_some_and(|node| node["node_tag"] == "expression");
+        if !is_expression {
+            let mut expression = package["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .iter()
+                .find(|node| {
+                    node["node_tag"] == "expression" && node["semantic_form"] == "reference"
+                })
+                .expect("reference expression")
+                .clone();
+            expression["body"] = json!({"term": "reference", "target": target});
+            expression["node_id"] = node_id(&structural_key(
+                "expression",
+                "reference",
+                Some(&family_key("aaaa")),
+                &expression["body"],
+            ));
+            expression["dependencies"] = json!([target]);
+            read_target = expression["node_id"].clone();
+            package["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("nodes")
+                .push(expression);
+        }
+        let read = json!({"term": "reference", "target": read_target});
         package["semantic_graph"]["nodes"][decision]["body"]["arguments"][1]["value"]["members"] =
             json!([read]);
     } else if operator == "choice" {
+        let read = json!({"term": "reference", "target": read_target});
         package["semantic_graph"]["nodes"][decision]["body"]["arguments"][2]["value"]["members"]
             [0]["members"][1]["value"] = read;
     } else {
+        let read = json!({"term": "reference", "target": read_target});
         package["semantic_graph"]["nodes"][decision]["body"]["arguments"][4]["value"] = read;
     }
     settle(package);
