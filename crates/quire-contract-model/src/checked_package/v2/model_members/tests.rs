@@ -413,6 +413,38 @@ fn inherited_operation_binders_use_named_receiver_and_retained_result() {
     assert_eq!(signature[2].digest.as_ref(), integer);
 }
 
+/// Provenance: IR-874 direct record binder order.
+#[test]
+fn direct_record_binders_keep_field_declaration_order() {
+    const RECORD: &str = "ix://acme/orders/Record";
+    let mut record = object_type(
+        RECORD,
+        &[],
+        vec![
+            field(RECORD, "z", "ix://quire/native/Integer"),
+            field(RECORD, "a", "ix://quire/native/Boolean"),
+        ],
+    );
+    record["kind"]["name"] = json!("record");
+    let mut source = document(vec![record]);
+    source["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind": {"module": "acme/orders", "name": "record"},
+            "construct": {"meaning": "quire.meaning.model.record-value-type/v1"}
+        }));
+    let model = read(&source).expect("selected record");
+    let binders = model
+        .direct_record_binder_types(RECORD)
+        .expect("direct record signature");
+    let integer = MemberType::Integer.node_key(BYTES).expect("integer key");
+    let boolean = MemberType::Boolean.node_key(BYTES).expect("boolean key");
+    assert_eq!(binders.len(), 2);
+    assert_eq!(binders[0].digest.as_ref(), integer);
+    assert_eq!(binders[1].digest.as_ref(), boolean);
+}
+
 #[trace("TC-048", "FR-038-AC-28")]
 #[test]
 fn operation_redefinitions_refuse_malformed_and_missing_targets() {
