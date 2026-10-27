@@ -1645,15 +1645,49 @@ fn refinement_catalog_presence_uses_clause_owner_without_step_rows() {
     );
 }
 
-/// Trace: FR-038-AC-325, FR-064-AC-5
+/// Trace: FR-038-AC-325, FR-064-AC-2, FR-064-AC-5
 /// Provenance: IR-1053 catalog graph join.
 #[test]
 fn refinement_catalog_joins_owned_finish_without_a_step_row() {
+    let original = v2_all_families();
+    let original_clause_key = original["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "protocol_clause")
+        .expect("original clause")["node_id"]
+        .clone();
+    let original_package_id = original["package_id"].clone();
     let (mut package, evidence) =
         concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::SelectedModel);
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes");
+    let object_b = nodes
+        .iter()
+        .find(|node| {
+            node["semantic_form"] == "object_type" && node["owner"]["identity"] == MODEL_IDENTITY
+        })
+        .expect("second selected object type")["node_id"]
+        .clone();
+    let clause = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "protocol_clause")
+        .expect("retargeted clause");
+    assert_eq!(clause["owner_model"], object_b);
+    assert_ne!(clause["node_id"], original_clause_key);
+    assert_ne!(package["package_id"], original_package_id);
+    let concrete_root = nodes
+        .iter()
+        .find(|node| {
+            node["semantic_form"] == "model_root" && node["owner"]["identity"] == MODEL_IDENTITY
+        })
+        .expect("selected concrete model root")["node_id"]
+        .clone();
+    assert_eq!(
+        nodes.last().expect("refinement")["semantic_type"],
+        concrete_root
+    );
     let finish = nodes
         .iter()
         .find(|node| node["node_tag"] == "protocol" && node["semantic_form"] == "obligation")
@@ -1669,6 +1703,13 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
     let position = set_concrete_catalog(
         &mut package,
         vec![json!({"class": "OrderFlow::Closed", "node": finish, "binder_types": [binder_type]})],
+    );
+    assert_eq!(
+        package["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"]
+            .as_array()
+            .expect("B-owned classes")
+            .len(),
+        1
     );
     let admitted = read(&package, &evidence);
     assert!(
