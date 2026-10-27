@@ -286,8 +286,9 @@ fn set_concrete_catalog(package: &mut Value, entries: Vec<Value>) -> usize {
     let position = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
-        .len()
-        - 1;
+        .iter()
+        .position(|node| node["semantic_form"] == "refinement")
+        .expect("refinement");
     let node = &mut package["semantic_graph"]["nodes"][position];
     let mut dependencies = vec![node["body"]["abstract"].clone()];
     for entry in &entries {
