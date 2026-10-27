@@ -913,10 +913,10 @@ fn check_catalog_wire(value: &Value, at: &Trail<'_>) -> Result<(), ValidationFai
                 if class == "memory flush" && model != RefinementMemoryModel::Tso {
                     return Err(malformed(entry_at.key("memory_model")));
                 }
-                if class == "memory drain" {
-                    if entry.get("drain").and_then(Value::as_str) != Some("store-buffer-flush") {
-                        return Err(malformed(entry_at.key("drain")));
-                    }
+                if class == "memory drain"
+                    && entry.get("drain").and_then(Value::as_str) != Some("store-buffer-flush")
+                {
+                    return Err(malformed(entry_at.key("drain")));
                 }
                 let allowed: &[&str] = if class == "memory drain" {
                     &["class", "memory_model", "drain"]
