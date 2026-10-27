@@ -121,14 +121,30 @@ fn typed_writer_round_trips_protocol_clause_owner_model() {
     let projection = CheckedNodeProjectionV2::from(clause);
     assert_eq!(projection.owner_model.as_ref(), Some(owner));
 
-    let bytes = encode(&value, Limits::new(u64::MAX)).expect("typed writer");
-    let written: Value = serde_json::from_slice(&bytes).expect("encoded JSON");
-    let written_clause = written["identity_preimage"]["identity_projection"]
+    let preimage: CheckedPackageIdentityPreimageV2 = typed(&value["identity_preimage"]);
+    let graph: CheckedSemanticGraphV2<Value> = typed(&value["semantic_graph"]);
+    let borrowed = borrowed_preimage(&preimage, &graph.nodes);
+    let projection_bytes = quire_canonical::to_vec(&borrowed, Limits::new(u64::MAX))
+        .expect("occurrence-free identity preimage");
+    let projected: Value = serde_json::from_slice(&projection_bytes).expect("projection JSON");
+    let projected_clause = projected["identity_projection"]
         .as_array()
         .expect("projection")
         .iter()
         .find(|node| node["node_id"] == serde_json::to_value(&clause.node_id).expect("id"))
         .expect("projected clause");
+    assert_eq!(
+        projected_clause["owner_model"],
+        serde_json::to_value(owner).expect("owner")
+    );
+    let bytes = encode(&value, Limits::new(u64::MAX)).expect("typed writer");
+    let written: Value = serde_json::from_slice(&bytes).expect("encoded JSON");
+    let written_clause = written["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes")
+        .iter()
+        .find(|node| node["node_id"] == serde_json::to_value(&clause.node_id).expect("id"))
+        .expect("written clause");
     assert_eq!(
         written_clause["owner_model"],
         serde_json::to_value(owner).expect("owner")
