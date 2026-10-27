@@ -53,10 +53,14 @@ The model's `CheckedSemanticNodeV2` body representation SHALL distinguish an
 absent point from each of QSpec's four closed values:
 `initialization{name}`, `handler{name}`, `pre{operation}` and
 `post{operation}`. The state-clause operation member SHALL retain its optional
-point as part of the application body. The operation-anchor body SHALL retain
-its optional fourth binding as a bare point object, rather than an expression
-term. The raw reader form, admitted typed form, borrowed package identity
-projection and public writer SHALL preserve those same locations and values.
+point as part of the application body through a public typed point field or
+equivalent typed constructor and accessor. The operation-anchor body SHALL
+retain its optional fourth binding as a bare point object through the same
+public typed point value, rather than an expression term. A caller SHALL be
+able to construct and inspect both points without building or decoding a
+`serde_json::Value`. The raw reader form, admitted typed form, borrowed
+package identity projection and public writer SHALL preserve those same
+locations and values.
 There SHALL be one body carrier per node; source occurrences do not own
 separate points. The producer's source-to-point agreement remains QSL-owned.
 
@@ -86,8 +90,8 @@ FR-040-AC-31 through FR-040-AC-36.
 | --- | --- | --- |
 | FR-066-AC-1 | The four published QSpec `node-identity-vectors.json` execution-point application preimages, read directly from the selected current QSpec checkout, each recompute to its recorded SHA-256 and agree with the IR application candidate for the same body. Separately, complete reader-admissible clause and anchor fixtures retain each exact point variant and name in `CheckedSemanticNodeV2`; an omitted point remains absent. No QSpec schema or vector is copied into IR. | Test |
 | FR-066-AC-2 | For otherwise equal valid state-clause bodies, absent, `initialization{startup}` and `handler{tick}` points produce distinct application preimages and keys. For otherwise equal valid operation-anchor bodies, absent, `pre{adjust}` and `post{adjust}` points produce distinct structural preimages and keys. Independent canonical derivation agrees with QSpec's four published clause point vectors and the published anchor schema; rekeyed packages have distinct package ids, while retaining a pre-edit key refuses `invalid_package`/`stale-node-key` at the original node's `node_id` before state checks. | Test |
-| FR-066-AC-3 | The public typed encoder writes a clause point only at `body.operation.member.execution_point` and an anchor point only as the bare fourth `body.members` binding; an absent point adds neither member. A read/write/read round trip retains equal typed bodies, points, node keys and package id. An external consumer constructs these nodes with the public model and encoder without an untyped envelope or private QSL type. | Test |
-| FR-066-AC-4 | A duplicate `execution_point` JSON key, unknown point kind, missing or extra point member, empty name, wrong fourth binding position, point on another operation-member kind, inapplicable point, mismatched operation name, and unequal or one-sided clause/anchor points each return FR-040's specified first code, cause and locus with no admitted package. Paired earlier wire, graph or stale-key defects win according to FR-040-AC-35. | Test |
+| FR-066-AC-3 | An external consumer constructs and inspects both a clause application point and an anchor's bare point through public typed model fields or constructors/accessors, without constructing or parsing `serde_json::Value`, an untyped envelope or a private QSL type. The public typed encoder writes a clause point only at `body.operation.member.execution_point` and an anchor point only as the bare fourth `body.members` binding; an absent point adds neither member. A read/write/read round trip returns both points through that typed public surface and retains equal bodies, node keys and package id. Leaving the clause point solely inside `CheckedTerm::Application.operation: serde_json::Value` does not pass. | Test |
+| FR-066-AC-4 | A repeated `execution_point` JSON member in a clause operation member returns FR-038 strict parsing's `duplicate_member` code, no cause, and pointer `/semantic_graph/nodes/{i}/body/operation/member/execution_point` at the later member, before version, body or identity checks. Unknown point kind, missing or extra point member, empty name, wrong fourth binding position, point on another operation-member kind, inapplicable point, mismatched operation name, and unequal or one-sided clause/anchor points return FR-040-AC-31 through FR-040-AC-35's first applicable code, cause and locus with no admitted package; earlier wire, graph and stale-key defects retain FR-038/FR-040 precedence. Two anchors with the same context and operation but distinct accepted `pre` and `post` points, or one absent point, admit with distinct node keys. Two anchors with the same `(context, operation, point)` tuple, including both absent, refuse `ambiguous_declaration`/`ambiguous-name` at `/semantic_graph/nodes/{i}` for the second anchor by ascending node-id digest, after individual anchor checks and before clause checks. | Test |
 | FR-066-AC-5 | Inspection finds one identity-bearing body carrier at each QSpec location in `CheckedSemanticNodeV2`, its raw and projection paths, and the writer. No additional top-level point, occurrence-keyed point list, QSpec schema/vector copy, alternate preimage calculation, or fallback inference exists. | Inspection |
 
 ## Dependencies
