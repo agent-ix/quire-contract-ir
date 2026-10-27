@@ -21,3 +21,10 @@ IR-1052 PR #605 at 385c3c392637836ad390bd3e77a9d151135ff07e; spec-review/evidenc
 ## Verdict
 
 The evidence procedure needs the two changes above; remaining examined obligations align with QSpec.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | TC-064 now separates successful XT-08/09 identity comparisons from refusal vectors, names independent field/input/pre/post/profile rekey cases and the stale-key control. |
+| FND-002 | fixed | TC-064 now adds two equal-content source declarations with distinct occurrence ordinals and regions, one transition node, and a typed write/read/read assertion retaining both. |
