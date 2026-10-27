@@ -47,8 +47,8 @@ use super::{
 use crate::checked_package::common::{pointer_from_steps, Step, NODE_DOMAIN};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
-    CheckedPackageLimit, CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticId,
-    JsonPointer,
+    CheckedNodeId, CheckedPackageLimit, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+    CheckedSemanticId, JsonPointer,
 };
 use ix_trace_rs::string_edge;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
@@ -1305,6 +1305,59 @@ impl DomainModel {
             slot
         })
     }
+
+    /// Checked binder types of one record with no inherited fields, in the
+    /// selected document's field order. Inherited field order needs a QSpec
+    /// decision; the field tables retain identity order instead.
+    pub(super) fn direct_record_binder_types(&self, record: &str) -> Option<Vec<CheckedNodeId>> {
+        let declaration = self.record_types.get(record)?;
+        if !declaration.supertypes.is_empty() {
+            return None;
+        }
+        declaration
+            .fields
+            .iter()
+            .map(|field| self.type_node_id(&self.field_type(field)?))
+            .collect()
+    }
+
+    /// Checked receiver, parameter and optional result binder types of an
+    /// operation declared directly on the named object type.
+    pub(super) fn direct_operation_binder_types(
+        &self,
+        object: &str,
+        name: &str,
+    ) -> Option<Vec<CheckedNodeId>> {
+        let declaration = self.object_types.get(object)?;
+        if self.state_machines.contains(object) {
+            return None;
+        }
+        let operation = declaration
+            .operations
+            .iter()
+            .find(|operation| member_name(&operation.identity) == name)?;
+        let form = if declaration.interface {
+            DeclarationForm::SystemsInterface
+        } else {
+            DeclarationForm::ObjectType
+        };
+        let object_key = declaration_key(&self.identity, form, object, self.bytes).ok()?;
+        let mut types = vec![self.type_node_id(&MemberType::Reference(object_key.into()))?];
+        for parameter in &operation.parameters {
+            types.push(self.type_node_id(&self.slot_type(parameter)?)?);
+        }
+        if let Some(result) = &operation.result {
+            types.push(self.type_node_id(&self.slot_type(result)?)?);
+        }
+        Some(types)
+    }
+
+    fn type_node_id(&self, member_type: &MemberType) -> Option<CheckedNodeId> {
+        Some(CheckedNodeId {
+            domain: NODE_DOMAIN.into(),
+            digest: member_type.node_key(self.bytes).ok()?.into(),
+        })
+    }
 }
 
 /// FR-322 step 2's owner of one model declaration node.
@@ -1325,6 +1378,9 @@ pub(super) struct ModelOwners<'m> {
 }
 
 impl<'m> ModelOwners<'m> {
+    pub(super) fn owner_by_key(&self, key: &CheckedNodeId) -> Option<Owner<'m>> {
+        self.by_key.get(key.digest.as_ref()).copied()
+    }
     pub(super) fn refinement_object_fields(
         &self,
         key: &crate::checked_package::shared::CheckedNodeId,

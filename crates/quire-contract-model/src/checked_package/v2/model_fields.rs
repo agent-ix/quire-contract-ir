@@ -17,8 +17,8 @@
 //! it, a member of a cycle being among its own ancestors.
 
 use super::model_members::{
-    check_declaration_node, member_name, units, Budget, CollectionKind, DeclarationForm,
-    DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType, RelationshipDecl,
+    check_declaration_node, declaration_key, member_name, units, Budget, CollectionKind,
+    DeclarationForm, DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType, RelationshipDecl,
 };
 use super::{CheckedNodeId, CheckedPackageV2, CheckedTerm, WorkMeter};
 use crate::checked_package::common::{ValidationFailure, NODE_DOMAIN};
@@ -427,6 +427,10 @@ pub(super) struct RetainedModels {
     index: DeclarationIndex,
     tables: Vec<FieldTables>,
     operation_types: BTreeMap<(usize, Box<str>, Box<str>), OperationTypes>,
+    /// Direct record fields in declaration order, retained for refinement binders.
+    record_binders: BTreeMap<Box<str>, Vec<CheckedNodeId>>,
+    /// Receiver, parameters and result in declaration order for own operations.
+    operation_binders: BTreeMap<(Box<str>, Box<str>), Vec<CheckedNodeId>>,
     relationships: BTreeMap<(usize, Box<str>), RetainedRelationship>,
 }
 
@@ -476,9 +480,45 @@ impl RetainedModels {
     }
     pub(super) fn new(index: DeclarationIndex, models: Vec<DomainModel>) -> Self {
         let mut operation_types = BTreeMap::new();
+        let mut record_binders = BTreeMap::new();
+        let mut operation_binders = BTreeMap::new();
         for (selection, model) in models.iter().enumerate() {
+            for record in model.record_types.keys() {
+                if let (Ok(key), Some(types)) = (
+                    declaration_key(
+                        &model.identity,
+                        DeclarationForm::RecordValueType,
+                        record,
+                        model.bytes,
+                    ),
+                    model.direct_record_binder_types(record),
+                ) {
+                    record_binders.insert(key.into(), types);
+                }
+            }
             for (object, declared) in &model.object_types {
                 for operation in &declared.operations {
+                    if let (Ok(key), Some(types)) = (
+                        declaration_key(
+                            &model.identity,
+                            if declared.interface {
+                                DeclarationForm::SystemsInterface
+                            } else {
+                                DeclarationForm::ObjectType
+                            },
+                            object,
+                            model.bytes,
+                        ),
+                        model.direct_operation_binder_types(
+                            object,
+                            member_name(&operation.identity),
+                        ),
+                    ) {
+                        operation_binders.insert(
+                            (key.into(), Box::from(member_name(&operation.identity))),
+                            types,
+                        );
+                    }
                     operation_types.insert(
                         (
                             selection,
@@ -522,8 +562,33 @@ impl RetainedModels {
             index,
             tables: models.into_iter().map(|model| model.fields).collect(),
             operation_types,
+            record_binders,
+            operation_binders,
             relationships,
         }
+    }
+
+    pub(super) fn record_binder_types(&self, key: &CheckedNodeId) -> Option<&[CheckedNodeId]> {
+        self.record_binders
+            .get(key.digest.as_ref())
+            .map(Vec::as_slice)
+    }
+
+    pub(super) fn is_record_type(&self, key: &CheckedNodeId) -> bool {
+        self.index
+            .0
+            .get(key.digest.as_ref())
+            .is_some_and(|declared| declared.form == DeclarationForm::RecordValueType)
+    }
+
+    pub(super) fn operation_binder_types(
+        &self,
+        context: &CheckedNodeId,
+        name: &str,
+    ) -> Option<&[CheckedNodeId]> {
+        self.operation_binders
+            .get(&(context.digest.clone(), Box::from(name)))
+            .map(Vec::as_slice)
     }
 
     /// A retained index of one relationship, for tests that build a package

@@ -4065,7 +4065,7 @@ fn package_with_member_queue() -> (Value, usize) {
     (package, position)
 }
 
-fn package_with_send() -> (Value, usize, usize) {
+pub(super) fn package_with_send() -> (Value, usize, usize) {
     let (mut package, _) = package_with_member_queue();
     let channel = protocol_position(&package, "channel");
     let root = protocol_position(&package, "control");

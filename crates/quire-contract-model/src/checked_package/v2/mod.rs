@@ -2854,6 +2854,7 @@ fn validate_graph(
             dependencies,
             &wire.package_id,
         ),
+        &owners,
         meter,
     )?;
     validate_operations(

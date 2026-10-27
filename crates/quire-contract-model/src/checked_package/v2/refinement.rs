@@ -1970,6 +1970,7 @@ pub(super) fn validate_refinements(
 /// refusal and no class is inferred from an unadmitted protocol declaration.
 pub(super) fn validate_catalog_graph(
     graph: RefinementGraph<'_, '_>,
+    owners: &super::model_members::ModelOwners<'_>,
     meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for &position in graph.index.values() {
@@ -1994,6 +1995,7 @@ pub(super) fn validate_catalog_graph(
             &graph.nodes[position].semantic_type,
             None,
             None,
+            CatalogSignatures::Local(owners),
             &root,
             meter,
         )?;
@@ -2006,9 +2008,15 @@ pub(super) fn validate_catalog_graph(
         )?;
         let abstract_classes = match protocol.as_deref() {
             Some(RefinementKey::Local(clause)) => match abstract_key.as_ref() {
-                RefinementKey::Local(model) => {
-                    protocol_classes(&local, model, Some(clause), None, &root, meter)?
-                }
+                RefinementKey::Local(model) => protocol_classes(
+                    &local,
+                    model,
+                    Some(clause),
+                    None,
+                    CatalogSignatures::Local(owners),
+                    &root,
+                    meter,
+                )?,
                 RefinementKey::External(_) => Vec::new(),
             },
             Some(RefinementKey::External(clause)) => match abstract_key.as_ref() {
@@ -2030,6 +2038,7 @@ pub(super) fn validate_catalog_graph(
                         &model.node,
                         Some(&clause.node),
                         Some(&clause.package),
+                        CatalogSignatures::External(&selected.models),
                         &root,
                         meter,
                     )?
@@ -2053,7 +2062,51 @@ pub(super) fn validate_catalog_graph(
 struct DeclaredGraphClass {
     class: String,
     node: RefinementKey,
-    binder_types: Vec<RefinementKey>,
+    /// `None` is a signature whose inherited ordering is not yet specified.
+    binder_types: Option<Vec<RefinementKey>>,
+}
+
+#[derive(Clone, Copy)]
+enum CatalogSignatures<'a, 'm> {
+    Local(&'a super::model_members::ModelOwners<'m>),
+    External(&'a super::model_fields::RetainedModels),
+}
+
+impl CatalogSignatures<'_, '_> {
+    fn record_binder_types(&self, key: &CheckedNodeId) -> Option<Vec<CheckedNodeId>> {
+        match self {
+            Self::Local(owners) => {
+                let owner = owners.record_by_key(&key.digest)?;
+                owner.package.direct_record_binder_types(owner.node)
+            }
+            Self::External(models) => models.record_binder_types(key).map(<[_]>::to_vec),
+        }
+    }
+
+    fn is_record(&self, key: &CheckedNodeId) -> bool {
+        match self {
+            Self::Local(owners) => owners.record_by_key(&key.digest).is_some(),
+            Self::External(models) => models.is_record_type(key),
+        }
+    }
+
+    fn operation_binder_types(
+        &self,
+        context: &CheckedNodeId,
+        name: &str,
+    ) -> Option<Vec<CheckedNodeId>> {
+        match self {
+            Self::Local(owners) => {
+                let owner = owners.owner_by_key(context)?;
+                owner
+                    .package
+                    .direct_operation_binder_types(owner.node, name)
+            }
+            Self::External(models) => models
+                .operation_binder_types(context, name)
+                .map(<[_]>::to_vec),
+        }
+    }
 }
 
 struct ProtocolCatalogNode<'a> {
@@ -2105,6 +2158,7 @@ fn protocol_classes(
     model: &CheckedNodeId,
     selected_clause: Option<&CheckedNodeId>,
     package: Option<&CheckedSemanticId>,
+    signatures: CatalogSignatures<'_, '_>,
     at: &JsonPointer,
     meter: &mut super::WorkMeter,
 ) -> Result<Vec<DeclaredGraphClass>, ValidationFailure> {
@@ -2152,26 +2206,15 @@ fn protocol_classes(
             else {
                 continue;
             };
-            let Some(classes_for_node) = protocol_member_classes(operator, &name.qualified_name)
+            let Some(classes_for_node) =
+                protocol_member_classes(operator, arguments, &name.qualified_name)
             else {
                 continue;
             };
-            let binder_types: Vec<RefinementKey> = arguments
-                .iter()
-                .find_map(|argument| match argument {
-                    CheckedTerm::Binding { name, value } if name.as_ref() == "binder" => {
-                        if let CheckedTerm::Reference { target } = value.as_ref() {
-                            nodes
-                                .iter()
-                                .find(|candidate| candidate.id == target)
-                                .map(|binder| vec![key(binder.semantic_type)])
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                })
-                .unwrap_or_default();
+            let binder_types = (operator != "role")
+                .then(|| protocol_binder_types(operator, arguments, nodes, signatures))
+                .flatten()
+                .map(|types| types.into_iter().map(&key).collect());
             for class in classes_for_node {
                 classes.push(DeclaredGraphClass {
                     class,
@@ -2185,14 +2228,95 @@ fn protocol_classes(
     Ok(classes)
 }
 
+fn protocol_binder_types(
+    operator: &str,
+    arguments: &[CheckedTerm],
+    nodes: &[ProtocolCatalogNode<'_>],
+    signatures: CatalogSignatures<'_, '_>,
+) -> Option<Vec<CheckedNodeId>> {
+    let bound_reference = |arguments: &[CheckedTerm], field: &str| {
+        arguments.iter().find_map(|argument| match argument {
+            CheckedTerm::Binding { name, value } if name.as_ref() == field => {
+                match value.as_ref() {
+                    CheckedTerm::Reference { target } => Some(target),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+    };
+    if operator == "attempt" {
+        let anchor = bound_reference(arguments, "operation")?;
+        let anchor = nodes.iter().find(|node| node.id == anchor)?;
+        let signature = super::structural::typed_anchor_body(anchor.term?)?;
+        return signatures.operation_binder_types(&signature.context, signature.operation);
+    }
+    let binder_type = match operator {
+        "send" | "receive" => {
+            let channel = bound_reference(arguments, "channel")?;
+            let channel = nodes.iter().find(|node| node.id == channel)?;
+            let CheckedTerm::Application {
+                arguments: channel_arguments,
+                ..
+            } = channel.term?
+            else {
+                return None;
+            };
+            bound_reference(channel_arguments, "carries")?
+        }
+        "event" | "finish" => {
+            let binder = bound_reference(arguments, "binder")?;
+            nodes.iter().find(|node| node.id == binder)?.semantic_type
+        }
+        _ => return Some(Vec::new()),
+    };
+    if signatures.is_record(binder_type) {
+        signatures.record_binder_types(binder_type)
+    } else {
+        Some(vec![binder_type.clone()])
+    }
+}
+
 #[ix_trace_rs::string_edge]
-fn protocol_member_classes(operator: &str, name: &[Box<str>]) -> Option<Vec<String>> {
+fn protocol_member_classes(
+    operator: &str,
+    arguments: &[CheckedTerm],
+    name: &[Box<str>],
+) -> Option<Vec<String>> {
     let clause = name.get(1)?.as_ref();
     let node = name.last()?.as_ref();
     let path = format!("{clause}::{node}");
     match operator {
         "parallel" => Some(vec![format!("fork {path}"), format!("join {path}")]),
         "attempt" | "event" | "send" | "receive" | "fence" | "await" | "finish" => Some(vec![path]),
+        "channel" => {
+            let delivery = super::protocol_body::binding_value(arguments, "delivery")
+                .and_then(super::protocol_body::text_value)?;
+            Some(match delivery {
+                "unknown" => vec![format!("duplicate {path}"), format!("lose {path}")],
+                "at-least-once" => vec![format!("duplicate {path}")],
+                "at-most-once" => vec![format!("lose {path}")],
+                "exactly-once-premise" => Vec::new(),
+                _ => return None,
+            })
+        }
+        "role" => {
+            let replication = super::protocol_body::binding_value(arguments, "replication")?;
+            let CheckedTerm::Aggregate { members } = replication else {
+                return None;
+            };
+            if members.is_empty() {
+                return Some(Vec::new());
+            }
+            let mut classes = vec![format!("spawn {path}")];
+            if super::protocol_body::group_value(replication, "lifetime")
+                .and_then(super::protocol_body::text_value)
+                == Some("until")
+            {
+                classes.push(format!("retire {path}"));
+            }
+            Some(classes)
+        }
         _ => None,
     }
 }
@@ -2243,10 +2367,12 @@ fn compare_declared_classes(
                 node, binder_types, ..
             } => {
                 if found.node.local() != Some(node)
-                    || binder_types
-                        .iter()
-                        .map(Some)
-                        .ne(found.binder_types.iter().map(RefinementKey::local))
+                    || found.binder_types.as_ref().is_some_and(|expected| {
+                        binder_types
+                            .iter()
+                            .map(Some)
+                            .ne(expected.iter().map(RefinementKey::local))
+                    })
                 {
                     return Err(wrong_binding(entry_at, locus));
                 }
@@ -2299,7 +2425,12 @@ fn compare_abstract_classes(
             RefinementAbstractClass::Declared {
                 node, binder_types, ..
             } => {
-                if node != &found.node || binder_types != &found.binder_types {
+                if node != &found.node
+                    || found
+                        .binder_types
+                        .as_ref()
+                        .is_some_and(|expected| binder_types != expected)
+                {
                     return Err(wrong_binding(entry_at, locus));
                 }
             }

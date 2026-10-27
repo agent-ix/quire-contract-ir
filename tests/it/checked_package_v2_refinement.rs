@@ -1145,6 +1145,91 @@ fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
 
 /// Provenance: IR-874 catalog graph join.
 #[test]
+fn refinement_catalog_uses_channel_carries_for_send_binder() {
+    let (base, _, _) = crate::checked_package_v2_protocol_body::package_with_send();
+    let (mut package, evidence) = concrete_protocol_refinement_on(
+        base,
+        ProtocolStepRows::Empty,
+        ProtocolClauseOwner::SelectedModel,
+    );
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let send_node = nodes
+        .iter()
+        .find(|node| node["body"]["operation"]["member"]["operator"] == "send")
+        .expect("send");
+    let send = send_node["node_id"].clone();
+    let send_name = send_node["declaration"]["qualified_name"]
+        .as_array()
+        .and_then(|name| name.last())
+        .and_then(Value::as_str)
+        .expect("send name")
+        .to_owned();
+    let channel_node = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "channel")
+        .expect("channel");
+    let channel = channel_node["node_id"].clone();
+    let channel_name = channel_node["declaration"]["qualified_name"]
+        .as_array()
+        .and_then(|name| name.last())
+        .and_then(Value::as_str)
+        .expect("channel name");
+    let finish = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "protocol" && node["semantic_form"] == "obligation")
+        .expect("finish")["node_id"]
+        .clone();
+    let binder = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let mut entries = vec![
+        json!({"class":"OrderFlow::Closed", "node":finish, "binder_types":[binder]}),
+        json!({"class":format!("OrderFlow::{send_name}"), "node":send,
+            "binder_types":[binder]}),
+        json!({"class":format!("duplicate OrderFlow::{channel_name}"),
+            "node":channel, "binder_types":[]}),
+        json!({"class":format!("lose OrderFlow::{channel_name}"),
+            "node":channel, "binder_types":[]}),
+    ];
+    entries.sort_by(|left, right| left["class"].as_str().cmp(&right["class"].as_str()));
+    let position = set_concrete_catalog(&mut package, entries);
+    let admitted = read(&package, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "{admitted:?}"
+    );
+
+    let mut wrong = package.clone();
+    let send_index = wrong["semantic_graph"]["nodes"][position]["body"]["class_catalog"]
+        ["concrete"]
+        .as_array()
+        .expect("catalog")
+        .iter()
+        .position(|entry| entry["class"] == format!("OrderFlow::{send_name}"))
+        .expect("send entry");
+    wrong["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"][send_index]
+        ["binder_types"] = json!([]);
+    let wrong_entries = wrong["semantic_graph"]["nodes"][position]["body"]["class_catalog"]
+        ["concrete"]
+        .as_array()
+        .expect("catalog")
+        .clone();
+    set_concrete_catalog(&mut wrong, wrong_entries);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong, &evidence) else {
+        panic!("send with wrong binder admitted");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(
+            format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/{send_index}")
+                .as_str()
+        )
+    );
+}
+
+/// Provenance: IR-874 catalog graph join.
+#[test]
 fn refinement_catalog_joins_selected_abstract_clause_and_binder() {
     let (mut package, evidence) =
         concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::SelectedModel);
