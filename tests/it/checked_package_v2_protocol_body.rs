@@ -12,9 +12,9 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedProtocolActivation,
-    CheckedProtocolActivationRow, CheckedProtocolRefusalDetail,
+    CheckedNodeId, CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedProtocolActivation, CheckedProtocolActivationRow, CheckedProtocolRefusalDetail,
 };
 use serde_json::{json, Value};
 
@@ -400,6 +400,29 @@ fn decision_conjunction(package: &mut Value, left: &Value, right: &Value) -> Val
     target
 }
 
+fn assert_protocol_refusal_at(refusal: &CheckedPackageRefusal, package: &Value, position: usize) {
+    let expected_path = format!("/semantic_graph/nodes/{position}");
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(expected_path.as_str())
+    );
+    let expected_locus = checked_node_id(&package["semantic_graph"]["nodes"][position]["node_id"]);
+    assert_eq!(refusal.locus.as_ref(), Some(&expected_locus));
+}
+
+fn node_position_for_key(package: &Value, key: &Value) -> usize {
+    package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_id"] == *key)
+        .expect("fixture node key")
+}
+
+fn checked_node_id(key: &Value) -> CheckedNodeId {
+    serde_json::from_value(key.clone()).expect("fixture node id")
+}
+
 /// Trace: FR-038-AC-291, FR-038-AC-292
 #[trace("TC-048")]
 #[test]
@@ -434,6 +457,11 @@ fn decision_slots_bar_over_and_finish_before_fact_eligibility() {
                 refusal.cause,
                 Some(CheckedPackageRefusalCause::OperatorIneligible)
             );
+            assert_protocol_refusal_at(
+                &refusal,
+                &model_state,
+                node_position_for_key(&model_state, &over),
+            );
             let expected_slot = if slot == "visible" {
                 "visible"
             } else if operator == "choice" {
@@ -459,9 +487,14 @@ fn decision_slots_bar_over_and_finish_before_fact_eligibility() {
                 "{operator} {slot}"
             );
             assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+            assert_protocol_refusal_at(&refusal, &out_of_scope, holder_position(&out_of_scope));
+            let clause = clause_position(&out_of_scope);
+            let expected_owner =
+                checked_node_id(&out_of_scope["semantic_graph"]["nodes"][clause]["node_id"]);
             assert!(matches!(refusal.protocol_detail.as_deref(),
-                Some(CheckedProtocolRefusalDetail::BinderScope { stage, read, .. })
-                if stage.as_ref() == "run" && read.as_ref() == "stage"));
+                Some(CheckedProtocolRefusalDetail::BinderScope { stage, read, owner, .. })
+                if stage.as_ref() == "run" && read.as_ref() == "stage"
+                    && owner == &expected_owner));
         }
     }
 }
@@ -490,6 +523,7 @@ fn decision_guards_report_model_state_before_out_of_scope_finish() {
             refusal.cause,
             Some(CheckedPackageRefusalCause::OperatorIneligible)
         );
+        assert_protocol_refusal_at(&refusal, &package, node_position_for_key(&package, &over));
         let expected_slot = if operator == "choice" {
             "choice.guard"
         } else {
@@ -564,9 +598,14 @@ fn compensation_template_binders_are_foreign_in_each_decision_slot() {
                 "{operator} {slot}"
             );
             assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+            assert_protocol_refusal_at(&refusal, &case, holder_position(&case));
+            let clause = clause_position(&case);
+            let expected_owner =
+                checked_node_id(&case["semantic_graph"]["nodes"][clause]["node_id"]);
             assert!(matches!(refusal.protocol_detail.as_deref(),
-                Some(CheckedProtocolRefusalDetail::BinderScope { stage, read, .. })
-                if stage.as_ref() == "run" && read.as_ref() == "foreign"));
+                Some(CheckedProtocolRefusalDetail::BinderScope { stage, read, owner, .. })
+                if stage.as_ref() == "run" && read.as_ref() == "foreign"
+                    && owner == &expected_owner));
         }
     }
 }
@@ -712,9 +751,19 @@ fn activation_record_field_is_ineligible_in_each_decision_slot() {
                 refusal.cause,
                 Some(CheckedPackageRefusalCause::WrongObservation)
             );
+            assert_protocol_refusal_at(&refusal, &case, node_position_for_key(&case, &field_key));
+            let decision = holder_position(&case);
+            let expected_owner = checked_node_id(
+                &case["semantic_graph"]["nodes"][decision]["body"]["arguments"][0]["value"]
+                    ["target"],
+            );
+            let expected_field = checked_node_id(&field_key);
+            let expected_binder = checked_node_id(&trigger);
             assert!(matches!(refusal.protocol_detail.as_deref(),
-                Some(CheckedProtocolRefusalDetail::DecisionFact { reason, read, .. })
-                if reason.as_ref() == "ineligible-kind" && read.field.as_ref() == "ready"));
+                Some(CheckedProtocolRefusalDetail::DecisionFact { node, owner, reason, read })
+                if node == &expected_field && owner == &expected_owner
+                    && read.binder == expected_binder
+                    && reason.as_ref() == "ineligible-kind" && read.field.as_ref() == "ready"));
         }
         let finish = protocol_position(&decision_package, "obligation");
         let finish_binder = decision_package["semantic_graph"]["nodes"][finish]["body"]
@@ -728,9 +777,13 @@ fn activation_record_field_is_ineligible_in_each_decision_slot() {
         };
         assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
         assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+        assert_protocol_refusal_at(&refusal, &paired, holder_position(&paired));
+        let clause = clause_position(&paired);
+        let expected_owner = checked_node_id(&paired["semantic_graph"]["nodes"][clause]["node_id"]);
         assert!(matches!(refusal.protocol_detail.as_deref(),
-            Some(CheckedProtocolRefusalDetail::BinderScope { stage, read, .. })
-            if stage.as_ref() == "run" && read.as_ref() == "stage"));
+            Some(CheckedProtocolRefusalDetail::BinderScope { stage, read, owner, .. })
+            if stage.as_ref() == "run" && read.as_ref() == "stage"
+                && owner == &expected_owner));
     }
 }
 
