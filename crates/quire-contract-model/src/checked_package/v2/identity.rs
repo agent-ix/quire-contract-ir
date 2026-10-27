@@ -1007,10 +1007,10 @@ fn validate_equivalence_graph(
         let at = || node_pointer(*position);
         let (left_map, left_scale) = normalized_dimension(&ids[0], graph, &bases, meter, &at)?;
         let (right_map, right_scale) = normalized_dimension(&ids[1], graph, &bases, meter, &at)?;
-        require(left_map == right_map, &at)?;
+        require(left_map == right_map, at)?;
         let expected = left_scale.divide(&right_scale, meter, &at)?;
         let actual = ExactRatio::parse(&edge.root_scale, meter, &at)?;
-        require(actual == expected, &at)?;
+        require(actual == expected, at)?;
     }
     // A derived edge may complete a cycle through other derived edges, so
     // check the whole equivalence graph after base-root consistency.
