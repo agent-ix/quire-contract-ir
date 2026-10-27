@@ -6,7 +6,8 @@
 
 use super::encode::{ApplicationNodePreimage, GroupPlace};
 use super::{
-    structural, BodyTerm, CheckedNodeId, CheckedTerm, RawSemanticNodeV2 as CheckedSemanticNodeV2,
+    structural, BodyTerm, CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedTerm,
+    ProtocolForm, RawSemanticNodeV2 as CheckedSemanticNodeV2,
 };
 use crate::checked_package::common::{body_term, NODE_DOMAIN};
 use quire_walk::{walk, Children, Walk};
@@ -318,6 +319,14 @@ fn application_preimage_with_term<'a>(
         semantic_form: &node.semantic_form,
         semantic_type: &node.semantic_type,
         declaration: node.declaration.as_ref(),
+        owner_model: if CheckedNodeTag::from_wire(&node.node_tag)
+            .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
+            == Some(CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause))
+        {
+            node.owner_model.as_ref()
+        } else {
+            None
+        },
         recursion,
         body: admitted.map_or_else(
             || group_references(&node.body, group),
@@ -589,6 +598,7 @@ fn equal_nodes(left: &CheckedSemanticNodeV2, right: &CheckedSemanticNodeV2) -> b
         && left.nominal_identity_preimage == right.nominal_identity_preimage
         && left.declaration == right.declaration
         && left.owner == right.owner
+        && left.owner_model == right.owner_model
         && equal_values(&left.body, &right.body)
 }
 

@@ -285,6 +285,9 @@ pub struct CheckedSemanticNodeV2<Body = CheckedTerm> {
     /// Structural owner, present exactly for declared or model-owned nodes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<CheckedNodeOwner>,
+    /// Exact local model declaration owning a protocol clause.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_model: Option<CheckedNodeId>,
     /// Typed public semantic term.
     pub body: Body,
 }
@@ -353,6 +356,7 @@ impl RawSemanticNodeV2 {
             nominal_identity_preimage: self.nominal_identity_preimage,
             declaration: self.declaration,
             owner: self.owner,
+            owner_model: self.owner_model,
             body,
         }
     }
@@ -384,6 +388,9 @@ impl CheckedSemanticNodeV2 {
         replace(&mut self.semantic_type, old, new);
         for id in &mut self.dependencies {
             replace(id, old, new);
+        }
+        if let Some(owner_model) = &mut self.owner_model {
+            replace(owner_model, old, new);
         }
         if let Some(CheckedNodeOwner::Model { node, .. }) = &mut self.owner {
             if PackageWireTag::from_wire(&old.domain) == Some(PackageWireTag::NodeDomain)
@@ -437,6 +444,7 @@ impl<Body: Serialize> CheckedSemanticNodeV2<Body> {
             nominal_identity_preimage: self.nominal_identity_preimage.clone(),
             declaration: self.declaration.clone(),
             owner: self.owner.clone(),
+            owner_model: self.owner_model.clone(),
             body: serde_json::to_value(&self.body)?,
         })
     }
@@ -470,6 +478,9 @@ pub struct CheckedNodeProjectionV2<Body = CheckedTerm> {
     /// The corresponding node's structural owner.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<CheckedNodeOwner>,
+    /// Exact local model declaration owning a protocol clause.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_model: Option<CheckedNodeId>,
     /// Typed semantic term.
     pub body: Body,
 }
@@ -487,6 +498,7 @@ impl<Body: Clone> From<&CheckedSemanticNodeV2<Body>> for CheckedNodeProjectionV2
             nominal_identity_preimage: node.nominal_identity_preimage.clone(),
             declaration: node.declaration.clone(),
             owner: node.owner.clone(),
+            owner_model: node.owner_model.clone(),
             body: node.body.clone(),
         }
     }
@@ -1100,24 +1112,50 @@ fn classify_dependency_entry_shape_with(
     ValidationFailure::Refused(refusal)
 }
 
-/// The owner variants are a closed wire shape whose unknown members are
-/// `malformed_wire` at `owner`, unlike other closed package members.
+enum OwnerShapeMember {
+    Owner,
+    OwnerModel,
+}
+
+impl OwnerShapeMember {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(text: &str) -> Option<Self> {
+        match text {
+            "owner" => Some(Self::Owner),
+            "owner_model" => Some(Self::OwnerModel),
+            _ => None,
+        }
+    }
+
+    fn as_wire(&self) -> &'static str {
+        match self {
+            Self::Owner => "owner",
+            Self::OwnerModel => "owner_model",
+        }
+    }
+}
+
+/// Owner variants and the local-only clause model edge are closed wire shapes
+/// whose unknown members are `malformed_wire` at the owner member.
 fn classify_owner_shape(failure: ValidationFailure) -> ValidationFailure {
     let ValidationFailure::Refused(mut refusal) = failure else {
         return failure;
     };
-    if refusal.code == CheckedPackageRefusalCode::UnknownMember
-        && refusal.path.as_ref().is_some_and(|path| {
-            ["/semantic_graph/nodes/"].iter().any(|prefix| {
-                path.as_str().strip_prefix(prefix).is_some_and(|rest| {
-                    rest.strip_suffix("/owner").is_some_and(|index| {
-                        !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit())
-                    })
-                })
-            })
-        })
-    {
-        refusal.code = CheckedPackageRefusalCode::MalformedWire;
+    if refusal.code == CheckedPackageRefusalCode::UnknownMember {
+        let owner_path = refusal.path.as_ref().and_then(|path| {
+            let index = path.as_str().split('/').nth(3)?.parse::<usize>().ok()?;
+            let prefix = node_pointer(index);
+            let member_path = path
+                .as_str()
+                .strip_prefix(prefix.as_str())?
+                .strip_prefix('/')?;
+            let member = member_path.split('/').next()?;
+            OwnerShapeMember::from_wire(member).map(|member| prefix.key(member.as_wire()))
+        });
+        if let Some(owner_path) = owner_path {
+            refusal.code = CheckedPackageRefusalCode::MalformedWire;
+            refusal.path = Some(owner_path);
+        }
     }
     ValidationFailure::Refused(refusal)
 }

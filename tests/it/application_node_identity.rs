@@ -41,6 +41,7 @@ fn node(value: u8, body: Value) -> CheckedSemanticNodeV2 {
         nominal_identity_preimage: None,
         declaration: None,
         owner: None,
+        owner_model: None,
         body,
     }
 }
@@ -82,6 +83,38 @@ fn oracle(node: &CheckedSemanticNodeV2, recursion: Value, body: Value) -> Value 
     preimage.insert("recursion".into(), recursion);
     preimage.insert("body".into(), body);
     Value::Object(preimage)
+}
+
+/// Trace: FR-064-AC-2
+#[trace("TC-946")]
+#[test]
+fn protocol_clause_candidate_key_binds_only_its_owner_model() {
+    let mut clause = node(1, application(Vec::new()));
+    clause.node_tag = "protocol".into();
+    clause.semantic_form = "protocol_clause".into();
+    clause.owner_model = Some(id(4));
+    let mut preimage = oracle(&clause, Value::Null, clause.body.clone());
+    preimage["owner_model"] = json!(id(4));
+    let expected = quire_canonical::sha256(&preimage, Limits::new(BYTES))
+        .expect("independent clause preimage")
+        .to_string();
+    assert_eq!(candidate(&clause).digest.as_ref(), expected);
+
+    let original = candidate(&clause);
+    clause.owner_model = Some(id(5));
+    assert_ne!(candidate(&clause), original);
+
+    clause.node_tag = "function".into();
+    clause.semantic_form = "pure_function".into();
+    assert_eq!(
+        candidate(&clause).digest.as_ref(),
+        quire_canonical::sha256(
+            &oracle(&clause, Value::Null, clause.body.clone()),
+            Limits::new(BYTES)
+        )
+        .expect("non-clause preimage")
+        .to_string()
+    );
 }
 
 #[trace("FR-046-AC-1", "FR-046-AC-2")]

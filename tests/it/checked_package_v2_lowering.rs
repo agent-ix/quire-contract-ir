@@ -147,7 +147,7 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
                 reached.sort();
                 reached
             }
-            // The declared protocol clause reaches its source parameter,
+            // The declared protocol clause reaches its exact owner model, source parameter,
             // empty run sequence, finish obligation and closing parameter;
             // the two parameter bodies bring in their text/integer types.
             "5050" => {
@@ -156,6 +156,7 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
                     id("a3a3"),
                     id("a4a4"),
                     id("aaaa"),
+                    id("1515"),
                     id("p-run"),
                     id("p-finish"),
                     id("p-close"),

@@ -3273,10 +3273,13 @@ fn check_clause_slots(
     validated: &[Option<(&str, &[CheckedTerm])>],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    if let Some(expected) = check.terms[check.position]
-        .as_ref()
-        .and_then(super::structural::application_dependencies)
-    {
+    if let (Some(mut expected), Some(owner_model)) = (
+        check.terms[check.position]
+            .as_ref()
+            .and_then(super::structural::application_dependencies),
+        check.nodes[check.position].owner_model.as_ref(),
+    ) {
+        expected.insert(owner_model.clone());
         if !check.nodes[check.position]
             .dependencies
             .iter()
@@ -4769,6 +4772,39 @@ pub(super) fn validate_protocol_nodes(
     for &position in index.values() {
         if kinds.get(position) != Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
             continue;
+        }
+        let node = &nodes[position];
+        let Some(owner_model) = node.owner_model.as_ref() else {
+            return Err(ValidationFailure::refused(
+                Code::MalformedWire,
+                node_pointer(position),
+            ));
+        };
+        let owner_at = node_pointer(position).key("owner_model");
+        let owner_position = index.get(owner_model).copied().ok_or_else(|| {
+            ValidationFailure::refused_at(
+                Code::MissingDeclaration,
+                owner_at.clone(),
+                Some(Cause::MissingName),
+                node.node_id.clone(),
+            )
+        })?;
+        let target = &nodes[owner_position];
+        if !owners.is_model_declaration_node(target, kinds[owner_position].tag()) {
+            return Err(ValidationFailure::refused_at(
+                Code::IllTyped,
+                owner_at,
+                Some(Cause::OperatorIneligible),
+                node.node_id.clone(),
+            ));
+        }
+        if let Err(failure) = owners.recover(target) {
+            return Err(ValidationFailure::refused_at(
+                failure.code,
+                owner_at,
+                Some(failure.cause),
+                node.node_id.clone(),
+            ));
         }
         let Some((operator, arguments)) = validated[position] else {
             return Err(body_defect(

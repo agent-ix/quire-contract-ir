@@ -3,11 +3,14 @@
 
 //! External default-feature consumer of the typed V2 envelope encoder.
 
-use crate::support::checked_package::{canonical, evidence_for, v2_all_families, v2_nominal};
+use crate::support::checked_package::{
+    admitted_protocol_families, canonical, evidence_for, selected_interface_model_node, settle,
+    v2_all_families, v2_nominal,
+};
 use ix_trace_rs::trace;
 use quire_canonical::{Error, Limits};
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedCapability, CheckedDiagnosticsV2,
+    encode_checked_package_v2, CheckedCapability, CheckedDiagnosticsV2, CheckedNodeProjectionV2,
     CheckedPackageIdentityPreimageRefV2, CheckedPackageIdentityPreimageV2, CheckedPackageLockV2,
     CheckedPackageReadLimits, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult, CheckedSemanticGraphV2, CheckedSemanticId, CheckedSemanticNodeV2,
@@ -85,6 +88,74 @@ fn refused(
         CheckedPackageV2ReadResult::Refused(refusal) => refusal.code,
         other => panic!("expected refusal, got {other:?}"),
     }
+}
+
+/// Trace: FR-064-AC-1, FR-064-AC-6
+#[trace("TC-946")]
+#[test]
+fn typed_writer_round_trips_protocol_clause_owner_model() {
+    let mut value = admitted_protocol_families();
+    value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(selected_interface_model_node());
+    settle(&mut value);
+    let evidence = evidence_for(&value);
+    let CheckedPackageV2ReadResult::Admitted(first) = CheckedPackageV2::read(
+        &canonical(&value),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    ) else {
+        panic!("owner-bearing fixture must admit");
+    };
+    let clause = first
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| {
+            node.node_tag.as_ref() == "protocol" && node.semantic_form.as_ref() == "protocol_clause"
+        })
+        .expect("protocol clause");
+    let owner = clause.owner_model.as_ref().expect("exact owner edge");
+    assert!(clause.dependencies.contains(owner));
+    let projection = CheckedNodeProjectionV2::from(clause);
+    assert_eq!(projection.owner_model.as_ref(), Some(owner));
+
+    let preimage: CheckedPackageIdentityPreimageV2 = typed(&value["identity_preimage"]);
+    let graph: CheckedSemanticGraphV2<Value> = typed(&value["semantic_graph"]);
+    let borrowed = borrowed_preimage(&preimage, &graph.nodes);
+    let projection_bytes = quire_canonical::to_vec(&borrowed, Limits::new(u64::MAX))
+        .expect("occurrence-free identity preimage");
+    let projected: Value = serde_json::from_slice(&projection_bytes).expect("projection JSON");
+    let projected_clause = projected["identity_projection"]
+        .as_array()
+        .expect("projection")
+        .iter()
+        .find(|node| node["node_id"] == serde_json::to_value(&clause.node_id).expect("id"))
+        .expect("projected clause");
+    assert_eq!(
+        projected_clause["owner_model"],
+        serde_json::to_value(owner).expect("owner")
+    );
+    let bytes = encode(&value, Limits::new(u64::MAX)).expect("typed writer");
+    let written: Value = serde_json::from_slice(&bytes).expect("encoded JSON");
+    let written_clause = written["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes")
+        .iter()
+        .find(|node| node["node_id"] == serde_json::to_value(&clause.node_id).expect("id"))
+        .expect("written clause");
+    assert_eq!(
+        written_clause["owner_model"],
+        serde_json::to_value(owner).expect("owner")
+    );
+    let CheckedPackageV2ReadResult::Admitted(second) =
+        CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence)
+    else {
+        panic!("encoded owner-bearing fixture must admit");
+    };
+    assert_eq!(second.package_id(), first.package_id());
+    assert_eq!(second.graph().nodes, first.graph().nodes);
 }
 
 #[trace("TC-451", "FR-051-AC-4")]

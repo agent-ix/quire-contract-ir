@@ -958,9 +958,9 @@ pub fn source_ref(authority: &str, identity: &str, domain: &str, digest: &str) -
 /// (`v2::operations::validate_application_keys`) re-derives for every node
 /// whose body is an `application` term: SHA-256 of the RFC-8785 canonical
 /// bytes of `{version, node_tag, semantic_form, semantic_type, declaration,
-/// recursion, body}`. Every application-bodied fixture node this generator
-/// builds carries no `declaration` and no `recursion_group`, so both are
-/// `null` here unconditionally.
+/// recursion, body}`. A protocol clause additionally binds `owner_model`;
+/// every undeclared non-clause fixture built here has null declaration and
+/// recursion members.
 fn application_key(
     node_tag: &str,
     semantic_form: &str,
@@ -973,6 +973,7 @@ fn application_key(
         semantic_type,
         &Value::Null,
         &Value::Null,
+        None,
         body,
     )
 }
@@ -1021,6 +1022,51 @@ fn owned_structural_key(
         "body": empty_aggregate(),
     });
     sha256_hex(&canonical(&preimage))
+}
+
+/// A second selected local model declaration in the family package.
+pub fn selected_interface_model_node() -> Value {
+    let key = owned_structural_key(
+        "model",
+        "systems_interface",
+        None,
+        model_owner(FAMILY_MODEL_IDENTITY, FAMILY_INTERFACE),
+        Value::Null,
+    );
+    owned_structural_node(
+        plain_node(
+            &key,
+            "model",
+            "systems_interface",
+            &key,
+            &[],
+            empty_aggregate(),
+        ),
+        model_owner(FAMILY_MODEL_IDENTITY, FAMILY_INTERFACE),
+    )
+}
+
+/// The all-family fixture with a well-typed protocol finish constraint.
+pub fn admitted_protocol_families() -> Value {
+    let mut package = v2_all_families();
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let clause = nodes
+        .iter()
+        .position(|node| node["semantic_form"] == "protocol_clause")
+        .expect("protocol clause");
+    let finish = nodes
+        .iter()
+        .position(|node| node["semantic_form"] == "obligation")
+        .expect("finish obligation");
+    let over = package["semantic_graph"]["nodes"][clause]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    package["semantic_graph"]["nodes"][finish]["body"]["arguments"][1]["value"] =
+        json!({"term": "reference", "target": over});
+    settle(&mut package);
+    package
 }
 
 /// The derived key of the anonymous `scalar_type`/`boolean` node, as a
@@ -1090,9 +1136,10 @@ fn application_preimage_key(
     semantic_type: &Value,
     declaration: &Value,
     recursion: &Value,
+    owner_model: Option<&Value>,
     body: &Value,
 ) -> String {
-    let preimage = json!({
+    let mut preimage = json!({
         "version": APPLICATION_NODE_VERSION,
         "node_tag": node_tag,
         "semantic_form": semantic_form,
@@ -1101,6 +1148,9 @@ fn application_preimage_key(
         "recursion": recursion,
         "body": body,
     });
+    if let Some(owner_model) = owner_model {
+        preimage["owner_model"] = owner_model.clone();
+    }
     sha256_hex(&canonical(&preimage))
 }
 /// QSpec FR-322's `quire.application-node/v1` key for a node inside a
@@ -1137,6 +1187,7 @@ pub fn application_key_in_group(node: &Value, group: &[Value]) -> String {
         &node["semantic_type"],
         &node.get("declaration").cloned().unwrap_or(Value::Null),
         &json!({"size": group.len(), "ordinal": ordinal}),
+        node.get("owner_model"),
         &rewrite(&node["body"], group),
     )
 }
@@ -1434,12 +1485,14 @@ fn protocol_control_body() -> Value {
 }
 
 fn protocol_named_key(form: &str, declaration: &[&str], body: &Value) -> String {
+    let owner_model = (form == "protocol_clause").then(|| node_id(&family_key("1515")));
     application_preimage_key(
         "protocol",
         form,
         &node_id(&family_key("aaaa")),
         &json!({"qualified_name": declaration}),
         &Value::Null,
+        owner_model.as_ref(),
         body,
     )
 }
@@ -1451,10 +1504,14 @@ pub fn protocol_named_node(
     dependencies: &[String],
 ) -> Value {
     let key = protocol_named_key(form, declaration, &body);
-    let ordered = dependencies
+    let mut ordered = dependencies
         .iter()
         .map(String::as_str)
         .collect::<std::collections::BTreeSet<_>>();
+    let owner_model = (form == "protocol_clause").then(|| family_key("1515"));
+    if let Some(owner_model) = &owner_model {
+        ordered.insert(owner_model);
+    }
     let mut node = plain_node(
         &key,
         "protocol",
@@ -1465,6 +1522,9 @@ pub fn protocol_named_node(
     );
     node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
     node["declaration"] = json!({"qualified_name": declaration});
+    if let Some(owner_model) = owner_model {
+        node["owner_model"] = node_id(&owner_model);
+    }
     node
 }
 
@@ -1813,6 +1873,10 @@ fn join_application_dependencies(package: &mut Value) {
     {
         let mut targets = std::collections::BTreeSet::new();
         if join_targets(&node["body"], &mut targets) {
+            if let Some(owner_model) = node.get("owner_model").and_then(|id| id["digest"].as_str())
+            {
+                targets.insert(owner_model.to_owned());
+            }
             node["dependencies"] =
                 Value::Array(targets.iter().map(|digest| node_id(digest)).collect());
         }
@@ -1841,6 +1905,7 @@ fn fixture_application_key(node: &Value, nodes: &Value) -> String {
             &node["semantic_type"],
             &node.get("declaration").cloned().unwrap_or(Value::Null),
             &Value::Null,
+            node.get("owner_model"),
             &node["body"],
         )
     }

@@ -62,7 +62,7 @@ fn structural_oracle_key(wire: &Value) -> String {
 }
 
 fn application_oracle_key(wire: &Value) -> String {
-    sha256_hex(&canonical(&json!({
+    let mut preimage = json!({
         "version": "quire.application-node/v1",
         "node_tag": wire["node_tag"],
         "semantic_form": wire["semantic_form"],
@@ -70,7 +70,11 @@ fn application_oracle_key(wire: &Value) -> String {
         "declaration": wire.get("declaration"),
         "recursion": null,
         "body": wire["body"],
-    })))
+    });
+    if let Some(owner_model) = wire.get("owner_model") {
+        preimage["owner_model"] = owner_model.clone();
+    }
+    sha256_hex(&canonical(&preimage))
 }
 
 /// Independent canonical-byte oracle for a lowered node's identity.

@@ -4,10 +4,11 @@
 //! Public reader checks for the first protocol validation passes.
 
 use crate::support::checked_package::{
-    application_node_key, canonical, domain_package_digest, domain_package_document, evidence_for,
-    family_key, node_id, protocol_named_node, protocol_role_node, rebuild_source_map,
-    refresh_identity, refusal, refusal_at, rekey_application_node, rename_node, settle,
-    structural_key, v2_all_families,
+    admitted_protocol_families, application_node_key, canonical, domain_package_digest,
+    domain_package_document, evidence_for, family_key, node_id, protocol_named_node,
+    protocol_role_node, rebuild_source_map, refresh_identity, refusal, refusal_at,
+    rekey_application_node, rename_node, selected_interface_model_node, settle, structural_key,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -1292,6 +1293,287 @@ fn clause_position(package: &Value) -> usize {
             node["node_tag"] == "protocol" && node["semantic_form"] == "protocol_clause"
         })
         .expect("protocol clause")
+}
+
+/// Trace: FR-064-AC-3, FR-064-AC-4, FR-064-AC-6
+#[trace("TC-946")]
+#[test]
+fn protocol_owner_edge_has_closed_wire_presence_and_local_shape() {
+    let package = admitted_protocol_families();
+    let position = clause_position(&package);
+    let baseline = read(&package);
+    assert!(
+        matches!(baseline, CheckedPackageV2ReadResult::Admitted(_)),
+        "baseline {baseline:?}"
+    );
+
+    let mut absent = package.clone();
+    absent["semantic_graph"]["nodes"][position]
+        .as_object_mut()
+        .expect("clause")
+        .remove("owner_model");
+    assert_eq!(
+        read(&absent),
+        refusal(
+            CheckedPackageRefusalCode::MalformedWire,
+            &format!("/semantic_graph/nodes/{position}")
+        )
+    );
+
+    let mut forbidden = package.clone();
+    forbidden["semantic_graph"]["nodes"][0]["owner_model"] =
+        package["semantic_graph"]["nodes"][position]["owner_model"].clone();
+    assert_eq!(
+        read(&forbidden),
+        refusal(
+            CheckedPackageRefusalCode::MalformedWire,
+            "/semantic_graph/nodes/0/owner_model"
+        )
+    );
+
+    let mut external = package;
+    let package_id = external["package_id"].clone();
+    let target = external["semantic_graph"]["nodes"][position]["owner_model"].clone();
+    external["semantic_graph"]["nodes"][position]["owner_model"] = json!({
+        "package": package_id,
+        "node": target,
+    });
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&external) else {
+        panic!("external owner key must fail closed wire decoding");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+    assert_eq!(
+        refusal.path.as_ref().map(|p| p.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/owner_model").as_str())
+    );
+
+    let mut package = admitted_protocol_families();
+    let position = clause_position(&package);
+    package["semantic_graph"]["nodes"][position]["owner_model"] = node_id(&family_key("1010"));
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("unselected model declaration must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|p| p.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/owner_model").as_str())
+    );
+}
+
+/// Trace: FR-064-AC-3, FR-064-AC-4
+#[trace("TC-946")]
+#[test]
+fn protocol_owner_dependency_precedes_key_and_target_meaning() {
+    let mut package = admitted_protocol_families();
+    let position = clause_position(&package);
+    let owner = package["semantic_graph"]["nodes"][position]["owner_model"].clone();
+    package["semantic_graph"]["nodes"][position]["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .retain(|entry| entry != &owner);
+    refresh_identity(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("missing owner dependency must refuse");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|p| p.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/dependencies").as_str())
+    );
+
+    for duplicate in [true, false] {
+        let mut package = admitted_protocol_families();
+        let position = clause_position(&package);
+        let entries = package["semantic_graph"]["nodes"][position]["dependencies"]
+            .as_array_mut()
+            .expect("dependencies");
+        if duplicate {
+            entries.push(owner.clone());
+        } else {
+            entries.reverse();
+        }
+        refresh_identity(&mut package);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+            panic!("duplicate or out-of-order owner dependency must refuse");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|p| p.as_str()),
+            Some(format!("/semantic_graph/nodes/{position}/dependencies").as_str())
+        );
+    }
+
+    let mut package = admitted_protocol_families();
+    let position = clause_position(&package);
+    package["semantic_graph"]["nodes"][position]["owner_model"] = node_id(&family_key("aaaa"));
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("non-model owner target must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::OperatorIneligible)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|p| p.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/owner_model").as_str())
+    );
+}
+
+/// Trace: FR-064-AC-3, FR-064-AC-4
+#[trace("TC-946")]
+#[test]
+fn protocol_owner_or_extra_dependency_precedes_stale_key() {
+    for omit_owner in [true, false] {
+        let mut package = admitted_protocol_families();
+        let position = clause_position(&package);
+        let owner = package["semantic_graph"]["nodes"][position]["owner_model"].clone();
+        let extra = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .map(|node| &node["node_id"])
+            .find(|id| {
+                !package["semantic_graph"]["nodes"][position]["dependencies"]
+                    .as_array()
+                    .expect("dependencies")
+                    .contains(id)
+            })
+            .expect("unreferenced local node")
+            .clone();
+        let dependencies = package["semantic_graph"]["nodes"][position]["dependencies"]
+            .as_array_mut()
+            .expect("dependencies");
+        if omit_owner {
+            dependencies.retain(|id| id != &owner);
+        } else {
+            dependencies.push(extra);
+            dependencies
+                .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+        }
+        // A valid declaration rename makes the retained clause key stale too.
+        package["semantic_graph"]["nodes"][position]["declaration"]["qualified_name"][1] =
+            json!("HandshakeChanged");
+        refresh_identity(&mut package);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+            panic!("owner or extra dependency must refuse before the stale key");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            "omit_owner={omit_owner}"
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(format!("/semantic_graph/nodes/{position}/dependencies").as_str())
+        );
+    }
+
+    let mut package = admitted_protocol_families();
+    let position = clause_position(&package);
+    let body_target = package["semantic_graph"]["nodes"][position]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    package["semantic_graph"]["nodes"][position]["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .retain(|id| id != &body_target);
+    refresh_identity(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("unlisted body reference must refuse at the reference");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/arguments/0/value/target").as_str())
+    );
+}
+
+/// Trace: FR-064-AC-2, FR-064-AC-4
+#[trace("TC-946")]
+#[test]
+fn protocol_owner_retarget_with_retained_key_refuses_before_target_meaning() {
+    let mut package = admitted_protocol_families();
+    let position = clause_position(&package);
+    let old_key = package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
+        .as_str()
+        .expect("old key")
+        .to_owned();
+    package["semantic_graph"]["nodes"][position]["owner_model"] = node_id(&family_key("aaaa"));
+    settle(&mut package);
+    let new_key = package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
+        .as_str()
+        .expect("new key")
+        .to_owned();
+    assert_ne!(new_key, old_key);
+    rename_node(&mut package, &new_key, &old_key);
+    refresh_identity(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("retained clause key must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::StaleNodeKey)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|p| p.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/node_id").as_str())
+    );
+}
+
+/// Trace: FR-064-AC-2, FR-064-AC-4
+#[trace("TC-946")]
+#[test]
+fn protocol_owner_retarget_to_second_selected_model_changes_package_identity() {
+    let mut package = admitted_protocol_families();
+    let position = clause_position(&package);
+    let old_key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+    let old_package = package["package_id"].clone();
+    let second_model = selected_interface_model_node();
+    let second_key = second_model["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(second_model);
+    package["semantic_graph"]["nodes"][position]["owner_model"] = second_key.clone();
+    settle(&mut package);
+    assert_ne!(
+        package["semantic_graph"]["nodes"][position]["node_id"],
+        old_key
+    );
+    assert_ne!(package["package_id"], old_package);
+    let result = read(&package);
+    let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
+        panic!(
+            "exact second selected model owner must admit without over-type inference: {result:?}"
+        );
+    };
+    let clause = admitted
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| {
+            node.node_tag.as_ref() == "protocol" && node.semantic_form.as_ref() == "protocol_clause"
+        })
+        .expect("clause");
+    assert_eq!(
+        clause.owner_model.as_ref(),
+        Some(&serde_json::from_value(second_key).expect("node id"))
+    );
 }
 
 fn append_duplicate_clause(package: &mut Value, body: Value) -> (usize, String) {
