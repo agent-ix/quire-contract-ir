@@ -875,6 +875,7 @@ fn check_body_header(body: &Value, at: &Trail<'_>) -> Result<(), ValidationFailu
     Ok(())
 }
 
+#[ix_trace_rs::string_edge]
 fn check_catalog_wire(value: &Value, at: &Trail<'_>) -> Result<(), ValidationFailure> {
     let Some(object) = value.as_object() else {
         return Err(invalid(at));
@@ -2405,6 +2406,7 @@ fn protocol_classes(
 }
 
 /// Collect only source defaults from parallel controls of the selected subject.
+#[ix_trace_rs::string_edge]
 fn protocol_memory_models(
     nodes: &[ProtocolCatalogNode<'_>],
     model: &CheckedNodeId,
@@ -2412,7 +2414,12 @@ fn protocol_memory_models(
     at: &JsonPointer,
     meter: &mut super::WorkMeter,
 ) -> Result<BTreeSet<RefinementMemoryModel>, ValidationFailure> {
-    let selected_identity = nodes.iter().find(|node| node.id == model).and_then(|node| {
+    let mut by_id = BTreeMap::new();
+    for node in nodes {
+        meter.charge(1, || at.clone())?;
+        by_id.insert(node.id, node);
+    }
+    let selected_identity = by_id.get(model).and_then(|node| {
         if let Some(super::CheckedNodeOwner::ModelRoot { identity, .. }) = node.owner {
             Some(identity.as_ref())
         } else {
@@ -2423,7 +2430,7 @@ fn protocol_memory_models(
     for clause in nodes {
         let clause_identity = clause
             .owner_model
-            .and_then(|owner| nodes.iter().find(|node| node.id == owner))
+            .and_then(|owner| by_id.get(owner))
             .and_then(|owner| match owner.owner {
                 Some(super::CheckedNodeOwner::Model { identity, .. }) => Some(identity.as_ref()),
                 _ => None,

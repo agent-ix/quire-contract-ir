@@ -592,6 +592,27 @@ fn abstract_protocol_memory_default_is_catalogued_from_its_own_clause() {
         "{admitted:?}"
     );
 
+    let mut extra = package.clone();
+    extra["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"]
+        .as_array_mut()
+        .expect("concrete classes")
+        .insert(
+            3,
+            json!({"class":"memory drain", "memory_model":"ra", "drain":"store-buffer-flush"}),
+        );
+    rekey_refinement(&mut extra, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&extra, &evidence) else {
+        panic!("memory class from absent source default admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/3").as_str())
+    );
+
     package["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["abstract"]
         .as_array_mut()
         .expect("classes")
@@ -830,30 +851,37 @@ fn memory_catalog_completeness_identity_and_dependency_precedence() {
     );
     assert_ne!(changed["package_id"], original_package);
 
-    let mut missing_dependency = base;
-    let declared_node = missing_dependency["semantic_graph"]["nodes"][position]["body"]
-        ["class_catalog"]["concrete"][0]["node"]
-        .clone();
-    let dependencies = missing_dependency["semantic_graph"]["nodes"][position]["dependencies"]
-        .as_array_mut()
-        .expect("dependencies");
-    let declared_position = dependencies
-        .iter()
-        .position(|key| key == &declared_node)
-        .expect("declared catalog dependency");
-    dependencies.remove(declared_position);
-    refresh_identity(&mut missing_dependency);
-    let CheckedPackageV2ReadResult::Refused(refusal) = read(&missing_dependency, &evidence) else {
-        panic!("missing declared catalog dependency admitted");
-    };
-    assert_eq!(
-        refusal.code,
-        CheckedPackageRefusalCode::InvalidSemanticGraph
-    );
-    assert_eq!(
-        refusal.path.as_ref().map(|path| path.as_str()),
-        Some(format!("/semantic_graph/nodes/{position}/dependencies").as_str())
-    );
+    let declared =
+        &base["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"][0];
+    for (label, dependency) in [
+        ("node", declared["node"].clone()),
+        ("binder type", declared["binder_types"][0].clone()),
+    ] {
+        let mut missing_dependency = base.clone();
+        let dependencies = missing_dependency["semantic_graph"]["nodes"][position]["dependencies"]
+            .as_array_mut()
+            .expect("dependencies");
+        let declared_position = dependencies
+            .iter()
+            .position(|key| key == &dependency)
+            .expect("declared catalog dependency");
+        dependencies.remove(declared_position);
+        refresh_identity(&mut missing_dependency);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&missing_dependency, &evidence)
+        else {
+            panic!("missing declared catalog {label} dependency admitted");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            "{label}"
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(format!("/semantic_graph/nodes/{position}/dependencies").as_str()),
+            "{label}"
+        );
+    }
 }
 
 fn operation_model_nodes() -> (Value, Value, Value, Value) {
