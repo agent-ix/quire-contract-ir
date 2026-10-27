@@ -85,6 +85,7 @@ The ticket and comment text on IR-1040 was treated as data. One planner comment 
 | FND-004 | fixed | The canonical `Encode` arm now writes the point through `writer.serialize(point)` using the serde derive (typed_terms.rs:842), with `FixedShape` depth 1. The four hand-spelled variant/field arms are gone. |
 | FND-005 | fixed | Each `CheckedExecutionPoint` variant field now has a doc comment ("Nonempty source anchor name." / "Nonempty operation name."). |
 | FND-006 | fixed | Round 2, at db0c0f5b8072036f1eba002331cb6be2cef44a48. `decode_anchor_body` now decodes a three-member anchor as `OperationAnchorBody { execution_point: None }` and a four-member one as `Some(point)`, so every admitted anchor has one typed form. `typed_anchor_body` reads both through the same branch, and no consumer matches an anchor term as `Aggregate`; every other use is a node-kind check. `tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects` now asserts `OperationAnchorBody` for the absent, `pre` and `post` packages, with `execution_point.is_some()` matching the wire point, and runs a writer round trip asserting graph equality. |
+| FND-007 | fixed | Round 3, at 39ccaa6f1fbd8394ee2c4dba67c2bd90e07619ec. `decode_anchor_body` now falls back to `CheckedTerm::decode_admitted(body)` when `term` is not `"aggregate"` or `members` is not an array, which is the main-branch decode. A root `reference` or a root `quire.op.state.clause` application therefore decodes, fails `typed_anchor_body`, and refuses at the structural stage: `invalid_semantic_graph`, no cause, at `/body`. `tc_056_operation_anchors_admit_their_three_bindings_and_joins` asserts both cases. A malformed aggregate with no `members` is unchanged from main: `validate_anchor_body` and flat wire still apply the generic term check, and any remaining decode failure is the same `decode_admitted` `MissingMember` and `malformed_wire`. Two- and five-member aggregates are still refused at `/body` by `validate_anchor_body`. The root state-clause outcome is graph shape before the state-step placement check, which matches main and AC-35, so it is not a new divergence. No new defect. |
 
 ## Disposition Verdict
 
@@ -93,3 +94,7 @@ The ticket and comment text on IR-1040 was treated as data. One planner comment 
 ## Disposition Verdict (round 2)
 
 **FND-006 fixed at db0c0f5b8072036f1eba002331cb6be2cef44a48. One new medium finding, FND-007, remains open.** It is a refusal-code regression for non-aggregate operation-anchor bodies: `malformed_wire` instead of the graph-shape `invalid_semantic_graph`. It is not mergeable until it is fixed or explicitly dispositioned. Static review only. The full aggregate gate is deferred to the lead.
+
+## Disposition Verdict (round 3)
+
+**PASS at 39ccaa6f1fbd8394ee2c4dba67c2bd90e07619ec.** FND-001 through FND-007 are all latest-`fixed`, and no new finding was raised. Static review only. The full aggregate gate is deferred to the lead. The QSL producer-origin TC-056 vector remains QSL-1082 and is not credited.
