@@ -380,6 +380,102 @@ fn activate_each(package: &mut Value, trigger_type: &Value) -> Value {
     package["semantic_graph"]["nodes"][clause]["node_id"].clone()
 }
 
+fn record_field(owner: &str, name: &str, type_ref: &str, redefines: Option<&str>) -> Value {
+    let mut field = json!({
+        "identity": format!("{owner}/{name}"), "name": name, "typeRef": type_ref,
+        "presence": "required", "nullable": false, "defaultKind": "none",
+        "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true}
+    });
+    if let Some(target) = redefines {
+        field["redefines"] = json!(target);
+    }
+    field
+}
+
+fn record_type(name: &str, supertypes: &[&str], fields: Vec<Value>) -> Value {
+    let identity = format!("ix://{MODEL_IDENTITY}/{name}");
+    json!({
+        "identity": identity, "displayName": name,
+        "kind": {"module": MODEL_IDENTITY, "name": "record"},
+        "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
+        "supertypes": supertypes, "fields": fields, "operations": []
+    })
+}
+
+fn record_declaration_node(record: &Value) -> Value {
+    let identity = record["identity"].as_str().expect("record identity");
+    let owner = json!({"kind":"model", "identity":MODEL_IDENTITY, "node":identity});
+    let body = json!({"term":"aggregate", "members":[]});
+    let key = node_id(&sha256_hex(&canonical(&json!({
+        "version":"quire.structural-node/v1", "node_tag":"model",
+        "semantic_form":"record_value_type", "semantic_type":null,
+        "declaration":null, "recursion":null, "owner":owner, "body":body
+    }))));
+    json!({
+        "node_id":key, "schema_version":"quire.checked-semantic-graph/v2",
+        "node_tag":"model", "semantic_form":"record_value_type",
+        "semantic_type":key, "dependencies":[],
+        "occurrences":[{"role":"type", "ordinal":0}],
+        "owner":owner, "body":body
+    })
+}
+
+fn record_activation_case(
+    records: Vec<Value>,
+    trigger: &str,
+    binders: &[Value],
+) -> (Value, CheckedPackageEvidence, usize) {
+    let record_nodes: Vec<Value> = records.iter().map(record_declaration_node).collect();
+    let trigger_key = record_nodes
+        .iter()
+        .find(|node| node["owner"]["node"] == format!("ix://{MODEL_IDENTITY}/{trigger}"))
+        .expect("trigger record")["node_id"]
+        .clone();
+    let mut document = model_document();
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind":{"module":MODEL_IDENTITY,"name":"record"},
+            "construct":{"meaning":"quire.meaning.model.record-value-type/v1"}
+        }));
+    document["types"]
+        .as_array_mut()
+        .expect("types")
+        .extend(records);
+    let mut base = v2_all_families();
+    activate_each(&mut base, &trigger_key);
+    let (mut package, evidence) = concrete_protocol_refinement_with_model(
+        base,
+        ProtocolStepRows::Empty,
+        ProtocolClauseOwner::SelectedModel,
+        document,
+        record_nodes,
+    );
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let clause = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "protocol_clause")
+        .expect("clause")["node_id"]
+        .clone();
+    let finish = nodes
+        .iter()
+        .find(|node| node["body"]["operation"]["member"]["operator"] == "finish")
+        .expect("finish")["node_id"]
+        .clone();
+    let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let position = set_concrete_catalog(
+        &mut package,
+        vec![
+            json!({"class":"OrderFlow::Closed", "node":finish, "binder_types":[boolean]}),
+            json!({"class":"activate OrderFlow", "node":clause, "binder_types":binders}),
+        ],
+    );
+    (package, evidence, position)
+}
+
 /// Trace: FR-038-AC-325
 #[trace("TC-048")]
 #[test]
@@ -504,6 +600,229 @@ fn refinement_catalog_activate_each_uses_clause_and_trigger_signature() {
         refusal.path.as_ref().map(|path| path.as_str()),
         Some(
             format!("/semantic_graph/nodes/{origin_position}/body/class_catalog/concrete/1")
+                .as_str()
+        )
+    );
+}
+
+/// Trace: FR-038-AC-325
+#[trace("TC-048")]
+#[test]
+fn refinement_catalog_activate_record_follows_authored_inherited_field_order() {
+    let base = format!("ix://{MODEL_IDENTITY}/Base");
+    let mid = format!("ix://{MODEL_IDENTITY}/Mid");
+    let leaf = format!("ix://{MODEL_IDENTITY}/Leaf");
+    let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let integer = node_id(&crate::support::checked_package::family_key("a3a3"));
+    for (base_fields, expected) in [
+        (
+            vec![("b", "Boolean"), ("a", "Integer")],
+            vec![
+                boolean.clone(),
+                integer.clone(),
+                boolean.clone(),
+                integer.clone(),
+            ],
+        ),
+        (
+            vec![("a", "Integer"), ("b", "Boolean")],
+            vec![
+                integer.clone(),
+                boolean.clone(),
+                boolean.clone(),
+                integer.clone(),
+            ],
+        ),
+    ] {
+        let records = vec![
+            record_type(
+                "Base",
+                &[],
+                base_fields
+                    .iter()
+                    .map(|(name, ty)| {
+                        record_field(&base, name, &format!("ix://quire/native/{ty}"), None)
+                    })
+                    .collect(),
+            ),
+            record_type(
+                "Mid",
+                &[&base],
+                vec![record_field(&mid, "c", "ix://quire/native/Boolean", None)],
+            ),
+            record_type(
+                "Leaf",
+                &[&mid],
+                vec![record_field(&leaf, "d", "ix://quire/native/Integer", None)],
+            ),
+        ];
+        let (package, evidence, position) = record_activation_case(records, "Leaf", &expected);
+        let bytes = writer_bytes(&package);
+        assert_eq!(bytes, canonical(&package));
+        let admitted =
+            CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence);
+        assert!(
+            matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+            "{admitted:?}"
+        );
+        let mut reordered = package.clone();
+        reordered["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"][1]
+            ["binder_types"] = json!([expected[1], expected[0], expected[2], expected[3]]);
+        rekey_refinement(&mut reordered, position);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&reordered, &evidence) else {
+            panic!("reordered inherited binder admitted");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration)
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(
+                format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1").as_str()
+            )
+        );
+    }
+}
+
+/// Trace: FR-038-AC-325
+#[trace("TC-048")]
+#[test]
+fn refinement_catalog_activate_record_respects_supertype_order_and_diamond_hiding() {
+    let p = format!("ix://{MODEL_IDENTITY}/P");
+    let q = format!("ix://{MODEL_IDENTITY}/Q");
+    let both = format!("ix://{MODEL_IDENTITY}/Both");
+    let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let integer = node_id(&crate::support::checked_package::family_key("a3a3"));
+    for (supertypes, expected) in [
+        (
+            vec![p.as_str(), q.as_str()],
+            vec![boolean.clone(), integer.clone(), boolean.clone()],
+        ),
+        (
+            vec![q.as_str(), p.as_str()],
+            vec![integer.clone(), boolean.clone(), boolean.clone()],
+        ),
+    ] {
+        let records = vec![
+            record_type(
+                "P",
+                &[],
+                vec![record_field(&p, "p", "ix://quire/native/Boolean", None)],
+            ),
+            record_type(
+                "Q",
+                &[],
+                vec![record_field(&q, "q", "ix://quire/native/Integer", None)],
+            ),
+            record_type(
+                "Both",
+                &supertypes,
+                vec![record_field(&both, "r", "ix://quire/native/Boolean", None)],
+            ),
+        ];
+        let (package, evidence, _) = record_activation_case(records, "Both", &expected);
+        let admitted = read(&package, &evidence);
+        assert!(
+            matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+            "{admitted:?}"
+        );
+    }
+
+    let top = format!("ix://{MODEL_IDENTITY}/Top");
+    let left = format!("ix://{MODEL_IDENTITY}/Left");
+    let right = format!("ix://{MODEL_IDENTITY}/Right");
+    let bottom = format!("ix://{MODEL_IDENTITY}/Bottom");
+    for redefine in [false, true] {
+        let mut left_fields = Vec::new();
+        if redefine {
+            left_fields.push(record_field(
+                &left,
+                "t_prime",
+                "ix://quire/native/Integer",
+                Some(&format!("{top}/t")),
+            ));
+        }
+        left_fields.push(record_field(&left, "l", "ix://quire/native/Integer", None));
+        let records = vec![
+            record_type(
+                "Top",
+                &[],
+                vec![record_field(&top, "t", "ix://quire/native/Boolean", None)],
+            ),
+            record_type("Left", &[&top], left_fields),
+            record_type(
+                "Right",
+                &[&top],
+                vec![record_field(&right, "r", "ix://quire/native/Boolean", None)],
+            ),
+            record_type(
+                "Bottom",
+                &[&left, &right],
+                vec![record_field(
+                    &bottom,
+                    "z",
+                    "ix://quire/native/Integer",
+                    None,
+                )],
+            ),
+        ];
+        let first = if redefine {
+            integer.clone()
+        } else {
+            boolean.clone()
+        };
+        let expected = [first, integer.clone(), boolean.clone(), integer.clone()];
+        let (package, evidence, _) = record_activation_case(records, "Bottom", &expected);
+        let admitted = read(&package, &evidence);
+        assert!(
+            matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+            "{admitted:?}"
+        );
+    }
+}
+
+/// Trace: FR-038-AC-325
+#[trace("TC-048")]
+#[test]
+fn refinement_catalog_activate_ambiguous_record_refuses_at_binder_types() {
+    let p = format!("ix://{MODEL_IDENTITY}/P");
+    let q = format!("ix://{MODEL_IDENTITY}/Q");
+    let both = format!("ix://{MODEL_IDENTITY}/Both");
+    let records = vec![
+        record_type(
+            "P",
+            &[],
+            vec![record_field(&p, "x", "ix://quire/native/Boolean", None)],
+        ),
+        record_type(
+            "Q",
+            &[],
+            vec![record_field(&q, "x", "ix://quire/native/Integer", None)],
+        ),
+        record_type(
+            "Both",
+            &[&p, &q],
+            vec![record_field(&both, "z", "ix://quire/native/Boolean", None)],
+        ),
+    ];
+    let (package, evidence, position) = record_activation_case(records, "Both", &[]);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+        panic!("ambiguous inherited binder admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::AmbiguousDeclaration
+    );
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::AmbiguousName)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(
+            format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1/binder_types")
                 .as_str()
         )
     );
