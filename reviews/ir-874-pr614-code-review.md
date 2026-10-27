@@ -41,3 +41,7 @@ No production, API, Cargo, CI or spec files change. The helper that constructs `
 ## Current verdict
 
 **PASS** for the reviewed diff and the recorded finding at 27cdd6450784ca8c701aed8d6f0067f6c5a329d1. The assertion helper derives expected position and key from the fixture's targeted node, so a wrong reader path or locus fails. This is a narrow same-PR disposition; hosted checks and the later integrated-head gate remain the code lead's merge checks.
+
+## Integrated-head delta
+
+**PASS** at PR #614 head 250ec8f848d187fb94168c29572021053f553d59 after merging main's #603 commit. The merge conflict changed only the `quire_contract_model` import list: it retains main's `CheckedPackageEvidence` and #614's `CheckedNodeId` and `CheckedPackageRefusal`. A byte-for-byte comparison of the five #614 helper functions and four test functions against 27cdd645 found all unchanged; the four tests still assert exact refusal paths, loci and owners. A comparison of the seven #603 helper and test functions added or renamed in this file against merge parent `14eb92af` found all unchanged. `git diff --check` passed on both parent comparisons. Hosted Rust Checks and the aggregate gate were pending at this audit.
