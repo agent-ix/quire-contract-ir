@@ -79,6 +79,30 @@ impl FieldTable {
             (Some(_), Some(_)) => Selected::Ambiguous,
         }
     }
+
+    /// The effective record field types in inherited source order.
+    pub(super) fn binder_types(&self, bytes: u64) -> Option<RecordBinderTypes> {
+        if self.ambiguous.is_some() {
+            return Some(RecordBinderTypes::Ambiguous);
+        }
+        let types = self
+            .ordered_exposed
+            .iter()
+            .map(|entry| {
+                Some(CheckedNodeId {
+                    domain: NODE_DOMAIN.into(),
+                    digest: entry.member_type.as_ref()?.node_key(bytes).ok()?.into(),
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(RecordBinderTypes::Known(types))
+    }
+}
+
+/// A record's checked binder types, or an inherited same-name ambiguity.
+pub(super) enum RecordBinderTypes {
+    Known(Vec<CheckedNodeId>),
+    Ambiguous,
 }
 
 /// The exposed fields of a table that bear one name.
@@ -577,14 +601,14 @@ impl RetainedModels {
         }
     }
 
-    pub(super) fn record_binder_types(&self, key: &CheckedNodeId) -> Option<Vec<CheckedNodeId>> {
+    pub(super) fn record_binder_types(&self, key: &CheckedNodeId) -> Option<RecordBinderTypes> {
         let declared = self.index.0.get(key.digest.as_ref())?;
         if declared.form != DeclarationForm::RecordValueType {
             return None;
         }
         self.models
             .get(declared.selection)?
-            .direct_record_binder_types(&declared.node)
+            .record_binder_types(&declared.node)
     }
 
     pub(super) fn is_record_type(&self, key: &CheckedNodeId) -> bool {

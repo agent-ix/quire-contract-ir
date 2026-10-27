@@ -2110,9 +2110,14 @@ pub(super) fn validate_catalog_graph(
                 concrete.push(DeclaredGraphClass {
                     class: format!("{}::{}", operation.object, operation.operation),
                     node: RefinementKey::Local(operation.node),
-                    binder_types: operation
-                        .binder_types
-                        .map(|types| types.into_iter().map(RefinementKey::Local).collect()),
+                    binder_types: operation.binder_types.map_or(
+                        BinderSignature::Unspecified,
+                        |types| {
+                            BinderSignature::Known(
+                                types.into_iter().map(RefinementKey::Local).collect(),
+                            )
+                        },
+                    ),
                 });
             }
             concrete.sort_unstable_by(|left, right| left.class.cmp(&right.class));
@@ -2213,8 +2218,24 @@ pub(super) fn validate_catalog_graph(
 struct DeclaredGraphClass {
     class: String,
     node: RefinementKey,
-    /// `None` is a signature whose inherited ordering is not yet specified.
-    binder_types: Option<Vec<RefinementKey>>,
+    binder_types: BinderSignature<RefinementKey>,
+}
+
+#[derive(Clone)]
+enum BinderSignature<T> {
+    Known(Vec<T>),
+    Unspecified,
+    Ambiguous,
+}
+
+impl<T> BinderSignature<T> {
+    fn map<U>(self, mut convert: impl FnMut(T) -> U) -> BinderSignature<U> {
+        match self {
+            Self::Known(types) => BinderSignature::Known(types.into_iter().map(convert).collect()),
+            Self::Unspecified => BinderSignature::Unspecified,
+            Self::Ambiguous => BinderSignature::Ambiguous,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -2224,11 +2245,14 @@ enum CatalogSignatures<'a, 'm> {
 }
 
 impl CatalogSignatures<'_, '_> {
-    fn record_binder_types(&self, key: &CheckedNodeId) -> Option<Vec<CheckedNodeId>> {
+    fn record_binder_types(
+        &self,
+        key: &CheckedNodeId,
+    ) -> Option<super::model_fields::RecordBinderTypes> {
         match self {
             Self::Local(owners) => {
                 let owner = owners.record_by_key(&key.digest)?;
-                owner.package.direct_record_binder_types(owner.node)
+                owner.package.record_binder_types(owner.node)
             }
             Self::External(models) => models.record_binder_types(key),
         }
@@ -2352,6 +2376,32 @@ fn protocol_classes(
         let Some(clause_name) = clause.name else {
             continue;
         };
+        if let Some(CheckedTerm::Application { arguments, .. }) = clause.term {
+            if let Some(activation) = super::protocol_body::binding_value(arguments, "activation") {
+                if super::protocol_body::group_value(activation, "kind")
+                    .and_then(super::protocol_body::text_value)
+                    == Some("each")
+                {
+                    let trigger_type = super::protocol_body::group_value(activation, "trigger")
+                        .and_then(|trigger| match trigger {
+                            CheckedTerm::Reference { target } => Some(target),
+                            _ => None,
+                        })
+                        .and_then(|trigger| nodes.iter().find(|node| node.id == trigger))
+                        .map(|trigger| trigger.semantic_type);
+                    if let (Some(name), Some(trigger_type)) =
+                        (clause_name.qualified_name.get(1), trigger_type)
+                    {
+                        classes.push(DeclaredGraphClass {
+                            class: format!("activate {name}"),
+                            node: key(clause.id),
+                            binder_types: binder_signature(trigger_type, signatures)
+                                .map(|id| key(&id)),
+                        });
+                    }
+                }
+            }
+        }
         for member in nodes {
             meter.charge(1, || at.clone())?;
             let Some(name) = member.name else {
@@ -2387,10 +2437,10 @@ fn protocol_classes(
                 continue;
             };
             let binder_types = if matches!(operator, CatalogOperator::Role) {
-                None
+                BinderSignature::Unspecified
             } else {
                 protocol_binder_types(operator, arguments, nodes, signatures, meter)?
-                    .map(|types| types.iter().map(&key).collect())
+                    .map(|id| key(&id))
             };
             for class in classes_for_node {
                 classes.push(DeclaredGraphClass {
@@ -2642,16 +2692,18 @@ fn protocol_binder_types(
     nodes: &[ProtocolCatalogNode<'_>],
     signatures: CatalogSignatures<'_, '_>,
     meter: &mut super::WorkMeter,
-) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
+) -> Result<BinderSignature<CheckedNodeId>, ValidationFailure> {
     if matches!(operator, CatalogOperator::Attempt) {
         let Some(anchor) = bound_reference(arguments, "operation")
             .and_then(|id| nodes.iter().find(|node| node.id == id))
             .and_then(|node| node.term)
             .and_then(super::structural::typed_anchor_body)
         else {
-            return Ok(None);
+            return Ok(BinderSignature::Unspecified);
         };
-        return signatures.operation_binder_types(&anchor.context, anchor.operation, meter);
+        return Ok(signatures
+            .operation_binder_types(&anchor.context, anchor.operation, meter)?
+            .map_or(BinderSignature::Unspecified, BinderSignature::Known));
     }
     let binder_type = match operator {
         CatalogOperator::Send | CatalogOperator::Receive => {
@@ -2659,17 +2711,17 @@ fn protocol_binder_types(
                 .and_then(|id| nodes.iter().find(|node| node.id == id))
                 .and_then(|node| node.term)
             else {
-                return Ok(None);
+                return Ok(BinderSignature::Unspecified);
             };
             let CheckedTerm::Application {
                 arguments: channel_arguments,
                 ..
             } = channel
             else {
-                return Ok(None);
+                return Ok(BinderSignature::Unspecified);
             };
             let Some(carries) = bound_reference(channel_arguments, "carries") else {
-                return Ok(None);
+                return Ok(BinderSignature::Unspecified);
             };
             carries
         }
@@ -2677,7 +2729,7 @@ fn protocol_binder_types(
             let Some(binder) = bound_reference(arguments, "binder")
                 .and_then(|id| nodes.iter().find(|node| node.id == id))
             else {
-                return Ok(None);
+                return Ok(BinderSignature::Unspecified);
             };
             binder.semantic_type
         }
@@ -2686,12 +2738,25 @@ fn protocol_binder_types(
         | CatalogOperator::Parallel
         | CatalogOperator::Attempt
         | CatalogOperator::Fence
-        | CatalogOperator::TimeoutFromAwait => return Ok(Some(Vec::new())),
+        | CatalogOperator::TimeoutFromAwait => return Ok(BinderSignature::Known(Vec::new())),
     };
+    Ok(binder_signature(binder_type, signatures))
+}
+
+fn binder_signature(
+    binder_type: &CheckedNodeId,
+    signatures: CatalogSignatures<'_, '_>,
+) -> BinderSignature<CheckedNodeId> {
     if signatures.is_record(binder_type) {
-        Ok(signatures.record_binder_types(binder_type))
+        match signatures.record_binder_types(binder_type) {
+            Some(super::model_fields::RecordBinderTypes::Known(types)) => {
+                BinderSignature::Known(types)
+            }
+            Some(super::model_fields::RecordBinderTypes::Ambiguous) => BinderSignature::Ambiguous,
+            None => BinderSignature::Unspecified,
+        }
     } else {
-        Ok(Some(vec![binder_type.clone()]))
+        BinderSignature::Known(vec![binder_type.clone()])
     }
 }
 
@@ -2801,13 +2866,17 @@ fn compare_declared_classes(
             RefinementConcreteClass::Declared {
                 node, binder_types, ..
             } => {
+                if matches!(found.binder_types, BinderSignature::Ambiguous) {
+                    return Err(ValidationFailure::refused_at(
+                        CheckedPackageRefusalCode::AmbiguousDeclaration,
+                        entry_at.key("binder_types"),
+                        Some(CheckedPackageRefusalCause::AmbiguousName),
+                        locus.clone(),
+                    ));
+                }
                 if found.node.local() != Some(node)
-                    || found.binder_types.as_ref().is_some_and(|expected| {
-                        binder_types
-                            .iter()
-                            .map(Some)
-                            .ne(expected.iter().map(RefinementKey::local))
-                    })
+                    || matches!(&found.binder_types, BinderSignature::Known(expected)
+                        if binder_types.iter().map(Some).ne(expected.iter().map(RefinementKey::local)))
                 {
                     return Err(wrong_binding(entry_at, locus));
                 }
@@ -2871,11 +2940,17 @@ fn compare_abstract_classes(
             RefinementAbstractClass::Declared {
                 node, binder_types, ..
             } => {
+                if matches!(found.binder_types, BinderSignature::Ambiguous) {
+                    return Err(ValidationFailure::refused_at(
+                        CheckedPackageRefusalCode::AmbiguousDeclaration,
+                        entry_at.key("binder_types"),
+                        Some(CheckedPackageRefusalCause::AmbiguousName),
+                        locus.clone(),
+                    ));
+                }
                 if node != &found.node
-                    || found
-                        .binder_types
-                        .as_ref()
-                        .is_some_and(|expected| binder_types != expected)
+                    || matches!(&found.binder_types, BinderSignature::Known(expected)
+                        if binder_types != expected)
                 {
                     return Err(wrong_binding(entry_at, locus));
                 }
