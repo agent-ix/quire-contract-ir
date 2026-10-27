@@ -53,6 +53,8 @@ impl CheckedComparisonOperator {
 pub enum CheckedComparisonClauseKind {
     /// An invariant.
     Invariant,
+    /// A constraint.
+    Constraint,
     /// A precondition.
     Precondition,
     /// A postcondition.
@@ -63,6 +65,7 @@ impl From<StateClauseKind> for CheckedComparisonClauseKind {
     fn from(kind: StateClauseKind) -> Self {
         match kind {
             StateClauseKind::Invariant => Self::Invariant,
+            StateClauseKind::Constraint => Self::Constraint,
             StateClauseKind::Precondition => Self::Precondition,
             StateClauseKind::Postcondition => Self::Postcondition,
         }
@@ -310,7 +313,10 @@ impl CheckedPackageV2 {
             })?;
         context.kind = body.clause.into();
         context.parameters = body.parameters;
-        if context.kind != CheckedComparisonClauseKind::Invariant {
+        if !matches!(
+            context.kind,
+            CheckedComparisonClauseKind::Invariant | CheckedComparisonClauseKind::Constraint
+        ) {
             context.operation = context
                 .node(&body.anchor)
                 .and_then(|anchor| self.node_index.get(&anchor.node_id).copied())

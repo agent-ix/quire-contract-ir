@@ -147,7 +147,9 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
             // term of the closed grammar, placed by the abstraction step.
             BodyGrammar::Frame => scan_members(&node.body, &at).map(|_| ()),
             BodyGrammar::Term => {
-                if kind == CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolReference)
+                if kind == CheckedNodeKind::State(super::StateForm::OperationAnchor) {
+                    check_anchor_flat_wire(&node.body, &at)
+                } else if kind == CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolReference)
                     && body_term(&node.body) == Some(BodyTerm::Application)
                     && application_operator(&node.body)
                         == Some(ApplicationOperator::ProtocolControl)
@@ -252,6 +254,27 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
         }
     }
     check_interval_bounds(wire, &kinds)
+}
+
+/// The fourth anchor binding is a bare point object, outside the term grammar.
+/// The graph-shape stage owns its closed binding and value refusals.
+fn check_anchor_flat_wire(body: &Value, at: &Trail<'_>) -> Result<(), ValidationFailure> {
+    let Some(members) = body.get("members").and_then(Value::as_array) else {
+        return check_term(body, at, Place::BodyRoot, false);
+    };
+    if members.iter().enumerate().any(|(index, member)| {
+        index != 3 && member.get("name").and_then(Value::as_str) == Some("execution_point")
+    }) {
+        return Ok(());
+    }
+    if members.len() < 4 {
+        return check_term(body, at, Place::BodyRoot, false);
+    }
+    let mut term_part = body.clone();
+    if let Some(first_three) = term_part["members"].as_array_mut() {
+        first_three.truncate(3);
+    }
+    check_term(&term_part, at, Place::BodyRoot, false)
 }
 
 /// A `temporal_interval` bound outside its form's pattern (FR-038 "The timed
