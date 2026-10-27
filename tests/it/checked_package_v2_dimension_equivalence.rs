@@ -107,6 +107,7 @@ fn refused(value: &Value, path: &str) {
     ) {
         CheckedPackageV2ReadResult::Refused(result) => {
             assert_eq!(result.code, CheckedPackageRefusalCode::InvalidSemanticGraph);
+            assert_eq!(result.cause, None);
             assert_eq!(result.path, Some(pointer(path)));
         }
         other => panic!("expected invalid semantic graph, got {other:?}"),
@@ -121,6 +122,7 @@ fn malformed(value: &Value, position: usize) {
     ) {
         CheckedPackageV2ReadResult::Refused(result) => {
             assert_eq!(result.code, CheckedPackageRefusalCode::MalformedWire);
+            assert_eq!(result.cause, None);
             assert_eq!(
                 result.path,
                 Some(pointer(&format!("/semantic_graph/nodes/{position}")))
@@ -229,6 +231,75 @@ fn equivalence_schema_defects_refuse_at_the_node_before_identity_checks() {
     declared["semantic_graph"]["nodes"][2]["declaration"] =
         json!({"qualified_name":["Example","TimeJoin"]});
     malformed(&declared, 2);
+
+    let mut null_declaration = declared;
+    null_declaration["semantic_graph"]["nodes"][2]["declaration"] = Value::Null;
+    refresh_identity(&mut null_declaration);
+    malformed(&null_declaration, 2);
+}
+
+/// Trace: FR-063-AC-5
+#[trace("FR-063-AC-5")]
+#[test]
+fn equivalence_graph_defects_refuse_at_the_node_after_wire_checks() {
+    let value = pair();
+
+    let mut unreduced = value.clone();
+    unreduced["semantic_graph"]["nodes"][2]["nominal_identity_preimage"]["root_scale"] =
+        json!({"numerator":"2","denominator":"2"});
+    rekey_equivalence(&mut unreduced, 2);
+    refused(&unreduced, "/semantic_graph/nodes/2");
+
+    let mut missing_dependency = value.clone();
+    missing_dependency["semantic_graph"]["nodes"][2]["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .pop();
+    refresh_identity(&mut missing_dependency);
+    refused(&missing_dependency, "/semantic_graph/nodes/2");
+
+    let mut non_self = value.clone();
+    non_self["semantic_graph"]["nodes"][2]["semantic_type"] =
+        value["semantic_graph"]["nodes"][0]["node_id"].clone();
+    refresh_identity(&mut non_self);
+    refused(&non_self, "/semantic_graph/nodes/2");
+
+    let mut unselected_owner = value.clone();
+    unselected_owner["semantic_graph"]["nodes"][2]["nominal_identity_preimage"]["owner"]
+        ["identity"] = json!("absent-source");
+    rekey_equivalence(&mut unselected_owner, 2);
+    refused(&unselected_owner, "/semantic_graph/nodes/2");
+
+    let mut stale_scale = value.clone();
+    stale_scale["semantic_graph"]["nodes"][2]["nominal_identity_preimage"]["root_scale"]
+        ["numerator"] = json!("2");
+    refresh_identity(&mut stale_scale);
+    refused(&stale_scale, "/semantic_graph/nodes/2");
+
+    let mut stale_pair = value;
+    let first_id = stale_pair["semantic_graph"]["nodes"][0]["node_id"].clone();
+    stale_pair["semantic_graph"]["nodes"][2]["nominal_identity_preimage"]["dimension_node_ids"]
+        [1] = first_id;
+    refresh_identity(&mut stale_pair);
+    refused(&stale_pair, "/semantic_graph/nodes/2");
+}
+
+/// Trace: FR-063-AC-5
+#[trace("FR-063-AC-5")]
+#[test]
+fn equivalence_wire_defect_precedes_independent_graph_defect() {
+    let mut value = pair();
+    let first_id = value["semantic_graph"]["nodes"][0]["node_id"].clone();
+    value["semantic_graph"]["nodes"][2]["semantic_type"] = first_id;
+    value["semantic_graph"]["nodes"][2]["nominal_identity_preimage"]["root_scale"]["numerator"] =
+        json!("0");
+    refresh_identity(&mut value);
+    malformed(&value, 2);
+
+    value["semantic_graph"]["nodes"][2]["nominal_identity_preimage"]["root_scale"]["numerator"] =
+        json!("1");
+    refresh_identity(&mut value);
+    refused(&value, "/semantic_graph/nodes/2");
 }
 
 /// Trace: FR-063-AC-5
@@ -349,10 +420,7 @@ fn three_roots_admit_one_exact_class_and_bad_cycle_refuses() {
     bad["semantic_graph"]["nodes"][5]["nominal_identity_preimage"]["root_scale"]["numerator"] =
         json!("1001");
     rekey_equivalence(&mut bad, 5);
-    refused(
-        &bad,
-        "/semantic_graph/nodes/5/nominal_identity_preimage/root_scale",
-    );
+    refused(&bad, "/semantic_graph/nodes/5");
 }
 
 /// Trace: FR-063-AC-2, FR-063-AC-4
@@ -364,23 +432,20 @@ fn stale_equal_descending_and_repeated_pairs_refuse() {
     stale["semantic_graph"]["nodes"][2]["nominal_identity_preimage"]["root_scale"]["numerator"] =
         json!("2");
     refresh_identity(&mut stale);
-    refused(&stale, "/semantic_graph/nodes/2/node_id");
+    refused(&stale, "/semantic_graph/nodes/2");
 
     let mut stale_pair = value.clone();
     stale_pair["semantic_graph"]["nodes"][2]["nominal_identity_preimage"]["dimension_node_ids"]
         [1] = value["semantic_graph"]["nodes"][0]["node_id"].clone();
     refresh_identity(&mut stale_pair);
-    refused(&stale_pair, "/semantic_graph/nodes/2/node_id");
+    refused(&stale_pair, "/semantic_graph/nodes/2");
 
     let first = value["semantic_graph"]["nodes"][0]["node_id"].clone();
     let mut equal = value.clone();
     equal["semantic_graph"]["nodes"][2]["nominal_identity_preimage"]["dimension_node_ids"] =
         json!([first.clone(), first]);
     rekey_equivalence(&mut equal, 2);
-    refused(
-        &equal,
-        "/semantic_graph/nodes/2/nominal_identity_preimage/dimension_node_ids",
-    );
+    refused(&equal, "/semantic_graph/nodes/2");
 
     let mut descending = value.clone();
     descending["semantic_graph"]["nodes"][2]["nominal_identity_preimage"]["dimension_node_ids"]
@@ -388,10 +453,7 @@ fn stale_equal_descending_and_repeated_pairs_refuse() {
         .expect("pair")
         .reverse();
     rekey_equivalence(&mut descending, 2);
-    refused(
-        &descending,
-        "/semantic_graph/nodes/2/nominal_identity_preimage/dimension_node_ids",
-    );
+    refused(&descending, "/semantic_graph/nodes/2");
 
     let first = dimension("RpcTime", json!([]));
     let second = dimension("FlowTime", json!([]));
@@ -401,10 +463,7 @@ fn stale_equal_descending_and_repeated_pairs_refuse() {
         equivalence(&first.1, &second.1, "1", "1"),
         equivalence(&first.1, &second.1, "2", "1"),
     ]);
-    refused(
-        &repeated,
-        "/semantic_graph/nodes/3/nominal_identity_preimage/dimension_node_ids",
-    );
+    refused(&repeated, "/semantic_graph/nodes/3");
 }
 
 /// Trace: FR-063-AC-4
@@ -429,11 +488,7 @@ fn unit_key_and_unequal_derived_maps_refuse() {
         (unit, unit_key.clone()),
         equivalence(&first.1, &unit_key, "1", "1"),
     ]);
-    let member = if first.1 < unit_key { 1 } else { 0 };
-    refused(
-        &wrong_kind,
-        &format!("/semantic_graph/nodes/3/nominal_identity_preimage/dimension_node_ids/{member}"),
-    );
+    refused(&wrong_kind, "/semantic_graph/nodes/3");
 
     let derived_first = dimension(
         "RpcSquared",
@@ -454,10 +509,7 @@ fn unit_key_and_unequal_derived_maps_refuse() {
         derived_second.clone(),
         equivalence(&derived_first.1, &derived_second.1, "1", "1"),
     ]);
-    refused(
-        &mismatch,
-        "/semantic_graph/nodes/4/nominal_identity_preimage/dimension_node_ids",
-    );
+    refused(&mismatch, "/semantic_graph/nodes/4");
 }
 
 /// Trace: FR-063-AC-4
@@ -501,10 +553,7 @@ fn derived_ratio_is_fixed_by_base_roots() {
     inconsistent["semantic_graph"]["nodes"][5]["nominal_identity_preimage"]["root_scale"] =
         json!({"numerator":"3","denominator":"1"});
     rekey_equivalence(&mut inconsistent, 5);
-    refused(
-        &inconsistent,
-        "/semantic_graph/nodes/5/nominal_identity_preimage/root_scale",
-    );
+    refused(&inconsistent, "/semantic_graph/nodes/5");
 }
 
 /// Trace: FR-063-AC-1, FR-063-AC-3
