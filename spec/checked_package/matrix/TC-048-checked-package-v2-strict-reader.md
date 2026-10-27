@@ -5,6 +5,8 @@ type: TC
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
     type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-064
+    type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-046
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-048
@@ -1693,6 +1695,58 @@ vector or schema is copied into this repository.
    before the catalog join and the refinement-row defect before both. For
    `CC-10`, two request memory choices leave the admitted catalog and
    package identity equal (FR-038-AC-325).
+9. Build an independent positive package through the public typed writer:
+   select concrete model package A with its canonical `model_root` R, owned
+   object-type node O and protocol clause C whose `owner_model` is O; also
+   select model package B with a different root and object-type node. Put R
+   in the refinement's concrete `semantic_type`, not O. Give C a checked
+   control class and omit C from the refinement's `steps`, while placing its
+   class in the complete concrete catalog. Require public strict read and
+   typed read/write/read to admit with the same keys, package identity,
+   root, owner and catalog (FR-064-AC-1/AC-5, FR-038-AC-325). The vector
+   SHALL fail if the reader equates R and O or reconstructs only step rows.
+10. From that independently valid package, make one identity-consistent
+    mutation per case, rebuilding every affected node key, dependency and
+    package identity: retarget C to B's object-type node; retarget it to a
+    selected `state_machine`, `process`, `record_value_type`, relation or
+    `model_root` node; and retarget it to a source-local or unselected
+    declaration node. Require the FR-064-AC-4 typed edge refusal for each
+    wrong-kind or unselected target, and require B's otherwise valid clause
+    to contribute only to B's catalog, never A's. A source producer given
+    C declared over A SHALL emit O even when B is selected; this producer
+    check is separate from the reader's identity-bound edge check.
+11. Keeping the positive package's owner join and protocol body valid,
+    mutate the concrete catalog separately to omit C's class, add B's
+    foreign class, duplicate or reorder an entry, change C's class node or
+    binder signature, omit a catalog required by a protocol or memory
+    class, and add a catalog to a model-only refinement without those
+    classes. Require respectively `invalid_semantic_graph` at the concrete
+    array for omission, that code at the extra entry, the earlier refinement
+    canonical-order refusal for duplicate or disorder, `invalid_model_binding`/
+    `malformed-declaration` at the changed entry, and `invalid_semantic_graph`
+    at the catalog member for missing or forbidden presence. Include an
+    admitted abstract clause from a directly selected dependency and an
+    owned `parallel` with separate `fork` and `join` classes so neither side
+    is reduced to step-row membership. Pair a rekeyed catalog defect with
+    an independent protocol-body defect and then an earlier refinement-row
+    defect: require the row defect before the body defect, and the body
+    defect before the class-catalog graph join (FR-064-AC-5,
+    FR-038-AC-284/AC-325; QSpec TC-310/TC-946). Consume QSpec's published
+    vectors from the selected checkout; do not copy them into this repo.
+12. For owned source `parallel` nodes, derive separate valid catalogs with
+    source defaults `sc`, `tso` and `ra`. Require a node-free, binder-free
+    `memory drain` entry with `drain: store-buffer-flush` for each default;
+    require `memory flush` with `memory_model: tso` only for `tso`. Keep the
+    memory class when no refinement step row names it. In separate rekeyed
+    packages, omit a required memory class, add `memory flush` under `sc` or
+    `ra`, change the drain model or drain member, and duplicate or reorder a
+    memory entry. Compare the exact QSpec FR-375 code, cause and catalog
+    pointer, including earlier refinement canonical-order refusal for
+    duplicate or disorder and later protocol catalog-join refusal for an
+    inventory mismatch. Pair a memory catalog mismatch with an independent
+    protocol-body defect to require the body defect first. Two analysis
+    requests with different memory overrides SHALL leave the admitted
+    catalog and package identity equal (FR-038-AC-325; QSpec TC-310).
 
 Expected: the positive packages admit with their authored keys, every adverse
 vector refuses with the QSpec code, cause and locus, and no runtime workflow

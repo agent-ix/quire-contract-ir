@@ -92,10 +92,18 @@ clause interpretation. The reader SHALL use the admitted edge without a
 source-level `over` comparison; no general key stage SHALL invent or repair
 the edge.
 
-The refinement class-catalog graph join SHALL select every admitted clause
-whose `owner_model` is the object-type node of a model owned by the selected
+The refinement's concrete `semantic_type` SHALL resolve to the canonical
+`model_root` of its selected concrete model package. That root identifies the
+selected package as a whole; it is not an object-type declaration node. For
+each admitted clause, the reader SHALL resolve `owner_model` through the
+selected declaration and its package to an exact object-type node owned by
+that declaration. The refinement class-catalog graph join SHALL select every
+admitted clause whose resolved owner belongs to the refinement's selected
 concrete declaration, including a clause with no named step row, and SHALL
-exclude clauses whose edge names a model owned by another declaration.
+exclude clauses whose edge names a model owned by another declaration or an
+unselected package. It SHALL NOT compare the root node id directly to the
+owner node id, treat a matching name as ownership, or accept a selected
+declaration's non-object-type node as an owner.
 It SHALL compare the complete selected model class inventory under
 [FR-038](./FR-038-consume-checked-package-v2.md) and QSpec FR-375. A
 refinement-step row/catalog defect SHALL precede the protocol step; a
@@ -112,7 +120,7 @@ class or default owner.
 | FR-064-AC-2 | A clause's `quire.application-node/v1` preimage contains `owner_model` as its local node id; an otherwise identical non-clause application preimage omits it. Retargeting the edge to a second valid local model and recomputing dependencies, clause key, downstream keys and package id changes the clause key and package id; retaining the old clause key while recomputing the envelope identity refuses `invalid_package`/`stale-node-key` at that clause's `node_id`. | Test |
 | FR-064-AC-3 | A missing `owner_model` on a protocol clause, a present `owner_model` on a non-clause node, or an external `{package, node}` value in the local-only edge refuses at closed wire validation before graph or protocol checks. A clause whose otherwise valid local edge target is omitted from, duplicated in, or out of order in `dependencies` refuses `invalid_semantic_graph` at `/semantic_graph/nodes/{n}/dependencies` before stale-key or clause-meaning checks. | Test |
 | FR-064-AC-4 | With wire, graph and identities valid, an `owner_model` pointing at a non-model node, a source-local declaration, a model declaration owned by no selected declaration, or a selected declaration's model node of any form other than `object_type` (a `state_machine`, `process`, `record_value_type`, a relation node, or the selected package's `model_root`) refuses at the edge under QSpec FR-464's typed model-binding check before clause interpretation. A separate earlier wire, graph or stale-key fault wins when paired with such a meaning defect. A source producer given a clause declared `over` model A emits the edge to A's object-type node even when selected model B exists; a candidate B edge fails producer conformance, without claiming an IR reader source-level comparison. The IR reader uses the admitted edge and does not infer or cross-check it from the `over` parameter. | Test |
-| FR-064-AC-5 | A protocol refinement whose complete concrete catalog includes classes from an admitted clause whose `owner_model` is the object-type node of a model owned by its selected concrete declaration is admitted even when no step row names those classes. A clause whose edge names a model owned by another declaration contributes no class to that catalog, regardless of similar declaration names or binder types. A catalog missing an owned clause's class or including a foreign clause's class refuses under FR-038-AC-325 after protocol-body checks; an earlier refinement-step row/catalog defect still wins. | Test |
+| FR-064-AC-5 | A protocol refinement whose concrete `semantic_type` is its selected package's canonical `model_root` and whose complete concrete catalog includes classes from an admitted clause whose distinct `owner_model` is the object-type node of a model owned by its selected concrete declaration is admitted even when no step row names those classes. A clause whose edge names a model owned by another declaration or an unselected package contributes no class to that catalog, regardless of similar declaration names or binder types. A catalog missing an owned clause's class or including a foreign clause's class refuses under FR-038-AC-325 after protocol-body checks; an earlier refinement-step row/catalog defect still wins. | Test |
 | FR-064-AC-6 | The public typed writer and reader carry `owner_model` through `CheckedSemanticNodeV2`, its raw form and `CheckedNodeProjectionV2` in the existing V2 graph and envelope. No other node accepts the member, and no copied QSpec schema, fixture, parallel untyped writer, compatibility reader or fallback owner inference is added. | Inspection |
 
 ## Dependencies
@@ -127,6 +135,7 @@ class or default owner.
 
 ## Status
 
-Planned. The measured IR model has no `owner_model` member on
-`CheckedSemanticNodeV2` or `CheckedNodeProjectionV2`, so its closed reader
-and typed writer cannot yet round-trip the merged QSpec edge.
+Partially implemented. The typed `owner_model` carrier, writer and basic
+reader admission are present. The reader still needs the selected-declaration
+owner join and complete class-catalog reconstruction specified above; this
+status does not claim those checks or their test evidence.
