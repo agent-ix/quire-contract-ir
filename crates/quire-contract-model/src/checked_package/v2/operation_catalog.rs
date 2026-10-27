@@ -369,6 +369,10 @@ mod tests {
                 super::super::KnownOperation::StateClause,
             ),
             (
+                "quire.op.state.transition",
+                super::super::KnownOperation::StateTransition,
+            ),
+            (
                 "quire.op.numeric.narrow",
                 super::super::KnownOperation::NumericNarrow,
             ),
