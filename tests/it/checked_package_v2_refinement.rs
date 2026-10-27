@@ -726,7 +726,8 @@ fn refinement_catalog_presence_precedes_declaration_backed_step_joins() {
     };
     assert_eq!(
         refusal.code,
-        CheckedPackageRefusalCode::InvalidSemanticGraph
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        "{refusal:?}"
     );
     assert_eq!(
         refusal.path.as_ref().map(|path| path.as_str()),
