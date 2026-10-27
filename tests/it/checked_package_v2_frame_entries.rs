@@ -1699,10 +1699,11 @@ fn tc_056_point_checks_follow_anchor_joins_and_clause_signature() {
                 json!({"kind": "pre", "operation": "scaled"}),
             ));
     });
-    let bad_signature = pointed.edit(precondition, |node| {
+    let self_parameter = pointed.parameter_key("self");
+    let bad_signature = pointed.edit(precondition, move |node| {
         node["body"]["operation"]["member"]["execution_point"] =
             json!({"kind": "post", "operation": "scaled"});
-        node["body"]["arguments"][0]["members"] = json!([reference(self_key())]);
+        node["body"]["arguments"][0]["members"] = json!([reference(&self_parameter)]);
     });
     model_expect(
         "signature precedes clause-anchor point agreement",
