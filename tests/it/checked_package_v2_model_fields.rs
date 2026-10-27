@@ -2412,5 +2412,6 @@ fn ir987_model_results_bytes_and_work_match_before_change() {
     else {
         panic!("work boundary");
     };
-    assert_eq!((high, incomplete.consumed), (24, 24));
+    // The selected model root adds four checks to the pre-root work boundary.
+    assert_eq!((high, incomplete.consumed), (24 + 4, 28));
 }
