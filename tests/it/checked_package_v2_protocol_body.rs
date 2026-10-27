@@ -1571,6 +1571,99 @@ fn protocol_owner_retarget_to_selected_non_object_model_refuses() {
     );
 }
 
+/// Trace: FR-064-AC-4
+#[trace("TC-048", "TC-946")]
+#[test]
+fn protocol_owner_unselected_object_refuses_at_target_before_clause() {
+    let mut package = admitted_protocol_families();
+    let clause = clause_position(&package);
+    let mut unselected = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "object_type")
+        .expect("selected object type")
+        .clone();
+    let unselected_position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    unselected["node_id"] = node_id(&"f".repeat(64));
+    unselected["semantic_type"] = unselected["node_id"].clone();
+    unselected["owner"]["identity"] = json!("test/unselected");
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(unselected.clone());
+    package["semantic_graph"]["nodes"][clause]["owner_model"] = unselected["node_id"].clone();
+    settle(&mut package);
+
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("unselected object target must refuse in graph owner join");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{unselected_position}/node_id").as_str())
+    );
+    assert_eq!(
+        refusal.locus.as_ref(),
+        Some(&serde_json::from_value(unselected["node_id"].clone()).expect("target node id"))
+    );
+}
+
+/// Trace: FR-064-AC-4
+#[trace("TC-048", "TC-946")]
+#[test]
+fn protocol_owner_selected_wrong_kinds_and_missing_target_refuse_at_edge() {
+    let package = admitted_protocol_families();
+    for (label, target) in [
+        ("source declaration", node_id(&family_key("8080"))),
+        ("selected relation", node_id(&family_key("2020"))),
+        (
+            "model root",
+            package["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .iter()
+                .find(|node| node["semantic_form"] == "model_root")
+                .expect("model root")["node_id"]
+                .clone(),
+        ),
+        ("missing local target", node_id(&"f".repeat(64))),
+    ] {
+        let mut candidate = package.clone();
+        let clause = clause_position(&candidate);
+        candidate["semantic_graph"]["nodes"][clause]["owner_model"] = target;
+        settle(&mut candidate);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&candidate) else {
+            panic!("{label} must refuse at clause edge");
+        };
+        let (code, cause) = if label == "missing local target" {
+            (
+                CheckedPackageRefusalCode::MissingDeclaration,
+                CheckedPackageRefusalCause::MissingName,
+            )
+        } else {
+            (
+                CheckedPackageRefusalCode::InvalidModelBinding,
+                CheckedPackageRefusalCause::MalformedDeclaration,
+            )
+        };
+        assert_eq!(refusal.code, code, "{label}");
+        assert_eq!(refusal.cause, Some(cause), "{label}");
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(format!("/semantic_graph/nodes/{clause}/owner_model").as_str()),
+            "{label}"
+        );
+    }
+}
+
 fn append_duplicate_clause(package: &mut Value, body: Value) -> (usize, String) {
     let original = clause_position(package);
     let dependencies = package["semantic_graph"]["nodes"][original]["dependencies"]

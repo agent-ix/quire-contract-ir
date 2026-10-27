@@ -1650,13 +1650,13 @@ fn refinement_catalog_presence_uses_clause_owner_without_step_rows() {
 #[test]
 fn refinement_catalog_joins_owned_finish_without_a_step_row() {
     let original = v2_all_families();
-    let original_clause_key = original["semantic_graph"]["nodes"]
+    let original_clause = original["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .iter()
         .find(|node| node["semantic_form"] == "protocol_clause")
-        .expect("original clause")["node_id"]
-        .clone();
+        .expect("original clause");
+    let original_clause_key = original_clause["node_id"].clone();
     let original_package_id = original["package_id"].clone();
     let (mut package, evidence) =
         concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::SelectedModel);
@@ -1675,6 +1675,9 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
         .find(|node| node["semantic_form"] == "protocol_clause")
         .expect("retargeted clause");
     assert_eq!(clause["owner_model"], object_b);
+    assert_ne!(clause["owner_model"], original_clause["owner_model"]);
+    assert_eq!(clause["body"], original_clause["body"]);
+    let clause_key = clause["node_id"].clone();
     assert_ne!(clause["node_id"], original_clause_key);
     assert_ne!(package["package_id"], original_package_id);
     let concrete_root = nodes
@@ -1726,6 +1729,20 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
     assert_eq!(
         serde_json::to_value(round_trip.package_id()).expect("package id"),
         package["package_id"]
+    );
+    let round_trip_clause = round_trip
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "protocol_clause")
+        .expect("admitted clause");
+    assert_eq!(
+        serde_json::to_value(&round_trip_clause.node_id).expect("clause key"),
+        clause_key
+    );
+    assert_eq!(
+        serde_json::to_value(&round_trip_clause.owner_model).expect("owner edge"),
+        object_b
     );
     let round_trip_refinement = round_trip
         .graph()
