@@ -384,10 +384,21 @@ fn activate_each(package: &mut Value, trigger_type: &Value) -> Value {
 #[trace("TC-048")]
 #[test]
 fn refinement_catalog_activate_each_uses_clause_and_trigger_signature() {
-    let (mut package, evidence) =
-        concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::SelectedModel);
     let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
-    let clause = activate_each(&mut package, &boolean);
+    let mut base = v2_all_families();
+    activate_each(&mut base, &boolean);
+    let (mut package, evidence) = concrete_protocol_refinement_on(
+        base,
+        ProtocolStepRows::Empty,
+        ProtocolClauseOwner::SelectedModel,
+    );
+    let clause = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "protocol_clause")
+        .expect("clause")["node_id"]
+        .clone();
     let finish = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
