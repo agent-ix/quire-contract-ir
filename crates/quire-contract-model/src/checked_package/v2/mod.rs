@@ -2099,6 +2099,18 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
     }
 }
 
+/// Retain an anchor's bare point through its dedicated body decoder.
+fn decode_admitted_body(
+    kind: CheckedNodeKind,
+    body: &Value,
+) -> Result<CheckedTerm, typed_terms::TermConversionCause> {
+    if kind == CheckedNodeKind::State(StateForm::OperationAnchor) {
+        execution_point::decode_anchor_body(body)
+    } else {
+        CheckedTerm::decode_admitted(body)
+    }
+}
+
 /// Minimal structural admission for one node body. Most nodes use the closed
 /// `SemanticTerm` grammar. Extension nodes use [`extension::read_body`],
 /// `state`/`frame` nodes use [`frame::read_frame_body`], and
@@ -2654,7 +2666,7 @@ fn validate_graph(
         // this graph stage. Its flat scan accepts shapes that the relation
         // step deliberately reports as InvalidSemanticGraph, so a failed
         // typed decode cannot preempt that step.
-        terms.push(match CheckedTerm::decode_admitted(&node.body) {
+        terms.push(match decode_admitted_body(kind, &node.body) {
             Ok(term) => Some(term),
             Err(_) if body_grammar(kind) == BodyGrammar::AbstractionRelation => None,
             Err(_) => {
@@ -2956,12 +2968,14 @@ fn validate_graph(
         .enumerate()
         .map(|(position, term)| match term {
             Some(term) => Ok(term),
-            None => CheckedTerm::decode_admitted(&graph.nodes[position].body).map_err(|_| {
-                refuse(
-                    CheckedPackageRefusalCode::MalformedWire,
-                    node_pointer(position).key("body"),
-                )
-            }),
+            None => {
+                decode_admitted_body(kinds[position], &graph.nodes[position].body).map_err(|_| {
+                    refuse(
+                        CheckedPackageRefusalCode::MalformedWire,
+                        node_pointer(position).key("body"),
+                    )
+                })
+            }
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(ValidatedGraph {

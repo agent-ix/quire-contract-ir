@@ -12,6 +12,7 @@ use super::{
 };
 use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedSemanticId};
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
+use serde::ser::{SerializeMap, SerializeSeq};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{error::Category, Value};
 
@@ -20,13 +21,25 @@ use serde_json::{error::Category, Value};
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CheckedExecutionPoint {
     /// Initialization of the named source anchor.
-    Initialization { name: Box<str> },
+    Initialization {
+        /// Nonempty source anchor name.
+        name: Box<str>,
+    },
     /// Handler of the named source anchor.
-    Handler { name: Box<str> },
+    Handler {
+        /// Nonempty source anchor name.
+        name: Box<str>,
+    },
     /// The named operation before its body.
-    Pre { operation: Box<str> },
+    Pre {
+        /// Nonempty operation name.
+        operation: Box<str>,
+    },
     /// The named operation after its body.
-    Post { operation: Box<str> },
+    Post {
+        /// Nonempty operation name.
+        operation: Box<str>,
+    },
 }
 
 impl CheckedExecutionPoint {
@@ -37,6 +50,54 @@ impl CheckedExecutionPoint {
             Self::Pre { operation } | Self::Post { operation } => operation,
         };
         (!name.is_empty()).then_some(point)
+    }
+}
+
+impl FixedShape for CheckedExecutionPoint {
+    const DEPTH: usize = 1;
+}
+
+/// An admitted operation anchor body with three expression bindings and an
+/// optional bare point binding. The point itself is not an expression term.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedOperationAnchorBody {
+    /// Context, operation and frame bindings, in wire order.
+    pub members: [CheckedTerm; 3],
+    /// The optional closed fourth binding's bare value.
+    pub execution_point: Option<CheckedExecutionPoint>,
+}
+
+impl Serialize for CheckedOperationAnchorBody {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        struct Members<'a>(&'a CheckedOperationAnchorBody);
+        impl Serialize for Members<'_> {
+            fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                #[derive(Serialize)]
+                struct PointBinding<'a> {
+                    term: &'static str,
+                    name: &'static str,
+                    value: &'a CheckedExecutionPoint,
+                }
+                let mut sequence = serializer.serialize_seq(Some(
+                    self.0.members.len() + usize::from(self.0.execution_point.is_some()),
+                ))?;
+                for member in &self.0.members {
+                    sequence.serialize_element(member)?;
+                }
+                if let Some(point) = &self.0.execution_point {
+                    sequence.serialize_element(&PointBinding {
+                        term: "binding",
+                        name: "execution_point",
+                        value: point,
+                    })?;
+                }
+                sequence.end()
+            }
+        }
+        let mut object = serializer.serialize_map(Some(2))?;
+        object.serialize_entry("term", "aggregate")?;
+        object.serialize_entry("members", &Members(self))?;
+        object.end()
     }
 }
 
@@ -210,9 +271,9 @@ pub enum CheckedTerm {
         /// Ordered clause bindings.
         clauses: Vec<CheckedTerm>,
     },
-    /// A bare QSpec execution-point object, valid only as an anchor binding value.
-    #[serde(untagged)]
-    ExecutionPoint(CheckedExecutionPoint),
+    /// A dedicated operation anchor body; its bare point is not a term.
+    #[serde(untagged, skip_deserializing)]
+    OperationAnchorBody(CheckedOperationAnchorBody),
 }
 
 /// Borrowed, one-level decoding for early family wire checks. Children are
@@ -337,6 +398,11 @@ impl CheckedTerm {
                     member.visit_reference_targets(visitor);
                 }
             }
+            Self::OperationAnchorBody(body) => {
+                for member in &body.members {
+                    member.visit_reference_targets(visitor);
+                }
+            }
             Self::Binding { value, .. } => value.visit_reference_targets(visitor),
             Self::ExtensionForm { clauses, .. } => {
                 for clause in clauses {
@@ -354,8 +420,7 @@ impl CheckedTerm {
             Self::Literal { .. }
             | Self::DependencyReference { .. }
             | Self::Frame { .. }
-            | Self::AbstractionRelation { .. }
-            | Self::ExecutionPoint(_) => {}
+            | Self::AbstractionRelation { .. } => {}
         }
     }
 
@@ -387,6 +452,11 @@ impl CheckedTerm {
             }
             Self::Aggregate { members } => {
                 for member in members {
+                    member.replace_node_id(old, new);
+                }
+            }
+            Self::OperationAnchorBody(body) => {
+                for member in &mut body.members {
                     member.replace_node_id(old, new);
                 }
             }
@@ -433,7 +503,6 @@ impl CheckedTerm {
             Self::Refinement { .. } => {
                 super::refinement::replace_node_ids(self, old, new);
             }
-            Self::ExecutionPoint(_) => {}
         }
     }
     /// Construct a checked reference body without an untyped JSON intermediate.
@@ -581,14 +650,6 @@ impl CheckedTerm {
                 node_kind: field(wire, TermField::NodeKind)?,
                 clauses: children(wire, TermField::Clauses)?,
             }),
-            TermTag::Missing if value.get("kind").is_some() => {
-                CheckedExecutionPoint::from_wire(value)
-                    .map(Self::ExecutionPoint)
-                    .ok_or(TermConversionCause::MalformedMember {
-                        member: "execution_point",
-                        category: Category::Data,
-                    })
-            }
             TermTag::Missing => Err(TermConversionCause::MissingTerm),
             TermTag::NonString => Err(TermConversionCause::MalformedMember {
                 member: "term",
@@ -763,32 +824,26 @@ impl Encode for CheckedTerm {
                 }
                 writer.end_array()?;
             }
-            Self::ExecutionPoint(point) => match point {
-                CheckedExecutionPoint::Initialization { name } => {
-                    writer.name("kind")?;
-                    writer.string("initialization")?;
+            Self::OperationAnchorBody(body) => {
+                writer.name("term")?;
+                writer.string("aggregate")?;
+                writer.name("members")?;
+                writer.begin_array()?;
+                for member in &body.members {
+                    member.encode_into(writer)?;
+                }
+                if let Some(point) = &body.execution_point {
+                    writer.begin_object()?;
+                    writer.name("term")?;
+                    writer.string("binding")?;
                     writer.name("name")?;
-                    writer.string(name)?;
+                    writer.string("execution_point")?;
+                    writer.name("value")?;
+                    writer.serialize(point)?;
+                    writer.end_object()?;
                 }
-                CheckedExecutionPoint::Handler { name } => {
-                    writer.name("kind")?;
-                    writer.string("handler")?;
-                    writer.name("name")?;
-                    writer.string(name)?;
-                }
-                CheckedExecutionPoint::Pre { operation } => {
-                    writer.name("kind")?;
-                    writer.string("pre")?;
-                    writer.name("operation")?;
-                    writer.string(operation)?;
-                }
-                CheckedExecutionPoint::Post { operation } => {
-                    writer.name("kind")?;
-                    writer.string("post")?;
-                    writer.name("operation")?;
-                    writer.string(operation)?;
-                }
-            },
+                writer.end_array()?;
+            }
         }
         writer.end_object()
     }
@@ -937,11 +992,11 @@ mod tests {
             json!({"kind": "pre", "operation": "scaled"}),
             json!({"kind": "post", "operation": "scaled"}),
         ] {
-            let term = CheckedTerm::decode_admitted(&wire).expect("closed point");
-            assert!(matches!(term, CheckedTerm::ExecutionPoint(_)));
-            assert_eq!(serde_json::to_value(&term).expect("serialize point"), wire);
+            let point = CheckedExecutionPoint::from_wire(&wire).expect("closed point");
+            assert!(CheckedTerm::decode_admitted(&wire).is_err());
+            assert_eq!(serde_json::to_value(&point).expect("serialize point"), wire);
             assert_eq!(
-                to_vec(&term, Limits::new(u64::MAX)).expect("encode point"),
+                to_vec(&point, Limits::new(u64::MAX)).expect("encode point"),
                 to_vec(&wire, Limits::new(u64::MAX)).expect("encode wire")
             );
         }
@@ -1137,7 +1192,7 @@ mod tests {
                 CheckedTerm::AbstractionRelation { .. } => "abstraction_relation",
                 CheckedTerm::Refinement { .. } => "refinement",
                 CheckedTerm::ExtensionForm { .. } => "extension_form",
-                CheckedTerm::ExecutionPoint(_) => "execution_point",
+                CheckedTerm::OperationAnchorBody(_) => "operation_anchor_body",
             };
             assert_eq!(actual, expected);
             if let CheckedTerm::Application { arguments, .. } = &term {

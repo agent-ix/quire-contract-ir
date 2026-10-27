@@ -4,7 +4,8 @@
 //! The QSpec execution-point object is a closed bare value in the fourth
 //! operation-anchor binding. It is not a semantic expression term.
 
-use super::CheckedExecutionPoint;
+use super::typed_terms::TermConversionCause;
+use super::{CheckedExecutionPoint, CheckedOperationAnchorBody, CheckedTerm};
 use crate::checked_package::common::{
     exact_members, validate_term, ReferenceVisitor, TermGrammar, Trail, ValidationFailure,
 };
@@ -62,15 +63,44 @@ pub(super) fn validate_anchor_body(
             visit,
         )?);
     }
-    if fourth
-        .get("value")
-        .and_then(CheckedExecutionPoint::from_wire)
-        .is_none()
-    {
+    let value = fourth.get("value");
+    if !value.is_some_and(|value| value.is_object() && value.get("term").is_none()) {
+        return Err(body_refusal());
+    }
+    if value.and_then(CheckedExecutionPoint::from_wire).is_none() {
         return Err(ValidationFailure::refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             at.key("members").index(3).key("value").pointer(),
         ));
     }
     Ok(work)
+}
+
+/// Decode the optional point only for an operation-anchor body. The generic
+/// expression decoder cannot create an anchor point or a pointed anchor body.
+pub(super) fn decode_anchor_body(body: &Value) -> Result<CheckedTerm, TermConversionCause> {
+    let members = body
+        .get("members")
+        .and_then(Value::as_array)
+        .ok_or(TermConversionCause::MissingMember { member: "members" })?;
+    let [context, operation, frame, fourth] = members.as_slice() else {
+        return CheckedTerm::decode_admitted(body);
+    };
+    let point = fourth
+        .get("value")
+        .and_then(CheckedExecutionPoint::from_wire)
+        .ok_or(TermConversionCause::MalformedMember {
+            member: "execution_point",
+            category: serde_json::error::Category::Data,
+        })?;
+    Ok(CheckedTerm::OperationAnchorBody(
+        CheckedOperationAnchorBody {
+            members: [
+                CheckedTerm::decode_admitted(context)?,
+                CheckedTerm::decode_admitted(operation)?,
+                CheckedTerm::decode_admitted(frame)?,
+            ],
+            execution_point: Some(point),
+        },
+    ))
 }

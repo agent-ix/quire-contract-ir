@@ -262,15 +262,20 @@ fn check_anchor_flat_wire(body: &Value, at: &Trail<'_>) -> Result<(), Validation
     let Some(members) = body.get("members").and_then(Value::as_array) else {
         return check_term(body, at, Place::BodyRoot, false);
     };
-    if members.iter().enumerate().any(|(index, member)| {
-        index != 3 && member.get("name").and_then(Value::as_str) == Some("execution_point")
-    }) {
-        return Ok(());
-    }
-    if members.len() < 4 {
+    if body_term(body) != Some(BodyTerm::Aggregate) {
         return check_term(body, at, Place::BodyRoot, false);
     }
-    for (index, member) in members.iter().take(3).enumerate() {
+    if members.len() < 4
+        && !members
+            .iter()
+            .any(|member| member.get("name").and_then(Value::as_str) == Some("execution_point"))
+    {
+        return check_term(body, at, Place::BodyRoot, false);
+    }
+    for (index, member) in members.iter().enumerate() {
+        if member.get("name").and_then(Value::as_str) == Some("execution_point") {
+            continue;
+        }
         check_term(
             member,
             &at.key("members").index(index),

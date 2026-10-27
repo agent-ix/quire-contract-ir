@@ -417,13 +417,17 @@ impl<'t> Walk for TypedGroupRewrite<'t> {
                     children.push((value.as_ref(), raw));
                 }
             }
+            CheckedTerm::OperationAnchorBody(body) => {
+                if let Some(values) = raw.get_mut("members").and_then(Value::as_array_mut) {
+                    children.extend(body.members.iter().zip(values.iter_mut()));
+                }
+            }
             CheckedTerm::Literal { .. }
             | CheckedTerm::DependencyReference { .. }
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
             | CheckedTerm::Refinement { .. }
-            | CheckedTerm::ExtensionForm { .. }
-            | CheckedTerm::ExecutionPoint(_) => {}
+            | CheckedTerm::ExtensionForm { .. } => {}
         }
         ControlFlow::Continue(())
     }

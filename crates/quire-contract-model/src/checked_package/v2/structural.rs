@@ -712,17 +712,14 @@ pub(super) struct AnchorBody<'a> {
 
 /// The admitted anchor body, or `None` for any other typed shape.
 pub(super) fn typed_anchor_body(body: &super::CheckedTerm) -> Option<AnchorBody<'_>> {
-    let members = typed_aggregate(body)?;
-    let (context, operation, frame, execution_point) = match members {
-        [context, operation, frame] => (context, operation, frame, None),
-        [context, operation, frame, fourth] => {
-            let CheckedTerm::ExecutionPoint(point) = typed_binding(fourth, "execution_point")?
-            else {
-                return None;
-            };
-            (context, operation, frame, Some(point.clone()))
+    let (members, execution_point) = match body {
+        CheckedTerm::OperationAnchorBody(anchor) => {
+            (&anchor.members[..], anchor.execution_point.clone())
         }
-        _ => return None,
+        _ => (typed_aggregate(body)?, None),
+    };
+    let [context, operation, frame] = members else {
+        return None;
     };
     let operation = typed_binding(operation, "operation")?;
     let super::CheckedTerm::Literal {
@@ -950,6 +947,7 @@ pub(super) fn application_dependencies(
                 }
             }
             CheckedTerm::Aggregate { members } => pending.extend(members),
+            CheckedTerm::OperationAnchorBody(body) => pending.extend(&body.members),
             CheckedTerm::Binding { value, .. } => pending.push(value),
             // These bodies do not contribute local application dependencies.
             CheckedTerm::Literal { .. }
@@ -957,8 +955,7 @@ pub(super) fn application_dependencies(
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
             | CheckedTerm::Refinement { .. }
-            | CheckedTerm::ExtensionForm { .. }
-            | CheckedTerm::ExecutionPoint(_) => {}
+            | CheckedTerm::ExtensionForm { .. } => {}
         }
     }
     contains_application.then_some(join)

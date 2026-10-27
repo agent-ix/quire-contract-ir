@@ -2322,7 +2322,7 @@ impl ContractPackageWireV1 {
             if let Some(pointer) = missing {
                 return Err(malformed(pointer, CheckedPackageRefusalCause::InvalidValue));
             }
-            terms.push(match super::CheckedTerm::decode_admitted(&node.body) {
+            terms.push(match super::decode_admitted_body(kind, &node.body) {
                 Ok(term) => Some(term),
                 Err(_) if super::body_grammar(kind) == super::BodyGrammar::AbstractionRelation => {
                     None
