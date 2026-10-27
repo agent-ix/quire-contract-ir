@@ -307,7 +307,7 @@ fn set_concrete_catalog(package: &mut Value, entries: Vec<Value>) -> usize {
     position
 }
 
-fn activate_each(package: &mut Value, trigger_type: &Value) -> Value {
+fn activate_each(package: &mut Value, trigger_type: &Value) {
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes");
@@ -377,7 +377,6 @@ fn activate_each(package: &mut Value, trigger_type: &Value) -> Value {
         {"term": "binding", "name": "trigger", "value": {"term": "reference", "target": trigger_key}}
     ]);
     settle(package);
-    package["semantic_graph"]["nodes"][clause]["node_id"].clone()
 }
 
 fn record_field(owner: &str, name: &str, type_ref: &str, redefines: Option<&str>) -> Value {
@@ -514,6 +513,33 @@ fn refinement_catalog_activate_each_uses_clause_and_trigger_signature() {
     assert!(
         matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
         "{admitted:?}"
+    );
+
+    let mut abstract_protocol = package.clone();
+    let refinement = &mut abstract_protocol["semantic_graph"]["nodes"][position];
+    refinement["body"]["protocol"] = clause.clone();
+    refinement["body"]["class_catalog"]["abstract"] =
+        json!([finish_entry.clone(), activate.clone()]);
+    rekey_refinement(&mut abstract_protocol, position);
+    let admitted = read(&abstract_protocol, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "selected abstract clause activate must join: {admitted:?}"
+    );
+    let mut absent_abstract = abstract_protocol;
+    absent_abstract["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["abstract"] =
+        json!([finish_entry.clone()]);
+    rekey_refinement(&mut absent_abstract, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&absent_abstract, &evidence) else {
+        panic!("abstract activate omission admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/abstract").as_str())
     );
 
     let mut wrong_node = package.clone();
