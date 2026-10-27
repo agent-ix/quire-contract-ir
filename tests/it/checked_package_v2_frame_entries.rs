@@ -1496,7 +1496,7 @@ fn tc_056_execution_point_shape_and_agreement_refuse_at_their_stage() {
     let clause = stale_clause.clause("precondition");
     stale_clause.value["semantic_graph"]["nodes"][clause]["body"]["operation"]["member"]
         ["execution_point"]["kind"] = json!("post");
-    settle(&mut stale_clause.value);
+    refresh_identity(&mut stale_clause.value);
     expect(
         "stale clause application key precedes agreement",
         &stale_clause.value,
