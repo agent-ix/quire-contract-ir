@@ -406,6 +406,7 @@ closed_vocabulary! {
     /// `state_clause` member (QSpec FR-341).
     pub(in crate::checked_package) StateClauseKind {
         Invariant => "invariant",
+        Constraint => "constraint",
         Precondition => "precondition",
         Postcondition => "postcondition",
     }

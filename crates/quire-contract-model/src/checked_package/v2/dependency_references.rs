@@ -318,6 +318,11 @@ impl<'a> DependencyReferences<'a> {
                         pending.push((child, at.clone().key("members").index(index), false));
                     }
                 }
+                CheckedTerm::OperationAnchorBody(body) => {
+                    for (index, child) in body.members.iter().enumerate().rev() {
+                        pending.push((child, at.clone().key("members").index(index), false));
+                    }
+                }
                 CheckedTerm::Binding { value, .. } => {
                     pending.push((value, at.key("value"), false));
                 }
@@ -496,6 +501,7 @@ pub(super) fn selected_reference_targets(
             }
             CheckedTerm::Application { arguments, .. } => pending.extend(arguments.iter().rev()),
             CheckedTerm::Aggregate { members } => pending.extend(members.iter().rev()),
+            CheckedTerm::OperationAnchorBody(body) => pending.extend(body.members.iter().rev()),
             CheckedTerm::Binding { value, .. } => pending.push(value),
             CheckedTerm::Literal { .. }
             | CheckedTerm::Reference { .. }

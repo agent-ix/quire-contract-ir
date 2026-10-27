@@ -315,6 +315,7 @@ fn charge_terms(
         meter.charge(1, || at.clone())?;
         let children = match term {
             CheckedTerm::Aggregate { members } => Some(("members", members.as_slice())),
+            CheckedTerm::OperationAnchorBody(body) => Some(("members", &body.members[..])),
             CheckedTerm::Application { arguments, .. } => Some(("arguments", arguments.as_slice())),
             CheckedTerm::ExtensionForm { clauses, .. } => Some(("clauses", clauses.as_slice())),
             CheckedTerm::Binding { value, .. } => {

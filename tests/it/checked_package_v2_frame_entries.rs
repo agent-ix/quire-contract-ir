@@ -16,11 +16,13 @@ use crate::support::checked_package::{
     typed_node_id, v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
+use quire_canonical::Limits;
 use quire_contract_model::{
-    CheckedComparisonPath, CheckedComparisonRefusal, CheckedMemberType, CheckedNodeId,
-    CheckedNodeTag, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    encode_checked_package_v2, CheckedComparisonPath, CheckedComparisonRefusal, CheckedMemberType,
+    CheckedNodeId, CheckedNodeTag, CheckedPackageIdentityPreimageRefV2, CheckedPackageLimit,
+    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
 };
 use serde_json::{json, Value};
 use std::sync::LazyLock;
@@ -1060,6 +1062,671 @@ impl StatePackage {
     }
 }
 
+fn pointed_state_package(anchor_point: Option<Value>, clause_point: Option<Value>) -> StatePackage {
+    let mut package = StatePackage::new();
+    let anchor = package.at("state", "operation_anchor");
+    let clause = package.clause("precondition");
+    if let Some(point) = anchor_point {
+        package.value["semantic_graph"]["nodes"][anchor]["body"]["members"]
+            .as_array_mut()
+            .expect("anchor members")
+            .push(binding("execution_point", point));
+    }
+    if let Some(point) = clause_point {
+        package.value["semantic_graph"]["nodes"][clause]["body"]["operation"]["member"]
+            ["execution_point"] = point;
+    }
+    mint_ungrouped_structural_keys(&mut package.value);
+    settle(&mut package.value);
+    package
+}
+
+fn with_postcondition(mut package: StatePackage, point: Option<Value>) -> StatePackage {
+    let anchor = package.at("state", "operation_anchor");
+    let mut node = clause_node("postcondition", &[self_key()], &package.digest(anchor));
+    if let Some(point) = point {
+        node["body"]["operation"]["member"]["execution_point"] = point;
+    }
+    package.value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(node);
+    settle(&mut package.value);
+    package
+}
+
+fn pointed_invariant(point: Value) -> StatePackage {
+    let mut package = StatePackage::new();
+    let clause = package.clause("invariant");
+    package.value["semantic_graph"]["nodes"][clause]["body"]["operation"]["member"]
+        ["execution_point"] = point;
+    mint_ungrouped_structural_keys(&mut package.value);
+    settle(&mut package.value);
+    package
+}
+
+fn pointed_constraint(point: Value) -> StatePackage {
+    let mut package = StatePackage::new();
+    let mut node = clause_node("constraint", &[self_key()], object_key());
+    node["body"]["operation"]["member"]["execution_point"] = point;
+    package.value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(node);
+    mint_ungrouped_structural_keys(&mut package.value);
+    settle(&mut package.value);
+    package
+}
+
+fn assert_pointed_writer_round_trip(package: &StatePackage, positions: &[usize]) {
+    let admitted = match read(&package.value) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("pointed package refused: {other:?}"),
+    };
+    let preimage = admitted.identity_preimage();
+    let borrowed = CheckedPackageIdentityPreimageRefV2 {
+        version: &preimage.version,
+        edition: &preimage.edition,
+        profile_selections: &preimage.profile_selections,
+        definition_selections: &preimage.definition_selections,
+        model_selections: &preimage.model_selections,
+        required_features: &preimage.required_features,
+        dependency_selections: &preimage.dependency_selections,
+        identity_projection: &admitted.graph().nodes,
+    };
+    let encoded = encode_checked_package_v2(
+        &borrowed,
+        admitted.package_id(),
+        admitted.lock(),
+        admitted.graph(),
+        CheckedPackageSourceCorrespondenceRef {
+            source_map: admitted.source_map(),
+            refinement_step_rows: admitted.refinement_step_rows(),
+        },
+        admitted.capability_report(),
+        admitted.diagnostics(),
+        Limits::new(u64::MAX),
+    )
+    .expect("encode admitted package");
+    let encoded_json: Value = serde_json::from_slice(&encoded).expect("writer JSON");
+    for &position in positions {
+        assert_eq!(
+            encoded_json["semantic_graph"]["nodes"][position]["body"],
+            package.value["semantic_graph"]["nodes"][position]["body"]
+        );
+    }
+    let read_back = match CheckedPackageV2::read(
+        &encoded,
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&package.value),
+    ) {
+        CheckedPackageV2ReadResult::Admitted(read_back) => read_back,
+        other => panic!("writer output refused: {other:?}"),
+    };
+    assert_eq!(read_back.package_id(), admitted.package_id());
+    assert_eq!(read_back.graph(), admitted.graph());
+}
+
+#[trace("TC-056", "FR-040-AC-33", "FR-040-AC-34")]
+#[test]
+fn tc_056_model_clause_points_retain_name_and_change_application_identity() {
+    let absent = StatePackage::new();
+    let initialized = pointed_invariant(json!({"kind": "initialization", "name": "startup"}));
+    let handled = pointed_invariant(json!({"kind": "handler", "name": "tick"}));
+    for package in [&initialized, &handled] {
+        let admitted = match read(&package.value) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("pointed invariant refused: {other:?}"),
+        };
+        let clause = package.clause("invariant");
+        assert_eq!(
+            serde_json::to_value(&admitted.graph().nodes[clause].body).expect("typed clause"),
+            package.value["semantic_graph"]["nodes"][clause]["body"]
+        );
+        assert_ne!(
+            digest(&absent.value, absent.clause("invariant")),
+            digest(&package.value, clause)
+        );
+        assert_ne!(absent.value["package_id"], package.value["package_id"]);
+        assert_pointed_writer_round_trip(package, &[clause]);
+    }
+    assert_ne!(
+        digest(&initialized.value, initialized.clause("invariant")),
+        digest(&handled.value, handled.clause("invariant"))
+    );
+    for point in [
+        json!({"kind": "initialization", "name": "startup"}),
+        json!({"kind": "handler", "name": "tick"}),
+    ] {
+        let package = pointed_constraint(point.clone());
+        let clause = package.clause("constraint");
+        let admitted = match read(&package.value) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("pointed constraint refused: {other:?}"),
+        };
+        assert_eq!(
+            serde_json::to_value(&admitted.graph().nodes[clause].body).expect("typed constraint")
+                ["operation"]["member"]["execution_point"],
+            point
+        );
+        assert_pointed_writer_round_trip(&package, &[clause]);
+    }
+    let mut absent_constraint = StatePackage::new();
+    absent_constraint.value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(clause_node("constraint", &[self_key()], object_key()));
+    mint_ungrouped_structural_keys(&mut absent_constraint.value);
+    settle(&mut absent_constraint.value);
+    let pointed = pointed_constraint(json!({"kind": "handler", "name": "tick"}));
+    let constraint = pointed.clause("constraint");
+    assert_ne!(
+        absent_constraint.value["package_id"],
+        pointed.value["package_id"]
+    );
+    assert_ne!(
+        absent_constraint.digest(absent_constraint.clause("constraint")),
+        pointed.digest(constraint)
+    );
+    let wrong_constraint = pointed_constraint(json!({"kind": "pre", "operation": "deposit"}));
+    let constraint = wrong_constraint.clause("constraint");
+    expect(
+        "operation point on constraint",
+        &wrong_constraint.value,
+        Code::InvalidModelBinding,
+        Some(Cause::MalformedDeclaration),
+        &format!("/semantic_graph/nodes/{constraint}"),
+        Some(&wrong_constraint.digest(constraint)),
+    );
+    let constraint = pointed.clause("constraint");
+    let operation_anchor = pointed.digest(pointed.at("state", "operation_anchor"));
+    let target = operation_anchor.clone();
+    let wrong_anchor = StatePackage {
+        value: pointed.value.clone(),
+    }
+    .edit(constraint, move |node| {
+        node["body"]["arguments"][1]["target"] = node_id(&target);
+    });
+    expect(
+        "constraint requires an object anchor",
+        &wrong_anchor.value,
+        Code::InvalidModelBinding,
+        Some(Cause::MalformedDeclaration),
+        &format!("/semantic_graph/nodes/{constraint}/body/arguments/1/target"),
+        Some(&operation_anchor),
+    );
+    let wrong_signature = pointed.edit(constraint, |node| {
+        node["body"]["arguments"][0]["members"] =
+            json!([reference(self_key()), reference(self_key())]);
+    });
+    expect(
+        "constraint binds self alone",
+        &wrong_signature.value,
+        Code::IllTyped,
+        Some(Cause::OperatorIneligible),
+        &format!("/semantic_graph/nodes/{constraint}/body/arguments/0"),
+        Some(&wrong_signature.digest(constraint)),
+    );
+    let wrong = pointed_invariant(json!({"kind": "pre", "operation": "deposit"}));
+    let clause = wrong.clause("invariant");
+    expect(
+        "operation point on invariant",
+        &wrong.value,
+        Code::InvalidModelBinding,
+        Some(Cause::MalformedDeclaration),
+        &format!("/semantic_graph/nodes/{clause}"),
+        Some(&wrong.digest(clause)),
+    );
+    for malformed in [
+        json!({"kind": "unknown", "name": "startup"}),
+        json!({"kind": "handler", "name": ""}),
+        json!({"kind": "handler", "name": "tick", "extra": true}),
+    ] {
+        let mut package = StatePackage::new();
+        let clause = package.clause("invariant");
+        package.value["semantic_graph"]["nodes"][clause]["body"]["operation"]["member"]
+            ["execution_point"] = malformed;
+        settle(&mut package.value);
+        expect(
+            "malformed clause point",
+            &package.value,
+            Code::InvalidSemanticGraph,
+            None,
+            &format!("/semantic_graph/nodes/{clause}/body/operation/member/execution_point"),
+            Some(&package.digest(clause)),
+        );
+    }
+}
+
+#[trace("TC-056", "FR-040-AC-31", "FR-040-AC-33", "FR-040-AC-36")]
+#[test]
+fn tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects() {
+    let absent = pointed_state_package(None, None);
+    admits(&absent.value);
+    let pre = pointed_state_package(
+        Some(json!({"kind": "pre", "operation": "deposit"})),
+        Some(json!({"kind": "pre", "operation": "deposit"})),
+    );
+    let post = pointed_state_package(
+        Some(json!({"kind": "post", "operation": "deposit"})),
+        Some(json!({"kind": "post", "operation": "deposit"})),
+    );
+    for package in [&absent, &pre, &post] {
+        let admitted = match read(&package.value) {
+            CheckedPackageV2ReadResult::Admitted(admitted) => admitted,
+            other => panic!("pointed package refused: {other:?}"),
+        };
+        let anchor = package.at("state", "operation_anchor");
+        let clause = package.clause("precondition");
+        let point = package.value["semantic_graph"]["nodes"][anchor]["body"]["members"]
+            .as_array()
+            .and_then(|members| members.get(3))
+            .map(|member| &member["value"]);
+        let CheckedTerm::OperationAnchorBody(typed_anchor) = &admitted.graph().nodes[anchor].body
+        else {
+            panic!("admitted anchor must have one typed form");
+        };
+        assert_eq!(typed_anchor.execution_point.is_some(), point.is_some());
+        if let Some(point) = point {
+            assert!(point.get("term").is_none(), "anchor point is not a term");
+        }
+        assert_eq!(
+            serde_json::to_value(&admitted.graph().nodes[anchor].body).expect("typed anchor"),
+            package.value["semantic_graph"]["nodes"][anchor]["body"]
+        );
+        assert_eq!(
+            serde_json::to_value(&admitted.graph().nodes[clause].body).expect("typed clause"),
+            package.value["semantic_graph"]["nodes"][clause]["body"]
+        );
+        assert_pointed_writer_round_trip(package, &[anchor, clause]);
+    }
+    for package in [&pre, &post] {
+        assert_ne!(
+            digest(&absent.value, absent.at("state", "operation_anchor")),
+            digest(&package.value, package.at("state", "operation_anchor"))
+        );
+        assert_ne!(absent.value["package_id"], package.value["package_id"]);
+    }
+    assert_ne!(
+        digest(&pre.value, pre.at("state", "operation_anchor")),
+        digest(&post.value, post.at("state", "operation_anchor"))
+    );
+    assert_ne!(pre.value["package_id"], post.value["package_id"]);
+    for point in [
+        json!({"kind": "pre", "operation": "deposit"}),
+        json!({"kind": "post", "operation": "deposit"}),
+    ] {
+        let package = with_postcondition(
+            pointed_state_package(Some(point.clone()), Some(point.clone())),
+            Some(point.clone()),
+        );
+        let clause = package.clause("postcondition");
+        let admitted = match read(&package.value) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("postcondition with either operation point refused: {other:?}"),
+        };
+        assert_eq!(
+            serde_json::to_value(&admitted.graph().nodes[clause].body)
+                .expect("typed postcondition")["operation"]["member"]["execution_point"],
+            point
+        );
+    }
+}
+
+#[trace("TC-056", "FR-040-AC-32", "FR-040-AC-35")]
+#[test]
+fn tc_056_same_operation_admits_distinct_anchor_points() {
+    let mut package = pointed_state_package(
+        Some(json!({"kind": "pre", "operation": "deposit"})),
+        Some(json!({"kind": "pre", "operation": "deposit"})),
+    );
+    let anchor = package.at("state", "operation_anchor");
+    let mut second = package.value["semantic_graph"]["nodes"][anchor].clone();
+    second["node_id"] = node_id(&"d9".repeat(32));
+    second["body"]["members"][3]["value"]["kind"] = json!("post");
+    package.value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(second);
+    mint_ungrouped_structural_keys(&mut package.value);
+    settle(&mut package.value);
+    admits(&package.value);
+    let anchors = nodes(&package.value)
+        .iter()
+        .filter(|node| node["semantic_form"] == "operation_anchor")
+        .collect::<Vec<_>>();
+    assert_eq!(anchors.len(), 2);
+    assert_ne!(anchors[0]["node_id"], anchors[1]["node_id"]);
+
+    let mut duplicate = package.value.clone();
+    let second = nodes(&duplicate)
+        .iter()
+        .position(|node| {
+            node["semantic_form"] == "operation_anchor"
+                && node["body"]["members"][3]["value"]["kind"] == "post"
+        })
+        .expect("post anchor");
+    let frame = package.at("state", "frame");
+    let mut alternate_frame = nodes(&duplicate)[frame].clone();
+    let alternate_key = "da".repeat(32);
+    alternate_frame["node_id"] = node_id(&alternate_key);
+    alternate_frame["body"] = json!({"term": "frame", "modifies": [], "creates": [],
+        "deletes": [], "deletes_scoped": []});
+    alternate_frame["dependencies"] = json!([]);
+    duplicate["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(alternate_frame);
+    duplicate["semantic_graph"]["nodes"][second]["body"]["members"][2]["value"]["target"] =
+        node_id(&alternate_key);
+    duplicate["semantic_graph"]["nodes"][second]["dependencies"] =
+        json!([node_id(object_key()), node_id(&alternate_key)]);
+    duplicate["semantic_graph"]["nodes"][second]["body"]["members"][3]["value"]["kind"] =
+        json!("pre");
+    mint_ungrouped_structural_keys(&mut duplicate);
+    settle(&mut duplicate);
+    let later = nodes(&duplicate)
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| node["semantic_form"] == "operation_anchor")
+        .map(|(position, _)| position)
+        .max_by_key(|position| digest(&duplicate, *position))
+        .expect("later anchor");
+    expect(
+        "duplicate context, operation and point",
+        &duplicate,
+        Code::AmbiguousDeclaration,
+        Some(Cause::AmbiguousName),
+        &format!("/semantic_graph/nodes/{later}"),
+        Some(&digest(&duplicate, later)),
+    );
+
+    for node in duplicate["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .iter_mut()
+        .filter(|node| node["semantic_form"] == "operation_anchor")
+    {
+        node["body"]["members"][3]["value"]["operation"] = json!("withdraw");
+    }
+    mint_ungrouped_structural_keys(&mut duplicate);
+    settle(&mut duplicate);
+    let first = nodes(&duplicate)
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| node["semantic_form"] == "operation_anchor")
+        .map(|(position, _)| position)
+        .min_by_key(|position| digest(&duplicate, *position))
+        .expect("first anchor");
+    expect(
+        "anchor point applicability precedes duplicate tuple detection",
+        &duplicate,
+        Code::InvalidModelBinding,
+        Some(Cause::MalformedDeclaration),
+        &format!("/semantic_graph/nodes/{first}"),
+        Some(&digest(&duplicate, first)),
+    );
+}
+
+#[trace("TC-056", "FR-040-AC-32", "FR-040-AC-34", "FR-040-AC-35")]
+#[test]
+fn tc_056_execution_point_shape_and_agreement_refuse_at_their_stage() {
+    let anchor = StatePackage::new().at("state", "operation_anchor");
+    for (case, edit) in [
+        ("point binding in third position", 0_usize),
+        ("extra fifth binding", 1_usize),
+    ] {
+        let mut package = StatePackage::new();
+        let members = package.value["semantic_graph"]["nodes"][anchor]["body"]["members"]
+            .as_array_mut()
+            .expect("members");
+        let point = binding(
+            "execution_point",
+            json!({"kind": "pre", "operation": "deposit"}),
+        );
+        if edit == 0 {
+            members.insert(2, point);
+        } else {
+            members.push(point);
+            members.push(binding("extra", reference(object_key())));
+        }
+        settle(&mut package.value);
+        expect(
+            case,
+            &package.value,
+            Code::InvalidSemanticGraph,
+            None,
+            &format!("/semantic_graph/nodes/{anchor}/body"),
+            None,
+        );
+    }
+    for nonpoint in [json!("pre"), json!(7), reference(object_key())] {
+        let mut package = StatePackage::new();
+        package.value["semantic_graph"]["nodes"][anchor]["body"]["members"]
+            .as_array_mut()
+            .expect("members")
+            .push(binding("execution_point", nonpoint));
+        settle(&mut package.value);
+        expect(
+            "non-point fourth value",
+            &package.value,
+            Code::InvalidSemanticGraph,
+            None,
+            &format!("/semantic_graph/nodes/{anchor}/body"),
+            None,
+        );
+    }
+    let mut nested = StatePackage::new();
+    let members = nested.value["semantic_graph"]["nodes"][anchor]["body"]["members"]
+        .as_array_mut()
+        .expect("members");
+    members.insert(
+        2,
+        binding(
+            "execution_point",
+            json!({"kind": "pre", "operation": "deposit"}),
+        ),
+    );
+    members.push(binding(
+        "extra",
+        clause_body("precondition", &[self_key()], anchor_key(), &condition()),
+    ));
+    settle(&mut nested.value);
+    expect(
+        "nested state application precedes wrong point position",
+        &nested.value,
+        Code::MalformedWire,
+        None,
+        &format!("/semantic_graph/nodes/{anchor}/body/members/4/value"),
+        None,
+    );
+    for malformed in [
+        json!({"kind": "unknown", "operation": "deposit"}),
+        json!({"kind": "pre", "operation": ""}),
+        json!({"kind": "pre", "operation": "deposit", "extra": true}),
+    ] {
+        let mut package = StatePackage::new();
+        package.value["semantic_graph"]["nodes"][anchor]["body"]["members"]
+            .as_array_mut()
+            .expect("members")
+            .push(binding("execution_point", malformed));
+        settle(&mut package.value);
+        expect(
+            "malformed anchor point",
+            &package.value,
+            Code::InvalidSemanticGraph,
+            None,
+            &format!("/semantic_graph/nodes/{anchor}/body/members/3/value"),
+            None,
+        );
+    }
+    let mut stale = pointed_state_package(
+        Some(json!({"kind": "pre", "operation": "deposit"})),
+        Some(json!({"kind": "pre", "operation": "deposit"})),
+    );
+    stale.value["semantic_graph"]["nodes"][anchor]["body"]["members"][3]["value"]["kind"] =
+        json!("post");
+    settle(&mut stale.value);
+    expect(
+        "stale anchor key precedes point agreement",
+        &stale.value,
+        Code::InvalidPackage,
+        Some(Cause::StaleNodeKey),
+        &format!("/semantic_graph/nodes/{anchor}/node_id"),
+        None,
+    );
+    for point in [
+        json!({"kind": "initialization", "name": "startup"}),
+        json!({"kind": "handler", "name": "tick"}),
+        json!({"kind": "pre", "operation": "withdraw"}),
+        json!({"kind": "post", "operation": "withdraw"}),
+    ] {
+        let invalid = pointed_state_package(Some(point.clone()), Some(point));
+        expect(
+            "inapplicable or wrong-operation anchor point",
+            &invalid.value,
+            Code::InvalidModelBinding,
+            Some(Cause::MalformedDeclaration),
+            &format!("/semantic_graph/nodes/{anchor}"),
+            Some(&invalid.digest(anchor)),
+        );
+    }
+    let mismatch = pointed_state_package(
+        Some(json!({"kind": "pre", "operation": "deposit"})),
+        Some(json!({"kind": "post", "operation": "deposit"})),
+    );
+    let clause = mismatch.clause("precondition");
+    expect(
+        "clause-anchor point mismatch",
+        &mismatch.value,
+        Code::InvalidModelBinding,
+        Some(Cause::MalformedDeclaration),
+        &format!("/semantic_graph/nodes/{clause}"),
+        Some(&mismatch.digest(clause)),
+    );
+    for (case, anchor_point, clause_point) in [
+        (
+            "only anchor has point",
+            Some(json!({"kind": "pre", "operation": "deposit"})),
+            None,
+        ),
+        (
+            "only clause has point",
+            None,
+            Some(json!({"kind": "pre", "operation": "deposit"})),
+        ),
+    ] {
+        let package = pointed_state_package(anchor_point, clause_point);
+        let clause = package.clause("precondition");
+        expect(
+            case,
+            &package.value,
+            Code::InvalidModelBinding,
+            Some(Cause::MalformedDeclaration),
+            &format!("/semantic_graph/nodes/{clause}"),
+            Some(&package.digest(clause)),
+        );
+    }
+
+    let mut stale_clause = pointed_state_package(
+        Some(json!({"kind": "pre", "operation": "deposit"})),
+        Some(json!({"kind": "pre", "operation": "deposit"})),
+    );
+    let clause = stale_clause.clause("precondition");
+    stale_clause.value["semantic_graph"]["nodes"][clause]["body"]["operation"]["member"]
+        ["execution_point"]["kind"] = json!("post");
+    refresh_identity(&mut stale_clause.value);
+    expect(
+        "stale clause application key precedes agreement",
+        &stale_clause.value,
+        Code::InvalidPackage,
+        Some(Cause::StaleNodeKey),
+        &format!("/semantic_graph/nodes/{clause}/node_id"),
+        None,
+    );
+}
+
+#[trace("TC-056", "FR-040-AC-35")]
+#[test]
+fn tc_056_point_checks_follow_anchor_joins_and_clause_signature() {
+    let anchor = position(&ModelPackage::new().value, "state", "operation_anchor");
+    let frame = ModelPackage::new().frame();
+    let bad_operation = ModelPackage::new().edit(anchor, |node| {
+        node["body"]["members"][1]["value"]["value"] = json!("missing");
+        node["body"]["members"]
+            .as_array_mut()
+            .expect("anchor members")
+            .push(binding(
+                "execution_point",
+                json!({"kind": "pre", "operation": "other"}),
+            ));
+    });
+    model_expect(
+        "operation resolution precedes point applicability",
+        &bad_operation.value,
+        Code::MissingDeclaration,
+        Cause::MissingName,
+        &format!("/semantic_graph/nodes/{anchor}/body/members/1"),
+    );
+
+    let pointed = ModelPackage::new().edit(anchor, |node| {
+        node["body"]["members"]
+            .as_array_mut()
+            .expect("anchor members")
+            .push(binding(
+                "execution_point",
+                json!({"kind": "pre", "operation": "other"}),
+            ));
+    });
+    let bad_scoped_delete = pointed.edit(frame, |node| {
+        node["body"]["deletes_scoped"] = json!([{"kind": "parameter", "name": "ghost"}]);
+    });
+    model_expect(
+        "scoped deletes precede point applicability",
+        &bad_scoped_delete.value,
+        Code::MissingDeclaration,
+        Cause::MissingName,
+        &format!("/semantic_graph/nodes/{frame}"),
+    );
+
+    let precondition = ModelPackage::new().value["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["body"]["operation"]["member"]["clause"] == "precondition")
+        .expect("precondition");
+    let pointed = ModelPackage::new().edit(anchor, |node| {
+        node["body"]["members"]
+            .as_array_mut()
+            .expect("anchor members")
+            .push(binding(
+                "execution_point",
+                json!({"kind": "pre", "operation": "scaled"}),
+            ));
+    });
+    let postcondition = nodes(&pointed.value)
+        .iter()
+        .position(|node| node["body"]["operation"]["member"]["clause"] == "postcondition")
+        .expect("postcondition");
+    let pointed = pointed.edit(postcondition, |node| {
+        node["body"]["operation"]["member"]["execution_point"] =
+            json!({"kind": "pre", "operation": "scaled"});
+    });
+    let self_parameter = pointed.parameter_key("self");
+    let bad_signature = pointed.edit(precondition, move |node| {
+        node["body"]["operation"]["member"]["execution_point"] =
+            json!({"kind": "post", "operation": "scaled"});
+        node["body"]["arguments"][0]["members"] = json!([reference(&self_parameter)]);
+    });
+    model_expect(
+        "signature precedes clause-anchor point agreement",
+        &bad_signature.value,
+        Code::IllTyped,
+        Cause::OperatorIneligible,
+        &format!("/semantic_graph/nodes/{precondition}/body/arguments/0"),
+    );
+}
+
 /// Shared admitted state-clause fixture for the operation-family reader controls.
 pub(crate) fn state_operand_fixture() -> (Value, usize) {
     let package = StatePackage::new();
@@ -1077,7 +1744,8 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
     let frame = package.at("state", "frame");
     let frame_key = package.digest(frame);
     let body_at = format!("/semantic_graph/nodes/{anchor}/body");
-    let shapes: [(&str, Value); 4] = [
+    let shapes: [(&str, Value); 5] = [
+        ("a root reference", reference(object_key())),
         (
             "reordered bindings",
             json!({"term": "aggregate", "members": [
@@ -1125,6 +1793,19 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
             None,
         );
     }
+    let clause = package.clause("invariant");
+    let clause_body = nodes(&package.value)[clause]["body"].clone();
+    let value = StatePackage::new()
+        .edit(anchor, |node| node["body"] = clause_body)
+        .value;
+    expect(
+        "a root state-clause application",
+        &value,
+        Code::InvalidSemanticGraph,
+        None,
+        &body_at,
+        None,
+    );
     let value = StatePackage::new()
         .edit(anchor, |node| {
             node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);

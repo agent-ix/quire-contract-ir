@@ -35,7 +35,7 @@ use super::structural::{
     AnchorBody,
 };
 use super::{
-    CheckedNodeKind, CheckedTerm, CompositeTypeForm, ModelForm,
+    CheckedExecutionPoint, CheckedNodeKind, CheckedTerm, CompositeTypeForm, ModelForm,
     RawSemanticNodeV2 as CheckedSemanticNodeV2, StateClauseKind, StateForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, Step, Trail, ValidationFailure};
@@ -75,7 +75,7 @@ pub(super) fn validate_state(
     }
     let mut pairs = BTreeSet::new();
     for (position, node, body) in &anchors {
-        if !pairs.insert((&body.context, body.operation)) {
+        if !pairs.insert((&body.context, body.operation, body.execution_point.as_ref())) {
             return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::AmbiguousDeclaration,
                 node_pointer(*position),
@@ -279,7 +279,7 @@ fn check_anchor(
         ));
     }
     match resolve_operation(context, context_kind, body.operation, graph, meter)? {
-        Ok(None) => Ok(()),
+        Ok(None) => {}
         Ok(Some((owner, operation))) => {
             let frame_position = *graph
                 .index
@@ -319,10 +319,25 @@ fn check_anchor(
                     ));
                 }
             }
-            Ok(())
         }
-        Err(refusal) => Err(model_refusal(refusal, target_at(1), &anchor.node_id)),
+        Err(refusal) => return Err(model_refusal(refusal, target_at(1), &anchor.node_id)),
     }
+    if let Some(point) = &body.execution_point {
+        let matches_operation = match point {
+            CheckedExecutionPoint::Pre { operation }
+            | CheckedExecutionPoint::Post { operation } => operation.as_ref() == body.operation,
+            CheckedExecutionPoint::Initialization { .. }
+            | CheckedExecutionPoint::Handler { .. } => false,
+        };
+        if !matches_operation {
+            return Err(model_refusal(
+                ModelRefusal::malformed(),
+                node_pointer(position),
+                &anchor.node_id,
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// FR-341's checks over one clause: anchor, parameters, signature.
@@ -339,12 +354,15 @@ fn check_clause(
         .and_then(typed_clause_body)
         .ok_or_else(|| shape_refusal(clause, position))?;
     let arguments_at = node_pointer(position).key("body").key("arguments");
-    let invariant = body.clause == StateClauseKind::Invariant;
+    let model_clause = matches!(
+        body.clause,
+        StateClauseKind::Invariant | StateClauseKind::Constraint
+    );
     let (anchor, _) = join(
         clause,
         &body.anchor,
         |kind| {
-            kind == if invariant {
+            kind == if model_clause {
                 CheckedNodeKind::Model(ModelForm::ObjectType)
             } else {
                 CheckedNodeKind::State(StateForm::OperationAnchor)
@@ -384,7 +402,7 @@ fn check_clause(
     let signature_refusal = || ineligible(clause, arguments_at.clone().index(0));
     // The anchor's context: the anchor itself for an invariant, else the
     // operation anchor's `context`.
-    let anchor_body = if invariant {
+    let anchor_body = if model_clause {
         None
     } else {
         let anchor_position = *graph
@@ -416,11 +434,10 @@ fn check_clause(
         return Err(signature_refusal());
     }
     let Some(anchor_body) = &anchor_body else {
-        return if parameters.len() == 1 {
-            Ok(())
-        } else {
-            Err(signature_refusal())
-        };
+        if parameters.len() != 1 {
+            return Err(signature_refusal());
+        }
+        return check_clause_point(clause, position, &body, None);
     };
     let Some((context, context_kind)) = graph.node(context_id) else {
         return Err(signature_refusal());
@@ -430,7 +447,7 @@ fn check_clause(
             Ok(Some(resolved)) => resolved,
             // A context that is not a model declaration node: nothing past
             // `self` is resolved.
-            Ok(None) => return Ok(()),
+            Ok(None) => return check_clause_point(clause, position, &body, Some(anchor_body)),
             Err(_) => return Err(signature_refusal()),
         };
     let result = operation
@@ -460,5 +477,48 @@ fn check_clause(
             return Err(signature_refusal());
         }
     }
-    Ok(())
+    check_clause_point(clause, position, &body, Some(anchor_body))
+}
+
+/// Applicability and clause-anchor agreement follow signature validation.
+fn check_clause_point(
+    clause: &CheckedSemanticNodeV2,
+    position: usize,
+    body: &super::structural::ClauseBody,
+    anchor: Option<&AnchorBody<'_>>,
+) -> Result<(), ValidationFailure> {
+    let valid = match (&body.execution_point, anchor) {
+        (None, None) => true,
+        (
+            Some(
+                CheckedExecutionPoint::Initialization { .. }
+                | CheckedExecutionPoint::Handler { .. },
+            ),
+            None,
+        ) => true,
+        (Some(_), None) => false,
+        (point, Some(anchor)) => {
+            let applicable = match point {
+                None => true,
+                Some(
+                    CheckedExecutionPoint::Pre { operation }
+                    | CheckedExecutionPoint::Post { operation },
+                ) => operation.as_ref() == anchor.operation,
+                Some(
+                    CheckedExecutionPoint::Initialization { .. }
+                    | CheckedExecutionPoint::Handler { .. },
+                ) => false,
+            };
+            applicable && point == &anchor.execution_point
+        }
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(model_refusal(
+            ModelRefusal::malformed(),
+            node_pointer(position),
+            &clause.node_id,
+        ))
+    }
 }

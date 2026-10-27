@@ -463,6 +463,11 @@ fn literal_defect(
                     pending.push((child, path.clone().key("members").index(index)));
                 }
             }
+            CheckedTerm::OperationAnchorBody(body) => {
+                for (index, child) in body.members.iter().enumerate().rev() {
+                    pending.push((child, path.clone().key("members").index(index)));
+                }
+            }
             CheckedTerm::Binding { value, .. } => pending.push((value, path.key("value"))),
             CheckedTerm::Literal { .. }
             | CheckedTerm::Reference { .. }
@@ -1009,6 +1014,7 @@ fn argument_family(
         }
         CheckedTerm::Binding { .. } => Some("binder"),
         CheckedTerm::Aggregate { .. } => Some("aggregate"),
+        CheckedTerm::OperationAnchorBody(_) => None,
         // A `dependency_reference` callee has family `function` (FR-322), and
         // the dependency-reference walk (step 7), which runs before the
         // operand checks, has already refused it anywhere but a

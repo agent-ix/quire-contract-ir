@@ -64,8 +64,8 @@
 
 use super::identity::is_identifier;
 use super::{
-    ApplicationOperator, CheckedTerm, CheckedTermView, LiteralKind, OperationMemberKind,
-    StateClauseKind,
+    ApplicationOperator, CheckedExecutionPoint, CheckedTerm, CheckedTermView, LiteralKind,
+    OperationMemberKind, StateClauseKind,
 };
 use super::{
     BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, ClaimForm, CompositeTypeForm,
@@ -91,6 +91,8 @@ enum Defect {
     Occurrences,
     /// The node body itself.
     Body,
+    /// A malformed state-clause execution point.
+    ClausePoint,
     /// One member of the node body's `aggregate`.
     BodyMember(usize),
     /// The role of the occurrence at this index.
@@ -107,6 +109,11 @@ impl Defect {
             Self::NominalIdentityPreimage => node.key("nominal_identity_preimage"),
             Self::Occurrences => node.key("occurrences"),
             Self::Body => node.key("body"),
+            Self::ClausePoint => node
+                .key("body")
+                .key("operation")
+                .key("member")
+                .key("execution_point"),
             Self::BodyMember(member) => node.key("body").key("members").index(member),
             Self::Role(occurrence) => node.key("occurrences").index(occurrence).key("role"),
         }
@@ -421,10 +428,19 @@ pub(super) fn validate_structural_nodes(
                 .and_then(typed_anchor_body)
                 .is_none()
                 .then_some(Defect::Body),
-            Some(StructuralForm::StateClause) => term
-                .and_then(typed_clause_body)
-                .is_none()
-                .then_some(Defect::Body),
+            Some(StructuralForm::StateClause) => {
+                if node
+                    .body
+                    .pointer("/operation/member/execution_point")
+                    .is_some_and(|point| CheckedExecutionPoint::from_wire(point).is_none())
+                {
+                    Some(Defect::ClausePoint)
+                } else {
+                    term.and_then(typed_clause_body)
+                        .is_none()
+                        .then_some(Defect::Body)
+                }
+            }
             Some(StructuralForm::UnionType) => term
                 .and_then(typed_union_type_body)
                 .is_none()
@@ -690,11 +706,19 @@ pub(super) struct AnchorBody<'a> {
     pub(super) operation: &'a str,
     /// The operation's frame node.
     pub(super) frame: CheckedNodeId,
+    /// Optional point, retained separately from the three expression terms.
+    pub(super) execution_point: Option<CheckedExecutionPoint>,
 }
 
 /// The admitted anchor body, or `None` for any other typed shape.
 pub(super) fn typed_anchor_body(body: &super::CheckedTerm) -> Option<AnchorBody<'_>> {
-    let [context, operation, frame] = typed_aggregate(body)? else {
+    let (members, execution_point) = match body {
+        CheckedTerm::OperationAnchorBody(anchor) => {
+            (&anchor.members[..], anchor.execution_point.clone())
+        }
+        _ => (typed_aggregate(body)?, None),
+    };
+    let [context, operation, frame] = members else {
         return None;
     };
     let operation = typed_binding(operation, "operation")?;
@@ -714,6 +738,7 @@ pub(super) fn typed_anchor_body(body: &super::CheckedTerm) -> Option<AnchorBody<
         frame: typed_binding(frame, "frame")
             .and_then(typed_reference)?
             .clone(),
+        execution_point,
     })
 }
 
@@ -726,6 +751,8 @@ pub(super) struct ClauseBody {
     pub(super) parameters: Vec<CheckedNodeId>,
     /// The anchor reference's target.
     pub(super) anchor: CheckedNodeId,
+    /// Optional closed point of the clause application member.
+    pub(super) execution_point: Option<CheckedExecutionPoint>,
 }
 
 /// Whether `term` is an application of `quire.op.state.clause`.
@@ -758,14 +785,22 @@ pub(super) fn typed_clause_body(body: &super::CheckedTerm) -> Option<ClauseBody>
     }
     let member = operation.get("member")?.as_object()?;
     if !exact_members(member, &["kind", "clause"])
-        || member
-            .get("kind")
-            .and_then(Value::as_str)
-            .and_then(OperationMemberKind::from_wire)
-            != Some(OperationMemberKind::StateClause)
+        && !exact_members(member, &["kind", "clause", "execution_point"])
     {
         return None;
     }
+    if member
+        .get("kind")
+        .and_then(Value::as_str)
+        .and_then(OperationMemberKind::from_wire)
+        != Some(OperationMemberKind::StateClause)
+    {
+        return None;
+    }
+    let execution_point = match member.get("execution_point") {
+        Some(point) => Some(CheckedExecutionPoint::from_wire(point)?),
+        None => None,
+    };
     let clause = StateClauseKind::from_wire(member.get("clause")?.as_str()?)?;
     let [parameters, anchor, _condition] = arguments.as_slice() else {
         return None;
@@ -784,6 +819,7 @@ pub(super) fn typed_clause_body(body: &super::CheckedTerm) -> Option<ClauseBody>
         clause,
         parameters,
         anchor: typed_reference(anchor)?.clone(),
+        execution_point,
     })
 }
 
@@ -911,6 +947,7 @@ pub(super) fn application_dependencies(
                 }
             }
             CheckedTerm::Aggregate { members } => pending.extend(members),
+            CheckedTerm::OperationAnchorBody(body) => pending.extend(&body.members),
             CheckedTerm::Binding { value, .. } => pending.push(value),
             // These bodies do not contribute local application dependencies.
             CheckedTerm::Literal { .. }

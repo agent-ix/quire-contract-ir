@@ -183,7 +183,8 @@ pub use checked_package::{
 pub use checked_package::{
     ApplicationOperator, CheckedAbstractionField, CheckedAbstractionFrame,
     CheckedAbstractionObject, CheckedAbstractionParameter, CheckedAbstractionPopulation,
-    CheckedFieldScope, CheckedFrameModification, CheckedScopedDeletion, CheckedTerm, LiteralKind,
+    CheckedExecutionPoint, CheckedFieldScope, CheckedFrameModification, CheckedOperationAnchorBody,
+    CheckedScopedDeletion, CheckedTerm, LiteralKind,
 };
 pub use code::{Std001Code, Std001CodeError};
 pub use conformance::{
