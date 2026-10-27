@@ -17,7 +17,7 @@ use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializ
 use serde_json::{error::Category, Value};
 
 /// A closed execution point carried by an admitted V2 anchor or state clause.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize, FixedShape)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CheckedExecutionPoint {
     /// Initialization of the named source anchor.
@@ -51,10 +51,6 @@ impl CheckedExecutionPoint {
         };
         (!name.is_empty()).then_some(point)
     }
-}
-
-impl FixedShape for CheckedExecutionPoint {
-    const DEPTH: usize = 1;
 }
 
 /// An admitted operation anchor body with three expression bindings and an
