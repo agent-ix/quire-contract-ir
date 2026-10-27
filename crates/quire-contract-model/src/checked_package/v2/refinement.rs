@@ -2079,7 +2079,7 @@ impl CatalogSignatures<'_, '_> {
                 let owner = owners.record_by_key(&key.digest)?;
                 owner.package.direct_record_binder_types(owner.node)
             }
-            Self::External(models) => models.record_binder_types(key).map(<[_]>::to_vec),
+            Self::External(models) => models.record_binder_types(key),
         }
     }
 
@@ -2107,9 +2107,7 @@ impl CatalogSignatures<'_, '_> {
                     .package
                     .effective_operation_binder_types(owner.node, name, &mut budget)
             }
-            Self::External(models) => Ok(models
-                .operation_binder_types(context, name)
-                .map(<[_]>::to_vec)),
+            Self::External(models) => models.operation_binder_types(context, name, meter),
         }
     }
 }

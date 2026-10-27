@@ -17,8 +17,8 @@
 //! it, a member of a cycle being among its own ancestors.
 
 use super::model_members::{
-    check_declaration_node, declaration_key, member_name, units, Budget, CollectionKind,
-    DeclarationForm, DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType, RelationshipDecl,
+    check_declaration_node, member_name, units, Budget, CollectionKind, DeclarationForm,
+    DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType, RelationshipDecl,
 };
 use super::{CheckedNodeId, CheckedPackageV2, CheckedTerm, WorkMeter};
 use crate::checked_package::common::{ValidationFailure, NODE_DOMAIN};
@@ -425,12 +425,10 @@ pub(super) struct DeclarationIndex(pub(super) BTreeMap<String, DeclaredNode>);
 #[derive(Clone, Debug, Default)]
 pub(super) struct RetainedModels {
     index: DeclarationIndex,
-    tables: Vec<FieldTables>,
+    /// Admitted selected documents, including their field tables, for
+    /// catalog binder resolution only when a refinement requests it.
+    models: Vec<DomainModel>,
     operation_types: BTreeMap<(usize, Box<str>, Box<str>), OperationTypes>,
-    /// Direct record fields in declaration order, retained for refinement binders.
-    record_binders: BTreeMap<Box<str>, Vec<CheckedNodeId>>,
-    /// Receiver, parameters and result in declaration order for own operations.
-    operation_binders: BTreeMap<(Box<str>, Box<str>), Vec<CheckedNodeId>>,
     relationships: BTreeMap<(usize, Box<str>), RetainedRelationship>,
 }
 
@@ -474,51 +472,15 @@ impl RetainedModels {
         if declared.form != DeclarationForm::ObjectType {
             return None;
         }
-        self.tables
+        self.models
             .get(declared.selection)?
+            .fields
             .exposed_names(&declared.node)
     }
-    pub(super) fn new(
-        index: DeclarationIndex,
-        models: Vec<DomainModel>,
-        meter: &mut WorkMeter,
-    ) -> Result<Self, ValidationFailure> {
+    pub(super) fn new(index: DeclarationIndex, models: Vec<DomainModel>) -> Self {
         let mut operation_types = BTreeMap::new();
-        let mut record_binders = BTreeMap::new();
-        let mut operation_binders = BTreeMap::new();
         for (selection, model) in models.iter().enumerate() {
-            for record in model.record_types.keys() {
-                if let (Ok(key), Some(types)) = (
-                    declaration_key(
-                        &model.identity,
-                        DeclarationForm::RecordValueType,
-                        record,
-                        model.bytes,
-                    ),
-                    model.direct_record_binder_types(record),
-                ) {
-                    record_binders.insert(key.into(), types);
-                }
-            }
             for (object, declared) in &model.object_types {
-                let mut budget = Budget::new(meter, selection, model.bytes);
-                for name in model.operation_names(object, &mut budget)? {
-                    if let (Ok(key), Some(types)) = (
-                        declaration_key(
-                            &model.identity,
-                            if declared.interface {
-                                DeclarationForm::SystemsInterface
-                            } else {
-                                DeclarationForm::ObjectType
-                            },
-                            object,
-                            model.bytes,
-                        ),
-                        model.effective_operation_binder_types(object, &name, &mut budget)?,
-                    ) {
-                        operation_binders.insert((key.into(), name.into_boxed_str()), types);
-                    }
-                }
                 for operation in &declared.operations {
                     operation_types.insert(
                         (
@@ -559,20 +521,22 @@ impl RetainedModels {
                 );
             }
         }
-        Ok(Self {
+        Self {
             index,
-            tables: models.into_iter().map(|model| model.fields).collect(),
+            models,
             operation_types,
-            record_binders,
-            operation_binders,
             relationships,
-        })
+        }
     }
 
-    pub(super) fn record_binder_types(&self, key: &CheckedNodeId) -> Option<&[CheckedNodeId]> {
-        self.record_binders
-            .get(key.digest.as_ref())
-            .map(Vec::as_slice)
+    pub(super) fn record_binder_types(&self, key: &CheckedNodeId) -> Option<Vec<CheckedNodeId>> {
+        let declared = self.index.0.get(key.digest.as_ref())?;
+        if declared.form != DeclarationForm::RecordValueType {
+            return None;
+        }
+        self.models
+            .get(declared.selection)?
+            .direct_record_binder_types(&declared.node)
     }
 
     pub(super) fn is_record_type(&self, key: &CheckedNodeId) -> bool {
@@ -586,10 +550,16 @@ impl RetainedModels {
         &self,
         context: &CheckedNodeId,
         name: &str,
-    ) -> Option<&[CheckedNodeId]> {
-        self.operation_binders
-            .get(&(context.digest.clone(), Box::from(name)))
-            .map(Vec::as_slice)
+        meter: &mut WorkMeter,
+    ) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
+        let Some(declared) = self.index.0.get(context.digest.as_ref()) else {
+            return Ok(None);
+        };
+        let Some(model) = self.models.get(declared.selection) else {
+            return Ok(None);
+        };
+        let mut budget = Budget::new(meter, declared.selection, model.bytes);
+        model.effective_operation_binder_types(&declared.node, name, &mut budget)
     }
 
     /// A retained index of one relationship, for tests that build a package
@@ -662,7 +632,10 @@ impl RetainedModels {
         if declared.form != DeclarationForm::ObjectType {
             return None;
         }
-        self.tables.get(declared.selection)?.of(&declared.node)
+        self.models
+            .get(declared.selection)?
+            .fields
+            .of(&declared.node)
     }
 
     /// The selected member type for one unambiguous admitted field read.

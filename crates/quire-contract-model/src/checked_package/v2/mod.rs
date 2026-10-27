@@ -1511,7 +1511,7 @@ fn validate(
     Ok(ValidatedPackage {
         kinds,
         terms,
-        models: RetainedModels::new(declarations, models, &mut meter)?,
+        models: RetainedModels::new(declarations, models),
         lowering_facts,
     })
 }

@@ -1321,29 +1321,6 @@ impl DomainModel {
             .collect()
     }
 
-    /// Names of operations declared on an object or its ancestors. The
-    /// effective member check below decides which of these names is exposed.
-    pub(super) fn operation_names(
-        &self,
-        object: &str,
-        budget: &mut Budget<'_>,
-    ) -> Result<BTreeSet<String>, ValidationFailure> {
-        let mut names = BTreeSet::new();
-        let owners = std::iter::once(object).chain(self.ancestors(object, budget)?);
-        for owner in owners {
-            if let Some(declaration) = self.object_types.get(owner) {
-                budget.charge(units(declaration.operations.len()))?;
-                names.extend(
-                    declaration
-                        .operations
-                        .iter()
-                        .map(|operation| member_name(&operation.identity).to_owned()),
-                );
-            }
-        }
-        Ok(names)
-    }
-
     /// Checked receiver, parameter and optional result binder types of the
     /// effective operation on the named object type, including inheritance.
     pub(super) fn effective_operation_binder_types(
