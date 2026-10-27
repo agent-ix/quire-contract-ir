@@ -11,6 +11,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-specification/FR-322-AC-118
     type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-139
+    type: references
   - target: ix://agent-ix/quire-specification/TC-233
     type: references
   - target: ix://agent-ix/quire-specification/TC-280
@@ -67,8 +69,13 @@ package identity SHALL include the resulting graph projection under
 declaration's operand spelling SHALL preserve that normalized pair, scale
 and key; changing either the pair or scale SHALL change the key.
 
-The reader SHALL require `root_scale` to be present, positive and reduced,
-with the exact ratio determined by the two base roots. For equivalences
+The closed V2 wire schema SHALL require `root_scale` with positive-integer
+`numerator` and `denominator` strings, exactly two `dimension_node_ids`, and
+no `declaration` member. A missing scale, zero or negative scale component,
+one-entry pair or present declaration SHALL refuse `malformed_wire` at the
+node before graph checks. The graph check SHALL require a schema-valid
+`root_scale` to be reduced, with the exact ratio determined by the two base
+roots. For equivalences
 between derived dimensions, it SHALL require equal normalized maps and
 the ratio fixed by those base roots. Across a connected equivalence graph,
 it SHALL require every cycle's root-scale product to equal one exactly.
@@ -84,7 +91,7 @@ reader admission.
 | FR-063-AC-2 | The pair is ascending by node-id digest and distinct, the owner is the exact source selected by the lock, and the preimage contains only version `quire.dimension-equivalence-node/v1`, owner, pair, and reduced positive `root_scale`. The node key is the JCS SHA-256 of that preimage. Reversing the source declaration's operands while preserving its meaning produces the same pair, scale and key; changing the pair or scale under a retained key refuses as a stale nominal identity. | Test |
 | FR-063-AC-3 | The QSpec TC-233 `dimension-equivalence-rpc-flow-time`, `dimension-equivalence-rpc-clock-time` and `dimension-equivalence-flow-clock-time` cases have respectively `1/1`, `1000/1` and `1000/1` root scales under their published digest-ordered pairs and retain the three original `Time` node keys. The reader admits their consistent three-package graph as one equivalence class, with `anchor` occurrence ordinals following source declaration order. | Test |
 | FR-063-AC-4 | Each QSpec TC-280 adverse pair or graph is refused `invalid_semantic_graph` at its equivalence node: descending ids, equal ids, a unit id, a repeated pair, unequal derived-dimension normalized maps, a scale inconsistent with base roots, or a cycle whose exact scale product differs from one. No malformed node is skipped or treated as an unknown form. | Test |
-| FR-063-AC-5 | Each QSpec TC-280 adverse member is refused `invalid_semantic_graph` at its equivalence node: absent, zero, negative or unreduced `root_scale`; one missing dependency; non-self `semantic_type`; present `declaration`; owner outside the selected source lock; or a stale key after pair or scale mutation. The reader applies FR-322's stated check order when an earlier independent defect is also present. | Test |
+| FR-063-AC-5 | The QSpec TC-280 equivalence mutations with absent `root_scale`, zero or negative `numerator` or `denominator`, a one-entry `dimension_node_ids` list, or a present `declaration` refuse `malformed_wire` at the node before graph checks. A schema-valid but unreduced `root_scale`, one missing dependency, non-self `semantic_type`, owner outside the selected source lock, or a stale key after pair or scale mutation refuses `invalid_semantic_graph` at the equivalence node, with FR-322's stated check order when an earlier independent defect is also present. The same wire-first rule makes TC-280's negative-zero spelling in a dimension exponent, unit scale or unit offset, and a `version` member on a model owner refuse `malformed_wire` at the offending node; schema-valid semantic, stale-key and owner-join mutations retain their `invalid_semantic_graph` refusal. | Test |
 | FR-063-AC-6 | The writer and reader use the typed `dimension_equivalence` form and preimage in the existing V2 graph and envelope. Unknown scalar forms remain closed, and neither an untyped alternate path nor a copied QSpec schema or fixture is added to IR. | Inspection |
 
 ## Dependencies
@@ -94,7 +101,8 @@ reader admission.
 - [FR-051](./FR-051-encode-checked-package-v2-envelope.md) owns the typed
   envelope writer.
 - QSpec `ix://agent-ix/quire-specification/FR-322-AC-118` owns the precise
-  nominal form, graph meaning and positive/adverse oracle, with published
+  nominal form and graph meaning; `ix://agent-ix/quire-specification/FR-322-AC-139`
+  owns the wire-before-graph refusal oracle, with published
   cases in `ix://agent-ix/quire-specification/TC-233` and
   `ix://agent-ix/quire-specification/TC-280`.
 
