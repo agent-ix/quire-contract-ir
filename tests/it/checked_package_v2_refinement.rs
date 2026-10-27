@@ -15,6 +15,7 @@ use quire_contract_model::{
     CheckedPackageV2, CheckedPackageV2ReadResult, CheckedRefinementStepRowRegion,
     CheckedSemanticGraphV2, CheckedSemanticId, CheckedSourceMapEntry, CheckedTerm,
     RefinementConcreteClass, RefinementDrain, RefinementMemoryClass, RefinementMemoryModel,
+    RefinementTsoModel,
 };
 use serde_json::{json, Value};
 
@@ -418,7 +419,7 @@ fn memory_drain_catalog_roundtrips_and_joins_source_defaults() {
     assert!(matches!(
         &catalog.concrete[catalog.concrete.len() - 1],
         RefinementConcreteClass::Memory(RefinementMemoryClass::Flush {
-            memory_model: RefinementMemoryModel::Tso,
+            memory_model: RefinementTsoModel::Tso,
         })
     ));
     let admitted = read(&package, &evidence);

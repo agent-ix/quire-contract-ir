@@ -244,8 +244,8 @@ pub enum RefinementMemoryClass {
     /// Remove the oldest buffered TSO write.
     #[serde(rename = "memory flush")]
     Flush {
-        /// The source-default model, required to be TSO.
-        memory_model: RefinementMemoryModel,
+        /// The sole source-default model that defines flush.
+        memory_model: RefinementTsoModel,
     },
 }
 
@@ -255,6 +255,14 @@ pub enum RefinementMemoryClass {
 pub enum RefinementDrain {
     /// Drain the thread's store buffer until its writes are visible.
     StoreBufferFlush,
+}
+
+/// The only source-default model that defines a flush class.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[serde(rename_all = "snake_case")]
+pub enum RefinementTsoModel {
+    /// Total store order.
+    Tso,
 }
 
 /// Closed source-default memory model vocabulary.
@@ -299,7 +307,8 @@ impl RefinementMemoryClass {
 
     fn model(&self) -> RefinementMemoryModel {
         match self {
-            Self::Drain { memory_model, .. } | Self::Flush { memory_model } => *memory_model,
+            Self::Drain { memory_model, .. } => *memory_model,
+            Self::Flush { .. } => RefinementMemoryModel::Tso,
         }
     }
 }
