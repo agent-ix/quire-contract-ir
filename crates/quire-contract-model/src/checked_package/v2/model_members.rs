@@ -47,8 +47,8 @@ use super::{
 use crate::checked_package::common::{pointer_from_steps, Step, NODE_DOMAIN};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
-    CheckedPackageLimit, CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticId,
-    JsonPointer,
+    CheckedNodeId, CheckedPackageLimit, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+    CheckedSemanticId, JsonPointer,
 };
 use ix_trace_rs::string_edge;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
@@ -1305,6 +1305,123 @@ impl DomainModel {
             slot
         })
     }
+
+    /// Checked binder types of one record with no inherited fields, in the
+    /// selected document's field order. Inherited field order needs a QSpec
+    /// decision; the field tables retain identity order instead.
+    pub(super) fn direct_record_binder_types(&self, record: &str) -> Option<Vec<CheckedNodeId>> {
+        let declaration = self.record_types.get(record)?;
+        if !declaration.supertypes.is_empty() {
+            return None;
+        }
+        declaration
+            .fields
+            .iter()
+            .map(|field| self.type_node_id(&self.field_type(field)?))
+            .collect()
+    }
+
+    /// Checked receiver, parameter and optional result binder types of the
+    /// effective operation on the named object type, including inheritance.
+    pub(super) fn effective_operation_binder_types(
+        &self,
+        object: &str,
+        name: &str,
+        budget: &mut Budget<'_>,
+    ) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
+        if self.state_machines.contains(object) {
+            return Ok(None);
+        }
+        self.model_operation_binder_types(object, name, budget)
+    }
+
+    /// Checked receiver and member signature of an effective model operation.
+    pub(super) fn model_operation_binder_types(
+        &self,
+        object: &str,
+        name: &str,
+        budget: &mut Budget<'_>,
+    ) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
+        let Some(declaration) = self.object_types.get(object) else {
+            return Ok(None);
+        };
+        let operation = match self.resolve(object, MemberKind::Operation, name, budget) {
+            Ok(Resolved::Operation(operation)) => operation,
+            Ok(Resolved::Field(_)) | Err(ModelFailure::Refused(_)) => return Ok(None),
+            Err(ModelFailure::Limit(failure)) => return Err(failure),
+        };
+        let form = if self.state_machines.contains(object) {
+            DeclarationForm::StateMachine
+        } else if declaration.interface {
+            DeclarationForm::SystemsInterface
+        } else {
+            DeclarationForm::ObjectType
+        };
+        let Some(object_key) = declaration_key(&self.identity, form, object, self.bytes).ok()
+        else {
+            return Ok(None);
+        };
+        let Some(receiver) = self.type_node_id(&MemberType::Reference(object_key.into())) else {
+            return Ok(None);
+        };
+        let mut types = vec![receiver];
+        for parameter in &operation.parameters {
+            let Some(parameter_type) = self
+                .slot_type(parameter)
+                .and_then(|ty| self.type_node_id(&ty))
+            else {
+                return Ok(None);
+            };
+            types.push(parameter_type);
+        }
+        if let Some(result) = &operation.result {
+            let Some(result_type) = self.slot_type(result).and_then(|ty| self.type_node_id(&ty))
+            else {
+                return Ok(None);
+            };
+            types.push(result_type);
+        }
+        Ok(Some(types))
+    }
+
+    /// Names of the effective operations reachable from one model type.
+    pub(super) fn effective_operation_names(
+        &self,
+        object: &str,
+        budget: &mut Budget<'_>,
+    ) -> Result<BTreeSet<Box<str>>, ValidationFailure> {
+        let mut candidates = BTreeSet::new();
+        let ancestors = self.ancestors(object, budget)?;
+        for node in std::iter::once(object).chain(ancestors.iter().copied()) {
+            if let Some(declared) = self.object_types.get(node) {
+                budget.charge(units(declared.operations.len()))?;
+                candidates.extend(
+                    declared
+                        .operations
+                        .iter()
+                        .map(|operation| Box::from(member_name(&operation.identity))),
+                );
+            }
+        }
+        let mut names = BTreeSet::new();
+        for name in candidates {
+            match self.resolve(object, MemberKind::Operation, &name, budget) {
+                Ok(Resolved::Operation(_)) => {
+                    names.insert(name);
+                }
+                Ok(Resolved::Field(_)) | Err(ModelFailure::Refused(_)) => {}
+                Err(ModelFailure::Limit(failure)) => return Err(failure),
+            }
+        }
+        Ok(names)
+    }
+
+    fn type_node_id(&self, member_type: &MemberType) -> Option<CheckedNodeId> {
+        Some(CheckedNodeId {
+            domain: NODE_DOMAIN.into(),
+            digest: member_type.node_key(self.bytes).ok()?.into(),
+        })
+    }
 }
 
 /// FR-322 step 2's owner of one model declaration node.
@@ -1318,6 +1435,14 @@ pub(super) struct Owner<'m> {
     pub(super) selection: usize,
 }
 
+/// One effective operation of a selected model declaration.
+pub(super) struct ModelOperationClass {
+    pub(super) object: Box<str>,
+    pub(super) operation: Box<str>,
+    pub(super) node: CheckedNodeId,
+    pub(super) binder_types: Option<Vec<CheckedNodeId>>,
+}
+
 /// Every selected declaration's model declaration node key.
 #[derive(Debug, Default)]
 pub(super) struct ModelOwners<'m> {
@@ -1325,6 +1450,51 @@ pub(super) struct ModelOwners<'m> {
 }
 
 impl<'m> ModelOwners<'m> {
+    pub(super) fn owner_by_key(&self, key: &CheckedNodeId) -> Option<Owner<'m>> {
+        self.by_key.get(key.digest.as_ref()).copied()
+    }
+
+    /// Effective operation names, declaration nodes and checked binder records
+    /// for one selected domain package. A model member has no node of its own.
+    pub(super) fn operation_classes(
+        &self,
+        identity: &str,
+        meter: &mut super::WorkMeter,
+    ) -> Result<Vec<ModelOperationClass>, ValidationFailure> {
+        let mut classes = Vec::new();
+        for (digest, owner) in &self.by_key {
+            if owner.package.identity.as_ref() != identity
+                || !matches!(
+                    owner.form,
+                    DeclarationForm::ObjectType
+                        | DeclarationForm::StateMachine
+                        | DeclarationForm::SystemsInterface
+                )
+            {
+                continue;
+            }
+            let mut budget = Budget::new(meter, owner.selection, owner.package.bytes);
+            let names = owner
+                .package
+                .effective_operation_names(owner.node, &mut budget)?;
+            for name in names {
+                let binder =
+                    owner
+                        .package
+                        .model_operation_binder_types(owner.node, &name, &mut budget)?;
+                classes.push(ModelOperationClass {
+                    object: member_name(owner.node).into(),
+                    operation: name,
+                    node: CheckedNodeId {
+                        domain: NODE_DOMAIN.into(),
+                        digest: digest.clone().into(),
+                    },
+                    binder_types: binder,
+                });
+            }
+        }
+        Ok(classes)
+    }
     pub(super) fn refinement_object_fields(
         &self,
         key: &crate::checked_package::shared::CheckedNodeId,

@@ -425,7 +425,9 @@ pub(super) struct DeclarationIndex(pub(super) BTreeMap<String, DeclaredNode>);
 #[derive(Clone, Debug, Default)]
 pub(super) struct RetainedModels {
     index: DeclarationIndex,
-    tables: Vec<FieldTables>,
+    /// Admitted selected documents, including their field tables, for
+    /// catalog binder resolution only when a refinement requests it.
+    models: Vec<DomainModel>,
     operation_types: BTreeMap<(usize, Box<str>, Box<str>), OperationTypes>,
     relationships: BTreeMap<(usize, Box<str>), RetainedRelationship>,
 }
@@ -470,8 +472,9 @@ impl RetainedModels {
         if declared.form != DeclarationForm::ObjectType {
             return None;
         }
-        self.tables
+        self.models
             .get(declared.selection)?
+            .fields
             .exposed_names(&declared.node)
     }
     pub(super) fn new(index: DeclarationIndex, models: Vec<DomainModel>) -> Self {
@@ -520,10 +523,43 @@ impl RetainedModels {
         }
         Self {
             index,
-            tables: models.into_iter().map(|model| model.fields).collect(),
+            models,
             operation_types,
             relationships,
         }
+    }
+
+    pub(super) fn record_binder_types(&self, key: &CheckedNodeId) -> Option<Vec<CheckedNodeId>> {
+        let declared = self.index.0.get(key.digest.as_ref())?;
+        if declared.form != DeclarationForm::RecordValueType {
+            return None;
+        }
+        self.models
+            .get(declared.selection)?
+            .direct_record_binder_types(&declared.node)
+    }
+
+    pub(super) fn is_record_type(&self, key: &CheckedNodeId) -> bool {
+        self.index
+            .0
+            .get(key.digest.as_ref())
+            .is_some_and(|declared| declared.form == DeclarationForm::RecordValueType)
+    }
+
+    pub(super) fn operation_binder_types(
+        &self,
+        context: &CheckedNodeId,
+        name: &str,
+        meter: &mut WorkMeter,
+    ) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
+        let Some(declared) = self.index.0.get(context.digest.as_ref()) else {
+            return Ok(None);
+        };
+        let Some(model) = self.models.get(declared.selection) else {
+            return Ok(None);
+        };
+        let mut budget = Budget::new(meter, declared.selection, model.bytes);
+        model.effective_operation_binder_types(&declared.node, name, &mut budget)
     }
 
     /// A retained index of one relationship, for tests that build a package
@@ -596,7 +632,10 @@ impl RetainedModels {
         if declared.form != DeclarationForm::ObjectType {
             return None;
         }
-        self.tables.get(declared.selection)?.of(&declared.node)
+        self.models
+            .get(declared.selection)?
+            .fields
+            .of(&declared.node)
     }
 
     /// The selected member type for one unambiguous admitted field read.

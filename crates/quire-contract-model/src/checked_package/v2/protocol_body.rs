@@ -405,7 +405,7 @@ fn named_fields<'a>(term: &'a CheckedTerm, names: &[&str]) -> Option<Vec<&'a Che
         .collect()
 }
 
-fn text_value(term: &CheckedTerm) -> Option<&str> {
+pub(super) fn text_value(term: &CheckedTerm) -> Option<&str> {
     match term {
         CheckedTerm::Literal {
             value_kind: LiteralKind::Text,
@@ -1230,7 +1230,10 @@ fn reference_target(term: &CheckedTerm) -> Option<&CheckedNodeId> {
     }
 }
 
-fn binding_value<'a>(arguments: &'a [CheckedTerm], name: &str) -> Option<&'a CheckedTerm> {
+pub(super) fn binding_value<'a>(
+    arguments: &'a [CheckedTerm],
+    name: &str,
+) -> Option<&'a CheckedTerm> {
     arguments.iter().find_map(|argument| match argument {
         CheckedTerm::Binding {
             name: actual,
@@ -1655,7 +1658,7 @@ fn collect_type_children<'a>(term: &'a CheckedTerm, pending: &mut Vec<&'a Checke
     }
 }
 
-fn group_value<'a>(term: &'a CheckedTerm, name: &str) -> Option<&'a CheckedTerm> {
+pub(super) fn group_value<'a>(term: &'a CheckedTerm, name: &str) -> Option<&'a CheckedTerm> {
     binding_value(members(term)?, name)
 }
 

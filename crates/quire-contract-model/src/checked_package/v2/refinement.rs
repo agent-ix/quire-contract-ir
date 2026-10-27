@@ -1119,16 +1119,21 @@ impl RefinementGraph<'_, '_> {
         self.nodes.get(*self.index.get(id)?)
     }
 
-    fn key_semantic_type(&self, key: &RefinementKey) -> Option<&CheckedNodeId> {
-        match key {
-            RefinementKey::Local(id) => Some(&self.local_node(id)?.semantic_type),
-            RefinementKey::External(external) => Some(
-                &self
-                    .dependencies
-                    .selected_package(&external.package)?
-                    .node(&external.node)?
-                    .semantic_type,
-            ),
+    fn key_owner_identity(&self, key: &RefinementKey) -> Option<&str> {
+        let owner = match key {
+            RefinementKey::Local(id) => {
+                let owner = self.local_node(id)?.owner_model.as_ref()?;
+                self.local_node(owner)?.owner.as_ref()?
+            }
+            RefinementKey::External(external) => {
+                let selected = self.dependencies.selected_package(&external.package)?;
+                let owner = selected.node(&external.node)?.owner_model.as_ref()?;
+                selected.node(owner)?.owner.as_ref()?
+            }
+        };
+        match owner {
+            super::CheckedNodeOwner::Model { identity, .. } => Some(identity),
+            _ => None,
         }
     }
 
@@ -1277,7 +1282,11 @@ fn missing_class(at: JsonPointer, locus: &CheckedNodeId) -> ValidationFailure {
 fn class_node_kind(kind: super::CheckedNodeKind) -> bool {
     matches!(
         kind,
-        super::CheckedNodeKind::State(super::StateForm::OperationAnchor)
+        super::CheckedNodeKind::Model(
+            super::ModelForm::ObjectType
+                | super::ModelForm::StateMachine
+                | super::ModelForm::SystemsInterface
+        ) | super::CheckedNodeKind::State(super::StateForm::OperationAnchor)
             | super::CheckedNodeKind::Protocol(_)
     )
 }
@@ -1656,11 +1665,21 @@ fn check_headers(
             root.clone().key("body").key("protocol"),
             locus,
         )?;
-        let abstract_id = match abstract_key.as_ref() {
-            RefinementKey::Local(id) => id,
-            RefinementKey::External(key) => &key.node,
+        let root_identity = match abstract_key.as_ref() {
+            RefinementKey::Local(id) => graph.local_node(id).and_then(|node| node.owner.as_ref()),
+            RefinementKey::External(key) => graph
+                .dependencies
+                .selected_package(&key.package)
+                .and_then(|selected| selected.node(&key.node))
+                .and_then(|node| node.owner.as_ref()),
         };
-        if graph.key_semantic_type(protocol) != Some(abstract_id) {
+        let Some(super::CheckedNodeOwner::ModelRoot { identity, .. }) = root_identity else {
+            return Err(wrong_binding(
+                root.clone().key("body").key("abstract"),
+                locus,
+            ));
+        };
+        if graph.key_owner_identity(protocol) != Some(identity.as_ref()) {
             return Err(wrong_binding(
                 root.clone().key("body").key("protocol"),
                 locus,
@@ -1962,6 +1981,604 @@ pub(super) fn validate_refinements(
             meter,
         )?;
         validate_rows(node, body, position, &graph, owners, meter)?;
+    }
+    Ok(())
+}
+
+/// Join declaration-backed catalog entries to the admitted protocol graph.
+/// This runs after every protocol body, so an invalid body keeps its earlier
+/// refusal and no class is inferred from an unadmitted protocol declaration.
+pub(super) fn validate_catalog_graph(
+    graph: RefinementGraph<'_, '_>,
+    owners: &super::model_members::ModelOwners<'_>,
+    meter: &mut super::WorkMeter,
+) -> Result<(), ValidationFailure> {
+    for &position in graph.index.values() {
+        if graph.kinds[position]
+            != super::CheckedNodeKind::Relation(super::RelationForm::Refinement)
+        {
+            continue;
+        }
+        let Some(CheckedTerm::Refinement {
+            abstract_key,
+            protocol,
+            class_catalog: Some(catalog),
+            ..
+        }) = graph.terms[position].as_ref()
+        else {
+            continue;
+        };
+        let root = node_at(position).key("body").key("class_catalog");
+        let local = local_protocol_nodes(&graph);
+        let mut concrete = protocol_classes(
+            &local,
+            &graph.nodes[position].semantic_type,
+            None,
+            None,
+            CatalogSignatures::Local(owners),
+            &root,
+            meter,
+        )?;
+        if let Some(super::CheckedNodeOwner::ModelRoot { identity, .. }) = graph
+            .local_node(&graph.nodes[position].semantic_type)
+            .and_then(|node| node.owner.as_ref())
+        {
+            for operation in owners.operation_classes(identity, meter)? {
+                concrete.push(DeclaredGraphClass {
+                    class: format!("{}::{}", operation.object, operation.operation),
+                    node: RefinementKey::Local(operation.node),
+                    binder_types: operation
+                        .binder_types
+                        .map(|types| types.into_iter().map(RefinementKey::Local).collect()),
+                });
+            }
+            concrete.sort_unstable_by(|left, right| left.class.cmp(&right.class));
+        }
+        compare_declared_classes(
+            &catalog.concrete,
+            &concrete,
+            root.clone().key("concrete"),
+            &graph.nodes[position].node_id,
+            meter,
+        )?;
+        let abstract_classes = match protocol.as_deref() {
+            Some(RefinementKey::Local(clause)) => match abstract_key.as_ref() {
+                RefinementKey::Local(model) => protocol_classes(
+                    &local,
+                    model,
+                    Some(clause),
+                    None,
+                    CatalogSignatures::Local(owners),
+                    &root,
+                    meter,
+                )?,
+                RefinementKey::External(_) => Vec::new(),
+            },
+            Some(RefinementKey::External(clause)) => match abstract_key.as_ref() {
+                RefinementKey::External(model) if model.package == clause.package => {
+                    let selected = graph
+                        .dependencies
+                        .selected_package(&clause.package)
+                        .ok_or_else(|| {
+                            ValidationFailure::refused_at(
+                                CheckedPackageRefusalCode::InvalidModelBinding,
+                                node_at(position).key("body").key("protocol"),
+                                Some(CheckedPackageRefusalCause::MalformedDeclaration),
+                                graph.nodes[position].node_id.clone(),
+                            )
+                        })?;
+                    let dependency = dependency_protocol_nodes(selected);
+                    protocol_classes(
+                        &dependency,
+                        &model.node,
+                        Some(&clause.node),
+                        Some(&clause.package),
+                        CatalogSignatures::External(&selected.models),
+                        &root,
+                        meter,
+                    )?
+                }
+                _ => Vec::new(),
+            },
+            _ => Vec::new(),
+        };
+        compare_abstract_classes(
+            &catalog.r#abstract,
+            &abstract_classes,
+            root.key("abstract"),
+            &graph.nodes[position].node_id,
+            meter,
+        )?;
+    }
+    Ok(())
+}
+
+#[derive(Clone)]
+struct DeclaredGraphClass {
+    class: String,
+    node: RefinementKey,
+    /// `None` is a signature whose inherited ordering is not yet specified.
+    binder_types: Option<Vec<RefinementKey>>,
+}
+
+#[derive(Clone, Copy)]
+enum CatalogSignatures<'a, 'm> {
+    Local(&'a super::model_members::ModelOwners<'m>),
+    External(&'a super::model_fields::RetainedModels),
+}
+
+impl CatalogSignatures<'_, '_> {
+    fn record_binder_types(&self, key: &CheckedNodeId) -> Option<Vec<CheckedNodeId>> {
+        match self {
+            Self::Local(owners) => {
+                let owner = owners.record_by_key(&key.digest)?;
+                owner.package.direct_record_binder_types(owner.node)
+            }
+            Self::External(models) => models.record_binder_types(key),
+        }
+    }
+
+    fn is_record(&self, key: &CheckedNodeId) -> bool {
+        match self {
+            Self::Local(owners) => owners.record_by_key(&key.digest).is_some(),
+            Self::External(models) => models.is_record_type(key),
+        }
+    }
+
+    fn operation_binder_types(
+        &self,
+        context: &CheckedNodeId,
+        name: &str,
+        meter: &mut super::WorkMeter,
+    ) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
+        match self {
+            Self::Local(owners) => {
+                let Some(owner) = owners.owner_by_key(context) else {
+                    return Ok(None);
+                };
+                let mut budget =
+                    super::model_members::Budget::new(meter, owner.selection, owner.package.bytes);
+                owner
+                    .package
+                    .effective_operation_binder_types(owner.node, name, &mut budget)
+            }
+            Self::External(models) => models.operation_binder_types(context, name, meter),
+        }
+    }
+}
+
+struct ProtocolCatalogNode<'a> {
+    id: &'a CheckedNodeId,
+    kind: super::CheckedNodeKind,
+    name: Option<&'a super::CheckedDeclaration>,
+    owner: Option<&'a super::CheckedNodeOwner>,
+    owner_model: Option<&'a CheckedNodeId>,
+    semantic_type: &'a CheckedNodeId,
+    term: Option<&'a CheckedTerm>,
+}
+
+fn local_protocol_nodes<'a>(graph: &'a RefinementGraph<'_, '_>) -> Vec<ProtocolCatalogNode<'a>> {
+    graph
+        .index
+        .values()
+        .map(|&position| {
+            let node = &graph.nodes[position];
+            ProtocolCatalogNode {
+                id: &node.node_id,
+                kind: graph.kinds[position],
+                name: node.declaration.as_ref(),
+                owner: node.owner.as_ref(),
+                owner_model: node.owner_model.as_ref(),
+                semantic_type: &node.semantic_type,
+                term: graph.terms[position].as_ref(),
+            }
+        })
+        .collect()
+}
+
+fn dependency_protocol_nodes(package: &super::CheckedPackageV2) -> Vec<ProtocolCatalogNode<'_>> {
+    package
+        .graph()
+        .nodes
+        .iter()
+        .zip(package.node_kinds())
+        .map(|(node, &kind)| ProtocolCatalogNode {
+            id: &node.node_id,
+            kind,
+            name: node.declaration.as_ref(),
+            owner: node.owner.as_ref(),
+            owner_model: node.owner_model.as_ref(),
+            semantic_type: &node.semantic_type,
+            term: Some(&node.body),
+        })
+        .collect()
+}
+
+fn protocol_classes(
+    nodes: &[ProtocolCatalogNode<'_>],
+    model: &CheckedNodeId,
+    selected_clause: Option<&CheckedNodeId>,
+    package: Option<&CheckedSemanticId>,
+    signatures: CatalogSignatures<'_, '_>,
+    at: &JsonPointer,
+    meter: &mut super::WorkMeter,
+) -> Result<Vec<DeclaredGraphClass>, ValidationFailure> {
+    let mut classes = Vec::new();
+    let selected_identity = nodes.iter().find(|node| node.id == model).and_then(|node| {
+        if let Some(super::CheckedNodeOwner::ModelRoot { identity, .. }) = node.owner {
+            Some(identity.as_ref())
+        } else {
+            None
+        }
+    });
+    let key = |id: &CheckedNodeId| match package {
+        Some(package) => RefinementKey::External(RefinementPackageNodeKey {
+            package: package.clone(),
+            node: id.clone(),
+        }),
+        None => RefinementKey::Local(id.clone()),
+    };
+    for clause in nodes {
+        let clause_identity = clause
+            .owner_model
+            .and_then(|owner| nodes.iter().find(|node| node.id == owner))
+            .and_then(|owner| match owner.owner {
+                Some(super::CheckedNodeOwner::Model { identity, .. }) => Some(identity.as_ref()),
+                _ => None,
+            });
+        if clause.kind != super::CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolClause)
+            || clause_identity != selected_identity
+            || selected_identity.is_none()
+            || selected_clause.is_some_and(|selected| selected != clause.id)
+        {
+            continue;
+        }
+        let Some(clause_name) = clause.name else {
+            continue;
+        };
+        for member in nodes {
+            meter.charge(1, || at.clone())?;
+            let Some(name) = member.name else {
+                continue;
+            };
+            if !matches!(member.kind, super::CheckedNodeKind::Protocol(_))
+                || name.qualified_name.len() <= clause_name.qualified_name.len()
+                || !name.qualified_name.starts_with(&clause_name.qualified_name)
+            {
+                continue;
+            }
+            let Some(CheckedTerm::Application {
+                operation,
+                arguments,
+                ..
+            }) = member.term
+            else {
+                continue;
+            };
+            let Some(operator) = operation
+                .get("member")
+                .and_then(|member| member.get("operator"))
+                .and_then(Value::as_str)
+            else {
+                continue;
+            };
+            let Some(operator) = catalog_operator(member.kind, operator) else {
+                continue;
+            };
+            let Some(classes_for_node) =
+                protocol_member_classes(operator, arguments, &name.qualified_name)
+            else {
+                continue;
+            };
+            let binder_types = if matches!(operator, CatalogOperator::Role) {
+                None
+            } else {
+                protocol_binder_types(operator, arguments, nodes, signatures, meter)?
+                    .map(|types| types.iter().map(&key).collect())
+            };
+            for class in classes_for_node {
+                classes.push(DeclaredGraphClass {
+                    class,
+                    node: key(member.id),
+                    binder_types: binder_types.clone(),
+                });
+            }
+        }
+    }
+    classes.sort_unstable_by(|left, right| left.class.cmp(&right.class));
+    Ok(classes)
+}
+
+#[derive(Clone, Copy)]
+enum CatalogOperator {
+    Role,
+    Channel,
+    Parallel,
+    Attempt,
+    Event,
+    Send,
+    Receive,
+    Fence,
+    /// The timeout step owned by an await node (FR-426), with FR-432's bare
+    /// node-path spelling.
+    TimeoutFromAwait,
+    Finish,
+}
+
+/// Classify the admitted protocol operator once, together with its checked
+/// node form; catalog reconstruction below uses only this closed set.
+#[ix_trace_rs::string_edge]
+fn catalog_operator(kind: super::CheckedNodeKind, operator: &str) -> Option<CatalogOperator> {
+    use super::{CheckedNodeKind::Protocol, ProtocolForm};
+    Some(match (kind, operator) {
+        (Protocol(ProtocolForm::Role), "role") => CatalogOperator::Role,
+        (Protocol(ProtocolForm::Channel), "channel") => CatalogOperator::Channel,
+        (Protocol(ProtocolForm::Control), "parallel") => CatalogOperator::Parallel,
+        (Protocol(ProtocolForm::Control), "attempt") => CatalogOperator::Attempt,
+        (Protocol(ProtocolForm::Control), "event") => CatalogOperator::Event,
+        (Protocol(ProtocolForm::Control), "send") => CatalogOperator::Send,
+        (Protocol(ProtocolForm::Control), "receive") => CatalogOperator::Receive,
+        (Protocol(ProtocolForm::Control), "fence") => CatalogOperator::Fence,
+        (Protocol(ProtocolForm::Control), "await") => CatalogOperator::TimeoutFromAwait,
+        (Protocol(ProtocolForm::Obligation), "finish") => CatalogOperator::Finish,
+        _ => return None,
+    })
+}
+
+fn protocol_binder_types(
+    operator: CatalogOperator,
+    arguments: &[CheckedTerm],
+    nodes: &[ProtocolCatalogNode<'_>],
+    signatures: CatalogSignatures<'_, '_>,
+    meter: &mut super::WorkMeter,
+) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
+    if matches!(operator, CatalogOperator::Attempt) {
+        let Some(anchor) = bound_reference(arguments, "operation")
+            .and_then(|id| nodes.iter().find(|node| node.id == id))
+            .and_then(|node| node.term)
+            .and_then(super::structural::typed_anchor_body)
+        else {
+            return Ok(None);
+        };
+        return signatures.operation_binder_types(&anchor.context, anchor.operation, meter);
+    }
+    let binder_type = match operator {
+        CatalogOperator::Send | CatalogOperator::Receive => {
+            let Some(channel) = bound_reference(arguments, "channel")
+                .and_then(|id| nodes.iter().find(|node| node.id == id))
+                .and_then(|node| node.term)
+            else {
+                return Ok(None);
+            };
+            let CheckedTerm::Application {
+                arguments: channel_arguments,
+                ..
+            } = channel
+            else {
+                return Ok(None);
+            };
+            let Some(carries) = bound_reference(channel_arguments, "carries") else {
+                return Ok(None);
+            };
+            carries
+        }
+        CatalogOperator::Event | CatalogOperator::Finish => {
+            let Some(binder) = bound_reference(arguments, "binder")
+                .and_then(|id| nodes.iter().find(|node| node.id == id))
+            else {
+                return Ok(None);
+            };
+            binder.semantic_type
+        }
+        CatalogOperator::Role
+        | CatalogOperator::Channel
+        | CatalogOperator::Parallel
+        | CatalogOperator::Attempt
+        | CatalogOperator::Fence
+        | CatalogOperator::TimeoutFromAwait => return Ok(Some(Vec::new())),
+    };
+    if signatures.is_record(binder_type) {
+        Ok(signatures.record_binder_types(binder_type))
+    } else {
+        Ok(Some(vec![binder_type.clone()]))
+    }
+}
+
+fn bound_reference<'a>(arguments: &'a [CheckedTerm], field: &str) -> Option<&'a CheckedNodeId> {
+    arguments.iter().find_map(|argument| match argument {
+        CheckedTerm::Binding { name, value } if name.as_ref() == field => match value.as_ref() {
+            CheckedTerm::Reference { target } => Some(target),
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
+/// Interprets the admitted delivery and replication literals that determine
+/// FR-432 channel and role classes.
+#[ix_trace_rs::string_edge]
+fn protocol_member_classes(
+    operator: CatalogOperator,
+    arguments: &[CheckedTerm],
+    name: &[Box<str>],
+) -> Option<Vec<String>> {
+    let clause = name.get(1)?.as_ref();
+    let node = name.last()?.as_ref();
+    let path = format!("{clause}::{node}");
+    match operator {
+        CatalogOperator::Parallel => Some(vec![format!("fork {path}"), format!("join {path}")]),
+        CatalogOperator::Attempt
+        | CatalogOperator::Event
+        | CatalogOperator::Send
+        | CatalogOperator::Receive
+        | CatalogOperator::Fence
+        | CatalogOperator::TimeoutFromAwait
+        | CatalogOperator::Finish => Some(vec![path]),
+        CatalogOperator::Channel => {
+            let delivery = super::protocol_body::binding_value(arguments, "delivery")
+                .and_then(super::protocol_body::text_value)?;
+            Some(match delivery {
+                "unknown" => vec![format!("duplicate {path}"), format!("lose {path}")],
+                "at-least-once" => vec![format!("duplicate {path}")],
+                "at-most-once" => vec![format!("lose {path}")],
+                "exactly-once-premise" => Vec::new(),
+                _ => return None,
+            })
+        }
+        CatalogOperator::Role => {
+            let replication = super::protocol_body::binding_value(arguments, "replication")?;
+            let CheckedTerm::Aggregate { members } = replication else {
+                return None;
+            };
+            if members.is_empty() {
+                return Some(Vec::new());
+            }
+            let mut classes = vec![format!("spawn {path}")];
+            if super::protocol_body::group_value(replication, "lifetime")
+                .and_then(super::protocol_body::text_value)
+                == Some("until")
+            {
+                classes.push(format!("retire {path}"));
+            }
+            Some(classes)
+        }
+    }
+}
+
+fn compare_declared_classes(
+    actual: &[RefinementConcreteClass],
+    expected: &[DeclaredGraphClass],
+    at: JsonPointer,
+    locus: &CheckedNodeId,
+    meter: &mut super::WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let mut expected = expected.iter().peekable();
+    for (index, entry) in actual.iter().enumerate() {
+        if matches!(entry, RefinementConcreteClass::Memory(_)) {
+            continue;
+        }
+        let entry_at = at.clone().index(index);
+        meter.charge(1, || entry_at.clone())?;
+        if expected
+            .peek()
+            .is_some_and(|item| item.class.as_str() < entry.class())
+        {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                at,
+                None,
+                locus.clone(),
+            ));
+        }
+        let Some(found) = expected.next() else {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                entry_at,
+                None,
+                locus.clone(),
+            ));
+        };
+        if found.class != entry.class() {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                entry_at,
+                None,
+                locus.clone(),
+            ));
+        }
+        match entry {
+            RefinementConcreteClass::Declared {
+                node, binder_types, ..
+            } => {
+                if found.node.local() != Some(node)
+                    || found.binder_types.as_ref().is_some_and(|expected| {
+                        binder_types
+                            .iter()
+                            .map(Some)
+                            .ne(expected.iter().map(RefinementKey::local))
+                    })
+                {
+                    return Err(wrong_binding(entry_at, locus));
+                }
+            }
+            RefinementConcreteClass::Memory(_) => unreachable!("memory entry skipped above"),
+        }
+    }
+    if expected.next().is_some() {
+        return Err(ValidationFailure::refused_at(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            at,
+            None,
+            locus.clone(),
+        ));
+    }
+    Ok(())
+}
+
+fn compare_abstract_classes(
+    actual: &[RefinementAbstractClass],
+    expected: &[DeclaredGraphClass],
+    at: JsonPointer,
+    locus: &CheckedNodeId,
+    meter: &mut super::WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let mut expected = expected.iter().peekable();
+    for (index, entry) in actual.iter().enumerate() {
+        if matches!(entry, RefinementAbstractClass::Memory(_)) {
+            continue;
+        }
+        let entry_at = at.clone().index(index);
+        meter.charge(1, || entry_at.clone())?;
+        if expected
+            .peek()
+            .is_some_and(|item| item.class.as_str() < entry.class())
+        {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                at,
+                None,
+                locus.clone(),
+            ));
+        }
+        let Some(found) = expected.next() else {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                entry_at,
+                None,
+                locus.clone(),
+            ));
+        };
+        if found.class != entry.class() {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                entry_at,
+                None,
+                locus.clone(),
+            ));
+        }
+        match entry {
+            RefinementAbstractClass::Declared {
+                node, binder_types, ..
+            } => {
+                if node != &found.node
+                    || found
+                        .binder_types
+                        .as_ref()
+                        .is_some_and(|expected| binder_types != expected)
+                {
+                    return Err(wrong_binding(entry_at, locus));
+                }
+            }
+            RefinementAbstractClass::Memory(_) => unreachable!("memory entry skipped above"),
+        }
+    }
+    if expected.next().is_some() {
+        return Err(ValidationFailure::refused_at(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            at,
+            None,
+            locus.clone(),
+        ));
     }
     Ok(())
 }

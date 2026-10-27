@@ -2845,6 +2845,18 @@ fn validate_graph(
         meter,
         limits.bytes,
     )?;
+    refinement::validate_catalog_graph(
+        refinement::RefinementGraph::new(
+            &graph.nodes,
+            &kinds,
+            &terms,
+            &index,
+            dependencies,
+            &wire.package_id,
+        ),
+        &owners,
+        meter,
+    )?;
     validate_operations(
         &graph.nodes,
         &kinds,
