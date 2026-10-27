@@ -12,9 +12,10 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CheckedProtocolActivation, CheckedProtocolActivationRow, CheckedProtocolRefusalDetail,
+    CheckedNodeId, CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedProtocolActivation, CheckedProtocolActivationRow,
+    CheckedProtocolRefusalDetail,
 };
 use serde_json::{json, Value};
 
@@ -325,6 +326,873 @@ fn decision_fact_fixture() -> (Value, usize, usize, usize) {
         .position(|node| node["node_id"] == effect_binder)
         .expect("effect binder");
     (package, decision, field_position, effect_binder_position)
+}
+
+fn decision_slot_read_at(
+    package: &mut Value,
+    decision: usize,
+    operator: &str,
+    slot: &str,
+    target: &Value,
+) {
+    let mut read_target = target.clone();
+    if slot == "visible" {
+        let is_expression = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["node_id"] == *target)
+            .is_some_and(|node| node["node_tag"] == "expression");
+        if !is_expression {
+            let mut expression = package["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .iter()
+                .find(|node| {
+                    node["node_tag"] == "expression" && node["semantic_form"] == "reference"
+                })
+                .expect("reference expression")
+                .clone();
+            expression["body"] = json!({"term": "reference", "target": target});
+            expression["node_id"] = node_id(&structural_key(
+                "expression",
+                "reference",
+                Some(&family_key("aaaa")),
+                &expression["body"],
+            ));
+            expression["dependencies"] = json!([target]);
+            read_target = expression["node_id"].clone();
+            package["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("nodes")
+                .push(expression);
+        }
+        let read = json!({"term": "reference", "target": read_target});
+        package["semantic_graph"]["nodes"][decision]["body"]["arguments"][1]["value"]["members"] =
+            json!([read]);
+    } else if operator == "choice" {
+        let read = json!({"term": "reference", "target": read_target});
+        package["semantic_graph"]["nodes"][decision]["body"]["arguments"][2]["value"]["members"]
+            [0]["members"][1]["value"] = read;
+    } else {
+        let read = json!({"term": "reference", "target": read_target});
+        package["semantic_graph"]["nodes"][decision]["body"]["arguments"][4]["value"] = read;
+    }
+    settle(package);
+}
+
+fn decision_slot_read(package: &mut Value, operator: &str, slot: &str, target: &Value) {
+    let decision = holder_position(package);
+    decision_slot_read_at(package, decision, operator, slot, target);
+}
+
+fn decision_conjunction(package: &mut Value, left: &Value, right: &Value) -> Value {
+    let mut expression = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "expression" && node["semantic_form"] == "reference")
+        .expect("reference expression")
+        .clone();
+    expression["semantic_form"] = json!("binary");
+    expression["body"] = json!({
+        "term": "application", "operator": "binary",
+        "operation": {"identity": "quire.op.boolean.and", "laws": [], "mode": null,
+            "member": null, "leaves": []},
+        "result_type": node_id(&family_key("aaaa")),
+        "arguments": [
+            {"term": "reference", "target": left},
+            {"term": "reference", "target": right},
+        ],
+    });
+    expression["node_id"] = node_id(&application_node_key(
+        "expression",
+        "binary",
+        &family_key("aaaa"),
+        &expression["body"],
+    ));
+    let mut dependencies = vec![left.clone(), right.clone()];
+    dependencies.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+    expression["dependencies"] = json!(dependencies);
+    let target = expression["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(expression);
+    target
+}
+
+fn bare_record_expression(package: &mut Value, binder: &Value) -> Value {
+    let binder_position = node_position_for_key(package, binder);
+    let record_type = package["semantic_graph"]["nodes"][binder_position]["semantic_type"].clone();
+    let mut expression = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "expression" && node["semantic_form"] == "reference")
+        .expect("reference expression")
+        .clone();
+    expression["semantic_type"] = record_type.clone();
+    expression["body"] = json!({"term": "reference", "target": binder});
+    expression["node_id"] = node_id(&structural_key(
+        "expression",
+        "reference",
+        record_type["digest"].as_str(),
+        &expression["body"],
+    ));
+    expression["dependencies"] = json!([binder]);
+    let key = expression["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(expression);
+    key
+}
+
+fn boolean_rooted_bare_record_read(package: &mut Value, binder: &Value) -> (Value, Value) {
+    let boolean = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| {
+            node["node_tag"] == "expression"
+                && node["semantic_form"] == "reference"
+                && node["semantic_type"] == node_id(&family_key("aaaa"))
+        })
+        .expect("Boolean reference expression")["node_id"]
+        .clone();
+    let bare = bare_record_expression(package, binder);
+    let root = decision_conjunction(package, &bare, &boolean);
+    (root, bare)
+}
+
+fn assert_protocol_refusal_at(refusal: &CheckedPackageRefusal, package: &Value, position: usize) {
+    let expected_path = format!("/semantic_graph/nodes/{position}");
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(expected_path.as_str())
+    );
+    let expected_locus = checked_node_id(&package["semantic_graph"]["nodes"][position]["node_id"]);
+    assert_eq!(refusal.locus.as_ref(), Some(&expected_locus));
+}
+
+fn node_position_for_key(package: &Value, key: &Value) -> usize {
+    package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_id"] == *key)
+        .expect("fixture node key")
+}
+
+fn checked_node_id(key: &Value) -> CheckedNodeId {
+    serde_json::from_value(key.clone()).expect("fixture node id")
+}
+
+/// Trace: FR-038-AC-291, FR-038-AC-292
+#[trace("TC-048")]
+#[test]
+fn decision_slots_bar_over_and_finish_before_fact_eligibility() {
+    for operator in ["choice", "repeat"] {
+        for slot in ["visible", "guard"] {
+            let (package, _) = protocol_holder_case(operator);
+            assert!(
+                matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+                "baseline {operator} must admit"
+            );
+            let clause = clause_position(&package);
+            let over = package["semantic_graph"]["nodes"][clause]["body"]["arguments"][0]["value"]
+                ["target"]
+                .clone();
+            let finish = protocol_position(&package, "obligation");
+            let binder = package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]
+                ["value"]["target"]
+                .clone();
+
+            let mut model_state = package.clone();
+            decision_slot_read(&mut model_state, operator, slot, &over);
+            let CheckedPackageV2ReadResult::Refused(refusal) = read(&model_state) else {
+                panic!("{operator} {slot} must refuse model state");
+            };
+            assert_eq!(
+                refusal.code,
+                CheckedPackageRefusalCode::IllTyped,
+                "{operator} {slot}"
+            );
+            assert_eq!(
+                refusal.cause,
+                Some(CheckedPackageRefusalCause::OperatorIneligible)
+            );
+            assert_protocol_refusal_at(
+                &refusal,
+                &model_state,
+                node_position_for_key(&model_state, &over),
+            );
+            let expected_slot = if slot == "visible" {
+                "visible"
+            } else if operator == "choice" {
+                "choice.guard"
+            } else {
+                "repeat.guard"
+            };
+            assert_eq!(
+                refusal.protocol_detail.as_deref(),
+                Some(&CheckedProtocolRefusalDetail::ModelStateRead {
+                    slot: expected_slot.into()
+                })
+            );
+
+            let mut out_of_scope = package;
+            decision_slot_read(&mut out_of_scope, operator, slot, &binder);
+            let CheckedPackageV2ReadResult::Refused(refusal) = read(&out_of_scope) else {
+                panic!("{operator} {slot} must refuse the finish binder");
+            };
+            assert_eq!(
+                refusal.code,
+                CheckedPackageRefusalCode::MissingDeclaration,
+                "{operator} {slot}"
+            );
+            assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+            assert_protocol_refusal_at(&refusal, &out_of_scope, holder_position(&out_of_scope));
+            let clause = clause_position(&out_of_scope);
+            let expected_owner =
+                checked_node_id(&out_of_scope["semantic_graph"]["nodes"][clause]["node_id"]);
+            assert!(matches!(refusal.protocol_detail.as_deref(),
+                Some(CheckedProtocolRefusalDetail::BinderScope { stage, read, owner, .. })
+                if stage.as_ref() == "run" && read.as_ref() == "stage"
+                    && owner == &expected_owner));
+        }
+    }
+}
+
+/// Trace: FR-038-AC-292
+#[trace("TC-048")]
+#[test]
+fn decision_guards_report_model_state_before_out_of_scope_finish() {
+    for operator in ["choice", "repeat"] {
+        let (mut package, _) = protocol_holder_case(operator);
+        let clause = clause_position(&package);
+        let over = package["semantic_graph"]["nodes"][clause]["body"]["arguments"][0]["value"]
+            ["target"]
+            .clone();
+        let finish = protocol_position(&package, "obligation");
+        let binder = package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]["value"]
+            ["target"]
+            .clone();
+        let both = decision_conjunction(&mut package, &over, &binder);
+        decision_slot_read(&mut package, operator, "guard", &both);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+            panic!("{operator} guard must refuse model state first");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::OperatorIneligible)
+        );
+        assert_protocol_refusal_at(&refusal, &package, node_position_for_key(&package, &over));
+        let expected_slot = if operator == "choice" {
+            "choice.guard"
+        } else {
+            "repeat.guard"
+        };
+        assert_eq!(
+            refusal.protocol_detail.as_deref(),
+            Some(&CheckedProtocolRefusalDetail::ModelStateRead {
+                slot: expected_slot.into()
+            })
+        );
+    }
+}
+
+/// Trace: FR-038-AC-292
+#[trace("TC-048")]
+#[test]
+fn compensation_template_binders_are_foreign_in_each_decision_slot() {
+    for operator in ["choice", "repeat"] {
+        let (mut package, _, compensation) = package_with_admitted_compensation();
+        let (holder_package, _) = protocol_holder_case(operator);
+        let holder = holder_position(&holder_package);
+        let holder_key = holder_package["semantic_graph"]["nodes"][holder]["node_id"].clone();
+        let holder_nodes = holder_package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .filter(|node| {
+                node["declaration"]["qualified_name"]
+                    .as_array()
+                    .is_some_and(|path| path.len() >= 5 && path[4] == "Holder")
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(holder_nodes.len(), 3, "holder and its two children");
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .extend(holder_nodes);
+        let root = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .position(|node| {
+                node["declaration"]["qualified_name"]
+                    == json!(["Example", "OrderFlow", "run", "Main"])
+            })
+            .expect("root sequence");
+        package["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]["members"]
+            .as_array_mut()
+            .expect("children")
+            .push(json!({"term": "reference", "target": holder_key}));
+        settle(&mut package);
+        assert!(
+            matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+            "{operator} with compensation must admit: {:?}",
+            read(&package)
+        );
+
+        let binder = package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][5]
+            ["value"]["members"][0]["members"][0]["value"]["target"]
+            .clone();
+        for slot in ["visible", "guard"] {
+            let mut case = package.clone();
+            decision_slot_read(&mut case, operator, slot, &binder);
+            let CheckedPackageV2ReadResult::Refused(refusal) = read(&case) else {
+                panic!("{operator} {slot} must refuse the template binder");
+            };
+            assert_eq!(
+                refusal.code,
+                CheckedPackageRefusalCode::MissingDeclaration,
+                "{operator} {slot}"
+            );
+            assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+            assert_protocol_refusal_at(&refusal, &case, holder_position(&case));
+            let clause = clause_position(&case);
+            let expected_owner =
+                checked_node_id(&case["semantic_graph"]["nodes"][clause]["node_id"]);
+            assert!(matches!(refusal.protocol_detail.as_deref(),
+                Some(CheckedProtocolRefusalDetail::BinderScope { stage, read, owner, .. })
+                if stage.as_ref() == "run" && read.as_ref() == "foreign"
+                    && owner == &expected_owner));
+        }
+    }
+}
+
+fn activation_record_field_fixture() -> (Value, Value, Value) {
+    let (mut package, _) = protocol_holder_case("choice");
+    let clause = clause_position(&package);
+    let record_body = json!({"term": "aggregate", "members": [
+        {"term": "binding", "name": "ready", "value": {"term": "reference",
+            "target": node_id(&family_key("aaaa"))}}
+    ]});
+    let record_key = structural_key("composite_type", "record", None, &record_body);
+    let mut record = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "composite_type")
+        .expect("composite type")
+        .clone();
+    record["node_id"] = node_id(&record_key);
+    record["semantic_form"] = json!("record");
+    record["semantic_type"] = node_id(&record_key);
+    record["body"] = record_body;
+    record["dependencies"] = json!([node_id(&family_key("aaaa"))]);
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(record);
+
+    let trigger = clause_parameter(&mut package, "opened", "1");
+    let trigger_position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_id"] == trigger)
+        .expect("trigger");
+    package["semantic_graph"]["nodes"][trigger_position]["semantic_type"] = node_id(&record_key);
+    let trigger_body = package["semantic_graph"]["nodes"][trigger_position]["body"].clone();
+    let trigger_key = structural_key("value", "parameter", Some(&record_key), &trigger_body);
+    package["semantic_graph"]["nodes"][trigger_position]["node_id"] = node_id(&trigger_key);
+    let trigger = node_id(&trigger_key);
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][1]["value"]["members"] = json!([
+        {"term": "binding", "name": "kind", "value": {"term": "literal",
+            "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "each"}},
+        {"term": "binding", "name": "trigger", "value": {"term": "reference",
+            "target": trigger}},
+    ]);
+    relevel_finish_binder(&mut package, 2);
+
+    let mut field = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "expression" && node["semantic_form"] == "reference")
+        .expect("reference expression")
+        .clone();
+    field["semantic_form"] = json!("query");
+    field["semantic_type"] = node_id(&family_key("aaaa"));
+    field["body"] = json!({
+        "term": "application", "operator": "query",
+        "operation": {"identity": "quire.op.record.project", "laws": [], "mode": null,
+            "member": {"kind": "field", "declaration": node_id(&record_key),
+                "name": "ready"}, "leaves": []},
+        "result_type": node_id(&family_key("aaaa")),
+        "arguments": [{"term": "reference", "target": trigger}],
+    });
+    field["node_id"] = node_id(&application_node_key(
+        "expression",
+        "query",
+        &family_key("aaaa"),
+        &field["body"],
+    ));
+    field["dependencies"] = json!([trigger]);
+    let field_key = field["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(field);
+    settle(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "activation fixture must admit before decision read: {:?}",
+        read(&package)
+    );
+
+    (package, trigger, field_key)
+}
+
+fn record_capture_fixture() -> (Value, Value, Value) {
+    let (mut package, trigger, trigger_field) = activation_record_field_fixture();
+    let record = package["semantic_graph"]["nodes"][node_position_for_key(&package, &trigger)]
+        ["semantic_type"]
+        .clone();
+    let capture = clause_parameter(&mut package, "snapshot", "2");
+    let position = node_position_for_key(&package, &capture);
+    package["semantic_graph"]["nodes"][position]["semantic_type"] = record.clone();
+    let body = package["semantic_graph"]["nodes"][position]["body"].clone();
+    let key = structural_key("value", "parameter", record["digest"].as_str(), &body);
+    rename_node(
+        &mut package,
+        capture["digest"].as_str().expect("capture key"),
+        &key,
+    );
+    let capture = node_id(&key);
+    let clause = clause_position(&package);
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][2]["value"]["members"] = json!([{"term": "aggregate", "members": [
+        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": capture}},
+        {"term": "binding", "name": "initializer", "value": {"term": "reference", "target": trigger}}
+    ]}]);
+    relevel_finish_binder(&mut package, 3);
+    let mut field =
+        package["semantic_graph"]["nodes"][node_position_for_key(&package, &trigger_field)].clone();
+    field["body"]["arguments"][0]["target"] = capture.clone();
+    field["node_id"] = node_id(&application_node_key(
+        "expression",
+        "query",
+        &family_key("aaaa"),
+        &field["body"],
+    ));
+    field["dependencies"] = json!([capture]);
+    let field_key = field["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(field);
+    settle(&mut package);
+    (package, capture, field_key)
+}
+
+fn activation_with_sent_field_fixture() -> (Value, usize, Value, Value) {
+    let (mut package, decision, field, got, sent) = receive_fact_fixture();
+    let record = package["semantic_graph"]["nodes"][node_position_for_key(&package, &sent)]
+        ["semantic_type"]
+        .clone();
+    let opened = clause_parameter(&mut package, "opened", "1");
+    let opened_position = node_position_for_key(&package, &opened);
+    package["semantic_graph"]["nodes"][opened_position]["semantic_type"] = record.clone();
+    let opened_body = package["semantic_graph"]["nodes"][opened_position]["body"].clone();
+    let opened_key = structural_key(
+        "value",
+        "parameter",
+        record["digest"].as_str(),
+        &opened_body,
+    );
+    rename_node(
+        &mut package,
+        opened["digest"].as_str().expect("opened key"),
+        &opened_key,
+    );
+    let opened = node_id(&opened_key);
+    let clause = clause_position(&package);
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][1]["value"]["members"] = json!([
+        {"term": "binding", "name": "kind", "value": {"term": "literal",
+            "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "each"}},
+        {"term": "binding", "name": "trigger", "value": {"term": "reference", "target": opened}},
+    ]);
+    rename_parameter_level(&mut package, &sent, 2);
+    rename_parameter_level(&mut package, &got, 3);
+    let finish = protocol_position(&package, "obligation");
+    let finish_binder = package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    rename_parameter_level(&mut package, &finish_binder, 4);
+    let send = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "protocol"
+                && node["semantic_form"] == "control"
+                && node["body"]["operation"]["member"]["operator"] == "send"
+        })
+        .expect("send control");
+    let sent =
+        package["semantic_graph"]["nodes"][send]["body"]["arguments"][1]["value"]["target"].clone();
+    let mut sent_field = package["semantic_graph"]["nodes"][field].clone();
+    sent_field["body"]["arguments"][0]["target"] = sent.clone();
+    sent_field["node_id"] = node_id(&application_node_key(
+        "expression",
+        "query",
+        &family_key("aaaa"),
+        &sent_field["body"],
+    ));
+    sent_field["dependencies"] = json!([sent]);
+    let sent_field_key = sent_field["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(sent_field);
+    settle(&mut package);
+    (package, decision, opened, sent_field_key)
+}
+
+fn rename_parameter_level(package: &mut Value, old: &Value, level: usize) {
+    let position = node_position_for_key(package, old);
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["body"]["members"][1]["value"]["value"] = json!(level.to_string());
+    let key = structural_key(
+        "value",
+        "parameter",
+        node["semantic_type"]["digest"].as_str(),
+        &node["body"],
+    );
+    rename_node(
+        package,
+        old["digest"].as_str().expect("old parameter key"),
+        &key,
+    );
+}
+
+fn decision_package_for_operator_at(package: &Value, decision: usize, operator: &str) -> Value {
+    let mut decision_package = package.clone();
+    if operator == "repeat" {
+        let cases = &decision_package["semantic_graph"]["nodes"][decision]["body"]["arguments"][2]
+            ["value"]["members"];
+        let body = cases[0]["members"][2]["value"].clone();
+        let exhausted = cases[1]["members"][2]["value"].clone();
+        let body_position = decision_package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .position(|node| node["node_id"] == body["target"])
+            .expect("body");
+        decision_package["semantic_graph"]["nodes"][body_position]["body"]["operation"]["member"]
+            ["operator"] = json!("fence");
+        decision_package["semantic_graph"]["nodes"][body_position]["body"]["arguments"] = json!([{"term": "binding", "name": "ordering", "value": {"term": "literal",
+                    "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "seq_cst"}}]);
+        let role = decision_package["semantic_graph"]["nodes"][decision]["body"]["arguments"][0]
+            ["value"]
+            .clone();
+        let decision_body = &mut decision_package["semantic_graph"]["nodes"][decision]["body"];
+        decision_body["operation"]["member"]["operator"] = json!("repeat");
+        decision_body["arguments"] = json!([
+            {"term": "binding", "name": "owner", "value": role},
+            {"term": "binding", "name": "visible", "value": {"term": "aggregate", "members": []}},
+            {"term": "binding", "name": "maximum", "value": {"term": "aggregate", "members": [
+                {"term": "literal", "type": node_id(&family_key("a3a3")),
+                    "value_kind": "integer", "value": "1"}]}},
+            {"term": "binding", "name": "proof", "value": {"term": "aggregate", "members": []}},
+            {"term": "binding", "name": "guard", "value": {"term": "literal",
+                "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}},
+            {"term": "binding", "name": "body", "value": body},
+            {"term": "binding", "name": "exhausted", "value": {"term": "aggregate",
+                "members": [exhausted]}},
+        ]);
+        settle(&mut decision_package);
+        assert!(
+            matches!(
+                read(&decision_package),
+                CheckedPackageV2ReadResult::Admitted(_)
+            ),
+            "repeat fixture must admit: {:?}",
+            read(&decision_package)
+        );
+    }
+    decision_package
+}
+
+fn decision_package_for_operator(package: &Value, operator: &str) -> Value {
+    decision_package_for_operator_at(package, holder_position(package), operator)
+}
+
+/// Trace: FR-038-AC-292
+#[trace("TC-048")]
+#[test]
+fn activation_record_field_is_ineligible_in_each_decision_slot() {
+    let (package, trigger, field_key) = activation_record_field_fixture();
+    for operator in ["choice", "repeat"] {
+        let decision_package = decision_package_for_operator(&package, operator);
+        for slot in ["visible", "guard"] {
+            let mut case = decision_package.clone();
+            decision_slot_read(&mut case, operator, slot, &field_key);
+            let CheckedPackageV2ReadResult::Refused(refusal) = read(&case) else {
+                panic!("{operator} {slot} must reject an activation record fact");
+            };
+            assert_eq!(refusal.code, CheckedPackageRefusalCode::WrongSnapshot);
+            assert_eq!(
+                refusal.cause,
+                Some(CheckedPackageRefusalCause::WrongObservation)
+            );
+            assert_protocol_refusal_at(&refusal, &case, node_position_for_key(&case, &field_key));
+            let decision = holder_position(&case);
+            let expected_owner = checked_node_id(
+                &case["semantic_graph"]["nodes"][decision]["body"]["arguments"][0]["value"]
+                    ["target"],
+            );
+            let expected_field = checked_node_id(&field_key);
+            let expected_binder = checked_node_id(&trigger);
+            assert!(matches!(refusal.protocol_detail.as_deref(),
+                Some(CheckedProtocolRefusalDetail::DecisionFact { node, owner, reason, read })
+                if node == &expected_field && owner == &expected_owner
+                    && read.binder == expected_binder
+                    && reason.as_ref() == "ineligible-kind" && read.field.as_ref() == "ready"));
+        }
+        let finish = protocol_position(&decision_package, "obligation");
+        let finish_binder = decision_package["semantic_graph"]["nodes"][finish]["body"]
+            ["arguments"][0]["value"]["target"]
+            .clone();
+        let mut paired = decision_package;
+        let both = decision_conjunction(&mut paired, &finish_binder, &field_key);
+        decision_slot_read(&mut paired, operator, "guard", &both);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&paired) else {
+            panic!("{operator} guard must reject an unavailable finish before activation fact");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+        assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+        assert_protocol_refusal_at(&refusal, &paired, holder_position(&paired));
+        let clause = clause_position(&paired);
+        let expected_owner = checked_node_id(&paired["semantic_graph"]["nodes"][clause]["node_id"]);
+        assert!(matches!(refusal.protocol_detail.as_deref(),
+            Some(CheckedProtocolRefusalDetail::BinderScope { stage, read, owner, .. })
+            if stage.as_ref() == "run" && read.as_ref() == "stage"
+                && owner == &expected_owner));
+    }
+}
+
+/// Trace: FR-038-AC-292
+#[trace("TC-048")]
+#[test]
+fn bare_activation_record_read_refuses_in_each_decision_slot() {
+    let (package, trigger, _field_key) = activation_record_field_fixture();
+    for operator in ["choice", "repeat"] {
+        let decision_package = decision_package_for_operator(&package, operator);
+        for slot in ["visible", "guard"] {
+            let mut case = decision_package.clone();
+            let (root, bare) = boolean_rooted_bare_record_read(&mut case, &trigger);
+            decision_slot_read(&mut case, operator, slot, &root);
+            let CheckedPackageV2ReadResult::Refused(refusal) = read(&case) else {
+                panic!("{operator} {slot} must reject bare activation read");
+            };
+            assert_eq!(
+                refusal.code,
+                CheckedPackageRefusalCode::IllTyped,
+                "{operator} {slot}"
+            );
+            assert_eq!(
+                refusal.cause,
+                Some(CheckedPackageRefusalCause::OperatorIneligible)
+            );
+            assert_protocol_refusal_at(&refusal, &case, node_position_for_key(&case, &bare));
+            let expected_slot = if slot == "visible" {
+                "visible"
+            } else if operator == "choice" {
+                "choice.guard"
+            } else {
+                "repeat.guard"
+            };
+            assert_eq!(
+                refusal.protocol_detail.as_deref(),
+                Some(&CheckedProtocolRefusalDetail::ModelStateRead {
+                    slot: expected_slot.into()
+                })
+            );
+        }
+    }
+}
+
+/// Trace: FR-038-AC-292
+#[trace("TC-048")]
+#[test]
+fn bare_activation_precedes_sent_field_in_either_guard_operand_order() {
+    let (package, decision, opened, sent_field) = activation_with_sent_field_fixture();
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "mixed fixture must admit before decision read: {:?}",
+        read(&package)
+    );
+    for operator in ["choice", "repeat"] {
+        let decision_package = decision_package_for_operator_at(&package, decision, operator);
+        for reverse in [false, true] {
+            let mut case = decision_package.clone();
+            let bare = bare_record_expression(&mut case, &opened);
+            let root = if reverse {
+                decision_conjunction(&mut case, &sent_field, &bare)
+            } else {
+                decision_conjunction(&mut case, &bare, &sent_field)
+            };
+            decision_slot_read_at(&mut case, decision, operator, "guard", &root);
+            let CheckedPackageV2ReadResult::Refused(refusal) = read(&case) else {
+                panic!("{operator} guard must reject bare opened before sent field");
+            };
+            assert_eq!(
+                refusal.code,
+                CheckedPackageRefusalCode::IllTyped,
+                "reverse={reverse}"
+            );
+            assert_eq!(
+                refusal.cause,
+                Some(CheckedPackageRefusalCause::OperatorIneligible)
+            );
+            assert_protocol_refusal_at(&refusal, &case, node_position_for_key(&case, &bare));
+            assert_eq!(
+                refusal.protocol_detail.as_deref(),
+                Some(&CheckedProtocolRefusalDetail::ModelStateRead {
+                    slot: (if operator == "choice" {
+                        "choice.guard"
+                    } else {
+                        "repeat.guard"
+                    })
+                    .into()
+                })
+            );
+        }
+    }
+}
+
+/// Trace: FR-038-AC-292
+#[trace("TC-048")]
+#[test]
+fn bare_receive_record_read_refuses_in_each_decision_slot() {
+    let (package, decision, _field, got, _sent) = receive_fact_fixture();
+    for operator in ["choice", "repeat"] {
+        let decision_package = decision_package_for_operator_at(&package, decision, operator);
+        for slot in ["visible", "guard"] {
+            let mut case = decision_package.clone();
+            let (root, bare) = boolean_rooted_bare_record_read(&mut case, &got);
+            decision_slot_read_at(&mut case, decision, operator, slot, &root);
+            let CheckedPackageV2ReadResult::Refused(refusal) = read(&case) else {
+                panic!("{operator} {slot} must reject bare receive read");
+            };
+            assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
+            assert_eq!(
+                refusal.cause,
+                Some(CheckedPackageRefusalCause::OperatorIneligible)
+            );
+            assert_protocol_refusal_at(&refusal, &case, node_position_for_key(&case, &bare));
+            let expected_slot = if slot == "visible" {
+                "visible"
+            } else if operator == "choice" {
+                "choice.guard"
+            } else {
+                "repeat.guard"
+            };
+            assert_eq!(
+                refusal.protocol_detail.as_deref(),
+                Some(&CheckedProtocolRefusalDetail::ModelStateRead {
+                    slot: expected_slot.into()
+                })
+            );
+        }
+    }
+}
+
+/// Trace: FR-038-AC-292
+#[trace("TC-048")]
+#[test]
+fn bare_record_capture_refuses_while_its_field_and_scalar_capture_admit() {
+    let (record_package, capture, field) = record_capture_fixture();
+    assert!(
+        matches!(
+            read(&record_package),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "record capture fixture must admit: {:?}",
+        read(&record_package)
+    );
+    let (mut scalar_package, _) = protocol_holder_case("choice");
+    let scalar = clause_parameter(&mut scalar_package, "captured_flag", "1");
+    let clause = clause_position(&scalar_package);
+    scalar_package["semantic_graph"]["nodes"][clause]["body"]["arguments"][2]["value"]["members"] = json!([{"term": "aggregate", "members": [
+        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": scalar}},
+        {"term": "binding", "name": "initializer", "value": {"term": "literal",
+            "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}}
+    ]}]);
+    relevel_finish_binder(&mut scalar_package, 2);
+    settle(&mut scalar_package);
+    assert!(
+        matches!(
+            read(&scalar_package),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "scalar capture fixture must admit: {:?}",
+        read(&scalar_package)
+    );
+
+    for operator in ["choice", "repeat"] {
+        let record_decision = decision_package_for_operator(&record_package, operator);
+        let scalar_decision = decision_package_for_operator(&scalar_package, operator);
+        for slot in ["visible", "guard"] {
+            let mut case = record_decision.clone();
+            let (root, bare) = boolean_rooted_bare_record_read(&mut case, &capture);
+            decision_slot_read(&mut case, operator, slot, &root);
+            let CheckedPackageV2ReadResult::Refused(refusal) = read(&case) else {
+                panic!("{operator} {slot} must reject bare record capture");
+            };
+            assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
+            assert_eq!(
+                refusal.cause,
+                Some(CheckedPackageRefusalCause::OperatorIneligible)
+            );
+            assert_protocol_refusal_at(&refusal, &case, node_position_for_key(&case, &bare));
+            let expected_slot = if slot == "visible" {
+                "visible"
+            } else if operator == "choice" {
+                "choice.guard"
+            } else {
+                "repeat.guard"
+            };
+            assert_eq!(
+                refusal.protocol_detail.as_deref(),
+                Some(&CheckedProtocolRefusalDetail::ModelStateRead {
+                    slot: expected_slot.into()
+                })
+            );
+
+            let mut field_case = record_decision.clone();
+            decision_slot_read(&mut field_case, operator, slot, &field);
+            assert!(
+                matches!(read(&field_case), CheckedPackageV2ReadResult::Admitted(_)),
+                "{operator} {slot} field of protocol capture must admit: {:?}",
+                read(&field_case)
+            );
+            let mut scalar_case = scalar_decision.clone();
+            decision_slot_read(&mut scalar_case, operator, slot, &scalar);
+            assert!(
+                matches!(read(&scalar_case), CheckedPackageV2ReadResult::Admitted(_)),
+                "{operator} {slot} scalar capture must admit: {:?}",
+                read(&scalar_case)
+            );
+        }
+    }
 }
 
 /// Trace: FR-038-AC-292
@@ -742,16 +1610,15 @@ fn commit_record_is_ineligible_at_a_decision() {
         if reason.as_ref() == "ineligible-kind"));
 }
 
-/// Trace: FR-038-AC-292
-#[trace("TC-048")]
-#[test]
-fn receive_fact_is_visible_to_its_channels_to_role() {
+fn receive_fact_fixture() -> (Value, usize, usize, Value, Value) {
     let (mut package, decision, field, receive_binder_position) = decision_fact_fixture();
     let record = package["semantic_graph"]["nodes"][field]["body"]["operation"]["member"]
         ["declaration"]
         .clone();
     let old_binder = package["semantic_graph"]["nodes"][receive_binder_position]["node_id"].clone();
     package["semantic_graph"]["nodes"][receive_binder_position]["semantic_type"] = record.clone();
+    package["semantic_graph"]["nodes"][receive_binder_position]["body"]["members"][0]["value"]
+        ["value"] = json!("got");
     let binder_body = package["semantic_graph"]["nodes"][receive_binder_position]["body"].clone();
     let binder_key = structural_key(
         "value",
@@ -840,8 +1707,16 @@ fn receive_fact_is_visible_to_its_channels_to_role() {
         {"term": "binding", "name": "related", "value": {"term": "aggregate", "members": []}},
         {"term": "binding", "name": "constraint", "value": received_constraint}
     ]);
-    package["semantic_graph"]["nodes"][field]["body"]["arguments"][0]["target"] = received;
+    package["semantic_graph"]["nodes"][field]["body"]["arguments"][0]["target"] = received.clone();
     settle(&mut package);
+    (package, decision, field, received, sent_binder)
+}
+
+/// Trace: FR-038-AC-292
+#[trace("TC-048")]
+#[test]
+fn receive_fact_is_visible_to_its_channels_to_role() {
+    let (package, decision, field, _received, sent_binder) = receive_fact_fixture();
     assert!(matches!(
         read(&package),
         CheckedPackageV2ReadResult::Admitted(_)
