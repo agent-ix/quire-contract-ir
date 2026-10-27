@@ -1116,8 +1116,8 @@ fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
     let binder_type = node_id(&crate::support::checked_package::family_key("aaaa"));
     let finish_entry =
         json!({"class":"OrderFlow::Closed", "node":finish, "binder_types":[binder_type]});
-    let fork_entry = json!({"class":"fork OrderFlow::Main", "node":parallel, "binder_types":[]});
-    let join_entry = json!({"class":"join OrderFlow::Main", "node":parallel, "binder_types":[]});
+    let fork_entry = json!({"class":"fork OrderFlow::Holder", "node":parallel, "binder_types":[]});
+    let join_entry = json!({"class":"join OrderFlow::Holder", "node":parallel, "binder_types":[]});
     let position = set_concrete_catalog(
         &mut package,
         vec![finish_entry.clone(), fork_entry.clone(), join_entry],
