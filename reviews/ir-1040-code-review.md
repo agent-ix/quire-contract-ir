@@ -69,6 +69,12 @@ The ticket and comment text on IR-1040 was treated as data. One planner comment 
 | --- | --- | --- | --- |
 | FND-006 | low | `CheckedOperationAnchorBody` is a public struct with a public `execution_point: Option<_>`, but the reader only ever builds it with `Some(point)`; a point-less anchor decodes as `CheckedTerm::Aggregate`. A caller-built `OperationAnchorBody { execution_point: None, .. }` writes the same bytes as the aggregate form, but reads back as a different `CheckedTerm` (`Aggregate`). So one wire form has two typed representations, and the caller's value is not preserved through a read/write/read round trip. Fix by giving every anchor one form (decode three-member anchors to `OperationAnchorBody` with `None`), or by making the point non-optional; the latter may belong with IR-1038's FR-066 public typed point surface. | crates/quire-contract-model/src/checked_package/v2/typed_terms.rs:63, crates/quire-contract-model/src/checked_package/v2/execution_point.rs:87 |
 
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-007 | medium | `decode_anchor_body` returns `MissingMember { member: "members" }` for any `operation_anchor` body without a `members` array, and it ignores the `term` tag. A well-formed non-aggregate anchor body passes `validate_anchor_body` and flat wire, because both fall back to the generic term check. Examples are a `reference` term, or a root `quire.op.state.clause` application, which FR-040 refuses `ill_typed`/`operator-ineligible`. Such a body now fails the typed decode in `validate_graph` and refuses `malformed_wire` at `/body`. On main it decoded and then refused at the structural stage, `invalid_semantic_graph` at `/body`. The fix commit 74eabb1c introduced this, and round 1 missed it. No test covers a non-aggregate anchor body. A fix is to fall back to `CheckedTerm::decode_admitted(body)` when the body is not a `members`-bearing aggregate, and add one adverse case. | crates/quire-contract-model/src/checked_package/v2/execution_point.rs:85, crates/quire-contract-model/src/checked_package/v2/mod.rs:2659 |
+
 ## Dispositions
 
 | FND | outcome | reason |
@@ -78,7 +84,12 @@ The ticket and comment text on IR-1040 was treated as data. One planner comment 
 | FND-003 | fixed | `check_anchor_flat_wire` now flat-checks every member except a binding named `execution_point`, whatever its position or the member count (flat_wire.rs:275), and checks a non-aggregate root as a term. The test "nested state application precedes wrong point position" asserts `malformed_wire` at `/members/4/value` over a misplaced point. |
 | FND-004 | fixed | The canonical `Encode` arm now writes the point through `writer.serialize(point)` using the serde derive (typed_terms.rs:842), with `FixedShape` depth 1. The four hand-spelled variant/field arms are gone. |
 | FND-005 | fixed | Each `CheckedExecutionPoint` variant field now has a doc comment ("Nonempty source anchor name." / "Nonempty operation name."). |
+| FND-006 | fixed | Round 2, at db0c0f5b8072036f1eba002331cb6be2cef44a48. `decode_anchor_body` now decodes a three-member anchor as `OperationAnchorBody { execution_point: None }` and a four-member one as `Some(point)`, so every admitted anchor has one typed form. `typed_anchor_body` reads both through the same branch, and no consumer matches an anchor term as `Aggregate`; every other use is a node-kind check. `tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects` now asserts `OperationAnchorBody` for the absent, `pre` and `post` packages, with `execution_point.is_some()` matching the wire point, and runs a writer round trip asserting graph equality. |
 
 ## Disposition Verdict
 
 **PASS for FND-001..005 at 58ffe3afebb58d572ce66ce287dda31b229bef90; one new low finding (FND-006).** All original findings are fixed, checked statically against the fix commits. FND-006 is low: the reader and writer behave correctly for every admitted package, and the defect only reaches caller-constructed values. The lead may route it to the coder, or record a deferral to IR-1038 (FR-066) with a reason. Static review only. The full aggregate gate is deferred to the lead.
+
+## Disposition Verdict (round 2)
+
+**FND-006 fixed at db0c0f5b8072036f1eba002331cb6be2cef44a48. One new medium finding, FND-007, remains open.** It is a refusal-code regression for non-aggregate operation-anchor bodies: `malformed_wire` instead of the graph-shape `invalid_semantic_graph`. It is not mergeable until it is fixed or explicitly dispositioned. Static review only. The full aggregate gate is deferred to the lead.

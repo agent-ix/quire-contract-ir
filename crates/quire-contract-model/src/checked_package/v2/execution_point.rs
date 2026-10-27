@@ -79,10 +79,12 @@ pub(super) fn validate_anchor_body(
 /// Decode the optional point only for an operation-anchor body. The generic
 /// expression decoder cannot create an anchor point or a pointed anchor body.
 pub(super) fn decode_anchor_body(body: &Value) -> Result<CheckedTerm, TermConversionCause> {
-    let members = body
-        .get("members")
-        .and_then(Value::as_array)
-        .ok_or(TermConversionCause::MissingMember { member: "members" })?;
+    if body.get("term").and_then(Value::as_str) != Some("aggregate") {
+        return CheckedTerm::decode_admitted(body);
+    }
+    let Some(members) = body.get("members").and_then(Value::as_array) else {
+        return CheckedTerm::decode_admitted(body);
+    };
     let (context, operation, frame, point) = match members.as_slice() {
         [context, operation, frame] => (context, operation, frame, None),
         [context, operation, frame, fourth] => {

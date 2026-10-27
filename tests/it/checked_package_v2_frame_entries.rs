@@ -1744,7 +1744,8 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
     let frame = package.at("state", "frame");
     let frame_key = package.digest(frame);
     let body_at = format!("/semantic_graph/nodes/{anchor}/body");
-    let shapes: [(&str, Value); 4] = [
+    let shapes: [(&str, Value); 5] = [
+        ("a root reference", reference(object_key())),
         (
             "reordered bindings",
             json!({"term": "aggregate", "members": [
@@ -1792,6 +1793,19 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
             None,
         );
     }
+    let clause = package.clause("invariant");
+    let clause_body = nodes(&package.value)[clause]["body"].clone();
+    let value = StatePackage::new()
+        .edit(anchor, |node| node["body"] = clause_body)
+        .value;
+    expect(
+        "a root state-clause application",
+        &value,
+        Code::InvalidSemanticGraph,
+        None,
+        &body_at,
+        None,
+    );
     let value = StatePackage::new()
         .edit(anchor, |node| {
             node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
