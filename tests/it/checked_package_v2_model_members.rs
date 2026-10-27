@@ -13,8 +13,8 @@
 
 use crate::support::checked_package::{
     application_node_key, bounds_body, canonical, evidence_for, node_id, nominal_fixture_members,
-    nominal_package, over_body, pointer, rebuild_source_map, refresh_identity, refusal_bytes,
-    refusal_cause, settle, sha256_hex, ExpectedRefusal,
+    nominal_package, over_body, pointer, rebuild_source_map, refresh_identity,
+    refresh_identity_projection, refusal_bytes, refusal_cause, settle, sha256_hex, ExpectedRefusal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -501,7 +501,7 @@ fn selected_variant_case_keys_bind_exact_case_and_declaration() {
         CheckedPackageV2ReadResult::Admitted(_)
     ));
     let tier_nodes = tier["semantic_graph"]["nodes"].as_array().expect("nodes");
-    let case_keys: std::collections::BTreeSet<_> = tier_nodes[8..12]
+    let case_keys: std::collections::BTreeSet<_> = tier_nodes[9..13]
         .iter()
         .map(|node| node["node_id"]["digest"].as_str().expect("case key"))
         .collect();
@@ -514,8 +514,8 @@ fn selected_variant_case_keys_bind_exact_case_and_declaration() {
         CheckedPackageV2ReadResult::Admitted(_)
     ));
     assert_ne!(
-        tier_nodes[8]["node_id"],
-        rank["semantic_graph"]["nodes"][8]["node_id"],
+        tier_nodes[9]["node_id"],
+        rank["semantic_graph"]["nodes"][9]["node_id"],
     );
 
     // A selected document's display alias changes its digest, but the
@@ -535,7 +535,7 @@ fn selected_variant_case_keys_bind_exact_case_and_declaration() {
         CheckedPackageV2ReadResult::Admitted(_)
     ));
     assert_eq!(
-        tier_nodes[8]["node_id"],
+        tier_nodes[9]["node_id"],
         alias_package["semantic_graph"]["nodes"][8]["node_id"],
     );
 }
@@ -592,11 +592,11 @@ fn variant_binary_package(
     let nodes = package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes");
-    let left = nodes[8]["node_id"]["digest"]
+    let left = nodes[9]["node_id"]["digest"]
         .as_str()
         .expect("left")
         .to_owned();
-    let right = nodes[9]["node_id"]["digest"]
+    let right = nodes[10]["node_id"]["digest"]
         .as_str()
         .expect("right")
         .to_owned();
@@ -677,7 +677,7 @@ fn selected_variant_refuses_absent_case_and_empty_declaration() {
     assert_eq!(
         refusal.path,
         Some(pointer(
-            "/semantic_graph/nodes/8/nominal_identity_preimage/case"
+            "/semantic_graph/nodes/9/nominal_identity_preimage/case"
         ))
     );
 
@@ -1954,7 +1954,16 @@ fn tc_048_a_declaration_node_key_is_unchanged_when_the_selected_document_changes
         CheckedPackageV2ReadResult::Admitted(_) => {}
         other => panic!("expected admission under the changed digest, got {other:?}"),
     }
-    assert_eq!(selected["semantic_graph"], digest_only["semantic_graph"]);
+    let declarations = |package: &Value| {
+        package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .filter(|node| node["semantic_form"] != "model_root")
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(declarations(&selected), declarations(&digest_only));
 
     // The same declarations in a document whose only difference is its
     // package version, which the selection no longer names: the keys are
@@ -3649,7 +3658,9 @@ fn tc_048_relationship_end_refuses_every_node_that_is_not_a_reaches_application(
 
 /// The least `work` limit that admits [`relationship_operation_package`]'s
 /// reaches package, as charged before the reader retained relationship ends.
-const REACHES_ADMISSION_WORK: u64 = 97;
+/// One additional graph node adds four bounded validation visits.
+const MODEL_ROOT_VALIDATION_WORK: u64 = 4;
+const REACHES_ADMISSION_WORK: u64 = 97 + MODEL_ROOT_VALIDATION_WORK;
 
 #[trace("TC-048", "FR-038-AC-266")]
 #[test]

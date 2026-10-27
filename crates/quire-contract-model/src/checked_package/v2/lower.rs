@@ -1195,7 +1195,8 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             FunctionForm::PureFunction | FunctionForm::Predicate | FunctionForm::RecursiveFunction,
         ) => false,
         K::Model(
-            ModelForm::ModelImport
+            ModelForm::ModelRoot
+            | ModelForm::ModelImport
             | ModelForm::ObjectType
             | ModelForm::ValueType
             | ModelForm::VariantType

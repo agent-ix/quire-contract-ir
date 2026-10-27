@@ -5,7 +5,7 @@ use super::{
     DomainModel, LiteralKind, ProtocolForm, RawCheckedPackageWireV2 as CheckedPackageWireV2,
     RawSemanticNodeV2 as CheckedSemanticNodeV2, WorkMeter,
 };
-use crate::checked_package::common::{body_term, node_pointer, ValidationFailure};
+use crate::checked_package::common::{body_term, is_digest, node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedOccurrenceRole, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
@@ -16,10 +16,12 @@ use std::collections::{BTreeMap, BTreeSet};
 enum OwnerRequirement {
     Source,
     Model,
+    ModelRoot,
     None,
 }
 
 fn requirement(
+    kind: Option<CheckedNodeKind>,
     node_tag: &str,
     semantic_form: &str,
     declaration: Option<&CheckedDeclaration>,
@@ -28,6 +30,9 @@ fn requirement(
     self_typed: bool,
     owner: Option<&CheckedNodeOwner>,
 ) -> OwnerRequirement {
+    if kind == Some(CheckedNodeKind::Model(super::ModelForm::ModelRoot)) {
+        return OwnerRequirement::ModelRoot;
+    }
     if nominal || body_term(body) == Some(super::BodyTerm::Application) {
         return OwnerRequirement::None;
     }
@@ -65,6 +70,9 @@ fn check_one(
         ) => !authority.is_empty() && !identity.is_empty(),
         (OwnerRequirement::Model, Some(CheckedNodeOwner::Model { identity, node })) => {
             !identity.is_empty() && !node.is_empty()
+        }
+        (OwnerRequirement::ModelRoot, Some(CheckedNodeOwner::ModelRoot { identity, digest })) => {
+            !identity.is_empty() && is_digest(digest)
         }
         _ => false,
     };
@@ -117,6 +125,7 @@ pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), V
         }
         check_one(
             requirement(
+                kind,
                 &node.node_tag,
                 &node.semantic_form,
                 node.declaration.as_ref(),
@@ -249,6 +258,12 @@ pub(super) fn validate_owner_joins(
         .iter()
         .map(|model| (model.identity.as_ref(), model))
         .collect();
+    let selected_model_roots: BTreeSet<_> = wire
+        .lock
+        .model_selections
+        .iter()
+        .map(|selection| (selection.identity.as_ref(), selection.digest.as_ref()))
+        .collect();
     let model_operations: BTreeMap<_, BTreeSet<_>> = models
         .iter()
         .map(|model| {
@@ -333,7 +348,12 @@ pub(super) fn validate_owner_joins(
                     return Err(missing_owner(node, at));
                 }
             }
-            None => {}
+            Some(CheckedNodeOwner::ModelRoot { identity, digest })
+                if !selected_model_roots.contains(&(identity.as_ref(), digest.as_ref())) =>
+            {
+                return Err(missing_owner(node, node_pointer(position).key("owner")));
+            }
+            Some(CheckedNodeOwner::ModelRoot { .. }) | None => {}
         }
     }
     Ok(())

@@ -1129,7 +1129,8 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
         // `quire.op.model.deref`, which only a `field_owner` position admits.
         K::Model(ModelForm::ObjectType | ModelForm::SystemsInterface) => Some("object"),
         K::Model(
-            ModelForm::ModelImport
+            ModelForm::ModelRoot
+            | ModelForm::ModelImport
             | ModelForm::ValueType
             | ModelForm::VariantType
             | ModelForm::RecordValueType
@@ -1265,7 +1266,8 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             FunctionForm::PureFunction | FunctionForm::Predicate | FunctionForm::RecursiveFunction,
         ) => true,
         K::Model(
-            ModelForm::ModelImport
+            ModelForm::ModelRoot
+            | ModelForm::ModelImport
             | ModelForm::ObjectType
             | ModelForm::ValueType
             | ModelForm::VariantType

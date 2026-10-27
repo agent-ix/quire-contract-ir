@@ -957,8 +957,38 @@ fn ir987_population_results_bytes_and_work_match_before_change() {
         })
         .expect("selected authored source");
     assert_eq!(finite.provenance, selected_source.regions);
+    let mut prior_wire = scenario.package.clone();
+    let root = prior_wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "model_root")
+        .expect("selected root")["node_id"]
+        .clone();
+    prior_wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .retain(|node| node["node_id"] != root);
+    prior_wire["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .retain(|entry| entry["node_id"] != root);
+    // The synthetic source-map builder numbers the three later occurrences
+    // after the newly inserted root. Restore their former offsets to compare
+    // the complete earlier golden, including source correspondence.
+    let prior_sources = prior_wire["source_map"].as_array_mut().expect("source map");
+    assert_eq!(prior_sources.len(), 19);
+    for entry in prior_sources.iter_mut().skip(16) {
+        for region in entry["regions"].as_array_mut().expect("regions") {
+            for boundary in ["start", "end"] {
+                let offset = region[boundary].as_u64().expect("source offset");
+                region[boundary] = json!(offset - 1);
+            }
+        }
+    }
+    refresh_identity_projection(&mut prior_wire);
     assert_eq!(
-        bytes,
+        canonical(&prior_wire),
         include_bytes!("../../fixtures/ir987/population.json")
     );
     assert_eq!(
@@ -973,5 +1003,8 @@ fn ir987_population_results_bytes_and_work_match_before_change() {
     else {
         panic!("work boundary");
     };
-    assert_eq!((high, incomplete.consumed), (183, 183));
+    assert_eq!(
+        (high, incomplete.consumed),
+        (183 + MODEL_ROOT_VALIDATION_WORK, 187)
+    );
 }

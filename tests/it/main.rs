@@ -43,6 +43,7 @@ mod checked_package_v2_ieee_admission;
 mod checked_package_v2_lowering;
 mod checked_package_v2_model_fields;
 mod checked_package_v2_model_members;
+mod checked_package_v2_model_root;
 mod checked_package_v2_operand_families;
 mod checked_package_v2_operation_arguments;
 mod checked_package_v2_owners;

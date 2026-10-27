@@ -1300,6 +1300,7 @@ fn validate_catalog(
     locus: &CheckedNodeId,
     meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
+    use super::CheckedNodeOwner;
     let CheckedTerm::Refinement {
         protocol,
         class_catalog,
@@ -1316,14 +1317,33 @@ fn validate_catalog(
         requires_catalog |= step.source_node.is_none()
             || matches!(step.target, RefinementStepTarget::ProtocolStep { .. });
     }
+    let selected_identity = graph.local_node(concrete_model).and_then(|model| {
+        if let Some(CheckedNodeOwner::ModelRoot { identity, .. }) = &model.owner {
+            Some(identity)
+        } else {
+            None
+        }
+    });
     for &source_position in graph.index.values() {
         meter.charge(1, || root.clone())?;
         if graph.kinds.get(source_position)
-            == Some(&super::CheckedNodeKind::Protocol(
+            != Some(&super::CheckedNodeKind::Protocol(
                 super::ProtocolForm::ProtocolClause,
             ))
-            && graph.nodes[source_position].owner_model.as_ref() == Some(concrete_model)
         {
+            continue;
+        }
+        let same_selected_model = graph.nodes[source_position]
+            .owner_model
+            .as_ref()
+            .and_then(|owner_model| graph.local_node(owner_model))
+            .and_then(|model| model.owner.as_ref())
+            .zip(selected_identity)
+            .is_some_and(|(declaration_owner, selected)| {
+                matches!(declaration_owner,
+                    CheckedNodeOwner::Model { identity, .. } if identity == selected)
+            });
+        if same_selected_model {
             requires_catalog = true;
         }
     }
@@ -1619,13 +1639,13 @@ fn check_headers(
     let locus = &node.node_id;
     graph.require_local_kind(
         &node.semantic_type,
-        K::Model(ModelForm::StateMachine),
+        K::Model(ModelForm::ModelRoot),
         root.clone().key("semantic_type"),
         locus,
     )?;
     graph.require_kind(
         abstract_key,
-        K::Model(ModelForm::StateMachine),
+        K::Model(ModelForm::ModelRoot),
         root.clone().key("body").key("abstract"),
         locus,
     )?;

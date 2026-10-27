@@ -215,6 +215,7 @@ closed_vocabulary! {
 closed_vocabulary! {
     /// The closed `model` semantic forms.
     pub ModelForm {
+        ModelRoot => "model_root",
         ModelImport => "model_import",
         ObjectType => "object_type",
         ValueType => "value_type",

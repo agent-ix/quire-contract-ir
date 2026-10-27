@@ -146,24 +146,26 @@ fn writer_bytes(package: &Value) -> Vec<u8> {
 }
 
 fn row_empty_refinement(package: &mut Value) {
-    let machine = package["semantic_graph"]["nodes"]
+    let model_root = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .iter()
-        .find(|node| node["semantic_form"] == "state_machine")
-        .expect("machine")["node_id"]
+        .find(|node| {
+            node["semantic_form"] == "model_root" && node["owner"]["identity"] == MODEL_IDENTITY
+        })
+        .expect("selected root")["node_id"]
         .clone();
     let profile = json!({"authority": "test", "identity": "quire.temporal.infinite-trace/v1"});
     package["lock"]["profile_selections"] = json!([{
         "role": "temporal_profile", "definition": profile
     }]);
     let body = json!({
-        "term": "refinement", "abstract": machine, "profile": profile,
+        "term": "refinement", "abstract": model_root, "profile": profile,
         "populations": [], "objects": [], "steps": [], "histories": [],
         "assume": [], "ensure": []
     });
     let preimage = json!({
-        "version": "quire.refinement-node/v1", "semantic_type": machine, "body": body
+        "version": "quire.refinement-node/v1", "semantic_type": model_root, "body": body
     });
     assert_eq!(
         canonical(&preimage),
@@ -176,7 +178,7 @@ fn row_empty_refinement(package: &mut Value) {
         .push(json!({
             "node_id": id, "schema_version": "quire.checked-semantic-graph/v2",
             "node_tag": "relation", "semantic_form": "refinement",
-            "semantic_type": machine, "dependencies": [machine],
+            "semantic_type": model_root, "dependencies": [model_root],
             "occurrences": [
                 {"role": "declaration", "ordinal": 0},
                 {"role": "generated", "ordinal": 0}
@@ -296,7 +298,8 @@ fn concrete_protocol_refinement(
     let model = machine["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
-        .last()
+        .iter()
+        .find(|node| node["semantic_form"] == "state_machine")
         .expect("state machine")
         .clone();
     let document = model_document();
@@ -653,6 +656,128 @@ fn refinement_row_empty_model_refinement_is_admitted() {
     ));
 }
 
+#[trace("TC-233", "FR-065-AC-6")]
+#[test]
+fn refinement_headers_require_selected_roots_not_state_machine_declarations() {
+    let (mut package, evidence) = machine_package();
+    row_empty_refinement(&mut package);
+    let position = package["semantic_graph"]["nodes"].as_array().unwrap().len() - 1;
+    let state_machine = package["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["semantic_form"] == "state_machine")
+        .expect("selected declaration")["node_id"]
+        .clone();
+
+    let mut concrete_declaration = package.clone();
+    concrete_declaration["semantic_graph"]["nodes"][position]["semantic_type"] =
+        state_machine.clone();
+    rekey_refinement(&mut concrete_declaration, position);
+    refresh_identity(&mut concrete_declaration);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&concrete_declaration, &evidence)
+    else {
+        panic!("state-machine concrete header admitted");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/semantic_type").as_str())
+    );
+
+    let mut abstract_declaration = package;
+    abstract_declaration["semantic_graph"]["nodes"][position]["body"]["abstract"] =
+        state_machine.clone();
+    abstract_declaration["semantic_graph"]["nodes"][position]["dependencies"] =
+        json!([state_machine]);
+    rekey_refinement(&mut abstract_declaration, position);
+    refresh_identity(&mut abstract_declaration);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&abstract_declaration, &evidence)
+    else {
+        panic!("state-machine abstract header admitted");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/abstract").as_str())
+    );
+}
+
+#[trace("TC-233", "FR-065-AC-6")]
+#[test]
+fn refinement_external_abstract_resolves_only_the_directly_selected_package_root() {
+    let (dependency_wire, dependency_evidence) = machine_package();
+    let dependency = match read(&dependency_wire, &dependency_evidence) {
+        CheckedPackageV2ReadResult::Admitted(package) => *package,
+        other => panic!("dependency package refused: {other:?}"),
+    };
+    let dependency_root = dependency_wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "model_root")
+        .expect("dependency root")["node_id"]
+        .clone();
+    let dependency_declaration = dependency_wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "state_machine")
+        .expect("dependency declaration")["node_id"]
+        .clone();
+    let (mut package, mut evidence) = machine_package();
+    package["lock"]["dependency_selections"] = json!([{
+        "identity": "test/abstract",
+        "package_id": dependency_wire["package_id"],
+    }]);
+    evidence
+        .insert_dependency_package("test/abstract", dependency)
+        .expect("direct dependency evidence");
+    row_empty_refinement(&mut package);
+    let position = package["semantic_graph"]["nodes"].as_array().unwrap().len() - 1;
+    let external = json!({
+        "package": dependency_wire["package_id"], "node": dependency_root,
+    });
+    package["semantic_graph"]["nodes"][position]["body"]["abstract"] = external.clone();
+    package["semantic_graph"]["nodes"][position]["dependencies"] = json!([]);
+    rekey_refinement(&mut package, position);
+    refresh_identity(&mut package);
+    assert!(matches!(
+        read(&package, &evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    let mut declaration = package.clone();
+    declaration["semantic_graph"]["nodes"][position]["body"]["abstract"]["node"] =
+        dependency_declaration;
+    rekey_refinement(&mut declaration, position);
+    refresh_identity(&mut declaration);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&declaration, &evidence) else {
+        panic!("external state-machine declaration admitted");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/abstract").as_str())
+    );
+
+    let mut unselected = package;
+    unselected["lock"]["dependency_selections"] = json!([]);
+    refresh_identity(&mut unselected);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&unselected, &evidence) else {
+        panic!("unselected dependency root admitted");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/abstract/package").as_str())
+    );
+}
+
 #[trace("TC-048")]
 #[test]
 fn refinement_catalog_presence_precedes_declaration_backed_step_joins() {
@@ -699,7 +824,8 @@ fn refinement_catalog_presence_precedes_declaration_backed_step_joins() {
     let model = nonprotocol["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
-        .last()
+        .iter()
+        .find(|node| node["semantic_form"] == "state_machine")
         .expect("state machine")["node_id"]
         .clone();
     one_step_refinement_with_step(
@@ -824,8 +950,9 @@ fn refinement_state_machine_owner_and_kind_are_exact() {
     let position = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
-        .len()
-        - 1;
+        .iter()
+        .position(|node| node["semantic_form"] == "state_machine")
+        .expect("state machine");
     let mut wrong_owner = package.clone();
     wrong_owner["semantic_graph"]["nodes"][position]["owner"]["node"] =
         json!("ix://test/refinement/Absent");

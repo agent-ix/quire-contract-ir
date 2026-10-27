@@ -27,6 +27,7 @@ mod lossless;
 mod lower;
 mod model_fields;
 mod model_members;
+mod model_root;
 mod natural;
 mod operation_catalog;
 mod operations;
@@ -239,6 +240,13 @@ pub struct CheckedDeclaration {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CheckedNodeOwner {
+    /// The selected domain package as a whole, bound to its content digest.
+    ModelRoot {
+        /// Selected domain package identity.
+        identity: Box<str>,
+        /// Selected domain package canonical content digest.
+        digest: Box<str>,
+    },
     /// A declared node owned by one selected raw source unit.
     Source {
         /// Source authority.
@@ -2021,6 +2029,7 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
         K::Function(
             FunctionForm::PureFunction | FunctionForm::Predicate | FunctionForm::RecursiveFunction,
         ) => false,
+        K::Model(ModelForm::ModelRoot) => true,
         K::Model(
             ModelForm::ModelImport
             | ModelForm::ObjectType
@@ -2236,7 +2245,8 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
             FunctionForm::PureFunction | FunctionForm::Predicate | FunctionForm::RecursiveFunction,
         ) => BodyGrammar::Term,
         K::Model(
-            ModelForm::ModelImport
+            ModelForm::ModelRoot
+            | ModelForm::ModelImport
             | ModelForm::ObjectType
             | ModelForm::ValueType
             | ModelForm::VariantType
@@ -2648,6 +2658,7 @@ fn validate_graph(
             }
         });
     }
+    model_root::validate_shape(&graph.nodes, &kinds, &terms)?;
     validate_owner_joins(wire, &kinds, &terms, models, meter)?;
     // Graph-shape body and dependency rules FR-322 orders before the
     // stale-key stage: the structural forms' bodies and occurrence roles and
@@ -2705,6 +2716,7 @@ fn validate_graph(
         meter,
         limits.bytes,
     )?;
+    model_root::validate_completeness(&graph.nodes, &kinds, &wire.lock)?;
     validate_declaration_names(&graph.nodes, &kinds, &index)?;
     // FR-038 "The timed interval form" stage 2: the last graph check of the
     // nodes before the frame step.

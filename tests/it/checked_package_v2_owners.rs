@@ -5,7 +5,8 @@
 
 use crate::support::checked_package::{
     application_node_key, bounds_body, canonical, evidence_for, integer_key, node_id,
-    refresh_identity, settle, sha256_hex, structural_key, v2_all_families, v2_nominal,
+    refresh_identity, refresh_identity_projection, settle, sha256_hex, structural_key,
+    v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -120,7 +121,29 @@ fn model_package() -> (Value, Value) {
             "regions": [{"source": source, "start": 10, "end": 11}],
         }));
     refresh_identity(&mut package);
+    keep_model_declaration_last(&mut package);
     (package, document)
+}
+
+fn keep_model_declaration_last(package: &mut Value) {
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    let root = nodes
+        .iter()
+        .position(|node| node["semantic_form"] == "model_root")
+        .expect("selected model root");
+    let id = nodes[root]["node_id"].clone();
+    let root_node = nodes.remove(root);
+    nodes.insert(nodes.len().saturating_sub(1), root_node);
+    let source_map = package["source_map"].as_array_mut().expect("source map");
+    let root = source_map
+        .iter()
+        .position(|entry| entry["node_id"] == id)
+        .expect("root source entry");
+    let root_entry = source_map.remove(root);
+    source_map.insert(source_map.len().saturating_sub(1), root_entry);
+    refresh_identity_projection(package);
 }
 
 fn read_with_model(package: &Value, document: &Value) -> CheckedPackageV2ReadResult {
@@ -145,6 +168,7 @@ fn unit_field_document(type_ref: &str) -> (Value, Value) {
     }]);
     package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
     refresh_identity(&mut package);
+    keep_model_declaration_last(&mut package);
     (package, document)
 }
 
@@ -345,6 +369,7 @@ fn declared_population_package_for_owner(population: &str, owner_identity: &str)
         .last_mut()
         .expect("population occurrence")["node_id"] = id;
     refresh_identity(&mut package);
+    keep_model_declaration_last(&mut package);
     (package, document)
 }
 
@@ -1127,6 +1152,7 @@ fn owned_clause(mut package: Value, document: &Value, declared: &str, clause: &s
         .last_mut()
         .expect("entry")["node_id"] = id;
     refresh_identity(&mut package);
+    keep_model_declaration_last(&mut package);
     package
 }
 
@@ -1382,6 +1408,7 @@ fn tc_228_an_unreachable_model_node_joins_its_declaring_object_type() {
         json!(sha256_hex(&canonical(&relation_document)));
     wrong_kind["semantic_graph"]["nodes"][position]["owner"]["node"] = json!(relationship);
     refresh_identity(&mut wrong_kind);
+    keep_model_declaration_last(&mut wrong_kind);
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_with_model(&wrong_kind, &relation_document)
     else {
@@ -1405,6 +1432,7 @@ fn tc_228_an_unreachable_model_node_joins_its_declaring_object_type() {
     wrong_subtype["lock"]["model_selections"][0]["digest"] =
         json!(sha256_hex(&canonical(&interface_document)));
     refresh_identity(&mut wrong_subtype);
+    keep_model_declaration_last(&mut wrong_subtype);
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_with_model(&wrong_subtype, &interface_document)
     else {
