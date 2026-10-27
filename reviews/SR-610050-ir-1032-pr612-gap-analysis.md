@@ -13,7 +13,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1032. Planless code-to-test-to-criterion audit at PR #612 exact head. FR-063-AC-5 is tagged on the two new dimension-equivalence tests and the changed model-owner test. The tests reach the public `CheckedPackageV2::read` path; they are not hollow. The new production branches are owned by FR-063-AC-5. The remaining graph and precedence clauses are not asserted by a test bound to AC5. The semantic intent review is part of the assigned AC check; no repository-wide optional semantic sweep was run.
+Ticket: IR-1032. Initial planless code-to-test-to-criterion audit at PR #612 exact head `90bbf5f1f317431813b44d1c248473bf2ef041fb`. Disposition at `7934ba9d98009439b0bc8e3b91de23299f648471` is PASS: the graph and precedence cases are now AC5-tagged public-reader tests. A subsequent `62ba383f` is a Clippy-only `&at` to `at` adjustment with no test or semantic change. FR-063-AC-5 is tagged on the two new dimension-equivalence tests and the changed model-owner test. The tests reach the public `CheckedPackageV2::read` path; they are not hollow. The new production branches are owned by FR-063-AC-5. The remaining graph and precedence clauses are not asserted by a test bound to AC5. The semantic intent review is part of the assigned AC check; no repository-wide optional semantic sweep was run.
 
 ## Findings
 
@@ -23,8 +23,14 @@ Ticket: IR-1032. Planless code-to-test-to-criterion audit at PR #612 exact head.
 
 ## Verdict
 
-CONDITIONAL. The wire mutations have direct public-reader evidence; the stated graph and precedence cases are unbacked in AC5's changed test slice. Plan completion: not assessed.
+PASS at reviewed `7934ba9d98009439b0bc8e3b91de23299f648471`. The initial review was CONDITIONAL because the graph and precedence clauses lacked AC5-tagged evidence; the Dispositions section records their added tests. Plan completion: not assessed.
 
 ## Coverage
 
 Examined FR-063-AC-5 as the changed obligation, QSpec FR-322-AC-139 as its upstream contract, and all changed tests and production files. `quire coverage --scope . --strict --json` at this head reports 85 unbacked rows and zero status lies; FR-063-AC-5 is mechanically backed by the three tagged tests, but the semantic gap above remains. No plan supplied. Plan completion: not assessed.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At 7934ba9d, `equivalence_graph_defects_refuse_at_the_node_after_wire_checks` covers unreduced ratio, one missing dependency, non-self semantic type, unselected owner, stale scale and stale pair through public `CheckedPackageV2::read`, asserting code, cause and node pointer. `equivalence_wire_defect_precedes_independent_graph_defect` combines zero numerator with non-self type, observes wire refusal first, repairs only the wire defect and observes graph refusal. Both carry the AC5 trace. Author reports 11/11 focused tests passed. |

@@ -13,7 +13,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1032. Reviewed PR #612 exact head `90bbf5f1f317431813b44d1c248473bf2ef041fb` against IR FR-063-AC-5 and QSpec FR-322-AC-139 at QSpec `origin/main` `60383a35`. The rust-review lane is folded into this code-review. Examined all four changed files. No vendoring, added dependency, unsafe code, or CI workflow change. `git diff --check` passes. Focused dimension-equivalence tests were reported 9/9 by the author; reviewer did not run Cargo while the shared heavy-build lock is occupied. Owner-version test and Clippy were not yet run at this head.
+Ticket: IR-1032. Initial review at PR #612 exact head `90bbf5f1f317431813b44d1c248473bf2ef041fb` against IR FR-063-AC-5 and QSpec FR-322-AC-139 at QSpec `origin/main` `60383a35`. The rust-review lane is folded into this code-review. Disposition at `7934ba9d98009439b0bc8e3b91de23299f648471` is PASS: all findings below were fixed in the same PR. A subsequent `62ba383f` changes only two Clippy-required `&at` calls to `at`, with no semantic change or new review sweep. Examined all four changed files. No vendoring, added dependency, unsafe code, or CI workflow change. `git diff --check` passes. Focused dimension-equivalence tests were reported 9/9 by the author; reviewer did not run Cargo while the shared heavy-build lock is occupied. Owner-version test and Clippy were not yet run at this head.
 
 Examined unit: FR-063-AC-5 (full criterion in `spec/checked_package/functional/FR-063-dimension-equivalence-node.md:94`). Context unit: QSpec FR-322-AC-139 (`quire-specification/spec/objects/interfaces/FR-322-checked-package-artifact.md:2501`). The accepted shape, string-edge checks, and model-owner version routing agree with their named positive and malformed examples. The findings below concern remaining wire member presence and graph refusal location.
 
@@ -26,8 +26,15 @@ Examined unit: FR-063-AC-5 (full criterion in `spec/checked_package/functional/F
 
 ## Verdict
 
-CONDITIONAL. FND-001 is a wire-contract mismatch. FND-002 needs an exact pointer decision against the normative AC and a public-reader test. The first review pass is complete; no code edits or merge were made by the reviewer.
+PASS at reviewed `7934ba9d98009439b0bc8e3b91de23299f648471`. The initial review was CONDITIONAL on FND-001 and FND-002; both are fixed as recorded in Dispositions. The later `62ba383f` is a Clippy-only adjustment of two `&at` calls to `at`. The reviewer made no code edits or merge.
 
 ## Coverage
 
 The new tests assert absent scale, one-entry pair, zero/negative numerator and denominator, non-null declaration, three `-0` sites and model-owner version. The graph half and mixed-defect precedence have no new AC5-tagged regression tests; see SR-610050. Full gates are pending on a reviewed head. Plan completion: not assessed.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At 7934ba9d, `BorrowedNode.declaration` is `Option<Option<CheckedDeclaration>>` with `present_nullable`; `decode_borrowed_wire` refuses any present member on a dimension-equivalence preimage at `node_pointer(position)` before flattening. The new public-reader null mutation recomputes identity and asserts `malformed_wire` with no cause at the node. |
+| FND-002 | fixed | At 7934ba9d, equivalence key, owner, ratio, semantic-type, dependency, pair, normalized-map and ratio-graph refusals use `site.pointer()`/`node_pointer(position)`. The new AC5-tagged public-reader test asserts node pointers for unreduced, missing-dependency, non-self, unselected owner and stale scale/pair. Existing AC2/AC4 pointer expectations were updated to the same contract. |
