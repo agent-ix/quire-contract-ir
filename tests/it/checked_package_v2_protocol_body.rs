@@ -1465,9 +1465,9 @@ fn protocol_owner_exact_body_dependencies_precede_stale_key() {
             dependencies
                 .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
         }
-        // The body's changed literal makes the retained clause key stale too.
-        package["semantic_graph"]["nodes"][position]["body"]["arguments"][1]["value"]["members"]
-            [0]["value"]["value"] = json!("changed");
+        // A valid declaration rename makes the retained clause key stale too.
+        package["semantic_graph"]["nodes"][position]["declaration"]["qualified_name"][1] =
+            json!("HandshakeChanged");
         refresh_identity(&mut package);
         let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
             panic!("exact body dependencies must refuse before the stale key");
