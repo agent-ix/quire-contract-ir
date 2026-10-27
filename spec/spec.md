@@ -148,6 +148,10 @@ refusal cases.
 [FR-064](checked_package/functional/FR-064-bind-protocol-clause-to-owner-model.md)
 defines the exact local model-owner edge of a checked protocol clause and
 its typed writer, reader, identity, dependency and class-catalog checks.
+[FR-065](checked_package/functional/FR-065-carry-selected-model-root.md)
+defines the identity-bound root of each selected model package, including
+typed V2 carriage, source correspondence, structural identity and refinement
+header joins.
 [FR-066](checked_package/functional/FR-066-retain-identity-bound-execution-points.md)
 defines the typed V2 body carriers for QSpec execution points and their
 reader, writer, preimage and published-vector obligations.
