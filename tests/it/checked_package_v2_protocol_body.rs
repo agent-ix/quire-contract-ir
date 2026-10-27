@@ -1435,13 +1435,11 @@ fn protocol_owner_dependency_precedes_key_and_target_meaning() {
 /// Trace: FR-064-AC-3, FR-064-AC-4
 #[trace("TC-946")]
 #[test]
-fn protocol_owner_exact_body_dependencies_precede_stale_key() {
-    for omit_body_target in [true, false] {
+fn protocol_owner_or_extra_dependency_precedes_stale_key() {
+    for omit_owner in [true, false] {
         let mut package = admitted_protocol_families();
         let position = clause_position(&package);
-        let body_target = package["semantic_graph"]["nodes"][position]["body"]["arguments"][0]
-            ["value"]["target"]
-            .clone();
+        let owner = package["semantic_graph"]["nodes"][position]["owner_model"].clone();
         let extra = package["semantic_graph"]["nodes"]
             .as_array()
             .expect("nodes")
@@ -1458,8 +1456,8 @@ fn protocol_owner_exact_body_dependencies_precede_stale_key() {
         let dependencies = package["semantic_graph"]["nodes"][position]["dependencies"]
             .as_array_mut()
             .expect("dependencies");
-        if omit_body_target {
-            dependencies.retain(|id| id != &body_target);
+        if omit_owner {
+            dependencies.retain(|id| id != &owner);
         } else {
             dependencies.push(extra);
             dependencies
@@ -1470,18 +1468,38 @@ fn protocol_owner_exact_body_dependencies_precede_stale_key() {
             json!("HandshakeChanged");
         refresh_identity(&mut package);
         let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
-            panic!("exact body dependencies must refuse before the stale key");
+            panic!("owner or extra dependency must refuse before the stale key");
         };
         assert_eq!(
             refusal.code,
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            "omit_body_target={omit_body_target}"
+            "omit_owner={omit_owner}"
         );
         assert_eq!(
             refusal.path.as_ref().map(|path| path.as_str()),
             Some(format!("/semantic_graph/nodes/{position}/dependencies").as_str())
         );
     }
+
+    let mut package = admitted_protocol_families();
+    let position = clause_position(&package);
+    let body_target = package["semantic_graph"]["nodes"][position]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    package["semantic_graph"]["nodes"][position]["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .retain(|id| id != &body_target);
+    refresh_identity(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("unlisted body reference must refuse at the reference");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/arguments/0/value/target").as_str())
+    );
 }
 
 /// Trace: FR-064-AC-2, FR-064-AC-4

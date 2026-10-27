@@ -454,12 +454,12 @@ pub(super) fn validate_structural_nodes(
                 }
                 if let Some(mut expected) = term.and_then(application_dependencies) {
                     expected.insert(owner_model.clone());
-                    // The protocol reader locates an unresolved body reference
+                    // The protocol reader locates an unlisted body reference
                     // before it checks the clause's complete dependency join.
-                    let body_targets_resolve = expected
+                    let body_targets_listed = expected
                         .iter()
-                        .all(|target| target == owner_model || index.contains_key(target));
-                    if body_targets_resolve && !node.dependencies.iter().eq(expected.iter()) {
+                        .all(|target| target == owner_model || node.dependencies.contains(target));
+                    if body_targets_listed && !node.dependencies.iter().eq(expected.iter()) {
                         return Err(refuse(Defect::Dependencies));
                     }
                 }
