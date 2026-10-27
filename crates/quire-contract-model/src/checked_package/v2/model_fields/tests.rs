@@ -239,6 +239,35 @@ fn tc_048_record_field_table_deduplicates_diamond_and_positions_redefinition() {
         "the replacement supplies the binder type at Top's inherited position"
     );
     assert_eq!(table.ambiguous, None);
+
+    let base = format!("{ORDERS}Base");
+    let child = format!("{ORDERS}Child");
+    let mut replacement = field(&child, "a", "ix://quire/native/Integer");
+    replacement["redefines"] = json!(format!("{base}/a"));
+    let (_, direct) = built(&record_document(vec![
+        record_type(
+            "Base",
+            &[],
+            vec![
+                field(&base, "b", "ix://quire/native/Boolean"),
+                field(&base, "a", "ix://quire/native/Boolean"),
+            ],
+        ),
+        record_type(
+            "Child",
+            &[&base],
+            vec![replacement, field(&child, "c", "ix://quire/native/Boolean")],
+        ),
+    ]));
+    assert_eq!(
+        ordered_identities(table_for(&direct, "Child")),
+        [
+            format!("{base}/b"),
+            format!("{child}/a"),
+            format!("{child}/c")
+        ],
+        "a direct redefinition takes the hidden field's slot"
+    );
 }
 
 /// Selected records use the effective field table, with redefinitions and
