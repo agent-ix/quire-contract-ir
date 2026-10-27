@@ -1118,20 +1118,25 @@ fn classify_owner_shape(failure: ValidationFailure) -> ValidationFailure {
     let ValidationFailure::Refused(mut refusal) = failure else {
         return failure;
     };
-    if refusal.code == CheckedPackageRefusalCode::UnknownMember
-        && refusal.path.as_ref().is_some_and(|path| {
-            ["/semantic_graph/nodes/"].iter().any(|prefix| {
-                path.as_str().strip_prefix(prefix).is_some_and(|rest| {
-                    ["/owner", "/owner_model"].iter().any(|member| {
-                        rest.strip_suffix(member).is_some_and(|index| {
-                            !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit())
-                        })
-                    })
+    if refusal.code == CheckedPackageRefusalCode::UnknownMember {
+        let owner_path = refusal.path.as_ref().and_then(|path| {
+            let rest = path.as_str().strip_prefix("/semantic_graph/nodes/")?;
+            let (index, member_path) = rest.split_once('/')?;
+            let index = index.parse::<usize>().ok()?;
+            ["owner", "owner_model"]
+                .into_iter()
+                .find(|member| {
+                    member_path == *member
+                        || member_path
+                            .strip_prefix(*member)
+                            .is_some_and(|tail| tail.starts_with('/'))
                 })
-            })
-        })
-    {
-        refusal.code = CheckedPackageRefusalCode::MalformedWire;
+                .map(|member| node_pointer(index).key(member))
+        });
+        if let Some(owner_path) = owner_path {
+            refusal.code = CheckedPackageRefusalCode::MalformedWire;
+            refusal.path = Some(owner_path);
+        }
     }
     ValidationFailure::Refused(refusal)
 }
