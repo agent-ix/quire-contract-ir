@@ -33,3 +33,13 @@ Ticket: IR-1032. Reviewed PR #591 at 4eb2ab4ac003ac9e74ac4f11c6c0eb21dcd63bad ag
 ## Method
 
 Applied code-review with rust-review and rust-style, including API, exhaustive closed vocabulary, exact arithmetic, graph traversal, panic/resource boundaries, wire decoding and trace-bearing assertions. No applicable AssuranceProfile was found under `spec/`. No CI workflow or gate file changed. The existing source-owned synthetic graph tests pass, but the separate acceptance evidence gaps are recorded in SR-610006.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At fix head 6dbb500e786632e055293850c114c15eb5b73bc7, the six copied digest literals are gone. The vector test now reads `expected_key` directly from each authoritative QSpec row's `sha256` and compares the typed preimage digest to it. |
+
+## Disposition Verdict
+
+**PASS for the reviewed code slice at 6dbb500e786632e055293850c114c15eb5b73bc7.** The original finding remains above as the review record; its latest disposition is fixed. FR-063-AC-5 and broad QSpec conformance are outside this pass.
