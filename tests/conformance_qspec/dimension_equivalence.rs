@@ -94,6 +94,12 @@ fn tc_233_published_model_owned_time_graph_admits_as_one_class() {
     for entry in package["source_map"].as_array_mut().expect("source map") {
         entry["regions"][0]["source"] = source.clone();
     }
+    for position in 0..3 {
+        let node = &mut package["semantic_graph"]["nodes"][position];
+        node.as_object_mut().expect("node").remove("declaration");
+        node["occurrences"][0]["role"] = json!("type");
+        package["source_map"][position]["role"] = json!("type");
+    }
     let mut selections = members[..3]
         .iter()
         .map(|(preimage, _)| {
