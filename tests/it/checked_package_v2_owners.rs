@@ -1075,11 +1075,18 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
                         "/lock/model_selections/0".to_owned()
                     }
                     "population-owned-by-an-object-type"
-                    | "population-owned-by-an-undeclared-node" => {
-                        format!("/semantic_graph/nodes/{}/node_id", nodes.len() - 1)
-                    }
-                    "population-without-an-owner" => {
-                        format!("/semantic_graph/nodes/{}", nodes.len() - 1)
+                    | "population-owned-by-an-undeclared-node"
+                    | "population-without-an-owner" => {
+                        let position = nodes
+                            .iter()
+                            .position(|node| node["node_id"] == population)
+                            .unwrap_or_else(|| panic!("{id}: population node"));
+                        let suffix = if id == "population-without-an-owner" {
+                            ""
+                        } else {
+                            "/node_id"
+                        };
+                        format!("/semantic_graph/nodes/{position}{suffix}")
                     }
                     other => {
                         let position = nodes
