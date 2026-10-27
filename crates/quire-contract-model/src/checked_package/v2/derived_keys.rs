@@ -326,7 +326,7 @@ fn charge_terms(
             | CheckedTerm::DependencyReference { .. }
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. } => None,
-            CheckedTerm::Refinement { .. } => None,
+            CheckedTerm::Refinement { .. } | CheckedTerm::ExecutionPoint(_) => None,
         };
         if let Some((name, children)) = children {
             for (ordinal, child) in children.iter().enumerate().rev() {

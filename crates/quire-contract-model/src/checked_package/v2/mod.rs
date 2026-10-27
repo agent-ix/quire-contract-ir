@@ -17,6 +17,7 @@ mod contract_package;
 mod dependency_references;
 mod derived_keys;
 pub(in crate::checked_package) mod encode;
+mod execution_point;
 mod extension;
 mod flat_wire;
 mod frame;
@@ -2130,6 +2131,9 @@ fn validate_body(
         ));
     }
     match body_grammar(kind) {
+        BodyGrammar::Term if kind == CheckedNodeKind::State(StateForm::OperationAnchor) => {
+            execution_point::validate_anchor_body(body, at, visit)
+        }
         BodyGrammar::Extension => {
             extension::read_body(body, at.pointer()).map(|body| extension::body_work(&body))
         }

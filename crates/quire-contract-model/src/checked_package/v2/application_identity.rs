@@ -422,7 +422,8 @@ impl<'t> Walk for TypedGroupRewrite<'t> {
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
             | CheckedTerm::Refinement { .. }
-            | CheckedTerm::ExtensionForm { .. } => {}
+            | CheckedTerm::ExtensionForm { .. }
+            | CheckedTerm::ExecutionPoint(_) => {}
         }
         ControlFlow::Continue(())
     }
