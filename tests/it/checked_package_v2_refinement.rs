@@ -1453,8 +1453,8 @@ fn operation_model_nodes() -> (Value, Value, Value, Value) {
             "operations": [{
                 "identity": "ix://test/refinement/Worker/run",
                 "params": [
-                    {"typeRef":"ix://quire/native/Integer", "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}},
-                    {"typeRef":"ix://quire/native/Boolean", "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}}
+                    {"identity":"ix://test/refinement/Worker/run/count", "name":"count", "typeRef":"ix://quire/native/Integer", "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}},
+                    {"identity":"ix://test/refinement/Worker/run/confirmed", "name":"confirmed", "typeRef":"ix://quire/native/Boolean", "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}}
                 ]
             }]
         }));
