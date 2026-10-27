@@ -205,7 +205,8 @@ pub(in crate::checked_package) fn locate_preimage_failure(
     let mut members = object.clone();
     members.remove("version");
     let members = Value::Object(members);
-    let failure = match NominalKind::from_version(version) {
+    let kind = NominalKind::from_version(version);
+    let failure = match kind {
         Some(NominalKind::EnumDeclaration) => {
             locate_closed_value_failure::<EnumDeclarationPreimage>(&members)
         }
@@ -225,7 +226,7 @@ pub(in crate::checked_package) fn locate_preimage_failure(
     let located = decoder_pointer(at.clone(), &path);
     if located == at.clone().key("owner") {
         if let Some(owner) = object.get("owner") {
-            if version == "quire.dimension-equivalence-node/v1" {
+            if kind == Some(NominalKind::DimensionEquivalence) {
                 return locate_source_owner_failure(located, owner);
             }
             return locate_owner_failure(located, owner);
@@ -239,7 +240,11 @@ fn locate_source_owner_failure(at: JsonPointer, owner: &Value) -> (JsonPointer, 
         return (at, false);
     };
     match object.get("kind") {
-        Some(Value::String(kind)) if kind == "source" => {}
+        Some(Value::String(kind))
+            if matches!(
+                NominalOwnerKind::from_wire(kind),
+                Some(NominalOwnerKind::Source)
+            ) => {}
         Some(_) => return (at.key("kind"), false),
         None => return (at, false),
     }
