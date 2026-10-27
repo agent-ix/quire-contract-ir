@@ -75,7 +75,7 @@ fn ordered_identities(table: &FieldTable) -> Vec<&str> {
     table
         .ordered_exposed
         .iter()
-        .map(|entry| &*entry.identity)
+        .map(|slot| &*slot.entry.identity)
         .collect()
 }
 
@@ -234,11 +234,25 @@ fn tc_048_record_field_table_deduplicates_diamond_and_positions_redefinition() {
         ]
     );
     assert_eq!(
-        table.ordered_exposed[0].member_type,
+        table.ordered_exposed[0].entry.member_type,
         Some(MemberType::Integer),
         "the replacement supplies the binder type at Top's inherited position"
     );
     assert_eq!(table.ambiguous, None);
+
+    let mut reverse = document.clone();
+    reverse["types"][3]["supertypes"] = json!([right, left]);
+    let (_, reverse_model) = built(&reverse);
+    assert_eq!(
+        ordered_identities(table_for(&reverse_model, "Bottom")),
+        [
+            format!("{left}/t"),
+            format!("{right}/r"),
+            format!("{left}/l"),
+            format!("{bottom}/z"),
+        ],
+        "the later supertype's redefiner takes Top's earlier position"
+    );
 
     let base = format!("{ORDERS}Base");
     let child = format!("{ORDERS}Child");

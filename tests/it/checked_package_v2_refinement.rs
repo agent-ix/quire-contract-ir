@@ -799,12 +799,27 @@ fn refinement_catalog_activate_record_respects_supertype_order_and_diamond_hidin
         } else {
             boolean.clone()
         };
-        let expected = [first, integer.clone(), boolean.clone(), integer.clone()];
-        let (package, evidence, _) = record_activation_case(records, "Bottom", &expected);
+        let expected = [
+            first.clone(),
+            integer.clone(),
+            boolean.clone(),
+            integer.clone(),
+        ];
+        let (package, evidence, _) = record_activation_case(records.clone(), "Bottom", &expected);
         let admitted = read(&package, &evidence);
         assert!(
             matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
             "{admitted:?}"
+        );
+
+        let mut reverse = records;
+        reverse[3]["supertypes"] = json!([right, left]);
+        let reverse_expected = [first, boolean.clone(), integer.clone(), integer.clone()];
+        let (package, evidence, _) = record_activation_case(reverse, "Bottom", &reverse_expected);
+        let admitted = read(&package, &evidence);
+        assert!(
+            matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+            "reverse diamond: {admitted:?}"
         );
     }
 }

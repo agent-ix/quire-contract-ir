@@ -37,6 +37,13 @@ pub(super) struct FieldEntry {
     member_type: Option<MemberType>,
 }
 
+/// One effective field and the identities whose inherited position it holds.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct OrderedField {
+    entry: Arc<FieldEntry>,
+    origins: BTreeSet<Arc<str>>,
+}
+
 impl FieldEntry {
     fn name(&self) -> &str {
         member_name(&self.identity)
@@ -51,7 +58,7 @@ pub(super) struct FieldTable {
     /// Ascending by identity, one entry per identity.
     exposed: Vec<Arc<FieldEntry>>,
     /// The same exposed entries in inherited source order, then own declaration order.
-    pub(super) ordered_exposed: Vec<Arc<FieldEntry>>,
+    ordered_exposed: Vec<OrderedField>,
     /// Ascending, without repeats: every identity a redefinition hides, a
     /// redefined target and a redefiner hidden by a more derived one alike.
     hidden: Vec<Arc<str>>,
@@ -91,7 +98,13 @@ impl FieldTable {
             .map(|entry| {
                 Some(CheckedNodeId {
                     domain: NODE_DOMAIN.into(),
-                    digest: entry.member_type.as_ref()?.node_key(bytes).ok()?.into(),
+                    digest: entry
+                        .entry
+                        .member_type
+                        .as_ref()?
+                        .node_key(bytes)
+                        .ok()?
+                        .into(),
                 })
             })
             .collect::<Option<Vec<_>>>()?;
@@ -348,6 +361,7 @@ fn build_component(
         });
     budget.charge(units(own_units))?;
     let mut inherited: Vec<Arc<FieldEntry>> = Vec::new();
+    let mut ordered_slots = Vec::new();
     let mut hidden: BTreeSet<Arc<str>> = BTreeSet::new();
     for (_, declared) in &component.members {
         for supertype in &declared.supertypes {
@@ -356,15 +370,14 @@ fn build_component(
                 continue;
             };
             budget.charge(units(table.entries()))?;
-            inherited.extend(table.ordered_exposed.iter().cloned());
+            inherited.extend(
+                table
+                    .ordered_exposed
+                    .iter()
+                    .map(|slot| Arc::clone(&slot.entry)),
+            );
+            ordered_slots.extend(table.ordered_exposed.iter().cloned());
             hidden.extend(table.hidden.iter().cloned());
-        }
-    }
-    let mut ordered_inherited = Vec::new();
-    let mut inherited_ids = BTreeSet::new();
-    for entry in &inherited {
-        if inherited_ids.insert(Arc::clone(&entry.identity)) {
-            ordered_inherited.push(Arc::clone(entry));
         }
     }
     // A diamond reaches one entry twice; a field one supertype exposes and
@@ -419,45 +432,67 @@ fn build_component(
         );
     }
     drop(by_target);
-    let mut ordered = ordered_inherited.clone();
-    let mut replaced = BTreeSet::new();
     for identity in own_order {
         let Some(entry) = own.get(&identity) else {
             continue;
         };
-        let slot = entry.decl.redefines.as_deref().and_then(|target| {
-            ordered_inherited
-                .iter()
-                .enumerate()
-                .position(|(index, inherited)| {
-                    !replaced.contains(&index)
-                        && (inherited.identity.as_ref() == target
-                            || inherited.decl.redefines.as_deref() == Some(target))
-                })
-        });
-        if let Some(index) = slot {
-            ordered[index] = Arc::clone(entry);
-            replaced.insert(index);
-        } else {
-            ordered.push(Arc::clone(entry));
+        let mut origins = BTreeSet::from([Arc::clone(&entry.identity)]);
+        if let Some(target) = entry.decl.redefines.as_deref() {
+            origins.insert(Arc::from(target));
+            for slot in &ordered_slots {
+                if slot.origins.contains(target) {
+                    origins.extend(slot.origins.iter().cloned());
+                }
+            }
         }
+        ordered_slots.push(OrderedField {
+            entry: Arc::clone(entry),
+            origins,
+        });
     }
     let mut exposed: Vec<Arc<FieldEntry>> = inherited;
     exposed.extend(own.into_values());
     exposed.sort_by(|a, b| a.identity.cmp(&b.identity));
     exposed.dedup_by(|a, b| a.identity == b.identity);
     exposed.retain(|entry| !hidden.contains(&entry.identity));
-    let mut by_identity: BTreeMap<Arc<str>, Arc<FieldEntry>> = exposed
-        .iter()
-        .map(|entry| (Arc::clone(&entry.identity), Arc::clone(entry)))
-        .collect();
-    let mut ordered_exposed = Vec::with_capacity(exposed.len());
-    for entry in ordered {
-        if let Some(exposed_entry) = by_identity.remove(&entry.identity) {
-            ordered_exposed.push(exposed_entry);
+    let mut first_origin = BTreeMap::new();
+    let mut first_entry = BTreeMap::new();
+    let mut origins_by_identity: BTreeMap<Arc<str>, BTreeSet<Arc<str>>> = BTreeMap::new();
+    for (position, slot) in ordered_slots.iter().enumerate() {
+        first_entry
+            .entry(Arc::clone(&slot.entry.identity))
+            .or_insert(position);
+        origins_by_identity
+            .entry(Arc::clone(&slot.entry.identity))
+            .or_default()
+            .extend(slot.origins.iter().cloned());
+        for origin in &slot.origins {
+            first_origin.entry(Arc::clone(origin)).or_insert(position);
         }
     }
-    ordered_exposed.extend(by_identity.into_values());
+    let mut ordered_exposed: Vec<OrderedField> = exposed
+        .iter()
+        .map(|entry| OrderedField {
+            entry: Arc::clone(entry),
+            origins: origins_by_identity
+                .remove(&entry.identity)
+                .unwrap_or_else(|| BTreeSet::from([Arc::clone(&entry.identity)])),
+        })
+        .collect();
+    ordered_exposed.sort_by_key(|slot| {
+        let inherited_position = slot
+            .origins
+            .iter()
+            .filter_map(|origin| first_origin.get(origin))
+            .copied()
+            .min()
+            .unwrap_or(usize::MAX);
+        let declared_position = first_entry
+            .get(&slot.entry.identity)
+            .copied()
+            .unwrap_or(usize::MAX);
+        (inherited_position, declared_position)
+    });
     let mut seen = BTreeSet::new();
     let ambiguous = exposed
         .iter()
