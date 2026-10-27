@@ -18,7 +18,7 @@ relationships:
 
 ## Description
 
-Verify FR-040-AC-1 through FR-040-AC-30: the V2 reader admits QSpec FR-340's
+Verify FR-040-AC-1 through FR-040-AC-35: the V2 reader admits QSpec FR-340's
 `FrameModifiesEntry` values, FR-342's operation anchor body, FR-341's state
 clause and parameter bodies and exactly the fifteen `model` forms, and
 refuses every other shape with the code, cause and locus those requirements
@@ -93,6 +93,20 @@ defect beside a failing `parameter` entry. Assert the order schema, stale key,
 frame step (meaning-join with `conflicting-binding` last, then canonical
 order), state step.
 
+Build both an unpointed protocol anchor and point-qualified `pre` and
+`post` anchors for the same checked operation. Build invariant and constraint
+clauses with `initialization` and `handler` points and operation clauses with
+`pre` and `post` points. Recompute node keys and package identities from this
+repository's own public vocabulary, read each, then round-trip the retained
+point. Mutate one field at a time: point variant, required name, extra member,
+applicability to clause kind, source anchor name, operation name, and
+clause/anchor point agreement. Mutate identity material without rekeying.
+Pair each point defect with an earlier graph-shape, frame, anchor or signature
+defect and a later operation-catalog defect to test first-refusal order.
+Assert the exact code, cause and RFC 6901 locus of the first refusal, and no
+partial package. Cover FR-040-AC-31 through FR-040-AC-35. This is planned
+until tagged reader tests and the full reviewed-code gate pass.
+
 ## Expected Results
 
 The unmutated package admits. Each mutation returns exactly the code, cause
@@ -110,7 +124,8 @@ FR-040-AC-1 through FR-040-AC-13 are implemented. FR-040-AC-28 supersedes
 the former shared-frame refusal of FR-040-AC-7. Their tests are in
 `tests/it/checked_package_v2_frame_entries.rs` and the entry eligibility
 tests in `crates/quire-contract-model/src/checked_package/v2/frame.rs`.
-FR-040-AC-17 through FR-040-AC-30 are implemented by tagged reader tests in
+FR-040-AC-31 through FR-040-AC-35 are planned under IR-1040; no implemented
+coverage is claimed. FR-040-AC-17 through FR-040-AC-30 are implemented by tagged reader tests in
 `tests/it/checked_package_v2_frame_entries.rs`. FR-040-AC-14 through FR-040-AC-16 are implemented by the tagged public-reader
 record frame and expression cases in `tests/it/checked_package_v2_frame_entries.rs`
 and `tests/it/checked_package_v2_model_fields.rs`, and the selected-row and
