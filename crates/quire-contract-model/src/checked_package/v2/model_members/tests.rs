@@ -376,6 +376,43 @@ fn operation_redefinitions_select_the_most_derived_member() {
     assert_eq!(resolved.identity(), "ix://acme/orders/Child/act");
 }
 
+/// Provenance: IR-874 inherited attempt operation binder join.
+#[test]
+fn inherited_operation_binders_use_named_receiver_and_retained_result() {
+    let mut parent = object_type(WIDGET, &[], vec![]);
+    parent["operations"] = json!([{
+        "identity": format!("{WIDGET}/act"),
+        "params": [{
+            "typeRef": "ix://quire/native/Integer",
+            "multiplicity": multiplicity(1, Some(1))
+        }],
+        "returns": {
+            "typeRef": "ix://quire/native/Integer",
+            "multiplicity": multiplicity(1, Some(1))
+        }
+    }]);
+    let child = object_type(GADGET, &[WIDGET], vec![]);
+    let model = read(&document(vec![parent, child])).expect("selected model");
+    let mut meter = WorkMeter::new(u64::MAX);
+    let signature = model
+        .effective_operation_binder_types(GADGET, "act", &mut Budget::new(&mut meter, 0, BYTES))
+        .expect("bounded resolution")
+        .expect("inherited operation");
+    let receiver = MemberType::Reference(
+        declaration_key(&model.identity, DeclarationForm::ObjectType, GADGET, BYTES)
+            .expect("object key")
+            .into(),
+    );
+    assert_eq!(signature.len(), 3);
+    assert_eq!(
+        signature[0].digest.as_ref(),
+        receiver.node_key(BYTES).expect("receiver key")
+    );
+    let integer = MemberType::Integer.node_key(BYTES).expect("integer key");
+    assert_eq!(signature[1].digest.as_ref(), integer);
+    assert_eq!(signature[2].digest.as_ref(), integer);
+}
+
 #[trace("TC-048", "FR-038-AC-28")]
 #[test]
 fn operation_redefinitions_refuse_malformed_and_missing_targets() {
