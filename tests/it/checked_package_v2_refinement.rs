@@ -997,7 +997,7 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
     );
     assert_eq!(
         refusal.path.as_ref().map(|path| path.as_str()),
-        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete").as_str())
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog").as_str())
     );
 
     let mut wrong_node = package.clone();
