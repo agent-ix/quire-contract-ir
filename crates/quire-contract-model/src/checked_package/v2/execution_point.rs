@@ -93,7 +93,7 @@ pub(super) fn decode_anchor_body(body: &Value) -> Result<CheckedTerm, TermConver
             member: "execution_point",
             category: serde_json::error::Category::Data,
         })?;
-    Ok(CheckedTerm::OperationAnchorBody(
+    Ok(CheckedTerm::OperationAnchorBody(Box::new(
         CheckedOperationAnchorBody {
             members: [
                 CheckedTerm::decode_admitted(context)?,
@@ -102,5 +102,5 @@ pub(super) fn decode_anchor_body(body: &Value) -> Result<CheckedTerm, TermConver
             ],
             execution_point: Some(point),
         },
-    ))
+    )))
 }

@@ -273,7 +273,7 @@ pub enum CheckedTerm {
     },
     /// A dedicated operation anchor body; its bare point is not a term.
     #[serde(untagged, skip_deserializing)]
-    OperationAnchorBody(CheckedOperationAnchorBody),
+    OperationAnchorBody(Box<CheckedOperationAnchorBody>),
 }
 
 /// Borrowed, one-level decoding for early family wire checks. Children are
