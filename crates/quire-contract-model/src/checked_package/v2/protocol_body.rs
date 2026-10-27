@@ -4793,19 +4793,27 @@ pub(super) fn validate_protocol_nodes(
             )
         })?;
         let target = &nodes[owner_position];
-        if !owners.is_model_declaration_node(target, kinds[owner_position].tag()) {
+        if kinds[owner_position] != CheckedNodeKind::Model(ModelForm::ObjectType) {
             return Err(ValidationFailure::refused_at(
-                Code::IllTyped,
+                Code::InvalidModelBinding,
                 owner_at,
-                Some(Cause::OperatorIneligible),
+                Some(Cause::MalformedDeclaration),
                 node.node_id.clone(),
             ));
         }
-        if let Err(failure) = owners.recover(target) {
-            return Err(ValidationFailure::refused_at(
+        let owner = owners.recover(target).map_err(|failure| {
+            ValidationFailure::refused_at(
                 failure.code,
-                owner_at,
+                owner_at.clone(),
                 Some(failure.cause),
+                node.node_id.clone(),
+            )
+        })?;
+        if owner.form != super::model_members::DeclarationForm::ObjectType {
+            return Err(ValidationFailure::refused_at(
+                Code::InvalidModelBinding,
+                owner_at,
+                Some(Cause::MalformedDeclaration),
                 node.node_id.clone(),
             ));
         }
