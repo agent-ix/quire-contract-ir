@@ -410,6 +410,7 @@ use std::collections::{BTreeMap, BTreeSet};
 fn typed_members(term: &CheckedTerm) -> &[CheckedTerm] {
     match term {
         CheckedTerm::Aggregate { members } => members,
+        CheckedTerm::OperationAnchorBody(body) => &body.members,
         _ => &[],
     }
 }
