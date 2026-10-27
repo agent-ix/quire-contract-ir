@@ -1402,7 +1402,7 @@ fn tc_056_execution_point_shape_and_agreement_refuse_at_their_stage() {
             Code::InvalidSemanticGraph,
             None,
             &format!("/semantic_graph/nodes/{anchor}/body"),
-            Some(&package.digest(anchor)),
+            None,
         );
     }
     for malformed in [
@@ -1422,7 +1422,7 @@ fn tc_056_execution_point_shape_and_agreement_refuse_at_their_stage() {
             Code::InvalidSemanticGraph,
             None,
             &format!("/semantic_graph/nodes/{anchor}/body/members/3/value"),
-            Some(&package.digest(anchor)),
+            None,
         );
     }
     let mut stale = pointed_state_package(
@@ -1438,7 +1438,7 @@ fn tc_056_execution_point_shape_and_agreement_refuse_at_their_stage() {
         Code::InvalidPackage,
         Some(Cause::StaleNodeKey),
         &format!("/semantic_graph/nodes/{anchor}/node_id"),
-        Some(&stale.digest(anchor)),
+        None,
     );
     let invalid = pointed_state_package(
         Some(json!({"kind": "handler", "name": "tick"})),
@@ -1503,7 +1503,7 @@ fn tc_056_execution_point_shape_and_agreement_refuse_at_their_stage() {
         Code::InvalidPackage,
         Some(Cause::StaleNodeKey),
         &format!("/semantic_graph/nodes/{clause}/node_id"),
-        Some(&stale_clause.digest(clause)),
+        None,
     );
 }
 
