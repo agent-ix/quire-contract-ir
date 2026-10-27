@@ -1727,9 +1727,14 @@ vector or schema is copied into this repository.
     edge fails producer conformance, a separate check from reader admission.
     In independent packages, retarget C to a selected `state_machine`,
     `process`, `record_value_type`, relation or `model_root` node, then to a
-    source-local or unselected declaration node. Require FR-064-AC-4's typed
-    edge refusal for each wrong-kind or unselected target. The reader SHALL
-    not infer or cross-check ownership from the source `over` parameter.
+    source-local declaration or a missing local target. Require the typed
+    refusal at `owner_model` for each wrong-kind or missing target. A separate
+    genuinely unselected `model`/`object_type` target SHALL refuse
+    `missing_declaration`/`missing-selection` at its own `node_id` in the
+    earlier graph owner join. Pair the wrong-kind edge with earlier refinement
+    row and protocol member defects, then with a later same-clause slot defect,
+    to verify FR-464-AC-20's phase order. The reader SHALL not infer or
+    cross-check ownership from the source `over` parameter.
 11. Keeping the positive package's owner join and protocol body valid,
     mutate the concrete catalog separately to omit C's class, add B's
     foreign class, duplicate or reorder an entry, change C's class node or

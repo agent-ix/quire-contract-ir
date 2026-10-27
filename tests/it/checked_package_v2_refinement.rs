@@ -4,8 +4,8 @@
 //! Focused FR-061 refinement and selected state-machine owner vectors.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, refresh_identity, settle, sha256_hex, v2_all_families,
-    v2_nominal,
+    canonical, evidence_for, node_id, refresh_identity, rekey_application_node, settle, sha256_hex,
+    v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -1578,6 +1578,88 @@ fn refinement_catalog_presence_precedes_declaration_backed_step_joins() {
     );
 }
 
+/// Trace: FR-064-AC-4
+#[trace("TC-048")]
+#[test]
+fn refinement_step_defect_precedes_wrong_protocol_clause_owner() {
+    let (mut package, evidence) = concrete_protocol_refinement(
+        ProtocolStepRows::Declared,
+        ProtocolClauseOwner::SelectedModel,
+    );
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let finish = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "protocol" && node["semantic_form"] == "obligation")
+        .expect("finish")["node_id"]
+        .clone();
+    let binder_type = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let refinement = set_concrete_catalog(
+        &mut package,
+        vec![json!({
+            "class": "OrderFlow::Closed", "node": finish,
+            "binder_types": [binder_type]
+        })],
+    );
+    package["semantic_graph"]["nodes"][refinement]["body"]["steps"][0]["source_class"] =
+        json!("OrderFlow::Closed");
+    rekey_refinement(&mut package, refinement);
+    let baseline = read(&package, &evidence);
+    assert!(
+        matches!(baseline, CheckedPackageV2ReadResult::Admitted(_)),
+        "{baseline:?}"
+    );
+
+    let clause = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "protocol_clause")
+        .expect("clause");
+    let previous_owner = package["semantic_graph"]["nodes"][clause]["owner_model"].clone();
+    let wrong_owner = node_id(&crate::support::checked_package::family_key("2020"));
+    let clause_node = &mut package["semantic_graph"]["nodes"][clause];
+    clause_node["owner_model"] = wrong_owner.clone();
+    let dependencies = clause_node["dependencies"]
+        .as_array_mut()
+        .expect("dependencies");
+    dependencies.retain(|id| id != &previous_owner);
+    dependencies.push(wrong_owner);
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    rekey_application_node(&mut package, clause);
+    refresh_identity(&mut package);
+    let CheckedPackageV2ReadResult::Refused(wrong_owner_refusal) = read(&package, &evidence) else {
+        panic!("wrong-kind clause owner must refuse on its own");
+    };
+    assert_eq!(
+        wrong_owner_refusal.code,
+        CheckedPackageRefusalCode::InvalidModelBinding
+    );
+    assert_eq!(
+        wrong_owner_refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{clause}/owner_model").as_str())
+    );
+
+    package["semantic_graph"]["nodes"][refinement]["body"]["steps"][0]["source_class"] =
+        json!("Other::Closed");
+    rekey_refinement(&mut package, refinement);
+
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+        panic!("refinement step defect must precede wrong clause owner");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::MissingDeclaration,
+        "{refusal:?}"
+    );
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{refinement}/body/steps/0/source_class").as_str())
+    );
+}
+
 #[trace("TC-048")]
 #[test]
 fn refinement_catalog_presence_uses_clause_owner_without_step_rows() {
@@ -1645,14 +1727,52 @@ fn refinement_catalog_presence_uses_clause_owner_without_step_rows() {
     );
 }
 
-/// Provenance: IR-874 catalog graph join.
+/// Trace: FR-038-AC-325, FR-064-AC-2, FR-064-AC-5
+/// Provenance: IR-1053 catalog graph join.
 #[test]
 fn refinement_catalog_joins_owned_finish_without_a_step_row() {
+    let original = v2_all_families();
+    let original_clause = original["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "protocol_clause")
+        .expect("original clause");
+    let original_clause_key = original_clause["node_id"].clone();
+    let original_package_id = original["package_id"].clone();
     let (mut package, evidence) =
         concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::SelectedModel);
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes");
+    let object_b = nodes
+        .iter()
+        .find(|node| {
+            node["semantic_form"] == "object_type" && node["owner"]["identity"] == MODEL_IDENTITY
+        })
+        .expect("second selected object type")["node_id"]
+        .clone();
+    let clause = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "protocol_clause")
+        .expect("retargeted clause");
+    assert_eq!(clause["owner_model"], object_b);
+    assert_ne!(clause["owner_model"], original_clause["owner_model"]);
+    assert_eq!(clause["body"], original_clause["body"]);
+    let clause_key = clause["node_id"].clone();
+    assert_ne!(clause["node_id"], original_clause_key);
+    assert_ne!(package["package_id"], original_package_id);
+    let concrete_root = nodes
+        .iter()
+        .find(|node| {
+            node["semantic_form"] == "model_root" && node["owner"]["identity"] == MODEL_IDENTITY
+        })
+        .expect("selected concrete model root")["node_id"]
+        .clone();
+    assert_eq!(
+        nodes.last().expect("refinement")["semantic_type"],
+        concrete_root
+    );
     let finish = nodes
         .iter()
         .find(|node| node["node_tag"] == "protocol" && node["semantic_form"] == "obligation")
@@ -1669,10 +1789,52 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
         &mut package,
         vec![json!({"class": "OrderFlow::Closed", "node": finish, "binder_types": [binder_type]})],
     );
+    assert_eq!(
+        package["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"]
+            .as_array()
+            .expect("B-owned classes")
+            .len(),
+        1
+    );
     let admitted = read(&package, &evidence);
     assert!(
         matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
         "{admitted:?}"
+    );
+    let written = writer_bytes(&package);
+    assert_eq!(written, canonical(&package));
+    let written_read =
+        CheckedPackageV2::read(&written, CheckedPackageReadLimits::bounded(), &evidence);
+    let CheckedPackageV2ReadResult::Admitted(round_trip) = written_read else {
+        panic!("typed writer output must read back: {written_read:?}");
+    };
+    assert_eq!(
+        serde_json::to_value(round_trip.package_id()).expect("package id"),
+        package["package_id"]
+    );
+    let round_trip_clause = round_trip
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "protocol_clause")
+        .expect("admitted clause");
+    assert_eq!(
+        serde_json::to_value(&round_trip_clause.node_id).expect("clause key"),
+        clause_key
+    );
+    assert_eq!(
+        serde_json::to_value(&round_trip_clause.owner_model).expect("owner edge"),
+        object_b
+    );
+    let round_trip_refinement = round_trip
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "refinement")
+        .expect("admitted refinement");
+    assert_eq!(
+        serde_json::to_value(&round_trip_refinement.node_id).expect("node id"),
+        package["semantic_graph"]["nodes"][position]["node_id"]
     );
 
     let mut omitted = package.clone();
