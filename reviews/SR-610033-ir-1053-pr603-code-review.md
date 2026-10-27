@@ -31,3 +31,13 @@ Reviewed the frozen non-memory owner and catalog slice against merged FR-038, FR
 ## Rust review
 
 No copied QSpec content, duplicate evaluator, public API addition, unsafe code, new panic, or gate weakening appears in the four-file diff. Existing model-owner recovery is reused. The new wrong-kind refusal and no-step catalog test use the public reader, and writer readback asserts node and package identity. The error mapping above remains incorrect for an object-type key outside selected model documents. No aggregate gate was run in this review pass, per dispatch cadence.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | QSpec FR-464-AC-20 now fixes the owner-join phase: genuinely unselected object-type nodes refuse `missing_declaration`/`missing-selection` at their own `node_id` before any clause step. FR-064-AC-4 and TC-048 now state that exact oracle, and the new public-reader test asserts code, cause, path and locus. The protocol-step mapping remains correct for targets that reach it. |
+
+## Rebase and spec-delta check
+
+Compared PR #603 at 8f1f1c3b44d38fec4da3eb3e3914e6691bd75b7e with base d349db18 and QSpec FR-464-AC-20 at 000cd943. The changed FR-064 Behavior and AC-4 assign unselected `model`/`object_type` to the earlier target owner join; wrong-kind or missing local targets to the clause-edge check; and body defects to their respective earlier or later phases. TC-048 step 10 names the same phases. The source unchanged from the earlier reviewed owner recovery returns the now-specified unselected result. No new code defect found in this delta.

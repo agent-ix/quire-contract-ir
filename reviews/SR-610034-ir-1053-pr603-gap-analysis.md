@@ -28,3 +28,20 @@ Audited the changed owner and class-catalog behavior against its criterion tags 
 - FR-064-AC-5 (examined): The no-step owned class test asserts admission, missing class, wrong node and foreign class refusal through the public reader; new typed writer readback asserts package and refinement node identities.
 - FR-038-AC-325 (examined): This PR covers non-memory owner/class joins only. IR-1034 must provide source-default memory/drain implementation and evidence; the ticket remains open.
 - The computed matrix command did not return criterion rows during this review; trace tags and test assertions were manually inspected. Plan completion: not assessed. Optional repository-wide semantic review was not requested.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | The expanded `refinement_catalog_joins_owned_finish_without_a_step_row` uses original selected A and a distinct selected B object-type node, asserts the changed clause key and package id after retarget, admits through the public reader, and round-trips the typed writer with the B owner and identities retained. |
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs | Escape Cause |
+| --- | --- | --- | --- | --- |
+| FND-002 | medium | FR-064-AC-4 and TC-048 step 10 now require an earlier refinement-step or protocol-member defect to win when paired with a typed owner-edge defect. The added tests check graph/dependency precedence and that a wrong owner wins over a later same-clause capture defect, but no paired earlier refinement-step or step-4/5 protocol-member defect is exercised. | FR-064-AC-4; TC-048 step 10; `tests/it/checked_package_v2_protocol_body.rs:1575-1700` | correct-requirement-no-evidence |
+| FND-003 | medium | FR-064-AC-4/TC-048 step 10 name selected `state_machine`, `process` and `record_value_type` wrong-form owners, but this PR exercises only a selected `systems_interface`, a relation, source declaration and model root. The selected model-form branches have no public-reader refusal vector at `owner_model`. | FR-064-AC-4; TC-048 step 10; `tests/it/checked_package_v2_protocol_body.rs:1541-1672` | correct-requirement-no-evidence |
+
+## Spec delta and coverage
+
+The added FR-064 Behavior/AC-4 and TC-048 step 10 agree with QSpec FR-464-AC-20 at 000cd943 on the earlier unselected-target owner join and the typed clause edge. The public reader now has a genuine unselected object target test that asserts `missing_declaration`/`missing-selection` at the target `node_id`, plus missing local and wrong-kind edge tests. The two precedence pairs and three selected model-form vectors above remain required. Source-default memory/drain catalog evidence remains open under IR-1034; no claim of complete IR-1053 acceptance is made.

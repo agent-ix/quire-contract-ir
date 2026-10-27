@@ -7,14 +7,14 @@ use crate::support::checked_package::{
     admitted_protocol_families, application_node_key, canonical, domain_package_digest,
     domain_package_document, evidence_for, family_key, node_id, protocol_named_node,
     protocol_role_node, rebuild_source_map, refresh_identity, refusal, refusal_at,
-    rekey_application_node, rename_node, selected_interface_model_node, settle, structural_key,
-    v2_all_families,
+    rekey_application_node, rename_node, selected_interface_model_node, settle, sha256_hex,
+    structural_key, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedProtocolActivation,
-    CheckedProtocolActivationRow, CheckedProtocolRefusalDetail,
+    CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedProtocolActivation, CheckedProtocolActivationRow, CheckedProtocolRefusalDetail,
 };
 use serde_json::{json, Value};
 
@@ -1571,6 +1571,110 @@ fn protocol_owner_retarget_to_selected_non_object_model_refuses() {
     );
 }
 
+fn selected_wrong_form_owner_case(
+    form: &str,
+    meaning: &str,
+) -> (Value, CheckedPackageEvidence, usize) {
+    let identity = "test/owner-forms";
+    let declaration = "ix://test/owner-forms/Target";
+    let document = json!({
+        "contractVersion": "2.0.0",
+        "package": {"identity": identity, "version": "1"},
+        "constructs": [{
+            "kind": {"module": identity, "name": "target"},
+            "construct": {"meaning": meaning}
+        }],
+        "types": [{
+            "identity": declaration, "displayName": "Target",
+            "kind": {"module": identity, "name": "target"},
+            "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
+            "supertypes": [], "fields": [], "operations": []
+        }]
+    });
+    let digest = domain_package_digest(&document);
+    let owner = json!({"kind": "model", "identity": identity, "node": declaration});
+    let body = json!({"term": "aggregate", "members": []});
+    let preimage = json!({
+        "version": "quire.structural-node/v1", "node_tag": "model",
+        "semantic_form": form, "semantic_type": null,
+        "declaration": null, "recursion": null, "owner": owner,
+        "body": body,
+    });
+    let key = node_id(&sha256_hex(&canonical(&preimage)));
+    let mut package = admitted_protocol_families();
+    package["lock"]["model_selections"]
+        .as_array_mut()
+        .expect("model selections")
+        .push(json!({"identity": identity, "digest_domain": "sha256-jcs", "digest": digest}));
+    let target_position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(json!({
+            "node_id": key, "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "model", "semantic_form": form,
+            "semantic_type": key, "dependencies": [],
+            "occurrences": [{"role": "type", "ordinal": 0}],
+            "owner": owner, "body": body,
+        }));
+    let clause = clause_position(&package);
+    package["semantic_graph"]["nodes"][clause]["owner_model"] = key;
+    settle(&mut package);
+    let mut evidence = evidence_for(&package);
+    evidence
+        .insert_domain_package_document(digest, canonical(&document))
+        .expect("selected document");
+    (package, evidence, target_position)
+}
+
+/// Trace: FR-064-AC-4
+#[trace("TC-048", "TC-946")]
+#[test]
+fn protocol_owner_selected_model_forms_refuse_at_clause_edge() {
+    for (form, meaning) in [
+        ("state_machine", "quire.meaning.model.state-machine/v1"),
+        ("process", "quire.meaning.model.process/v1"),
+        (
+            "record_value_type",
+            "quire.meaning.model.record-value-type/v1",
+        ),
+    ] {
+        let (package, evidence, target_position) = selected_wrong_form_owner_case(form, meaning);
+        let clause = clause_position(&package);
+        assert_eq!(
+            package["semantic_graph"]["nodes"][clause]["owner_model"],
+            package["semantic_graph"]["nodes"][target_position]["node_id"],
+            "{form} target"
+        );
+        let result = CheckedPackageV2::read(
+            &canonical(&package),
+            CheckedPackageReadLimits::bounded(),
+            &evidence,
+        );
+        let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+            panic!("selected {form} owner must refuse: {result:?}");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            "{form}"
+        );
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            "{form}"
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(format!("/semantic_graph/nodes/{clause}/owner_model").as_str()),
+            "{form}"
+        );
+    }
+}
+
 /// Trace: FR-064-AC-4
 #[trace("TC-048", "TC-946")]
 #[test]
@@ -1694,6 +1798,31 @@ fn protocol_owner_wrong_kind_precedes_same_clause_capture_scope() {
     assert_eq!(
         refusal.path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{clause}/owner_model").as_str())
+    );
+}
+
+/// Trace: FR-064-AC-4
+#[trace("TC-048", "TC-946")]
+#[test]
+fn protocol_role_member_defect_precedes_wrong_clause_owner() {
+    let (mut package, role) = package_with_member_role_on(admitted_protocol_families());
+    let clause = clause_position(&package);
+    package["semantic_graph"]["nodes"][role]["body"]["arguments"][0]["value"]["target"] =
+        node_id(&family_key("a4a4"));
+    package["semantic_graph"]["nodes"][clause]["owner_model"] = node_id(&family_key("2020"));
+    settle(&mut package);
+
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("role member defect must precede clause owner edge");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{role}/body/arguments/0/value/target").as_str())
     );
 }
 
