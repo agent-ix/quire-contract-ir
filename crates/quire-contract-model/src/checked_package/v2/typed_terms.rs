@@ -31,7 +31,7 @@ pub enum CheckedExecutionPoint {
 
 impl CheckedExecutionPoint {
     pub(super) fn from_wire(value: &Value) -> Option<Self> {
-        let point: Self = serde_json::from_value(value.clone()).ok()?;
+        let point: Self = Self::deserialize(value).ok()?;
         let name = match &point {
             Self::Initialization { name } | Self::Handler { name } => name,
             Self::Pre { operation } | Self::Post { operation } => operation,

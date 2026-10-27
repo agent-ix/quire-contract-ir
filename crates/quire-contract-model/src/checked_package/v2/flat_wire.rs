@@ -270,11 +270,15 @@ fn check_anchor_flat_wire(body: &Value, at: &Trail<'_>) -> Result<(), Validation
     if members.len() < 4 {
         return check_term(body, at, Place::BodyRoot, false);
     }
-    let mut term_part = body.clone();
-    if let Some(first_three) = term_part["members"].as_array_mut() {
-        first_three.truncate(3);
+    for (index, member) in members.iter().take(3).enumerate() {
+        check_term(
+            member,
+            &at.key("members").index(index),
+            Place::Member,
+            false,
+        )?;
     }
-    check_term(&term_part, at, Place::BodyRoot, false)
+    Ok(())
 }
 
 /// A `temporal_interval` bound outside its form's pattern (FR-038 "The timed
