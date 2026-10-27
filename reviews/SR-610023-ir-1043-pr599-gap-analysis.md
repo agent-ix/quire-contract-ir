@@ -37,3 +37,16 @@ Computed Quire matrix tags AC-1 through AC-7; AC-8 is Inspection with no test sy
 ## Verdict
 
 FAIL: findings require a same-PR fix or a truthful unclaimed disposition.
+
+## Dispositions
+
+Round 1, verified at PR #599 head bfc074a83096c19df35109c59e0ca5b93bce65ef. The original finding rows remain unchanged.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | adding_another_object_type_does_not_add_another_model_root builds selected model documents with one and two distinct object types and asserts one admitted root for both. root_only_package_keeps_the_root_key_when_its_source_alias_changes now carries FR-065-AC-4 as well as AC-3. |
+| FND-002 | deferred | STD-506: QSpec b30710e3 has no model_root occurrence in its published checked-package V2 positive fixtures. The source producer is QSL S4/QSL-1128; the IR fixture helper cannot prove it. The PR expressly leaves AC-1 source-producer derivation unclaimed and retains the full requirement. |
+
+## Current verdict
+
+CONDITIONAL: FND-001 fixed; FND-002 deferred under STD-506, with AC-1 producer derivation unclaimed. Review-mergeable only as an explicit partial implementation; IR-1043 remains open.

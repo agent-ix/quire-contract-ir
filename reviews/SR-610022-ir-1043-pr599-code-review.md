@@ -36,3 +36,16 @@ Rust typed root, owner, structural, refinement and source-map paths; no code was
 ## Verdict
 
 FAIL: findings require a same-PR fix or a truthful unclaimed disposition.
+
+## Dispositions
+
+Round 1, verified at PR #599 head bfc074a83096c19df35109c59e0ca5b93bce65ef. The original finding rows remain unchanged.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | deferred | STD-505: QSpec b30710e3 ModelRef has only identity/digest and SourceMapEntry has only raw source regions; no selected-model-to-source-occurrence relation exists. The PR expressly leaves this AC-2 source-correspondence clause unclaimed and retains the full requirement. IR cannot invent the missing alias/range oracle. |
+| FND-002 | fixed | The model_root conformance test reads node-identity-vectors.json from the authoritative QSpec proposal directory, selects model-root-counter-cas, constructs a typed draft, calls derive_structural_candidates, and compares the production candidate digest with row["sha256"]. The copied preimage and digest literals were removed from IR. |
+
+## Current verdict
+
+CONDITIONAL: FND-002 fixed; FND-001 deferred under STD-505, with AC-2 source correspondence unclaimed. Review-mergeable only as an explicit partial implementation; IR-1043 remains open.
