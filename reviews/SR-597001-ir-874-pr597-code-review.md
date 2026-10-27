@@ -57,3 +57,11 @@ Ticket: IR-874. This static review covers draft PR #597 at `2b11491b`, including
 | FND-004 | high | Eager operation-signature retention charges the shared reader meter for unrelated model reads, changing exact work totals and the first unpayable pointer. | crates/quire-contract-model/src/checked_package/v2/model_fields.rs:503 |
 
 Hosted Rust Checks [run 40532190627](https://github.com/agent-ix/quire-contract-ir/actions/runs/40532190627) at exact head `21f525d9` completed 934 workspace tests and failed 10 existing exact work-accounting tests. New `RetainedModels::new` loops through every selected object and calls `operation_names` and `effective_operation_binder_types` with the admission `WorkMeter` before the graph join, even for packages that have no refinement catalog. The resulting failures include IR-987 work totals 388→398 and 183→193, TC-048 97→99, and first-unpayable pointers shifted from a graph dependency or member target to `/lock/model_selections/0` or `/lock/model_selections/1`. TC-227's previously admitted long-chain boundary also becomes `incomplete`. The fix must preserve the existing accounting on unrelated reads, not change the exact-work tests' expected values.
+
+## Disposition Round 3
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-002 | fixed | At `8f1a98efaebc0eecbb0ff22b1bef7eae623aa701`, `validate_catalog_graph` obtains the selected concrete `ModelRootOwner.identity`, adds `ModelOwners::operation_classes(identity, meter)` to the clause-derived concrete classes, sorts the combined inventory, and compares the catalog. The new public-reader test admits `Worker::run` with the selected declaration key and receiver type, and refuses omitted, wrong-node and wrong-binder variants. This resolves the protocol-only concrete inventory defect for the modeled operation case; complete FR-038-AC-325 remains unclaimed. |
+
+**CONDITIONAL** — the reviewed code finding is fixed in the current diff. The corresponding abstract-protocol regression case remains open in SR-597002, and the full FR-038-AC-325 and FR-064-AC-5 criteria remain unclaimed. No aggregate gate was run in this reviewer pass.

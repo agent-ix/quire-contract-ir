@@ -41,3 +41,19 @@ Plan completion: not assessed.
 | --- | --- | --- |
 | FND-001 | fixed | At `21f525d9`, `refinement_catalog_joins_timeout_on_await_node` constructs an admitted await holder with two timeout classes and asserts strict-reader admission; QSpec FR-426 confirms timeout belongs to await. |
 | FND-002 | still-open | At `21f525d9`, no positive test covers a concrete model operation class in an abstract-protocol refinement. The model-root carrier required to reconstruct it remains in IR-1043; PR #597 is draft and does not claim FR-038-AC-325. |
+
+## Disposition Round 2
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-002 | still-open | At `8f1a98efaebc0eecbb0ff22b1bef7eae623aa701`, `refinement_catalog_joins_concrete_model_operation_without_a_step_row` exercises the selected concrete operation inventory through the public reader, including admission, omission, node and binder refusals. Its fixture calls `row_empty_refinement`, whose body has no `protocol` member, so it does not exercise the abstract-protocol refinement configuration named by this finding. Add an admitted `body.protocol` case with the operation class on the concrete side and the complete abstract catalog; keep FR-038-AC-325 and FR-064-AC-5 unclaimed until their full obligations are met. |
+
+**CONDITIONAL; NOT MERGEABLE ON THIS REVIEW** — the new model-operation test improves slice evidence but leaves the specified abstract-protocol combination unverified. No aggregate gate was run in this reviewer pass.
+
+## Disposition Round 3
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-002 | fixed | At `8acd5c52528bff43ec54a5747b7bc49661def895`, the public-reader `refinement_catalog_joins_concrete_operation_and_abstract_protocol_without_step_rows` test retains the concrete `Worker::run` operation class, adds the selected local clause as `body.protocol`, supplies its complete abstract `OrderFlow::Closed` finish class, and asserts strict-reader admission. It then removes that abstract class, rekeys, and asserts `invalid_semantic_graph` at `/body/class_catalog/abstract`. Both positive and adverse paths fail if the abstract-protocol join is skipped or misapplied. The test carries Provenance only, so FR-038-AC-325 and FR-064-AC-5 remain unclaimed. |
+
+**PASS for the reviewed partial slice** — FND-001 and FND-002 are fixed by the latest dispositions. The PR is review-mergeable for this partial slice, subject to the code lead's exact-head gates and normal branch preparation. Full FR-038-AC-325 and FR-064-AC-5 acceptance remains unclaimed; no aggregate gate was run in this reviewer pass.
