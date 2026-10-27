@@ -27,3 +27,9 @@ Plan completion: not assessed. The computed Quoin matrix was read for the reposi
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | The healthy tick test calls the strict reader once and inspects its anchor, but never sends that admitted tick package through `encode_checked_package_v2` and reads it again. The only complete writer round-trip in this file uses the dense fixture, so the newly admitted tick body could be lost or changed by the public writer without this slice failing. | tests/conformance_qspec/timed_model.rs:19 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At 7a24be8d, the healthy tick test uses the public typed encoder, compares the emitted JSON with the authoritative fixture, reads it back, compares graph, package id and operation-anchor term, then encodes again and compares bytes. |

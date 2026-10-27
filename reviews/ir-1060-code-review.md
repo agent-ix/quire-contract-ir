@@ -25,3 +25,10 @@ Examined IR FR-038-AC-318, FR-038-AC-322, FR-038-AC-323, FR-065-AC-1, FR-065-AC-
 | --- | --- | --- | --- |
 | FND-001 | medium | The new healthy tick test claims FR-038-AC-323 but never checks the selected base Time dimension or a wrong-dimension refusal; that criterion belongs on the existing TM-23..29 test, while this test exercises tick anchor retention and admission. | tests/conformance_qspec/timed_model.rs:17 |
 | FND-002 | medium | Both new model-root tests claim FR-065-AC-1, whose external typed encoder and canonical read/write/read obligations neither test performs. The vector test reads published JSON and the fixture test inspects JSON and derives a root key; existing integration evidence owns the full AC-1 path. | tests/conformance_qspec/model_root.rs:37,80 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At 7a24be8d, the tick test traces FR-038-AC-318 and FR-038-AC-322, while the existing TM-23..29 test retains FR-038-AC-323. The new writer/readback assertions also exercise AC-322. |
+| FND-002 | fixed | At 7a24be8d, both model-root conformance tests trace FR-065-AC-3 only; the existing typed external encoder integration test retains FR-065-AC-1. |
