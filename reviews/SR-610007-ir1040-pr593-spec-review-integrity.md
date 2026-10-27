@@ -66,3 +66,4 @@ Round 1, verified against the fix diff 595df543..b467f147bfb200fff5fc31dbceea6b0
 | FND-003 | fixed | round 1: fixed at b467f147; after_excerpt in the Linear round-1 comment |
 | FND-004 | fixed | round 1: fixed at b467f147; after_excerpt in the Linear round-1 comment |
 | FND-005 | fixed | round 1: fixed at b467f147; after_excerpt in the Linear round-1 comment |
+| FND-006 | fixed | round 2: fixed at 89a090b0 (commit 89a090b0); after_excerpt in the Linear round-2 comment |
