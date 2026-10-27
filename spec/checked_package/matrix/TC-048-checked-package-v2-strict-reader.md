@@ -1666,9 +1666,16 @@ vector or schema is copied into this repository.
    individually visible. In each `choice` and `repeat` `visible` entry and
    guard, read the protocol input `over` directly and require
    `ill_typed`/`operator-ineligible` at the read, naming the slot, before
-   binder-scope and decision-fact checks. Read a protocol activation binder
-   that is available at the decision and require
-   `wrong_snapshot`/`wrong-observation` with `ineligible-kind`. Read a finish
+   binder-scope and decision-fact checks. Read a protocol activation
+   binder's field that is available at the decision and require
+   `wrong_snapshot`/`wrong-observation` with `ineligible-kind` and the retained
+   binder and field. In each of those four slots, read the activation binder
+   `opened` bare inside a Boolean-rooted expression; repeat with a bare
+   receive record binder. Require `ill_typed`/`operator-ineligible` at the
+   bare-read node with the slot detail after scope and model-state checks,
+   without a field-less `wrong_snapshot` detail. In both operand orders, pair
+   the bare activation read with an in-scope ineligible `send` field read and
+   require the bare-read refusal first. Read a finish
    binder in each `choice` `visible` entry, `choice` guard, `repeat` `visible`
    entry and `repeat` guard; require `missing_declaration`/`missing-name` at
    the read with `read` `stage` in all four slots. Read a compensation-template
@@ -1676,7 +1683,7 @@ vector or schema is copied into this repository.
    with `read` `foreign`. In one slot pair an `over` read with a binder read
    and require the `over` refusal; pair an out-of-scope binder read with an in-scope
    ineligible binder read and require the out-of-scope refusal. Use QSpec
-   TC-948 DF6b and DF7d..DF7f as the independent oracle. Assert the specified
+   TC-948 DF6b and DF7d..DF7h as the independent oracle. Assert the specified
    first refusal and retained stage, owner, slot and reason details rather
    than only a refusal code (FR-038-AC-291/292; QSpec FR-466-AC-14/16).
 6. Combine defects in state and protocol, temporal and protocol,

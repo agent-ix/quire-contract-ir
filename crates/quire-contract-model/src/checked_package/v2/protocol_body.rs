@@ -3816,6 +3816,98 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         Ok(())
     }
 
+    /// A decision may project a record field, but cannot read the record binder itself.
+    fn bare_decision_record_read(
+        &self,
+        term: &CheckedTerm,
+        owner: usize,
+        listed: &BTreeSet<usize>,
+        use_at: DecisionFactUse,
+        slot: &'static str,
+        meter: &mut WorkMeter,
+    ) -> Result<(), ValidationFailure> {
+        let CheckedTerm::Reference { target } = term else {
+            return Ok(());
+        };
+        let Some(&root) = self.check.index.get(target) else {
+            return Ok(());
+        };
+        let mut pending = vec![root];
+        let mut visited = BTreeSet::new();
+        while let Some(position) = pending.pop() {
+            meter.charge(1, || node_pointer(owner))?;
+            if !visited.insert(position)
+                || (matches!(use_at, DecisionFactUse::Guard) && listed.contains(&position))
+                || matches!(self.check.kinds[position], CheckedNodeKind::Function(_))
+            {
+                continue;
+            }
+            let body = self.check.terms[position].as_ref();
+            let projection = matches!(body,
+                Some(CheckedTerm::Application { operation, .. })
+                if operation.get("identity").and_then(Value::as_str)
+                    == Some("quire.op.record.project")
+                    && operation.pointer("/member/kind").and_then(Value::as_str) == Some("field"));
+            let bare = match body {
+                Some(CheckedTerm::Reference { target }) => self
+                    .check
+                    .index
+                    .get(target)
+                    .copied()
+                    .filter(|&binder| self.record_parameter(binder))
+                    .map(|_| position),
+                Some(CheckedTerm::Application { arguments, .. }) if !projection => arguments
+                    .iter()
+                    .filter_map(reference_target)
+                    .filter_map(|target| self.check.index.get(target).copied())
+                    .find(|&binder| self.record_parameter(binder))
+                    .map(|_| position),
+                _ => None,
+            };
+            if let Some(read) = bare {
+                let mut failure = ValidationFailure::refused_at(
+                    Code::IllTyped,
+                    node_pointer(read),
+                    Some(Cause::OperatorIneligible),
+                    self.check.nodes[read].node_id.clone(),
+                );
+                if let ValidationFailure::Refused(ref mut refusal) = failure {
+                    refusal.protocol_detail =
+                        Some(Box::new(CheckedProtocolRefusalDetail::ModelStateRead {
+                            slot: slot.into(),
+                        }));
+                }
+                return Err(failure);
+            }
+            if projection {
+                continue;
+            }
+            for target in self.check.nodes[position].dependencies.iter().rev() {
+                meter.charge(1, || node_pointer(owner))?;
+                if let Some(&next) = self.check.index.get(target) {
+                    pending.push(next);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn record_parameter(&self, position: usize) -> bool {
+        self.check
+            .is(position, CheckedNodeKind::Value(ValueForm::Parameter))
+            && self
+                .check
+                .index
+                .get(&self.check.nodes[position].semantic_type)
+                .is_some_and(|&ty| {
+                    matches!(
+                        self.check.kinds[ty],
+                        CheckedNodeKind::CompositeType(CompositeTypeForm::Record)
+                            | CheckedNodeKind::Model(ModelForm::RecordValueType)
+                    )
+                })
+    }
+
     fn introduce(
         &self,
         position: usize,
@@ -3935,6 +4027,14 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                 let owner = self.target(argument(args, 0).expect("decision owner"));
                 for entry in members(visible).expect("visible entries") {
                     self.slot(position, entry, &input, "run", Some("visible"), None, meter)?;
+                    self.bare_decision_record_read(
+                        entry,
+                        owner,
+                        &listed,
+                        DecisionFactUse::VisibleEntry,
+                        "visible",
+                        meter,
+                    )?;
                     self.decision_facts(
                         entry,
                         owner,
@@ -3955,6 +4055,14 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                             None,
                             meter,
                         )?;
+                        self.bare_decision_record_read(
+                            guard,
+                            owner,
+                            &listed,
+                            DecisionFactUse::Guard,
+                            "choice.guard",
+                            meter,
+                        )?;
                         self.decision_facts(guard, owner, &listed, DecisionFactUse::Guard, meter)?;
                     }
                 } else {
@@ -3966,6 +4074,14 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                         "run",
                         Some("repeat.guard"),
                         None,
+                        meter,
+                    )?;
+                    self.bare_decision_record_read(
+                        guard,
+                        owner,
+                        &listed,
+                        DecisionFactUse::Guard,
+                        "repeat.guard",
                         meter,
                     )?;
                     self.decision_facts(guard, owner, &listed, DecisionFactUse::Guard, meter)?;
