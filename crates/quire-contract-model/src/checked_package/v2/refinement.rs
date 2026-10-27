@@ -2193,7 +2193,7 @@ pub(super) fn validate_catalog_graph(
         compare_abstract_classes(
             &catalog.r#abstract,
             &abstract_classes,
-            root.key("abstract"),
+            root.clone().key("abstract"),
             &graph.nodes[position].node_id,
             meter,
         )?;
