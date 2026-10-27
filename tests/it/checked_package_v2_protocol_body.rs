@@ -649,6 +649,21 @@ fn activation_record_field_is_ineligible_in_each_decision_slot() {
                 Some(CheckedProtocolRefusalDetail::DecisionFact { reason, read, .. })
                 if reason.as_ref() == "ineligible-kind" && read.field.as_ref() == "ready"));
         }
+        let finish = protocol_position(&decision_package, "obligation");
+        let finish_binder = decision_package["semantic_graph"]["nodes"][finish]["body"]
+            ["arguments"][0]["value"]["target"]
+            .clone();
+        let mut paired = decision_package;
+        let both = decision_conjunction(&mut paired, &finish_binder, &field_key);
+        decision_slot_read(&mut paired, operator, "guard", &both);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&paired) else {
+            panic!("{operator} guard must reject an unavailable finish before activation fact");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+        assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+        assert!(matches!(refusal.protocol_detail.as_deref(),
+            Some(CheckedProtocolRefusalDetail::BinderScope { stage, read, .. })
+            if stage.as_ref() == "run" && read.as_ref() == "stage"));
     }
 }
 
