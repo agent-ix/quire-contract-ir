@@ -2382,6 +2382,7 @@ fn protocol_classes(
                     .and_then(super::protocol_body::text_value)
                     == Some("each")
                 {
+                    meter.charge(super::model_members::units(nodes.len()), || at.clone())?;
                     let trigger_type = super::protocol_body::group_value(activation, "trigger")
                         .and_then(|trigger| match trigger {
                             CheckedTerm::Reference { target } => Some(target),
