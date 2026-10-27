@@ -1428,8 +1428,12 @@ fn validate_catalog(
         let same_selected_model = graph.nodes[source_position]
             .owner_model
             .as_ref()
-            .and_then(|owner_model| graph.local_node(owner_model))
-            .and_then(|model| model.owner.as_ref())
+            .and_then(|owner_model| graph.index.get(owner_model).copied())
+            .filter(|&owner_position| {
+                graph.kinds[owner_position]
+                    == super::CheckedNodeKind::Model(super::ModelForm::ObjectType)
+            })
+            .and_then(|owner_position| graph.nodes[owner_position].owner.as_ref())
             .zip(selected_identity)
             .is_some_and(|(declaration_owner, selected)| {
                 matches!(declaration_owner,
@@ -2338,8 +2342,11 @@ fn protocol_classes(
         let clause_identity = clause
             .owner_model
             .and_then(|owner| nodes.iter().find(|node| node.id == owner))
-            .and_then(|owner| match owner.owner {
-                Some(super::CheckedNodeOwner::Model { identity, .. }) => Some(identity.as_ref()),
+            .and_then(|owner| match (owner.kind, owner.owner) {
+                (
+                    super::CheckedNodeKind::Model(super::ModelForm::ObjectType),
+                    Some(super::CheckedNodeOwner::Model { identity, .. }),
+                ) => Some(identity.as_ref()),
                 _ => None,
             });
         if clause.kind != super::CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolClause)
