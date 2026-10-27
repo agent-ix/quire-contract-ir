@@ -189,9 +189,10 @@ ascending `node_id` digest order and the first defective frame is reported.
 
 ### Operation anchor body
 
-A `state`/`operation_anchor` node's `body` is an `aggregate` of exactly three
-bindings in order: `context`, a `reference`; `operation`, a `text` literal
-whose value is an identifier; and `frame`, a `reference`. Every occurrence has
+A `state`/`operation_anchor` node's `body` is an `aggregate` of three
+required bindings in order: `context`, a `reference`; `operation`, a `text` literal
+whose value is an identifier; and `frame`, a `reference`. It may carry an
+optional fourth `execution_point` binding after `frame`. Every occurrence has
 role `anchor`. For one anchor the reader checks, in order, and reports the
 first failure: the `context` target is a declared `model`/`object_type`
 dependency; the `frame` target is a declared `state`/`frame` dependency (each
@@ -210,8 +211,8 @@ parameter of the resolved operation, else `missing_declaration`/`missing-name`
 located at the frame node (QSpec FR-342 check 5). A `receiver` entry needs no
 parameter, and a parameter is a reference parameter when its type is
 `Reference<T>` for an object type `T`. Once every
-anchor's own joins hold, a second anchor naming the same (`context`,
-`operation`) pair refuses as
+anchor's own joins and point applicability hold, a second anchor naming the same (`context`,
+`operation`) pair with the same execution point (including both absent) refuses as
 `ambiguous_declaration`/`ambiguous-name` at the second anchor in ascending
 node-id digest order. QSpec FR-342-AC-6
 admits two anchors of one `context` that reference one `frame` node, as
@@ -224,13 +225,46 @@ FR-342 check 5 does not state: the scoped-deletes check needs the resolved
 operation's parameters, so it does not run for an anchor whose `operation` is
 unresolved (FR-040-AC-30).
 
+The optional fourth binding's `value` is the bare closed FR-322
+`ExecutionPoint` object (`{kind, name}` or `{kind, operation}`), not a
+`CheckedTerm` and not an application argument. The anchor-body decoder shall
+read this member as a dedicated typed point alongside the three existing
+term-valued bindings; it shall not invent a `term` tag or put the point into
+the generic expression-term grammar. Its wire shape is checked against
+QSpec's `OperationAnchorBody`/`ExecutionPoint` before graph and state checks.
+A wrong binding count, position or non-point fourth value refuses
+`invalid_semantic_graph` with no cause at the anchor `body` before the state
+step. IR reading of QSpec's shape/semantic tension: an object present in the
+fourth position but failing the closed `ExecutionPoint` schema (unknown kind,
+missing or extra member, empty name) is a schema-level
+`invalid_semantic_graph` with no cause at that binding's `value`; only a
+well-formed point of the wrong applicable kind or operation name reaches the
+state step and refuses `invalid_model_binding`/`malformed-declaration` at the
+anchor node. A state-clause member's point has the same split: a point failing
+the closed schema refuses `invalid_semantic_graph` with no cause at
+`body/operation/member/execution_point` before state, while a well-formed but
+inapplicable or disagreeing point reaches the state step.
+
+An anchor's optional fourth binding has exactly the closed FR-322
+`ExecutionPoint` shape. It is `pre{operation}` or `post{operation}`, with
+`operation` equal to the resolved `operation` binding name; a clause-bound
+anchor's point equals every clause that references it, while a protocol-only
+anchor may omit the point. A well-formed `initialization`/`handler` point or a well-formed
+`pre`/`post` point with a disagreeing operation name refuses
+`invalid_model_binding`/`malformed-declaration` at the anchor node in the
+state step. The fourth binding enters the structural node preimage; absence
+and each accepted point produce distinct node identities and package identities.
+The state-clause member's point enters the application node preimage with the
+same identity distinction. Structural and application node key mismatches
+refuse `invalid_package`/`stale-node-key` before the state step.
+
 ### State clause body
 
 A `state`/`state_clause` node's `body` is one `application` with operator
 class `state_clause` and `operation.identity` `quire.op.state.clause`, whose
-`operation.member` is `{"kind": "state_clause", "clause"}` with `clause` one
-of `invariant`, `precondition` or `postcondition`, `laws` empty, `mode`
-`null` and `leaves` empty, and whose three arguments are, in order, an
+`operation.member` is `{"kind": "state_clause", "clause", "execution_point"?}` with `clause` one
+of `invariant`, `constraint`, `precondition` or `postcondition` and an optional
+`execution_point`, `laws` empty, `mode` `null` and `leaves` empty, and whose three arguments are, in order, an
 `aggregate` of one or more `reference` terms (the parameters), a `reference`
 (the anchor) and the Boolean condition. Every occurrence has role `claim`,
 and the node's `semantic_type` is the `scalar_type`/`boolean` node. A
@@ -244,7 +278,7 @@ For one clause node the reader checks, in order, and reports the first
 failure:
 
 1. **Anchor.** The anchor target is a declared dependency, else
-   `missing_declaration`/`missing-name`; for an invariant it is a
+   `missing_declaration`/`missing-name`; for an invariant or constraint it is a
    `model`/`object_type` node and for a precondition or postcondition a
    `state`/`operation_anchor` node, else `invalid_model_binding`/
    `malformed-declaration`, located at the anchor's target.
@@ -256,8 +290,8 @@ failure:
    `Reference<C>`; for a postcondition, the resolved operation's result when
    it has one; and for a precondition or postcondition, the resolved
    operation's parameters in declared order. `C` is the anchor object type
-   for an invariant and the anchor's `context` otherwise, and an invariant
-   binds `self` alone. A different count or type refuses as
+   for an invariant or constraint and the anchor's `context` otherwise; an
+   invariant or constraint binds `self` alone. A different count or type refuses as
    `ill_typed`/`operator-ineligible` at the clause node, checking `self`,
    then `result`, then the operation's parameters. `self` is checked for
    every clause. The result and the operation's parameters are checked only
@@ -265,6 +299,22 @@ failure:
    a clause anchored on any other context is checked for `self` alone. A
    result or parameter type is compared by the node key of the resolved
    member's slot type.
+
+4. **Execution point.** A present point already passed FR-322's closed
+   schema check before the state step; an unknown variant, missing or extra
+   member, or empty name refused `invalid_semantic_graph` with no cause at
+   `/semantic_graph/nodes/{i}/body/operation/member/execution_point` there.
+   Here `initialization{name}` or `handler{name}` applies to an invariant or
+   constraint, and `pre{operation}` or `post{operation}` to a precondition or
+   postcondition. For an operation clause, the `operation` name equals the
+   resolved operation name and its point, including absence, equals its
+   `operation_anchor` point. For an invariant or constraint, the reader
+   retains the nonempty name unchanged; the V2 package has no independently
+   selected source anchor name to compare. QSL owns that source agreement,
+   verified by the fresh producer vector in TC-056. A well-formed point of an
+   inapplicable kind, a mismatched operation name, or a clause/anchor point
+   mismatch refuses `invalid_model_binding`/`malformed-declaration` at
+   `/semantic_graph/nodes/{i}` in the state step.
 
 A clause node's own `semantic_type` is not checked beyond the catalog's
 `result_type` for `quire.op.state.clause` being the `scalar_type`/`boolean`
@@ -302,8 +352,9 @@ The frame step runs after every graph-shape, stale-key and declaration
 refusal. The state step runs after the frame step and before the operation
 step; within it the reader checks, each in ascending node-id digest order,
 the placement of every `quire.op.state.clause` application, then every
-operation anchor (including the scoped-deletes check of its frame's
-`deletes_scoped`), then every state clause, and reports the first defect.
+operation anchor (including the scoped-deletes and point checks), then tuple
+uniqueness among anchors whose own checks passed, then every state clause,
+and reports the first defect.
 
 ## Acceptance Criteria
 
@@ -339,6 +390,12 @@ operation anchor (including the scoped-deletes check of its frame's
 | FR-040-AC-28 | Two anchors of one `context` referencing one `frame` node both admit, and the frame's `parameter` entries are checked against each anchor's operation, the first failure in ascending anchor node-id digest order being reported. This criterion supersedes the last clause of FR-040-AC-7: the test tagged FR-040-AC-7 (`tc_056_operation_anchors_admit_their_three_bindings_and_joins`, case "a shared frame") asserts admission; no other outcome of AC-7 changes. | Test (TC-056) |
 | FR-040-AC-29 | A package carrying a frame-step defect and a `parameter` entry that fails the state step's scoped-deletes check reports the frame-step defect. | Test (TC-056) |
 | FR-040-AC-30 | An anchor whose `context` is not a model declaration node, and so whose `operation` is admitted unresolved, is not checked for scoped deletes: a frame `parameter` entry naming no parameter admits in the state step for it. | Test (TC-056) |
+| FR-040-AC-31 | An anchor admits its three required bindings with no point, and admits a fourth `execution_point` binding after `frame` whose value is a bare closed object `{"kind":"pre","operation":"scaled"}` or `{"kind":"post","operation":"scaled"}`, not a `term`; these three forms have different rederived node identities, and otherwise identical packages containing one form have different package ids. Reordering the fourth binding or adding another binding refuses `invalid_semantic_graph` with no cause at `/semantic_graph/nodes/{i}/body` before state; changing the point without rekeying refuses `invalid_package`/`stale-node-key` at `/semantic_graph/nodes/{i}/node_id` before state. This supersedes only AC-7's blanket extra-binding refusal: an extra binding other than the specified fourth still refuses `invalid_semantic_graph` with no cause at the anchor `body`. | Test (TC-056) |
+| FR-040-AC-32 | An anchor with an unknown point variant, missing or extra point member, or empty name refuses `invalid_semantic_graph` with no cause at `/semantic_graph/nodes/{i}/body/members/3/value` before state. A well-formed `initialization` or `handler` point or point whose operation differs from the checked operation refuses `invalid_model_binding`/`malformed-declaration` at `/semantic_graph/nodes/{i}` in state. A duplicate `(context, operation, point)` tuple refuses `ambiguous_declaration`/`ambiguous-name` at the second anchor by ascending node-id digest; the same context and operation with distinct accepted points or one absent point admit. This refines AC-7's pair uniqueness without changing its no-point duplicate outcome. | Test (TC-056) |
+| FR-040-AC-33 | A state clause admits an optional `execution_point` member with each closed FR-322 variant: `initialization{name}` and `handler{name}` on an invariant or constraint, `pre{operation}` and `post{operation}` on a precondition or postcondition. The reader admits an omitted point as an explicit absence and never infers one from clause kind or anchor; the producer determines whether to emit one. Equal application bodies except for absent versus different accepted points have different rederived node identities and package ids; an accepted point round-trips unchanged. A `constraint` is checked like an invariant. This extends AC-8's three listed admitted clause kinds. | Test (TC-056) |
+| FR-040-AC-34 | An unknown clause point variant, missing or extra point member, or empty name refuses `invalid_semantic_graph` with no cause at `/semantic_graph/nodes/{i}/body/operation/member/execution_point` before state. A well-formed point inapplicable to the clause kind, an operation name different from the resolved operation, or a point unequal to the referenced operation anchor's point (including present on only one side) refuses `invalid_model_binding`/`malformed-declaration` at `/semantic_graph/nodes/{i}` in state. Invariant and constraint point names are retained exactly; source-name agreement is QSL-owned and verified through a fresh producer vector. A stale node key after only the point changes refuses `invalid_package`/`stale-node-key` before the state step. | Test (TC-056) |
+| FR-040-AC-35 | With simultaneous defects, graph shape and stale-key refusals precede the frame step; the frame step precedes state; within state, placement precedes ascending-id anchors and anchors precede ascending-id clauses. For one anchor, context, frame, types, operation and scoped deletes retain their order before point applicability; only after all anchors pass those checks does duplicate `(context, operation, point)` tuple detection run, before clause checks. For one clause, anchor, parameters and signature precede point applicability and clause-anchor point equality, including one-sided absence; operation catalog checking follows the state step. The first applicable defect's exact code, cause and RFC 6901 locus are returned with no package. | Test (TC-056) |
+| FR-040-AC-36 | For an admitted package, writer/encoder output preserves the exact optional point object in each anchor body and clause application member, including variant and name; an absent point emits no `execution_point` member. Reading the writer output returns equal retained typed points (or equal absence), equal node keys and equal package identity. Writer output never turns the anchor's bare point object into an expression term. | Test (TC-056) |
 
 ## Dependencies
 
