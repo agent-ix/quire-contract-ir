@@ -855,13 +855,15 @@ fn operation_defect(
         }
         (Some(_), Some(None)) | (Some(_), None) | (None, Some(_)) => return member_mismatch(),
     }
-    if entry.known == Some(super::KnownOperation::StateTransition)
-        && operation
-            .member
-            .as_ref()
-            .and_then(|member| member.get("operator"))
-            .and_then(Value::as_str)
-            != Some("transition")
+    let profile_operator = operation
+        .member
+        .as_ref()
+        .and_then(|member| member.get("operator"))
+        .and_then(Value::as_str);
+    if (entry.known == Some(super::KnownOperation::StateTransition)
+        && profile_operator != Some("transition"))
+        || (entry.known == Some(super::KnownOperation::ProtocolControl)
+            && profile_operator == Some("transition"))
     {
         return member_mismatch();
     }
@@ -5939,6 +5941,42 @@ mod tests {
             "a missing member where the catalogued entry requires one must be refused as \
              operation-member-mismatch, got {result:?}"
         );
+    }
+
+    #[trace("TC-064", "FR-067-AC-2")]
+    #[test]
+    fn isolated_operation_step_refuses_state_protocol_member_crossovers() {
+        let definition = dummy_law_definition('p');
+        let mut lock = empty_lock();
+        lock.profile_selections = vec![CheckedSelection {
+            role: CheckedSelectionRole::ProtocolProfile,
+            definition: serde_json::from_value(definition.clone())
+                .expect("selected protocol profile"),
+        }];
+        for (identity, operator, member) in [
+            ("quire.op.state.transition", "state_transition", "sequence"),
+            (
+                "quire.op.protocol.control",
+                "protocol_control",
+                "transition",
+            ),
+        ] {
+            let mut operation = plain_operation(identity);
+            operation["laws"] = json!([law_json("protocol_profile", definition.clone())]);
+            operation["member"] = json!({"kind":"profile_operator", "operator":member});
+            let node = custom_application_node(operator, operation, vec![]);
+            let result = defect_for_graph_locked(vec![node.clone()], &lock);
+            assert_eq!(
+                result,
+                Ok(Some(refused_at(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    "/semantic_graph/nodes/0/body/operation/member",
+                    Some(CheckedPackageRefusalCause::OperationMemberMismatch),
+                    node.node_id.clone(),
+                ))),
+                "{identity}: isolated step must refuse the cross-member before operand checks"
+            );
+        }
     }
 
     /// `operator-ineligible` (arity): agent-ix/quire-contract-ir#171.

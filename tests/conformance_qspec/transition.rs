@@ -155,7 +155,9 @@ fn read_with_selected_model_document(
     )
 }
 
-#[trace("TC-064", "FR-067-AC-1", "FR-067-AC-6")]
+/// The QSpec-owned half of AC-7 reads the selected checkout; its QSL-authored
+/// source/claim half remains separate evidence.
+#[trace("TC-064", "FR-067-AC-1", "FR-067-AC-6", "FR-067-AC-7")]
 #[test]
 fn published_boolean_transition_retains_five_typed_bindings_through_writer() {
     let fixture = published();
@@ -839,6 +841,24 @@ fn a_transition_binds_one_clause_while_its_anchor_has_several_pre_or_post_clause
 #[test]
 fn a_second_transition_for_the_same_anchor_and_subject_refuses() {
     let package = two_transitions_with_distinct_optional_preconditions();
+    let first = transition_position(&package);
+    let second = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    let first_digest = package["semantic_graph"]["nodes"][first]["node_id"]["digest"]
+        .as_str()
+        .expect("first transition digest");
+    let second_digest = package["semantic_graph"]["nodes"][second]["node_id"]["digest"]
+        .as_str()
+        .expect("second transition digest");
+    let later = if first_digest < second_digest {
+        second
+    } else {
+        first
+    };
+    let later_id = &package["semantic_graph"]["nodes"][later]["node_id"];
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_package(&package).expect("selected QSpec evidence")
     else {
@@ -846,6 +866,15 @@ fn a_second_transition_for_the_same_anchor_and_subject_refuses() {
     };
     assert_eq!(refusal.code, Code::AmbiguousDeclaration, "{refusal:?}");
     assert_eq!(refusal.cause, Some(Cause::AmbiguousName));
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{later}"))
+    );
+    assert_eq!(
+        serde_json::to_value(refusal.locus.as_ref().expect("duplicate locus"))
+            .expect("locus serializes"),
+        *later_id
+    );
 }
 
 #[trace("TC-064", "FR-067-AC-4")]
@@ -1108,6 +1137,117 @@ fn a_frame_member_defect_precedes_a_transition_anchor_defect() {
             .to_string()
             .starts_with("/semantic_graph/nodes/10/body/modifies/0")),
         "{refusal:?}"
+    );
+}
+
+fn with_bad_frame() -> Value {
+    let mut package = published();
+    let position = transition_position(&package);
+    package["semantic_graph"]["nodes"][10]["body"]["modifies"][0]["name"] = json!("not_a_field");
+    fixture_support::mint_ungrouped_structural_keys(&mut package);
+    for clause in [12, 13] {
+        rekey_application_with_references(&mut package, clause);
+    }
+    refresh_transition(&mut package, position);
+    package
+}
+
+#[trace("TC-064", "FR-067-AC-4")]
+#[test]
+fn graph_dependency_and_selected_model_owner_refuse_before_a_frame_defect() {
+    let mut graph = with_bad_frame();
+    graph["semantic_graph"]["nodes"][9]["dependencies"] = json!([]);
+    fixture_support::refresh_identity_projection(&mut graph);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package(&graph).expect("selected QSpec evidence")
+    else {
+        panic!("graph dependency defect must refuse before frame");
+    };
+    assert_eq!(refusal.code, Code::InvalidSemanticGraph, "{refusal:?}");
+    assert_eq!(refusal.cause, None);
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string),
+        Some("/semantic_graph/nodes/9/dependencies".into())
+    );
+
+    let mut selected = with_bad_frame();
+    selected["semantic_graph"]["nodes"][3]["owner"]["node"] = json!("ix://acme/orders/Missing");
+    fixture_support::refresh_identity_projection(&mut selected);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package(&selected).expect("selected QSpec evidence")
+    else {
+        panic!("selected-model owner defect must refuse before frame");
+    };
+    assert_eq!(refusal.code, Code::MissingDeclaration, "{refusal:?}");
+    assert_eq!(refusal.cause, Some(Cause::MissingSelection));
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string),
+        Some("/semantic_graph/nodes/3/node_id".into())
+    );
+}
+
+#[trace("TC-064", "FR-067-AC-4")]
+#[test]
+fn anchor_refusal_precedes_transition_and_state_refusal_precedes_operation_catalog() {
+    let mut anchor = published();
+    let position = transition_position(&anchor);
+    anchor["semantic_graph"]["nodes"][11]["body"]["members"][1]["value"]["value"] =
+        json!("missing");
+    fixture_support::mint_ungrouped_structural_keys(&mut anchor);
+    for clause in [12, 13] {
+        rekey_application_with_references(&mut anchor, clause);
+    }
+    let model = target(&anchor, "model", "object_type");
+    anchor["semantic_graph"]["nodes"][position]["body"]["arguments"][0]["value"]["target"] = model;
+    refresh_transition(&mut anchor, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package(&anchor).expect("selected QSpec evidence")
+    else {
+        panic!("anchor defect must refuse before transition defect");
+    };
+    assert_eq!(refusal.code, Code::MissingDeclaration, "{refusal:?}");
+    assert_eq!(refusal.cause, Some(Cause::MissingName));
+    assert!(
+        refusal
+            .path
+            .as_ref()
+            .is_some_and(|path| path.to_string().starts_with("/semantic_graph/nodes/11")),
+        "{refusal:?}"
+    );
+
+    let mut operation = published();
+    operation["semantic_graph"]["nodes"][position]["body"]["operation"]["laws"][0]["definition"]
+        ["identity"] = json!("missing-profile");
+    refresh_transition(&mut operation, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package(&operation).expect("selected QSpec evidence")
+    else {
+        panic!("unselected law must reach the operation step by itself");
+    };
+    assert_eq!(refusal.code, Code::InvalidPackage, "{refusal:?}");
+    assert_eq!(refusal.cause, Some(Cause::OperationLawUnselected));
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string),
+        Some(format!(
+            "/semantic_graph/nodes/{position}/body/operation/laws/0/definition"
+        ))
+    );
+    let model = target(&operation, "model", "object_type");
+    operation["semantic_graph"]["nodes"][position]["body"]["arguments"][0]["value"]["target"] =
+        model;
+    refresh_transition(&mut operation, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package(&operation).expect("selected QSpec evidence")
+    else {
+        panic!("transition state defect must refuse before operation law defect");
+    };
+    assert_eq!(refusal.code, Code::InvalidModelBinding, "{refusal:?}");
+    assert_eq!(refusal.cause, Some(Cause::MalformedDeclaration));
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string),
+        Some(format!(
+            "/semantic_graph/nodes/{position}/body/arguments/0/value/target"
+        ))
     );
 }
 

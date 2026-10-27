@@ -187,6 +187,7 @@ fn is_node_domain(domain: &str) -> bool {
 enum KnownOperation {
     StateClause,
     StateTransition,
+    ProtocolControl,
     NumericNarrow,
     ModelNavigate,
     ModelReaches,
@@ -199,6 +200,7 @@ impl KnownOperation {
         match text {
             "quire.op.state.clause" => Some(Self::StateClause),
             "quire.op.state.transition" => Some(Self::StateTransition),
+            "quire.op.protocol.control" => Some(Self::ProtocolControl),
             "quire.op.numeric.narrow" => Some(Self::NumericNarrow),
             "quire.op.model.navigate" => Some(Self::ModelNavigate),
             "quire.op.model.reaches" => Some(Self::ModelReaches),
