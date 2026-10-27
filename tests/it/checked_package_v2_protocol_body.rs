@@ -507,6 +507,73 @@ fn decision_guards_report_model_state_before_out_of_scope_finish() {
 /// Trace: FR-038-AC-292
 #[trace("TC-048")]
 #[test]
+fn compensation_template_binders_are_foreign_in_each_decision_slot() {
+    for operator in ["choice", "repeat"] {
+        let (mut package, _, compensation) = package_with_admitted_compensation();
+        let (holder_package, _) = protocol_holder_case(operator);
+        let holder = holder_position(&holder_package);
+        let holder_key = holder_package["semantic_graph"]["nodes"][holder]["node_id"].clone();
+        let holder_nodes = holder_package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .filter(|node| {
+                node["declaration"]["qualified_name"]
+                    .as_array()
+                    .is_some_and(|path| path.len() >= 5 && path[4] == "Holder")
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(holder_nodes.len(), 3, "holder and its two children");
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .extend(holder_nodes);
+        let root = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .position(|node| {
+                node["declaration"]["qualified_name"]
+                    == json!(["Example", "OrderFlow", "run", "Main"])
+            })
+            .expect("root sequence");
+        package["semantic_graph"]["nodes"][root]["body"]["arguments"][0]["value"]["members"]
+            .as_array_mut()
+            .expect("children")
+            .push(json!({"term": "reference", "target": holder_key}));
+        settle(&mut package);
+        assert!(
+            matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+            "{operator} with compensation must admit: {:?}",
+            read(&package)
+        );
+
+        let binder = package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][5]
+            ["value"]["members"][0]["members"][0]["value"]["target"]
+            .clone();
+        for slot in ["visible", "guard"] {
+            let mut case = package.clone();
+            decision_slot_read(&mut case, operator, slot, &binder);
+            let CheckedPackageV2ReadResult::Refused(refusal) = read(&case) else {
+                panic!("{operator} {slot} must refuse the template binder");
+            };
+            assert_eq!(
+                refusal.code,
+                CheckedPackageRefusalCode::MissingDeclaration,
+                "{operator} {slot}"
+            );
+            assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+            assert!(matches!(refusal.protocol_detail.as_deref(),
+                Some(CheckedProtocolRefusalDetail::BinderScope { stage, read, .. })
+                if stage.as_ref() == "run" && read.as_ref() == "foreign"));
+        }
+    }
+}
+
+/// Trace: FR-038-AC-292
+#[trace("TC-048")]
+#[test]
 fn activation_record_field_is_ineligible_in_each_decision_slot() {
     let (mut package, _) = protocol_holder_case("choice");
     let clause = clause_position(&package);
