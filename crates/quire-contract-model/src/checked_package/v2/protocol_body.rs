@@ -3895,7 +3895,6 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
     fn record_parameter(&self, position: usize) -> bool {
         self.check
             .is(position, CheckedNodeKind::Value(ValueForm::Parameter))
-            && !self.captures.contains(&position)
             && self
                 .check
                 .index

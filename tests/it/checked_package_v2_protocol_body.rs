@@ -760,6 +760,47 @@ fn activation_record_field_fixture() -> (Value, Value, Value) {
     (package, trigger, field_key)
 }
 
+fn record_capture_fixture() -> (Value, Value, Value) {
+    let (mut package, trigger, trigger_field) = activation_record_field_fixture();
+    let record = package["semantic_graph"]["nodes"][node_position_for_key(&package, &trigger)]
+        ["semantic_type"]
+        .clone();
+    let capture = clause_parameter(&mut package, "snapshot", "2");
+    let position = node_position_for_key(&package, &capture);
+    package["semantic_graph"]["nodes"][position]["semantic_type"] = record.clone();
+    let body = package["semantic_graph"]["nodes"][position]["body"].clone();
+    let key = structural_key("value", "parameter", record["digest"].as_str(), &body);
+    rename_node(
+        &mut package,
+        capture["digest"].as_str().expect("capture key"),
+        &key,
+    );
+    let capture = node_id(&key);
+    let clause = clause_position(&package);
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][2]["value"]["members"] = json!([{"term": "aggregate", "members": [
+        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": capture}},
+        {"term": "binding", "name": "initializer", "value": {"term": "reference", "target": trigger}}
+    ]}]);
+    relevel_finish_binder(&mut package, 3);
+    let mut field =
+        package["semantic_graph"]["nodes"][node_position_for_key(&package, &trigger_field)].clone();
+    field["body"]["arguments"][0]["target"] = capture.clone();
+    field["node_id"] = node_id(&application_node_key(
+        "expression",
+        "query",
+        &family_key("aaaa"),
+        &field["body"],
+    ));
+    field["dependencies"] = json!([capture]);
+    let field_key = field["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(field);
+    settle(&mut package);
+    (package, capture, field_key)
+}
+
 fn activation_with_sent_field_fixture() -> (Value, usize, Value, Value) {
     let (mut package, decision, field, got, sent) = receive_fact_fixture();
     let record = package["semantic_graph"]["nodes"][node_position_for_key(&package, &sent)]
@@ -1069,6 +1110,86 @@ fn bare_receive_record_read_refuses_in_each_decision_slot() {
                 Some(&CheckedProtocolRefusalDetail::ModelStateRead {
                     slot: expected_slot.into()
                 })
+            );
+        }
+    }
+}
+
+/// Trace: FR-038-AC-292
+#[trace("TC-048")]
+#[test]
+fn bare_record_capture_refuses_while_its_field_and_scalar_capture_admit() {
+    let (record_package, capture, field) = record_capture_fixture();
+    assert!(
+        matches!(
+            read(&record_package),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "record capture fixture must admit: {:?}",
+        read(&record_package)
+    );
+    let (mut scalar_package, _) = protocol_holder_case("choice");
+    let scalar = clause_parameter(&mut scalar_package, "captured_flag", "1");
+    let clause = clause_position(&scalar_package);
+    scalar_package["semantic_graph"]["nodes"][clause]["body"]["arguments"][2]["value"]["members"] = json!([{"term": "aggregate", "members": [
+        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": scalar}},
+        {"term": "binding", "name": "initializer", "value": {"term": "literal",
+            "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}}
+    ]}]);
+    relevel_finish_binder(&mut scalar_package, 2);
+    settle(&mut scalar_package);
+    assert!(
+        matches!(
+            read(&scalar_package),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "scalar capture fixture must admit: {:?}",
+        read(&scalar_package)
+    );
+
+    for operator in ["choice", "repeat"] {
+        let record_decision = decision_package_for_operator(&record_package, operator);
+        let scalar_decision = decision_package_for_operator(&scalar_package, operator);
+        for slot in ["visible", "guard"] {
+            let mut case = record_decision.clone();
+            let (root, bare) = boolean_rooted_bare_record_read(&mut case, &capture);
+            decision_slot_read(&mut case, operator, slot, &root);
+            let CheckedPackageV2ReadResult::Refused(refusal) = read(&case) else {
+                panic!("{operator} {slot} must reject bare record capture");
+            };
+            assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
+            assert_eq!(
+                refusal.cause,
+                Some(CheckedPackageRefusalCause::OperatorIneligible)
+            );
+            assert_protocol_refusal_at(&refusal, &case, node_position_for_key(&case, &bare));
+            let expected_slot = if slot == "visible" {
+                "visible"
+            } else if operator == "choice" {
+                "choice.guard"
+            } else {
+                "repeat.guard"
+            };
+            assert_eq!(
+                refusal.protocol_detail.as_deref(),
+                Some(&CheckedProtocolRefusalDetail::ModelStateRead {
+                    slot: expected_slot.into()
+                })
+            );
+
+            let mut field_case = record_decision.clone();
+            decision_slot_read(&mut field_case, operator, slot, &field);
+            assert!(
+                matches!(read(&field_case), CheckedPackageV2ReadResult::Admitted(_)),
+                "{operator} {slot} field of protocol capture must admit: {:?}",
+                read(&field_case)
+            );
+            let mut scalar_case = scalar_decision.clone();
+            decision_slot_read(&mut scalar_case, operator, slot, &scalar);
+            assert!(
+                matches!(read(&scalar_case), CheckedPackageV2ReadResult::Admitted(_)),
+                "{operator} {slot} scalar capture must admit: {:?}",
+                read(&scalar_case)
             );
         }
     }
