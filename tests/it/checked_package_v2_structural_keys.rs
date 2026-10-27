@@ -2226,10 +2226,11 @@ fn tc_226_tree_whole_read_work_boundary() {
     const TREE_DEPENDENCY_CHARGE: u64 = OTHER_READ_WORK + TREE_GROUP_WORK;
     const REMAINING_WORK: u64 = 7;
     const M: u64 = TREE_DEPENDENCY_CHARGE + REMAINING_WORK;
-    assert!(matches!(
-        read_at(M),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ));
+    let at_boundary = read_at(M);
+    assert!(
+        matches!(at_boundary, CheckedPackageV2ReadResult::Admitted(_)),
+        "whole-read boundary {M}: {at_boundary:?}"
+    );
     let CheckedPackageV2ReadResult::Incomplete(incomplete) = read_at(TREE_DEPENDENCY_CHARGE - 1)
     else {
         panic!("Tree dependency charge must expose no package");

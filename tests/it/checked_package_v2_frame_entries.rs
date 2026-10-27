@@ -12,8 +12,8 @@
 use crate::support::checked_package::{
     canonical, domain_package_digest, evidence_for, family_model_document, fixture_source,
     mint_ungrouped_structural_keys, node_id, over_body, rebuild_source_map, refresh_identity,
-    rename_node, settle, sha256_hex, source_owner, structural_key, typed_node_id, v2_all_families,
-    BOOLEAN_KEY, INTEGER_KEY,
+    rename_node, selected_interface_model_node, settle, sha256_hex, source_owner, structural_key,
+    typed_node_id, v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -103,6 +103,19 @@ fn position(value: &Value, tag: &str, form: &str) -> usize {
         .iter()
         .position(|node| node["node_tag"] == tag && node["semantic_form"] == form)
         .unwrap_or_else(|| panic!("a {tag}/{form} node"))
+}
+
+/// Keeps a protocol clause selected when a frame test turns its original
+/// model declaration into a source-declared node.
+fn select_other_protocol_owner(value: &mut Value) {
+    let model = selected_interface_model_node();
+    let owner = model["node_id"].clone();
+    value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(model);
+    let clause = position(value, "protocol", "protocol_clause");
+    value["semantic_graph"]["nodes"][clause]["owner_model"] = owner;
 }
 
 fn digest(value: &Value, position: usize) -> String {
@@ -2555,6 +2568,7 @@ fn tc_056_scoped_deletes_check_resolved_operation_after_frame_step() {
         json!({"qualified_name": ["Account"]});
     state.value["semantic_graph"]["nodes"][object]["occurrences"] =
         json!([{"role": "declaration", "ordinal": 0}]);
+    select_other_protocol_owner(&mut state.value);
     mint_ungrouped_structural_keys(&mut state.value);
     settle(&mut state.value);
     let frame = position(&state.value, "state", "frame");
@@ -2896,6 +2910,7 @@ fn tc_445_source_declared_operation_input_has_no_selected_model_range() {
                             "value_kind": "integer", "value": "0"}]}),
             ),
         ]);
+    select_other_protocol_owner(&mut source.value);
     let pre = source.clause("precondition");
     source.value["semantic_graph"]["nodes"][pre]["body"]["arguments"][0]["members"]
         .as_array_mut()
