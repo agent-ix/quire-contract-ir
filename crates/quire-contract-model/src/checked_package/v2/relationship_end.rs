@@ -218,7 +218,8 @@ pub(super) mod tests {
     /// `Order`, relation nodes for both relationships, and the reaches
     /// application `7` over `LINKS` naming role `links`. Node keys are the
     /// digests of their own preimages, authored in dependency order. Returns
-    /// the package, the evidence and the placeholder-to-key map.
+    /// the selected model root, the package, the evidence and the
+    /// placeholder-to-key map.
     pub(in crate::checked_package::v2) fn admitted(
     ) -> (CheckedPackageV2, BTreeMap<char, CheckedNodeId>) {
         let limits = quire_canonical::Limits::new(1 << 20);
@@ -347,6 +348,23 @@ pub(super) mod tests {
         let model_selections = json!([{
             "identity": IDENTITY, "digest_domain": "sha256-jcs", "digest": document_digest,
         }]);
+        let root_owner = json!({
+            "kind": "model_root", "identity": IDENTITY, "digest": document_digest,
+        });
+        let root_body = json!({"term": "aggregate", "members": []});
+        let root_preimage = json!({
+            "version": "quire.structural-node/v1", "node_tag": "model",
+            "semantic_form": "model_root", "semantic_type": null,
+            "declaration": null, "recursion": null,
+            "owner": root_owner, "body": root_body,
+        });
+        let root_id = json!({"domain": NODE_DOMAIN, "digest": digest_of(&root_preimage)});
+        nodes.push(json!({
+            "node_id": root_id, "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "model", "semantic_form": "model_root", "semantic_type": root_id,
+            "dependencies": [], "occurrences": [{"role": "generated", "ordinal": 0}],
+            "owner": root_owner, "body": root_body,
+        }));
         let source = json!({"authority": "test", "identity": "relationship-end",
             "digest_domain": "quire.source.bytes/v1", "digest": "a".repeat(64)});
         let source_map: Vec<Value> = nodes
