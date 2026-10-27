@@ -1118,8 +1118,8 @@ fn ir987_scalar_and_result_results_bytes_and_work_match_admitted_fixture() {
         panic!("work boundary");
     };
     // Protocol membership charges five, causal graph/progress seven, and the
-    // binder-scope pass charges 36 on this admitted fixture: 339 + 5 + 7 + 36.
-    assert_eq!((high, incomplete.consumed), (387, 387));
+    // binder-scope pass charges 36 on this admitted fixture: 340 + 5 + 7 + 36.
+    assert_eq!((high, incomplete.consumed), (388, 388));
 
     let contract = package(&checked, &[add.node_id.clone(), narrow.node_id.clone()]);
     let result = contract.result_context(
