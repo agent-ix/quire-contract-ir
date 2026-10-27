@@ -2229,7 +2229,7 @@ enum BinderSignature<T> {
 }
 
 impl<T> BinderSignature<T> {
-    fn map<U>(self, mut convert: impl FnMut(T) -> U) -> BinderSignature<U> {
+    fn map<U>(self, convert: impl FnMut(T) -> U) -> BinderSignature<U> {
         match self {
             Self::Known(types) => BinderSignature::Known(types.into_iter().map(convert).collect()),
             Self::Unspecified => BinderSignature::Unspecified,

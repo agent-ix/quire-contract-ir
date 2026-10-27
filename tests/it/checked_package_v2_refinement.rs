@@ -4,8 +4,8 @@
 //! Focused FR-061 refinement and selected state-machine owner vectors.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, refresh_identity, settle, sha256_hex, v2_all_families,
-    v2_nominal,
+    canonical, evidence_for, node_id, refresh_identity, settle, sha256_hex, structural_key,
+    v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -304,6 +304,194 @@ fn set_concrete_catalog(package: &mut Value, entries: Vec<Value>) -> usize {
     node["dependencies"] = json!(dependencies);
     rekey_refinement(package, position);
     position
+}
+
+fn activate_each(package: &mut Value, trigger_type: &Value) -> Value {
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let over = nodes
+        .iter()
+        .find(|node| {
+            node["semantic_form"] == "parameter"
+                && node["body"]["members"][0]["value"]["value"] == "over"
+        })
+        .expect("over parameter")
+        .clone();
+    let mut trigger = over;
+    trigger["semantic_type"] = trigger_type.clone();
+    trigger["body"]["members"][0]["value"]["value"] = json!("opened");
+    trigger["body"]["members"][1]["value"]["value"] = json!("1");
+    trigger["node_id"] = node_id(&structural_key(
+        "value",
+        "parameter",
+        trigger_type["digest"].as_str(),
+        &trigger["body"],
+    ));
+    let trigger_key = trigger["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(trigger);
+
+    let finish = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["body"]["operation"]["member"]["operator"] == "finish")
+        .expect("finish");
+    let old_binder = package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    let mut binder = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_id"] == old_binder)
+        .expect("finish binder")
+        .clone();
+    binder["body"]["members"][1]["value"]["value"] = json!("2");
+    binder["node_id"] = node_id(&structural_key(
+        "value",
+        "parameter",
+        binder["semantic_type"]["digest"].as_str(),
+        &binder["body"],
+    ));
+    let binder_key = binder["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(binder);
+    package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]["value"]["target"] =
+        binder_key;
+
+    let clause = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "protocol_clause")
+        .expect("protocol clause");
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][1]["value"]["members"] = json!([
+        {"term": "binding", "name": "kind", "value": {"term": "literal", "type": node_id(&crate::support::checked_package::family_key("a1a1")), "value_kind": "text", "value": "each"}},
+        {"term": "binding", "name": "trigger", "value": {"term": "reference", "target": trigger_key}}
+    ]);
+    settle(package);
+    package["semantic_graph"]["nodes"][clause]["node_id"].clone()
+}
+
+/// Trace: FR-038-AC-325
+#[trace("TC-048")]
+#[test]
+fn refinement_catalog_activate_each_uses_clause_and_trigger_signature() {
+    let (mut package, evidence) =
+        concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::SelectedModel);
+    let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let clause = activate_each(&mut package, &boolean);
+    let finish = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["body"]["operation"]["member"]["operator"] == "finish")
+        .expect("finish")["node_id"]
+        .clone();
+    let finish_entry =
+        json!({"class":"OrderFlow::Closed", "node":finish, "binder_types":[boolean]});
+    let activate = json!({
+        "class":"activate OrderFlow", "node":clause, "binder_types":[boolean]
+    });
+    let position = set_concrete_catalog(&mut package, vec![finish_entry.clone(), activate.clone()]);
+    let bytes = writer_bytes(&package);
+    assert_eq!(bytes, canonical(&package));
+    let admitted = CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "{admitted:?}"
+    );
+
+    let mut wrong_node = package.clone();
+    let mut wrong_entry = activate.clone();
+    wrong_entry["node"] = finish.clone();
+    set_concrete_catalog(&mut wrong_node, vec![finish_entry.clone(), wrong_entry]);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_node, &evidence) else {
+        panic!("activate associated with the finish node admitted");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1").as_str())
+    );
+
+    let mut wrong_binder = package.clone();
+    let mut wrong_entry = activate.clone();
+    wrong_entry["binder_types"] = json!([node_id(&crate::support::checked_package::family_key(
+        "a1a1"
+    ))]);
+    set_concrete_catalog(&mut wrong_binder, vec![finish_entry.clone(), wrong_entry]);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_binder, &evidence) else {
+        panic!("activate with the wrong binder type admitted");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1").as_str())
+    );
+
+    let mut missing = package.clone();
+    set_concrete_catalog(&mut missing, vec![finish_entry.clone()]);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&missing, &evidence) else {
+        panic!("missing activate class admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete").as_str())
+    );
+
+    let (mut origin, origin_evidence) =
+        concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::SelectedModel);
+    let origin_clause = origin["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "protocol_clause")
+        .expect("clause")["node_id"]
+        .clone();
+    let origin_finish = origin["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["body"]["operation"]["member"]["operator"] == "finish")
+        .expect("finish")["node_id"]
+        .clone();
+    set_concrete_catalog(
+        &mut origin,
+        vec![
+            json!({"class":"OrderFlow::Closed", "node":origin_finish, "binder_types":[boolean]}),
+            json!({"class":"activate OrderFlow", "node":origin_clause, "binder_types":[boolean]}),
+        ],
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&origin, &origin_evidence) else {
+        panic!("origin clause gained an activate class");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1").as_str())
+    );
 }
 
 fn memory_catalog_package() -> (Value, CheckedPackageEvidence, usize) {
