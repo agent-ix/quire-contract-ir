@@ -275,7 +275,10 @@ fn rekey_refinement(package: &mut Value, position: usize) {
     refresh_identity(package);
 }
 
-fn concrete_protocol_refinement() -> (Value, CheckedPackageEvidence) {
+fn concrete_protocol_refinement(
+    with_step: bool,
+    same_model: bool,
+) -> (Value, CheckedPackageEvidence) {
     let (machine, _) = machine_package();
     let model = machine["semantic_graph"]["nodes"]
         .as_array()
@@ -295,7 +298,16 @@ fn concrete_protocol_refinement() -> (Value, CheckedPackageEvidence) {
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
-        .push(model);
+        .push(model.clone());
+    if same_model {
+        let clause = package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .iter_mut()
+            .find(|node| node["semantic_form"] == "protocol_clause")
+            .expect("protocol clause");
+        clause["owner_model"] = model["node_id"].clone();
+    }
     settle(&mut package);
 
     let finish = package["semantic_graph"]["nodes"]
@@ -306,13 +318,17 @@ fn concrete_protocol_refinement() -> (Value, CheckedPackageEvidence) {
         .expect("declared finish")["node_id"]
         .clone();
     let profiles = package["lock"]["profile_selections"].clone();
-    one_step_refinement_with_step(
-        &mut package,
-        json!({
-            "source_class": "finish OrderFlow::Closed", "source_node": finish,
-            "target": {"kind": "stutter"}
-        }),
-    );
+    if with_step {
+        one_step_refinement_with_step(
+            &mut package,
+            json!({
+                "source_class": "finish OrderFlow::Closed", "source_node": finish,
+                "target": {"kind": "stutter"}
+            }),
+        );
+    } else {
+        row_empty_refinement(&mut package);
+    }
     let infinite = package["lock"]["profile_selections"][0].clone();
     package["lock"]["profile_selections"] = profiles;
     package["lock"]["profile_selections"]
@@ -628,7 +644,7 @@ fn refinement_row_empty_model_refinement_is_admitted() {
 #[trace("TC-048")]
 #[test]
 fn refinement_catalog_presence_precedes_declaration_backed_step_joins() {
-    let (mut package, evidence) = concrete_protocol_refinement();
+    let (mut package, evidence) = concrete_protocol_refinement(true, true);
     let refinement = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")

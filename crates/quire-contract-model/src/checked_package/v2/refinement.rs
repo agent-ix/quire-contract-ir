@@ -1296,6 +1296,7 @@ fn validate_catalog(
     body: &CheckedTerm,
     position: usize,
     graph: &RefinementGraph<'_, '_>,
+    concrete_model: &CheckedNodeId,
     locus: &CheckedNodeId,
     meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -1313,15 +1314,18 @@ fn validate_catalog(
     for step in steps {
         meter.charge(1, || root.clone())?;
         requires_catalog |= step.source_node.is_none()
-            || matches!(step.target, RefinementStepTarget::ProtocolStep { .. })
-            || step.source_node.as_ref().is_some_and(|source| {
-                graph.index.get(source).is_some_and(|&source_position| {
-                    matches!(
-                        graph.kinds.get(source_position),
-                        Some(super::CheckedNodeKind::Protocol(_))
-                    )
-                })
-            });
+            || matches!(step.target, RefinementStepTarget::ProtocolStep { .. });
+    }
+    for &source_position in graph.index.values() {
+        meter.charge(1, || root.clone())?;
+        if graph.kinds.get(source_position)
+            == Some(&super::CheckedNodeKind::Protocol(
+                super::ProtocolForm::ProtocolClause,
+            ))
+            && graph.nodes[source_position].owner_model.as_ref() == Some(concrete_model)
+        {
+            requires_catalog = true;
+        }
     }
     if requires_catalog && class_catalog.is_none() {
         return Err(ValidationFailure::refused(
@@ -1929,7 +1933,14 @@ pub(super) fn validate_refinements(
         stale_refinement_key(node, position, bytes)?;
         canonical_order(body, position)?;
         check_headers(node, body, position, &graph, lock)?;
-        validate_catalog(body, position, &graph, &node.node_id, meter)?;
+        validate_catalog(
+            body,
+            position,
+            &graph,
+            &node.semantic_type,
+            &node.node_id,
+            meter,
+        )?;
         validate_rows(node, body, position, &graph, owners, meter)?;
     }
     Ok(())
