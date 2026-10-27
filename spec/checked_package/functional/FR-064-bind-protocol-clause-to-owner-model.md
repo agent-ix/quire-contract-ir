@@ -143,7 +143,8 @@ class or default owner.
 
 ## Status
 
-Partially implemented. The typed `owner_model` carrier, writer and basic
-reader admission are present. The reader still needs the selected-declaration
-owner join and complete class-catalog reconstruction specified above; this
-status does not claim those checks or their test evidence.
+Partially implemented. The typed `owner_model` carrier, writer,
+selected-declaration owner join and class-catalog reconstruction are present.
+The source producer's choice of edge from the source `over` type still needs
+independent producer-conformance evidence; the IR byte-construction API cannot
+make that source-level comparison.
