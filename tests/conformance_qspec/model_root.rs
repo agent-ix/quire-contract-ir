@@ -33,8 +33,8 @@ fn apply_vector_patch(package: &mut Value, patch: &Value) {
     }
 }
 
-/// Trace: FR-065-AC-1, FR-065-AC-3
-#[trace("TC-233", "FR-065-AC-1", "FR-065-AC-3")]
+/// Trace: FR-065-AC-3
+#[trace("TC-233", "FR-065-AC-3")]
 #[test]
 fn published_model_root_vectors_reach_the_reader_stage_and_locus() {
     let vectors = read_json(&proposal_dir_of(&fixtures_dir()).join("model-root-vectors.json"))
@@ -76,8 +76,8 @@ fn published_model_root_vectors_reach_the_reader_stage_and_locus() {
     );
 }
 
-/// Trace: FR-065-AC-1, FR-065-AC-3
-#[trace("TC-233", "FR-065-AC-1", "FR-065-AC-3")]
+/// Trace: FR-065-AC-3
+#[trace("TC-233", "FR-065-AC-3")]
 #[test]
 fn published_selected_model_fixtures_carry_one_ordered_and_sourced_root() {
     for name in [
