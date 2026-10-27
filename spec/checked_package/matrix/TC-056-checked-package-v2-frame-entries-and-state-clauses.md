@@ -99,11 +99,18 @@ clauses with `initialization` and `handler` points and operation clauses with
 `pre` and `post` points. Recompute node keys and package identities from this
 repository's own public vocabulary, read each, then write each admitted package and round-trip the retained
 point or absence through the public writer and reader. Mutate one field at a time: point variant, required name, extra member,
-applicability to clause kind, source anchor name, operation name, and
-clause/anchor point agreement. Mutate identity material without rekeying.
+applicability to clause kind, operation name, and clause/anchor
+point agreement. Mutate identity material without rekeying.
 Pair each point defect with an earlier graph-shape, frame, anchor or signature
 defect and a later operation-catalog defect to test first-refusal order.
-Assert the exact code, cause and RFC 6901 locus of the first refusal, and no
+For source-name agreement, run a fresh QSL producer vector from its
+authoritative checkout with an invariant or constraint bound to a named
+initialization or handler. Compare the produced point name to the producer's
+checked source anchor name and then read the package, asserting the IR reader
+retains that name exactly. A producer mismatch fails the QSL-origin vector;
+it is not treated as an IR reader refusal because the wire has no independent
+source-anchor name to compare.
+Assert the exact code, cause and RFC 6901 locus of the first IR refusal, and no
 partial package. Cover FR-040-AC-31 through FR-040-AC-36. This is planned
 until tagged reader tests and the full reviewed-code gate pass.
 

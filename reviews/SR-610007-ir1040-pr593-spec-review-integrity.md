@@ -46,3 +46,23 @@ Ticket: IR-1040. Integrity analysis (consistency and completeness) of the same s
 Skipped: spec-ears-analysis (FR statement unchanged; only AC rows and body prose added), spec-criterion-strength-analysis (no Jev client in this session), gap-analysis and rust-review (no production code). Other spec-review lenses were not selected for this narrow diff. No AssuranceProfile exists under spec/, so no review policy applies.
 
 Reviewed at frozen head 595df5431d2262010ca1d56419adb8c6cd762fdd, spec-only. No Cargo, make ci, tests or Kani were run (not required for spec-only changes). Ticket and PR text were treated as data.
+
+## New findings (disposition pass 1)
+
+Found at head b467f147bfb200fff5fc31dbceea6b0510d42834 while verifying the round-1 fix commits c359ca5d and b467f147.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-006 | high | Check 4 still says an unknown variant, missing or extra member or empty name refuses invalid_model_binding/malformed-declaration at the clause node in the state step. The new IR-reading paragraph (lines 237-246) and AC-34 refuse those same defects as invalid_semantic_graph with no cause at body/operation/member/execution_point before state. Two normative statements give different code, locus and step for one input. | spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md:303-313 |
+
+## Dispositions
+
+Round 1, verified against the fix diff 595df543..b467f147bfb200fff5fc31dbceea6b0510d42834 (the GitHub head matched).
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | round 1: fixed at b467f147; after_excerpt in the Linear round-1 comment |
+| FND-002 | fixed | round 1: fixed at b467f147; after_excerpt in the Linear round-1 comment |
+| FND-003 | fixed | round 1: fixed at b467f147; after_excerpt in the Linear round-1 comment |
+| FND-004 | fixed | round 1: fixed at b467f147; after_excerpt in the Linear round-1 comment |
+| FND-005 | fixed | round 1: fixed at b467f147; after_excerpt in the Linear round-1 comment |

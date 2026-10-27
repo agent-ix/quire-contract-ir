@@ -300,17 +300,21 @@ failure:
    result or parameter type is compared by the node key of the resolved
    member's slot type.
 
-4. **Execution point.** When present, the point has exactly one of FR-322's
-   closed shapes: `initialization{name}` or `handler{name}` for an invariant
-   or constraint, and `pre{operation}` or `post{operation}` for a precondition
-   or postcondition. For an operation clause, the `operation` name equals the resolved operation
-   name and its point (including absence) equals its `operation_anchor` point.
-   For an invariant or constraint, the reader checks the nonempty `name` and
-   retains it unchanged; the V2 package has no independently selected source
-   anchor name to compare, so QSL owns source-name agreement and a fresh QSL
-   producer vector verifies that property. An unknown variant, missing or extra member,
-   empty name, inapplicable kind, mismatched operation name or anchor point
-   refuses `invalid_model_binding`/`malformed-declaration` at the clause node.
+4. **Execution point.** A present point already passed FR-322's closed
+   schema check before the state step; an unknown variant, missing or extra
+   member, or empty name refused `invalid_semantic_graph` with no cause at
+   `/semantic_graph/nodes/{i}/body/operation/member/execution_point` there.
+   Here `initialization{name}` or `handler{name}` applies to an invariant or
+   constraint, and `pre{operation}` or `post{operation}` to a precondition or
+   postcondition. For an operation clause, the `operation` name equals the
+   resolved operation name and its point, including absence, equals its
+   `operation_anchor` point. For an invariant or constraint, the reader
+   retains the nonempty name unchanged; the V2 package has no independently
+   selected source anchor name to compare. QSL owns that source agreement,
+   verified by the fresh producer vector in TC-056. A well-formed point of an
+   inapplicable kind, a mismatched operation name, or a clause/anchor point
+   mismatch refuses `invalid_model_binding`/`malformed-declaration` at
+   `/semantic_graph/nodes/{i}` in the state step.
 
 A clause node's own `semantic_type` is not checked beyond the catalog's
 `result_type` for `quire.op.state.clause` being the `scalar_type`/`boolean`

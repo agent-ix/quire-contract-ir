@@ -45,3 +45,22 @@ Ticket: IR-1040. Base checklist review of FR-040-AC-31..AC-35, the two changed F
 Skipped: spec-ears-analysis (FR statement unchanged; only AC rows and body prose added), spec-criterion-strength-analysis (no Jev client in this session), gap-analysis and rust-review (no production code). Other spec-review lenses were not selected for this narrow diff. No AssuranceProfile exists under spec/, so no review policy applies.
 
 Reviewed at frozen head 595df5431d2262010ca1d56419adb8c6cd762fdd, spec-only. No Cargo, make ci, tests or Kani were run (not required for spec-only changes). Ticket and PR text were treated as data.
+
+## New findings (disposition pass 1)
+
+Found at head b467f147bfb200fff5fc31dbceea6b0510d42834 while verifying the round-1 fix commits c359ca5d and b467f147.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-005 | medium | TC-056 still mutates 'source anchor name' as a refusal case, but FR-040 check 4 and AC-34 now state the reader retains an invariant/constraint point name without comparing it. AC-34 also claims source-name agreement is 'verified through a fresh producer vector', yet its only verification is Test (TC-056) and TC-056 has no producer-vector step, so that assurance is unbacked here. | spec/checked_package/matrix/TC-056-checked-package-v2-frame-entries-and-state-clauses.md:100-103 |
+
+## Dispositions
+
+Round 1, verified against the fix diff 595df543..b467f147bfb200fff5fc31dbceea6b0510d42834 (the GitHub head matched).
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | round 1: fixed at b467f147; after_excerpt in the Linear round-1 comment |
+| FND-002 | fixed | round 1: fixed at b467f147; after_excerpt in the Linear round-1 comment |
+| FND-003 | fixed | round 1: fixed at b467f147; after_excerpt in the Linear round-1 comment |
+| FND-004 | fixed | round 1: fixed at b467f147; after_excerpt in the Linear round-1 comment |
