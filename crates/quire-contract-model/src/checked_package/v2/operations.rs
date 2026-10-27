@@ -855,6 +855,18 @@ fn operation_defect(
         }
         (Some(_), Some(None)) | (Some(_), None) | (None, Some(_)) => return member_mismatch(),
     }
+    let profile_operator = operation
+        .member
+        .as_ref()
+        .and_then(|member| member.get("operator"))
+        .and_then(Value::as_str);
+    if (entry.known == Some(super::KnownOperation::StateTransition)
+        && profile_operator != Some("transition"))
+        || (entry.known == Some(super::KnownOperation::ProtocolControl)
+            && profile_operator == Some("transition"))
+    {
+        return member_mismatch();
+    }
 
     // FR-322 step 7: the application's own identity checks are done, so its
     // arguments are next, in pre-order; a `dependency_reference` among them
@@ -893,7 +905,7 @@ fn operation_defect(
     if let Some(failure) = check_inner_result(application, entry, graph) {
         return Ok(Some(failure));
     }
-    if let Some(failure) = check_state_clause_result(application, entry, graph) {
+    if let Some(failure) = check_state_result(application, entry, graph) {
         return Ok(Some(failure));
     }
     // A reference-edge operation's `field` member is resolved by
@@ -2647,28 +2659,32 @@ fn check_inner_result(
     })
 }
 
-/// The `clause` result of `quire.op.state.clause` is declared Boolean
-/// (QSpec FR-341): its `result_type` names the `scalar_type`/`boolean` node,
-/// else `ill_typed`/`operator-ineligible` at the `result_type`.
-fn check_state_clause_result(
+/// A state clause or transition declares a Boolean result (QSpec FR-341).
+fn check_state_result(
     application: Application<'_>,
     entry: &OperationCatalogEntry,
     graph: &Graph<'_>,
 ) -> Option<ValidationFailure> {
-    if entry.operator != ApplicationOperator::StateClause {
+    if !matches!(
+        entry.operator,
+        ApplicationOperator::StateClause | ApplicationOperator::StateTransition
+    ) {
         return None;
     }
-    let boolean = graph
+    let result_type = graph
         .terms
         .get(application.position)
         .and_then(Option::as_ref)
         .and_then(|term| match term {
             CheckedTerm::Application { result_type, .. } => Some(result_type),
             _ => None,
-        })
+        });
+    let boolean = result_type
         .and_then(|result_type| graph.index.get(result_type).copied())
         .and_then(|position| graph.kinds.get(position))
-        == Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean));
+        == Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean))
+        && (entry.operator != ApplicationOperator::StateTransition
+            || result_type == Some(&application.node.semantic_type));
     (!boolean).then(|| {
         application.refuse(
             CheckedPackageRefusalCode::IllTyped,
@@ -5925,6 +5941,42 @@ mod tests {
             "a missing member where the catalogued entry requires one must be refused as \
              operation-member-mismatch, got {result:?}"
         );
+    }
+
+    #[trace("TC-064", "FR-067-AC-2")]
+    #[test]
+    fn isolated_operation_step_refuses_state_protocol_member_crossovers() {
+        let definition = dummy_law_definition('p');
+        let mut lock = empty_lock();
+        lock.profile_selections = vec![CheckedSelection {
+            role: CheckedSelectionRole::ProtocolProfile,
+            definition: serde_json::from_value(definition.clone())
+                .expect("selected protocol profile"),
+        }];
+        for (identity, operator, member) in [
+            ("quire.op.state.transition", "state_transition", "sequence"),
+            (
+                "quire.op.protocol.control",
+                "protocol_control",
+                "transition",
+            ),
+        ] {
+            let mut operation = plain_operation(identity);
+            operation["laws"] = json!([law_json("protocol_profile", definition.clone())]);
+            operation["member"] = json!({"kind":"profile_operator", "operator":member});
+            let node = custom_application_node(operator, operation, vec![]);
+            let result = defect_for_graph_locked(vec![node.clone()], &lock);
+            assert_eq!(
+                result,
+                Ok(Some(refused_at(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    "/semantic_graph/nodes/0/body/operation/member",
+                    Some(CheckedPackageRefusalCause::OperationMemberMismatch),
+                    node.node_id.clone(),
+                ))),
+                "{identity}: isolated step must refuse the cross-member before operand checks"
+            );
+        }
     }
 
     /// `operator-ineligible` (arity): agent-ix/quire-contract-ir#171.
