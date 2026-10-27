@@ -37,6 +37,7 @@ use quire_contract_model::{
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
+mod dimension_equivalence;
 mod extension;
 #[path = "../it/support/checked_package.rs"]
 mod fixture_support;

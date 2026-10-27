@@ -645,12 +645,13 @@ fn replace_digest(value: &mut Value, stale: &str, fresh: &str) {
 
 /// Builds a canonical V2 package from nominal `(preimage, key)` pairs in the
 /// recorded nominal fixture's lock, deriving each node's family, type,
-/// dependencies and body from its preimage.
+/// dependencies, occurrences and body from its preimage.
 pub fn nominal_package(members: &[(Value, String)]) -> Value {
     let mut package = nominal_skeleton();
     let source = package["lock"]["sources"][0].clone();
     let mut nodes = Vec::with_capacity(members.len());
     let mut source_map = Vec::with_capacity(members.len());
+    let mut equivalence_ordinal = 0_u64;
     for (position, (preimage, key)) in members.iter().enumerate() {
         let id = node_id(key);
         // Every nominal form here is a named, source-declared `scalar_type`
@@ -701,6 +702,14 @@ pub fn nominal_package(members: &[(Value, String)]) -> Value {
                     json!({"term":"aggregate","members":[]}),
                     Some(json!({"qualified_name": declaration_name})),
                 ),
+                "quire.dimension-equivalence-node/v1" => (
+                    "scalar_type",
+                    "dimension_equivalence",
+                    id.clone(),
+                    preimage["dimension_node_ids"].clone(),
+                    json!({"term":"aggregate","members":[]}),
+                    None,
+                ),
                 "quire.unit-node/v1" => {
                     let mut dependencies = vec![preimage["dimension_node_id"].clone()];
                     if !preimage["target_unit_node_id"].is_null() {
@@ -717,6 +726,19 @@ pub fn nominal_package(members: &[(Value, String)]) -> Value {
                 }
                 other => panic!("unknown nominal preimage {other}"),
             };
+        let is_equivalence = form == "dimension_equivalence";
+        let ordinal = if is_equivalence {
+            let ordinal = equivalence_ordinal;
+            equivalence_ordinal = equivalence_ordinal.saturating_add(1);
+            ordinal
+        } else {
+            0
+        };
+        let role = if is_equivalence {
+            "anchor"
+        } else {
+            "declaration"
+        };
         let mut node = json!({
             "node_id": id,
             "schema_version": "quire.checked-semantic-graph/v2",
@@ -724,7 +746,7 @@ pub fn nominal_package(members: &[(Value, String)]) -> Value {
             "semantic_form": form,
             "semantic_type": semantic_type,
             "dependencies": dependencies,
-            "occurrences": [{"role":"declaration","ordinal":0}],
+            "occurrences": [{"role":role,"ordinal":ordinal}],
             "nominal_identity_preimage": preimage,
             "body": body,
         });
@@ -736,8 +758,8 @@ pub fn nominal_package(members: &[(Value, String)]) -> Value {
         nodes.push(node);
         source_map.push(json!({
             "node_id": id,
-            "role": "declaration",
-            "ordinal": 0,
+            "role": role,
+            "ordinal": ordinal,
             "regions": [{"source": source, "start": position, "end": position + 1}],
         }));
     }

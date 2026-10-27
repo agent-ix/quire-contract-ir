@@ -1052,6 +1052,7 @@ fn quantity_chain(kind: CheckedNodeKind) -> QuantityChain {
             | ScalarTypeForm::Float32
             | ScalarTypeForm::Float64
             | ScalarTypeForm::Dimension
+            | ScalarTypeForm::DimensionEquivalence
             | ScalarTypeForm::Enum,
         ) => QuantityChain::Other,
         K::BoundedDomain(BoundedDomainForm::ModelPopulation) => QuantityChain::Other,
@@ -1134,6 +1135,7 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             | ScalarTypeForm::Float32
             | ScalarTypeForm::Float64
             | ScalarTypeForm::Dimension
+            | ScalarTypeForm::DimensionEquivalence
             | ScalarTypeForm::Unit
             | ScalarTypeForm::Enum
             | ScalarTypeForm::CompoundUnit,

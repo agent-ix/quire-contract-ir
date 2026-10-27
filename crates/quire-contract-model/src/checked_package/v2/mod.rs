@@ -413,6 +413,11 @@ impl CheckedSemanticNodeV2 {
                         replace(&mut term.dimension_node_id, old, new);
                     }
                 }
+                NominalIdentityPreimage::DimensionEquivalence(value) => {
+                    for id in &mut value.dimension_node_ids {
+                        replace(id, old, new);
+                    }
+                }
                 NominalIdentityPreimage::Unit(value) => {
                     replace_owner(&mut value.owner, old, new);
                     replace(&mut value.dimension_node_id, old, new);
@@ -1491,6 +1496,7 @@ fn validate(
         &wire.lock.sources,
         limits,
     )?;
+    identity::validate_equivalence_occurrences(wire, &kinds, &mut meter)?;
     extension::validate_source_regions(wire, &kinds)?;
     validate_capabilities(wire, evidence)?;
     validate_diagnostics(wire, limits, &mut meter)?;
@@ -1956,6 +1962,7 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | ScalarTypeForm::Uuid
             | ScalarTypeForm::Timestamp
             | ScalarTypeForm::Dimension
+            | ScalarTypeForm::DimensionEquivalence
             | ScalarTypeForm::Unit
             | ScalarTypeForm::Enum,
         ) => false,
@@ -2171,6 +2178,7 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
             | ScalarTypeForm::Uuid
             | ScalarTypeForm::Timestamp
             | ScalarTypeForm::Dimension
+            | ScalarTypeForm::DimensionEquivalence
             | ScalarTypeForm::Unit
             | ScalarTypeForm::Enum
             | ScalarTypeForm::CompoundUnit,
