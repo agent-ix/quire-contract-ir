@@ -32,3 +32,7 @@ FR-019-AC-5 examined. The inventory row was updated in the same PR as the export
 ## Rebase verification
 
 **PASS at 34a31ea7f790043c94e417ebe7432485ef31d811** — range-diff against the reviewed 1894dee8 head keeps the refinement implementation and tests patch-equivalent. The only conflict resolution combines additive crate-root exports and FR-019 inventory rows from IR-1040 and IR-1034; both are retained. All earlier findings remain fixed.
+
+## Fixture correction verification
+
+**PASS at f0a06da4c79a63f642bbdd56e44d1774b1431d7a** — compared with 0de6f377, the sole change makes the typed-term roundtrip fixture use `memory_model: tso` for `memory flush`, the only admitted model of `RefinementTsoModel`. No production code, FR-061 acceptance test, public export or FR-019 inventory row changed; the prior dispositions remain fixed.
