@@ -37,6 +37,13 @@ pub(super) struct FieldEntry {
     member_type: Option<MemberType>,
 }
 
+/// One effective field and the identities whose inherited position it holds.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct OrderedField {
+    entry: Arc<FieldEntry>,
+    origins: BTreeSet<Arc<str>>,
+}
+
 impl FieldEntry {
     fn name(&self) -> &str {
         member_name(&self.identity)
@@ -50,6 +57,8 @@ impl FieldEntry {
 pub(super) struct FieldTable {
     /// Ascending by identity, one entry per identity.
     exposed: Vec<Arc<FieldEntry>>,
+    /// The same exposed entries in inherited source order, then own declaration order.
+    ordered_exposed: Vec<OrderedField>,
     /// Ascending, without repeats: every identity a redefinition hides, a
     /// redefined target and a redefiner hidden by a more derived one alike.
     hidden: Vec<Arc<str>>,
@@ -77,6 +86,36 @@ impl FieldTable {
             (Some(_), Some(_)) => Selected::Ambiguous,
         }
     }
+
+    /// The effective record field types in inherited source order.
+    pub(super) fn binder_types(&self, bytes: u64) -> Option<RecordBinderTypes> {
+        if self.ambiguous.is_some() {
+            return Some(RecordBinderTypes::Ambiguous);
+        }
+        let types = self
+            .ordered_exposed
+            .iter()
+            .map(|entry| {
+                Some(CheckedNodeId {
+                    domain: NODE_DOMAIN.into(),
+                    digest: entry
+                        .entry
+                        .member_type
+                        .as_ref()?
+                        .node_key(bytes)
+                        .ok()?
+                        .into(),
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(RecordBinderTypes::Known(types))
+    }
+}
+
+/// A record's checked binder types, or an inherited same-name ambiguity.
+pub(super) enum RecordBinderTypes {
+    Known(Vec<CheckedNodeId>),
+    Ambiguous,
 }
 
 /// The exposed fields of a table that bear one name.
@@ -322,6 +361,7 @@ fn build_component(
         });
     budget.charge(units(own_units))?;
     let mut inherited: Vec<Arc<FieldEntry>> = Vec::new();
+    let mut ordered_slots = Vec::new();
     let mut hidden: BTreeSet<Arc<str>> = BTreeSet::new();
     for (_, declared) in &component.members {
         for supertype in &declared.supertypes {
@@ -330,7 +370,13 @@ fn build_component(
                 continue;
             };
             budget.charge(units(table.entries()))?;
-            inherited.extend(table.exposed.iter().cloned());
+            inherited.extend(
+                table
+                    .ordered_exposed
+                    .iter()
+                    .map(|slot| Arc::clone(&slot.entry)),
+            );
+            ordered_slots.extend(table.ordered_exposed.iter().cloned());
             hidden.extend(table.hidden.iter().cloned());
         }
     }
@@ -342,9 +388,13 @@ fn build_component(
     // A later declaration of one identity replaces an earlier one, as
     // `resolve`'s member map does.
     let mut own: BTreeMap<Arc<str>, Arc<FieldEntry>> = BTreeMap::new();
+    let mut own_order = Vec::new();
     for (_, declared) in &component.members {
         for decl in &declared.fields {
             let identity: Arc<str> = Arc::from(decl.identity.as_ref());
+            if !own.contains_key(&identity) {
+                own_order.push(Arc::clone(&identity));
+            }
             own.insert(
                 Arc::clone(&identity),
                 Arc::new(FieldEntry {
@@ -382,11 +432,67 @@ fn build_component(
         );
     }
     drop(by_target);
+    for identity in own_order {
+        let Some(entry) = own.get(&identity) else {
+            continue;
+        };
+        let mut origins = BTreeSet::from([Arc::clone(&entry.identity)]);
+        if let Some(target) = entry.decl.redefines.as_deref() {
+            origins.insert(Arc::from(target));
+            for slot in &ordered_slots {
+                if slot.origins.contains(target) {
+                    origins.extend(slot.origins.iter().cloned());
+                }
+            }
+        }
+        ordered_slots.push(OrderedField {
+            entry: Arc::clone(entry),
+            origins,
+        });
+    }
     let mut exposed: Vec<Arc<FieldEntry>> = inherited;
     exposed.extend(own.into_values());
     exposed.sort_by(|a, b| a.identity.cmp(&b.identity));
     exposed.dedup_by(|a, b| a.identity == b.identity);
     exposed.retain(|entry| !hidden.contains(&entry.identity));
+    let mut first_origin = BTreeMap::new();
+    let mut first_entry = BTreeMap::new();
+    let mut origins_by_identity: BTreeMap<Arc<str>, BTreeSet<Arc<str>>> = BTreeMap::new();
+    for (position, slot) in ordered_slots.iter().enumerate() {
+        first_entry
+            .entry(Arc::clone(&slot.entry.identity))
+            .or_insert(position);
+        origins_by_identity
+            .entry(Arc::clone(&slot.entry.identity))
+            .or_default()
+            .extend(slot.origins.iter().cloned());
+        for origin in &slot.origins {
+            first_origin.entry(Arc::clone(origin)).or_insert(position);
+        }
+    }
+    let mut ordered_exposed: Vec<OrderedField> = exposed
+        .iter()
+        .map(|entry| OrderedField {
+            entry: Arc::clone(entry),
+            origins: origins_by_identity
+                .remove(&entry.identity)
+                .unwrap_or_else(|| BTreeSet::from([Arc::clone(&entry.identity)])),
+        })
+        .collect();
+    ordered_exposed.sort_by_key(|slot| {
+        let inherited_position = slot
+            .origins
+            .iter()
+            .filter_map(|origin| first_origin.get(origin))
+            .copied()
+            .min()
+            .unwrap_or(usize::MAX);
+        let declared_position = first_entry
+            .get(&slot.entry.identity)
+            .copied()
+            .unwrap_or(usize::MAX);
+        (inherited_position, declared_position)
+    });
     let mut seen = BTreeSet::new();
     let ambiguous = exposed
         .iter()
@@ -396,6 +502,7 @@ fn build_component(
         .map(Box::from);
     Ok(FieldTable {
         exposed,
+        ordered_exposed,
         hidden: hidden.into_iter().collect(),
         ambiguous,
     })
@@ -529,14 +636,14 @@ impl RetainedModels {
         }
     }
 
-    pub(super) fn record_binder_types(&self, key: &CheckedNodeId) -> Option<Vec<CheckedNodeId>> {
+    pub(super) fn record_binder_types(&self, key: &CheckedNodeId) -> Option<RecordBinderTypes> {
         let declared = self.index.0.get(key.digest.as_ref())?;
         if declared.form != DeclarationForm::RecordValueType {
             return None;
         }
         self.models
             .get(declared.selection)?
-            .direct_record_binder_types(&declared.node)
+            .record_binder_types(&declared.node)
     }
 
     pub(super) fn is_record_type(&self, key: &CheckedNodeId) -> bool {
