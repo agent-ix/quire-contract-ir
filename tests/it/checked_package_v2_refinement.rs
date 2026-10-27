@@ -14,6 +14,7 @@ use quire_contract_model::{
     CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
     CheckedPackageV2, CheckedPackageV2ReadResult, CheckedRefinementStepRowRegion,
     CheckedSemanticGraphV2, CheckedSemanticId, CheckedSourceMapEntry, CheckedTerm,
+    RefinementConcreteClass, RefinementDrain, RefinementMemoryClass, RefinementMemoryModel,
 };
 use serde_json::{json, Value};
 
@@ -398,6 +399,28 @@ fn memory_catalog_package() -> (Value, CheckedPackageEvidence, usize) {
 #[test]
 fn memory_drain_catalog_roundtrips_and_joins_source_defaults() {
     let (package, evidence, position) = memory_catalog_package();
+    let typed: CheckedSemanticGraphV2<CheckedTerm> =
+        serde_json::from_value(package["semantic_graph"].clone()).expect("typed graph");
+    let CheckedTerm::Refinement {
+        class_catalog: Some(catalog),
+        ..
+    } = &typed.nodes[position].body
+    else {
+        panic!("typed refinement catalog missing");
+    };
+    assert!(matches!(
+        &catalog.concrete[catalog.concrete.len() - 4],
+        RefinementConcreteClass::Memory(RefinementMemoryClass::Drain {
+            memory_model: RefinementMemoryModel::Ra,
+            drain: RefinementDrain::StoreBufferFlush,
+        })
+    ));
+    assert!(matches!(
+        &catalog.concrete[catalog.concrete.len() - 1],
+        RefinementConcreteClass::Memory(RefinementMemoryClass::Flush {
+            memory_model: RefinementMemoryModel::Tso,
+        })
+    ));
     let admitted = read(&package, &evidence);
     assert!(
         matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
@@ -599,6 +622,21 @@ fn memory_catalog_completeness_identity_and_dependency_precedence() {
             Some(path.as_str())
         );
     }
+    let mut foreign = base.clone();
+    foreign["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["abstract"] =
+        json!([{"class":"memory drain", "memory_model":"sc", "drain":"store-buffer-flush"}]);
+    rekey_refinement(&mut foreign, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&foreign, &evidence) else {
+        panic!("memory class from unselected abstract subject admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/abstract/0").as_str())
+    );
     let mut changed = base.clone();
     let original_node = changed["semantic_graph"]["nodes"][position]["node_id"].clone();
     let original_package = changed["package_id"].clone();
