@@ -3,7 +3,7 @@ id: SR-610063
 title: "IR-874 PR 614 trace and gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; tests/it/checked_package_v2_protocol_body.rs; FR-038-AC-291/292; TC-048; QSpec FR-466-AC-16"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/shared.rs; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs; tests/it/checked_package_v2_protocol_body.rs; FR-038-AC-291/292; TC-048; QSpec FR-466-AC-14/16"
 review_set: subset
 ---
 
@@ -36,3 +36,27 @@ Ticket: IR-874. Planless, diff-scoped trace and test-intent audit of test-only P
 ## Verdict
 
 **PASS** for trace ownership and the diff's evidence shape. This does not discharge the code-review finding or the repository-wide strict-coverage backlog.
+
+## Expanded STD-515 coverage at b201f727
+
+The new `FR-038-AC-292` text and TC-048 procedure own the production pass in `protocol_body.rs`; the existing `ModelStateRead` variant remains its typed detail. `bare_activation_record_read_refuses_in_each_decision_slot`, `bare_receive_record_read_refuses_in_each_decision_slot` and `bare_activation_precedes_sent_field_in_either_guard_operand_order` have FR-038-AC-292 and TC-048 tags and assert the public reader's typed refusal, path, locus and slot. The preserved receive-field and activation-field tests cover admitted and ineligible projected facts. Plan completion: not assessed. No new production source lacks a stated owner; repository-wide strict coverage is not claimed.
+
+## New findings (expanded review)
+
+| ID | Severity | Summary | Refs | Escape Cause |
+| --- | --- | --- | --- | --- |
+| FND-002 | medium | No test covers a record-typed protocol capture read bare, although the criterion covers any record binder; the implementation explicitly skips captures. | tests/it/checked_package_v2_protocol_body.rs:953; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs:3898 | correct-requirement-no-evidence |
+
+## Expanded verdict
+
+**CONDITIONAL** — the tagged cases cover DF7g/DF7h but not the full “any record binder” obligation. The production defect is detailed in SR-610062 FND-002.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-002 | fixed | At 9e7ab6fe20a0ef5177206536ca7506d42e60e262, the new tagged public-reader test covers a record-typed protocol capture bare in all four decision slots, with exact typed refusal/path/locus/slot and field-projection plus scalar-capture admission controls. The implementation now checks captures too. |
+
+## Final disposition at 9e7ab6fe
+
+**PASS** for the expanded diff's FR-038-AC-292 trace and evidence. Plan completion: not assessed. The repository-wide strict-coverage backlog remains outside this diff's claim.

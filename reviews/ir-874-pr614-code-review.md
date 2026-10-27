@@ -3,7 +3,7 @@ id: SR-610062
 title: "IR-874 PR 614 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; tests/it/checked_package_v2_protocol_body.rs; FR-038-AC-291/292; TC-048; QSpec FR-466-AC-16"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/shared.rs; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs; tests/it/checked_package_v2_protocol_body.rs; FR-038-AC-291/292; TC-048; QSpec FR-466-AC-14/16"
 review_set: subset
 ---
 
@@ -37,6 +37,7 @@ No production, API, Cargo, CI or spec files change. The helper that constructs `
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | At PR #614 head 27cdd6450784ca8c701aed8d6f0067f6c5a329d1, `assert_protocol_refusal_at` checks exact `/semantic_graph/nodes/{position}` and typed node locus for every new refusal. `BinderScope` assertions compare the clause owner, and `DecisionFact` compares the decision role owner, field node and binder key. The existing code/cause/stage/slot/reason checks remain. |
+| FND-002 | fixed | At 9e7ab6fe20a0ef5177206536ca7506d42e60e262, `record_parameter` no longer excludes `self.captures`. `bare_record_capture_refuses_while_its_field_and_scalar_capture_admit` uses the public reader and checks a Boolean-rooted bare record capture in each choice/repeat visible/guard slot for exact `ill_typed` cause, path, locus and slot; projected record fields and scalar captures admit in those same four slots. |
 
 ## Current verdict
 
@@ -45,3 +46,21 @@ No production, API, Cargo, CI or spec files change. The helper that constructs `
 ## Integrated-head delta
 
 **PASS** at PR #614 head 250ec8f848d187fb94168c29572021053f553d59 after merging main's #603 commit. The merge conflict changed only the `quire_contract_model` import list: it retains main's `CheckedPackageEvidence` and #614's `CheckedNodeId` and `CheckedPackageRefusal`. A byte-for-byte comparison of the five #614 helper functions and four test functions against 27cdd645 found all unchanged; the four tests still assert exact refusal paths, loci and owners. A comparison of the seven #603 helper and test functions added or renamed in this file against merge parent `14eb92af` found all unchanged. `git diff --check` passed on both parent comparisons. Hosted Rust Checks and the aggregate gate were pending at this audit.
+
+## Expanded STD-515 review at b201f727
+
+QSpec FR-466-AC-14/16 and TC-948 DF7g/DF7h at 9bcbc625 require a bare read of **any** record binder to refuse after scope and model-state checks. The new public-reader tests cover `opened` and `got` in all choice/repeat visible/guard slots, both mixed operand orders, typed code/cause, exact path/locus and slot. They retain field projection and receive admission controls. The new reader pass is placed after `slot` and before `decision_facts`, which preserves the specified stage order. No unsafe code, public API shape or CI gate changed; `shared.rs` only broadens the documentation of an existing detail variant. The focused test/Clippy/fmt outcomes were reported by the coder; this review did not duplicate Cargo work while the aggregate gate waits.
+
+## New findings (expanded review)
+
+| ID | Severity | Summary | Refs | Escape Cause |
+| --- | --- | --- | --- | --- |
+| FND-002 | medium | `record_parameter` excludes every protocol capture, so a readable capture typed as a record can be read bare in a decision slot and pass the new check despite the “any record binder” rule. | crates/quire-contract-model/src/checked_package/v2/protocol_body.rs:3898; tests/it/checked_package_v2_protocol_body.rs:953 | implementation-bug-despite-evidence |
+
+## Expanded verdict
+
+**CONDITIONAL** — FND-002 is a reachable decision-scope edge. A record-typed protocol capture is included in `input` for the choice/repeat slot and is not `over`; `slot` accepts it. The new pass returns false in `record_parameter` solely because `self.captures.contains(&position)`, and `decision_facts` sees no field projection. A Boolean-rooted expression using that capture bare can therefore admit, contrary to FR-038-AC-292/QSpec FR-466-AC-16. The tests use activation and receive binders only, so this edge has no direct evidence.
+
+## Final disposition at 9e7ab6fe
+
+**PASS** for all recorded code-review findings on the expanded PR head. FND-001 remains fixed; FND-002 is fixed by removing the capture exclusion and adding the four-slot adverse case with paired admission controls. `git diff --check b201f727..9e7ab6fe` passes. Hosted and aggregate gates remain the code lead's final-head checks.
