@@ -1327,7 +1327,7 @@ fn model_owner(identity: &str, node: &str) -> Value {
     json!({"kind": "model", "identity": identity, "node": node})
 }
 
-#[trace("TC-048", "FR-038-AC-45")]
+#[trace("TC-048", "FR-038-AC-45", "FR-063-AC-5")]
 #[test]
 fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_version() {
     // A content-only package (owner `{kind, identity, node}`, no `version`)
@@ -1375,16 +1375,15 @@ fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_ver
     };
     assert_ne!(root_key(&at_one), root_key(&at_two));
 
-    // A `version` member on a model owner is an unknown member at that
-    // member, never read as evidence.
+    // A `version` member on a model owner violates its closed wire shape.
     let mut versioned = owner.clone();
     versioned["version"] = json!("1.0.0");
     let versioned = model_owned_package(versioned, json!([domain_package("test/orders")]));
     assert_eq!(
         refused(&versioned, &evidence_for(&versioned)),
         refusal(
-            CheckedPackageRefusalCode::UnknownMember,
-            "/semantic_graph/nodes/0/nominal_identity_preimage/owner/version"
+            CheckedPackageRefusalCode::MalformedWire,
+            "/semantic_graph/nodes/0"
         )
     );
 

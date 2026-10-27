@@ -1663,8 +1663,22 @@ vector or schema is copied into this repository.
 5. Exercise a causal cycle, independent parallel controls, zero-progress and
    progressing repeats; then a binder at each stage, forbidden model-state
    read, inaccessible branch binder and decision fact of another role or not
-   individually visible. Assert the specified first refusal and retained
-   stage, owner and reason details rather than only a refusal code.
+   individually visible. In each `choice` and `repeat` `visible` entry and
+   guard, read the protocol input `over` directly and require
+   `ill_typed`/`operator-ineligible` at the read, naming the slot, before
+   binder-scope and decision-fact checks. Read a protocol activation binder
+   that is available at the decision and require
+   `wrong_snapshot`/`wrong-observation` with `ineligible-kind`. Read a finish
+   binder in each `choice` `visible` entry, `choice` guard, `repeat` `visible`
+   entry and `repeat` guard; require `missing_declaration`/`missing-name` at
+   the read with `read` `stage` in all four slots. Read a compensation-template
+   binder from a run slot and require `missing_declaration`/`missing-name`
+   with `read` `foreign`. In one slot pair an `over` read with a binder read
+   and require the `over` refusal; pair an out-of-scope binder read with an in-scope
+   ineligible binder read and require the out-of-scope refusal. Use QSpec
+   TC-948 DF6b and DF7d..DF7f as the independent oracle. Assert the specified
+   first refusal and retained stage, owner, slot and reason details rather
+   than only a refusal code (FR-038-AC-291/292; QSpec FR-466-AC-14/16).
 6. Combine defects in state and protocol, temporal and protocol,
    abstraction and protocol, refinement and protocol, protocol and operation,
    and multiple protocol nodes. Require the FR-322 body-step order and
@@ -1713,9 +1727,14 @@ vector or schema is copied into this repository.
     edge fails producer conformance, a separate check from reader admission.
     In independent packages, retarget C to a selected `state_machine`,
     `process`, `record_value_type`, relation or `model_root` node, then to a
-    source-local or unselected declaration node. Require FR-064-AC-4's typed
-    edge refusal for each wrong-kind or unselected target. The reader SHALL
-    not infer or cross-check ownership from the source `over` parameter.
+    source-local declaration or a missing local target. Require the typed
+    refusal at `owner_model` for each wrong-kind or missing target. A separate
+    genuinely unselected `model`/`object_type` target SHALL refuse
+    `missing_declaration`/`missing-selection` at its own `node_id` in the
+    earlier graph owner join. Pair the wrong-kind edge with earlier refinement
+    row and protocol member defects, then with a later same-clause slot defect,
+    to verify FR-464-AC-20's phase order. The reader SHALL not infer or
+    cross-check ownership from the source `over` parameter.
 11. Keeping the positive package's owner join and protocol body valid,
     mutate the concrete catalog separately to omit C's class, add B's
     foreign class, duplicate or reorder an entry, change C's class node or

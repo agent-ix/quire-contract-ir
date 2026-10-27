@@ -1048,17 +1048,26 @@ fn locate_in_preimage_with(
     if let Some(path) = refusal.path.take() {
         refusal.path = Some(if is_typed_preimage_position(&path) {
             if let Some(preimage) = source(&path) {
-                // A nominal preimage whose shape the closed preimage schema
-                // refuses (a missing member, a value of the wrong kind) is an
-                // invalid graph node, as QSpec's nominal mutations fix; an
-                // unknown member keeps its own code.
+                // Most nominal preimage decode failures remain graph errors.
+                // The explicitly closed schema defects refuse at their node.
+                let schema_invalid = identity::schema_invalid_preimage(&preimage);
                 let (located, unknown_member) = identity::locate_preimage_failure(path, &preimage);
-                if unknown_member {
-                    refusal.code = CheckedPackageRefusalCode::UnknownMember;
-                } else if refusal.code == CheckedPackageRefusalCode::MalformedWire {
-                    refusal.code = CheckedPackageRefusalCode::InvalidSemanticGraph;
+                if schema_invalid {
+                    refusal.code = CheckedPackageRefusalCode::MalformedWire;
+                    let node = located
+                        .as_str()
+                        .split("/nominal_identity_preimage")
+                        .next()
+                        .and_then(JsonPointer::parse);
+                    node.unwrap_or(located)
+                } else {
+                    if unknown_member {
+                        refusal.code = CheckedPackageRefusalCode::UnknownMember;
+                    } else if refusal.code == CheckedPackageRefusalCode::MalformedWire {
+                        refusal.code = CheckedPackageRefusalCode::InvalidSemanticGraph;
+                    }
+                    located
                 }
-                located
             } else {
                 path
             }
@@ -1257,6 +1266,7 @@ impl CheckedPackageV2 {
             .map_err(|failure| classify_dependency_entry_shape_bytes(failure, bytes))
             .map_err(classify_owner_shape)?;
         intake::check_lossless_source(bytes, &wire)?;
+        identity::check_nominal_wire(&wire.semantic_graph.nodes)?;
         validate_owner_schema(&wire)?;
         let ValidatedPackage {
             kinds,

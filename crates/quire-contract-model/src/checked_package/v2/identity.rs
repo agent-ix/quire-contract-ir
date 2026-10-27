@@ -2,8 +2,8 @@
 //! dimension, dimension equivalence, declared unit) and their semantic and cross-field rules.
 //!
 //! The node key of a nominal form is SHA-256 of the RFC 8785 canonical bytes
-//! of its preimage, computed by `quire-canonical`. Every violation is
-//! `invalid_semantic_graph`.
+//! of its preimage, computed by `quire-canonical`. Closed wire defects refuse
+//! before the remaining nominal graph checks.
 
 use super::model_members::DomainModel;
 use super::natural::coprime;
@@ -233,6 +233,78 @@ pub(in crate::checked_package) fn locate_preimage_failure(
         }
     }
     (located, unknown_member)
+}
+
+/// Whether a failed nominal decode is one of the closed-schema defects that
+/// belongs to the wire stage rather than nominal graph validation.
+pub(in crate::checked_package) fn schema_invalid_preimage(preimage: &Value) -> bool {
+    let Some(object) = preimage.as_object() else {
+        return false;
+    };
+    if object
+        .get("version")
+        .and_then(Value::as_str)
+        .and_then(NominalKind::from_version)
+        .is_some_and(|kind| {
+            matches!(
+                kind,
+                NominalKind::EnumDeclaration | NominalKind::Dimension | NominalKind::Unit
+            )
+        })
+        && object
+            .get("owner")
+            .and_then(Value::as_object)
+            .is_some_and(|owner| {
+                owner.get("kind").and_then(Value::as_str) == Some("model")
+                    && owner.contains_key("version")
+            })
+    {
+        return true;
+    }
+    object.get("version").and_then(Value::as_str) == Some("quire.dimension-equivalence-node/v1")
+        && (object.get("root_scale").is_none()
+            || object
+                .get("dimension_node_ids")
+                .and_then(Value::as_array)
+                .is_some_and(|ids| ids.len() != 2))
+}
+
+/// The lexical and node-shape rules of nominal preimages that Serde's field
+/// types cannot express. This runs before the package identity or graph check.
+pub(in crate::checked_package) fn check_nominal_wire(
+    nodes: &[CheckedSemanticNodeV2],
+) -> Result<(), ValidationFailure> {
+    for (position, node) in nodes.iter().enumerate() {
+        let at = node_pointer(position);
+        let malformed = match &node.nominal_identity_preimage {
+            Some(NominalIdentityPreimage::Dimension(dimension)) => dimension
+                .terms
+                .iter()
+                .any(|term| integer_magnitude(&term.exponent).is_none()),
+            Some(NominalIdentityPreimage::DimensionEquivalence(equivalence)) => {
+                !positive_integer(&equivalence.root_scale.numerator)
+                    || !positive_integer(&equivalence.root_scale.denominator)
+            }
+            Some(NominalIdentityPreimage::Unit(unit)) => {
+                [&unit.scale, &unit.offset].iter().any(|ratio| {
+                    integer_magnitude(&ratio.numerator).is_none()
+                        || !positive_integer(&ratio.denominator)
+                })
+            }
+            Some(
+                NominalIdentityPreimage::EnumDeclaration(_)
+                | NominalIdentityPreimage::EnumMember(_),
+            )
+            | None => false,
+        };
+        if malformed {
+            return Err(ValidationFailure::refused(
+                CheckedPackageRefusalCode::MalformedWire,
+                at,
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn locate_source_owner_failure(at: JsonPointer, owner: &Value) -> (JsonPointer, bool) {
@@ -550,6 +622,10 @@ struct Site<'a> {
 }
 
 impl Site<'_> {
+    fn pointer(&self) -> JsonPointer {
+        node_pointer(self.position)
+    }
+
     fn member(&self, member: &str) -> JsonPointer {
         node_pointer(self.position).key(member)
     }
@@ -564,10 +640,11 @@ impl Site<'_> {
 
 /// Validates every node's nominal binding, key re-derivation, owner join,
 /// semantic rules and cross-field joins. `kinds` holds each node's decoded
-/// kind. Each refusal points at the member it is about. Every digest and term
-/// order is computed under `bytes`, the reader's byte limit; a preimage the
-/// encoder refuses is refused at the node's `node_id` (a key) or at the term
-/// (an order), as `invalid_semantic_graph`.
+/// kind. Equivalence refusals point at their node; other nominal refusals
+/// point at the member at fault. Every digest and term order is computed under
+/// `bytes`, the reader's byte limit; an encoder refusal is classified as
+/// `invalid_semantic_graph` at the same location as that nominal form's key
+/// or term-order check.
 pub(super) fn validate_nominal_nodes(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
@@ -598,6 +675,9 @@ pub(super) fn validate_nominal_nodes(
             (Some(kind), Some(preimage)) if NominalKind::of(preimage) == kind => preimage,
             // Required and absent: the node lacks the member.
             (Some(_), None) => return Err(invalid(node_pointer(position))),
+            (Some(NominalKind::DimensionEquivalence), Some(_)) => {
+                return Err(invalid(site.pointer()))
+            }
             _ => return Err(invalid(site.preimage(&[]))),
         };
         meter.charge(1, || site.preimage(&[]))?;
@@ -605,7 +685,13 @@ pub(super) fn validate_nominal_nodes(
             preimage
                 .digest(bytes)
                 .is_ok_and(|digest| digest == node.node_id.digest.as_ref()),
-            || site.member("node_id"),
+            || {
+                if matches!(preimage, NominalIdentityPreimage::DimensionEquivalence(_)) {
+                    site.pointer()
+                } else {
+                    site.member("node_id")
+                }
+            },
         )?;
         match preimage {
             NominalIdentityPreimage::EnumDeclaration(declaration) => {
@@ -621,7 +707,7 @@ pub(super) fn validate_nominal_nodes(
                 validate_dimension_equivalence(&site, equivalence, &graph, lock, meter)?;
                 require(
                     equivalence_pairs.insert(&equivalence.dimension_node_ids),
-                    || site.preimage(&["dimension_node_ids"]),
+                    || site.pointer(),
                 )?;
                 equivalences.push((position, equivalence));
             }
@@ -648,9 +734,7 @@ fn validate_dimension_equivalence(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let ids = &equivalence.dimension_node_ids;
-    require(ids[0].digest < ids[1].digest, || {
-        site.preimage(&["dimension_node_ids"])
-    })?;
+    require(ids[0].digest < ids[1].digest, || site.pointer())?;
     for (position, id) in ids.iter().enumerate() {
         meter.charge(1, || site.preimage(&["dimension_node_ids"]).index(position))?;
         require(
@@ -658,7 +742,7 @@ fn validate_dimension_equivalence(
                 graph.preimage(id),
                 Some(NominalIdentityPreimage::Dimension(_))
             ),
-            || site.preimage(&["dimension_node_ids"]).index(position),
+            || site.pointer(),
         )?;
     }
     meter.charge(
@@ -670,29 +754,17 @@ fn validate_dimension_equivalence(
             source.authority == equivalence.owner.authority
                 && source.identity == equivalence.owner.identity
         }),
-        || site.preimage(&["owner"]),
+        || site.pointer(),
     )?;
-    require(
-        positive_integer(&equivalence.root_scale.numerator)
-            && positive_integer(&equivalence.root_scale.denominator),
-        || site.preimage(&["root_scale"]),
-    )?;
-    validate_rational(&equivalence.root_scale, meter, &|| {
-        site.preimage(&["root_scale"])
-    })?;
+    validate_rational(&equivalence.root_scale, meter, &|| site.pointer())?;
     require(site.node.semantic_type == site.node.node_id, || {
-        site.member("semantic_type")
+        site.pointer()
     })?;
-    require(site.node.declaration.is_none(), || {
-        site.member("declaration")
-    })?;
-    require(site.node.dependencies.as_slice() == ids, || {
-        site.member("dependencies")
-    })?;
+    require(site.node.dependencies.as_slice() == ids, || site.pointer())?;
     require(
         matches!(site.node.occurrences.as_slice(), [occurrence]
             if occurrence.role == crate::checked_package::shared::CheckedOccurrenceRole::Anchor),
-        || site.member("occurrences"),
+        || site.pointer(),
     )?;
     Ok(())
 }
@@ -833,11 +905,7 @@ fn equivalence_potentials(
         if base_only && !(is_base(&ids[0]) && is_base(&ids[1])) {
             continue;
         }
-        let at = || {
-            node_pointer(*position)
-                .key("nominal_identity_preimage")
-                .key("root_scale")
-        };
+        let at = || node_pointer(*position);
         let ratio = ExactRatio::parse(&edge.root_scale, meter, &at)?;
         adjacency.entry(ids[0].clone()).or_default().push((
             ids[1].clone(),
@@ -865,11 +933,7 @@ fn equivalence_potentials(
                 continue;
             };
             for (neighbor, multiplier, position) in adjacency.get(&current).into_iter().flatten() {
-                let at = || {
-                    node_pointer(*position)
-                        .key("nominal_identity_preimage")
-                        .key("root_scale")
-                };
+                let at = || node_pointer(*position);
                 let candidate = current_ratio.multiply(multiplier, meter, &at)?;
                 match potentials.get(neighbor) {
                     Some((known_component, known_ratio)) => {
@@ -940,13 +1004,13 @@ fn validate_equivalence_graph(
         if both_base {
             continue;
         }
-        let at = || node_pointer(*position).key("nominal_identity_preimage");
+        let at = || node_pointer(*position);
         let (left_map, left_scale) = normalized_dimension(&ids[0], graph, &bases, meter, &at)?;
         let (right_map, right_scale) = normalized_dimension(&ids[1], graph, &bases, meter, &at)?;
-        require(left_map == right_map, || at().key("dimension_node_ids"))?;
+        require(left_map == right_map, at)?;
         let expected = left_scale.divide(&right_scale, meter, &at)?;
         let actual = ExactRatio::parse(&edge.root_scale, meter, &at)?;
-        require(actual == expected, || at().key("root_scale"))?;
+        require(actual == expected, at)?;
     }
     // A derived edge may complete a cycle through other derived edges, so
     // check the whole equivalence graph after base-root consistency.
