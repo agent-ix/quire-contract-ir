@@ -149,6 +149,7 @@ enum StructuralForm {
     Frame,
     OperationAnchor,
     StateClause,
+    StateTransition,
     UnionType,
     UnionValue,
     ProtocolReference,
@@ -164,7 +165,7 @@ impl StructuralForm {
             Self::Parameter => Some(CheckedOccurrenceRole::Expression),
             Self::Frame => Some(CheckedOccurrenceRole::Generated),
             Self::OperationAnchor => Some(CheckedOccurrenceRole::Anchor),
-            Self::StateClause => Some(CheckedOccurrenceRole::Claim),
+            Self::StateClause | Self::StateTransition => Some(CheckedOccurrenceRole::Claim),
             Self::AbstractionRelation => Some(CheckedOccurrenceRole::Declaration),
             Self::ProtocolReference => Some(CheckedOccurrenceRole::Expression),
             Self::Hybrid
@@ -282,7 +283,8 @@ impl StructuralForm {
             K::State(StateForm::Frame) => Some(Self::Frame),
             K::State(StateForm::OperationAnchor) => Some(Self::OperationAnchor),
             K::State(StateForm::StateClause) => Some(Self::StateClause),
-            K::State(StateForm::Transition | StateForm::Snapshot) => None,
+            K::State(StateForm::Transition) => Some(Self::StateTransition),
+            K::State(StateForm::Snapshot) => None,
             K::Temporal(
                 TemporalForm::TemporalClause
                 | TemporalForm::Formula
@@ -441,6 +443,10 @@ pub(super) fn validate_structural_nodes(
                         .then_some(Defect::Body)
                 }
             }
+            Some(StructuralForm::StateTransition) => term
+                .and_then(typed_transition_body)
+                .is_none()
+                .then_some(Defect::Body),
             Some(StructuralForm::UnionType) => term
                 .and_then(typed_union_type_body)
                 .is_none()
@@ -753,6 +759,68 @@ pub(super) struct ClauseBody {
     pub(super) anchor: CheckedNodeId,
     /// Optional closed point of the clause application member.
     pub(super) execution_point: Option<CheckedExecutionPoint>,
+}
+
+/// The five identity-bearing references of a Boolean state transition.
+pub(super) struct TransitionBody {
+    pub(super) anchor: CheckedNodeId,
+    pub(super) subject: CheckedNodeId,
+    pub(super) inputs: Vec<CheckedNodeId>,
+    pub(super) pre: Option<CheckedNodeId>,
+    pub(super) post: CheckedNodeId,
+}
+
+/// Whether a raw term is the catalogued state-transition application.
+pub(super) fn is_state_transition_application(term: &Value) -> bool {
+    matches!(CheckedTerm::view(term), Some(CheckedTermView::Application { operation, .. })
+        if operation.get("identity").and_then(Value::as_str).and_then(|identity| super::operation_catalog::operation_catalog().known(identity)) == Some(super::KnownOperation::StateTransition))
+}
+
+/// Decode the closed transition argument shape without doing its semantic joins.
+pub(super) fn typed_transition_body(body: &super::CheckedTerm) -> Option<TransitionBody> {
+    let super::CheckedTerm::Application {
+        operator: ApplicationOperator::StateTransition,
+        operation,
+        arguments,
+        ..
+    } = body
+    else {
+        return None;
+    };
+    if super::operation_catalog::operation_catalog().known(operation.get("identity")?.as_str()?)
+        != Some(super::KnownOperation::StateTransition)
+    {
+        return None;
+    }
+    let [anchor, subject, inputs, pre, post] = arguments.as_slice() else {
+        return None;
+    };
+    let anchor = typed_binding(anchor, "anchor")
+        .and_then(typed_reference)?
+        .clone();
+    let subject = typed_binding(subject, "subject")
+        .and_then(typed_reference)?
+        .clone();
+    let inputs = typed_aggregate(typed_binding(inputs, "inputs")?)?
+        .iter()
+        .map(|term| typed_reference(term).cloned())
+        .collect::<Option<Vec<_>>>()?;
+    let pre = typed_aggregate(typed_binding(pre, "pre")?)?;
+    let pre = match pre {
+        [] => None,
+        [one] => Some(typed_reference(one)?.clone()),
+        _ => return None,
+    };
+    let post = typed_binding(post, "post")
+        .and_then(typed_reference)?
+        .clone();
+    Some(TransitionBody {
+        anchor,
+        subject,
+        inputs,
+        pre,
+        post,
+    })
 }
 
 /// Whether `term` is an application of `quire.op.state.clause`.

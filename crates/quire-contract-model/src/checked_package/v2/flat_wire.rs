@@ -63,6 +63,31 @@ enum Place {
     BindingValue,
 }
 
+/// Classify the two published profile identities at the wire intake boundary.
+#[ix_trace_rs::string_edge]
+fn wrong_profile_member(operation: &Value) -> bool {
+    let member_operator = operation["member"]["operator"].as_str();
+    match operation["identity"].as_str() {
+        Some("quire.op.state.transition") => {
+            member_operator.is_some_and(|name| name != "transition")
+        }
+        Some("quire.op.protocol.control") => member_operator == Some("transition"),
+        _ => false,
+    }
+}
+
+/// Check the closed transition profile layout before semantic joins.
+#[ix_trace_rs::string_edge]
+fn transition_profile_wire_shape(operation: &Value) -> bool {
+    operation["laws"]
+        .as_array()
+        .is_some_and(|laws| laws.len() == 1 && laws[0]["role"] == "protocol_profile")
+        && operation["member"]["kind"] == "profile_operator"
+        && operation["member"]["operator"] == "transition"
+        && operation["mode"].is_null()
+        && operation["leaves"].as_array().is_some_and(Vec::is_empty)
+}
+
 /// Checks every node body and every `details` term of `wire` against the flat
 /// grammar, nodes first, in document order, then the diagnostics' `details`.
 /// Closed node headers refuse before hashing the single shipped graph, using
@@ -160,6 +185,43 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
                     ))
                 } else {
                     check_term(&node.body, &at, Place::BodyRoot, false).and_then(|_| {
+                        // QSpec FR-341-AC-19 fixes these two profile-member
+                        // pairs in the published schema. Reject them during
+                        // wire validation, before a stale application key or
+                        // the operation step can decide the outcome.
+                        let operation = &node.body["operation"];
+                        if wrong_profile_member(operation) {
+                            return Err(ValidationFailure::refused(
+                                CheckedPackageRefusalCode::MalformedWire,
+                                at.key("operation").key("member").key("operator").pointer(),
+                            ));
+                        }
+                        if kind == CheckedNodeKind::State(super::StateForm::Transition) {
+                            let body = CheckedTerm::decode_admitted(&node.body).ok();
+                            let transition_shape = body
+                                .as_ref()
+                                .and_then(super::structural::typed_transition_body)
+                                .is_some()
+                                && transition_profile_wire_shape(operation);
+                            if !transition_shape {
+                                return Err(ValidationFailure::refused(
+                                    CheckedPackageRefusalCode::MalformedWire,
+                                    at.pointer(),
+                                ));
+                            }
+                            if let Some(ordinal) = node.occurrences.iter().position(|occurrence| {
+                                occurrence.role
+                                    != crate::checked_package::shared::CheckedOccurrenceRole::Claim
+                            }) {
+                                return Err(ValidationFailure::refused(
+                                    CheckedPackageRefusalCode::MalformedWire,
+                                    crate::checked_package::common::node_pointer(position)
+                                        .key("occurrences")
+                                        .index(ordinal)
+                                        .key("role"),
+                                ));
+                            }
+                        }
                         let CheckedNodeKind::Protocol(form) = kind else {
                             return Ok(());
                         };

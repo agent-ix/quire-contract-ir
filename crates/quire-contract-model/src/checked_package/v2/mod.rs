@@ -186,6 +186,8 @@ fn is_node_domain(domain: &str) -> bool {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum KnownOperation {
     StateClause,
+    StateTransition,
+    ProtocolControl,
     NumericNarrow,
     ModelNavigate,
     ModelReaches,
@@ -197,6 +199,8 @@ impl KnownOperation {
     fn from_wire(text: &str) -> Option<Self> {
         match text {
             "quire.op.state.clause" => Some(Self::StateClause),
+            "quire.op.state.transition" => Some(Self::StateTransition),
+            "quire.op.protocol.control" => Some(Self::ProtocolControl),
             "quire.op.numeric.narrow" => Some(Self::NumericNarrow),
             "quire.op.model.navigate" => Some(Self::ModelNavigate),
             "quire.op.model.reaches" => Some(Self::ModelReaches),
