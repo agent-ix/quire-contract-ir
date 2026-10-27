@@ -39,7 +39,9 @@
 //! but its own body is not read. Field and operation `redefines` references
 //! contribute to the effective-member resolution.
 
-use super::model_fields::{DeclarationIndex, DeclaredNode, FieldTables, Selected};
+use super::model_fields::{
+    DeclarationIndex, DeclaredNode, FieldTables, RecordBinderTypes, Selected,
+};
 use super::{
     member_pointer, CheckedDeclaration, CheckedDomainPackageRef, CheckedNodeOwner, CheckedNodeTag,
     CheckedSemanticNodeV2, CheckedTerm, ValidationFailure, WorkMeter,
@@ -1306,19 +1308,10 @@ impl DomainModel {
         })
     }
 
-    /// Checked binder types of one record with no inherited fields, in the
-    /// selected document's field order. Inherited field order needs a QSpec
-    /// decision; the field tables retain identity order instead.
-    pub(super) fn direct_record_binder_types(&self, record: &str) -> Option<Vec<CheckedNodeId>> {
-        let declaration = self.record_types.get(record)?;
-        if !declaration.supertypes.is_empty() {
-            return None;
-        }
-        declaration
-            .fields
-            .iter()
-            .map(|field| self.type_node_id(&self.field_type(field)?))
-            .collect()
+    /// Checked binder types of one record in effective field order.
+    pub(super) fn record_binder_types(&self, record: &str) -> Option<RecordBinderTypes> {
+        self.record_types.get(record)?;
+        self.fields.of(record)?.binder_types(self.bytes)
     }
 
     /// Checked receiver, parameter and optional result binder types of the

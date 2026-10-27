@@ -71,6 +71,14 @@ fn exposed_identities(table: &FieldTable) -> Vec<&str> {
     table.exposed.iter().map(|entry| &*entry.identity).collect()
 }
 
+fn ordered_identities(table: &FieldTable) -> Vec<&str> {
+    table
+        .ordered_exposed
+        .iter()
+        .map(|slot| &*slot.entry.identity)
+        .collect()
+}
+
 fn hidden_identities(table: &FieldTable) -> Vec<&str> {
     table.hidden.iter().map(AsRef::as_ref).collect()
 }
@@ -98,6 +106,182 @@ fn record_type(short: &str, supertypes: &[&str], fields: Vec<Value>) -> Value {
     let mut record = object_type(&format!("{ORDERS}{short}"), supertypes, fields);
     record["kind"]["name"] = json!("record");
     record
+}
+
+/// Record fields retain the source order that an activation binder reads,
+/// including reversed declarations and reversed supertype edges.
+#[trace("TC-048", "FR-038-AC-325")]
+#[test]
+fn tc_048_record_field_table_preserves_source_order() {
+    let base = format!("{ORDERS}Base");
+    let mid = format!("{ORDERS}Mid");
+    let leaf = format!("{ORDERS}Leaf");
+    let p = format!("{ORDERS}P");
+    let q = format!("{ORDERS}Q");
+    let both = format!("{ORDERS}Both");
+    let types = |base_fields: &[&str], supertypes: &[&str]| {
+        record_document(vec![
+            record_type(
+                "Base",
+                &[],
+                base_fields
+                    .iter()
+                    .map(|name| field(&base, name, "ix://quire/native/Boolean"))
+                    .collect(),
+            ),
+            record_type(
+                "Mid",
+                &[&base],
+                vec![field(&mid, "c", "ix://quire/native/Integer")],
+            ),
+            record_type(
+                "Leaf",
+                &[&mid],
+                vec![field(&leaf, "d", "ix://quire/native/Boolean")],
+            ),
+            record_type("P", &[], vec![field(&p, "p", "ix://quire/native/Boolean")]),
+            record_type("Q", &[], vec![field(&q, "q", "ix://quire/native/Integer")]),
+            record_type(
+                "Both",
+                supertypes,
+                vec![field(&both, "r", "ix://quire/native/Boolean")],
+            ),
+        ])
+    };
+    let (_, model) = built(&types(&["b", "a"], &[&q, &p]));
+    assert_eq!(
+        ordered_identities(table_for(&model, "Leaf")),
+        [
+            format!("{base}/b"),
+            format!("{base}/a"),
+            format!("{mid}/c"),
+            format!("{leaf}/d"),
+        ]
+    );
+    assert_eq!(
+        ordered_identities(table_for(&model, "Both")),
+        [format!("{q}/q"), format!("{p}/p"), format!("{both}/r")]
+    );
+    assert_eq!(
+        exposed_identities(table_for(&model, "Leaf")),
+        [
+            format!("{base}/a"),
+            format!("{base}/b"),
+            format!("{leaf}/d"),
+            format!("{mid}/c"),
+        ],
+        "the existing identity-sorted lookup remains intact"
+    );
+
+    let (_, reversed) = built(&types(&["a", "b"], &[&p, &q]));
+    assert_eq!(
+        ordered_identities(table_for(&reversed, "Leaf")),
+        [
+            format!("{base}/a"),
+            format!("{base}/b"),
+            format!("{mid}/c"),
+            format!("{leaf}/d"),
+        ]
+    );
+    assert_eq!(
+        ordered_identities(table_for(&reversed, "Both")),
+        [format!("{p}/p"), format!("{q}/q"), format!("{both}/r")]
+    );
+}
+
+/// A diamond contributes the shared field once, and a redefiner takes the
+/// inherited position even when another branch reaches the hidden field.
+#[trace("TC-048", "FR-038-AC-325")]
+#[test]
+fn tc_048_record_field_table_deduplicates_diamond_and_positions_redefinition() {
+    let top = format!("{ORDERS}Top");
+    let left = format!("{ORDERS}Left");
+    let right = format!("{ORDERS}Right");
+    let bottom = format!("{ORDERS}Bottom");
+    let mut replacement = field(&left, "t", "ix://quire/native/Integer");
+    replacement["redefines"] = json!(format!("{top}/t"));
+    let document = record_document(vec![
+        record_type(
+            "Top",
+            &[],
+            vec![field(&top, "t", "ix://quire/native/Boolean")],
+        ),
+        record_type(
+            "Left",
+            &[&top],
+            vec![replacement, field(&left, "l", "ix://quire/native/Boolean")],
+        ),
+        record_type(
+            "Right",
+            &[&top],
+            vec![field(&right, "r", "ix://quire/native/Integer")],
+        ),
+        record_type(
+            "Bottom",
+            &[&left, &right],
+            vec![field(&bottom, "z", "ix://quire/native/Boolean")],
+        ),
+    ]);
+    let (_, model) = built(&document);
+    let table = table_for(&model, "Bottom");
+    assert_eq!(
+        ordered_identities(table),
+        [
+            format!("{left}/t"),
+            format!("{left}/l"),
+            format!("{right}/r"),
+            format!("{bottom}/z"),
+        ]
+    );
+    assert_eq!(
+        table.ordered_exposed[0].entry.member_type,
+        Some(MemberType::Integer),
+        "the replacement supplies the binder type at Top's inherited position"
+    );
+    assert_eq!(table.ambiguous, None);
+
+    let mut reverse = document.clone();
+    reverse["types"][3]["supertypes"] = json!([right, left]);
+    let (_, reverse_model) = built(&reverse);
+    assert_eq!(
+        ordered_identities(table_for(&reverse_model, "Bottom")),
+        [
+            format!("{left}/t"),
+            format!("{right}/r"),
+            format!("{left}/l"),
+            format!("{bottom}/z"),
+        ],
+        "the later supertype's redefiner takes Top's earlier position"
+    );
+
+    let base = format!("{ORDERS}Base");
+    let child = format!("{ORDERS}Child");
+    let mut replacement = field(&child, "a", "ix://quire/native/Integer");
+    replacement["redefines"] = json!(format!("{base}/a"));
+    let (_, direct) = built(&record_document(vec![
+        record_type(
+            "Base",
+            &[],
+            vec![
+                field(&base, "b", "ix://quire/native/Boolean"),
+                field(&base, "a", "ix://quire/native/Boolean"),
+            ],
+        ),
+        record_type(
+            "Child",
+            &[&base],
+            vec![replacement, field(&child, "c", "ix://quire/native/Boolean")],
+        ),
+    ]));
+    assert_eq!(
+        ordered_identities(table_for(&direct, "Child")),
+        [
+            format!("{base}/b"),
+            format!("{child}/a"),
+            format!("{child}/c")
+        ],
+        "a direct redefinition takes the hidden field's slot"
+    );
 }
 
 /// Selected records use the effective field table, with redefinitions and
