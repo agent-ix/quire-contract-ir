@@ -486,11 +486,23 @@ fn memory_drain_catalog_roundtrips_and_joins_source_defaults() {
             memory_model: RefinementTsoModel::Tso,
         })
     ));
-    let admitted = read(&package, &evidence);
-    assert!(
-        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
-        "{admitted:?}"
-    );
+    let refinement_id: quire_contract_model::CheckedNodeId =
+        serde_json::from_value(package["semantic_graph"]["nodes"][position]["node_id"].clone())
+            .expect("refinement id");
+    let assert_typed_drain = |admitted: &CheckedPackageV2| {
+        let Some(CheckedTerm::Refinement {
+            class_catalog: Some(class_catalog),
+            ..
+        }) = admitted.term(&refinement_id)
+        else {
+            panic!("admitted typed catalog missing");
+        };
+        assert_eq!(catalog, class_catalog);
+    };
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
+        panic!("source-default catalog refused");
+    };
+    assert_typed_drain(&admitted);
     let encoded = writer_bytes(&package);
     let written: Value = serde_json::from_slice(&encoded).expect("encoded package");
     let entries = written["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"]
@@ -519,11 +531,12 @@ fn memory_drain_catalog_roundtrips_and_joins_source_defaults() {
         written["semantic_graph"]["nodes"][position]["node_id"],
         package["semantic_graph"]["nodes"][position]["node_id"]
     );
-    let reread = CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence);
-    assert!(
-        matches!(reread, CheckedPackageV2ReadResult::Admitted(_)),
-        "{reread:?}"
-    );
+    let CheckedPackageV2ReadResult::Admitted(reread) =
+        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+    else {
+        panic!("written catalog refused on reread");
+    };
+    assert_typed_drain(&reread);
 }
 
 #[trace("FR-061-AC-12")]
