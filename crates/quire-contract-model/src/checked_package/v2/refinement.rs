@@ -2465,16 +2465,29 @@ fn protocol_memory_models(
             {
                 continue;
             }
-            let selected = super::protocol_body::binding_value(arguments, "memory")
-                .and_then(|value| {
-                    if let CheckedTerm::Aggregate { members } = value {
-                        members.first()
-                    } else {
-                        None
-                    }
-                })
-                .and_then(super::protocol_body::text_value)
-                .unwrap_or("sc");
+            let Some(CheckedTerm::Aggregate { members }) =
+                super::protocol_body::binding_value(arguments, "memory")
+            else {
+                return Err(ValidationFailure::refused(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    at.clone(),
+                ));
+            };
+            let selected = match members.as_slice() {
+                [] => "sc",
+                [value] => super::protocol_body::text_value(value).ok_or_else(|| {
+                    ValidationFailure::refused(
+                        CheckedPackageRefusalCode::InvalidSemanticGraph,
+                        at.clone(),
+                    )
+                })?,
+                _ => {
+                    return Err(ValidationFailure::refused(
+                        CheckedPackageRefusalCode::InvalidSemanticGraph,
+                        at.clone(),
+                    ))
+                }
+            };
             let model = match selected {
                 "sc" => RefinementMemoryModel::Sc,
                 "tso" => RefinementMemoryModel::Tso,
