@@ -1432,6 +1432,58 @@ fn protocol_owner_dependency_precedes_key_and_target_meaning() {
     );
 }
 
+/// Trace: FR-064-AC-3, FR-064-AC-4
+#[trace("TC-946")]
+#[test]
+fn protocol_owner_exact_body_dependencies_precede_stale_key() {
+    for omit_body_target in [true, false] {
+        let mut package = admitted_protocol_families();
+        let position = clause_position(&package);
+        let body_target = package["semantic_graph"]["nodes"][position]["body"]["arguments"][0]
+            ["value"]["target"]
+            .clone();
+        let extra = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .map(|node| &node["node_id"])
+            .find(|id| {
+                !package["semantic_graph"]["nodes"][position]["dependencies"]
+                    .as_array()
+                    .expect("dependencies")
+                    .contains(id)
+            })
+            .expect("unreferenced local node")
+            .clone();
+        let dependencies = package["semantic_graph"]["nodes"][position]["dependencies"]
+            .as_array_mut()
+            .expect("dependencies");
+        if omit_body_target {
+            dependencies.retain(|id| id != &body_target);
+        } else {
+            dependencies.push(extra);
+            dependencies
+                .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+        }
+        // The body's changed literal makes the retained clause key stale too.
+        package["semantic_graph"]["nodes"][position]["body"]["arguments"][1]["value"]["members"]
+            [0]["value"]["value"] = json!("changed");
+        refresh_identity(&mut package);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+            panic!("exact body dependencies must refuse before the stale key");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            "omit_body_target={omit_body_target}"
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(format!("/semantic_graph/nodes/{position}/dependencies").as_str())
+        );
+    }
+}
+
 /// Trace: FR-064-AC-2, FR-064-AC-4
 #[trace("TC-946")]
 #[test]

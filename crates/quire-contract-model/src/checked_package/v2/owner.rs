@@ -82,8 +82,9 @@ fn check_one(
 /// Checks owner presence and variant before package identity validation.
 pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
     for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
-        let clause = node.node_tag.as_ref() == "protocol"
-            && node.semantic_form.as_ref() == "protocol_clause";
+        let kind = CheckedNodeTag::from_wire(&node.node_tag)
+            .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form));
+        let clause = kind == Some(CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause));
         if clause != node.owner_model.is_some() {
             return Err(ValidationFailure::refused(
                 CheckedPackageRefusalCode::MalformedWire,
@@ -97,10 +98,7 @@ pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), V
         if let Some(owner_model) = &node.owner_model {
             super::validate_node_id(owner_model, || node_pointer(position).key("owner_model"))?;
         }
-        if CheckedNodeTag::from_wire(&node.node_tag)
-            .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
-            == Some(CheckedNodeKind::Protocol(ProtocolForm::ProtocolReference))
-        {
+        if kind == Some(CheckedNodeKind::Protocol(ProtocolForm::ProtocolReference)) {
             let forbidden = [
                 ("declaration", node.declaration.is_some()),
                 ("owner", node.owner.is_some()),

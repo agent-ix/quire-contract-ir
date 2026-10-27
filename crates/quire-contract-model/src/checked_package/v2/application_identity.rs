@@ -6,7 +6,8 @@
 
 use super::encode::{ApplicationNodePreimage, GroupPlace};
 use super::{
-    structural, BodyTerm, CheckedNodeId, CheckedTerm, RawSemanticNodeV2 as CheckedSemanticNodeV2,
+    structural, BodyTerm, CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedTerm,
+    ProtocolForm, RawSemanticNodeV2 as CheckedSemanticNodeV2,
 };
 use crate::checked_package::common::{body_term, NODE_DOMAIN};
 use quire_walk::{walk, Children, Walk};
@@ -318,8 +319,9 @@ fn application_preimage_with_term<'a>(
         semantic_form: &node.semantic_form,
         semantic_type: &node.semantic_type,
         declaration: node.declaration.as_ref(),
-        owner_model: if node.node_tag.as_ref() == "protocol"
-            && node.semantic_form.as_ref() == "protocol_clause"
+        owner_model: if CheckedNodeTag::from_wire(&node.node_tag)
+            .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
+            == Some(CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause))
         {
             node.owner_model.as_ref()
         } else {

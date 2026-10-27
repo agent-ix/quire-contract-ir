@@ -1112,6 +1112,29 @@ fn classify_dependency_entry_shape_with(
     ValidationFailure::Refused(refusal)
 }
 
+enum OwnerShapeMember {
+    Owner,
+    OwnerModel,
+}
+
+impl OwnerShapeMember {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(text: &str) -> Option<Self> {
+        match text {
+            "owner" => Some(Self::Owner),
+            "owner_model" => Some(Self::OwnerModel),
+            _ => None,
+        }
+    }
+
+    fn as_wire(&self) -> &'static str {
+        match self {
+            Self::Owner => "owner",
+            Self::OwnerModel => "owner_model",
+        }
+    }
+}
+
 /// Owner variants and the local-only clause model edge are closed wire shapes
 /// whose unknown members are `malformed_wire` at the owner member.
 fn classify_owner_shape(failure: ValidationFailure) -> ValidationFailure {
@@ -1120,18 +1143,14 @@ fn classify_owner_shape(failure: ValidationFailure) -> ValidationFailure {
     };
     if refusal.code == CheckedPackageRefusalCode::UnknownMember {
         let owner_path = refusal.path.as_ref().and_then(|path| {
-            let rest = path.as_str().strip_prefix("/semantic_graph/nodes/")?;
-            let (index, member_path) = rest.split_once('/')?;
-            let index = index.parse::<usize>().ok()?;
-            ["owner", "owner_model"]
-                .into_iter()
-                .find(|member| {
-                    member_path == *member
-                        || member_path
-                            .strip_prefix(*member)
-                            .is_some_and(|tail| tail.starts_with('/'))
-                })
-                .map(|member| node_pointer(index).key(member))
+            let index = path.as_str().split('/').nth(3)?.parse::<usize>().ok()?;
+            let prefix = node_pointer(index);
+            let member_path = path
+                .as_str()
+                .strip_prefix(prefix.as_str())?
+                .strip_prefix('/')?;
+            let member = member_path.split('/').next()?;
+            OwnerShapeMember::from_wire(member).map(|member| prefix.key(member.as_wire()))
         });
         if let Some(owner_path) = owner_path {
             refusal.code = CheckedPackageRefusalCode::MalformedWire;
