@@ -483,6 +483,77 @@ fn memory_drain_catalog_roundtrips_and_joins_source_defaults() {
     );
 }
 
+#[trace("FR-061-AC-12")]
+#[test]
+fn abstract_protocol_memory_default_is_catalogued_from_its_own_clause() {
+    let (base, _) = crate::checked_package_v2_protocol_body::protocol_holder_case_on(
+        v2_all_families(),
+        "parallel",
+    );
+    let (mut package, evidence) = concrete_protocol_refinement_on(
+        base,
+        ProtocolStepRows::Empty,
+        ProtocolClauseOwner::OtherModel,
+    );
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let clause = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "protocol_clause")
+        .expect("clause")["node_id"]
+        .clone();
+    let finish = nodes
+        .iter()
+        .find(|node| node["body"]["operation"]["member"]["operator"] == "finish")
+        .expect("finish")["node_id"]
+        .clone();
+    let parallel = nodes
+        .iter()
+        .find(|node| node["body"]["operation"]["member"]["operator"] == "parallel")
+        .expect("parallel")["node_id"]
+        .clone();
+    let binder = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let position = nodes.len() - 1;
+    let abstract_key = nodes[position]["body"]["abstract"].clone();
+    let entries = json!([
+        {"class":"OrderFlow::Closed", "node":finish.clone(), "binder_types":[binder.clone()]},
+        {"class":"fork OrderFlow::Holder", "node":parallel.clone(), "binder_types":[]},
+        {"class":"join OrderFlow::Holder", "node":parallel.clone(), "binder_types":[]},
+        {"class":"memory drain", "memory_model":"sc", "drain":"store-buffer-flush"},
+    ]);
+    let mut dependencies = vec![abstract_key, clause.clone(), finish, parallel, binder];
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.dedup();
+    let refinement = &mut package["semantic_graph"]["nodes"][position];
+    refinement["body"]["protocol"] = clause;
+    refinement["body"]["class_catalog"] = json!({"concrete":[], "abstract":entries});
+    refinement["dependencies"] = json!(dependencies);
+    rekey_refinement(&mut package, position);
+    let admitted = read(&package, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "{admitted:?}"
+    );
+
+    package["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["abstract"]
+        .as_array_mut()
+        .expect("classes")
+        .pop();
+    rekey_refinement(&mut package, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+        panic!("abstract source-default drain omitted but admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/abstract").as_str())
+    );
+}
+
 #[trace("FR-061-AC-11")]
 #[test]
 fn memory_drain_wire_and_catalog_order_refuse_at_their_stage() {
