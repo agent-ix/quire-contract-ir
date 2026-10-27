@@ -1450,7 +1450,13 @@ fn operation_model_nodes() -> (Value, Value, Value, Value) {
             "kind": {"module": MODEL_IDENTITY, "name": "worker"},
             "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
             "supertypes": [], "fields": [],
-            "operations": [{"identity": "ix://test/refinement/Worker/run", "params": []}]
+            "operations": [{
+                "identity": "ix://test/refinement/Worker/run",
+                "params": [
+                    {"typeRef":"ix://quire/native/Integer", "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}},
+                    {"typeRef":"ix://quire/native/Boolean", "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}}
+                ]
+            }]
         }));
     let body = json!({"term": "aggregate", "members": []});
     let owner = json!({"kind": "model", "identity": MODEL_IDENTITY, "node": worker_identity});
@@ -2326,9 +2332,10 @@ fn refinement_catalog_joins_concrete_operation_and_abstract_protocol_without_ste
         .expect("finish")["node_id"]
         .clone();
     let finish_binder = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let integer_binder = node_id(&crate::support::checked_package::family_key("a3a3"));
     let entries = vec![
         json!({"class": "OrderFlow::Closed", "node": finish, "binder_types": [finish_binder]}),
-        json!({"class": "Worker::run", "node": worker_key, "binder_types": [receiver_type]}),
+        json!({"class": "Worker::run", "node": worker_key, "binder_types": [receiver_type, integer_binder, finish_binder]}),
     ];
     let position = set_concrete_catalog(&mut package, entries.clone());
     let admitted = read(&package, &evidence);
@@ -2410,6 +2417,19 @@ fn refinement_catalog_joins_concrete_operation_and_abstract_protocol_without_ste
         refusal.cause,
         Some(CheckedPackageRefusalCause::MalformedDeclaration)
     );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1").as_str())
+    );
+
+    let mut reordered = package.clone();
+    let mut wrong_entries = entries.clone();
+    wrong_entries[1]["binder_types"] = json!([receiver_type, finish_binder, integer_binder]);
+    set_concrete_catalog(&mut reordered, wrong_entries);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&reordered, &evidence) else {
+        panic!("reordered operation parameters admitted");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
     assert_eq!(
         refusal.path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1").as_str())
