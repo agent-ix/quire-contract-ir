@@ -13,9 +13,9 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CheckedProtocolActivation, CheckedProtocolActivationRow, CheckedProtocolRefusalDetail,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedProtocolActivation, CheckedProtocolActivationRow,
+    CheckedProtocolRefusalDetail,
 };
 use serde_json::{json, Value};
 
