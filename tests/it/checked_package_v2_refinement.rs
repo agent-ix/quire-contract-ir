@@ -593,6 +593,25 @@ fn memory_drain_wire_and_catalog_order_refuse_at_their_stage() {
 fn memory_catalog_completeness_identity_and_dependency_precedence() {
     let (base, evidence, position) = memory_catalog_package();
     let path = format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete");
+    let mut absent = base.clone();
+    absent["semantic_graph"]["nodes"][position]["body"]
+        .as_object_mut()
+        .expect("body")
+        .remove("class_catalog");
+    let abstract_key = absent["semantic_graph"]["nodes"][position]["body"]["abstract"].clone();
+    absent["semantic_graph"]["nodes"][position]["dependencies"] = json!([abstract_key]);
+    rekey_refinement(&mut absent, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&absent, &evidence) else {
+        panic!("required catalog omission admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog").as_str())
+    );
     let entries = base["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"]
         .as_array()
         .expect("catalog");
