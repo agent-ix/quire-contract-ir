@@ -1204,16 +1204,20 @@ fn tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects() {
         Some(json!({"kind": "post", "operation": "deposit"})),
         Some(json!({"kind": "post", "operation": "deposit"})),
     );
-    for package in [&pre, &post] {
+    for package in [&absent, &pre, &post] {
         let admitted = match read(&package.value) {
             CheckedPackageV2ReadResult::Admitted(admitted) => admitted,
             other => panic!("pointed package refused: {other:?}"),
         };
         let anchor = package.at("state", "operation_anchor");
         let clause = package.clause("precondition");
-        let point =
-            &package.value["semantic_graph"]["nodes"][anchor]["body"]["members"][3]["value"];
-        assert!(point.get("term").is_none(), "anchor point is not a term");
+        let point = package.value["semantic_graph"]["nodes"][anchor]["body"]["members"]
+            .as_array()
+            .and_then(|members| members.get(3))
+            .map(|member| &member["value"]);
+        if let Some(point) = point {
+            assert!(point.get("term").is_none(), "anchor point is not a term");
+        }
         assert_eq!(
             serde_json::to_value(&admitted.graph().nodes[anchor].body).expect("typed anchor"),
             package.value["semantic_graph"]["nodes"][anchor]["body"]
@@ -1249,8 +1253,12 @@ fn tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects() {
         .expect("encode admitted package");
         let encoded_json: Value = serde_json::from_slice(&encoded).expect("writer JSON");
         assert_eq!(
-            encoded_json["semantic_graph"]["nodes"][anchor]["body"]["members"][3]["value"],
-            *point
+            encoded_json["semantic_graph"]["nodes"][anchor]["body"],
+            package.value["semantic_graph"]["nodes"][anchor]["body"]
+        );
+        assert_eq!(
+            encoded_json["semantic_graph"]["nodes"][clause]["body"],
+            package.value["semantic_graph"]["nodes"][clause]["body"]
         );
         let read_back = match CheckedPackageV2::read(
             &encoded,
@@ -1320,6 +1328,49 @@ fn tc_056_same_operation_admits_distinct_anchor_points() {
         .collect::<Vec<_>>();
     assert_eq!(anchors.len(), 2);
     assert_ne!(anchors[0]["node_id"], anchors[1]["node_id"]);
+
+    let mut duplicate = package.value.clone();
+    let second = nodes(&duplicate)
+        .iter()
+        .position(|node| {
+            node["semantic_form"] == "operation_anchor"
+                && node["body"]["members"][3]["value"]["kind"] == "post"
+        })
+        .expect("post anchor");
+    let frame = package.at("state", "frame");
+    let mut alternate_frame = nodes(&duplicate)[frame].clone();
+    let alternate_key = "da".repeat(32);
+    alternate_frame["node_id"] = node_id(&alternate_key);
+    alternate_frame["body"] = json!({"term": "frame", "modifies": [], "creates": [],
+        "deletes": [], "deletes_scoped": []});
+    alternate_frame["dependencies"] = json!([]);
+    duplicate["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(alternate_frame);
+    duplicate["semantic_graph"]["nodes"][second]["body"]["members"][2]["value"]["target"] =
+        node_id(&alternate_key);
+    duplicate["semantic_graph"]["nodes"][second]["dependencies"] =
+        json!([node_id(object_key()), node_id(&alternate_key)]);
+    duplicate["semantic_graph"]["nodes"][second]["body"]["members"][3]["value"]["kind"] =
+        json!("pre");
+    mint_ungrouped_structural_keys(&mut duplicate);
+    settle(&mut duplicate);
+    let later = nodes(&duplicate)
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| node["semantic_form"] == "operation_anchor")
+        .map(|(position, _)| position)
+        .max_by_key(|position| digest(&duplicate, *position))
+        .expect("later anchor");
+    expect(
+        "duplicate context, operation and point",
+        &duplicate,
+        Code::AmbiguousDeclaration,
+        Some(Cause::AmbiguousName),
+        &format!("/semantic_graph/nodes/{later}"),
+        Some(&digest(&duplicate, later)),
+    );
 }
 
 #[trace("TC-056", "FR-040-AC-32", "FR-040-AC-34", "FR-040-AC-35")]
@@ -1413,6 +1464,46 @@ fn tc_056_execution_point_shape_and_agreement_refuse_at_their_stage() {
         Some(Cause::MalformedDeclaration),
         &format!("/semantic_graph/nodes/{clause}"),
         Some(&mismatch.digest(clause)),
+    );
+    for (case, anchor_point, clause_point) in [
+        (
+            "only anchor has point",
+            Some(json!({"kind": "pre", "operation": "deposit"})),
+            None,
+        ),
+        (
+            "only clause has point",
+            None,
+            Some(json!({"kind": "pre", "operation": "deposit"})),
+        ),
+    ] {
+        let package = pointed_state_package(anchor_point, clause_point);
+        let clause = package.clause("precondition");
+        expect(
+            case,
+            &package.value,
+            Code::InvalidModelBinding,
+            Some(Cause::MalformedDeclaration),
+            &format!("/semantic_graph/nodes/{clause}"),
+            Some(&package.digest(clause)),
+        );
+    }
+
+    let mut stale_clause = pointed_state_package(
+        Some(json!({"kind": "pre", "operation": "deposit"})),
+        Some(json!({"kind": "pre", "operation": "deposit"})),
+    );
+    let clause = stale_clause.clause("precondition");
+    stale_clause.value["semantic_graph"]["nodes"][clause]["body"]["operation"]["member"]
+        ["execution_point"]["kind"] = json!("post");
+    settle(&mut stale_clause.value);
+    expect(
+        "stale clause application key precedes agreement",
+        &stale_clause.value,
+        Code::InvalidPackage,
+        Some(Cause::StaleNodeKey),
+        &format!("/semantic_graph/nodes/{clause}/node_id"),
+        Some(&stale_clause.digest(clause)),
     );
 }
 

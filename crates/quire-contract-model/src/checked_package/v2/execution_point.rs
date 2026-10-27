@@ -62,7 +62,6 @@ pub(super) fn validate_anchor_body(
             visit,
         )?);
     }
-    let point_at = at.key("members").index(3).key("value");
     if fourth
         .get("value")
         .and_then(CheckedExecutionPoint::from_wire)
@@ -70,7 +69,7 @@ pub(super) fn validate_anchor_body(
     {
         return Err(ValidationFailure::refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            point_at.pointer(),
+            at.key("members").index(3).key("value").pointer(),
         ));
     }
     Ok(work)
