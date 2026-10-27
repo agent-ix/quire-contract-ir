@@ -304,6 +304,345 @@ fn set_concrete_catalog(package: &mut Value, entries: Vec<Value>) -> usize {
     position
 }
 
+fn memory_catalog_package() -> (Value, CheckedPackageEvidence, usize) {
+    let (mut base, _) = crate::checked_package_v2_protocol_body::protocol_holder_case_on(
+        v2_all_families(),
+        "parallel",
+    );
+    let holder = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["body"]["operation"]["member"]["operator"] == "parallel")
+        .expect("parallel");
+    let original = base["semantic_graph"]["nodes"][holder].clone();
+    for (suffix, model) in [("Tso", "tso"), ("Ra", "ra"), ("ScAgain", "sc")] {
+        let mut body = original["body"].clone();
+        body["arguments"][0]["value"]["members"] = json!([{
+            "term":"literal", "type": node_id(&crate::support::checked_package::family_key("a1a1")),
+            "value_kind":"text", "value":model
+        }]);
+        let copy = crate::support::checked_package::protocol_named_node(
+            "control",
+            &[
+                "Example",
+                "OrderFlow",
+                "run",
+                "Main",
+                &format!("Holder{suffix}"),
+            ],
+            body,
+            &[],
+        );
+        base["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(copy);
+    }
+    settle(&mut base);
+    let (mut package, evidence) = concrete_protocol_refinement_on(
+        base,
+        ProtocolStepRows::Empty,
+        ProtocolClauseOwner::SelectedModel,
+    );
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let finish = nodes
+        .iter()
+        .find(|node| node["body"]["operation"]["member"]["operator"] == "finish")
+        .expect("finish")["node_id"]
+        .clone();
+    let binder = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let mut entries =
+        vec![json!({"class":"OrderFlow::Closed", "node":finish, "binder_types":[binder]})];
+    for suffix in ["", "Ra", "ScAgain", "Tso"] {
+        let name = format!("Holder{suffix}");
+        let parallel = nodes
+            .iter()
+            .find(|node| {
+                node["declaration"]["qualified_name"]
+                    == json!(["Example", "OrderFlow", "run", "Main", name])
+            })
+            .expect("parallel")["node_id"]
+            .clone();
+        entries.push(
+            json!({"class":format!("fork OrderFlow::{name}"), "node":parallel, "binder_types":[]}),
+        );
+    }
+    for suffix in ["", "Ra", "ScAgain", "Tso"] {
+        let name = format!("Holder{suffix}");
+        let parallel = nodes
+            .iter()
+            .find(|node| {
+                node["declaration"]["qualified_name"]
+                    == json!(["Example", "OrderFlow", "run", "Main", name])
+            })
+            .expect("parallel")["node_id"]
+            .clone();
+        entries.push(
+            json!({"class":format!("join OrderFlow::{name}"), "node":parallel, "binder_types":[]}),
+        );
+    }
+    entries.extend([
+        json!({"class":"memory drain", "memory_model":"ra", "drain":"store-buffer-flush"}),
+        json!({"class":"memory drain", "memory_model":"sc", "drain":"store-buffer-flush"}),
+        json!({"class":"memory drain", "memory_model":"tso", "drain":"store-buffer-flush"}),
+        json!({"class":"memory flush", "memory_model":"tso"}),
+    ]);
+    let position = set_concrete_catalog(&mut package, entries);
+    (package, evidence, position)
+}
+
+#[trace("FR-061-AC-10", "FR-061-AC-12", "FR-061-AC-13")]
+#[test]
+fn memory_drain_catalog_roundtrips_and_joins_source_defaults() {
+    let (package, evidence, position) = memory_catalog_package();
+    let admitted = read(&package, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "{admitted:?}"
+    );
+    let encoded = writer_bytes(&package);
+    let written: Value = serde_json::from_slice(&encoded).expect("encoded package");
+    let entries = written["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"]
+        .as_array()
+        .expect("catalog");
+    let memory: Vec<_> = entries
+        .iter()
+        .filter(|entry| {
+            entry["class"]
+                .as_str()
+                .is_some_and(|class| class.starts_with("memory "))
+        })
+        .cloned()
+        .collect();
+    assert_eq!(
+        memory,
+        vec![
+            json!({"class":"memory drain", "memory_model":"ra", "drain":"store-buffer-flush"}),
+            json!({"class":"memory drain", "memory_model":"sc", "drain":"store-buffer-flush"}),
+            json!({"class":"memory drain", "memory_model":"tso", "drain":"store-buffer-flush"}),
+            json!({"class":"memory flush", "memory_model":"tso"}),
+        ]
+    );
+    assert_eq!(written["package_id"], package["package_id"]);
+    assert_eq!(
+        written["semantic_graph"]["nodes"][position]["node_id"],
+        package["semantic_graph"]["nodes"][position]["node_id"]
+    );
+    let reread = CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence);
+    assert!(
+        matches!(reread, CheckedPackageV2ReadResult::Admitted(_)),
+        "{reread:?}"
+    );
+}
+
+#[trace("FR-061-AC-11")]
+#[test]
+fn memory_drain_wire_and_catalog_order_refuse_at_their_stage() {
+    let (base, evidence, position) = memory_catalog_package();
+    let path = format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete");
+    let first_drain = base["semantic_graph"]["nodes"][position]["body"]["class_catalog"]
+        ["concrete"]
+        .as_array()
+        .expect("catalog")
+        .iter()
+        .position(|entry| entry["class"] == "memory drain")
+        .expect("drain");
+    for (label, edit, suffix) in [
+        ("missing drain", 0, "/drain"),
+        ("wrong drain", 1, "/drain"),
+        ("numeric drain", 2, "/drain"),
+        ("flush drain", 3, "/drain"),
+        ("flush sc", 4, "/memory_model"),
+        ("flush ra", 5, "/memory_model"),
+        ("node", 6, "/node"),
+        ("binder", 7, "/binder_types"),
+        ("unknown", 8, "/unknown"),
+    ] {
+        let mut package = base.clone();
+        let entries = package["semantic_graph"]["nodes"][position]["body"]["class_catalog"]
+            ["concrete"]
+            .as_array_mut()
+            .expect("catalog");
+        let drain = entries
+            .iter()
+            .position(|entry| entry["class"] == "memory drain")
+            .expect("drain");
+        let flush = entries
+            .iter()
+            .position(|entry| entry["class"] == "memory flush")
+            .expect("flush");
+        let index = match edit {
+            0 => {
+                entries[drain]
+                    .as_object_mut()
+                    .expect("object")
+                    .remove("drain");
+                drain
+            }
+            1 => {
+                entries[drain]["drain"] = json!("other");
+                drain
+            }
+            2 => {
+                entries[drain]["drain"] = json!(1);
+                drain
+            }
+            3 => {
+                entries[flush]["drain"] = json!("store-buffer-flush");
+                flush
+            }
+            4 => {
+                entries[flush]["memory_model"] = json!("sc");
+                flush
+            }
+            5 => {
+                entries[flush]["memory_model"] = json!("ra");
+                flush
+            }
+            6 => {
+                entries[drain]["node"] =
+                    base["semantic_graph"]["nodes"][position]["semantic_type"].clone();
+                drain
+            }
+            7 => {
+                entries[drain]["binder_types"] = json!([]);
+                drain
+            }
+            8 => {
+                entries[drain]["unknown"] = json!(true);
+                drain
+            }
+            _ => unreachable!(),
+        };
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+            panic!("{label} admitted");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::MalformedWire,
+            "{label}"
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(format!("{path}/{index}{suffix}").as_str()),
+            "{label}"
+        );
+    }
+    for (label, mutate, expected_index) in [
+        ("out of order", 0, first_drain + 1),
+        ("duplicate drain", 1, first_drain + 2),
+        ("duplicate declared", 2, 1),
+    ] {
+        let mut package = base.clone();
+        let entries = package["semantic_graph"]["nodes"][position]["body"]["class_catalog"]
+            ["concrete"]
+            .as_array_mut()
+            .expect("catalog");
+        match mutate {
+            0 => entries.swap(first_drain, first_drain + 1),
+            1 => entries[first_drain + 2] = entries[first_drain + 1].clone(),
+            2 => entries[1] = entries[0].clone(),
+            _ => unreachable!(),
+        }
+        rekey_refinement(&mut package, position);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+            panic!("{label} admitted");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            "{label}"
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(format!("{path}/{expected_index}").as_str()),
+            "{label}"
+        );
+    }
+}
+
+#[trace("FR-061-AC-12", "FR-061-AC-13")]
+#[test]
+fn memory_catalog_completeness_identity_and_dependency_precedence() {
+    let (base, evidence, position) = memory_catalog_package();
+    let path = format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete");
+    let entries = base["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"]
+        .as_array()
+        .expect("catalog");
+    let first_drain = entries
+        .iter()
+        .position(|entry| entry["class"] == "memory drain")
+        .expect("drain");
+    let flush = entries
+        .iter()
+        .position(|entry| entry["class"] == "memory flush")
+        .expect("flush");
+    for (label, remove) in [("drain", first_drain), ("flush", flush)] {
+        let mut package = base.clone();
+        package["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"]
+            .as_array_mut()
+            .expect("catalog")
+            .remove(remove);
+        rekey_refinement(&mut package, position);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+            panic!("missing {label} admitted");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(path.as_str())
+        );
+    }
+    let mut changed = base.clone();
+    let original_node = changed["semantic_graph"]["nodes"][position]["node_id"].clone();
+    let original_package = changed["package_id"].clone();
+    changed["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"]
+        [first_drain]["memory_model"] = json!("tso");
+    refresh_identity(&mut changed);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&changed, &evidence) else {
+        panic!("stale memory catalog node admitted");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::StaleNodeKey)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/node_id").as_str())
+    );
+    rekey_refinement(&mut changed, position);
+    assert_ne!(
+        changed["semantic_graph"]["nodes"][position]["node_id"],
+        original_node
+    );
+    assert_ne!(changed["package_id"], original_package);
+
+    let mut missing_dependency = base;
+    missing_dependency["semantic_graph"]["nodes"][position]["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .remove(1);
+    refresh_identity(&mut missing_dependency);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&missing_dependency, &evidence) else {
+        panic!("missing declared catalog dependency admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/dependencies").as_str())
+    );
+}
+
 fn operation_model_nodes() -> (Value, Value, Value, Value) {
     let mut document = model_document();
     let worker_identity = "ix://test/refinement/Worker";
@@ -510,10 +849,22 @@ fn refinement_class_catalog_entries_are_closed() {
         .len()
         - 1;
     let base = package.clone();
-    for entry in [
-        json!({"class":"memory flush","memory_model":"tso","node":base["semantic_graph"]["nodes"][refinement]["semantic_type"]}),
-        json!({"class":"memory flush","memory_model":"unknown"}),
-        json!({"class":"finish P::end","node":base["semantic_graph"]["nodes"][refinement]["semantic_type"]}),
+    for (entry, code, member) in [
+        (
+            json!({"class":"memory flush","memory_model":"tso","node":base["semantic_graph"]["nodes"][refinement]["semantic_type"]}),
+            CheckedPackageRefusalCode::MalformedWire,
+            "/node",
+        ),
+        (
+            json!({"class":"memory flush","memory_model":"unknown"}),
+            CheckedPackageRefusalCode::MalformedWire,
+            "/memory_model",
+        ),
+        (
+            json!({"class":"finish P::end","node":base["semantic_graph"]["nodes"][refinement]["semantic_type"]}),
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            "",
+        ),
     ] {
         package = base.clone();
         package["semantic_graph"]["nodes"][refinement]["body"]["class_catalog"] =
@@ -521,14 +872,11 @@ fn refinement_class_catalog_entries_are_closed() {
         let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
             panic!("malformed catalog entry admitted");
         };
-        assert_eq!(
-            refusal.code,
-            CheckedPackageRefusalCode::InvalidSemanticGraph
-        );
+        assert_eq!(refusal.code, code);
         assert_eq!(
             refusal.path.as_ref().map(|path| path.as_str()),
             Some(
-                format!("/semantic_graph/nodes/{refinement}/body/class_catalog/concrete/0")
+                format!("/semantic_graph/nodes/{refinement}/body/class_catalog/concrete/0{member}")
                     .as_str()
             )
         );
@@ -1328,7 +1676,12 @@ fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
     let join_entry = json!({"class":"join OrderFlow::Holder", "node":parallel, "binder_types":[]});
     let position = set_concrete_catalog(
         &mut package,
-        vec![finish_entry.clone(), fork_entry.clone(), join_entry],
+        vec![
+            finish_entry.clone(),
+            fork_entry.clone(),
+            join_entry,
+            json!({"class":"memory drain", "memory_model":"sc", "drain":"store-buffer-flush"}),
+        ],
     );
     let admitted = read(&package, &evidence);
     assert!(
