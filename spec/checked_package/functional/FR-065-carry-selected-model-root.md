@@ -77,13 +77,29 @@ source-map entry, selection or region.
 The strict reader SHALL apply QSpec FR-322's established order: closed wire
 and owner-presence checks, selected-document evidence, graph and occurrence
 shape, owner join and structural-key checks, then later refinement meaning.
-A missing root, repeated root, malformed owner or region, mismatched
-selection, stale key or wrong root shape SHALL refuse the whole package at
-the applicable FR-322 stage with its typed code, cause and pointer. A
-malformed earlier stage SHALL win over a later root or refinement defect.
-For a root whose closed owner is well formed but whose identity/digest pair
-does not join a selected row, the owner-join refusal SHALL be
-`missing_declaration`/`missing-selection` at that node's `owner`.
+If an identical second root repeats the structural key for one selection,
+the reader SHALL refuse `invalid_semantic_graph`, with no cause, at the later
+`/semantic_graph/nodes/{j}/node_id` during graph shape, before structural-key
+checks. If a second root has a distinct retained key but the same owner pair,
+the reader SHALL first fail the structural-key check as `invalid_package`/
+`stale-node-key` at that root's `/semantic_graph/nodes/{j}/node_id`, after
+earlier graph defects. After all owner joins and node-key checks pass, the
+reader SHALL check root completeness by selected-row order. A selected row
+with no root SHALL refuse `invalid_semantic_graph`, with no cause, at
+`/semantic_graph/nodes` before declaration and refinement meaning checks.
+When several selected rows lack roots, the first selected row in lock order
+determines that refusal. A malformed earlier stage SHALL win over the
+root-completeness check; the root-completeness check SHALL win over a later
+refinement-header defect. The reader SHALL admit no partial package.
+
+A root whose closed `ModelRootOwner` identity/digest pair is absent from
+`model_selections` SHALL refuse the whole package, with no inferred
+selection or rewritten owner. QSpec FR-322-AC-132 assigns this case to the
+V2 schema, while FR-322's detailed owner-join order assigns it to a reader
+`missing_declaration`/`missing-selection` refusal at the node's `owner`.
+STD-500 must reconcile the published schema and reader and fix the exact
+stage, code, cause and RFC 6901 pointer before IR freezes this case's test
+oracle or claims admission. Neither interpretation is selected here.
 
 The reader SHALL resolve a refinement's local concrete `semantic_type` and
 local model-subject `abstract` key to the corresponding selected model roots.
@@ -100,10 +116,11 @@ continues to own the refinement body and its later header-join order.
 | FR-065-AC-1 | An external consumer constructs a complete typed V2 package selecting one domain package, with its self-typed `model`/`model_root` node and closed `ModelRootOwner`, calls `encode_checked_package_v2`, then reads the bytes through the public strict reader. The admitted graph, occurrence-free projection and canonical read/write/read retain the same owner, root node id and package id. A source producer derives the root from the existing selection without a new FCD declaration or lock field. | Test |
 | FR-065-AC-2 | The root has absent `declaration`, `recursion_group` and nominal preimage, empty aggregate body and dependencies, and exactly one `generated` occurrence at ordinal zero whose source-map region is the source occurrence of the selected model package. A declaration occurrence, wrong role or ordinal, wrong or missing region, or extra occurrence refuses through FR-322's occurrence/source-map check; none is silently repaired. | Test |
 | FR-065-AC-3 | The root's node id equals the JCS SHA-256 of the exact closed `ModelDeclarationNode` preimage containing `ModelRootOwner` and `semantic_type: null`, including QSpec's published model-root vector. Changing only a source alias while preserving the selected identity and digest leaves the root id unchanged. A different selected identity or changed selected-package content gives a different identity or digest and, after rebuilding, different root and package ids. A retained stale root key refuses under FR-322's structural-key check. | Test |
-| FR-065-AC-4 | For zero, one and multiple object types or state machines in a selected model document, the package has exactly one root for that selection. Zero selected model packages produce no root. A missing root, two roots for one selection, or a root for an unselected pair refuses the whole package under FR-322; the reader never chooses a representative declaration. | Test |
-| FR-065-AC-5 | An absent or extra `ModelRootOwner` member, a `ModelOwner` on a root, or a `ModelRootOwner` on another form refuses at the closed wire/owner-presence stage. A closed root owner whose identity or digest does not match one selected row refuses `missing_declaration`/`missing-selection` at its `owner` in the owner-join stage. An earlier independent wire, selection-evidence, graph or source-map defect wins over the later owner-join, key or refinement check according to FR-322's order. | Test |
+| FR-065-AC-4 | For zero, one and multiple object types or state machines in a selected model document, the package has exactly one root for that selection; zero selected packages produce no root. After earlier wire, selected-evidence, graph, occurrence, owner and key checks pass, a selection with no root refuses `invalid_semantic_graph` with no cause at `/semantic_graph/nodes`, in selected-row order before declaration and refinement meaning. Cloning a valid root as a second graph node refuses `invalid_semantic_graph` with no cause at the later `/semantic_graph/nodes/{j}/node_id` in graph shape, before key checking. Giving that second root a distinct retained id but the same owner pair refuses `invalid_package`/`stale-node-key` at its `/semantic_graph/nodes/{j}/node_id` in the structural-key stage; a prior graph defect wins. The reader never chooses a representative declaration or admits a partial package. | Test |
+| FR-065-AC-5 | An absent or extra `ModelRootOwner` member, a `ModelOwner` on a root, or a `ModelRootOwner` on another form refuses at the closed wire/owner-presence stage. A well-formed root whose owner identity/digest pair is not selected also refuses, without inferred selection or repaired owner; an earlier independent defect wins according to FR-322's order. The exact stage, code, cause and RFC 6901 pointer for this unselected-pair case remain pending QSpec STD-500, which must reconcile FR-322-AC-132, the detailed owner-join rule, the schema and an authoritative negative control before this portion is claimed or its test oracle fixed. | Test |
 | FR-065-AC-6 | A model-subject refinement uses the selected concrete root for `semantic_type` and the selected abstract root for its local `abstract` key, including an otherwise row-empty refinement. A protocol-subject refinement uses the abstract model root plus the exact protocol clause key. A root in a directly selected dependency resolves only through its package key. A header naming an object type, state machine, alias-derived surrogate, unselected dependency or wrong selected root refuses under FR-375's header joins after earlier FR-322 checks; the reader does not infer a substitute. | Test |
-| FR-065-AC-7 | The public typed writer and reader carry `model_root` and `ModelRootOwner` in the existing V2 graph and envelope, with exact read/write/read retention. No parallel untyped writer, fallback owner inference, compatibility reader, copied QSpec schema or fixture is introduced. | Inspection |
+| FR-065-AC-7 | An external consumer uses the public typed writer and strict reader to carry `model_root` and `ModelRootOwner` through the existing V2 graph and envelope; read/write/read retains the exact root owner, node id, package id and generated source correspondence. | Test |
+| FR-065-AC-8 | Source inspection finds one typed V2 graph and envelope path for the root, with no parallel untyped writer, fallback owner inference, compatibility reader, copied QSpec schema or fixture. | Inspection |
 
 ## Dependencies
 
@@ -121,4 +138,6 @@ continues to own the refinement body and its later header-join order.
 ## Status
 
 Planned. The measured IR typed owner and model-form vocabularies do not yet
-include `model_root`, so no reader or writer acceptance is claimed.
+include `model_root`, so no reader or writer acceptance is claimed. The
+unselected-pair refusal oracle in AC-5 remains blocked by QSpec STD-500;
+the full refusal obligation remains in this requirement.
