@@ -364,6 +364,42 @@ fn decision_slot_read(package: &mut Value, operator: &str, slot: &str, target: &
     settle(package);
 }
 
+fn decision_conjunction(package: &mut Value, left: &Value, right: &Value) -> Value {
+    let mut expression = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "expression" && node["semantic_form"] == "reference")
+        .expect("reference expression")
+        .clone();
+    expression["semantic_form"] = json!("binary");
+    expression["body"] = json!({
+        "term": "application", "operator": "binary",
+        "operation": {"identity": "quire.op.boolean.and", "laws": [], "mode": null,
+            "member": null, "leaves": []},
+        "result_type": node_id(&family_key("aaaa")),
+        "arguments": [
+            {"term": "reference", "target": left},
+            {"term": "reference", "target": right},
+        ],
+    });
+    expression["node_id"] = node_id(&application_node_key(
+        "expression",
+        "binary",
+        &family_key("aaaa"),
+        &expression["body"],
+    ));
+    let mut dependencies = vec![left.clone(), right.clone()];
+    dependencies.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+    expression["dependencies"] = json!(dependencies);
+    let target = expression["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(expression);
+    target
+}
+
 /// Trace: FR-038-AC-291, FR-038-AC-292
 #[trace("TC-048")]
 #[test]
@@ -433,7 +469,45 @@ fn decision_slots_bar_over_and_finish_before_fact_eligibility() {
 /// Trace: FR-038-AC-292
 #[trace("TC-048")]
 #[test]
-fn activation_record_field_is_ineligible_at_a_choice_decision() {
+fn decision_guards_report_model_state_before_out_of_scope_finish() {
+    for operator in ["choice", "repeat"] {
+        let (mut package, _) = protocol_holder_case(operator);
+        let clause = clause_position(&package);
+        let over = package["semantic_graph"]["nodes"][clause]["body"]["arguments"][0]["value"]
+            ["target"]
+            .clone();
+        let finish = protocol_position(&package, "obligation");
+        let binder = package["semantic_graph"]["nodes"][finish]["body"]["arguments"][0]["value"]
+            ["target"]
+            .clone();
+        let both = decision_conjunction(&mut package, &over, &binder);
+        decision_slot_read(&mut package, operator, "guard", &both);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+            panic!("{operator} guard must refuse model state first");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::OperatorIneligible)
+        );
+        let expected_slot = if operator == "choice" {
+            "choice.guard"
+        } else {
+            "repeat.guard"
+        };
+        assert_eq!(
+            refusal.protocol_detail.as_deref(),
+            Some(&CheckedProtocolRefusalDetail::ModelStateRead {
+                slot: expected_slot.into()
+            })
+        );
+    }
+}
+
+/// Trace: FR-038-AC-292
+#[trace("TC-048")]
+#[test]
+fn activation_record_field_is_ineligible_in_each_decision_slot() {
     let (mut package, _) = protocol_holder_case("choice");
     let clause = clause_position(&package);
     let record_body = json!({"term": "aggregate", "members": [
