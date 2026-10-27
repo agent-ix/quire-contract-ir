@@ -190,10 +190,13 @@ pub(super) fn valid_derived_shape(
     // declaration. Declared nodes retain the ordinary structural preimage.
     let model_owned = matches!(
         kind,
-        CheckedNodeKind::Model(super::ModelForm::ObjectType | super::ModelForm::SystemsInterface)
-            | CheckedNodeKind::Relation(
-                super::RelationForm::Relationship | super::RelationForm::Population
-            )
+        CheckedNodeKind::Model(
+            super::ModelForm::ModelRoot
+                | super::ModelForm::ObjectType
+                | super::ModelForm::SystemsInterface
+        ) | CheckedNodeKind::Relation(
+            super::RelationForm::Relationship | super::RelationForm::Population
+        )
     ) || (matches!(
         kind,
         CheckedNodeKind::Model(super::ModelForm::RecordValueType | super::ModelForm::VariantType)
@@ -209,6 +212,8 @@ pub(super) fn valid_derived_shape(
                 kind,
                 CheckedNodeKind::Relation(super::RelationForm::Population)
             ) && !node.dependencies.is_empty())
+            || (kind == CheckedNodeKind::Model(super::ModelForm::ModelRoot)
+                && !node.dependencies.is_empty())
             || aggregate_members(&node.body).is_none_or(|members| !members.is_empty())))
 }
 

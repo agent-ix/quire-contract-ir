@@ -1336,9 +1336,9 @@ fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_ver
     let at_one = model_owned_package(owner.clone(), json!([domain_package("test/orders")]));
     admitted(&at_one);
 
-    // The owner is the whole preimage input: a change of the selected
-    // document's own version (and so of the selected digest) leaves every node
-    // key unchanged, so the same keyed graph is still joined by identity alone.
+    // The model declaration owner is the whole preimage input: a change of
+    // the selected document's version leaves its keyed declaration nodes
+    // unchanged. The selection-bound root changes with the document digest.
     let mut other_selection = domain_package("test/orders");
     let other_document = domain_package_document("test/orders", "2", Vec::new());
     other_selection["digest"] = json!(domain_package_digest(&other_document));
@@ -1354,7 +1354,26 @@ fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_ver
         read(&at_two, &other_evidence),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
-    assert_eq!(at_one["semantic_graph"], at_two["semantic_graph"]);
+    let declarations = |package: &Value| {
+        package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("graph nodes")
+            .iter()
+            .filter(|node| node["semantic_form"] != "model_root")
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(declarations(&at_one), declarations(&at_two));
+    let root_key = |package: &Value| {
+        package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("graph nodes")
+            .iter()
+            .find(|node| node["semantic_form"] == "model_root")
+            .expect("selected root")["node_id"]
+            .clone()
+    };
+    assert_ne!(root_key(&at_one), root_key(&at_two));
 
     // A `version` member on a model owner is an unknown member at that
     // member, never read as evidence.

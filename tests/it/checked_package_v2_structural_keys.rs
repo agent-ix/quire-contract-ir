@@ -2217,14 +2217,14 @@ fn tc_226_tree_whole_read_work_boundary() {
     // fixture, including the List group and three protocol nodes. Protocol
     // membership charges five. Binder scope adds 47: 36 measured on the
     // admitted-result fixture, plus one for each of the 11 graph nodes this
-    // recursive fixture has beyond it. Tree's dependency is charged at
-    // 537/538; the remaining seven charges put the last body target at the
-    // whole-read 544/545 boundary.
+    // recursive fixture has beyond it. The two selected roots add seven
+    // charges before Tree's dependency, now at 544/545. Five later charges
+    // put the last body target at the whole-read 549/550 boundary.
     // These constants are authored here, not obtained from the reader at runtime.
     const TREE_GROUP_WORK: u64 = 3 + (5 + 4 + 8 + 3) + (4 + 3 + 6 + 1);
-    const OTHER_READ_WORK: u64 = 454 + 47;
+    const OTHER_READ_WORK: u64 = 454 + 47 + 7;
     const TREE_DEPENDENCY_CHARGE: u64 = OTHER_READ_WORK + TREE_GROUP_WORK;
-    const REMAINING_WORK: u64 = 7;
+    const REMAINING_WORK: u64 = 5;
     const M: u64 = TREE_DEPENDENCY_CHARGE + REMAINING_WORK;
     let at_boundary = read_at(M);
     assert!(
@@ -2240,7 +2240,7 @@ fn tc_226_tree_whole_read_work_boundary() {
     assert_eq!(incomplete.consumed, TREE_DEPENDENCY_CHARGE);
     assert_eq!(
         incomplete.path.as_ref().map(|path| path.as_str()),
-        Some("/semantic_graph/nodes/38/dependencies/0")
+        Some("/semantic_graph/nodes/40/dependencies/0")
     );
     let CheckedPackageV2ReadResult::Incomplete(incomplete) = read_at(M - 1) else {
         panic!("whole-read boundary minus one must expose no package");
@@ -2250,7 +2250,7 @@ fn tc_226_tree_whole_read_work_boundary() {
     assert_eq!(incomplete.consumed, M);
     assert_eq!(
         incomplete.path.as_ref().map(|path| path.as_str()),
-        Some("/semantic_graph/nodes/38/body/members/0/value/target")
+        Some("/semantic_graph/nodes/39/body/members/0/value/target")
     );
 }
 

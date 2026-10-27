@@ -9,7 +9,7 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, node_id, nominal_package, rebuild_source_map, refresh_identity,
-    sha256_hex,
+    refresh_identity_projection, sha256_hex,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -478,6 +478,10 @@ fn package(
     graph.extend(ordered);
     let first_read = graph.len();
     graph.extend(read_nodes);
+    let base = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("base nodes")
+        .len();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -488,12 +492,6 @@ fn package(
     evidence
         .insert_domain_package_document(digest, canonical(document))
         .expect("domain evidence declarations agree on exact bytes");
-    let base = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .len()
-        - first_read
-        - reads.len();
     let positions = (0..reads.len())
         .map(|offset| base + first_read + offset)
         .collect();
@@ -2368,7 +2366,26 @@ fn ir987_model_results_bytes_and_work_match_before_change() {
     assert_eq!(string.member_type(), Some(&CheckedMemberType::String));
     let missing = admitted.model_object_fields(&declaration_id("Absent"));
     assert_eq!(missing, Err(CheckedModelFieldsError::UnknownNode));
-    assert_eq!(bytes, include_bytes!("../fixtures/ir987/model.json"));
+    let mut prior_wire = wire.clone();
+    let root_at = prior_wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "model_root")
+        .expect("selected model root");
+    let root_id = prior_wire["semantic_graph"]["nodes"][root_at]["node_id"].clone();
+    prior_wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .remove(root_at);
+    let sources = prior_wire["source_map"].as_array_mut().expect("source map");
+    assert_eq!(sources[root_at]["node_id"], root_id);
+    sources.remove(root_at);
+    refresh_identity_projection(&mut prior_wire);
+    assert_eq!(
+        canonical(&prior_wire),
+        include_bytes!("../fixtures/ir987/model.json")
+    );
     assert_eq!(
         *admitted.package_id(),
         serde_json::from_value(wire["package_id"].clone()).expect("package identity")
@@ -2395,5 +2412,6 @@ fn ir987_model_results_bytes_and_work_match_before_change() {
     else {
         panic!("work boundary");
     };
-    assert_eq!((high, incomplete.consumed), (24, 24));
+    // The selected model root adds four checks to the pre-root work boundary.
+    assert_eq!((high, incomplete.consumed), (24 + 4, 28));
 }

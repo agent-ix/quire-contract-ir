@@ -371,6 +371,114 @@ pub fn identity_input(package: &Value) -> Value {
 
 /// Rebuilds the identity projection from the graph and re-derives the package id.
 pub fn refresh_identity(package: &mut Value) {
+    ensure_model_roots(package);
+    refresh_identity_projection(package);
+}
+
+/// Completes synthetic selected-model fixtures with their identity-bound roots.
+/// Existing roots are retained so adverse tests can mutate them without repair.
+pub fn ensure_model_roots(package: &mut Value) {
+    let selections = package["lock"]["model_selections"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    // A fixture may replace a selected document after its initial build.
+    // Rebuild only the synthetic roots for the current selection rows.
+    let stale_root_ids: Vec<_> = package["semantic_graph"]["nodes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|node| {
+            node["semantic_form"] == "model_root"
+                && !selections.iter().any(|selection| {
+                    node["owner"]["identity"] == selection["identity"]
+                        && node["owner"]["digest"] == selection["digest"]
+                })
+        })
+        .map(|node| node["node_id"].clone())
+        .collect();
+    if !stale_root_ids.is_empty() {
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("synthetic graph nodes")
+            .retain(|node| !stale_root_ids.contains(&node["node_id"]));
+        package["source_map"]
+            .as_array_mut()
+            .expect("synthetic source map")
+            .retain(|entry| !stale_root_ids.contains(&entry["node_id"]));
+    }
+    for selection in selections {
+        let (Some(identity), Some(digest)) =
+            (selection["identity"].as_str(), selection["digest"].as_str())
+        else {
+            continue;
+        };
+        if identity.is_empty()
+            || digest.len() != 64
+            || !digest
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        {
+            continue;
+        }
+        let owner = json!({"kind": "model_root", "identity": identity, "digest": digest});
+        let exists = package["semantic_graph"]["nodes"]
+            .as_array()
+            .is_some_and(|nodes| {
+                nodes.iter().any(|node| {
+                    node["node_tag"] == "model"
+                        && node["semantic_form"] == "model_root"
+                        && node["owner"] == owner
+                })
+            });
+        if exists {
+            continue;
+        }
+        let body = json!({"term": "aggregate", "members": []});
+        let preimage = json!({
+            "version": "quire.structural-node/v1", "node_tag": "model",
+            "semantic_form": "model_root", "semantic_type": null,
+            "declaration": null, "recursion": null, "owner": owner,
+            "body": body,
+        });
+        let node_id = node_id(&sha256_hex(&canonical(&preimage)));
+        let node = json!({
+            "node_id": node_id, "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "model", "semantic_form": "model_root",
+            "semantic_type": node_id, "dependencies": [],
+            "occurrences": [{"role": "generated", "ordinal": 0}],
+            "owner": owner, "body": body,
+        });
+        let region = package["source_map"]
+            .as_array()
+            .and_then(|entries| entries.first())
+            .and_then(|entry| entry["regions"].as_array())
+            .and_then(|regions| regions.first())
+            .cloned()
+            .or_else(|| {
+                package["lock"]["sources"]
+                    .as_array()
+                    .and_then(|sources| sources.first())
+                    .map(|source| json!({"source": source, "start": 0, "end": 1}))
+            });
+        if let Some(region) = region {
+            package["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("synthetic graph nodes")
+                .push(node);
+            package["source_map"]
+                .as_array_mut()
+                .expect("synthetic source map")
+                .push(
+                    json!({"node_id": node_id, "role": "generated", "ordinal": 0,
+                    "regions": [region]}),
+                );
+        }
+    }
+}
+
+/// Re-derives package identity without changing its graph or source map.
+pub fn refresh_identity_projection(package: &mut Value) {
     let projection = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")

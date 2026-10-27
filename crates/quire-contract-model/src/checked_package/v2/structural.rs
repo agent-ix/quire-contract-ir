@@ -248,7 +248,8 @@ impl StructuralForm {
                 | FunctionForm::RecursiveFunction,
             ) => None,
             K::Model(
-                ModelForm::ModelImport
+                ModelForm::ModelRoot
+                | ModelForm::ModelImport
                 | ModelForm::ObjectType
                 | ModelForm::ValueType
                 | ModelForm::VariantType

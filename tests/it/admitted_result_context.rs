@@ -5,7 +5,7 @@
 
 use crate::support::checked_package::{
     bounds_body, canonical, evidence_for, family_key, mint_ungrouped_structural_keys, node_id,
-    refresh_identity, settle, sha256_hex, v2_all_families,
+    refresh_identity, refresh_identity_projection, settle, sha256_hex, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -1089,7 +1089,34 @@ fn ir987_scalar_and_result_results_bytes_and_work_match_admitted_fixture() {
         missing_scalar,
         Err(quire_contract_model::CheckedScalarOperandError::UnknownNode)
     );
-    assert_eq!(bytes, include_bytes!("../fixtures/ir987/scalar.json"));
+    let mut prior_wire = wire.clone();
+    let root_at = prior_wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "model_root")
+        .expect("selected model root");
+    let root_id = prior_wire["semantic_graph"]["nodes"][root_at]["node_id"].clone();
+    prior_wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .remove(root_at);
+    let sources = prior_wire["source_map"].as_array_mut().expect("source map");
+    assert_eq!(sources[root_at]["node_id"], root_id);
+    sources.remove(root_at);
+    for entry in sources.iter_mut().skip(root_at) {
+        for region in entry["regions"].as_array_mut().expect("regions") {
+            for boundary in ["start", "end"] {
+                let offset = region[boundary].as_u64().expect("source offset");
+                region[boundary] = json!(offset - 1);
+            }
+        }
+    }
+    refresh_identity_projection(&mut prior_wire);
+    assert_eq!(
+        canonical(&prior_wire),
+        include_bytes!("../fixtures/ir987/scalar.json")
+    );
     assert_eq!(
         *checked.package_id(),
         serde_json::from_value(wire["package_id"].clone()).expect("package identity")
@@ -1118,8 +1145,9 @@ fn ir987_scalar_and_result_results_bytes_and_work_match_admitted_fixture() {
         panic!("work boundary");
     };
     // Protocol membership charges five, causal graph/progress seven, and the
-    // binder-scope pass charges 36 on this admitted fixture: 340 + 5 + 7 + 36.
-    assert_eq!((high, incomplete.consumed), (388, 388));
+    // binder-scope pass charges 36 on the pre-root fixture: 340 + 5 + 7 + 36.
+    // The selected root adds five validation visits to the admitted wire.
+    assert_eq!((high, incomplete.consumed), (388 + 5, 393));
 
     let contract = package(&checked, &[add.node_id.clone(), narrow.node_id.clone()]);
     let result = contract.result_context(
@@ -1166,8 +1194,43 @@ fn ir987_scalar_and_result_results_bytes_and_work_match_admitted_fixture() {
         ContractResultContextV1::IncompleteContext
     );
     let contract_bytes = canonical(&serde_json::to_value(contract.wire()).expect("wire"));
+    // Compare the complete frozen context after restoring only the source
+    // identity and source regions shifted by the added selected root.
+    let mut prior_contract = serde_json::to_value(contract.wire()).expect("contract wire");
+    prior_contract["package"]["source"]["package_id"] = prior_wire["package_id"].clone();
+    let prior_sources = prior_wire["source_map"]
+        .as_array()
+        .expect("prior source map");
+    for group in ["nodes", "requested_items"] {
+        for entry in prior_contract["source_map"][group]
+            .as_array_mut()
+            .expect("contract source entries")
+        {
+            for occurrence in entry["occurrences"]
+                .as_array_mut()
+                .expect("contract occurrences")
+            {
+                let prior = prior_sources
+                    .iter()
+                    .find(|source| {
+                        source["node_id"] == occurrence["node_id"]
+                            && source["role"] == occurrence["role"]
+                            && source["ordinal"] == occurrence["ordinal"]
+                    })
+                    .expect("prior source occurrence");
+                occurrence["regions"] = prior["regions"].clone();
+            }
+        }
+    }
+    let prior_contract_identity = json!({
+        "contract_version": prior_contract["contract_version"],
+        "package": prior_contract["package"],
+        "semantic_graph": prior_contract["semantic_graph"],
+        "feature_accounting": prior_contract["feature_accounting"],
+    });
+    prior_contract["identity"]["digest"] = json!(sha256_hex(&canonical(&prior_contract_identity)));
     assert_eq!(
-        contract_bytes,
+        canonical(&prior_contract),
         include_bytes!("../fixtures/ir987/context.json")
     );
     assert_eq!(contract.identity(), &contract.wire().identity);

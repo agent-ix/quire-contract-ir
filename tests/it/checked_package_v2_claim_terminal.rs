@@ -986,7 +986,10 @@ fn terminal_identity_and_uniqueness_per_model() {
     ));
     assert_ne!(
         any["semantic_graph"]["nodes"][base_node_index()]["node_id"],
-        when["semantic_graph"]["nodes"][base_node_index()]["node_id"]
+        when["semantic_graph"]["nodes"][base_node_index()]["node_id"],
+        "forms: {:?} {:?}",
+        any["semantic_graph"]["nodes"][base_node_index()]["semantic_form"],
+        when["semantic_graph"]["nodes"][base_node_index()]["semantic_form"]
     );
     assert_ne!(any["package_id"], when["package_id"]);
     let done = source_spelling(&any, base_node_index(), b"terminal Done for M any");
@@ -1175,8 +1178,18 @@ fn terminal_identity_and_uniqueness_per_model() {
         CheckedPackageV2ReadResult::Admitted(_)
     ));
     assert_ne!(
-        first_model["semantic_graph"]["nodes"][base_node_index() + 1]["node_id"],
-        second_model["semantic_graph"]["nodes"][base_node_index() + 1]["node_id"]
+        first_model["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["semantic_form"] == "terminal")
+            .expect("first terminal")["node_id"],
+        second_model["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["semantic_form"] == "terminal")
+            .expect("second terminal")["node_id"]
     );
     assert_ne!(first_model["package_id"], second_model["package_id"]);
 }
@@ -1194,13 +1207,15 @@ fn terminal_self_parameter_must_have_right_name_level_and_type() {
     let terminal = omitted["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
-        .last_mut()
+        .iter_mut()
+        .find(|node| node["semantic_form"] == "terminal")
         .expect("terminal");
+    let parameter_id = terminal["body"]["members"][2]["value"]["members"][0]["target"].clone();
     terminal["body"]["members"][2]["value"] = empty();
     terminal["dependencies"]
         .as_array_mut()
         .expect("dependencies")
-        .retain(|id| *id != valid["semantic_graph"]["nodes"][base_node_index() + 1]["node_id"]);
+        .retain(|id| *id != parameter_id);
     rekey(terminal);
     settle(&mut omitted);
     match read_with_population(&omitted) {
