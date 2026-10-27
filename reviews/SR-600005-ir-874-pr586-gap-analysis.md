@@ -58,3 +58,11 @@ Ticket: IR-874. Compared the frozen PR #586 early presence check with FR-038-AC-
 | FND-001 | still-open | The `a2b7b5b170744f96e045090153316cb27c3339ca` replacement fixture uses `OrderFlow::Closed` from `v2_all_families`, but that clause's `over` parameter is Boolean-typed and does not denote the selected `test/refinement/Machine` model. Its catalog refusal therefore does not verify FR-375's same-model presence rule. The new test's `Trace: FR-038-AC-325` still claims more than it proves. |
 
 **CONDITIONAL** — the latest public-reader test is tagged but lacks an admitted same-model protocol subject. The full class graph join and memory behavior remain Planned.
+
+## Disposition Round 4
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At fix head `4cd11e28da0161e6838d866493eb8a64c716cc44`, two `#[trace("TC-048")]` public-reader tests use an admitted protocol clause with a typed owner edge to the selected model. They assert missing-catalog refusal before a declaration-backed row join, same-model presence without a step row, foreign-clause admission without a catalog, extra-catalog refusal, and foreign-row binding refusal at `steps/0/source_node`. Focused refinement tests report 12 passed. This is slice evidence only; neither FR-038-AC-325 nor FR-064-AC-5 is claimed complete. |
+
+**CONDITIONAL** — the slice-specific public-reader gap is closed. The full class catalog join, complete inventory and memory behavior remain unclaimed under FR-038-AC-325 and FR-064-AC-5; final gates belong to the code lead.

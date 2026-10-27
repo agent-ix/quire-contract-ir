@@ -62,3 +62,11 @@ Ticket: IR-874. Reviewed the frozen PR #586 diff, its caller and direct test, QS
 | FND-003 | still-open | At `a2b7b5b170744f96e045090153316cb27c3339ca`, the source-node kind check has no authoritative clause-to-selected-model ownership edge. The new fixture takes `OrderFlow::Closed` from `v2_all_families`, whose clause `over` parameter is Boolean-typed, while the refinement's concrete model is the added `test/refinement/Machine`. The coder confirmed the mismatch; the PR remains draft pending that edge. |
 
 **CONDITIONAL** — the new catalog-presence rule is unsound for foreign protocol rows and does not establish the selected-model criterion. The original FND-001 and FND-002 remain fixed by removal of the respective code paths.
+
+## Disposition Round 4
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-003 | fixed | At fix head `4cd11e28da0161e6838d866493eb8a64c716cc44`, `validate_catalog` scans admitted protocol-clause nodes and selects those whose typed `owner_model` equals the refinement's concrete `semantic_type`, independently of `steps[].source_node`. It charges every graph visit. The public reader now refuses a same-model clause with no step row at `/body/class_catalog`, admits a foreign clause without a catalog, and reports a foreign declared row at `steps/0/source_node` instead of an early catalog refusal. |
+
+**CONDITIONAL** — the reviewed owner-based presence slice resolves FND-003. Complete FR-038-AC-325 and FR-064-AC-5 catalog inventory, memory classes, and ordering remain unclaimed; final gates belong to the code lead.
