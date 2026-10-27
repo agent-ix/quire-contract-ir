@@ -34,6 +34,8 @@ Audited the changed owner and class-catalog behavior against its criterion tags 
 | FND | Outcome | Reason |
 | --- | --- | --- |
 | FND-001 | fixed | The expanded `refinement_catalog_joins_owned_finish_without_a_step_row` uses original selected A and a distinct selected B object-type node, asserts the changed clause key and package id after retarget, admits through the public reader, and round-trips the typed writer with the B owner and identities retained. |
+| FND-002 | still-open | The new `protocol_role_member_defect_precedes_wrong_clause_owner` checks the earlier protocol-member phase and exact pointer, but no test pairs an earlier refinement-step row defect with a wrong-kind owner edge as TC-048 step 10 requires. |
+| FND-003 | deferred | IR-1062 is the structured prerequisite: selected state_machine, process and record_value_type declarations cannot complete the current FR-322 owner join. Their wrong-form edge vectors must land after that owner-environment implementation, while IR-1053 and FR-064-AC-4 remain open. |
 
 ## New findings (disposition pass 1)
 
