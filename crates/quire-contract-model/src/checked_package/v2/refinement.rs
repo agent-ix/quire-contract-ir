@@ -2242,17 +2242,6 @@ fn protocol_binder_types(
     signatures: CatalogSignatures<'_, '_>,
     meter: &mut super::WorkMeter,
 ) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
-    let bound_reference = |arguments: &[CheckedTerm], field: &str| {
-        arguments.iter().find_map(|argument| match argument {
-            CheckedTerm::Binding { name, value } if name.as_ref() == field => {
-                match value.as_ref() {
-                    CheckedTerm::Reference { target } => Some(target),
-                    _ => None,
-                }
-            }
-            _ => None,
-        })
-    };
     if operator == "attempt" {
         let Some(anchor) = bound_reference(arguments, "operation")
             .and_then(|id| nodes.iter().find(|node| node.id == id))
@@ -2298,6 +2287,16 @@ fn protocol_binder_types(
     } else {
         Ok(Some(vec![binder_type.clone()]))
     }
+}
+
+fn bound_reference<'a>(arguments: &'a [CheckedTerm], field: &str) -> Option<&'a CheckedNodeId> {
+    arguments.iter().find_map(|argument| match argument {
+        CheckedTerm::Binding { name, value } if name.as_ref() == field => match value.as_ref() {
+            CheckedTerm::Reference { target } => Some(target),
+            _ => None,
+        },
+        _ => None,
+    })
 }
 
 #[ix_trace_rs::string_edge]
