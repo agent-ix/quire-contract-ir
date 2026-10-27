@@ -2245,7 +2245,7 @@ fn compare_declared_classes(
                 if found.node.local() != Some(node)
                     || binder_types
                         .iter()
-                        .map(|binder| Some(binder))
+                        .map(Some)
                         .ne(found.binder_types.iter().map(RefinementKey::local))
                 {
                     return Err(wrong_binding(entry_at, locus));
