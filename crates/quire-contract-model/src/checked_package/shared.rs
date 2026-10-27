@@ -408,7 +408,7 @@ pub enum CheckedProtocolRefusalDetail {
         /// Whether the read is forward, foreign or unavailable at this stage.
         read: Box<str>,
     },
-    /// A binders-only slot reaches model state.
+    /// A binders-only slot reaches model state, or a decision reads a bare record binder.
     ModelStateRead {
         /// The slot that bars model state.
         slot: Box<str>,
