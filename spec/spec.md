@@ -148,6 +148,9 @@ refusal cases.
 [FR-064](checked_package/functional/FR-064-bind-protocol-clause-to-owner-model.md)
 defines the exact local model-owner edge of a checked protocol clause and
 its typed writer, reader, identity, dependency and class-catalog checks.
+[FR-066](checked_package/functional/FR-066-retain-identity-bound-execution-points.md)
+defines the typed V2 body carriers for QSpec execution points and their
+reader, writer, preimage and published-vector obligations.
 [FR-054](checked_package/functional/FR-054-admitted-scalar-operand-projection.md)
 defines the admitted V1 package's typed, ordered scalar operand view, with
 [TC-458](checked_package/matrix/TC-458-admitted-scalar-operands.md) covering
