@@ -326,7 +326,8 @@ impl<'a> DependencyReferences<'a> {
                 | CheckedTerm::Frame { .. }
                 | CheckedTerm::AbstractionRelation { .. }
                 | CheckedTerm::Refinement { .. }
-                | CheckedTerm::ExtensionForm { .. } => {}
+                | CheckedTerm::ExtensionForm { .. }
+                | CheckedTerm::ExecutionPoint(_) => {}
             }
         }
         Ok(())
@@ -502,7 +503,8 @@ pub(super) fn selected_reference_targets(
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
             | CheckedTerm::Refinement { .. }
-            | CheckedTerm::ExtensionForm { .. } => {}
+            | CheckedTerm::ExtensionForm { .. }
+            | CheckedTerm::ExecutionPoint(_) => {}
         }
     }
     selected

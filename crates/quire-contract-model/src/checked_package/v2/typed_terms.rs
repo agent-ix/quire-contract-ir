@@ -1137,6 +1137,7 @@ mod tests {
                 CheckedTerm::AbstractionRelation { .. } => "abstraction_relation",
                 CheckedTerm::Refinement { .. } => "refinement",
                 CheckedTerm::ExtensionForm { .. } => "extension_form",
+                CheckedTerm::ExecutionPoint(_) => "execution_point",
             };
             assert_eq!(actual, expected);
             if let CheckedTerm::Application { arguments, .. } = &term {
