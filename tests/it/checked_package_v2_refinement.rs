@@ -640,7 +640,6 @@ fn refinement_row_empty_model_refinement_is_admitted() {
     ));
 }
 
-/// Trace: FR-038-AC-325
 #[trace("TC-048")]
 #[test]
 fn refinement_catalog_presence_precedes_declaration_backed_step_joins() {
@@ -732,6 +731,70 @@ fn refinement_catalog_presence_precedes_declaration_backed_step_joins() {
     assert_eq!(
         refusal.path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog").as_str())
+    );
+}
+
+#[trace("TC-048")]
+#[test]
+fn refinement_catalog_presence_uses_clause_owner_without_step_rows() {
+    let (owned, evidence) = concrete_protocol_refinement(false, true);
+    let position = owned["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    let catalog_at = format!("/semantic_graph/nodes/{position}/body/class_catalog");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&owned, &evidence) else {
+        panic!("same-model clause without a named step still needs a catalog");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(catalog_at.as_str())
+    );
+
+    let (mut foreign, evidence) = concrete_protocol_refinement(false, false);
+    let result = read(&foreign, &evidence);
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+        "{result:?}"
+    );
+    let position = foreign["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    foreign["semantic_graph"]["nodes"][position]["body"]["class_catalog"] =
+        json!({"concrete": [], "abstract": []});
+    rekey_refinement(&mut foreign, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&foreign, &evidence) else {
+        panic!("catalog without same-model classes must refuse");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog").as_str())
+    );
+
+    let (foreign_row, evidence) = concrete_protocol_refinement(true, false);
+    let position = foreign_row["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&foreign_row, &evidence) else {
+        panic!("foreign protocol row must refuse at its binding");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/steps/0/source_node").as_str())
     );
 }
 
