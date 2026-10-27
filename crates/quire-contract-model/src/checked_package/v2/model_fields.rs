@@ -478,7 +478,11 @@ impl RetainedModels {
             .get(declared.selection)?
             .exposed_names(&declared.node)
     }
-    pub(super) fn new(index: DeclarationIndex, models: Vec<DomainModel>) -> Self {
+    pub(super) fn new(
+        index: DeclarationIndex,
+        models: Vec<DomainModel>,
+        meter: &mut WorkMeter,
+    ) -> Result<Self, ValidationFailure> {
         let mut operation_types = BTreeMap::new();
         let mut record_binders = BTreeMap::new();
         let mut operation_binders = BTreeMap::new();
@@ -497,7 +501,8 @@ impl RetainedModels {
                 }
             }
             for (object, declared) in &model.object_types {
-                for operation in &declared.operations {
+                let mut budget = Budget::new(meter, selection, model.bytes);
+                for name in model.operation_names(object, &mut budget)? {
                     if let (Ok(key), Some(types)) = (
                         declaration_key(
                             &model.identity,
@@ -509,16 +514,12 @@ impl RetainedModels {
                             object,
                             model.bytes,
                         ),
-                        model.direct_operation_binder_types(
-                            object,
-                            member_name(&operation.identity),
-                        ),
+                        model.effective_operation_binder_types(object, &name, &mut budget)?,
                     ) {
-                        operation_binders.insert(
-                            (key.into(), Box::from(member_name(&operation.identity))),
-                            types,
-                        );
+                        operation_binders.insert((key.into(), name.into_boxed_str()), types);
                     }
+                }
+                for operation in &declared.operations {
                     operation_types.insert(
                         (
                             selection,
@@ -558,14 +559,14 @@ impl RetainedModels {
                 );
             }
         }
-        Self {
+        Ok(Self {
             index,
             tables: models.into_iter().map(|model| model.fields).collect(),
             operation_types,
             record_binders,
             operation_binders,
             relationships,
-        }
+        })
     }
 
     pub(super) fn record_binder_types(&self, key: &CheckedNodeId) -> Option<&[CheckedNodeId]> {

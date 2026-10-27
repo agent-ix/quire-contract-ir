@@ -2094,17 +2094,22 @@ impl CatalogSignatures<'_, '_> {
         &self,
         context: &CheckedNodeId,
         name: &str,
-    ) -> Option<Vec<CheckedNodeId>> {
+        meter: &mut super::WorkMeter,
+    ) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
         match self {
             Self::Local(owners) => {
-                let owner = owners.owner_by_key(context)?;
+                let Some(owner) = owners.owner_by_key(context) else {
+                    return Ok(None);
+                };
+                let mut budget =
+                    super::model_members::Budget::new(meter, owner.selection, owner.package.bytes);
                 owner
                     .package
-                    .direct_operation_binder_types(owner.node, name)
+                    .effective_operation_binder_types(owner.node, name, &mut budget)
             }
-            Self::External(models) => models
+            Self::External(models) => Ok(models
                 .operation_binder_types(context, name)
-                .map(<[_]>::to_vec),
+                .map(<[_]>::to_vec)),
         }
     }
 }
@@ -2211,10 +2216,12 @@ fn protocol_classes(
             else {
                 continue;
             };
-            let binder_types = (operator != "role")
-                .then(|| protocol_binder_types(operator, arguments, nodes, signatures))
-                .flatten()
-                .map(|types| types.into_iter().map(&key).collect());
+            let binder_types = if operator == "role" {
+                None
+            } else {
+                protocol_binder_types(operator, arguments, nodes, signatures, meter)?
+                    .map(|types| types.into_iter().map(&key).collect())
+            };
             for class in classes_for_node {
                 classes.push(DeclaredGraphClass {
                     class,
@@ -2233,7 +2240,8 @@ fn protocol_binder_types(
     arguments: &[CheckedTerm],
     nodes: &[ProtocolCatalogNode<'_>],
     signatures: CatalogSignatures<'_, '_>,
-) -> Option<Vec<CheckedNodeId>> {
+    meter: &mut super::WorkMeter,
+) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
     let bound_reference = |arguments: &[CheckedTerm], field: &str| {
         arguments.iter().find_map(|argument| match argument {
             CheckedTerm::Binding { name, value } if name.as_ref() == field => {
@@ -2246,34 +2254,49 @@ fn protocol_binder_types(
         })
     };
     if operator == "attempt" {
-        let anchor = bound_reference(arguments, "operation")?;
-        let anchor = nodes.iter().find(|node| node.id == anchor)?;
-        let signature = super::structural::typed_anchor_body(anchor.term?)?;
-        return signatures.operation_binder_types(&signature.context, signature.operation);
+        let Some(anchor) = bound_reference(arguments, "operation")
+            .and_then(|id| nodes.iter().find(|node| node.id == id))
+            .and_then(|node| node.term)
+            .and_then(super::structural::typed_anchor_body)
+        else {
+            return Ok(None);
+        };
+        return signatures.operation_binder_types(&anchor.context, anchor.operation, meter);
     }
     let binder_type = match operator {
         "send" | "receive" => {
-            let channel = bound_reference(arguments, "channel")?;
-            let channel = nodes.iter().find(|node| node.id == channel)?;
+            let Some(channel) = bound_reference(arguments, "channel")
+                .and_then(|id| nodes.iter().find(|node| node.id == id))
+                .and_then(|node| node.term)
+            else {
+                return Ok(None);
+            };
             let CheckedTerm::Application {
                 arguments: channel_arguments,
                 ..
-            } = channel.term?
+            } = channel
             else {
-                return None;
+                return Ok(None);
             };
-            bound_reference(channel_arguments, "carries")?
+            let Some(carries) = bound_reference(channel_arguments, "carries") else {
+                return Ok(None);
+            };
+            carries
         }
         "event" | "finish" => {
-            let binder = bound_reference(arguments, "binder")?;
-            nodes.iter().find(|node| node.id == binder)?.semantic_type
+            let Some(binder) = bound_reference(arguments, "binder")
+                .and_then(|id| nodes.iter().find(|node| node.id == id))
+            else {
+                return Ok(None);
+            };
+            binder.semantic_type
         }
-        _ => return Some(Vec::new()),
+        _ => return Ok(Some(Vec::new())),
     };
     if signatures.is_record(binder_type) {
-        signatures.record_binder_types(binder_type)
+        Ok(signatures.record_binder_types(binder_type))
     } else {
-        Some(vec![binder_type.clone()])
+        Ok(Some(vec![binder_type.clone()]))
     }
 }
 

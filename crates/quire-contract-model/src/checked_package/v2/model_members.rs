@@ -1321,35 +1321,78 @@ impl DomainModel {
             .collect()
     }
 
-    /// Checked receiver, parameter and optional result binder types of an
-    /// operation declared directly on the named object type.
-    pub(super) fn direct_operation_binder_types(
+    /// Names of operations declared on an object or its ancestors. The
+    /// effective member check below decides which of these names is exposed.
+    pub(super) fn operation_names(
+        &self,
+        object: &str,
+        budget: &mut Budget<'_>,
+    ) -> Result<BTreeSet<String>, ValidationFailure> {
+        let mut names = BTreeSet::new();
+        let owners = std::iter::once(object).chain(self.ancestors(object, budget)?.into_iter());
+        for owner in owners {
+            if let Some(declaration) = self.object_types.get(owner) {
+                budget.charge(units(declaration.operations.len()))?;
+                names.extend(
+                    declaration
+                        .operations
+                        .iter()
+                        .map(|operation| member_name(&operation.identity).to_owned()),
+                );
+            }
+        }
+        Ok(names)
+    }
+
+    /// Checked receiver, parameter and optional result binder types of the
+    /// effective operation on the named object type, including inheritance.
+    pub(super) fn effective_operation_binder_types(
         &self,
         object: &str,
         name: &str,
-    ) -> Option<Vec<CheckedNodeId>> {
-        let declaration = self.object_types.get(object)?;
+        budget: &mut Budget<'_>,
+    ) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
+        let Some(declaration) = self.object_types.get(object) else {
+            return Ok(None);
+        };
         if self.state_machines.contains(object) {
-            return None;
+            return Ok(None);
         }
-        let operation = declaration
-            .operations
-            .iter()
-            .find(|operation| member_name(&operation.identity) == name)?;
+        let operation = match self.resolve(object, MemberKind::Operation, name, budget) {
+            Ok(Resolved::Operation(operation)) => operation,
+            Ok(Resolved::Field(_)) | Err(ModelFailure::Refused(_)) => return Ok(None),
+            Err(ModelFailure::Limit(failure)) => return Err(failure),
+        };
         let form = if declaration.interface {
             DeclarationForm::SystemsInterface
         } else {
             DeclarationForm::ObjectType
         };
-        let object_key = declaration_key(&self.identity, form, object, self.bytes).ok()?;
-        let mut types = vec![self.type_node_id(&MemberType::Reference(object_key.into()))?];
+        let Some(object_key) = declaration_key(&self.identity, form, object, self.bytes).ok()
+        else {
+            return Ok(None);
+        };
+        let Some(receiver) = self.type_node_id(&MemberType::Reference(object_key.into())) else {
+            return Ok(None);
+        };
+        let mut types = vec![receiver];
         for parameter in &operation.parameters {
-            types.push(self.type_node_id(&self.slot_type(parameter)?)?);
+            let Some(parameter_type) = self
+                .slot_type(parameter)
+                .and_then(|ty| self.type_node_id(&ty))
+            else {
+                return Ok(None);
+            };
+            types.push(parameter_type);
         }
         if let Some(result) = &operation.result {
-            types.push(self.type_node_id(&self.slot_type(result)?)?);
+            let Some(result_type) = self.slot_type(result).and_then(|ty| self.type_node_id(&ty))
+            else {
+                return Ok(None);
+            };
+            types.push(result_type);
         }
-        Some(types)
+        Ok(Some(types))
     }
 
     fn type_node_id(&self, member_type: &MemberType) -> Option<CheckedNodeId> {
