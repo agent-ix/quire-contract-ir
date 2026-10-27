@@ -17,13 +17,13 @@ use super::{
     CheckedPackageIdentityPreimageV2, CheckedPackageLockV2, NominalIdentityPreimage,
     RawCheckedPackageWireV2, RawSemanticGraphV2, RawSemanticNodeV2, ValidationFailure,
 };
-use crate::checked_package::common::{decode_closed_bytes, strict_parse};
+use crate::checked_package::common::{decode_closed_bytes, node_pointer, strict_parse};
 use crate::checked_package::shared::{
     CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedSemanticId,
     CheckedSourceMapEntry, CheckedSourceRegion,
 };
 use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::value::RawValue;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -66,14 +66,23 @@ struct BorrowedNode<'a> {
     recursion_group: Option<Box<str>>,
     #[serde(default)]
     nominal_identity_preimage: Option<NominalIdentityPreimage>,
-    #[serde(default)]
-    declaration: Option<CheckedDeclaration>,
+    #[serde(default, deserialize_with = "present_nullable")]
+    declaration: Option<Option<CheckedDeclaration>>,
     #[serde(default)]
     owner: Option<CheckedNodeOwner>,
     #[serde(default)]
     owner_model: Option<CheckedNodeId>,
     #[serde(borrow)]
     body: &'a RawValue,
+}
+
+// The outer option records member presence; the inner option records JSON null.
+fn present_nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 #[derive(Deserialize)]
@@ -117,7 +126,17 @@ pub(super) fn decode_borrowed_wire(
     let graph = wire.semantic_graph;
     let diagnostics = wire.diagnostics;
     let mut nodes = Vec::with_capacity(graph.nodes.len());
-    for node in graph.nodes {
+    for (position, node) in graph.nodes.into_iter().enumerate() {
+        if matches!(
+            &node.nominal_identity_preimage,
+            Some(NominalIdentityPreimage::DimensionEquivalence(_))
+        ) && node.declaration.is_some()
+        {
+            return Err(ValidationFailure::refused(
+                CheckedPackageRefusalCode::MalformedWire,
+                node_pointer(position),
+            ));
+        }
         let body = strict_parse(node.body.get().as_bytes())?;
         nodes.push(RawSemanticNodeV2 {
             node_id: node.node_id,
@@ -129,7 +148,7 @@ pub(super) fn decode_borrowed_wire(
             occurrences: node.occurrences,
             recursion_group: node.recursion_group,
             nominal_identity_preimage: node.nominal_identity_preimage,
-            declaration: node.declaration,
+            declaration: node.declaration.flatten(),
             owner: node.owner,
             owner_model: node.owner_model,
             body,

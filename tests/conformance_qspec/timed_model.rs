@@ -5,11 +5,88 @@
 //! Suite-only traces retain the structural/round-trip and scoped refusal evidence;
 //! full timed semantic criterion qualification belongs to the follow-on slice.
 use super::*;
-use quire_contract_model::{encode_checked_package_v2, CheckedPackageIdentityPreimageRefV2};
+use quire_contract_model::{
+    encode_checked_package_v2, CheckedPackageIdentityPreimageRefV2, CheckedTerm,
+};
 
 fn published() -> Value {
     read_json(&fixtures_dir().join("positive-timed-model-nodes.json"))
         .expect("published timed model must be available")
+}
+
+fn encode_package(package: &CheckedPackageV2) -> Vec<u8> {
+    let selected = package.identity_preimage();
+    let preimage = CheckedPackageIdentityPreimageRefV2 {
+        version: &selected.version,
+        edition: &selected.edition,
+        profile_selections: &selected.profile_selections,
+        definition_selections: &selected.definition_selections,
+        model_selections: &selected.model_selections,
+        required_features: &selected.required_features,
+        dependency_selections: &selected.dependency_selections,
+        identity_projection: &package.graph().nodes,
+    };
+    encode_checked_package_v2(
+        &preimage,
+        package.package_id(),
+        package.lock(),
+        package.graph(),
+        quire_contract_model::CheckedPackageSourceCorrespondenceRef {
+            source_map: package.source_map(),
+            refinement_step_rows: package.refinement_step_rows(),
+        },
+        package.capability_report(),
+        package.diagnostics(),
+        Limits::new(1 << 24),
+    )
+    .expect("typed writer encodes admitted package")
+}
+
+#[trace("TC-048", "FR-038-AC-318", "FR-038-AC-322")]
+#[test]
+fn timed_model_published_tick_retains_typed_operation_anchor() {
+    let wire = read_json(&fixtures_dir().join("positive-tick-timed-model-nodes.json"))
+        .expect("published tick model");
+    let CheckedPackageV2ReadResult::Admitted(package) = read_package(&wire).expect("tick read")
+    else {
+        panic!("healthy published tick model must admit");
+    };
+    let anchor = package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| {
+            node.node_tag.as_ref() == "state" && node.semantic_form.as_ref() == "operation_anchor"
+        })
+        .expect("published tick operation anchor");
+    let CheckedTerm::OperationAnchorBody(body) =
+        package.term(&anchor.node_id).expect("retained anchor")
+    else {
+        panic!("tick anchor must retain its typed body");
+    };
+    assert_eq!(body.members.len(), 3);
+    assert!(body.execution_point.is_none());
+    let bytes = encode_package(&package);
+    let encoded: Value = serde_json::from_slice(&bytes).expect("writer JSON");
+    assert_eq!(
+        encoded, wire,
+        "typed writer preserves the published tick package"
+    );
+    assert!(encoded["identity_preimage"]
+        .get("identity_projection")
+        .is_none());
+    let CheckedPackageV2ReadResult::Admitted(again) = read_package(&encoded).expect("writer read")
+    else {
+        panic!("typed writer's tick package must read back");
+    };
+    assert_eq!(again.graph(), package.graph());
+    assert_eq!(again.package_id(), package.package_id());
+    assert_eq!(again.term(&anchor.node_id), package.term(&anchor.node_id));
+    assert_eq!(
+        encode_package(&again),
+        bytes,
+        "tick read/write/read is byte-identical"
+    );
 }
 
 #[trace("TC-048")]
@@ -18,7 +95,7 @@ fn timed_model_published_fixture_round_trips_complete_nodes() {
     let wire = published();
     assert_eq!(
         wire["semantic_graph"]["nodes"].as_array().unwrap().len(),
-        57
+        58
     );
     let CheckedPackageV2ReadResult::Admitted(package) = read_package(&wire).unwrap() else {
         panic!(
@@ -44,31 +121,7 @@ fn timed_model_published_fixture_round_trips_complete_nodes() {
             serde_json::to_value(&node.body).unwrap()
         );
     }
-    let s = package.identity_preimage();
-    let preimage = CheckedPackageIdentityPreimageRefV2 {
-        version: &s.version,
-        edition: &s.edition,
-        profile_selections: &s.profile_selections,
-        definition_selections: &s.definition_selections,
-        model_selections: &s.model_selections,
-        required_features: &s.required_features,
-        dependency_selections: &s.dependency_selections,
-        identity_projection: &package.graph().nodes,
-    };
-    let bytes = encode_checked_package_v2(
-        &preimage,
-        package.package_id(),
-        package.lock(),
-        package.graph(),
-        quire_contract_model::CheckedPackageSourceCorrespondenceRef {
-            source_map: package.source_map(),
-            refinement_step_rows: package.refinement_step_rows(),
-        },
-        package.capability_report(),
-        package.diagnostics(),
-        Limits::new(1 << 24),
-    )
-    .unwrap();
+    let bytes = encode_package(&package);
     let encoded: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(encoded, wire);
     assert!(encoded["identity_preimage"]
