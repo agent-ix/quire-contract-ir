@@ -4,8 +4,8 @@
 //! Public model-root writer, reader and refusal controls.
 
 use crate::support::checked_package::{
-    canonical, domain_package_digest, domain_package_document, evidence_for, refresh_identity,
-    refresh_identity_projection, sha256_hex, v2_all_families, v2_nominal,
+    canonical, domain_package_digest, domain_package_document, evidence_for, family_model_document,
+    refresh_identity, refresh_identity_projection, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -192,6 +192,57 @@ fn one_declaration_selection_has_one_root() {
 /// Trace: FR-065-AC-4
 #[trace("TC-233", "FR-065-AC-4")]
 #[test]
+fn adding_another_object_type_does_not_add_another_model_root() {
+    let original = family_model_document();
+    let first_object = original["types"][0].clone();
+    let mut second_object = first_object.clone();
+    second_object["identity"] = json!("ix://test/families/AccountTwo");
+    second_object["displayName"] = json!("AccountTwo");
+    second_object["fields"] = json!([]);
+    second_object["operations"] = json!([]);
+    second_object["relationships"] = json!([]);
+    for types in [
+        vec![first_object.clone()],
+        vec![first_object, second_object],
+    ] {
+        let mut document = original.clone();
+        document["types"] = Value::Array(types.clone());
+        let digest = domain_package_digest(&document);
+        let mut package = v2_nominal();
+        package["lock"]["model_selections"] = json!([{
+            "identity": "test/families", "digest_domain": "sha256-jcs", "digest": digest,
+        }]);
+        refresh_identity(&mut package);
+        let mut evidence = evidence_for(&package);
+        evidence
+            .insert_domain_package_document(digest, canonical(&document))
+            .expect("selected family document");
+        let admitted = match CheckedPackageV2::read(
+            &canonical(&package),
+            CheckedPackageReadLimits::bounded(),
+            &evidence,
+        ) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("{} object types refused: {other:?}", types.len()),
+        };
+        assert_eq!(admitted.lock().model_selections.len(), 1);
+        assert_eq!(
+            admitted
+                .graph()
+                .nodes
+                .iter()
+                .filter(|node| node.semantic_form.as_ref() == "model_root")
+                .count(),
+            1,
+            "{} object types",
+            types.len()
+        );
+    }
+}
+
+/// Trace: FR-065-AC-4
+#[trace("TC-233", "FR-065-AC-4")]
+#[test]
 fn no_model_selection_has_no_root() {
     let package = v2_nominal();
     let admitted = admitted(&package);
@@ -201,24 +252,6 @@ fn no_model_selection_has_no_root() {
         .nodes
         .iter()
         .all(|node| node.semantic_form.as_ref() != "model_root"));
-}
-
-/// Trace: FR-065-AC-3
-#[trace("TC-233", "FR-065-AC-3")]
-#[test]
-fn published_model_root_preimage_has_the_published_key() {
-    let preimage = json!({
-        "version": "quire.structural-node/v1", "node_tag": "model",
-        "semantic_form": "model_root", "semantic_type": null,
-        "declaration": null, "recursion": null,
-        "owner": {"kind": "model_root", "identity": "example/counter-cas",
-            "digest": "0000000000000000000000000000000000000000000000000000000000000000"},
-        "body": {"term": "aggregate", "members": []},
-    });
-    assert_eq!(
-        sha256_hex(&canonical(&preimage)),
-        "d6ee4495e48811c9e3c7551c768cba73391f8bac1cd14c05bfff37c0af67f757"
-    );
 }
 
 /// Trace: FR-065-AC-4
@@ -539,8 +572,8 @@ fn model_root_identity_depends_on_selection_not_source_region() {
     assert_ne!(rebuilt.package_id(), first.package_id());
 }
 
-/// Trace: FR-065-AC-3
-#[trace("TC-233", "FR-065-AC-3")]
+/// Trace: FR-065-AC-3, FR-065-AC-4
+#[trace("TC-233", "FR-065-AC-3", "FR-065-AC-4")]
 #[test]
 fn root_only_package_keeps_the_root_key_when_its_source_alias_changes() {
     let mut package = v2_nominal();

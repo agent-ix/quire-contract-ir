@@ -42,6 +42,7 @@ mod extension;
 #[path = "../it/support/checked_package.rs"]
 mod fixture_support;
 mod hybrid;
+mod model_root;
 mod reaches_population;
 mod single_body;
 mod timed_model;
