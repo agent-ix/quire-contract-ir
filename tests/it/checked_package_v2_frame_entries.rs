@@ -1699,6 +1699,14 @@ fn tc_056_point_checks_follow_anchor_joins_and_clause_signature() {
                 json!({"kind": "pre", "operation": "scaled"}),
             ));
     });
+    let postcondition = nodes(&pointed.value)
+        .iter()
+        .position(|node| node["body"]["operation"]["member"]["clause"] == "postcondition")
+        .expect("postcondition");
+    let pointed = pointed.edit(postcondition, |node| {
+        node["body"]["operation"]["member"]["execution_point"] =
+            json!({"kind": "pre", "operation": "scaled"});
+    });
     let self_parameter = pointed.parameter_key("self");
     let bad_signature = pointed.edit(precondition, move |node| {
         node["body"]["operation"]["member"]["execution_point"] =
