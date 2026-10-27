@@ -1119,15 +1119,21 @@ impl RefinementGraph<'_, '_> {
         self.nodes.get(*self.index.get(id)?)
     }
 
-    fn key_owner_model(&self, key: &RefinementKey) -> Option<&CheckedNodeId> {
-        match key {
-            RefinementKey::Local(id) => self.local_node(id)?.owner_model.as_ref(),
-            RefinementKey::External(external) => self
-                .dependencies
-                .selected_package(&external.package)?
-                .node(&external.node)?
-                .owner_model
-                .as_ref(),
+    fn key_owner_identity(&self, key: &RefinementKey) -> Option<&str> {
+        let owner = match key {
+            RefinementKey::Local(id) => {
+                let owner = self.local_node(id)?.owner_model.as_ref()?;
+                self.local_node(owner)?.owner.as_ref()?
+            }
+            RefinementKey::External(external) => {
+                let selected = self.dependencies.selected_package(&external.package)?;
+                let owner = selected.node(&external.node)?.owner_model.as_ref()?;
+                selected.node(owner)?.owner.as_ref()?
+            }
+        };
+        match owner {
+            super::CheckedNodeOwner::Model { identity, .. } => Some(identity),
+            _ => None,
         }
     }
 
@@ -1276,7 +1282,11 @@ fn missing_class(at: JsonPointer, locus: &CheckedNodeId) -> ValidationFailure {
 fn class_node_kind(kind: super::CheckedNodeKind) -> bool {
     matches!(
         kind,
-        super::CheckedNodeKind::State(super::StateForm::OperationAnchor)
+        super::CheckedNodeKind::Model(
+            super::ModelForm::ObjectType
+                | super::ModelForm::StateMachine
+                | super::ModelForm::SystemsInterface
+        ) | super::CheckedNodeKind::State(super::StateForm::OperationAnchor)
             | super::CheckedNodeKind::Protocol(_)
     )
 }
@@ -1655,11 +1665,21 @@ fn check_headers(
             root.clone().key("body").key("protocol"),
             locus,
         )?;
-        let abstract_id = match abstract_key.as_ref() {
-            RefinementKey::Local(id) => id,
-            RefinementKey::External(key) => &key.node,
+        let root_identity = match abstract_key.as_ref() {
+            RefinementKey::Local(id) => graph.local_node(id).and_then(|node| node.owner.as_ref()),
+            RefinementKey::External(key) => graph
+                .dependencies
+                .selected_package(&key.package)
+                .and_then(|selected| selected.node(&key.node))
+                .and_then(|node| node.owner.as_ref()),
         };
-        if graph.key_owner_model(protocol) != Some(abstract_id) {
+        let Some(super::CheckedNodeOwner::ModelRoot { identity, .. }) = root_identity else {
+            return Err(wrong_binding(
+                root.clone().key("body").key("abstract"),
+                locus,
+            ));
+        };
+        if graph.key_owner_identity(protocol) != Some(identity.as_ref()) {
             return Err(wrong_binding(
                 root.clone().key("body").key("protocol"),
                 locus,
@@ -1990,7 +2010,7 @@ pub(super) fn validate_catalog_graph(
         };
         let root = node_at(position).key("body").key("class_catalog");
         let local = local_protocol_nodes(&graph);
-        let concrete = protocol_classes(
+        let mut concrete = protocol_classes(
             &local,
             &graph.nodes[position].semantic_type,
             None,
@@ -1999,6 +2019,21 @@ pub(super) fn validate_catalog_graph(
             &root,
             meter,
         )?;
+        if let Some(super::CheckedNodeOwner::ModelRoot { identity, .. }) = graph
+            .local_node(&graph.nodes[position].semantic_type)
+            .and_then(|node| node.owner.as_ref())
+        {
+            for operation in owners.operation_classes(identity, meter)? {
+                concrete.push(DeclaredGraphClass {
+                    class: format!("{}::{}", operation.object, operation.operation),
+                    node: RefinementKey::Local(operation.node),
+                    binder_types: operation
+                        .binder_types
+                        .map(|types| types.into_iter().map(RefinementKey::Local).collect()),
+                });
+            }
+            concrete.sort_unstable_by(|left, right| left.class.cmp(&right.class));
+        }
         compare_declared_classes(
             &catalog.concrete,
             &concrete,
@@ -2116,6 +2151,7 @@ struct ProtocolCatalogNode<'a> {
     id: &'a CheckedNodeId,
     kind: super::CheckedNodeKind,
     name: Option<&'a super::CheckedDeclaration>,
+    owner: Option<&'a super::CheckedNodeOwner>,
     owner_model: Option<&'a CheckedNodeId>,
     semantic_type: &'a CheckedNodeId,
     term: Option<&'a CheckedTerm>,
@@ -2131,6 +2167,7 @@ fn local_protocol_nodes<'a>(graph: &'a RefinementGraph<'_, '_>) -> Vec<ProtocolC
                 id: &node.node_id,
                 kind: graph.kinds[position],
                 name: node.declaration.as_ref(),
+                owner: node.owner.as_ref(),
                 owner_model: node.owner_model.as_ref(),
                 semantic_type: &node.semantic_type,
                 term: graph.terms[position].as_ref(),
@@ -2149,6 +2186,7 @@ fn dependency_protocol_nodes(package: &super::CheckedPackageV2) -> Vec<ProtocolC
             id: &node.node_id,
             kind,
             name: node.declaration.as_ref(),
+            owner: node.owner.as_ref(),
             owner_model: node.owner_model.as_ref(),
             semantic_type: &node.semantic_type,
             term: Some(&node.body),
@@ -2166,6 +2204,13 @@ fn protocol_classes(
     meter: &mut super::WorkMeter,
 ) -> Result<Vec<DeclaredGraphClass>, ValidationFailure> {
     let mut classes = Vec::new();
+    let selected_identity = nodes.iter().find(|node| node.id == model).and_then(|node| {
+        if let Some(super::CheckedNodeOwner::ModelRoot { identity, .. }) = node.owner {
+            Some(identity.as_ref())
+        } else {
+            None
+        }
+    });
     let key = |id: &CheckedNodeId| match package {
         Some(package) => RefinementKey::External(RefinementPackageNodeKey {
             package: package.clone(),
@@ -2174,8 +2219,16 @@ fn protocol_classes(
         None => RefinementKey::Local(id.clone()),
     };
     for clause in nodes {
+        let clause_identity = clause
+            .owner_model
+            .and_then(|owner| nodes.iter().find(|node| node.id == owner))
+            .and_then(|owner| match owner.owner {
+                Some(super::CheckedNodeOwner::Model { identity, .. }) => Some(identity.as_ref()),
+                _ => None,
+            });
         if clause.kind != super::CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolClause)
-            || clause.owner_model != Some(model)
+            || clause_identity != selected_identity
+            || selected_identity.is_none()
             || selected_clause.is_some_and(|selected| selected != clause.id)
         {
             continue;

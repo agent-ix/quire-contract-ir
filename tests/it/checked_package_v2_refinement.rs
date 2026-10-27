@@ -304,6 +304,57 @@ fn set_concrete_catalog(package: &mut Value, entries: Vec<Value>) -> usize {
     position
 }
 
+fn operation_model_nodes() -> (Value, Value, Value, Value) {
+    let mut document = model_document();
+    let worker_identity = "ix://test/refinement/Worker";
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind": {"module": MODEL_IDENTITY, "name": "worker"},
+            "construct": {"meaning": "quire.meaning.model.object-type/v1"}
+        }));
+    document["types"]
+        .as_array_mut()
+        .expect("types")
+        .push(json!({
+            "identity": worker_identity, "displayName": "Worker",
+            "kind": {"module": MODEL_IDENTITY, "name": "worker"},
+            "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
+            "supertypes": [], "fields": [],
+            "operations": [{"identity": "ix://test/refinement/Worker/run", "params": []}]
+        }));
+    let body = json!({"term": "aggregate", "members": []});
+    let owner = json!({"kind": "model", "identity": MODEL_IDENTITY, "node": worker_identity});
+    let worker_key = node_id(&sha256_hex(&canonical(&json!({
+        "version": "quire.structural-node/v1", "node_tag": "model",
+        "semantic_form": "object_type", "semantic_type": null,
+        "declaration": null, "recursion": null, "owner": owner, "body": body
+    }))));
+    let worker = json!({
+        "node_id": worker_key, "schema_version": "quire.checked-semantic-graph/v2",
+        "node_tag": "model", "semantic_form": "object_type",
+        "semantic_type": worker_key, "dependencies": [],
+        "occurrences": [{"role": "type", "ordinal": 0}],
+        "owner": owner, "body": body
+    });
+    let reference_body = json!({"term":"aggregate", "members":[
+        {"term":"reference", "target":worker_key}
+    ]});
+    let reference_key = node_id(&sha256_hex(&canonical(&json!({
+        "version": "quire.structural-node/v1", "node_tag": "composite_type",
+        "semantic_form": "reference", "semantic_type": null,
+        "declaration": null, "recursion": null, "body": reference_body
+    }))));
+    let reference = json!({
+        "node_id": reference_key, "schema_version": "quire.checked-semantic-graph/v2",
+        "node_tag": "composite_type", "semantic_form": "reference",
+        "semantic_type": reference_key, "dependencies": [worker_key],
+        "occurrences": [{"role": "type", "ordinal": 0}], "body": reference_body
+    });
+    (document, worker, reference, reference_key)
+}
+
 enum ProtocolStepRows {
     Empty,
     Declared,
@@ -326,15 +377,40 @@ fn concrete_protocol_refinement_on(
     step_rows: ProtocolStepRows,
     clause_owner: ProtocolClauseOwner,
 ) -> (Value, CheckedPackageEvidence) {
+    concrete_protocol_refinement_with_model(
+        base,
+        step_rows,
+        clause_owner,
+        model_document(),
+        Vec::new(),
+    )
+}
+
+fn concrete_protocol_refinement_with_model(
+    base: Value,
+    step_rows: ProtocolStepRows,
+    clause_owner: ProtocolClauseOwner,
+    mut document: Value,
+    extra_model_nodes: Vec<Value>,
+) -> (Value, CheckedPackageEvidence) {
     let (machine, _) = machine_package();
-    let model = machine["semantic_graph"]["nodes"]
+    let mut model = machine["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .iter()
         .find(|node| node["semantic_form"] == "state_machine")
         .expect("state machine")
         .clone();
-    let document = model_document();
+    document["constructs"][0]["construct"]["meaning"] = json!("quire.meaning.model.object-type/v1");
+    model["semantic_form"] = json!("object_type");
+    let model_key = node_id(&sha256_hex(&canonical(&json!({
+        "version": "quire.structural-node/v1", "node_tag": "model",
+        "semantic_form": "object_type", "semantic_type": null,
+        "declaration": null, "recursion": null,
+        "owner": model["owner"], "body": model["body"]
+    }))));
+    model["node_id"] = model_key.clone();
+    model["semantic_type"] = model_key;
     let digest = sha256_hex(&canonical(&document));
     let mut package = base;
     package["lock"]["model_selections"]
@@ -347,6 +423,10 @@ fn concrete_protocol_refinement_on(
         .as_array_mut()
         .expect("nodes")
         .push(model.clone());
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .extend(extra_model_nodes);
     if matches!(clause_owner, ProtocolClauseOwner::SelectedModel) {
         let clause = package["semantic_graph"]["nodes"]
             .as_array_mut()
@@ -1088,6 +1168,94 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
     );
 }
 
+/// Provenance: IR-874 selected model operation class join.
+#[test]
+fn refinement_catalog_joins_concrete_model_operation_without_a_step_row() {
+    let (document, worker, reference, receiver_type) = operation_model_nodes();
+    let worker_key = worker["node_id"].clone();
+    let (mut package, evidence) = concrete_protocol_refinement_with_model(
+        v2_all_families(),
+        ProtocolStepRows::Empty,
+        ProtocolClauseOwner::SelectedModel,
+        document,
+        vec![worker, reference],
+    );
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let finish = nodes
+        .iter()
+        .find(|node| node["body"]["operation"]["member"]["operator"] == "finish")
+        .expect("finish")["node_id"]
+        .clone();
+    let finish_binder = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let entries = vec![
+        json!({"class": "OrderFlow::Closed", "node": finish, "binder_types": [finish_binder]}),
+        json!({"class": "Worker::run", "node": worker_key, "binder_types": [receiver_type]}),
+    ];
+    let position = set_concrete_catalog(&mut package, entries.clone());
+    let admitted = read(&package, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "concrete operation class must join through the selected root: {admitted:?}"
+    );
+
+    let mut omitted = package.clone();
+    set_concrete_catalog(&mut omitted, vec![entries[0].clone()]);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&omitted, &evidence) else {
+        panic!("omitted concrete operation class admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete").as_str())
+    );
+
+    let mut wrong_node = package.clone();
+    let machine = wrong_node["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["owner"]["node"] == MODEL_NODE)
+        .expect("machine")["node_id"]
+        .clone();
+    let mut wrong_entries = entries.clone();
+    wrong_entries[1]["node"] = machine;
+    set_concrete_catalog(&mut wrong_node, wrong_entries);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_node, &evidence) else {
+        panic!("operation class bound to another model declaration admitted");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1").as_str())
+    );
+
+    let mut wrong_binder = package.clone();
+    let mut wrong_entries = entries;
+    wrong_entries[1]["binder_types"] = wrong_entries[0]["binder_types"].clone();
+    set_concrete_catalog(&mut wrong_binder, wrong_entries);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_binder, &evidence) else {
+        panic!("operation class bound to another receiver type admitted");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1").as_str())
+    );
+}
+
 /// Provenance: IR-874 catalog graph join.
 #[test]
 fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
@@ -1390,7 +1558,9 @@ fn refinement_catalog_joins_abstract_class_from_direct_dependency() {
         .expect("nodes");
     let abstract_model = dependency_nodes
         .iter()
-        .find(|node| node["semantic_form"] == "state_machine")
+        .find(|node| {
+            node["semantic_form"] == "model_root" && node["owner"]["identity"] == MODEL_IDENTITY
+        })
         .expect("model")["node_id"]
         .clone();
     let abstract_clause = dependency_nodes

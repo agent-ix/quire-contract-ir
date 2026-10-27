@@ -1329,18 +1329,30 @@ impl DomainModel {
         name: &str,
         budget: &mut Budget<'_>,
     ) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
-        let Some(declaration) = self.object_types.get(object) else {
-            return Ok(None);
-        };
         if self.state_machines.contains(object) {
             return Ok(None);
         }
+        self.model_operation_binder_types(object, name, budget)
+    }
+
+    /// Checked receiver and member signature of an effective model operation.
+    pub(super) fn model_operation_binder_types(
+        &self,
+        object: &str,
+        name: &str,
+        budget: &mut Budget<'_>,
+    ) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
+        let Some(declaration) = self.object_types.get(object) else {
+            return Ok(None);
+        };
         let operation = match self.resolve(object, MemberKind::Operation, name, budget) {
             Ok(Resolved::Operation(operation)) => operation,
             Ok(Resolved::Field(_)) | Err(ModelFailure::Refused(_)) => return Ok(None),
             Err(ModelFailure::Limit(failure)) => return Err(failure),
         };
-        let form = if declaration.interface {
+        let form = if self.state_machines.contains(object) {
+            DeclarationForm::StateMachine
+        } else if declaration.interface {
             DeclarationForm::SystemsInterface
         } else {
             DeclarationForm::ObjectType
@@ -1372,6 +1384,38 @@ impl DomainModel {
         Ok(Some(types))
     }
 
+    /// Names of the effective operations reachable from one model type.
+    pub(super) fn effective_operation_names(
+        &self,
+        object: &str,
+        budget: &mut Budget<'_>,
+    ) -> Result<BTreeSet<Box<str>>, ValidationFailure> {
+        let mut candidates = BTreeSet::new();
+        let ancestors = self.ancestors(object, budget)?;
+        for node in std::iter::once(object).chain(ancestors.iter().copied()) {
+            if let Some(declared) = self.object_types.get(node) {
+                budget.charge(units(declared.operations.len()))?;
+                candidates.extend(
+                    declared
+                        .operations
+                        .iter()
+                        .map(|operation| Box::from(member_name(&operation.identity))),
+                );
+            }
+        }
+        let mut names = BTreeSet::new();
+        for name in candidates {
+            match self.resolve(object, MemberKind::Operation, &name, budget) {
+                Ok(Resolved::Operation(_)) => {
+                    names.insert(name);
+                }
+                Ok(Resolved::Field(_)) | Err(ModelFailure::Refused(_)) => {}
+                Err(ModelFailure::Limit(failure)) => return Err(failure),
+            }
+        }
+        Ok(names)
+    }
+
     fn type_node_id(&self, member_type: &MemberType) -> Option<CheckedNodeId> {
         Some(CheckedNodeId {
             domain: NODE_DOMAIN.into(),
@@ -1391,6 +1435,14 @@ pub(super) struct Owner<'m> {
     pub(super) selection: usize,
 }
 
+/// One effective operation of a selected model declaration.
+pub(super) struct ModelOperationClass {
+    pub(super) object: Box<str>,
+    pub(super) operation: Box<str>,
+    pub(super) node: CheckedNodeId,
+    pub(super) binder_types: Option<Vec<CheckedNodeId>>,
+}
+
 /// Every selected declaration's model declaration node key.
 #[derive(Debug, Default)]
 pub(super) struct ModelOwners<'m> {
@@ -1400,6 +1452,48 @@ pub(super) struct ModelOwners<'m> {
 impl<'m> ModelOwners<'m> {
     pub(super) fn owner_by_key(&self, key: &CheckedNodeId) -> Option<Owner<'m>> {
         self.by_key.get(key.digest.as_ref()).copied()
+    }
+
+    /// Effective operation names, declaration nodes and checked binder records
+    /// for one selected domain package. A model member has no node of its own.
+    pub(super) fn operation_classes(
+        &self,
+        identity: &str,
+        meter: &mut super::WorkMeter,
+    ) -> Result<Vec<ModelOperationClass>, ValidationFailure> {
+        let mut classes = Vec::new();
+        for (digest, owner) in &self.by_key {
+            if owner.package.identity.as_ref() != identity
+                || !matches!(
+                    owner.form,
+                    DeclarationForm::ObjectType
+                        | DeclarationForm::StateMachine
+                        | DeclarationForm::SystemsInterface
+                )
+            {
+                continue;
+            }
+            let mut budget = Budget::new(meter, owner.selection, owner.package.bytes);
+            let names = owner
+                .package
+                .effective_operation_names(owner.node, &mut budget)?;
+            for name in names {
+                let binder =
+                    owner
+                        .package
+                        .model_operation_binder_types(owner.node, &name, &mut budget)?;
+                classes.push(ModelOperationClass {
+                    object: member_name(owner.node).into(),
+                    operation: name,
+                    node: CheckedNodeId {
+                        domain: NODE_DOMAIN.into(),
+                        digest: digest.clone().into(),
+                    },
+                    binder_types: binder,
+                });
+            }
+        }
+        Ok(classes)
     }
     pub(super) fn refinement_object_fields(
         &self,
