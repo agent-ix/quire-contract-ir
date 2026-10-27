@@ -1329,7 +1329,7 @@ impl DomainModel {
         budget: &mut Budget<'_>,
     ) -> Result<BTreeSet<String>, ValidationFailure> {
         let mut names = BTreeSet::new();
-        let owners = std::iter::once(object).chain(self.ancestors(object, budget)?.into_iter());
+        let owners = std::iter::once(object).chain(self.ancestors(object, budget)?);
         for owner in owners {
             if let Some(declaration) = self.object_types.get(owner) {
                 budget.charge(units(declaration.operations.len()))?;
