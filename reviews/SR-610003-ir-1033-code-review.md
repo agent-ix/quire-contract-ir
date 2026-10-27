@@ -29,3 +29,14 @@ IR-1033 PR #592 at 6e61f87c; examined FR-064-AC-1..6 and FR-038 owner/catalog co
 ## Coverage
 
 Reviewed diff only; formal Rust style and wire boundary checks included. Hosted lint failure supplied by code lead at exact head; no aggregate gate rerun. QSpec TC-048 pinned 9f10eddf fails on STD-498 fixture owner mismatch, which is an external fixture blocker. FR-064-AC-4 source producer half belongs QSL. FR-064-AC-5 remains Planned for PR #586.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | e8755e89: Owner/extra dependency precedence is fixed. Omitted body references retain their FR-038-AC-285/324 located refusal. Pinned qsl-string-edge exits 0 at e8755e89; hosted checks are pending. |
+| FND-002 | fixed | e8755e89: Owner/extra dependency precedence is fixed. Omitted body references retain their FR-038-AC-285/324 located refusal. Pinned qsl-string-edge exits 0 at e8755e89; hosted checks are pending. |
+
+## Current verdict
+
+Owner/extra dependency precedence is fixed. Omitted body references retain their FR-038-AC-285/324 located refusal. Pinned qsl-string-edge exits 0 at e8755e89; hosted checks are pending.

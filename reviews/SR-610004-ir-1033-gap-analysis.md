@@ -28,3 +28,13 @@ IR-1033 PR #592 at 6e61f87c; examined FR-064-AC-1..6 and FR-038 owner/catalog co
 ## Coverage
 
 Plan completion: not assessed. Reconciliation: quoin matrix 0.29.1 on this checkout; 717 criteria, 607 tagged, 92 untagged, 17 method-without-symbol, 1 tagged-by-ignored-test; all 717 have no run evidence in Quoin. FR-064: AC1-4 tagged, AC5 untagged, AC6 method-without-symbol. Repository baseline gaps predate this PR and are outside this diff review. No new unowned production behavior or stub found in the diff. Semantic review not separately opted in.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | deferred | IR-874 / draft PR #586 owns the full owner-based class-catalog join and its FR-064-AC-5 test after this carrier. AC-5 remains Planned, unclaimed and untagged on this PR. |
+
+## Current verdict
+
+The open catalog obligation is explicitly deferred to IR-874/#586 and is not counted as passing.
