@@ -4,7 +4,8 @@
 //! Focused FR-061 refinement and selected state-machine owner vectors.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, refresh_identity, sha256_hex, v2_nominal,
+    canonical, evidence_for, node_id, refresh_identity, settle, sha256_hex, v2_all_families,
+    v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -195,16 +196,26 @@ fn row_empty_refinement(package: &mut Value) {
     refresh_identity(package);
 }
 
-fn one_step_refinement(package: &mut Value) {
+fn one_step_refinement_with_step(package: &mut Value, step: Value) {
     row_empty_refinement(package);
     let nodes = package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes");
     let node = nodes.last_mut().expect("refinement");
     let old_id = node["node_id"].clone();
-    node["body"]["steps"] = json!([{
-        "source_class": "memory flush", "target": {"kind": "stutter"}
-    }]);
+    node["body"]["steps"] = json!([step]);
+    if let Some(source) = node["body"]["steps"][0].get("source_node").cloned() {
+        let mut dependencies = node["dependencies"]
+            .as_array()
+            .expect("dependencies")
+            .clone();
+        if !dependencies.contains(&source) {
+            dependencies.push(source);
+            dependencies
+                .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+        }
+        node["dependencies"] = json!(dependencies);
+    }
     node["occurrences"]
         .as_array_mut()
         .expect("occurrences")
@@ -232,6 +243,117 @@ fn one_step_refinement(package: &mut Value) {
         "region": {"source": source, "start": 31, "end": 32}
     }]);
     refresh_identity(package);
+}
+
+fn one_step_refinement(package: &mut Value) {
+    one_step_refinement_with_step(
+        package,
+        json!({"source_class": "memory flush", "target": {"kind": "stutter"}}),
+    );
+}
+
+fn rekey_refinement(package: &mut Value, position: usize) {
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    let old = node["node_id"].clone();
+    let replacement = node_id(&sha256_hex(&canonical(&json!({
+        "version": "quire.refinement-node/v1",
+        "semantic_type": node["semantic_type"], "body": node["body"]
+    }))));
+    node["node_id"] = replacement.clone();
+    for entry in package["source_map"].as_array_mut().expect("source map") {
+        if entry["node_id"] == old {
+            entry["node_id"] = replacement.clone();
+        }
+    }
+    if let Some(rows) = package
+        .get_mut("refinement_step_rows")
+        .and_then(Value::as_array_mut)
+    {
+        for row in rows {
+            if row["node_id"] == old {
+                row["node_id"] = replacement.clone();
+            }
+        }
+    }
+    refresh_identity(package);
+}
+
+enum ProtocolStepRows {
+    Empty,
+    Declared,
+}
+
+enum ProtocolClauseOwner {
+    SelectedModel,
+    OtherModel,
+}
+
+fn concrete_protocol_refinement(
+    step_rows: ProtocolStepRows,
+    clause_owner: ProtocolClauseOwner,
+) -> (Value, CheckedPackageEvidence) {
+    let (machine, _) = machine_package();
+    let model = machine["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .last()
+        .expect("state machine")
+        .clone();
+    let document = model_document();
+    let digest = sha256_hex(&canonical(&document));
+    let mut package = v2_all_families();
+    package["lock"]["model_selections"]
+        .as_array_mut()
+        .expect("model selections")
+        .push(json!({
+            "identity": MODEL_IDENTITY, "digest_domain": "sha256-jcs", "digest": digest
+        }));
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(model.clone());
+    if matches!(clause_owner, ProtocolClauseOwner::SelectedModel) {
+        let clause = package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .iter_mut()
+            .find(|node| node["semantic_form"] == "protocol_clause")
+            .expect("protocol clause");
+        clause["owner_model"] = model["node_id"].clone();
+    }
+    settle(&mut package);
+
+    let finish = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "protocol" && node["semantic_form"] == "obligation")
+        .expect("declared finish")["node_id"]
+        .clone();
+    let profiles = package["lock"]["profile_selections"].clone();
+    if matches!(step_rows, ProtocolStepRows::Declared) {
+        one_step_refinement_with_step(
+            &mut package,
+            json!({
+                "source_class": "finish OrderFlow::Closed", "source_node": finish,
+                "target": {"kind": "stutter"}
+            }),
+        );
+    } else {
+        row_empty_refinement(&mut package);
+    }
+    let infinite = package["lock"]["profile_selections"][0].clone();
+    package["lock"]["profile_selections"] = profiles;
+    package["lock"]["profile_selections"]
+        .as_array_mut()
+        .expect("profile selections")
+        .push(infinite);
+    refresh_identity(&mut package);
+    let mut evidence = evidence_for(&package);
+    evidence
+        .insert_domain_package_document(digest, canonical(&document))
+        .expect("state machine document");
+    (package, evidence)
 }
 
 fn make_step_owner_proof_ineligible(package: &mut Value) {
@@ -529,6 +651,171 @@ fn refinement_row_empty_model_refinement_is_admitted() {
         CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
+}
+
+#[trace("TC-048")]
+#[test]
+fn refinement_catalog_presence_precedes_declaration_backed_step_joins() {
+    let (mut package, evidence) = concrete_protocol_refinement(
+        ProtocolStepRows::Declared,
+        ProtocolClauseOwner::SelectedModel,
+    );
+    let refinement = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    let catalog_at = format!("/semantic_graph/nodes/{refinement}/body/class_catalog");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+        panic!("concrete protocol with no catalog must refuse");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(catalog_at.as_str())
+    );
+
+    let declared =
+        package["semantic_graph"]["nodes"][refinement]["body"]["steps"][0]["source_node"].clone();
+    package["semantic_graph"]["nodes"][refinement]["body"]["class_catalog"] = json!({
+        "concrete": [{"class": "finish Other::Closed", "node": declared, "binder_types": []}],
+        "abstract": []
+    });
+    rekey_refinement(&mut package, refinement);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+        panic!("declaration-backed row without its catalog class must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{refinement}/body/steps/0/source_class").as_str())
+    );
+
+    let (mut nonprotocol, evidence) = machine_package();
+    let model = nonprotocol["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .last()
+        .expect("state machine")["node_id"]
+        .clone();
+    one_step_refinement_with_step(
+        &mut nonprotocol,
+        json!({
+            "source_class": "operation", "source_node": model,
+            "target": {"kind": "stutter"}
+        }),
+    );
+    let position = nonprotocol["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&nonprotocol, &evidence) else {
+        panic!("non-protocol row with a wrong-kind source must refuse at the row");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/steps/0/source_node").as_str())
+    );
+
+    let (mut model_only, evidence) = machine_package();
+    row_empty_refinement(&mut model_only);
+    assert!(matches!(
+        read(&model_only, &evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    let position = model_only["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    model_only["semantic_graph"]["nodes"][position]["body"]["class_catalog"] =
+        json!({"concrete": [], "abstract": []});
+    rekey_refinement(&mut model_only, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&model_only, &evidence) else {
+        panic!("model-only refinement with a catalog must refuse");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        "{refusal:?}"
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog").as_str())
+    );
+}
+
+#[trace("TC-048")]
+#[test]
+fn refinement_catalog_presence_uses_clause_owner_without_step_rows() {
+    let (owned, evidence) =
+        concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::SelectedModel);
+    let position = owned["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    let catalog_at = format!("/semantic_graph/nodes/{position}/body/class_catalog");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&owned, &evidence) else {
+        panic!("same-model clause without a named step still needs a catalog");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(catalog_at.as_str())
+    );
+
+    let (mut foreign, evidence) =
+        concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::OtherModel);
+    let result = read(&foreign, &evidence);
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+        "{result:?}"
+    );
+    let position = foreign["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    foreign["semantic_graph"]["nodes"][position]["body"]["class_catalog"] =
+        json!({"concrete": [], "abstract": []});
+    rekey_refinement(&mut foreign, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&foreign, &evidence) else {
+        panic!("catalog without same-model classes must refuse");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog").as_str())
+    );
+
+    let (foreign_row, evidence) =
+        concrete_protocol_refinement(ProtocolStepRows::Declared, ProtocolClauseOwner::OtherModel);
+    let position = foreign_row["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&foreign_row, &evidence) else {
+        panic!("foreign protocol row must refuse at its binding");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/steps/0/source_node").as_str())
+    );
 }
 
 #[test]

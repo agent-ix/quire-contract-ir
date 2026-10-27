@@ -1296,6 +1296,7 @@ fn validate_catalog(
     body: &CheckedTerm,
     position: usize,
     graph: &RefinementGraph<'_, '_>,
+    concrete_model: &CheckedNodeId,
     locus: &CheckedNodeId,
     meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -1309,18 +1310,30 @@ fn validate_catalog(
         return Ok(());
     };
     let root = node_at(position).key("body").key("class_catalog");
-    let Some(catalog) = class_catalog else {
-        if protocol.is_some()
-            || steps.iter().any(|step| {
-                step.source_node.is_none()
-                    || matches!(step.target, RefinementStepTarget::ProtocolStep { .. })
-            })
+    let mut requires_catalog = protocol.is_some();
+    for step in steps {
+        meter.charge(1, || root.clone())?;
+        requires_catalog |= step.source_node.is_none()
+            || matches!(step.target, RefinementStepTarget::ProtocolStep { .. });
+    }
+    for &source_position in graph.index.values() {
+        meter.charge(1, || root.clone())?;
+        if graph.kinds.get(source_position)
+            == Some(&super::CheckedNodeKind::Protocol(
+                super::ProtocolForm::ProtocolClause,
+            ))
+            && graph.nodes[source_position].owner_model.as_ref() == Some(concrete_model)
         {
-            return Err(ValidationFailure::refused(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                root,
-            ));
+            requires_catalog = true;
         }
+    }
+    if requires_catalog && class_catalog.is_none() {
+        return Err(ValidationFailure::refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            root,
+        ));
+    }
+    let Some(catalog) = class_catalog else {
         return Ok(());
     };
     if protocol.is_none() && catalog.concrete.is_empty() && catalog.r#abstract.is_empty() {
@@ -1920,7 +1933,14 @@ pub(super) fn validate_refinements(
         stale_refinement_key(node, position, bytes)?;
         canonical_order(body, position)?;
         check_headers(node, body, position, &graph, lock)?;
-        validate_catalog(body, position, &graph, &node.node_id, meter)?;
+        validate_catalog(
+            body,
+            position,
+            &graph,
+            &node.semantic_type,
+            &node.node_id,
+            meter,
+        )?;
         validate_rows(node, body, position, &graph, owners, meter)?;
     }
     Ok(())
