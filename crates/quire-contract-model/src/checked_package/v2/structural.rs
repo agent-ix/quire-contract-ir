@@ -447,12 +447,9 @@ pub(super) fn validate_structural_nodes(
             return Err(refuse(defect));
         }
         if kinds.get(position) == Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
-            if let (Some(mut expected), Some(owner_model)) = (
-                term.and_then(application_dependencies),
-                node.owner_model.as_ref(),
-            ) {
-                expected.insert(owner_model.clone());
-                if !node.dependencies.iter().eq(expected.iter()) {
+            if let Some(owner_model) = node.owner_model.as_ref() {
+                let ordered = node.dependencies.windows(2).all(|pair| pair[0] < pair[1]);
+                if !ordered || !node.dependencies.contains(owner_model) {
                     return Err(refuse(Defect::Dependencies));
                 }
             }
