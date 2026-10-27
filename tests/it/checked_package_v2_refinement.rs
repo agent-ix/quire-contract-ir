@@ -683,10 +683,17 @@ fn memory_catalog_completeness_identity_and_dependency_precedence() {
     assert_ne!(changed["package_id"], original_package);
 
     let mut missing_dependency = base;
-    missing_dependency["semantic_graph"]["nodes"][position]["dependencies"]
+    let declared_node = missing_dependency["semantic_graph"]["nodes"][position]["body"]
+        ["class_catalog"]["concrete"][0]["node"]
+        .clone();
+    let dependencies = missing_dependency["semantic_graph"]["nodes"][position]["dependencies"]
         .as_array_mut()
-        .expect("dependencies")
-        .remove(1);
+        .expect("dependencies");
+    let declared_position = dependencies
+        .iter()
+        .position(|key| key == &declared_node)
+        .expect("declared catalog dependency");
+    dependencies.remove(declared_position);
     refresh_identity(&mut missing_dependency);
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&missing_dependency, &evidence) else {
         panic!("missing declared catalog dependency admitted");
