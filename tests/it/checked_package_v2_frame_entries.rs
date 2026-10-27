@@ -2585,18 +2585,18 @@ fn tc_056_scoped_delete_parameter_scan_charges_validation_work() {
     let parameter = ModelPackage::new().edit(frame, |node| {
         node["body"]["deletes_scoped"] = json!([{"kind": "parameter", "name": "n"}]);
     });
-    // The three protocol nodes add 52 charges before this scoped scan.
-    let incomplete = match read_model_with_work(&parameter.value, 346) {
+    // The three protocol nodes and selected root charge before this scoped scan.
+    let incomplete = match read_model_with_work(&parameter.value, 352) {
         CheckedPackageV2ReadResult::Incomplete(incomplete) => incomplete,
         other => panic!("expected work limit at scoped parameter scan, got {other:?}"),
     };
     assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
-    assert_eq!(incomplete.consumed, 347);
+    assert_eq!(incomplete.consumed, 353);
     assert_eq!(
         incomplete.path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{frame}/body").as_str())
     );
-    let refusal = match read_model_with_work(&parameter.value, 347) {
+    let refusal = match read_model_with_work(&parameter.value, 353) {
         CheckedPackageV2ReadResult::Refused(refusal) => refusal,
         other => panic!("expected missing-name after paying for scan, got {other:?}"),
     };
