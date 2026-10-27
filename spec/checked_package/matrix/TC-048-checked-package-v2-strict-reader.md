@@ -1663,8 +1663,22 @@ vector or schema is copied into this repository.
 5. Exercise a causal cycle, independent parallel controls, zero-progress and
    progressing repeats; then a binder at each stage, forbidden model-state
    read, inaccessible branch binder and decision fact of another role or not
-   individually visible. Assert the specified first refusal and retained
-   stage, owner and reason details rather than only a refusal code.
+   individually visible. In each `choice` and `repeat` `visible` entry and
+   guard, read the protocol input `over` directly and require
+   `ill_typed`/`operator-ineligible` at the read, naming the slot, before
+   binder-scope and decision-fact checks. Read a protocol activation binder
+   that is available at the decision and require
+   `wrong_snapshot`/`wrong-observation` with `ineligible-kind`. Read a finish
+   binder in each `choice` `visible` entry, `choice` guard, `repeat` `visible`
+   entry and `repeat` guard; require `missing_declaration`/`missing-name` at
+   the read with `read` `stage` in all four slots. Read a compensation-template
+   binder from a run slot and require `missing_declaration`/`missing-name`
+   with `read` `foreign`. In one slot pair an `over` read with a binder read
+   and require the `over` refusal; pair an out-of-scope binder read with an in-scope
+   ineligible binder read and require the out-of-scope refusal. Use QSpec
+   TC-948 DF6b and DF7d..DF7f as the independent oracle. Assert the specified
+   first refusal and retained stage, owner, slot and reason details rather
+   than only a refusal code (FR-038-AC-291/292; QSpec FR-466-AC-14/16).
 6. Combine defects in state and protocol, temporal and protocol,
    abstraction and protocol, refinement and protocol, protocol and operation,
    and multiple protocol nodes. Require the FR-322 body-step order and
