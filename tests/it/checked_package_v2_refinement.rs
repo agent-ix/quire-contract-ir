@@ -280,6 +280,30 @@ fn rekey_refinement(package: &mut Value, position: usize) {
     refresh_identity(package);
 }
 
+fn set_concrete_catalog(package: &mut Value, entries: Vec<Value>) -> usize {
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    let mut dependencies = vec![node["body"]["abstract"].clone()];
+    for entry in &entries {
+        if let Some(declared) = entry.get("node") {
+            dependencies.push(declared.clone());
+        }
+        if let Some(binders) = entry.get("binder_types").and_then(Value::as_array) {
+            dependencies.extend(binders.iter().cloned());
+        }
+    }
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.dedup();
+    node["body"]["class_catalog"] = json!({"concrete": entries, "abstract": []});
+    node["dependencies"] = json!(dependencies);
+    rekey_refinement(package, position);
+    position
+}
+
 enum ProtocolStepRows {
     Empty,
     Declared,
@@ -294,6 +318,14 @@ fn concrete_protocol_refinement(
     step_rows: ProtocolStepRows,
     clause_owner: ProtocolClauseOwner,
 ) -> (Value, CheckedPackageEvidence) {
+    concrete_protocol_refinement_on(v2_all_families(), step_rows, clause_owner)
+}
+
+fn concrete_protocol_refinement_on(
+    base: Value,
+    step_rows: ProtocolStepRows,
+    clause_owner: ProtocolClauseOwner,
+) -> (Value, CheckedPackageEvidence) {
     let (machine, _) = machine_package();
     let model = machine["semantic_graph"]["nodes"]
         .as_array()
@@ -304,7 +336,7 @@ fn concrete_protocol_refinement(
         .clone();
     let document = model_document();
     let digest = sha256_hex(&canonical(&document));
-    let mut package = v2_all_families();
+    let mut package = base;
     package["lock"]["model_selections"]
         .as_array_mut()
         .expect("model selections")
@@ -964,19 +996,10 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
         })
         .expect("binder type")["node_id"]
         .clone();
-    let position = nodes.len() - 1;
-    package["semantic_graph"]["nodes"][position]["body"]["class_catalog"] = json!({
-        "concrete": [{"class": "OrderFlow::Closed", "node": finish, "binder_types": [binder_type]}],
-        "abstract": []
-    });
-    let dependencies = package["semantic_graph"]["nodes"][position]["dependencies"]
-        .as_array_mut()
-        .expect("dependencies");
-    dependencies.push(finish.clone());
-    dependencies.push(binder_type.clone());
-    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
-    dependencies.dedup();
-    rekey_refinement(&mut package, position);
+    let position = set_concrete_catalog(
+        &mut package,
+        vec![json!({"class": "OrderFlow::Closed", "node": finish, "binder_types": [binder_type]})],
+    );
     let admitted = read(&package, &evidence);
     assert!(
         matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
@@ -984,10 +1007,7 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
     );
 
     let mut omitted = package.clone();
-    omitted["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"] = json!([]);
-    omitted["semantic_graph"]["nodes"][position]["dependencies"] =
-        json!([omitted["semantic_graph"]["nodes"][position]["semantic_type"].clone()]);
-    rekey_refinement(&mut omitted, position);
+    set_concrete_catalog(&mut omitted, Vec::new());
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&omitted, &evidence) else {
         panic!("omitted owned class admitted");
     };
@@ -1065,6 +1085,61 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
     assert_eq!(
         refusal.path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/0").as_str())
+    );
+}
+
+/// Provenance: IR-874 catalog graph join.
+#[test]
+fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
+    let (base, _) = crate::checked_package_v2_protocol_body::protocol_holder_case_on(
+        v2_all_families(),
+        "parallel",
+    );
+    let (mut package, evidence) = concrete_protocol_refinement_on(
+        base,
+        ProtocolStepRows::Empty,
+        ProtocolClauseOwner::SelectedModel,
+    );
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let parallel = nodes
+        .iter()
+        .find(|node| node["body"]["operation"]["member"]["operator"] == "parallel")
+        .expect("parallel")["node_id"]
+        .clone();
+    let finish = nodes
+        .iter()
+        .find(|node| node["body"]["operation"]["member"]["operator"] == "finish")
+        .expect("finish")["node_id"]
+        .clone();
+    let binder_type = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let finish_entry =
+        json!({"class":"OrderFlow::Closed", "node":finish, "binder_types":[binder_type]});
+    let fork_entry = json!({"class":"fork OrderFlow::Main", "node":parallel, "binder_types":[]});
+    let join_entry = json!({"class":"join OrderFlow::Main", "node":parallel, "binder_types":[]});
+    let position = set_concrete_catalog(
+        &mut package,
+        vec![finish_entry.clone(), fork_entry.clone(), join_entry],
+    );
+    let admitted = read(&package, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "{admitted:?}"
+    );
+
+    let mut omitted = package.clone();
+    set_concrete_catalog(&mut omitted, vec![finish_entry, fork_entry]);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&omitted, &evidence) else {
+        panic!("missing join class admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete").as_str())
     );
 }
 

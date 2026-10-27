@@ -2493,7 +2493,7 @@ fn protocol_holder_case(operator: &str) -> (Value, Vec<usize>) {
     protocol_holder_case_on(v2_all_families(), operator)
 }
 
-fn protocol_holder_case_on(mut package: Value, operator: &str) -> (Value, Vec<usize>) {
+pub(super) fn protocol_holder_case_on(mut package: Value, operator: &str) -> (Value, Vec<usize>) {
     let root = protocol_position(&package, "control");
     let leaf_body = package["semantic_graph"]["nodes"][root]["body"].clone();
     let role = protocol_role_node();

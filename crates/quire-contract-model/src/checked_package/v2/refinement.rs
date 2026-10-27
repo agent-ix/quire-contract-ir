@@ -2111,14 +2111,14 @@ fn local_protocol_classes(
     Ok(classes)
 }
 
+#[ix_trace_rs::string_edge]
 fn protocol_member_classes(operator: &str, name: &[Box<str>]) -> Option<Vec<String>> {
     let clause = name.get(1)?.as_ref();
     let node = name.last()?.as_ref();
     let path = format!("{clause}::{node}");
     match operator {
         "parallel" => Some(vec![format!("fork {path}"), format!("join {path}")]),
-        "attempt" | "effect" | "event" | "commit" | "send" | "receive" | "fence" | "await"
-        | "finish" => Some(vec![path]),
+        "attempt" | "event" | "send" | "receive" | "fence" | "await" | "finish" => Some(vec![path]),
         _ => None,
     }
 }
