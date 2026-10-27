@@ -1750,10 +1750,48 @@ vector or schema is copied into this repository.
     catalog and package identity equal (FR-038-AC-325; QSpec TC-310).
     Also retain QSpec TC-310 `CC-12`'s one-subject multi-default case with
     distinct `memory drain` entries for `sc`, `tso` and `ra` and a `tso`
-    `memory flush` entry. Its exact uniqueness, order and admission oracle
-    awaits the STD-499 QSpec ruling; no present spelling-only order may be
-    counted as passing evidence. The IR-1034 source-default drain
-    implementation is also required before executing the readback vector.
+    `memory flush` entry. Require admission with the three drains in
+    `ra`, `sc`, `tso` order followed by the flush, including when two
+    `parallel` controls select the same default; the repeated model contributes
+    one entry. Rekey and refuse a duplicate (`memory drain`, `memory_model`)
+    pair or a declared class spelling at the later duplicate catalog entry,
+    and a reordered pair at the first out-of-order entry, in the earlier
+    refinement canonical-order step. Omit a distinct default or add an
+    unselected one and require the later catalog graph-join refusal.
+13. Build public-writer packages for selected concrete and abstract clauses
+    activated `on each (x: T)` with non-record `T` and with record `T`.
+    Require `activate <protocol>` to name the clause node on the concrete
+    side and its clause `RefinementKey` on the abstract side, with `[T]` for
+    non-record `T` and one binder type per effective record field. A clause
+    activated `on origin` contributes no activate entry. Rekey independently
+    with the trigger node substituted for the clause, another clause node,
+    a wrong binder type, reversed binder order, a missing activate entry
+    and an extra origin entry. Require respectively
+    `invalid_model_binding`/`malformed-declaration` at the entry for the
+    wrong node or binder, `invalid_semantic_graph` at the catalog array for
+    omission, and that code at the extra entry for origin (FR-038-AC-325;
+    QSpec FR-375-AC-27, TC-310).
+14. For record activation binders, build `Base { a: Boolean; b: Int }`,
+    `Mid { c: Int }` and `Leaf { d: Boolean }` with the source inheritance
+    chain `Base`, `Mid`, `Leaf`; require binder type keys corresponding to
+    `a`, `b`, `c`, `d` in that order. Reverse `Base`'s field declaration order
+    and require `b`, `a`, `c`, `d`. For `P { p: Boolean }`,
+    `Q { q: Int }` and `Both { r: Boolean }`, compare source
+    supertypes `P`, `Q` against `Q`, `P` and require `p`, `q`, `r` against
+    `q`, `p`, `r`, irrespective of declaration node-key or IR `types` order.
+    In a diamond `Top { t }`, `L { l }`, `R { r }`, `Bot { z }`, require
+    `t`, `l`, `r`, `z` with `t` once. Redefine `Base::a` in `Leaf` and
+    require the new type of `a` at its inherited position; in a diamond,
+    redefine `Top::t` through `L` and require the replacement once at `t`'s
+    position. A same-name field inherited without an explicit redefinition
+    refuses `ambiguous_declaration`/`ambiguous-name` at the catalog entry's
+    `binder_types` pointer
+    (`/semantic_graph/nodes/{n}/body/class_catalog/{side}/{i}/binder_types`)
+    when its binder record is requested. A wrong or
+    reordered binder type in an otherwise unambiguous case refuses
+    `invalid_model_binding`/`malformed-declaration` at that entry
+    (FR-038-AC-325; QSpec FR-208-AC-18, FR-154-AC-32,
+    FR-432-AC-16 through FR-432-AC-19).
 
 Expected: the positive packages admit with their authored keys, every adverse
 vector refuses with the QSpec code, cause and locus, and no runtime workflow
