@@ -1785,7 +1785,9 @@ vector or schema is copied into this repository.
     redefine `Top::t` through `L` and require the replacement once at `t`'s
     position. A same-name field inherited without an explicit redefinition
     refuses `ambiguous_declaration`/`ambiguous-name` at the catalog entry's
-    `node` right side when its binder record is requested. A wrong or
+    `binder_types` pointer
+    (`/semantic_graph/nodes/{n}/body/class_catalog/{side}/{i}/binder_types`)
+    when its binder record is requested. A wrong or
     reordered binder type in an otherwise unambiguous case refuses
     `invalid_model_binding`/`malformed-declaration` at that entry
     (FR-038-AC-325; QSpec FR-208-AC-18, FR-154-AC-32,
