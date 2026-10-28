@@ -2799,7 +2799,7 @@ fn history_and_fairness_reject_closed_shape_and_canonical_order_defects() {
                 &package,
                 &evidence,
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                &format!("{root}/{side}/0/{member}"),
+                &root,
             );
         }
     }
