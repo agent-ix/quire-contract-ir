@@ -1392,11 +1392,14 @@ fn tc_058_fixture_operation_does_not_bypass_strict_package_admission() {
     let CheckedPackageV2ReadResult::Refused(refusal) = result else {
         panic!("missing operation identity must be refused: {result:?}");
     };
-    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
     assert_eq!(
         refusal.path,
         Some(pointer(&format!(
-            "/semantic_graph/nodes/{position}/body/operation/identity"
+            "/semantic_graph/nodes/{position}/body/operation"
         )))
     );
 }
