@@ -1154,8 +1154,9 @@ fn ir987_scalar_and_result_results_bytes_and_work_match_admitted_fixture() {
     };
     // Protocol membership charges five, causal graph/progress seven, and the
     // binder-scope pass charges 36 on the pre-root fixture: 340 + 5 + 7 + 36.
-    // The selected root adds five validation visits to the admitted wire.
-    assert_eq!((high, incomplete.consumed), (388 + 5, 393));
+    // The selected root adds five validation visits, and its selected Process
+    // owner join adds six, to the admitted wire.
+    assert_eq!((high, incomplete.consumed), (388 + 5 + 6, 399));
 
     let contract = package(&checked, &[add.node_id.clone(), narrow.node_id.clone()]);
     let result = contract.result_context(
@@ -1237,9 +1238,17 @@ fn ir987_scalar_and_result_results_bytes_and_work_match_admitted_fixture() {
         "feature_accounting": prior_contract["feature_accounting"],
     });
     prior_contract["identity"]["digest"] = json!(sha256_hex(&canonical(&prior_contract_identity)));
-    assert_eq!(
-        canonical(&prior_contract),
-        include_bytes!("../fixtures/ir987/context.json")
+    let prior_contract_bytes = canonical(&prior_contract);
+    let expected_context = include_bytes!("../fixtures/ir987/context.json");
+    assert!(
+        prior_contract_bytes == expected_context,
+        "IR987 context fixture differs at byte {:?} (actual {} bytes, expected {} bytes)",
+        prior_contract_bytes
+            .iter()
+            .zip(expected_context.iter())
+            .position(|(actual, expected)| actual != expected),
+        prior_contract_bytes.len(),
+        expected_context.len()
     );
     assert_eq!(contract.identity(), &contract.wire().identity);
     let mut low = 0;

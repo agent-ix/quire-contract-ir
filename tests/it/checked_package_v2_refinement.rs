@@ -487,7 +487,7 @@ fn selected_form_owner_join_refuses_wrong_meaning_absence_and_missing_owner() {
         assert_eq!(
             refusal.code,
             CheckedPackageRefusalCode::MalformedWire,
-            "{form}"
+            "{form}: {refusal:?}"
         );
     }
 }
@@ -578,15 +578,29 @@ fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
             .iter()
             .position(|node| node["semantic_form"] == "protocol_clause")
             .expect("clause");
-        package["semantic_graph"]["nodes"][clause]["owner_model"] = selected["node_id"].clone();
-        settle(&mut package);
+        let clause_node = &mut package["semantic_graph"]["nodes"][clause];
+        let prior_owner = clause_node["owner_model"].clone();
+        let selected_owner = selected["node_id"].clone();
+        clause_node["owner_model"] = selected_owner.clone();
+        let dependencies = clause_node["dependencies"]
+            .as_array_mut()
+            .expect("dependencies");
+        let owner_dependency = dependencies
+            .iter_mut()
+            .find(|dependency| **dependency == prior_owner)
+            .expect("prior clause owner dependency");
+        *owner_dependency = selected_owner;
+        dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+        dependencies.dedup();
+        rekey_application_node(&mut package, clause);
+        refresh_identity(&mut package);
         let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
             panic!("selected {form} clause edge must refuse");
         };
         assert_eq!(
             refusal.code,
             CheckedPackageRefusalCode::InvalidModelBinding,
-            "{form}"
+            "{form}: {refusal:?}"
         );
         assert_eq!(
             refusal.cause,
