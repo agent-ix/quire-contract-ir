@@ -1621,7 +1621,7 @@ node, and `enum.lt` and `structural.eq` over the variant refuse
 `ill_typed`/`operator-ineligible` at the first argument. Those two are extra
 test controls and are not required by the criterion text.
 
-## Protocol node forms (FR-038-AC-281 through FR-038-AC-292)
+## Protocol node forms (FR-038-AC-281 through FR-038-AC-292; FR-038-AC-326)
 
 Use QSpec FR-464, FR-465 and FR-466 and the authored tables in TC-946, TC-947
 and TC-948 as the current independent expected outcomes. Build each case into
@@ -1660,6 +1660,15 @@ vector or schema is copied into this repository.
    a commit in one choice case or a non-all parallel branch before the forward
    effect, and refuse a commit that dominates that effect; compare the
    `commit-precedes-effect` reason only for the dominating case.
+   For a `terminal when` condition under an `on each` activation, read the
+   protocol `over` observation as QSpec TC-947 TM11 does and require admission;
+   repeat under `on origin` and require admission. Under `on each`, replace
+   that read in turn with the protocol capture of TM10 and the activation
+   binder of TM12; require `missing_declaration`/`missing-name` at the terminal
+   node with stage `terminal` for each. Under `on origin`, read an initialized
+   protocol capture as in TM13 and require admission. Construct fresh,
+   identity-consistent packages for these variants and compare the complete
+   refusal, including its stage and locus (FR-038-AC-326).
 5. Exercise a causal cycle, independent parallel controls, zero-progress and
    progressing repeats; then a binder at each stage, forbidden model-state
    read, inaccessible branch binder and decision fact of another role or not
