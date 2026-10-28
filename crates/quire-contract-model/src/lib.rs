@@ -184,9 +184,12 @@ pub use checked_package::{
     ApplicationOperator, CheckedAbstractionField, CheckedAbstractionFrame,
     CheckedAbstractionObject, CheckedAbstractionParameter, CheckedAbstractionPopulation,
     CheckedExecutionPoint, CheckedFieldScope, CheckedFrameModification, CheckedOperationAnchorBody,
-    CheckedScopedDeletion, CheckedTerm, LiteralKind, RefinementAbstractClass,
-    RefinementClassCatalog, RefinementConcreteClass, RefinementDrain, RefinementMemoryClass,
-    RefinementMemoryModel, RefinementTsoModel,
+    CheckedScopedDeletion, CheckedTerm, LiteralKind, RefinementAbstractClass, RefinementAssume,
+    RefinementClassCatalog, RefinementConcreteClass, RefinementDrain, RefinementEnsure,
+    RefinementFairnessKind, RefinementField, RefinementGranularity, RefinementHistory,
+    RefinementHistoryUpdate, RefinementKey, RefinementMemoryClass, RefinementMemoryModel,
+    RefinementObject, RefinementOpen, RefinementPackageNodeKey, RefinementPopulation,
+    RefinementStep, RefinementStepArgument, RefinementStepTarget, RefinementTsoModel,
 };
 pub use code::{Std001Code, Std001CodeError};
 pub use conformance::{
