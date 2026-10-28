@@ -478,33 +478,16 @@ pub(super) fn validate_structural_nodes(
                 }
                 if let Some(mut expected) = term.and_then(application_dependencies) {
                     expected.insert(owner_model.clone());
-                    // The protocol reader locates an unlisted body reference
-                    // before it checks the clause's complete dependency join.
-                    let body_targets_listed = expected
-                        .iter()
-                        .all(|target| target == owner_model || node.dependencies.contains(target));
-                    if body_targets_listed && !node.dependencies.iter().eq(expected.iter()) {
+                    if !node.dependencies.iter().eq(expected.iter()) {
                         return Err(refuse(Defect::Dependencies));
                     }
                 }
             }
             continue;
         }
-        // These protocol readers check each reference before the aggregate
-        // dependency join, so a missing target has its own locus.
-        if !matches!(
-            kinds.get(position),
-            Some(CheckedNodeKind::Protocol(
-                ProtocolForm::Role
-                    | ProtocolForm::Channel
-                    | ProtocolForm::Queue
-                    | ProtocolForm::Obligation
-            ))
-        ) {
-            if let Some(expected) = term.and_then(application_dependencies) {
-                if !node.dependencies.iter().eq(expected.iter()) {
-                    return Err(refuse(Defect::Dependencies));
-                }
+        if let Some(expected) = term.and_then(application_dependencies) {
+            if !node.dependencies.iter().eq(expected.iter()) {
+                return Err(refuse(Defect::Dependencies));
             }
         }
     }
