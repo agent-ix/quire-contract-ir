@@ -3546,20 +3546,9 @@ pub(super) fn read_semantic_ir(
                         .into())
                     }
                 };
-                if positions.is_empty() {
-                    return Err(selected_tuple_refusal(
-                        ModelRefusal::malformed(),
-                        declared,
-                        type_index,
-                        None,
-                        budget,
-                    )?
-                    .into());
-                }
                 let mut types = Vec::with_capacity(positions.len());
                 let mut seen = BTreeSet::new();
                 for (ordinal, position) in positions.iter().enumerate() {
-                    let expected = format!("{node}/p{ordinal}");
                     let identity = match text(position, "identity") {
                         Ok(identity) => identity,
                         Err(refusal) => {
@@ -3586,6 +3575,20 @@ pub(super) fn read_semantic_ir(
                         )?
                         .into());
                     }
+                }
+                if positions.is_empty() {
+                    return Err(selected_tuple_refusal(
+                        ModelRefusal::malformed(),
+                        declared,
+                        type_index,
+                        None,
+                        budget,
+                    )?
+                    .into());
+                }
+                for (ordinal, position) in positions.iter().enumerate() {
+                    let expected = format!("{node}/p{ordinal}");
+                    let identity = text(position, "identity")?;
                     if identity != expected {
                         return Err(selected_tuple_refusal(
                             ModelRefusal::malformed(),
@@ -3619,35 +3622,33 @@ pub(super) fn read_semantic_ir(
                         )?
                         .into());
                     };
-                    let valid = match &admitted {
+                    let mapped = match &admitted {
                         SelectedTypeRef::Native(
                             NativeTypeRef::Clock
                             | NativeTypeRef::Rational
                             | NativeTypeRef::Decimal
                             | NativeTypeRef::Text,
                         )
-                        | SelectedTypeRef::Map(..) => Err(ModelRefusal::malformed()),
-                        SelectedTypeRef::Native(_) => Ok(()),
-                        SelectedTypeRef::Unit(name) if model.unit_refs.contains_key(name) => Ok(()),
-                        SelectedTypeRef::Unit(_) => Err(ModelRefusal::missing_name()),
+                        | SelectedTypeRef::Map(..) => false,
                         SelectedTypeRef::Declared(name)
-                            if model.value_types.get(name).is_some_and(Option::is_some)
-                                || scope.records.contains(name.as_ref())
-                                || model.tuple_types.contains_key(name)
-                                || model.variant_types.contains_key(name) =>
+                            if model.value_types.get(name).is_some_and(Option::is_none) =>
                         {
-                            Ok(())
+                            false
                         }
                         SelectedTypeRef::Declared(name)
-                            if scope.all_types.contains(name.as_ref()) =>
+                            if scope.all_types.contains(name.as_ref())
+                                && !scope.records.contains(name.as_ref())
+                                && !model.tuple_types.contains_key(name)
+                                && !model.variant_types.contains_key(name)
+                                && !model.value_types.contains_key(name) =>
                         {
-                            Err(ModelRefusal::malformed())
+                            false
                         }
-                        SelectedTypeRef::Declared(_) => Err(ModelRefusal::missing_name()),
+                        _ => true,
                     };
-                    if let Err(refusal) = valid {
+                    if !mapped {
                         return Err(selected_tuple_refusal(
-                            refusal,
+                            ModelRefusal::malformed(),
                             position,
                             type_index,
                             Some(ordinal),
@@ -3656,6 +3657,29 @@ pub(super) fn read_semantic_ir(
                         .into());
                     }
                     types.push(admitted);
+                }
+                for (ordinal, (position, admitted)) in positions.iter().zip(&types).enumerate() {
+                    let resolved = match admitted {
+                        SelectedTypeRef::Native(_) => true,
+                        SelectedTypeRef::Unit(name) => model.unit_refs.contains_key(name),
+                        SelectedTypeRef::Declared(name) => {
+                            model.value_types.contains_key(name)
+                                || scope.records.contains(name.as_ref())
+                                || model.tuple_types.contains_key(name)
+                                || model.variant_types.contains_key(name)
+                        }
+                        SelectedTypeRef::Map(..) => false,
+                    };
+                    if !resolved {
+                        return Err(selected_tuple_refusal(
+                            ModelRefusal::missing_name(),
+                            position,
+                            type_index,
+                            Some(ordinal),
+                            budget,
+                        )?
+                        .into());
+                    }
                 }
                 model.tuple_types.insert(node.into(), types);
             }
