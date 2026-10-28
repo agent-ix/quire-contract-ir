@@ -24,3 +24,9 @@ CONDITIONAL. The tested forms exercise graph-stage refusal and later target reso
 ## Coverage
 
 Plan completion: not assessed. The computed Quire matrix marks FR-038-AC-285/324/327 tagged; direct assertion inspection found the incomplete form and vector coverage above. This is a diff-scoped review, not a repository-wide completeness claim.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | At fix head 34e3a57bb55ea70a0bc0ae33da4838da056cc46e, the exact-dependency table includes a `control` holder and asserts both extra and omitted dependency refusals. `listed_clause_targets_missing_from_graph_reach_their_body_joins` checks C13a, A8a and A9a with a listed absent target and exact `MissingDeclaration`/`MissingName` locus. C13a uses an orphan-free base; the isolated repaired test passes 1/1. |

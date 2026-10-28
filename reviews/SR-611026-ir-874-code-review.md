@@ -20,3 +20,9 @@ Reviewed quire-contract-ir PR #629 at frozen head 7ac176525c667a13a44a3fdaea28b2
 ## Verdict
 
 CONDITIONAL. The reader's new stage order and target resolution match the reviewed obligations, but the clause-specific duplicate should be removed before merge. The changed tests assert exact refusal code, cause and path through the public reader; no copied fixture or gate narrowing appears in the diff. Coder-reported focused protocol module 139/139, Clippy and rustfmt passed; this reviewer did not run aggregate gates.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | At fix head 34e3a57bb55ea70a0bc0ae33da4838da056cc46e, `check_clause_slots` begins with `ProtocolScope::new`; the duplicate `application_dependencies` comparison is gone. The structural graph-stage check remains the sole exact dependency comparison for the clause. |
