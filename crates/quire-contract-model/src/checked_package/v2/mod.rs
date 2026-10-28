@@ -1606,6 +1606,7 @@ struct LockAdmission<'a> {
 /// limit bounds this one graph walk and its index before graph work is charged.
 /// The graph stage subsequently validates each node, name and key before the
 /// package admits.
+#[string_edge]
 fn checked_unit_refs(
     nodes: &[RawSemanticNodeV2],
     meter: &mut WorkMeter,

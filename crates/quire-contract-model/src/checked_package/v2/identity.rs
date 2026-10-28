@@ -918,6 +918,7 @@ impl ExactRatio {
 /// Whether the named unit is its owner's one-second unit of its own base
 /// Time dimension. The graph's nominal checks subsequently authenticate all
 /// preimages and paths; this projection only resolves the member's type.
+#[ix_trace_rs::string_edge]
 pub(super) fn duration_unit_key(
     nodes: &[CheckedSemanticNodeV2],
     name: &str,
