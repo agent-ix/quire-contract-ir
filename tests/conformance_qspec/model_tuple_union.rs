@@ -273,14 +273,46 @@ fn apply_published_intake_patch(document: &mut Value, row: &Value) {
                     "ix://quire/native/Rational" => "rational",
                     _ => panic!("{name}: unsupported published value type {native}"),
                 };
+                let origin = document["types"][1]["origin"].clone();
                 let mut constraints = Vec::new();
-                for (member, keyword) in [("lower", "minLength"), ("upper", "maxLength")] {
+                for (member, keyword) in [
+                    (
+                        "lower",
+                        if scalar == "string" {
+                            "minLength"
+                        } else {
+                            "min"
+                        },
+                    ),
+                    (
+                        "upper",
+                        if scalar == "string" {
+                            "maxLength"
+                        } else {
+                            "max"
+                        },
+                    ),
+                ] {
                     if let Some(bound) = declared[member].as_str() {
-                        constraints.push(json!({"keyword": keyword, "operands": {"value": bound}}));
+                        let bound = if scalar == "string" {
+                            json!(bound.parse::<u64>().expect("published length bound"))
+                        } else {
+                            json!(bound)
+                        };
+                        constraints.push(json!({
+                            "identity":format!("{identity}/constraint/{keyword}"),
+                            "appliesTo":identity,
+                            "diagnosticCode":format!("acme.shapes.{}_{}", identity.rsplit('/').next().expect("name").to_ascii_uppercase(), keyword.to_ascii_uppercase()),
+                            "keyword":keyword,"operands":{"value":bound},"origin":origin
+                        }));
                     }
                 }
                 if let Some(profile) = declared["profile"].as_str() {
-                    constraints.push(json!({"keyword": "format", "operands": {"name": format!("text-profile:{profile}")}}));
+                    constraints.push(json!({
+                        "identity":format!("{identity}/constraint/format"),"appliesTo":identity,
+                        "diagnosticCode":format!("acme.shapes.{}_PROFILE", identity.rsplit('/').next().expect("name").to_ascii_uppercase()),
+                        "keyword":"format","operands":{"name":format!("text-profile:{profile}")},"origin":origin
+                    }));
                 }
                 let kind = json!({"module":"acme/shapes", "name":"value_type"});
                 if !document["constructs"]
@@ -291,10 +323,9 @@ fn apply_published_intake_patch(document: &mut Value, row: &Value) {
                 {
                     document["constructs"].as_array_mut().expect("constructs").push(json!({
                         "kind":kind, "moduleVersion":"1.0.0",
-                        "construct":{"identity":"value","meaning":"quire.meaning.model.value-type/v1","shape":"scalar"}
+                        "construct":{"identity":"value","meaning":"quire.meaning.model.value-type/v1","shape":"record","members":{}}
                     }));
                 }
-                let origin = document["types"][1]["origin"].clone();
                 document["types"].as_array_mut().expect("types").push(json!({
                     "identity":identity,"displayName":identity.rsplit('/').next().expect("name"),
                     "kind":kind,"scalar":scalar,"constraints":constraints,"origin":origin,
