@@ -1853,10 +1853,15 @@ vector or schema is copied into this repository.
     declaration paths, including a clause path longer than one segment.
     Include a role and a nested control whose declaration path contains
     `run` and two ancestor control names. Require the complete alias-free
-    FR-432 class spellings for each clause and member and admission with
-    the corresponding node associations. Rekey separate packages with a
-    class spelling that drops a clause-path segment, uses the other clause's
-    name, or drops an ancestor control name; require
+    FR-432 source class spellings for each clause and member, using the
+    complete clause path and the member's authored name while omitting the
+    FR-464 fixed kind segment and intervening control ancestors. Include
+    QSL-authored declaration shapes `[P, finish, Done]` and
+    `[P, run, Main, Par]` with classes `P::Done`, `fork P::Par` and
+    `join P::Par`; require admission with their node associations. Rekey
+    separate packages with a class spelling that drops a clause-path
+    segment, uses the other clause's or member's name, or includes the
+    fixed kind or an ancestor control name; require
     `invalid_semantic_graph` at the missing class's array or the extra
     entry as applicable (FR-038-AC-329; QSpec FR-322 declaration paths,
     FR-464 qualified names, FR-432 class spellings).
