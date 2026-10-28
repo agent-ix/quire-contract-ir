@@ -2509,7 +2509,7 @@ fn protocol_classes(
                         .and_then(|trigger| nodes.iter().find(|node| node.id == trigger))
                         .map(|trigger| trigger.semantic_type);
                     if let (Some(name), Some(trigger_type)) = (
-                        alias_free_protocol_path(&clause_name.qualified_name),
+                        protocol_clause_path(&clause_name.qualified_name),
                         trigger_type,
                     ) {
                         classes.push(DeclaredGraphClass {
@@ -2551,9 +2551,12 @@ fn protocol_classes(
             let Some(operator) = catalog_operator(member.kind, operator) else {
                 continue;
             };
-            let Some(classes_for_node) =
-                protocol_member_classes(operator, arguments, &name.qualified_name)
-            else {
+            let Some(classes_for_node) = protocol_member_classes(
+                operator,
+                arguments,
+                &clause_name.qualified_name,
+                &name.qualified_name,
+            ) else {
                 continue;
             };
             let binder_types = if matches!(operator, CatalogOperator::Role) {
@@ -2912,9 +2915,10 @@ struct ProtocolMemberClass {
 fn protocol_member_classes(
     operator: CatalogOperator,
     arguments: &[CheckedTerm],
+    clause_name: &[Box<str>],
     name: &[Box<str>],
 ) -> Option<Vec<ProtocolMemberClass>> {
-    let path = alias_free_protocol_path(name)?;
+    let path = format!("{}::{}", protocol_clause_path(clause_name)?, name.last()?);
     let inherited = |name| ProtocolMemberClass {
         name,
         empty_binders: false,
@@ -2969,11 +2973,10 @@ fn protocol_member_classes(
     Some(classes.into_iter().map(inherited).collect())
 }
 
-/// Drop only the package-local namespace, retaining the complete declaration path.
-fn alias_free_protocol_path(name: &[Box<str>]) -> Option<String> {
-    (name.len() >= 2).then(|| {
-        name[1..]
-            .iter()
+/// Preserve every authored clause segment in the class identity.
+fn protocol_clause_path(name: &[Box<str>]) -> Option<String> {
+    (!name.is_empty()).then(|| {
+        name.iter()
             .map(AsRef::as_ref)
             .collect::<Vec<&str>>()
             .join("::")
