@@ -22,10 +22,23 @@ fn apply_published_intake_patch(document: &mut serde_json::Value, row: &serde_js
     }
     assert_eq!(patch.len(), 1, "{name}: one published mutation");
     let value = &patch[0]["value"];
+    let expected_path = match name {
+        "TK-01" => "/tuple_types/0/positions",
+        "TK-02" | "TK-06" => "/tuple_types/0/positions/1/ordinal",
+        "TK-03" | "TK-05" => "/tuple_types/0/positions/1/typeRef",
+        "TK-04" => "/tuple_types/0/fields",
+        "TK-07" | "TK-08" => "/variant_types/0/cases/0/payloadType",
+        "TK-09" => "/tuple_types/0/positions/0/typeRef",
+        _ => panic!("unrecognized published intake case {name}"),
+    };
+    assert_eq!(patch[0]["path"], expected_path, "{name}: mutation locus");
     match name {
         "TK-01" => document["types"][1]["positions"] = json!([]),
-        "TK-02" => {
-            document["types"][1]["positions"][1]["identity"] = json!("ix://acme/shapes/Pair/p2")
+        "TK-02" | "TK-06" => {
+            document["types"][1]["positions"][1]["identity"] = json!(format!(
+                "ix://acme/shapes/Pair/p{}",
+                value.as_u64().expect("published ordinal")
+            ))
         }
         "TK-03" => {
             document["types"][1]["positions"][1]
@@ -36,11 +49,8 @@ fn apply_published_intake_patch(document: &mut serde_json::Value, row: &serde_js
         "TK-04" => document["types"][1]["fields"] = value.clone(),
         "TK-05" => document["types"][1]["positions"][1]["typeRef"] = value.clone(),
         "TK-09" => document["types"][1]["positions"][0]["typeRef"] = value.clone(),
-        "TK-06" => {
-            document["types"][1]["positions"][1]["identity"] = json!("ix://acme/shapes/Pair/p0")
-        }
         "TK-07" | "TK-08" => document["types"][5]["variants"][0]["payloadType"] = value.clone(),
-        _ => panic!("unrecognized published intake case {name}"),
+        _ => unreachable!("checked published intake case"),
     }
 }
 
@@ -52,8 +62,12 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
     let proposal = proposal_dir_of(&fixtures);
     let vectors = read_json(&proposal.join("model-tuple-union-vectors.json"))
         .expect("published tuple/union vectors");
-    let selected = read_json(&proposal.join("domain-package-acme-shapes.json"))
-        .expect("selected full Semantic IR document");
+    assert_eq!(vectors["base"], "fixtures/positive-model-tuple-union.json");
+    let selected_path = vectors["selected_document"]
+        .as_str()
+        .expect("selected full Semantic IR document path");
+    let selected =
+        read_json(&proposal.join(selected_path)).expect("selected full Semantic IR document");
     let base = read_json(&fixtures.join("positive-model-tuple-union.json"))
         .expect("published positive package");
     let rows = vectors["intake_cases"]
