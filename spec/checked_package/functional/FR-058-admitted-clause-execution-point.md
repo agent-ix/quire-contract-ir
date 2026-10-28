@@ -16,9 +16,9 @@ relationships:
 
 ## Description
 
-When a consumer selects a clause node and authentic `claim` occurrence from
-one admitted `CheckedPackageV2`, Contract IR SHALL expose the exact optional
-execution point admitted from that clause node's QSpec FR-341 application
+When a consumer selects a clause node and owner-bound authentic `claim`
+occurrence from one admitted `CheckedPackageV2`, Contract IR SHALL expose
+the exact optional execution point admitted from that clause node's QSpec FR-341 application
 member as the public V2 `quire_contract_model::CheckedExecutionPoint` value. The node
 body is the carrier; its point is shared by all authentic claim occurrences of
 that node. Contract IR SHALL NOT infer the point from clause kind, an operation
@@ -35,10 +35,15 @@ otherwise admitted package because that conversion would fail.
 ## Inputs
 
 - One admitted `CheckedPackageV2`, the `CheckedNodeId` of a selected
-  `state`/`state_clause`, and one of that node's authentic `claim`
-  `CheckedOccurrence` values. The package's admission is the authority for
-  the clause, occurrence and their association; no QSL checked object or
-  source bytes are a new accessor input.
+  `state`/`state_clause`, and one owner-bound claim key represented by a pair
+  of `&CheckedNodeId` (claim owner) and `&CheckedOccurrence` (claim role and
+  ordinal). The public accessor takes the pair as one third argument,
+  `claim: (&CheckedNodeId, &CheckedOccurrence)`, after the package receiver
+  and selected clause id. It SHALL NOT expose a second signature accepting
+  an unbound occurrence. The package's admission is the authority for the selected node and its
+  occurrences; no QSL checked object or source bytes are a new accessor
+  input. The owner is required because role and ordinal alone can have the
+  same values on different nodes.
 - The optional, typed `operation.member.execution_point` retained from that
   admitted clause node by FR-040 and QSpec FR-341/FR-322. There is no
   occurrence-keyed sidecar, point-entry list or second binding authority.
@@ -51,8 +56,8 @@ otherwise admitted package because that conversion would fail.
 - On failure, `CheckedExecutionPointError` with a stable, closed
   `CheckedExecutionPointRefusal` code: `UnknownClause`, `NotStateClause`,
   `MissingClaimOccurrence`, or `MissingExecutionPoint`. The error carries
-  the supplied clause id and claim occurrence. There is no successful
-  default, partial value or prose-only error.
+  the supplied clause id, claim owner and claim occurrence. There is no
+  successful default, partial value or prose-only error.
 - Reader admission of a malformed or inapplicable body point follows
   FR-040-AC-31 through FR-040-AC-35 and QSpec FR-341/FR-342: schema-level
   `invalid_semantic_graph` or semantic `invalid_model_binding`/
@@ -85,8 +90,13 @@ its first applicable body/schema, identity, state or operation refusal.
    refuse `UnknownClause`.
 2. If the resolved node is not `state`/`state_clause`, then Contract IR SHALL
    refuse `NotStateClause`.
-3. If the supplied occurrence is not an authentic `claim` occurrence of that
+3. If the supplied claim owner differs from the resolved clause node id, or
+   the supplied occurrence is not an authentic `claim` occurrence of that
    resolved node, then Contract IR SHALL refuse `MissingClaimOccurrence`.
+   An occurrence with the same role and ordinal on another node does not
+   satisfy this lookup when paired with that other node's id. The owner
+   comparison occurs before the occurrence membership check; neither may
+   alter the `UnknownClause` or `NotStateClause` precedence.
 4. If the admitted clause node carries no accepted execution point, then Contract IR SHALL refuse
    `MissingExecutionPoint`.
 5. When that node carries an accepted point, Contract IR SHALL return its
@@ -128,3 +138,9 @@ alone invokes `export_bindings` under ADR-017 AR-4; CG receives no new point
 input. Existing authored-contract callers of `ExecutionPoint` and `AnchorName`
 keep their FR-011 validation; a CG V2 consumer reads `CheckedExecutionPoint`
 from this accessor without a conversion through that authored-contract model.
+CG's V2 replay selection already carries node and occurrence separately;
+the CG consumer passes its selected clause id and the claim's owner-bound
+pair directly. QSL's V2 emitter already groups occurrences under their
+node id; it supplies the same pair if it calls this accessor. Neither
+consumer currently calls the planned accessor, so this input change requires
+no compatibility overload or migration path.
