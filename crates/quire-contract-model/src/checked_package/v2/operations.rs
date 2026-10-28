@@ -5706,7 +5706,7 @@ mod tests {
             (&members[1], "MUnit", MemberType::Quantity(unit_key.into())),
             (&members[2], "Z32", MemberType::Float32),
         ] {
-            assert_eq!(member.name.as_ref(), name);
+            assert_eq!(member.name, name);
             assert_eq!(member.payload.len(), 1);
             let expected = member_type
                 .node_key(model_tests::BYTES)
