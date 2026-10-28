@@ -1248,6 +1248,25 @@ fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
         .remove(&CheckedNodeTag::Temporal);
     lowering_profile.require_bounds = false;
     let result = source.lower(&requests, &lowering_profile);
+    let without_sibling = source.lower(
+        &[clause.clone(), fairness.clone(), formula.clone()],
+        &lowering_profile,
+    );
+    let without_sibling_package = without_sibling.package.wire().expect("comparison package");
+    for (original_index, comparison_index) in [(0, 0), (2, 1), (3, 2)] {
+        assert_eq!(
+            result.records[original_index],
+            without_sibling.records[comparison_index]
+        );
+        assert_eq!(
+            result
+                .package
+                .wire()
+                .expect("producer package")
+                .unsupported_source_kind_at(original_index),
+            without_sibling_package.unsupported_source_kind_at(comparison_index)
+        );
+    }
     let CompleteLoweringRecordV2::Unsupported {
         node_id,
         unsupported_node_id,
