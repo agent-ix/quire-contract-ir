@@ -45,3 +45,7 @@ The test tagged FR-058-AC-9 constructs four independent packages and compares re
 ## Disposition verdict
 
 **PASS at ad800259** for the recorded finding. This is a focused disposition on the test fix, not a repeat review or aggregate gate result. Fresh QSL producer AC-1/6 evidence remains with QSL-1183.
+
+## Post-disposition compile correction
+
+At 55ed78e0, the AC-9 test computes `positions` by borrowing `sources` through `std::array::from_fn` instead of consuming the array with `map`. All node/package identity inequalities and accessor value assertions remain intact. FND-001 stays fixed. Hosted CI and the focused local test were still pending at this inspection; this note makes no gate claim.
