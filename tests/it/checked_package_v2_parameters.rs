@@ -33,7 +33,6 @@ const APPLICATION_NODE: &str = "quire.application-node/v1";
 // refusal names the member it is about.
 const BODY: &str = "/body";
 const FIRST_TERM: &str = "/body/members/0";
-const SECOND_TERM: &str = "/body/members/1";
 const DEPENDENCIES: &str = "/dependencies";
 const SEMANTIC_TYPE: &str = "/semantic_type";
 
