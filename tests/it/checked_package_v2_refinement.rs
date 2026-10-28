@@ -4306,7 +4306,7 @@ fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
     for (wrong_class, path) in [
         (
             "fork OrderFlow::Holder",
-            format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1"),
+            format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete"),
         ),
         (
             "fork OtherFlow::Holder",
@@ -4454,11 +4454,13 @@ fn refinement_catalog_preserves_two_clause_paths_of_different_depths() {
         let Some(operator) = node["body"]["operation"]["member"]["operator"].as_str() else {
             continue;
         };
-        let path = protocol_class_path(node);
         match operator {
-            "finish" => entries.push(json!({"class":path, "node":node["node_id"],
-                "binder_types":[boolean]})),
+            "finish" => entries.push(
+                json!({"class":protocol_class_path(node), "node":node["node_id"],
+                "binder_types":[boolean]}),
+            ),
             "parallel" => {
+                let path = protocol_class_path(node);
                 entries.push(
                     json!({"class":format!("fork {path}"), "node":node["node_id"],
                     "binder_types":[]}),
