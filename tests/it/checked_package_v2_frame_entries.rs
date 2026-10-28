@@ -3966,6 +3966,22 @@ fn tc_462_multiple_claims_of_one_node_share_the_admitted_point() {
         .expect("clause occurrences")
         .push(json!({"role": "claim", "ordinal": 1}));
     settle(&mut source.value);
+    let second = source.value["source_map"]
+        .as_array()
+        .expect("source map")
+        .iter()
+        .find(|entry| {
+            entry["node_id"] == source.value["semantic_graph"]["nodes"][position]["node_id"]
+        })
+        .expect("clause source entry")
+        .clone();
+    let mut second = second;
+    second["ordinal"] = json!(1);
+    source.value["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(second);
+    refresh_identity(&mut source.value);
     let admitted = match read(&source.value) {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("two-claim package refused: {other:?}"),
