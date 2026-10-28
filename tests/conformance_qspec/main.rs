@@ -390,6 +390,7 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::UnpreservedModelMeaning => "unpreserved-model-meaning",
         Cause::ConflictingDefinition => "conflicting-definition",
         Cause::InvalidValue => "invalid-value",
+        Cause::InvalidDerivedShape => "invalid-derived-shape",
         Cause::DuplicateMember => "duplicate-member",
         Cause::TypeMismatch => "type-mismatch",
         Cause::NonBooleanRoot => "non-boolean-root",
