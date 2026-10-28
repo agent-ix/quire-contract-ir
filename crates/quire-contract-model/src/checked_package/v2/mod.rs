@@ -128,6 +128,7 @@ use super::shared::{
 use model_fields::{build_field_tables, DeclarationIndex, RetainedModels};
 use model_members::{
     admit_selection, Budget, DomainModel, ModelOwners, SelectionFailure, UnitRefs,
+    DURATION_RESOLVED_PREFIX,
 };
 use quire_canonical::FixedShape;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -1605,8 +1606,12 @@ struct LockAdmission<'a> {
 /// limit bounds this one graph walk and its index before graph work is charged.
 /// The graph stage subsequently validates each node, name and key before the
 /// package admits.
-fn checked_unit_refs(nodes: &[RawSemanticNodeV2]) -> UnitRefs {
-    let mut refs = BTreeMap::new();
+#[string_edge]
+fn checked_unit_refs(
+    nodes: &[RawSemanticNodeV2],
+    meter: &mut WorkMeter,
+) -> Result<UnitRefs, ValidationFailure> {
+    let mut refs: BTreeMap<Box<str>, Box<str>> = BTreeMap::new();
     for node in nodes {
         if CheckedNodeTag::from_wire(&node.node_tag)
             .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
@@ -1626,7 +1631,20 @@ fn checked_unit_refs(nodes: &[RawSemanticNodeV2]) -> UnitRefs {
         refs.entry(format!("ix://quire/unit/{name}").into())
             .or_insert_with(|| node.node_id.digest.clone());
     }
-    std::sync::Arc::new(refs)
+    // A Duration member can use its owner's s only when that unit has the
+    // exact one-second Time type. Keep the candidate's presence in `refs`
+    // even when invalid: an invalid selected s must not fall back to source s.
+    let candidates: Vec<_> = refs
+        .keys()
+        .filter(|name| name.ends_with("/s"))
+        .cloned()
+        .collect();
+    for name in candidates {
+        if let Some(digest) = identity::duration_unit_key(nodes, &name, meter)? {
+            refs.insert(format!("{DURATION_RESOLVED_PREFIX}{name}").into(), digest);
+        }
+    }
+    Ok(std::sync::Arc::new(refs))
 }
 
 /// Checks the lock and returns what it admits.
@@ -1700,7 +1718,7 @@ fn validate_lock<'a>(
     let unit_refs = if lock.model_selections.is_empty() {
         std::sync::Arc::new(BTreeMap::new())
     } else {
-        checked_unit_refs(&wire.semantic_graph.nodes)
+        checked_unit_refs(&wire.semantic_graph.nodes, meter)?
     };
     let mut models =
         validate_domain_packages(&lock.model_selections, evidence, meter, bytes, &unit_refs)?;

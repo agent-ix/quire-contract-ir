@@ -779,6 +779,13 @@ struct ExactRatio {
 }
 
 impl ExactRatio {
+    fn zero() -> Self {
+        Self {
+            numerator: BigInt::zero(),
+            denominator: BigInt::one(),
+        }
+    }
+
     fn one() -> Self {
         Self {
             numerator: BigInt::one(),
@@ -805,6 +812,9 @@ impl ExactRatio {
             .ok_or_else(|| invalid(at().key("numerator")))?;
         let denominator = BigInt::parse_bytes(value.denominator.as_bytes(), 10)
             .ok_or_else(|| invalid(at().key("denominator")))?;
+        if denominator.is_zero() {
+            return Err(invalid(at().key("denominator")));
+        }
         Ok(Self {
             numerator,
             denominator,
@@ -832,6 +842,31 @@ impl ExactRatio {
             .saturating_add(digits(&other.denominator));
         meter.charge(size.saturating_mul(size).saturating_mul(size).max(1), at)?;
         let numerator = &self.numerator * &other.numerator;
+        let denominator = &self.denominator * &other.denominator;
+        let common = numerator.gcd(&denominator);
+        Ok(Self {
+            numerator: numerator / &common,
+            denominator: denominator / common,
+        })
+    }
+
+    fn add(
+        &self,
+        other: &Self,
+        meter: &mut WorkMeter,
+        at: &dyn Fn() -> JsonPointer,
+    ) -> Result<Self, ValidationFailure> {
+        let size = self
+            .numerator
+            .to_bytes_be()
+            .1
+            .len()
+            .saturating_add(self.denominator.to_bytes_be().1.len())
+            .saturating_add(other.numerator.to_bytes_be().1.len())
+            .saturating_add(other.denominator.to_bytes_be().1.len());
+        let size = u64::try_from(size).unwrap_or(u64::MAX);
+        meter.charge(size.saturating_mul(size).saturating_mul(size).max(1), at)?;
+        let numerator = &self.numerator * &other.denominator + &other.numerator * &self.denominator;
         let denominator = &self.denominator * &other.denominator;
         let common = numerator.gcd(&denominator);
         Ok(Self {
@@ -881,6 +916,103 @@ impl ExactRatio {
         }
         Ok(if negative { result.inverse() } else { result })
     }
+}
+
+/// Whether the named unit is its owner's one-second unit of its own base
+/// Time dimension. The graph's nominal checks subsequently authenticate all
+/// preimages and paths; this projection only resolves the member's type.
+#[ix_trace_rs::string_edge]
+pub(super) fn duration_unit_key(
+    nodes: &[CheckedSemanticNodeV2],
+    name: &str,
+    meter: &mut WorkMeter,
+) -> Result<Option<Box<str>>, ValidationFailure> {
+    meter.charge(u64::try_from(nodes.len()).unwrap_or(u64::MAX), || {
+        JsonPointer::root().key("semantic_graph").key("nodes")
+    })?;
+    let Some((position, node)) = nodes.iter().enumerate().find(|(_, node)| {
+        node.declaration.as_ref().is_some_and(|declaration| {
+            let declared = declaration
+                .qualified_name
+                .iter()
+                .map(AsRef::as_ref)
+                .collect::<Vec<&str>>()
+                .join("/");
+            format!("ix://quire/unit/{declared}") == name
+        }) && matches!(
+            node.nominal_identity_preimage,
+            Some(NominalIdentityPreimage::Unit(_))
+        )
+    }) else {
+        return Ok(None);
+    };
+    let Some(NominalIdentityPreimage::Unit(unit)) = &node.nominal_identity_preimage else {
+        return Ok(None);
+    };
+    let owner_matches = match &unit.owner {
+        NominalOwner::Source { .. } => name == "ix://quire/unit/s",
+        NominalOwner::Model { identity, .. } => name == format!("ix://quire/unit/{identity}/s"),
+        NominalOwner::Definition { .. } => false,
+    };
+    if !owner_matches {
+        return Ok(None);
+    }
+    let at = || node_pointer(position);
+    meter.charge(u64::try_from(nodes.len()).unwrap_or(u64::MAX), at)?;
+    let Some(dimension) = nodes
+        .iter()
+        .find(|candidate| candidate.node_id == unit.dimension_node_id)
+        .and_then(|candidate| match &candidate.nominal_identity_preimage {
+            Some(NominalIdentityPreimage::Dimension(dimension)) => Some(dimension),
+            _ => None,
+        })
+    else {
+        return Ok(None);
+    };
+    if dimension.owner != unit.owner
+        || dimension
+            .qualified_declaration
+            .last()
+            .is_none_or(|name| name.as_ref() != "Time")
+        || !dimension.terms.is_empty()
+    {
+        return Ok(None);
+    }
+    let mut scale = ExactRatio::one();
+    let mut offset = ExactRatio::zero();
+    let mut current = unit;
+    let mut seen = BTreeSet::new();
+    loop {
+        meter.charge(u64::try_from(nodes.len()).unwrap_or(u64::MAX), at)?;
+        let edge_scale = ExactRatio::parse(&current.scale, meter, &at)?;
+        let edge_offset = ExactRatio::parse(&current.offset, meter, &at)?;
+        offset = offset
+            .multiply(&edge_scale, meter, &at)?
+            .add(&edge_offset, meter, &at)?;
+        scale = scale.multiply(&edge_scale, meter, &at)?;
+        let Some(target) = &current.target_unit_node_id else {
+            break;
+        };
+        if !seen.insert(target) {
+            return Ok(None);
+        }
+        let Some(next) = nodes
+            .iter()
+            .find(|candidate| candidate.node_id == *target)
+            .and_then(|candidate| match &candidate.nominal_identity_preimage {
+                Some(NominalIdentityPreimage::Unit(next)) => Some(next),
+                _ => None,
+            })
+        else {
+            return Ok(None);
+        };
+        if next.owner != unit.owner || next.dimension_node_id != unit.dimension_node_id {
+            return Ok(None);
+        }
+        current = next;
+    }
+    Ok((scale == ExactRatio::one() && offset == ExactRatio::zero())
+        .then(|| node.node_id.digest.clone()))
 }
 
 /// A dimension's canonical base component and exact root scale within it.

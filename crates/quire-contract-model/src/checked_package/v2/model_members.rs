@@ -79,6 +79,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 pub(super) type UnitRefs = Arc<BTreeMap<Box<str>, Box<str>>>;
+pub(super) const DURATION_RESOLVED_PREFIX: &str = "ix://quire/resolved-duration/";
 
 mod intake_origin;
 use intake_origin::{retained_origin, IntakeDeclarationOrigin, OriginView};
@@ -247,6 +248,9 @@ pub(super) enum NativeTypeRef {
     String,
     Uuid,
     Timestamp,
+    Bytes,
+    JsonObject,
+    Duration,
     Clock,
 }
 
@@ -288,6 +292,9 @@ impl NativeTypeRef {
             "String" => Self::String,
             "UUID" => Self::Uuid,
             "Timestamp" => Self::Timestamp,
+            "Bytes" => Self::Bytes,
+            "JsonObject" => Self::JsonObject,
+            "Duration" => Self::Duration,
             "Clock" => Self::Clock,
             _ => return None,
         })
@@ -497,12 +504,17 @@ pub(super) struct DomainModel {
     pub(super) tuple_types: BTreeMap<Box<str>, Vec<SelectedTypeRef>>,
     /// Value types, by IR node identity; `None` when not bound as `Int[lo, hi]`.
     pub(super) value_types: BTreeMap<Box<str>, Option<ValueBounds>>,
+    /// Core Semantic IR aliases, resolved before model member type mapping.
+    aliases: BTreeMap<Box<str>, Box<str>>,
     /// Exact semantic cases and optional payload types of selected variants.
     pub(super) variant_types: BTreeMap<Box<str>, BTreeMap<Box<str>, Option<SelectedTypeRef>>>,
     /// FCD sequence (`items`) and map (`values`) type definitions.
     pub(super) collection_types: BTreeMap<Box<str>, SelectedCollectionDefinition>,
     /// Checked-package unit `typeRef` to the unit node digest.
     pub(super) unit_refs: UnitRefs,
+    /// Whether this selection declares its own `s`; such a declaration
+    /// prevents a Duration member from falling back to the source unit.
+    own_seconds_declared: bool,
     /// Relationship declarations, by IR node identity.
     pub(super) relationships: BTreeMap<Box<str>, RelationshipDecl>,
     /// Declared populations, by IR node identity in the selected document.
@@ -775,6 +787,8 @@ pub(super) enum MemberType {
     String,
     Uuid,
     Timestamp,
+    Bytes,
+    JsonObject,
     /// The timed-model clock marker used by checked clock-place paths.
     Clock,
     /// `Int[lo, hi]`.
@@ -832,6 +846,14 @@ impl MemberType {
             Self::Timestamp => anonymous(
                 "scalar_type",
                 "timestamp",
+                None,
+                StructuralBody::Empty,
+                bytes,
+            ),
+            Self::Bytes => anonymous("scalar_type", "bytes", None, StructuralBody::Empty, bytes),
+            Self::JsonObject => anonymous(
+                "scalar_type",
+                "json_object",
                 None,
                 StructuralBody::Empty,
                 bytes,
@@ -1146,6 +1168,17 @@ pub(super) mod probe {
 }
 
 impl DomainModel {
+    fn selected_type_ref(&self, name: &str) -> Option<SelectedTypeRef> {
+        let mut current: Box<str> = name.into();
+        let mut seen = BTreeSet::new();
+        while let Some(target) = self.aliases.get(current.as_ref()) {
+            if !seen.insert(current.clone()) {
+                return None;
+            }
+            current = target.clone();
+        }
+        SelectedTypeRef::from_admitted_name(&current)
+    }
     /// The model declaration node key of the object type or systems interface
     /// `type_ref`: `None` when no such declaration is selected, `Err` when the
     /// key cannot be derived under the reader's byte limit. The one derivation
@@ -1361,6 +1394,31 @@ impl DomainModel {
         Some(element)
     }
 
+    /// A Duration member has no type when its chosen owner declares no `s`
+    /// node. Distinguish that missing name from a present but invalid `s`.
+    pub(super) fn duration_unit_absent(&self, type_ref: &SelectedTypeRef) -> bool {
+        let mut current = type_ref;
+        let mut seen = BTreeSet::new();
+        while let SelectedTypeRef::Declared(name) = current {
+            if !seen.insert(name) {
+                return false;
+            }
+            match self.collection_types.get(name) {
+                Some(SelectedCollectionDefinition::Sequence(items)) => current = items,
+                _ => break,
+            }
+        }
+        if !matches!(current, SelectedTypeRef::Native(NativeTypeRef::Duration)) {
+            return false;
+        }
+        let unit_name = if self.own_seconds_declared {
+            format!("ix://quire/unit/{}/s", self.identity)
+        } else {
+            "ix://quire/unit/s".to_owned()
+        };
+        !self.unit_refs.contains_key(unit_name.as_str())
+    }
+
     fn element_type_leaf(&self, type_ref: &SelectedTypeRef) -> Option<MemberType> {
         let type_ref = match type_ref {
             SelectedTypeRef::Map(_, _) => return None,
@@ -1376,7 +1434,21 @@ impl DomainModel {
                     NativeTypeRef::String => Some(MemberType::String),
                     NativeTypeRef::Uuid => Some(MemberType::Uuid),
                     NativeTypeRef::Timestamp => Some(MemberType::Timestamp),
+                    NativeTypeRef::Bytes => Some(MemberType::Bytes),
+                    NativeTypeRef::JsonObject => Some(MemberType::JsonObject),
                     NativeTypeRef::Clock => Some(MemberType::Clock),
+                    NativeTypeRef::Duration => {
+                        let selected = format!("ix://quire/unit/{}/s", self.identity);
+                        let owner_unit = if self.own_seconds_declared {
+                            selected
+                        } else {
+                            "ix://quire/unit/s".to_owned()
+                        };
+                        self.unit_refs
+                            .get(format!("{DURATION_RESOLVED_PREFIX}{owner_unit}").as_str())
+                            .cloned()
+                            .map(MemberType::Quantity)
+                    }
                     NativeTypeRef::Rational | NativeTypeRef::Decimal | NativeTypeRef::Text => None,
                 };
             }
@@ -3176,6 +3248,7 @@ pub(super) fn read_semantic_ir(
     }
     let prefix = format!("ix://{identity}/");
     let mut types: BTreeMap<&str, Vec<&Value>> = BTreeMap::new();
+    let mut aliases: BTreeMap<Box<str>, Box<str>> = BTreeMap::new();
     let mut document_positions = BTreeMap::new();
     for (position, declared) in list(document, "types")?.iter().enumerate() {
         // A node with no identity has none to share and is malformed on its
@@ -3185,6 +3258,24 @@ pub(super) fn read_semantic_ir(
                 SelectionRefusal::located(ModelRefusal::malformed(), declared, budget)?.into(),
             );
         };
+        if declared.get("kind").and_then(Value::as_str) == Some("alias") {
+            budget.charge(node_size(declared))?;
+            let target = text(declared, "target")?;
+            if aliases.insert(node.into(), target.into()).is_some() || types.contains_key(node) {
+                return Err(SelectionRefusal::located(
+                    ModelRefusal::malformed(),
+                    declared,
+                    budget,
+                )?
+                .into());
+            }
+            continue;
+        }
+        if aliases.contains_key(node) {
+            return Err(
+                SelectionRefusal::located(ModelRefusal::malformed(), declared, budget)?.into(),
+            );
+        }
         types.entry(node).or_default().push(declared);
         document_positions.entry(node).or_insert(position);
     }
@@ -3214,9 +3305,13 @@ pub(super) fn read_semantic_ir(
         record_types: BTreeMap::new(),
         tuple_types: BTreeMap::new(),
         value_types: BTreeMap::new(),
+        aliases,
         variant_types: BTreeMap::new(),
         collection_types: BTreeMap::new(),
         unit_refs: unit_refs.clone(),
+        own_seconds_declared: list(document, "units")?
+            .iter()
+            .any(|unit| unit.get("name").and_then(Value::as_str) == Some("s")),
         relationships: BTreeMap::new(),
         populations: BTreeSet::new(),
         population_members: BTreeMap::new(),
@@ -3464,25 +3559,6 @@ pub(super) fn read_semantic_ir(
                 let Some(&type_index) = document_positions.get(node) else {
                     return Err(ModelRefusal::malformed().into());
                 };
-                if [
-                    "fields",
-                    "identityFields",
-                    "operations",
-                    "supertypes",
-                    "clauses",
-                ]
-                .iter()
-                .any(|member| declared.get(*member).is_some())
-                {
-                    return Err(selected_tuple_refusal(
-                        ModelRefusal::malformed(),
-                        declared,
-                        type_index,
-                        None,
-                        budget,
-                    )?
-                    .into());
-                }
                 let positions = match list(declared, "positions") {
                     Ok(positions) => positions,
                     Err(refusal) => {
@@ -3492,20 +3568,9 @@ pub(super) fn read_semantic_ir(
                         .into())
                     }
                 };
-                if positions.is_empty() {
-                    return Err(selected_tuple_refusal(
-                        ModelRefusal::malformed(),
-                        declared,
-                        type_index,
-                        None,
-                        budget,
-                    )?
-                    .into());
-                }
                 let mut types = Vec::with_capacity(positions.len());
                 let mut seen = BTreeSet::new();
                 for (ordinal, position) in positions.iter().enumerate() {
-                    let expected = format!("{node}/p{ordinal}");
                     let identity = match text(position, "identity") {
                         Ok(identity) => identity,
                         Err(refusal) => {
@@ -3532,6 +3597,39 @@ pub(super) fn read_semantic_ir(
                         )?
                         .into());
                     }
+                }
+                if [
+                    "fields",
+                    "identityFields",
+                    "operations",
+                    "supertypes",
+                    "clauses",
+                ]
+                .iter()
+                .any(|member| declared.get(*member).is_some())
+                {
+                    return Err(selected_tuple_refusal(
+                        ModelRefusal::malformed(),
+                        declared,
+                        type_index,
+                        None,
+                        budget,
+                    )?
+                    .into());
+                }
+                if positions.is_empty() {
+                    return Err(selected_tuple_refusal(
+                        ModelRefusal::malformed(),
+                        declared,
+                        type_index,
+                        None,
+                        budget,
+                    )?
+                    .into());
+                }
+                for (ordinal, position) in positions.iter().enumerate() {
+                    let expected = format!("{node}/p{ordinal}");
+                    let identity = text(position, "identity")?;
                     if identity != expected {
                         return Err(selected_tuple_refusal(
                             ModelRefusal::malformed(),
@@ -3555,7 +3653,7 @@ pub(super) fn read_semantic_ir(
                             .into())
                         }
                     };
-                    let Some(admitted) = SelectedTypeRef::from_admitted_name(type_ref) else {
+                    let Some(admitted) = model.selected_type_ref(type_ref) else {
                         return Err(selected_tuple_refusal(
                             ModelRefusal::malformed(),
                             position,
@@ -3565,30 +3663,33 @@ pub(super) fn read_semantic_ir(
                         )?
                         .into());
                     };
-                    let valid = match &admitted {
-                        SelectedTypeRef::Native(NativeTypeRef::Clock)
-                        | SelectedTypeRef::Map(..) => Err(ModelRefusal::malformed()),
-                        SelectedTypeRef::Native(_) => Ok(()),
-                        SelectedTypeRef::Unit(name) if model.unit_refs.contains_key(name) => Ok(()),
-                        SelectedTypeRef::Unit(_) => Err(ModelRefusal::missing_name()),
+                    let mapped = match &admitted {
+                        SelectedTypeRef::Native(
+                            NativeTypeRef::Clock
+                            | NativeTypeRef::Rational
+                            | NativeTypeRef::Decimal
+                            | NativeTypeRef::Text,
+                        )
+                        | SelectedTypeRef::Map(..) => false,
                         SelectedTypeRef::Declared(name)
-                            if model.value_types.contains_key(name)
-                                || scope.records.contains(name.as_ref())
-                                || model.tuple_types.contains_key(name)
-                                || model.variant_types.contains_key(name) =>
+                            if model.value_types.get(name).is_some_and(Option::is_none) =>
                         {
-                            Ok(())
+                            false
                         }
                         SelectedTypeRef::Declared(name)
-                            if scope.all_types.contains(name.as_ref()) =>
+                            if scope.all_types.contains(name.as_ref())
+                                && !scope.records.contains(name.as_ref())
+                                && !model.tuple_types.contains_key(name)
+                                && !model.variant_types.contains_key(name)
+                                && !model.value_types.contains_key(name) =>
                         {
-                            Err(ModelRefusal::malformed())
+                            false
                         }
-                        SelectedTypeRef::Declared(_) => Err(ModelRefusal::missing_name()),
+                        _ => true,
                     };
-                    if let Err(refusal) = valid {
+                    if !mapped {
                         return Err(selected_tuple_refusal(
-                            refusal,
+                            ModelRefusal::malformed(),
                             position,
                             type_index,
                             Some(ordinal),
@@ -3597,6 +3698,29 @@ pub(super) fn read_semantic_ir(
                         .into());
                     }
                     types.push(admitted);
+                }
+                for (ordinal, (position, admitted)) in positions.iter().zip(&types).enumerate() {
+                    let resolved = match admitted {
+                        SelectedTypeRef::Native(_) => true,
+                        SelectedTypeRef::Unit(name) => model.unit_refs.contains_key(name),
+                        SelectedTypeRef::Declared(name) => {
+                            model.value_types.contains_key(name)
+                                || scope.records.contains(name.as_ref())
+                                || model.tuple_types.contains_key(name)
+                                || model.variant_types.contains_key(name)
+                        }
+                        SelectedTypeRef::Map(..) => false,
+                    };
+                    if !resolved {
+                        return Err(selected_tuple_refusal(
+                            ModelRefusal::missing_name(),
+                            position,
+                            type_index,
+                            Some(ordinal),
+                            budget,
+                        )?
+                        .into());
+                    }
                 }
                 model.tuple_types.insert(node.into(), types);
             }
@@ -3654,8 +3778,7 @@ pub(super) fn read_semantic_ir(
                     let payload = match case.get("payloadType") {
                         None | Some(Value::Null) => None,
                         Some(Value::String(reference)) => {
-                            let Some(resolved) = SelectedTypeRef::from_admitted_name(reference)
-                            else {
+                            let Some(resolved) = model.selected_type_ref(reference) else {
                                 return Err(unsupported_variant_payload(
                                     case, type_index, case_index, budget,
                                 )?
@@ -3681,7 +3804,10 @@ pub(super) fn read_semantic_ir(
                                 | NativeTypeRef::Float64
                                 | NativeTypeRef::String
                                 | NativeTypeRef::Uuid
-                                | NativeTypeRef::Timestamp,
+                                | NativeTypeRef::Timestamp
+                                | NativeTypeRef::Bytes
+                                | NativeTypeRef::JsonObject
+                                | NativeTypeRef::Duration,
                             ) => true,
                             SelectedTypeRef::Native(
                                 NativeTypeRef::Rational

@@ -2601,11 +2601,20 @@ fn check_tuple_position(
     }) else {
         return ineligible();
     };
-    let Some(position_type) = usize::try_from(ordinal)
+    let Some(position_ref) = usize::try_from(ordinal)
         .ok()
         .and_then(|ordinal| positions.get(ordinal))
-        .and_then(|type_ref| owner.package.element_type(type_ref))
     else {
+        return ineligible();
+    };
+    if owner.package.duration_unit_absent(position_ref) {
+        return Ok(Some(application.refuse(
+            CheckedPackageRefusalCode::MissingDeclaration,
+            member_at,
+            CheckedPackageRefusalCause::MissingName,
+        )));
+    }
+    let Some(position_type) = owner.package.element_type(position_ref) else {
         return ineligible();
     };
     if operand_type.as_ref() != Some(&declaration.node_id) {

@@ -852,6 +852,8 @@ mod tests {
             MemberType::String => wire(&key, "scalar_type", "string", &key, empty()),
             MemberType::Uuid => wire(&key, "scalar_type", "uuid", &key, empty()),
             MemberType::Timestamp => wire(&key, "scalar_type", "timestamp", &key, empty()),
+            MemberType::Bytes => wire(&key, "scalar_type", "bytes", &key, empty()),
+            MemberType::JsonObject => wire(&key, "scalar_type", "json_object", &key, empty()),
             MemberType::Clock => wire(&key, "scalar_type", "clock", &key, empty()),
             MemberType::IntRange(range) => wire(
                 &key,

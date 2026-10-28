@@ -849,6 +849,10 @@ pub enum CheckedMemberType {
     Uuid,
     /// Native Timestamp.
     Timestamp,
+    /// Native unbounded octet sequence.
+    Bytes,
+    /// Native opaque JSON value.
+    JsonObject,
     /// The native timed-model clock marker.
     Clock,
     /// `Int[lower, upper]`.
@@ -924,6 +928,8 @@ impl From<&MemberType> for CheckedMemberType {
             MemberType::String => Self::String,
             MemberType::Uuid => Self::Uuid,
             MemberType::Timestamp => Self::Timestamp,
+            MemberType::Bytes => Self::Bytes,
+            MemberType::JsonObject => Self::JsonObject,
             MemberType::Clock => Self::Clock,
             MemberType::IntRange(range) => Self::IntRange {
                 lower: range.lower,
