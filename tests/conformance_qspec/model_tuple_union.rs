@@ -44,8 +44,9 @@ fn apply_wire_patch(package: &mut Value, patch: &Value) {
 }
 
 /// The published wire cases exercise the production reader's closed schema,
-/// declaration join, typed operation and key-validation stages. FR-069-AC-6
-/// remains open until QSpec's pending wire cause and locus correction lands.
+/// declaration join, typed operation and key-validation stages. Every row in
+/// the authoritative vector is replayed, including rows added later.
+/// FR-069-AC-6 remains open until its full intake matrix is replayed.
 /// Provenance: IR-1059, QSpec TW-00 through TW-26.
 #[test]
 fn published_model_tuple_union_wire_cases_match_reader_refusals() {
@@ -70,7 +71,6 @@ fn published_model_tuple_union_wire_cases_match_reader_refusals() {
     let rows = vectors["wire_cases"]
         .as_array()
         .expect("published wire cases");
-    assert_eq!(rows.len(), 27, "published wire inventory");
     let mut seen = BTreeSet::new();
     let mut mismatches = Vec::new();
     for row in rows {
@@ -113,7 +113,6 @@ fn published_model_tuple_union_wire_cases_match_reader_refusals() {
             }
         }
     }
-    assert_eq!(seen.len(), 27, "published wire case IDs");
     for ordinal in 0..=26 {
         let id = format!("TW-{ordinal:02}");
         assert!(
