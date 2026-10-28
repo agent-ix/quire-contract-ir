@@ -127,9 +127,14 @@ after the read-only queries.
 
 For FR-035-AC-27 through FR-035-AC-30, lower one admitted V2 source with
 separate requested `temporal/fairness`, `temporal/formula` and
-`temporal/temporal_clause` roots, a healthy sibling, and a fairness root whose
-first unsupported reachable node is a distinct temporal-clause node with a
-lower typed key. Include a refused root absent from the represented V1 graph.
+`temporal/temporal_clause` roots, a healthy sibling, and a temporal-clause root
+whose admitted fairness argument references a distinct fairness node with the
+least typed key among temporal nodes in the clause's reached closure, making
+that node the first unsupported reachable node under
+a profile that does not support the temporal family. Include a refused root
+absent from the represented V1 graph. The fairness node's application has
+zero operands and only its admitted declaration dependency; it does not
+reference the temporal clause.
 At each `feature_accounting` index, compare the producer's requested-root
 `CheckedNodeKind` with the independently located V2 source root and compare
 the unchanged `unsupported_node_id` and `node_tag` with the first unsupported
