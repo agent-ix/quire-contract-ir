@@ -247,6 +247,9 @@ pub(super) enum NativeTypeRef {
     String,
     Uuid,
     Timestamp,
+    Bytes,
+    JsonObject,
+    Duration,
     Clock,
 }
 
@@ -288,6 +291,9 @@ impl NativeTypeRef {
             "String" => Self::String,
             "UUID" => Self::Uuid,
             "Timestamp" => Self::Timestamp,
+            "Bytes" => Self::Bytes,
+            "JsonObject" => Self::JsonObject,
+            "Duration" => Self::Duration,
             "Clock" => Self::Clock,
             _ => return None,
         })
@@ -497,6 +503,8 @@ pub(super) struct DomainModel {
     pub(super) tuple_types: BTreeMap<Box<str>, Vec<SelectedTypeRef>>,
     /// Value types, by IR node identity; `None` when not bound as `Int[lo, hi]`.
     pub(super) value_types: BTreeMap<Box<str>, Option<ValueBounds>>,
+    /// Core Semantic IR aliases, resolved before model member type mapping.
+    aliases: BTreeMap<Box<str>, Box<str>>,
     /// Exact semantic cases and optional payload types of selected variants.
     pub(super) variant_types: BTreeMap<Box<str>, BTreeMap<Box<str>, Option<SelectedTypeRef>>>,
     /// FCD sequence (`items`) and map (`values`) type definitions.
@@ -775,6 +783,8 @@ pub(super) enum MemberType {
     String,
     Uuid,
     Timestamp,
+    Bytes,
+    JsonObject,
     /// The timed-model clock marker used by checked clock-place paths.
     Clock,
     /// `Int[lo, hi]`.
@@ -832,6 +842,14 @@ impl MemberType {
             Self::Timestamp => anonymous(
                 "scalar_type",
                 "timestamp",
+                None,
+                StructuralBody::Empty,
+                bytes,
+            ),
+            Self::Bytes => anonymous("scalar_type", "bytes", None, StructuralBody::Empty, bytes),
+            Self::JsonObject => anonymous(
+                "scalar_type",
+                "json_object",
                 None,
                 StructuralBody::Empty,
                 bytes,
@@ -1146,6 +1164,17 @@ pub(super) mod probe {
 }
 
 impl DomainModel {
+    fn selected_type_ref(&self, name: &str) -> Option<SelectedTypeRef> {
+        let mut current: Box<str> = name.into();
+        let mut seen = BTreeSet::new();
+        while let Some(target) = self.aliases.get(current.as_ref()) {
+            if !seen.insert(current.clone()) {
+                return None;
+            }
+            current = target.clone();
+        }
+        SelectedTypeRef::from_admitted_name(&current)
+    }
     /// The model declaration node key of the object type or systems interface
     /// `type_ref`: `None` when no such declaration is selected, `Err` when the
     /// key cannot be derived under the reader's byte limit. The one derivation
@@ -1376,8 +1405,13 @@ impl DomainModel {
                     NativeTypeRef::String => Some(MemberType::String),
                     NativeTypeRef::Uuid => Some(MemberType::Uuid),
                     NativeTypeRef::Timestamp => Some(MemberType::Timestamp),
+                    NativeTypeRef::Bytes => Some(MemberType::Bytes),
+                    NativeTypeRef::JsonObject => Some(MemberType::JsonObject),
                     NativeTypeRef::Clock => Some(MemberType::Clock),
-                    NativeTypeRef::Rational | NativeTypeRef::Decimal | NativeTypeRef::Text => None,
+                    NativeTypeRef::Rational
+                    | NativeTypeRef::Decimal
+                    | NativeTypeRef::Text
+                    | NativeTypeRef::Duration => None,
                 };
             }
             SelectedTypeRef::Declared(name) => name.as_ref(),
@@ -3176,6 +3210,7 @@ pub(super) fn read_semantic_ir(
     }
     let prefix = format!("ix://{identity}/");
     let mut types: BTreeMap<&str, Vec<&Value>> = BTreeMap::new();
+    let mut aliases: BTreeMap<Box<str>, Box<str>> = BTreeMap::new();
     let mut document_positions = BTreeMap::new();
     for (position, declared) in list(document, "types")?.iter().enumerate() {
         // A node with no identity has none to share and is malformed on its
@@ -3185,6 +3220,24 @@ pub(super) fn read_semantic_ir(
                 SelectionRefusal::located(ModelRefusal::malformed(), declared, budget)?.into(),
             );
         };
+        if declared.get("kind").and_then(Value::as_str) == Some("alias") {
+            budget.charge(node_size(declared))?;
+            let target = text(declared, "target")?;
+            if aliases.insert(node.into(), target.into()).is_some() || types.contains_key(node) {
+                return Err(SelectionRefusal::located(
+                    ModelRefusal::malformed(),
+                    declared,
+                    budget,
+                )?
+                .into());
+            }
+            continue;
+        }
+        if aliases.contains_key(node) {
+            return Err(
+                SelectionRefusal::located(ModelRefusal::malformed(), declared, budget)?.into(),
+            );
+        }
         types.entry(node).or_default().push(declared);
         document_positions.entry(node).or_insert(position);
     }
@@ -3214,6 +3267,7 @@ pub(super) fn read_semantic_ir(
         record_types: BTreeMap::new(),
         tuple_types: BTreeMap::new(),
         value_types: BTreeMap::new(),
+        aliases,
         variant_types: BTreeMap::new(),
         collection_types: BTreeMap::new(),
         unit_refs: unit_refs.clone(),
@@ -3555,7 +3609,7 @@ pub(super) fn read_semantic_ir(
                             .into())
                         }
                     };
-                    let Some(admitted) = SelectedTypeRef::from_admitted_name(type_ref) else {
+                    let Some(admitted) = model.selected_type_ref(type_ref) else {
                         return Err(selected_tuple_refusal(
                             ModelRefusal::malformed(),
                             position,
@@ -3566,13 +3620,18 @@ pub(super) fn read_semantic_ir(
                         .into());
                     };
                     let valid = match &admitted {
-                        SelectedTypeRef::Native(NativeTypeRef::Clock)
+                        SelectedTypeRef::Native(
+                            NativeTypeRef::Clock
+                            | NativeTypeRef::Rational
+                            | NativeTypeRef::Decimal
+                            | NativeTypeRef::Text,
+                        )
                         | SelectedTypeRef::Map(..) => Err(ModelRefusal::malformed()),
                         SelectedTypeRef::Native(_) => Ok(()),
                         SelectedTypeRef::Unit(name) if model.unit_refs.contains_key(name) => Ok(()),
                         SelectedTypeRef::Unit(_) => Err(ModelRefusal::missing_name()),
                         SelectedTypeRef::Declared(name)
-                            if model.value_types.contains_key(name)
+                            if model.value_types.get(name).is_some_and(Option::is_some)
                                 || scope.records.contains(name.as_ref())
                                 || model.tuple_types.contains_key(name)
                                 || model.variant_types.contains_key(name) =>
@@ -3654,8 +3713,7 @@ pub(super) fn read_semantic_ir(
                     let payload = match case.get("payloadType") {
                         None | Some(Value::Null) => None,
                         Some(Value::String(reference)) => {
-                            let Some(resolved) = SelectedTypeRef::from_admitted_name(reference)
-                            else {
+                            let Some(resolved) = model.selected_type_ref(reference) else {
                                 return Err(unsupported_variant_payload(
                                     case, type_index, case_index, budget,
                                 )?
@@ -3681,7 +3739,10 @@ pub(super) fn read_semantic_ir(
                                 | NativeTypeRef::Float64
                                 | NativeTypeRef::String
                                 | NativeTypeRef::Uuid
-                                | NativeTypeRef::Timestamp,
+                                | NativeTypeRef::Timestamp
+                                | NativeTypeRef::Bytes
+                                | NativeTypeRef::JsonObject
+                                | NativeTypeRef::Duration,
                             ) => true,
                             SelectedTypeRef::Native(
                                 NativeTypeRef::Rational

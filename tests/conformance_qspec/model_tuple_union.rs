@@ -255,56 +255,142 @@ fn rekeyed_scalar_type_precedes_its_dependent_parameter_reference() {
 /// Translate the published projection mutation to the corresponding member of
 /// QSpec's full Semantic IR document. The projection ordinals are represented
 /// by position identities in that document.
-fn apply_published_intake_patch(document: &mut serde_json::Value, row: &serde_json::Value) {
+fn apply_published_intake_patch(document: &mut Value, row: &Value) {
     let name = row["name"].as_str().expect("published intake case name");
-    let patch = row["patch"].as_array().expect("published intake patch");
-    if name == "TK-10" {
-        assert!(patch.is_empty(), "published positive intake case");
-        return;
-    }
-    assert_eq!(patch.len(), 1, "{name}: one published mutation");
-    let value = &patch[0]["value"];
-    let expected_path = match name {
-        "TK-01" => "/tuple_types/0/positions",
-        "TK-02" | "TK-06" => "/tuple_types/0/positions/1/ordinal",
-        "TK-03" | "TK-05" => "/tuple_types/0/positions/1/typeRef",
-        "TK-04" => "/tuple_types/0/fields",
-        "TK-07" | "TK-08" => "/variant_types/0/cases/0/payloadType",
-        "TK-09" => "/tuple_types/0/positions/0/typeRef",
-        _ => panic!("unrecognized published intake case {name}"),
-    };
-    assert_eq!(patch[0]["path"], expected_path, "{name}: mutation locus");
-    let expected_op = match name {
-        "TK-03" => "remove",
-        "TK-04" => "add",
-        _ => "replace",
-    };
-    assert_eq!(patch[0]["op"], expected_op, "{name}: mutation operation");
-    match name {
-        "TK-01" => document["types"][1]["positions"] = value.clone(),
-        "TK-02" | "TK-06" => {
-            document["types"][1]["positions"][1]["identity"] = json!(format!(
-                "ix://acme/shapes/Pair/p{}",
-                value.as_u64().expect("published ordinal")
-            ))
+    let patches = row["patch"].as_array().expect("published intake patch");
+    for patch in patches {
+        let path = patch["path"].as_str().expect("published patch path");
+        let operation = patch["op"].as_str().expect("published patch operation");
+        let value = &patch["value"];
+        if path == "/value_types" {
+            assert_eq!(operation, "add", "{name}: value-type patch");
+            for declared in value.as_array().expect("published value types") {
+                let identity = declared["node"].as_str().expect("value type identity");
+                let native = declared["native"].as_str().expect("value type native");
+                let scalar = match native {
+                    "ix://quire/native/Text" => "string",
+                    "ix://quire/native/Decimal" => "decimal",
+                    "ix://quire/native/Rational" => "rational",
+                    _ => panic!("{name}: unsupported published value type {native}"),
+                };
+                let mut constraints = Vec::new();
+                for (member, keyword) in [("lower", "minLength"), ("upper", "maxLength")] {
+                    if let Some(bound) = declared[member].as_str() {
+                        constraints.push(json!({"keyword": keyword, "operands": {"value": bound}}));
+                    }
+                }
+                if let Some(profile) = declared["profile"].as_str() {
+                    constraints.push(json!({"keyword": "format", "operands": {"name": format!("text-profile:{profile}")}}));
+                }
+                let kind = json!({"module":"acme/shapes", "name":"value_type"});
+                if !document["constructs"]
+                    .as_array()
+                    .expect("constructs")
+                    .iter()
+                    .any(|entry| entry["kind"] == kind)
+                {
+                    document["constructs"].as_array_mut().expect("constructs").push(json!({
+                        "kind":kind, "moduleVersion":"1.0.0",
+                        "construct":{"identity":"value","meaning":"quire.meaning.model.value-type/v1","shape":"scalar"}
+                    }));
+                }
+                let origin = document["types"][1]["origin"].clone();
+                document["types"].as_array_mut().expect("types").push(json!({
+                    "identity":identity,"displayName":identity.rsplit('/').next().expect("name"),
+                    "kind":kind,"scalar":scalar,"constraints":constraints,"origin":origin,
+                    "roles":[],"extensions":[],"unknownPolicy":"reject"
+                }));
+            }
+            continue;
         }
-        "TK-03" => {
-            let removed = document["types"][1]["positions"][1]
-                .as_object_mut()
-                .expect("published position")
-                .remove("typeRef");
-            assert!(removed.is_some(), "{name}: published remove target");
+        if path == "/aliases" {
+            assert_eq!(operation, "add", "{name}: alias patch");
+            for alias in value.as_array().expect("published aliases") {
+                let identity = alias["node"].as_str().expect("alias identity");
+                let origin = document["types"][1]["origin"].clone();
+                document["types"].as_array_mut().expect("types").push(json!({
+                    "identity":identity,"displayName":identity.rsplit('/').next().expect("name"),
+                    "kind":"alias","target":alias["target"],"origin":origin,
+                    "roles":[],"constraints":[],"extensions":[],"unknownPolicy":"reject"
+                }));
+            }
+            continue;
         }
-        "TK-04" => document["types"][1]["fields"] = value.clone(),
-        "TK-05" => document["types"][1]["positions"][1]["typeRef"] = value.clone(),
-        "TK-09" => document["types"][1]["positions"][0]["typeRef"] = value.clone(),
-        "TK-07" | "TK-08" => document["types"][5]["variants"][0]["payloadType"] = value.clone(),
-        _ => unreachable!("checked published intake case"),
+        let segments: Vec<_> = path.trim_start_matches('/').split('/').collect();
+        let (group, ordinal, rest) = match segments.as_slice() {
+            [group @ ("tuple_types" | "variant_types"), ordinal, rest @ ..] => (
+                *group,
+                ordinal.parse::<usize>().expect("declaration index"),
+                rest,
+            ),
+            _ => panic!("{name}: unsupported published patch {path}"),
+        };
+        let kind = if group == "tuple_types" {
+            "tuple"
+        } else {
+            "variant"
+        };
+        let index = document["types"]
+            .as_array()
+            .expect("types")
+            .iter()
+            .enumerate()
+            .filter(|(_, declared)| declared["kind"]["name"] == kind)
+            .nth(ordinal)
+            .map(|(index, _)| index)
+            .expect("published declaration");
+        let declared = &mut document["types"][index];
+        match (group, rest) {
+            ("tuple_types", ["positions"]) => {
+                assert_eq!(operation, "replace", "{name}: positions patch");
+                assert!(
+                    value.as_array().expect("positions").is_empty(),
+                    "{name}: empty positions"
+                );
+                declared["positions"] = json!([]);
+            }
+            ("tuple_types", ["fields"]) => {
+                assert_eq!(operation, "add", "{name}: fields patch");
+                declared["fields"] = value.clone();
+            }
+            ("tuple_types", ["positions", slot, "ordinal"]) => {
+                assert_eq!(operation, "replace", "{name}: ordinal patch");
+                let slot = slot.parse::<usize>().expect("position index");
+                let owner = declared["identity"].as_str().expect("tuple identity");
+                declared["positions"][slot]["identity"] =
+                    json!(format!("{owner}/p{}", value.as_u64().expect("ordinal")));
+            }
+            ("tuple_types", ["positions", slot, "typeRef"]) => {
+                let slot = slot.parse::<usize>().expect("position index");
+                if operation == "remove" {
+                    assert!(
+                        declared["positions"][slot]
+                            .as_object_mut()
+                            .expect("position")
+                            .remove("typeRef")
+                            .is_some(),
+                        "{name}: removed position type"
+                    );
+                } else {
+                    assert_eq!(operation, "replace", "{name}: position type patch");
+                    declared["positions"][slot]["typeRef"] = value.clone();
+                }
+            }
+            ("variant_types", ["cases", slot, "payloadType"]) => {
+                assert!(
+                    matches!(operation, "replace" | "add"),
+                    "{name}: payload patch"
+                );
+                let slot = slot.parse::<usize>().expect("case index");
+                declared["variants"][slot]["payloadType"] = value.clone();
+            }
+            _ => panic!("{name}: unsupported published patch {path}"),
+        }
     }
 }
 
-/// Provenance: IR-1059, QSpec FR-322 intake rows TK-01 through TK-10.
-/// The remaining FR-069-AC-6 wire and intake combinations stay open.
+/// Provenance: IR-1059, QSpec FR-322 intake rows TK-01 through TK-35.
+/// FR-069-AC-6 stays open until every published intake and wire row passes.
 #[test]
 fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
     let fixtures = fixtures_dir();
@@ -322,9 +408,10 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
     let rows = vectors["intake_cases"]
         .as_array()
         .expect("published intake cases");
-    assert_eq!(rows.len(), 10, "published intake case inventory");
+    let mut seen = BTreeSet::new();
     for row in rows {
         let name = row["name"].as_str().expect("published intake case name");
+        assert!(seen.insert(name), "duplicate published intake case {name}");
         let mut document = selected.clone();
         let mut package = base.clone();
         apply_published_intake_patch(&mut document, row);
@@ -386,6 +473,13 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
                 .as_deref(),
             Some(document_pointer.as_str()),
             "{name}"
+        );
+    }
+    for ordinal in 1..=35 {
+        let id = format!("TK-{ordinal:02}");
+        assert!(
+            seen.contains(id.as_str()),
+            "missing published intake case {id}"
         );
     }
 }
