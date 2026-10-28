@@ -958,7 +958,7 @@ pub(super) fn duration_unit_key(
         return Ok(None);
     }
     let at = || node_pointer(position);
-    meter.charge(u64::try_from(nodes.len()).unwrap_or(u64::MAX), &at)?;
+    meter.charge(u64::try_from(nodes.len()).unwrap_or(u64::MAX), at)?;
     let Some(dimension) = nodes
         .iter()
         .find(|candidate| candidate.node_id == unit.dimension_node_id)
@@ -983,7 +983,7 @@ pub(super) fn duration_unit_key(
     let mut current = unit;
     let mut seen = BTreeSet::new();
     loop {
-        meter.charge(u64::try_from(nodes.len()).unwrap_or(u64::MAX), &at)?;
+        meter.charge(u64::try_from(nodes.len()).unwrap_or(u64::MAX), at)?;
         let edge_scale = ExactRatio::parse(&current.scale, meter, &at)?;
         let edge_offset = ExactRatio::parse(&current.offset, meter, &at)?;
         offset = offset
