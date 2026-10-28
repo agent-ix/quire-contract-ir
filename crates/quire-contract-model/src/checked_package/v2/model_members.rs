@@ -3518,25 +3518,6 @@ pub(super) fn read_semantic_ir(
                 let Some(&type_index) = document_positions.get(node) else {
                     return Err(ModelRefusal::malformed().into());
                 };
-                if [
-                    "fields",
-                    "identityFields",
-                    "operations",
-                    "supertypes",
-                    "clauses",
-                ]
-                .iter()
-                .any(|member| declared.get(*member).is_some())
-                {
-                    return Err(selected_tuple_refusal(
-                        ModelRefusal::malformed(),
-                        declared,
-                        type_index,
-                        None,
-                        budget,
-                    )?
-                    .into());
-                }
                 let positions = match list(declared, "positions") {
                     Ok(positions) => positions,
                     Err(refusal) => {
@@ -3575,6 +3556,25 @@ pub(super) fn read_semantic_ir(
                         )?
                         .into());
                     }
+                }
+                if [
+                    "fields",
+                    "identityFields",
+                    "operations",
+                    "supertypes",
+                    "clauses",
+                ]
+                .iter()
+                .any(|member| declared.get(*member).is_some())
+                {
+                    return Err(selected_tuple_refusal(
+                        ModelRefusal::malformed(),
+                        declared,
+                        type_index,
+                        None,
+                        budget,
+                    )?
+                    .into());
                 }
                 if positions.is_empty() {
                     return Err(selected_tuple_refusal(
