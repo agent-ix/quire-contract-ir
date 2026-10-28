@@ -29,3 +29,9 @@ Rust/API review covered typed accessors, deserialization, reader validation, pub
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | Public Deserialize populates admitted views from unvalidated JSON | crates/quire-contract-model/src/checked_package/v2/typed_terms.rs:176 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Direct deserialization now leaves `views: None`; the validator installs typed facts from a successfully checked `OperationWire`. The new adverse test proves forged raw operations expose no typed views. |
