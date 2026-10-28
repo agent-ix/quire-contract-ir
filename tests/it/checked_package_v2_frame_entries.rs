@@ -550,13 +550,13 @@ fn tc_056_frame_entries_and_semantic_type_join_declared_dependencies() {
             0,
         ),
         (
-            "a field entry on a process",
-            json!([field(process_key(), "x")]),
+            "a field entry on a namespace",
+            json!([field(namespace_key(), "x")]),
             json!([]),
-            json!([node_id(process_key())]),
+            json!([node_id(namespace_key())]),
             Code::InvalidModelBinding,
             Cause::MalformedDeclaration,
-            process_key(),
+            namespace_key(),
             "modifies",
             0,
         ),
@@ -621,19 +621,19 @@ fn tc_056_frame_entries_and_semantic_type_join_declared_dependencies() {
         );
     }
 
-    // A `semantic_type` that is not an object type refuses before an entry
+    // A `semantic_type` that is not an operation-bearing type refuses before an entry
     // defect.
     let (value, frame) = frame_mutation(|frame| {
-        frame["semantic_type"] = node_id(process_key());
+        frame["semantic_type"] = node_id(relationship_key());
         frame["body"]["modifies"] = json!([relationship(object_key())]);
     });
     expect(
-        "semantic_type naming a process",
+        "semantic_type naming a relationship",
         &value,
         Code::InvalidModelBinding,
         Some(Cause::MalformedDeclaration),
         &format!("/semantic_graph/nodes/{frame}/semantic_type"),
-        Some(process_key()),
+        Some(relationship_key()),
     );
     let (value, frame) = frame_mutation(|frame| frame["semantic_type"] = node_id(&"ab".repeat(32)));
     expect(
