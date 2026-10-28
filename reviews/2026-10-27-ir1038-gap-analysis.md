@@ -29,3 +29,14 @@ CONDITIONAL — FR-066-AC-3 has an executable external integration test, includi
 - FR-066-AC-5 (examined): single body carrier and no fallback inference; residual path recorded.
 - FR-019-AC-5 (examined): public API inventory updated for the new types.
 - Plan completion: not assessed. Computed matrix at this head: 754 criteria, 642 tagged, 92 untagged, 19 method-without-symbol, one tagged-by-ignored-test. These repository-wide gaps are inherited, not introduced by this PR; this review reports only the FR-066-AC-4 binding defect in scope.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | At feedd435, `typed_clause_body` uses `operation.execution_point().cloned()` as its admitted point carrier; the raw point check is confined to structural malformed-input refusal. |
+| FND-002 | fixed | At feedd435, TC-056 integration tests tag FR-066-AC-4 at the duplicate-member precedence, malformed-point, point-agreement, distinct-anchor, and duplicate-anchor assertions. |
+
+## Disposition verdict
+
+PASS for the recorded findings at feedd435; final gate is owned by the code lead.
