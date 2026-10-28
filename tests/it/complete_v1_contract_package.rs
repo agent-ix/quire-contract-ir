@@ -14,8 +14,8 @@ use quire_contract_model::{
     CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm,
     CompleteLoweringProfileV2, CompleteLoweringRecordV2, ContractDependencies,
     ContractDispositionV1, ContractPackageReadResult, ContractPackageWireV1, ContractRootViewV1,
-    ContractSourceHandoffError, TemporalForm, CONTRACT_IR_SEMANTIC_DOMAIN,
-    CONTRACT_PACKAGE_VERSION,
+    ContractSourceHandoffError, ContractUnsupportedSourceKindError, TemporalForm,
+    CONTRACT_IR_SEMANTIC_DOMAIN, CONTRACT_PACKAGE_VERSION,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -1290,7 +1290,7 @@ fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
         assert_eq!(
             plain.unsupported_source_kind_at(index),
             if expected.is_some() {
-                Err(CheckedOperationViewError::NotAdmitted)
+                Err(ContractUnsupportedSourceKindError::NotAdmitted)
             } else {
                 Ok(None)
             }

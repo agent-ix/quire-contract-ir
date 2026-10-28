@@ -28,9 +28,8 @@ use super::lower::{
     CONTRACT_PACKAGE_VERSION,
 };
 use super::{
-    CheckedNodeKind, CheckedNodeTag, CheckedOperationViewError, CheckedPackageLockV2,
-    CheckedPackageV2, CheckedSelectionRole, CheckedTerm,
-    RawSemanticNodeV2 as CheckedSemanticNodeV2,
+    CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedPackageV2, CheckedSelectionRole,
+    CheckedTerm, RawSemanticNodeV2 as CheckedSemanticNodeV2,
 };
 use crate::checked_package::common::{
     read_typed_prefix, strict_parse, Step, Trail, ValidationFailure, NODE_DOMAIN,
@@ -366,6 +365,14 @@ pub struct ContractPackageV1 {
     source_index: BTreeMap<CheckedNodeId, usize>,
     unsupported_tags: Vec<Option<CheckedNodeTag>>,
     unsupported_source_kinds: Option<Vec<Option<CheckedNodeKind>>>,
+}
+
+/// The requested-root kind has no authenticated V2 source in a plain V1 read.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum ContractUnsupportedSourceKindError {
+    /// The query requires a producer or an authenticated source handoff.
+    #[error("requested-root kind was not admitted from a V2 source")]
+    NotAdmitted,
 }
 
 pub(super) struct GuardContextWork {
@@ -704,7 +711,7 @@ impl ContractPackageV1 {
     pub fn unsupported_source_kind_at(
         &self,
         accounting_index: usize,
-    ) -> Result<Option<CheckedNodeKind>, CheckedOperationViewError> {
+    ) -> Result<Option<CheckedNodeKind>, ContractUnsupportedSourceKindError> {
         if self.unsupported_tag_at(accounting_index).is_none() {
             return Ok(None);
         }
@@ -712,7 +719,7 @@ impl ContractPackageV1 {
             .as_ref()
             .and_then(|kinds| kinds.get(accounting_index))
             .copied()
-            .ok_or(CheckedOperationViewError::NotAdmitted)
+            .ok_or(ContractUnsupportedSourceKindError::NotAdmitted)
     }
 
     /// Remove one admitted source-map node to exercise defensive query errors.
