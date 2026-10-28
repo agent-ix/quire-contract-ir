@@ -1880,6 +1880,49 @@ Expected: the positive packages admit with their authored keys, every adverse
 vector refuses with the QSpec code, cause and locus, and no runtime workflow
 instance, delivery or clock observation is required to read the package.
 
+## Nested repeat progress (FR-038-AC-344 through FR-038-AC-356)
+
+Construct each case as an independently keyed, otherwise valid V2 package and
+read it through the public strict reader. Use QSpec FR-464 and TC-946 R13-R24
+as the external oracle, without embedding their vectors here. For every
+refusal compare the typed code, cause, selected-profile detail, control key
+and RFC 6901 locus; for every incomplete result compare limit, consumed work
+and the nested-control locus. Keep the enclosing `repeat`'s body free of other
+steps except where the control explicitly calls for one.
+
+| Control | Reader assertion |
+| --- | --- |
+| Nested body is an `attempt`; nested guard is `true`, then a two-visible-atom tautology, each with no maximum and with `maximum: 1` | Admit; the inner `repeat` necessarily steps and supplies the outer body's only step (R13/R14). |
+| Same stepping nested body with `maximum: 0`; test both `true` and a one-atom tautology | Refuse `unsupported_construct`/`declaration-form` at the outer `repeat`; the maximum prevents body entry even though the guard exit is infeasible (R15). Still charge the nested valuation before that refusal. |
+| Same nested body with each of `a`, `not a`, `a and not a`, `false`, `a or b`, with `visible` listing the used atoms and both absent and positive maxima | Refuse at the outer `repeat` because each guard has a false valuation; the result shall not depend on the maximum or an `exhausted` step (R16). |
+| Add a stepping `sequence` sibling on either side of the nested control; put the nested control under a `parallel` join or an `await` success branch | Admit with a feasible nested exit, because the sibling, `parallel` or `await` supplies the necessary step (R17). |
+| Put the nested control in one `choice` case and an `attempt` in the other | Admit with an infeasible nested exit; refuse at the outer `repeat` with a feasible exit, since every case must step (R19). |
+| Nested body is only a `check`; vary the nested maximum and add an `exhausted` `attempt` in one variant | Refuse at the first nonprogressing `repeat` in tree order, the outer one; `exhausted` supplies no progress (R18). |
+| List one `eq(a,b)` expression and use it on both sides of an `or`/`not` tautology; then list `eq(a,b)` and `eq(b,a)` separately and cross the two in the guard | Admit the equal-node case and refuse the reversed-operand case at the outer `repeat`, proving atom identity is node identity without commutative normalization (R20). |
+| List a composite Boolean expression `E`, then its component atoms, and use `E or not a or not b` | Refuse at the outer `repeat`: the listed `E` remains an independent atom, not its expanded expression (R22). |
+| Use `true` as a referenced Boolean literal, then use a listed atom `a` with a referenced `true` in `a or true` | Admit both; the referenced literal is a constant and contributes no atom (R23). |
+| Nest `repeat max 1 while true` around an `attempt`, with an `exhausted` `check`, as the outer body's only step | Admit on every outer iteration; entering from outside resets the inner counter (R24). |
+
+Measure reader work with a nonbinding limit for the two-atom tautology to get
+*V*, total consumption through its fourth valuation charge, and *T*, total
+package consumption. A limit of *V* minus 1 SHALL return incomplete
+`stage_limit_exceeded`/`work-budget-exceeded` at the inner `repeat`, without
+an outer progress refusal. A limit of *V* SHALL pass that valuation and, if
+another charge is denied, return the incomplete result at that later charge;
+*T* SHALL admit. Independently, `a or b` SHALL charge exactly its all-false
+valuation before the progress refusal. Repeat the maximum-zero control with a
+limit denying its first valuation and require the incomplete result before
+its progress refusal. Compare a standalone `repeat` with 30 listed guard
+atoms to the same package with `true` as its guard: their total work SHALL
+be equal, proving no standalone valuation enumeration (R21).
+
+Pair a causal cycle with a nested guard whose next valuation would exceed
+work, and with a nonprogressing outer `repeat`; require the cycle first.
+Remove the cycle, retain the denied valuation and nonprogressing outer
+control, and require incomplete before progress refusal. Give two outer
+repeats nonprogressing bodies and require the first one in control-tree order
+after all valuation checks complete (FR-038-AC-348; TC-946 O5/O7).
+
 ## Refusal and limit locations (FR-038-AC-24 through FR-038-AC-26)
 
 For every refusal above, compare the whole refusal, including its pointer,
