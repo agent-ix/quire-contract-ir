@@ -115,6 +115,8 @@ enum Ty {
     String,
     Uuid,
     Timestamp,
+    Bytes,
+    JsonObject,
     Clock,
     Range(i128, i128),
     TextBounds(u64, u64, String),
@@ -156,6 +158,8 @@ fn ty_of(member: &CheckedMemberType) -> Ty {
         CheckedMemberType::String => Ty::String,
         CheckedMemberType::Uuid => Ty::Uuid,
         CheckedMemberType::Timestamp => Ty::Timestamp,
+        CheckedMemberType::Bytes => Ty::Bytes,
+        CheckedMemberType::JsonObject => Ty::JsonObject,
         CheckedMemberType::Clock => Ty::Clock,
         CheckedMemberType::IntRange { lower, upper } => Ty::Range(*lower, *upper),
         CheckedMemberType::TextBounds {
@@ -210,6 +214,8 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
         | Ty::String
         | Ty::Uuid
         | Ty::Timestamp
+        | Ty::Bytes
+        | Ty::JsonObject
         | Ty::Clock => {
             let form = match ty {
                 Ty::Boolean => "boolean",
@@ -219,6 +225,8 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
                 Ty::String => "string",
                 Ty::Uuid => "uuid",
                 Ty::Timestamp => "timestamp",
+                Ty::Bytes => "bytes",
+                Ty::JsonObject => "json_object",
                 Ty::Clock => "clock",
                 _ => unreachable!("matched scalar types"),
             };
@@ -2020,9 +2028,14 @@ fn perturbed(ty: &Ty, other: &str) -> Ty {
     match ty {
         Ty::Boolean => Ty::Integer,
         Ty::Integer => Ty::Boolean,
-        Ty::Float32 | Ty::Float64 | Ty::String | Ty::Uuid | Ty::Timestamp | Ty::Clock => {
-            Ty::Boolean
-        }
+        Ty::Float32
+        | Ty::Float64
+        | Ty::String
+        | Ty::Uuid
+        | Ty::Timestamp
+        | Ty::Bytes
+        | Ty::JsonObject
+        | Ty::Clock => Ty::Boolean,
         Ty::Range(lower, upper) if upper > lower => Ty::Range(*lower, upper - 1),
         Ty::Range(lower, upper) if *lower < i128::MAX => Ty::Range(*lower, upper + 1),
         Ty::Range(lower, upper) => Ty::Range(lower - 1, *upper),
@@ -2307,6 +2320,8 @@ fn tc_227_the_public_shape_is_closed_and_takes_one_node_id() {
             CheckedMemberType::String => 8,
             CheckedMemberType::Uuid => 9,
             CheckedMemberType::Timestamp => 10,
+            CheckedMemberType::Bytes => 17,
+            CheckedMemberType::JsonObject => 18,
             CheckedMemberType::Clock => 12,
             CheckedMemberType::IntRange { .. } => 2,
             CheckedMemberType::TextBounds { .. } => 13,
@@ -2337,6 +2352,8 @@ fn tc_227_the_public_shape_is_closed_and_takes_one_node_id() {
     assert_eq!(member(&CheckedMemberType::Boolean), 0);
     assert_eq!(member(&CheckedMemberType::Float32), 15);
     assert_eq!(member(&CheckedMemberType::Float64), 16);
+    assert_eq!(member(&CheckedMemberType::Bytes), 17);
+    assert_eq!(member(&CheckedMemberType::JsonObject), 18);
     assert_eq!(collection(CheckedCollectionKind::OrderedSet), 3);
     assert_eq!(error(&CheckedModelFieldsError::UnknownNode), 0);
 }
