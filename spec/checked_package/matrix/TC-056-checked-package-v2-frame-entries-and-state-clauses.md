@@ -43,8 +43,11 @@ verify precedence. A process or state-machine context anchors its own
 operation with both anchor and frame `semantic_type` equal to that context;
 `(SubFlow, go)` when `go` is only inherited refuses at the operation binding,
 and `(Flow, go)` remains the declaring anchor. Check same-context equal-frame
-sharing and different-context frame nonsharing. A record, event, persistence
-or systems context refuses before operation or scoped-delete checking.
+sharing and different-context frame nonsharing. A context target naming no
+node or absent from the anchor's declared dependencies refuses
+`missing_declaration`/`missing-name`; a declared record, event, persistence
+or systems context refuses `invalid_model_binding`/`malformed-declaration`,
+both before operation or scoped-delete checking.
 Admit invariant and constraint clauses binding `self: Reference<C>` and
 operation clauses binding `self`, result and own operation parameters for
 both new contexts. A bad reference parameter of a valid process or
