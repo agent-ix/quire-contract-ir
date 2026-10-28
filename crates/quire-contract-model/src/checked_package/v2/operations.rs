@@ -10238,7 +10238,6 @@ mod tests {
         assert!(!catalog.family_fits("temporal", "any_value"));
     }
 
-    /// Trace: FR-038-AC-337, FR-038-AC-338, TC-048.
     /// Provenance: IR-1083, QSpec STD-526 PR-01..06 node records.
     #[test]
     fn ir1083_published_place_presence_nodes_check_owner_slots_and_refusal_loci() {
@@ -10388,7 +10387,6 @@ mod tests {
         }
     }
 
-    /// Trace: FR-038-AC-340, TC-048.
     #[test]
     fn ir1083_option_operand_keeps_the_catalogued_presence_form() {
         let boolean = graph_node(

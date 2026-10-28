@@ -612,8 +612,9 @@ fn selector_fits(
                     && selector_kind == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Text))
             })
         }
-        RenderedCollectionType::OtherCollection(_, kind) if collection == kind => {
-            selector_kind == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Integer))
+        RenderedCollectionType::OtherCollection(inner, kind) if collection == kind => {
+            inner == member_type
+                && selector_kind == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Integer))
         }
         _ => false,
     }
@@ -1263,7 +1264,6 @@ mod tests {
     use super::*;
     use std::path::Path;
 
-    /// Trace: FR-038-AC-335, FR-038-AC-339.
     /// Provenance: IR-1083, QSpec STD-526 SL-01..08 and SR-01..04.
     #[test]
     fn ir1083_published_slot_selectors_match_their_type_nodes() {
@@ -1317,6 +1317,17 @@ mod tests {
                 };
                 let fits = selector_fits(parent, collection, member, selector_kind);
                 assert_eq!(fits, case["expected"] == "admitted", "{id}: selector fit");
+                if id == "SL-08" {
+                    let forged = format!("Option<{member}>");
+                    assert!(
+                        terminal_clock(&forged),
+                        "mutant must retain a Clock terminal"
+                    );
+                    assert!(
+                        !selector_fits(parent, collection, &forged, selector_kind),
+                        "{id}: slot row must match the collection element type"
+                    );
+                }
             }
             assert!(checked, "{id}: slot case has a slot step");
         }
@@ -1328,7 +1339,6 @@ mod tests {
         }
     }
 
-    /// Trace: FR-038-AC-339.
     #[test]
     fn ir1083_optional_clock_terminal_unwraps_once() {
         assert!(terminal_clock("Option<ix://quire/native/Clock>"));
@@ -1336,7 +1346,6 @@ mod tests {
         assert!(!terminal_clock("Option<Option<ix://quire/native/Clock>>"));
     }
 
-    /// Trace: FR-038-AC-335, FR-038-AC-339.
     #[test]
     fn ir1083_selected_field_presence_and_multiplicity_render_the_clock_path_type() {
         use super::super::model_members::{Multiplicity, TypedSlot};

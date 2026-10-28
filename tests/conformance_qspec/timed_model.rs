@@ -42,7 +42,7 @@ fn encode_package(package: &CheckedPackageV2) -> Vec<u8> {
     .expect("typed writer encodes admitted package")
 }
 
-#[trace("TC-048", "FR-038-AC-318", "FR-038-AC-322", "FR-038-AC-336")]
+#[trace("TC-048", "FR-038-AC-318", "FR-038-AC-322")]
 #[test]
 fn timed_model_published_tick_retains_typed_operation_anchor() {
     let wire = read_json(&fixtures_dir().join("positive-tick-timed-model-nodes.json"))
@@ -639,7 +639,7 @@ fn timed_model_rebuilt_semantic_defects_keep_paired_causes() {
 /// STD-540 owns GD-03's exact locus; this control checks its published code
 /// and cause after authenticated package identities are rebuilt.
 /// Provenance: IR-1083, QSpec STD-526 GD-03.
-#[trace("TC-048", "FR-038-AC-336")]
+#[trace("TC-048")]
 #[test]
 fn timed_model_unlisted_guard_refuses_at_the_timed_join() {
     let vectors = read_json(&fixtures_dir().join("../timed-slot-selector-vectors.json"))
@@ -682,7 +682,7 @@ fn timed_model_unlisted_guard_refuses_at_the_timed_join() {
     );
 }
 
-#[trace("TC-048", "FR-038-AC-336")]
+#[trace("TC-048")]
 #[test]
 fn timed_model_distinct_place_nodes_with_same_model_path_and_different_guards_refuse() {
     let mut wire = published();
