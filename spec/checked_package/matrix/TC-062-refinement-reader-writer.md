@@ -62,12 +62,14 @@ after replacing only `semantic_type`. Admit the row-empty model-subject swap
 as a distinct node, and admit the protocol-subject swap only when it has no
 concrete key and the new identity derives the same class set, including two
 empty sets. Separately refuse an absent protocol catalog at
-`/body/class_catalog`, a foreign object key before a foreign step key at the
-object key, and a foreign catalog-present step anchor before a later catalog
-discrepancy at the step's `source_node`. Check a foreign history concrete type,
-history update anchor and `assume` anchor at their own row keys against valid
-declaring-type controls. For row-empty protocol subjects, compare the concrete
-catalog with the new model's classes in catalog-key order: an extra earlier
+`/body/class_catalog`; a foreign `populations[0].concrete` before foreign
+object and step keys as `invalid_model_binding`/`malformed-declaration` at
+`/body/populations/0/concrete`; a foreign object key before a foreign step key
+at the object key; and a foreign catalog-present step anchor before a later
+catalog discrepancy at the step's `source_node`. Check a foreign history
+concrete type, history update anchor and `assume` anchor at their own row keys
+against valid declaring-type controls. For row-empty protocol subjects,
+compare the concrete catalog with the new model's classes in catalog-key order: an extra earlier
 class refuses at its entry, while an omitted earlier class refuses at the
 `concrete` array. Keep the abstract root and optional protocol clause joins
 and exact local dependencies in each control. QSpec TC-310's SR-01 through
