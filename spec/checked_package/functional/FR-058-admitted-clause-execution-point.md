@@ -37,9 +37,10 @@ otherwise admitted package because that conversion would fail.
 - One admitted `CheckedPackageV2`, the `CheckedNodeId` of a selected
   `state`/`state_clause`, and one owner-bound claim key represented by a pair
   of `&CheckedNodeId` (claim owner) and `&CheckedOccurrence` (claim role and
-  ordinal). The public accessor takes those references directly; it SHALL
-  NOT expose a second signature accepting an unbound occurrence. The
-  package's admission is the authority for the selected node and its
+  ordinal). The public accessor takes the pair as one third argument,
+  `claim: (&CheckedNodeId, &CheckedOccurrence)`, after the package receiver
+  and selected clause id. It SHALL NOT expose a second signature accepting
+  an unbound occurrence. The package's admission is the authority for the selected node and its
   occurrences; no QSL checked object or source bytes are a new accessor
   input. The owner is required because role and ordinal alone can have the
   same values on different nodes.

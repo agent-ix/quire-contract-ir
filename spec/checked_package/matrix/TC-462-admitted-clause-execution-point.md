@@ -17,10 +17,12 @@ IR-1040 wire admission and IR-1013 accessor implementation. Read producer
 fixtures from their authoritative checkouts at test time; copy no QSL or
 QSpec file.
 
-Pass the selected clause id and an owner-bound claim pair: the claim owner's
-`&CheckedNodeId` together with its `&CheckedOccurrence`. The pair uses only
-the public reference types named by FR-058-AC-5. No unbound-occurrence
-accessor signature or caller-supplied point is allowed.
+Pass the selected clause id and one owner-bound claim argument,
+`claim: (&CheckedNodeId, &CheckedOccurrence)`, containing the claim owner's
+id and its role/ordinal. The public call has exactly the package receiver,
+selected clause id and that claim argument. The tuple uses only the public
+reference types named by FR-058-AC-5. No unbound-occurrence accessor
+signature or caller-supplied point is allowed.
 
 The V2 accessor returns `quire_contract_model::CheckedExecutionPoint` with
 the exact nonempty QSpec point name. Existing authored-contract consumers
@@ -70,7 +72,7 @@ or treat an `AnchorName` conversion failure as a V2 accessor refusal.
    Exercise operation-name and clause-anchor agreement under FR-040.
 5. Compile an external CG-style consumer using only the public accessor and
    exhaustively matching its result/refusal enum. Pass a selected clause
-   reference and a separate owner-bound claim pair, using only public
+   reference and one owner-bound claim tuple argument, using only public
    `&CheckedPackageV2`, `&CheckedNodeId` and `&CheckedOccurrence` references.
    Repeat calls, clone the
    package and compare values, package equality and canonical identity.
