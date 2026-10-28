@@ -1152,7 +1152,7 @@ mod tests {
     ) {
         let owner = RequirementRef::parse("agent-ix/pkg", "REQ_a", 1).unwrap();
         let anchor = ExecutionPoint::Pre {
-            operation: crate::AnchorName::new("check").unwrap(),
+            operation: crate::AnchorName::new("check").unwrap().into(),
         };
         let mut base = request(
             json!({"node": "boolean_literal", "value": true, "source": span()}),

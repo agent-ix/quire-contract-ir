@@ -64,7 +64,7 @@
 
 use super::identity::is_identifier;
 use super::{
-    ApplicationOperator, CheckedExecutionPoint, CheckedTerm, CheckedTermView, LiteralKind,
+    ApplicationOperator, CheckedTerm, CheckedTermView, ExecutionPoint, LiteralKind,
     OperationMemberKind, StateClauseKind,
 };
 use super::{
@@ -435,7 +435,7 @@ pub(super) fn validate_structural_nodes(
                 if node
                     .body
                     .pointer("/operation/member/execution_point")
-                    .is_some_and(|point| CheckedExecutionPoint::from_wire(point).is_none())
+                    .is_some_and(|point| ExecutionPoint::from_wire(point).is_none())
                 {
                     Some(Defect::ClausePoint)
                 } else {
@@ -698,7 +698,7 @@ pub(super) struct AnchorBody<'a> {
     /// The operation's frame node.
     pub(super) frame: CheckedNodeId,
     /// Optional point, retained separately from the three expression terms.
-    pub(super) execution_point: Option<CheckedExecutionPoint>,
+    pub(super) execution_point: Option<ExecutionPoint>,
 }
 
 /// The admitted anchor body, or `None` for any other typed shape.
@@ -743,7 +743,7 @@ pub(super) struct ClauseBody {
     /// The anchor reference's target.
     pub(super) anchor: CheckedNodeId,
     /// Optional closed point of the clause application member.
-    pub(super) execution_point: Option<CheckedExecutionPoint>,
+    pub(super) execution_point: Option<ExecutionPoint>,
 }
 
 /// The five identity-bearing references of a Boolean state transition.

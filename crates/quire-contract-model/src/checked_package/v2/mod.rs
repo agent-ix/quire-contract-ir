@@ -102,6 +102,7 @@ pub use structural_candidates::{
 pub use typed_terms::*;
 pub use vocabulary::*;
 
+use crate::identity::ExecutionPoint;
 use closure_index::ClosureIndex;
 use dependency_references::{admit_dependencies, check_derived_closure, SuppliedDependencies};
 use derived_keys::validate_derived_keys;

@@ -932,13 +932,102 @@ impl DependencySource for ReferenceBody {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, quire_canonical::FixedShape)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+/// A nonempty execution-point name, preserving the exact checked-package spelling.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, quire_canonical::FixedShape)]
+#[serde(transparent)]
+pub struct ExecutionPointName(Box<str>);
+
+impl ExecutionPointName {
+    /// Admit a nonempty point name without applying authored identifier grammar.
+    pub fn new(name: impl Into<Box<str>>) -> Result<Self, Diagnostic> {
+        let name = name.into();
+        if name.is_empty() {
+            Err(Diagnostic::error(
+                DiagnosticCode::InvalidIdentifier,
+                "execution point name must be nonempty",
+                "clause.anchor.name",
+            ))
+        } else {
+            Ok(Self(name))
+        }
+    }
+
+    /// The exact admitted name.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl AsRef<str> for ExecutionPointName {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl From<AnchorName> for ExecutionPointName {
+    fn from(name: AnchorName) -> Self {
+        Self(name.0.into_boxed_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ExecutionPointName {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Self::new(Box::<str>::deserialize(deserializer)?).map_err(D::Error::custom)
+    }
+}
+
+/// The single public four-variant point vocabulary for authored and checked packages.
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    Serialize,
+    Deserialize,
+    quire_canonical::FixedShape,
+)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ExecutionPoint {
-    Initialization { name: AnchorName },
-    Handler { name: AnchorName },
-    Pre { operation: AnchorName },
-    Post { operation: AnchorName },
+    /// Initialization of a named anchor.
+    Initialization {
+        /// Exact nonempty source anchor name.
+        name: ExecutionPointName,
+    },
+    /// Handler of a named anchor.
+    Handler {
+        /// Exact nonempty source anchor name.
+        name: ExecutionPointName,
+    },
+    /// Before a named operation.
+    Pre {
+        /// Exact nonempty operation name.
+        operation: ExecutionPointName,
+    },
+    /// After a named operation.
+    Post {
+        /// Exact nonempty operation name.
+        operation: ExecutionPointName,
+    },
+}
+
+impl ExecutionPoint {
+    /// Decode a closed V2 point without authored identifier validation.
+    pub(crate) fn from_wire(value: &serde_json::Value) -> Option<Self> {
+        Self::deserialize(value).ok()
+    }
+
+    fn validate_authored(&self) -> Result<(), Diagnostic> {
+        let name = match self {
+            Self::Initialization { name } | Self::Handler { name } => name,
+            Self::Pre { operation } | Self::Post { operation } => operation,
+        };
+        AnchorName::new(name.as_str()).map(|_| ())
+    }
 }
 
 #[derive(
@@ -992,6 +1081,9 @@ impl<B> Clause<B> {
         source: SourceSpan,
         body: B,
     ) -> Result<Self, Diagnostic> {
+        if let Some(point) = &anchor {
+            point.validate_authored()?;
+        }
         match (&anchor, kind) {
             (None, clause_kind) if clause_kind.executable() => {
                 return Err(Diagnostic::error(
@@ -1708,16 +1800,16 @@ impl WireExecutionPoint {
     fn validate(self) -> Result<ExecutionPoint, Diagnostic> {
         match self {
             Self::Initialization { name } => Ok(ExecutionPoint::Initialization {
-                name: AnchorName::new(name)?,
+                name: AnchorName::new(name)?.into(),
             }),
             Self::Handler { name } => Ok(ExecutionPoint::Handler {
-                name: AnchorName::new(name)?,
+                name: AnchorName::new(name)?.into(),
             }),
             Self::Pre { operation } => Ok(ExecutionPoint::Pre {
-                operation: AnchorName::new(operation)?,
+                operation: AnchorName::new(operation)?.into(),
             }),
             Self::Post { operation } => Ok(ExecutionPoint::Post {
-                operation: AnchorName::new(operation)?,
+                operation: AnchorName::new(operation)?.into(),
             }),
         }
     }

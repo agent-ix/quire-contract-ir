@@ -2956,7 +2956,7 @@ mod tests {
             identity: clause(),
             kind: ClauseKind::Precondition,
             anchor: ExecutionPoint::Handler {
-                name: AnchorName::new("on_start").expect("anchor name"),
+                name: AnchorName::new("on_start").expect("anchor name").into(),
             },
             source: SourceSpan::new(start, end).expect("span"),
             declaration_digest: CanonicalDigest::parse(&hex(0xd1)).expect("digest"),

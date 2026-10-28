@@ -1,10 +1,10 @@
 use ix_trace_rs::trace;
 use quire_contract_model::{
     AnchorName, Clause, ClauseId, ClauseKind, ClauseRef, ContractPackage, DependencyIdentity,
-    DependencyKind, DependencyName, DependencySource, DiagnosticCode, ExecutionPoint, PackageId,
-    ReferenceBody, Requirement, RequirementId, RequirementRef, RequirementRevision, SchemaVersion,
-    SemanticIdentity, SourceDocumentId, SourceIdentity, SourceLocation, SourceRevision, SourceSpan,
-    ValidationOptions,
+    DependencyKind, DependencyName, DependencySource, DiagnosticCode, ExecutionPoint,
+    ExecutionPointName, PackageId, ReferenceBody, Requirement, RequirementId, RequirementRef,
+    RequirementRevision, SchemaVersion, SemanticIdentity, SourceDocumentId, SourceIdentity,
+    SourceLocation, SourceRevision, SourceSpan, ValidationOptions,
 };
 
 const FORBIDDEN_PUBLIC_VOCABULARY: [&str; 8] = [
@@ -16,6 +16,39 @@ fn source(document: &str, revision: u64) -> SourceIdentity {
         SourceDocumentId::new(document).unwrap(),
         SourceRevision::new(revision).unwrap(),
     )
+}
+
+/// The common point vocabulary retains V2 text while authored clauses apply
+/// the FR-011 identifier rule even when the point was built directly.
+#[trace("FR-058-AC-11", "FR-011-AC-3")]
+#[test]
+fn canonical_execution_point_keeps_authored_identifier_refusal() {
+    assert_eq!(
+        ExecutionPointName::new("").unwrap_err().code,
+        DiagnosticCode::InvalidIdentifier
+    );
+    let invalid = ExecutionPoint::Handler {
+        name: ExecutionPointName::new("tick now").unwrap(),
+    };
+    let source = source("point_source", 1);
+    let result = Clause::new(
+        ClauseId::new("case").unwrap(),
+        ClauseKind::Case,
+        Some(invalid),
+        span_at(&source, 0, 8),
+        ReferenceBody::Literal,
+    );
+    assert_eq!(result.unwrap_err().code, DiagnosticCode::InvalidIdentifier);
+    assert!(Clause::new(
+        ClauseId::new("case").unwrap(),
+        ClauseKind::Case,
+        Some(ExecutionPoint::Handler {
+            name: AnchorName::new("tick").unwrap().into(),
+        }),
+        span_at(&source, 0, 8),
+        ReferenceBody::Literal,
+    )
+    .is_ok());
 }
 
 fn span_at(source: &SourceIdentity, start: u64, end: u64) -> SourceSpan {
@@ -58,7 +91,7 @@ fn valid_package_at(revision: u64) -> ContractPackage<ReferenceBody> {
         ClauseId::new("speed_positive").unwrap(),
         ClauseKind::Precondition,
         Some(ExecutionPoint::Pre {
-            operation: AnchorName::new("update_speed").unwrap(),
+            operation: AnchorName::new("update_speed").unwrap().into(),
         }),
         span_at(&source, 10, 25),
         body,
@@ -286,7 +319,7 @@ fn tc_015_identity_anchor_dependency_and_reference_contract_conforms() {
         ClauseId::new("information").unwrap(),
         ClauseKind::Information,
         Some(ExecutionPoint::Handler {
-            name: AnchorName::new("tick").unwrap(),
+            name: AnchorName::new("tick").unwrap().into(),
         }),
         source_span.clone(),
         literal.clone(),
@@ -301,7 +334,7 @@ fn tc_015_identity_anchor_dependency_and_reference_contract_conforms() {
         ClauseId::new("bad_post").unwrap(),
         ClauseKind::Postcondition,
         Some(ExecutionPoint::Pre {
-            operation: AnchorName::new("tick").unwrap(),
+            operation: AnchorName::new("tick").unwrap().into(),
         }),
         source_span.clone(),
         literal.clone(),
@@ -320,16 +353,16 @@ fn tc_015_identity_anchor_dependency_and_reference_contract_conforms() {
     let anchor_kinds = [
         None,
         Some(ExecutionPoint::Initialization {
-            name: AnchorName::new("boot").unwrap(),
+            name: AnchorName::new("boot").unwrap().into(),
         }),
         Some(ExecutionPoint::Handler {
-            name: AnchorName::new("tick").unwrap(),
+            name: AnchorName::new("tick").unwrap().into(),
         }),
         Some(ExecutionPoint::Pre {
-            operation: AnchorName::new("op").unwrap(),
+            operation: AnchorName::new("op").unwrap().into(),
         }),
         Some(ExecutionPoint::Post {
-            operation: AnchorName::new("op").unwrap(),
+            operation: AnchorName::new("op").unwrap().into(),
         }),
     ];
     for (kind_index, kind) in clause_kinds.into_iter().enumerate() {
@@ -491,16 +524,16 @@ fn tc_015_identity_anchor_dependency_and_reference_contract_conforms() {
     ];
     let all_execution_points = [
         ExecutionPoint::Initialization {
-            name: AnchorName::new("boot").unwrap(),
+            name: AnchorName::new("boot").unwrap().into(),
         },
         ExecutionPoint::Handler {
-            name: AnchorName::new("tick").unwrap(),
+            name: AnchorName::new("tick").unwrap().into(),
         },
         ExecutionPoint::Pre {
-            operation: AnchorName::new("update").unwrap(),
+            operation: AnchorName::new("update").unwrap().into(),
         },
         ExecutionPoint::Post {
-            operation: AnchorName::new("update").unwrap(),
+            operation: AnchorName::new("update").unwrap().into(),
         },
     ];
     let current_requirement = package.requirement_ref(&package.requirements()[0]);

@@ -302,7 +302,7 @@ fn environment() -> DeclarationEnvironment {
 
 fn pre() -> ExecutionPoint {
     ExecutionPoint::Pre {
-        operation: AnchorName::new("update").unwrap(),
+        operation: AnchorName::new("update").unwrap().into(),
     }
 }
 
