@@ -1951,6 +1951,24 @@ fn unsupported_variant_payload(
     Ok(refusal)
 }
 
+/// FR-069: a selected tuple refusal names the offending type or position in
+/// the full Semantic IR document as well as the package's model selection row.
+fn selected_tuple_refusal(
+    refusal: ModelRefusal,
+    node: &Value,
+    type_index: usize,
+    position_index: Option<usize>,
+    budget: &mut Budget<'_>,
+) -> Result<SelectionRefusal, ValidationFailure> {
+    let mut selected = SelectionRefusal::located(refusal, node, budget)?;
+    let mut pointer = JsonPointer::root().key("types").index(type_index);
+    if let Some(position_index) = position_index {
+        pointer = pointer.key("positions").index(position_index);
+    }
+    selected.document_pointer = Some(pointer);
+    Ok(selected)
+}
+
 /// Why FR-322 step 1 stopped at one `model_selections` row: a refusal, or a
 /// reader limit exhausted while reading the row's document.
 #[derive(Debug)]
@@ -3292,6 +3310,9 @@ pub(super) fn read_semantic_ir(
                 // variant payload references are checked.
             }
             meaning::Kind::TupleValueType => {
+                let Some(&type_index) = document_positions.get(node) else {
+                    return Err(ModelRefusal::malformed().into());
+                };
                 if [
                     "fields",
                     "identityFields",
@@ -3302,9 +3323,11 @@ pub(super) fn read_semantic_ir(
                 .iter()
                 .any(|member| declared.get(*member).is_some())
                 {
-                    return Err(SelectionRefusal::located(
+                    return Err(selected_tuple_refusal(
                         ModelRefusal::malformed(),
                         declared,
+                        type_index,
+                        None,
                         budget,
                     )?
                     .into());
@@ -3312,13 +3335,18 @@ pub(super) fn read_semantic_ir(
                 let positions = match list(declared, "positions") {
                     Ok(positions) => positions,
                     Err(refusal) => {
-                        return Err(SelectionRefusal::located(refusal, declared, budget)?.into())
+                        return Err(selected_tuple_refusal(
+                            refusal, declared, type_index, None, budget,
+                        )?
+                        .into())
                     }
                 };
                 if positions.is_empty() {
-                    return Err(SelectionRefusal::located(
+                    return Err(selected_tuple_refusal(
                         ModelRefusal::malformed(),
                         declared,
+                        type_index,
+                        None,
                         budget,
                     )?
                     .into());
@@ -3330,24 +3358,35 @@ pub(super) fn read_semantic_ir(
                     let identity = match text(position, "identity") {
                         Ok(identity) => identity,
                         Err(refusal) => {
-                            return Err(SelectionRefusal::located(refusal, position, budget)?.into())
+                            return Err(selected_tuple_refusal(
+                                refusal,
+                                position,
+                                type_index,
+                                Some(ordinal),
+                                budget,
+                            )?
+                            .into())
                         }
                     };
                     if !seen.insert(identity) {
-                        return Err(SelectionRefusal::located(
+                        return Err(selected_tuple_refusal(
                             ModelRefusal::new(
                                 CheckedPackageRefusalCode::InvalidModelBinding,
                                 CheckedPackageRefusalCause::ConflictingBinding,
                             ),
                             position,
+                            type_index,
+                            Some(ordinal),
                             budget,
                         )?
                         .into());
                     }
                     if identity != expected {
-                        return Err(SelectionRefusal::located(
+                        return Err(selected_tuple_refusal(
                             ModelRefusal::malformed(),
                             position,
+                            type_index,
+                            Some(ordinal),
                             budget,
                         )?
                         .into());
@@ -3355,13 +3394,22 @@ pub(super) fn read_semantic_ir(
                     let type_ref = match text(position, "typeRef") {
                         Ok(type_ref) => type_ref,
                         Err(refusal) => {
-                            return Err(SelectionRefusal::located(refusal, position, budget)?.into())
+                            return Err(selected_tuple_refusal(
+                                refusal,
+                                position,
+                                type_index,
+                                Some(ordinal),
+                                budget,
+                            )?
+                            .into())
                         }
                     };
                     let Some(admitted) = SelectedTypeRef::from_admitted_name(type_ref) else {
-                        return Err(SelectionRefusal::located(
+                        return Err(selected_tuple_refusal(
                             ModelRefusal::malformed(),
                             position,
+                            type_index,
+                            Some(ordinal),
                             budget,
                         )?
                         .into());
@@ -3388,7 +3436,14 @@ pub(super) fn read_semantic_ir(
                         SelectedTypeRef::Declared(_) => Err(ModelRefusal::missing_name()),
                     };
                     if let Err(refusal) = valid {
-                        return Err(SelectionRefusal::located(refusal, position, budget)?.into());
+                        return Err(selected_tuple_refusal(
+                            refusal,
+                            position,
+                            type_index,
+                            Some(ordinal),
+                            budget,
+                        )?
+                        .into());
                     }
                     types.push(admitted);
                 }
