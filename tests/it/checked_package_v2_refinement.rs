@@ -34,7 +34,15 @@ fn model_document() -> Value {
             "identity": MODEL_NODE, "displayName": "Machine",
             "kind": {"module": MODEL_IDENTITY, "name": "machine"},
             "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
-            "supertypes": [], "fields": [], "operations": []
+            "supertypes": [], "fields": [],
+            "operations": [{"identity":format!("{MODEL_NODE}/toggle"), "name":"toggle", "params":[]}],
+            "states": [
+                {"identity":format!("{MODEL_NODE}/closed"), "name":"closed"},
+                {"identity":format!("{MODEL_NODE}/open"), "name":"open"}
+            ],
+            "transitions": [{"identity":format!("{MODEL_NODE}/open-transition"),
+                "from":format!("{MODEL_NODE}/closed"), "to":format!("{MODEL_NODE}/open"),
+                "trigger":format!("{MODEL_NODE}/toggle"), "emits":[]}]
         }]
     })
 }
@@ -80,6 +88,11 @@ fn selected_form_document() -> Value {
     declared["identity"] = json!(format!("ix://{MODEL_IDENTITY}/Flow"));
     declared["displayName"] = json!("Flow");
     declared["kind"]["name"] = json!("process");
+    declared.as_object_mut().expect("Flow").remove("states");
+    declared
+        .as_object_mut()
+        .expect("Flow")
+        .remove("transitions");
     declared["fields"] = json!([{
         "identity":format!("ix://{MODEL_IDENTITY}/Flow/n"),
         "name":"n", "typeRef":"ix://quire/native/Integer",
@@ -94,16 +107,35 @@ fn selected_form_document() -> Value {
         "returns":{"typeRef":"ix://quire/native/Integer",
             "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}}
     }]);
+    declared["identityFields"] = json!([format!("ix://{MODEL_IDENTITY}/Flow/n")]);
+    declared["steps"] = json!([{
+        "identity":format!("ix://{MODEL_IDENTITY}/Flow/advance"),
+        "name":"advance", "stepKind":"command", "consumes":[], "emits":[]
+    }]);
     types.push(declared.clone());
     declared["identity"] = json!(format!("ix://{MODEL_IDENTITY}/Store"));
     declared["displayName"] = json!("Store");
     declared["kind"]["name"] = json!("persistence");
     declared["fields"] = json!([]);
-    declared["operations"] = json!([]);
+    declared
+        .as_object_mut()
+        .expect("Store")
+        .remove("identityFields");
+    declared.as_object_mut().expect("Store").remove("steps");
+    declared["operations"] = json!([{
+        "identity":format!("ix://{MODEL_IDENTITY}/Store/save"),
+        "name":"save", "params":[]
+    }]);
+    declared["persists"] = json!([format!("ix://{MODEL_IDENTITY}/Account")]);
     types.push(declared.clone());
     declared["identity"] = json!(format!("ix://{MODEL_IDENTITY}/Address"));
     declared["displayName"] = json!("Address");
     declared["kind"]["name"] = json!("record");
+    declared
+        .as_object_mut()
+        .expect("Address")
+        .remove("persists");
+    declared["operations"] = json!([]);
     declared["fields"] = json!([{
         "identity":format!("ix://{MODEL_IDENTITY}/Address/street"),
         "name":"street", "typeRef":format!("ix://{MODEL_IDENTITY}/Code"),
@@ -119,7 +151,13 @@ fn selected_form_document() -> Value {
         "name":"address", "typeRef":format!("ix://{MODEL_IDENTITY}/Address"),
         "presence":"required", "nullable":false, "defaultKind":"none",
         "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}
+    }, {
+        "identity":format!("ix://{MODEL_IDENTITY}/Account/id"),
+        "name":"id", "typeRef":"ix://quire/native/UUID",
+        "presence":"required", "nullable":false, "defaultKind":"none",
+        "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}
     }]);
+    declared["identityFields"] = json!([format!("ix://{MODEL_IDENTITY}/Account/id")]);
     types.push(declared);
     types.push(json!({
         "identity":format!("ix://{MODEL_IDENTITY}/Code"), "displayName":"Code",
@@ -135,7 +173,10 @@ fn selected_form_document() -> Value {
 }
 
 fn selected_forms_package() -> (Value, CheckedPackageEvidence) {
-    let document = selected_form_document();
+    selected_forms_package_with(selected_form_document())
+}
+
+fn selected_forms_package_with(document: Value) -> (Value, CheckedPackageEvidence) {
     let digest = sha256_hex(&canonical(&document));
     let mut package = v2_nominal();
     package["lock"]["model_selections"] = json!([{
@@ -199,6 +240,83 @@ fn selected_forms_package() -> (Value, CheckedPackageEvidence) {
     (package, evidence)
 }
 
+/// Trace: FR-068-AC-1, FR-068-AC-3, QSpec FR-208-AC-5..7
+#[trace("TC-463")]
+#[test]
+fn selected_process_machine_and_persistence_require_complete_meaning_declarations() {
+    for (name, type_index, member) in [
+        ("machine operations", 0, "operations"),
+        ("machine states", 0, "states"),
+        ("machine transitions", 0, "transitions"),
+        ("process identity", 1, "identityFields"),
+        ("process steps", 1, "steps"),
+        ("persistence operations", 2, "operations"),
+        ("persistence persists", 2, "persists"),
+    ] {
+        let mut document = selected_form_document();
+        document["types"][type_index][member] = json!([]);
+        let (package, evidence) = selected_forms_package_with(document);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+            panic!("{name}: incomplete selected meaning must refuse");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            "{name}"
+        );
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            "{name}"
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some("/lock/model_selections/0"),
+            "{name}"
+        );
+    }
+    for name in [
+        "process consumes object",
+        "machine emits record",
+        "persistence persists process",
+    ] {
+        let mut document = selected_form_document();
+        match name {
+            "process consumes object" => {
+                document["types"][1]["steps"][0]["consumes"] =
+                    json!([format!("ix://{MODEL_IDENTITY}/Account")])
+            }
+            "machine emits record" => {
+                document["types"][0]["transitions"][0]["emits"] =
+                    json!([format!("ix://{MODEL_IDENTITY}/Address")])
+            }
+            "persistence persists process" => {
+                document["types"][2]["persists"] = json!([format!("ix://{MODEL_IDENTITY}/Flow")])
+            }
+            _ => unreachable!(),
+        }
+        let (package, evidence) = selected_forms_package_with(document);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+            panic!("{name}: wrong meaning must refuse");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            "{name}"
+        );
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            "{name}"
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some("/lock/model_selections/0"),
+            "{name}"
+        );
+    }
+}
+
 /// Trace: FR-068-AC-1, FR-068-AC-2, QSpec FR-322-AC-63, FR-322-AC-72
 #[trace("TC-463")]
 #[test]
@@ -250,11 +368,30 @@ fn selected_process_persistence_state_and_record_keep_owner_and_reference_identi
     };
     let second = writer_bytes(&serde_json::from_slice(&encoded).expect("canonical JSON"));
     assert_eq!(second, encoded);
-    assert!(matches!(
-        CheckedPackageV2::read(&second, CheckedPackageReadLimits::bounded(), &evidence),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ));
+    let CheckedPackageV2ReadResult::Admitted(third) =
+        CheckedPackageV2::read(&second, CheckedPackageReadLimits::bounded(), &evidence)
+    else {
+        panic!("second canonical reread must admit");
+    };
     assert_eq!(admitted.package_id(), again.package_id());
+    assert_eq!(again.package_id(), third.package_id());
+    for form in [
+        "process",
+        "state_machine",
+        "record_value_type",
+        "persistence_interface",
+    ] {
+        let node = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["semantic_form"] == form)
+            .expect("form");
+        let id: quire_contract_model::CheckedNodeId =
+            serde_json::from_value(node["node_id"].clone()).expect("id");
+        assert!(again.node(&id).is_some(), "{form}: first reread identity");
+        assert!(third.node(&id).is_some(), "{form}: second reread identity");
+    }
 }
 
 /// Trace: FR-068-AC-3, QSpec FR-322-AC-65, FR-322-AC-72

@@ -2546,6 +2546,283 @@ fn joined(base: &[Segment], tail: Segment) -> Vec<Segment> {
     path
 }
 
+/// Require a non-empty meaning member without accepting an absent or malformed list.
+fn required_items<'v>(
+    value: &'v Value,
+    member: &'static str,
+    defects: &mut Defects<'v>,
+) -> &'v [Value] {
+    match list(value, member) {
+        Ok(items) if !items.is_empty() => items,
+        _ => {
+            defects.context(value);
+            defects.push(
+                Row::Meaning,
+                &[Segment::Name(member)],
+                ModelRefusal::malformed(),
+            );
+            &[]
+        }
+    }
+}
+
+fn meaning_reference<'v>(
+    value: &'v Value,
+    expected: &BTreeSet<&str>,
+    declared: &BTreeSet<&str>,
+    path: &[Segment],
+    defects: &mut Defects<'v>,
+) {
+    defects.context(value);
+    match value.as_str() {
+        Some(name) if expected.contains(name) => {}
+        Some(name) if declared.contains(name) => {
+            defects.push(Row::Meaning, path, ModelRefusal::malformed());
+        }
+        Some(_) => defects.push(Row::Reference, path, ModelRefusal::missing_name()),
+        None if value.is_null() => {
+            defects.push(Row::Reference, path, ModelRefusal::missing_name());
+        }
+        None => defects.push(Row::Meaning, path, ModelRefusal::malformed()),
+    }
+}
+
+/// FR-208's required members are checked before a selected declaration can
+/// contribute an authenticated Process, StateMachine or PersistenceInterface key.
+fn check_selected_meaning<'v>(
+    value: &'v Value,
+    meaning: meaning::Kind,
+    scope: &Scope<'_>,
+    defects: &mut Defects<'v>,
+) {
+    if !matches!(
+        meaning,
+        meaning::Kind::Process | meaning::Kind::StateMachine | meaning::Kind::PersistenceInterface
+    ) {
+        return;
+    }
+    let declared = &scope.all_types;
+    match meaning {
+        meaning::Kind::Process => {
+            let fields = list(value, "fields").unwrap_or_default();
+            let identities: BTreeSet<&str> = fields
+                .iter()
+                .filter_map(|field| field.get("identity").and_then(Value::as_str))
+                .collect();
+            for (index, field) in required_items(value, "identityFields", defects)
+                .iter()
+                .enumerate()
+            {
+                if !field
+                    .as_str()
+                    .is_some_and(|identity| identities.contains(identity))
+                {
+                    defects.context(value);
+                    defects.push(
+                        Row::Meaning,
+                        &[Segment::Name("identityFields"), Segment::Index(index)],
+                        ModelRefusal::malformed(),
+                    );
+                }
+            }
+            let mut names = BTreeSet::new();
+            for (index, step) in required_items(value, "steps", defects).iter().enumerate() {
+                let base = [Segment::Name("steps"), Segment::Index(index)];
+                defects.context(step);
+                let name = step.get("name").and_then(Value::as_str);
+                if let Some(name) = name.filter(|name| is_object_id(name)) {
+                    if !names.insert(name) {
+                        defects.push(
+                            Row::Meaning,
+                            &base,
+                            ModelRefusal::new(
+                                CheckedPackageRefusalCode::InvalidModelBinding,
+                                CheckedPackageRefusalCause::ConflictingBinding,
+                            ),
+                        );
+                    }
+                } else {
+                    defects.push(Row::Meaning, &base, ModelRefusal::malformed());
+                }
+                if !matches!(
+                    step.get("stepKind").and_then(Value::as_str),
+                    Some("command" | "event" | "decision" | "compensation" | "wait")
+                ) {
+                    defects.push(
+                        Row::Meaning,
+                        &joined(&base, Segment::Name("stepKind")),
+                        ModelRefusal::malformed(),
+                    );
+                }
+                check_event_lists(
+                    step,
+                    &base,
+                    &["consumes", "emits"],
+                    scope,
+                    declared,
+                    defects,
+                );
+            }
+        }
+        meaning::Kind::StateMachine => {
+            required_items(value, "operations", defects);
+            let mut states = BTreeSet::new();
+            for (index, state) in required_items(value, "states", defects).iter().enumerate() {
+                let path = [Segment::Name("states"), Segment::Index(index)];
+                defects.context(state);
+                let identity = state.get("identity").and_then(Value::as_str);
+                if identity.is_some_and(|identity| !states.insert(identity)) {
+                    defects.push(
+                        Row::Meaning,
+                        &path,
+                        ModelRefusal::new(
+                            CheckedPackageRefusalCode::InvalidModelBinding,
+                            CheckedPackageRefusalCause::ConflictingBinding,
+                        ),
+                    );
+                } else if identity.is_none() {
+                    defects.push(Row::Meaning, &path, ModelRefusal::malformed());
+                }
+            }
+            let operations: BTreeSet<&str> = list(value, "operations")
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|operation| operation.get("identity").and_then(Value::as_str))
+                .collect();
+            let clauses: BTreeMap<&str, &Value> = list(value, "clauses")
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|clause| Some((clause.get("clauseId")?.as_str()?, clause)))
+                .collect();
+            for (index, transition) in required_items(value, "transitions", defects)
+                .iter()
+                .enumerate()
+            {
+                let base = [Segment::Name("transitions"), Segment::Index(index)];
+                for (member, expected) in
+                    [("from", &states), ("to", &states), ("trigger", &operations)]
+                {
+                    let path = joined(&base, Segment::Name(member));
+                    meaning_reference(&transition[member], expected, declared, &path, defects);
+                }
+                if let Some(guard) = transition.get("guard") {
+                    let path = joined(&base, Segment::Name("guard"));
+                    defects.context(transition);
+                    let clause_id = guard.get("clauseId").and_then(Value::as_str);
+                    let clause = clause_id.and_then(|id| clauses.get(id).copied());
+                    match clause {
+                        _ if guard.get("language").and_then(Value::as_str) != Some("quire") => {
+                            defects.push(Row::Meaning, &path, ModelRefusal::malformed());
+                        }
+                        None => defects.push(Row::Reference, &path, ModelRefusal::missing_name()),
+                        Some(clause)
+                            if clause.get("language").and_then(Value::as_str) != Some("quire") =>
+                        {
+                            defects.push(Row::Meaning, &path, ModelRefusal::malformed());
+                        }
+                        Some(_) => {}
+                    }
+                }
+                check_event_lists(transition, &base, &["emits"], scope, declared, defects);
+            }
+        }
+        meaning::Kind::PersistenceInterface => {
+            if !list(value, "fields").unwrap_or_default().is_empty() {
+                defects.context(value);
+                defects.push(
+                    Row::Meaning,
+                    &[Segment::Name("fields")],
+                    ModelRefusal::malformed(),
+                );
+            }
+            required_items(value, "operations", defects);
+            if !list(value, "supertypes").unwrap_or_default().is_empty() {
+                defects.context(value);
+                defects.push(
+                    Row::Meaning,
+                    &[Segment::Name("supertypes")],
+                    ModelRefusal::new(
+                        CheckedPackageRefusalCode::UnsupportedConstruct,
+                        CheckedPackageRefusalCause::DeclarationForm,
+                    ),
+                );
+            }
+            if !list(value, "clauses").unwrap_or_default().is_empty() {
+                defects.context(value);
+                defects.push(
+                    Row::Meaning,
+                    &[Segment::Name("clauses")],
+                    ModelRefusal::new(
+                        CheckedPackageRefusalCode::UnsupportedConstruct,
+                        CheckedPackageRefusalCause::DeclarationForm,
+                    ),
+                );
+            }
+            for (index, operation) in list(value, "operations")
+                .unwrap_or_default()
+                .iter()
+                .enumerate()
+            {
+                if operation
+                    .get("pre")
+                    .is_some_and(|pre| !pre.as_array().is_some_and(Vec::is_empty))
+                    || operation
+                        .get("post")
+                        .is_some_and(|post| !post.as_array().is_some_and(Vec::is_empty))
+                {
+                    defects.context(operation);
+                    defects.push(
+                        Row::Meaning,
+                        &[Segment::Name("operations"), Segment::Index(index)],
+                        ModelRefusal::new(
+                            CheckedPackageRefusalCode::UnsupportedConstruct,
+                            CheckedPackageRefusalCause::DeclarationForm,
+                        ),
+                    );
+                }
+            }
+            for (index, persisted) in required_items(value, "persists", defects)
+                .iter()
+                .enumerate()
+            {
+                meaning_reference(
+                    persisted,
+                    &scope.object_types,
+                    declared,
+                    &[Segment::Name("persists"), Segment::Index(index)],
+                    defects,
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+fn check_event_lists<'v>(
+    value: &'v Value,
+    base: &[Segment],
+    members: &[&'static str],
+    scope: &Scope<'_>,
+    declared: &BTreeSet<&str>,
+    defects: &mut Defects<'v>,
+) {
+    for &member in members {
+        if let Ok(events) = list(value, member) {
+            for (index, event) in events.iter().enumerate() {
+                let path = joined(&joined(base, Segment::Name(member)), Segment::Index(index));
+                meaning_reference(event, &scope.events, declared, &path, defects);
+            }
+        } else {
+            defects.context(value);
+            defects.push(
+                Row::Meaning,
+                &joined(base, Segment::Name(member)),
+                ModelRefusal::malformed(),
+            );
+        }
+    }
+}
+
 /// One declared type node: its declaration and meaning, or the refusal it draws.
 type ClassifiedType<'v> = Result<(&'v Value, meaning::Kind), ModelRefusal>;
 
@@ -2553,10 +2830,16 @@ type ClassifiedType<'v> = Result<(&'v Value, meaning::Kind), ModelRefusal>;
 /// known before any node's body is read, so no reference outcome depends on
 /// the order the nodes are read in.
 struct Scope<'v> {
+    /// Every classified type identity, for wrong-kind versus absent references.
+    all_types: BTreeSet<&'v str>,
     /// Object-identity forms accepted as declared field types.
     objects: BTreeSet<&'v str>,
     /// Object and systems-interface supertypes, excluding process/state forms.
     nominal_objects: BTreeSet<&'v str>,
+    /// Object types alone may occur in a persistence interface's `persists` list.
+    object_types: BTreeSet<&'v str>,
+    /// Event types alone may be consumed or emitted by steps and transitions.
+    events: BTreeSet<&'v str>,
     /// Process and state-machine supertypes must stay within their meanings.
     processes: BTreeSet<&'v str>,
     state_machines: BTreeSet<&'v str>,
@@ -2619,7 +2902,13 @@ fn node_size(value: &Value) -> u64 {
     let mut total = 1_usize;
     for member in [
         "fields",
+        "identityFields",
         "operations",
+        "clauses",
+        "states",
+        "transitions",
+        "steps",
+        "persists",
         "supertypes",
         "relationships",
         "variants",
@@ -2632,6 +2921,22 @@ fn node_size(value: &Value) -> u64 {
         .map_or(&[][..], Vec::as_slice)
     {
         total = total.saturating_add(len(operation, "params"));
+    }
+    for step in value
+        .get("steps")
+        .and_then(Value::as_array)
+        .map_or(&[][..], Vec::as_slice)
+    {
+        total = total
+            .saturating_add(len(step, "consumes"))
+            .saturating_add(len(step, "emits"));
+    }
+    for transition in value
+        .get("transitions")
+        .and_then(Value::as_array)
+        .map_or(&[][..], Vec::as_slice)
+    {
+        total = total.saturating_add(len(transition, "emits"));
     }
     units(total)
 }
@@ -2715,8 +3020,11 @@ pub(super) fn read_semantic_ir(
         model.population_members.insert(node.into(), members);
     }
     let mut scope = Scope {
+        all_types: BTreeSet::new(),
         objects: BTreeSet::new(),
         nominal_objects: BTreeSet::new(),
+        object_types: BTreeSet::new(),
+        events: BTreeSet::new(),
         processes: BTreeSet::new(),
         state_machines: BTreeSet::new(),
         records: BTreeSet::new(),
@@ -2733,6 +3041,7 @@ pub(super) fn read_semantic_ir(
                 continue;
             }
         };
+        scope.all_types.insert(node);
         match meaning {
             meaning::Kind::ObjectType
             | meaning::Kind::StateMachine
@@ -2749,6 +3058,9 @@ pub(super) fn read_semantic_ir(
                         scope.state_machines.insert(node);
                     } else {
                         scope.nominal_objects.insert(node);
+                        if meaning == meaning::Kind::ObjectType {
+                            scope.object_types.insert(node);
+                        }
                     }
                 }
                 if matches!(
@@ -2802,6 +3114,9 @@ pub(super) fn read_semantic_ir(
                 ) {
                     scope.record_field_forbidden.insert(node);
                 }
+                if meaning == meaning::Kind::EventType {
+                    scope.events.insert(node);
+                }
                 if meaning == meaning::Kind::PersistenceInterface {
                     model.persistence_interfaces.insert((*node).into());
                 }
@@ -2827,6 +3142,7 @@ pub(super) fn read_semantic_ir(
             | meaning::Kind::SystemsInterface
             | meaning::Kind::RecordValueType => {
                 let mut defects = Defects::new(declared);
+                check_selected_meaning(declared, meaning, &scope, &mut defects);
                 let (object, declared_relationships) = semantic_ir_object_type(
                     declared,
                     node,
@@ -2843,13 +3159,9 @@ pub(super) fn read_semantic_ir(
                 if let Some(refusal) = defects.first() {
                     let mut selected =
                         SelectionRefusal::located(refusal.refusal, refusal.declaration, budget)?;
-                    if matches!(refusal.row, Row::ParameterDuplicate | Row::ParameterName)
-                        && refusal.path.first() == Some(&Segment::Name("operations"))
-                    {
-                        selected.declaration_path = Some(refusal.path);
-                        if refusal.row == Row::ParameterDuplicate {
-                            selected.declaration_origin = None;
-                        }
+                    selected.declaration_path = Some(refusal.path);
+                    if refusal.row == Row::ParameterDuplicate {
+                        selected.declaration_origin = None;
                     }
                     return Err(selected.into());
                 }
@@ -2882,6 +3194,29 @@ pub(super) fn read_semantic_ir(
                 model
                     .value_types
                     .insert(node.into(), semantic_ir_value_type(declared));
+            }
+            meaning::Kind::PersistenceInterface => {
+                let mut defects = Defects::new(declared);
+                check_selected_meaning(declared, meaning, &scope, &mut defects);
+                let _ = semantic_ir_object_type(
+                    declared,
+                    node,
+                    true,
+                    false,
+                    meaning,
+                    &References {
+                        model: &model,
+                        scope: &scope,
+                    },
+                    &relationships,
+                    &mut defects,
+                );
+                if let Some(refusal) = defects.first() {
+                    let mut selected =
+                        SelectionRefusal::located(refusal.refusal, refusal.declaration, budget)?;
+                    selected.declaration_path = Some(refusal.path);
+                    return Err(selected.into());
+                }
             }
             meaning::Kind::VariantType => {
                 let cases = match list(declared, "variants") {
@@ -2920,7 +3255,6 @@ pub(super) fn read_semantic_ir(
                 model.variant_types.insert(node.into(), names);
             }
             meaning::Kind::EventType
-            | meaning::Kind::PersistenceInterface
             | meaning::Kind::Namespace
             | meaning::Kind::Population
             | meaning::Kind::SystemsPart

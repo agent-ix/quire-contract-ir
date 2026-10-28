@@ -391,6 +391,30 @@ fn typed_object(short: &str, kind: &str, supertypes: &[&str], fields: &[Field]) 
     })
 }
 
+fn process(short: &str, supertypes: &[&str], fields: &[Field]) -> Value {
+    let identity = if fields.is_empty() {
+        "run"
+    } else {
+        fields[0].name
+    };
+    let mut declared = typed_object(
+        short,
+        "process",
+        supertypes,
+        if fields.is_empty() {
+            &[field("run", "ix://quire/native/UUID")]
+        } else {
+            fields
+        },
+    );
+    declared["identityFields"] = json!([format!("{}/{identity}", orders(short))]);
+    declared["steps"] = json!([{
+        "identity":format!("{}/advance", orders(short)),
+        "name":"advance", "stepKind":"command", "consumes":[], "emits":[]
+    }]);
+    declared
+}
+
 /// A value type of `scalar` with `min` and `max` constraints, written as the
 /// decimal text a bound past 2^53 needs.
 fn value_type(short: &str, scalar: &str, bounds: Option<(&str, &str)>) -> Value {
@@ -1554,9 +1578,8 @@ fn selected_record_address_street_has_profiled_text_and_account_keeps_record_typ
 #[trace("TC-463")]
 #[test]
 fn selected_process_field_n_resolves_through_the_model_member_step() {
-    let mut document = document(vec![typed_object(
+    let mut document = document(vec![process(
         "Flow",
-        "process",
         &[],
         &[field("n", "ix://quire/native/Integer")],
     )]);
@@ -1592,13 +1615,8 @@ fn selected_process_field_n_resolves_through_the_model_member_step() {
 #[test]
 fn selected_subprocess_inherits_only_process_members() {
     let mut document = document(vec![
-        typed_object(
-            "Flow",
-            "process",
-            &[],
-            &[field("n", "ix://quire/native/Integer")],
-        ),
-        typed_object("SubFlow", "process", &["Flow"], &[]),
+        process("Flow", &[], &[field("n", "ix://quire/native/Integer")]),
+        process("SubFlow", &["Flow"], &[]),
     ]);
     document["constructs"]
         .as_array_mut()
@@ -1645,6 +1663,48 @@ fn selected_record_field_refuses_each_non_value_object_meaning_at_intake() {
         ),
         ("namespace", "quire.meaning.model.namespace/v1"),
     ] {
+        let mut other = match kind {
+            "process" => process("Other", &[], &[]),
+            "event" => typed_object(
+                "Other",
+                kind,
+                &[],
+                &[field("at", "ix://quire/native/Timestamp")],
+            ),
+            _ => typed_object("Other", kind, &[], &[]),
+        };
+        match kind {
+            "event" => other["occurrenceField"] = json!(format!("{}/at", orders("Other"))),
+            "machine" => {
+                other["operations"] = json!([{"identity":format!("{}/toggle", orders("Other")),
+                    "name":"toggle", "params":[]}]);
+                other["states"] = json!([{"identity":format!("{}/open", orders("Other")),
+                    "name":"open"}]);
+                other["transitions"] = json!([{
+                    "identity":format!("{}/transition", orders("Other")),
+                    "from":format!("{}/open", orders("Other")),
+                    "to":format!("{}/open", orders("Other")),
+                    "trigger":format!("{}/toggle", orders("Other")), "emits":[]
+                }]);
+            }
+            "persistence" => {
+                other["operations"] = json!([{"identity":format!("{}/save", orders("Other")),
+                    "name":"save", "params":[]}]);
+                other["persists"] = json!([orders("Account")]);
+            }
+            "namespace" => {
+                other.as_object_mut().expect("namespace").remove("fields");
+                other
+                    .as_object_mut()
+                    .expect("namespace")
+                    .remove("operations");
+                other["members"] = json!([orders("Account")]);
+                other["vocabulary"] = json!([{"term":"Account", "doc":"Account"}]);
+            }
+            _ => {}
+        }
+        let mut account = object("Account", &[], &[field("id", "ix://quire/native/UUID")]);
+        account["identityFields"] = json!([format!("{}/id", orders("Account"))]);
         let mut document = document(vec![
             typed_object(
                 "Address",
@@ -1652,7 +1712,8 @@ fn selected_record_field_refuses_each_non_value_object_meaning_at_intake() {
                 &[],
                 &[field("street", &orders("Other"))],
             ),
-            typed_object("Other", kind, &[], &[]),
+            other,
+            account,
         ]);
         document["constructs"]
             .as_array_mut()

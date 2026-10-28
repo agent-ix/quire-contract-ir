@@ -1836,6 +1836,11 @@ fn selected_flow_process_go_resolves_its_operation_and_reference_receiver() {
         "nullable":false, "defaultKind":"none",
         "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}
     }]);
+    document["types"][0]["identityFields"] = json!([format!("{flow}/n")]);
+    document["types"][0]["steps"] = json!([{
+        "identity":format!("{flow}/advance"), "name":"advance",
+        "stepKind":"command", "consumes":[], "emits":[]
+    }]);
     let digest = sha256_hex(&canonical(&document));
     let package = package_selecting_form("go", &digest, "process", &flow);
     let mut evidence = evidence_for(&package);

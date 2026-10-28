@@ -67,6 +67,103 @@ fn selected_model_intake_reference_classes_preserve_owned_values_and_empty_refus
     );
 }
 
+/// FR-154 retains the exact failing field and member path privately, even
+/// though the public lock refusal is necessarily located at the selection row.
+#[trace("TC-463", "FR-068-AC-4")]
+#[test]
+fn record_wrong_kind_type_refs_retain_field_identity_and_type_ref_path() {
+    const ADDRESS: &str = "ix://acme/orders/Address";
+    const OTHER: &str = "ix://acme/orders/Other";
+    const ACCOUNT: &str = "ix://acme/orders/Account";
+    for (kind, meaning) in [
+        ("event", "quire.meaning.model.event-type/v1"),
+        ("process", "quire.meaning.model.process/v1"),
+        ("machine", "quire.meaning.model.state-machine/v1"),
+        (
+            "persistence",
+            "quire.meaning.model.persistence-interface/v1",
+        ),
+        ("namespace", "quire.meaning.model.namespace/v1"),
+    ] {
+        let mut record = object_type(ADDRESS, &[], vec![field(ADDRESS, "street", OTHER)]);
+        record["kind"]["name"] = json!("record");
+        let mut other = object_type(OTHER, &[], vec![]);
+        other["kind"]["name"] = json!(kind);
+        match kind {
+            "event" => {
+                other["fields"] = json!([field(OTHER, "at", "ix://quire/native/Timestamp")]);
+                other["occurrenceField"] = json!(format!("{OTHER}/at"));
+            }
+            "process" => {
+                other["fields"] = json!([field(OTHER, "run", "ix://quire/native/UUID")]);
+                other["identityFields"] = json!([format!("{OTHER}/run")]);
+                other["steps"] = json!([{"identity":format!("{OTHER}/advance"),
+                    "name":"advance", "stepKind":"command", "consumes":[], "emits":[]}]);
+            }
+            "machine" => {
+                other["operations"] = json!([{"identity":format!("{OTHER}/toggle"), "params":[]}]);
+                other["states"] = json!([{"identity":format!("{OTHER}/open"), "name":"open"}]);
+                other["transitions"] = json!([{"identity":format!("{OTHER}/transition"),
+                    "from":format!("{OTHER}/open"), "to":format!("{OTHER}/open"),
+                    "trigger":format!("{OTHER}/toggle"), "emits":[]}]);
+            }
+            "persistence" => {
+                other["operations"] = json!([{"identity":format!("{OTHER}/save"), "params":[]}]);
+                other["persists"] = json!([ACCOUNT]);
+            }
+            "namespace" => {
+                other.as_object_mut().expect("namespace").remove("fields");
+                other
+                    .as_object_mut()
+                    .expect("namespace")
+                    .remove("operations");
+                other["members"] = json!([ACCOUNT]);
+                other["vocabulary"] = json!([{"term":"Account", "doc":"Account"}]);
+            }
+            _ => unreachable!(),
+        }
+        let mut account = object_type(
+            ACCOUNT,
+            &[],
+            vec![field(ACCOUNT, "id", "ix://quire/native/UUID")],
+        );
+        account["identityFields"] = json!([format!("{ACCOUNT}/id")]);
+        let mut selected = document(vec![record, other, account]);
+        selected["constructs"]
+            .as_array_mut()
+            .expect("constructs")
+            .extend([
+                json!({"kind":{"module":"acme/orders","name":"record"},
+                "construct":{"meaning":"quire.meaning.model.record-value-type/v1"}}),
+                json!({"kind":{"module":"acme/orders","name":kind},
+                "construct":{"meaning":meaning}}),
+            ]);
+        let mut meter = WorkMeter::new(u64::MAX);
+        let Err(SelectionFailure::Refused(refusal)) = read_semantic_ir(
+            &selected,
+            &mut Budget::new(&mut meter, 0, BYTES),
+            &Arc::new(BTreeMap::new()),
+        ) else {
+            panic!("{kind}: wrong record field type must refuse");
+        };
+        assert_eq!(refusal.refusal, ModelRefusal::malformed(), "{kind}");
+        assert_eq!(
+            refusal.declaration_identity.as_deref(),
+            Some(format!("{ADDRESS}/street").as_str()),
+            "{kind}"
+        );
+        assert_eq!(
+            refusal.declaration_path,
+            Some(vec![
+                Segment::Name("fields"),
+                Segment::Index(0),
+                Segment::Name("typeRef")
+            ]),
+            "{kind}"
+        );
+    }
+}
+
 /// Compare every QSpec model-declaration golden with the exact key function
 /// used when the production reader admits selected domain declarations.
 /// Ordinary workspace tests have no QSpec checkout; the explicit conformance
