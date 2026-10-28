@@ -10,10 +10,10 @@
 //! vocabulary.
 
 use crate::support::checked_package::{
-    canonical, domain_package_digest, evidence_for, family_model_document, fixture_source,
-    mint_ungrouped_structural_keys, node_id, over_body, rebuild_source_map, refresh_identity,
-    rename_node, settle, sha256_hex, source_owner, structural_key, typed_node_id, v2_all_families,
-    BOOLEAN_KEY, INTEGER_KEY,
+    canonical, domain_package_digest, evidence_for, family_key, family_model_document,
+    fixture_source, mint_ungrouped_structural_keys, node_id, over_body, rebuild_source_map,
+    refresh_identity, rename_node, settle, sha256_hex, source_owner, structural_key, typed_node_id,
+    v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
@@ -445,8 +445,7 @@ fn object_key() -> &'static str {
 }
 
 fn process_key() -> &'static str {
-    static KEY: LazyLock<String> =
-        LazyLock::new(|| fixture_key("model", "process", Some(BOOLEAN_KEY), None));
+    static KEY: LazyLock<String> = LazyLock::new(|| family_key("1616"));
     &KEY
 }
 
@@ -811,7 +810,6 @@ fn tc_056_exactly_fifteen_model_forms_admit() {
         "record_value_type",
         "event_type",
         "process",
-        "persistence_interface",
         "namespace",
         "systems_interface",
         "systems_part",
@@ -832,6 +830,19 @@ fn tc_056_exactly_fifteen_model_forms_admit() {
         ),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
+    // Persistence interfaces also require an owner from a selected model.
+    let (persistence, evidence) = crate::checked_package_v2_refinement::selected_forms_package();
+    let result = CheckedPackageV2::read(
+        &canonical(&persistence),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    );
+    let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
+        panic!("selected persistence interface must admit: {result:?}");
+    };
+    assert!(admitted.graph().nodes.iter().any(|node| {
+        node.node_tag.as_ref() == "model" && node.semantic_form.as_ref() == "persistence_interface"
+    }));
     for form in [
         "field_declaration",
         "operation_declaration",
@@ -3356,18 +3367,19 @@ fn tc_056_scoped_delete_parameter_scan_charges_validation_work() {
     let parameter = ModelPackage::new().edit(frame, |node| {
         node["body"]["deletes_scoped"] = json!([{"kind": "parameter", "name": "n"}]);
     });
-    // The three protocol nodes and selected root charge before this scoped scan.
-    let incomplete = match read_model_with_work(&parameter.value, 352) {
+    // The three protocol nodes, selected root, and selected Process owner join
+    // charge before this scoped scan.
+    let incomplete = match read_model_with_work(&parameter.value, 360) {
         CheckedPackageV2ReadResult::Incomplete(incomplete) => incomplete,
         other => panic!("expected work limit at scoped parameter scan, got {other:?}"),
     };
     assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
-    assert_eq!(incomplete.consumed, 353);
+    assert_eq!(incomplete.consumed, 361);
     assert_eq!(
         incomplete.path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{frame}/body").as_str())
     );
-    let refusal = match read_model_with_work(&parameter.value, 353) {
+    let refusal = match read_model_with_work(&parameter.value, 361) {
         CheckedPackageV2ReadResult::Refused(refusal) => refusal,
         other => panic!("expected missing-name after paying for scan, got {other:?}"),
     };

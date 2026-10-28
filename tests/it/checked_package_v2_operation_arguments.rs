@@ -1060,7 +1060,9 @@ fn tc_448_a_record_field_is_read_over_a_conforming_operand() {
     // A record owns no operation.
     let mut scene = ledger_scene();
     let record = scene.ty(&placed);
-    let operand = scene.param("operand", &placed);
+    // Supply a valid reference receiver so the catalogued operand-family
+    // check passes and the record's forbidden operation is the first defect.
+    let operand = scene.param("operand", &Ty::Ref("Ledger"));
     let integer = scene.scalar("integer");
     let key = scene.dispatch(&record, "occurred_at", &[operand], &integer);
     scene

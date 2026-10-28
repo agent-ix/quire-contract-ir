@@ -4,9 +4,9 @@
 //! Public-reader controls for declared-unit, aggregate and literal families.
 
 use crate::support::checked_package::{
-    application_node_key, canonical, evidence_for, node_id, nominal_fixture_members,
-    nominal_package, rebuild_source_map, refresh_identity, settle, sha256_hex, structural_key,
-    v2_all_families,
+    add_family_reference_target, application_node_key, canonical, evidence_for, node_id,
+    nominal_fixture_members, nominal_package, rebuild_source_map, refresh_identity, settle,
+    sha256_hex, structural_key, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -1377,8 +1377,9 @@ fn quantity_convert_admits_equal_compound_unit_result() {
 #[trace("TC-048", "FR-038-AC-247", "FR-038-AC-248")]
 #[test]
 fn collection_size_admits_equal_model_population_result() {
-    let (mut package, unit, _, integer, _, _) = fixture();
-    let reference_body = json!({"term":"aggregate","members":[reference(&unit)]});
+    let (mut package, _, _, integer, _, _) = fixture();
+    let target = add_family_reference_target(&mut package);
+    let reference_body = json!({"term":"aggregate","members":[reference(&target)]});
     let reference_type = structural_key("composite_type", "reference", None, &reference_body);
     add_node(
         &mut package,
@@ -1477,7 +1478,8 @@ fn fold_and_reduce_admit_without_member_family_and_refuse_unequal_result() {
 fn non_member_model_results_remain_admitted() {
     for lookup in [false, true] {
         let (mut package, unit, _, integer, left, _) = fixture();
-        let reference_body = json!({"term":"aggregate","members":[reference(&unit)]});
+        let target = add_family_reference_target(&mut package);
+        let reference_body = json!({"term":"aggregate","members":[reference(&target)]});
         let reference_type = structural_key("composite_type", "reference", None, &reference_body);
         add_node(
             &mut package,

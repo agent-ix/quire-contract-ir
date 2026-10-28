@@ -2476,6 +2476,23 @@ fn protocol_owner_selected_state_machine_and_record_value_type_refuse_at_edge() 
         let mut package = admitted_protocol_families();
         let mut document = family_model_document();
         document["constructs"][1]["construct"]["meaning"] = json!(meaning);
+        if form == "state_machine" {
+            let owner = document["types"][1]["identity"]
+                .as_str()
+                .expect("interface identity")
+                .to_owned();
+            document["types"][1]["operations"] = json!([{
+                "identity":format!("{owner}/toggle"), "name":"toggle", "params":[]
+            }]);
+            document["types"][1]["states"] = json!([{
+                "identity":format!("{owner}/open"), "name":"open"
+            }]);
+            document["types"][1]["transitions"] = json!([{
+                "identity":format!("{owner}/transition"),
+                "from":format!("{owner}/open"), "to":format!("{owner}/open"),
+                "trigger":format!("{owner}/toggle"), "emits":[]
+            }]);
+        }
         let digest = domain_package_digest(&document);
         package["lock"]["model_selections"][0]["digest"] = json!(digest);
 
@@ -4335,14 +4352,17 @@ fn await_checks_anchor_form_and_event_eligibility() {
     );
 
     let mut wrong_event = package;
-    let role = wrong_event["semantic_graph"]["nodes"][protocol_position(&wrong_event, "role")]
-        ["node_id"]
+    let role_position = protocol_position(&wrong_event, "role");
+    let channel_position = add_member_channel(&mut wrong_event, role_position);
+    let channel = wrong_event["semantic_graph"]["nodes"][channel_position]["node_id"].clone();
+    let binder = wrong_event["semantic_graph"]["nodes"][children[0]]["body"]["arguments"][2]
+        ["value"]["target"]
         .clone();
     wrong_event["semantic_graph"]["nodes"][children[0]]["body"]["operation"]["member"]
         ["operator"] = json!("send");
     wrong_event["semantic_graph"]["nodes"][children[0]]["body"]["arguments"] = json!([
-        {"term": "binding", "name": "channel", "value": {"term": "reference", "target": role}},
-        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": role}},
+        {"term": "binding", "name": "channel", "value": {"term": "reference", "target": channel}},
+        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": binder}},
         {"term": "binding", "name": "related", "value": {"term": "aggregate", "members": []}},
         {"term": "binding", "name": "constraint", "value": {"term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}}
     ]);
