@@ -2846,9 +2846,15 @@ Status: PLANNED/UNRUN (IR-1083). Read QSpec's published
 selected QSpec checkout. Do not store a local copy. Apply its complete
 SL-01..SL-08, SR-01..SR-04, GD-01..GD-03 and PR-01..PR-06 cases through the
 public V2 reader, rebuilding dependent identities for a semantic mutation.
-Compare exact admission or the code, cause and RFC 6901 locus suffix recorded
-by the vector. Check the reader stage against FR-322's stated order. Keep strict-wire, graph-shape and stale-key checks ahead of the
-timed-model and operation-body checks.
+Compare exact admission or each vector's expected code and cause. Compare the
+RFC 6901 locus suffix recorded by SR-01..04 and PR-04..06. For GD-02, derive
+the later root `clock_places` reference locus from QSpec FR-322-AC-120 and
+assert it separately from the vector. GD-03 records no locus suffix, and
+FR-322-AC-150 fixes no exact locus: assert its code, cause, stage and refusal
+now; keep the exact-locus check PLANNED under STD-540 until QSpec fixes that
+contract. Check the reader stage against FR-322's stated order. Keep
+strict-wire, graph-shape and stale-key checks ahead of the timed-model and
+operation-body checks.
 
 For AC-335, inspect the admitted template path and selector node identity,
 not merely the selector's semantic type. Assert one place node for three
