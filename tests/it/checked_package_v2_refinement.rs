@@ -599,8 +599,8 @@ fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
     set_concrete_catalog(
         &mut base,
         vec![
-            json!({"class":"Gate::toggle", "node":extra[1]["node_id"], "binder_types":[gate_reference]}),
             json!({"class":"Example::OrderFlow::Closed", "node":finish, "binder_types":[boolean]}),
+            json!({"class":"Gate::toggle", "node":extra[1]["node_id"], "binder_types":[gate_reference]}),
         ],
     );
     let refinement = base["semantic_graph"]["nodes"]
