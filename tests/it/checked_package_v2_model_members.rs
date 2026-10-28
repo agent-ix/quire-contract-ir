@@ -171,6 +171,10 @@ fn package_over(
 
 /// [`package_over`]'s package, whose one `model_selections` row names `digest`.
 fn package_selecting(name: &str, digest: &str) -> Value {
+    package_selecting_form(name, digest, "object_type", ORDER)
+}
+
+fn package_selecting_form(name: &str, digest: &str, form: &str, declaring: &str) -> Value {
     let mut package = nominal_package(&[]);
     package["lock"]["model_selections"] = json!([{
         "identity": IDENTITY,
@@ -179,9 +183,9 @@ fn package_selecting(name: &str, digest: &str) -> Value {
 
     let order = structural_key(
         "model",
-        "object_type",
+        form,
         None,
-        Some(json!({"kind": "model", "identity": IDENTITY, "node": ORDER})),
+        Some(json!({"kind": "model", "identity": IDENTITY, "node": declaring})),
         &empty(),
     );
     let reference_body = json!({"term": "aggregate", "members": [reference(&order)]});
@@ -211,8 +215,8 @@ fn package_selecting(name: &str, digest: &str) -> Value {
     })));
     let mut call_dependencies = [receiver.as_str(), argument.as_str(), order.as_str()];
     call_dependencies.sort_unstable();
-    let mut declaring_node = wire_node(&order, "model", "object_type", &order, &[], empty());
-    declaring_node["owner"] = json!({"kind": "model", "identity": IDENTITY, "node": ORDER});
+    let mut declaring_node = wire_node(&order, "model", form, &order, &[], empty());
+    declaring_node["owner"] = json!({"kind": "model", "identity": IDENTITY, "node": declaring});
     let nodes = [
         wire_node(&INTEGER, "scalar_type", "integer", &INTEGER, &[], empty()),
         wire_node(&TEXT, "scalar_type", "text", &TEXT, &[], empty()),
@@ -1814,6 +1818,43 @@ fn tc_048_a_model_owned_operation_admits_through_a_real_semantic_ir_document() {
         CheckedPackageV2ReadResult::Admitted(_) => {}
         other => panic!("expected admission, got {other:?}"),
     }
+}
+
+/// Trace: FR-068-AC-2, QSpec FR-322-AC-72
+#[trace("TC-463")]
+#[test]
+fn selected_flow_process_go_resolves_its_operation_and_reference_receiver() {
+    let flow = format!("ix://{IDENTITY}/Flow");
+    let mut document = domain_document(json!({}));
+    document["constructs"][0]["construct"]["meaning"] = json!("quire.meaning.model.process/v1");
+    document["types"][0]["identity"] = json!(flow);
+    document["types"][0]["displayName"] = json!("Flow");
+    document["types"][0]["operations"][0]["identity"] = json!(format!("{flow}/go"));
+    document["types"][0]["fields"] = json!([{
+        "identity":format!("{flow}/n"), "name":"n",
+        "typeRef":"ix://quire/native/Integer", "presence":"required",
+        "nullable":false, "defaultKind":"none",
+        "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}
+    }]);
+    document["types"][0]["identityFields"] = json!([format!("{flow}/n")]);
+    document["types"][0]["steps"] = json!([{
+        "identity":format!("{flow}/advance"), "name":"advance",
+        "stepKind":"command", "consumes":[], "emits":[]
+    }]);
+    let digest = sha256_hex(&canonical(&document));
+    let package = package_selecting_form("go", &digest, "process", &flow);
+    let mut evidence = evidence_for(&package);
+    evidence
+        .insert_domain_package_document(digest, canonical(&document))
+        .expect("selected process");
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
+        panic!("selected Flow.go and Reference<Flow> must admit");
+    };
+    assert_eq!(admitted.graph().nodes[CALL].semantic_form.as_ref(), "call");
+    assert_eq!(
+        admitted.graph().nodes[3].semantic_form.as_ref(),
+        "reference"
+    );
 }
 
 fn unit_dispatch_call(

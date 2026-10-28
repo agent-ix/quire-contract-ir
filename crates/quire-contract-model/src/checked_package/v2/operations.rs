@@ -1142,19 +1142,22 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ValueForm::OptionValue
             | ValueForm::Parameter,
         ) => None,
-        // Implements: FR-322 (STD-102). a model declaration node of an object type or a
-        // systems interface is the `object` family, the `inner:0` result of
+        // A selected object-identity declaration is the `object` family,
+        // the `inner:0` result of
         // `quire.op.model.deref`, which only a `field_owner` position admits.
-        K::Model(ModelForm::ObjectType | ModelForm::SystemsInterface) => Some("object"),
+        K::Model(
+            ModelForm::ObjectType
+            | ModelForm::StateMachine
+            | ModelForm::Process
+            | ModelForm::SystemsInterface,
+        ) => Some("object"),
+        K::Model(ModelForm::RecordValueType) => Some("record"),
         K::Model(
             ModelForm::ModelRoot
             | ModelForm::ModelImport
             | ModelForm::ValueType
             | ModelForm::VariantType
-            | ModelForm::RecordValueType
             | ModelForm::EventType
-            | ModelForm::StateMachine
-            | ModelForm::Process
             | ModelForm::PersistenceInterface
             | ModelForm::Namespace
             | ModelForm::SystemsPart
@@ -5503,6 +5506,9 @@ mod tests {
                 ("function", "predicate", "function"),
                 ("function", "recursive_function", "function"),
                 ("model", "object_type", "object"),
+                ("model", "record_value_type", "record"),
+                ("model", "state_machine", "object"),
+                ("model", "process", "object"),
                 ("model", "systems_interface", "object"),
                 ("relation", "population", "population"),
                 ("temporal", "formula", "temporal"),

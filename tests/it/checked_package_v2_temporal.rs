@@ -1136,6 +1136,7 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::MissingName => "missing-name",
         Cause::MalformedDeclaration => "malformed-declaration",
         Cause::StaleNodeKey => "stale-node-key",
+        Cause::InvalidDerivedShape => "invalid-derived-shape",
         Cause::UnknownOperation => "unknown-operation",
         Cause::OperationClassMismatch => "operation-class-mismatch",
         Cause::OperationLawMissing => "operation-law-missing",
