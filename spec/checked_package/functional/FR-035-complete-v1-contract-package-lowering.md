@@ -204,6 +204,29 @@ that tag; an out-of-range index or a record with another
 disposition SHALL have no unsupported tag. These read-only kinds and tags SHALL
 add no FR-330 wire member and SHALL NOT change canonical bytes or identity.
 
+For each `unsupported` record, the admitted package SHALL expose the requested
+root's exact typed `CheckedNodeKind` at that record's zero-based
+`feature_accounting` index. This is the kind of the record's `node_id` in the
+reader-admitted V2 source, even when that node is absent from the represented
+graph or the first unsupported reachable `unsupported_node_id` names a different
+node or form. The producer SHALL retain this kind from its admitted source.
+`read_with_source` SHALL retain it only after authenticating the caller-supplied
+V2 source against the V1 source package identity and lock and validating the
+represented nodes as it already does. When an unsupported requested root is
+absent from that source, Contract IR SHALL return a typed handoff error and
+no partially authenticated package.
+The authenticated handoff SHALL NOT infer the requested root's kind from the
+first unsupported reachable node's `node_tag` or from a same-tag represented
+node. For an `unsupported` record admitted by plain strict `read`,
+`ContractPackageV1` SHALL return typed `NotAdmitted` for the requested-root
+kind, even if the requested key happens to be represented through another
+root. An out-of-range index or a record with another disposition SHALL return
+typed absence, distinguishable from `NotAdmitted`. The view SHALL NOT alter
+the seven-member accounting vocabulary, FR-330's closed `unsupported` payload,
+any of the six V1 wire members, canonical bytes, or identity. The existing
+`unsupported_node_id` and `node_tag` SHALL retain their first-reachable-node
+meaning; this requested-root kind describes a different, exact locus.
+
 When reading a canonical `ContractPackageWireV1`, Contract IR SHALL refuse an
 unrecognized string `contract_version` with `unknown_contract_version` located
 at `/contract_version`, retaining the supplied version in the diagnostic.
@@ -266,6 +289,10 @@ admit no `ContractPackageV1`.
 | FR-035-AC-24 | PLANNED (IR-1087). For a V2 reader-admitted operation legitimately lacking mode, laws and member declaration, source and lowered terms compare equal, and each returns admitted absence or an admitted empty law view. The six FR-330 wire members, canonical bytes and identity are unchanged by view retention. | Test (TC-047) |
 | FR-035-AC-25 | PLANNED (IR-1087). A never-admitted direct-deserialized operation returns typed `NotAdmitted` for mode, law definitions and member declaration, distinctly from AC-24's admitted absence. Plain strict V1 reading admits an otherwise valid canonical package with represented application operations, including at the exact work limit, and returns each represented term through keyed lookup; its operation views return typed `NotAdmitted`, while its terms compare equal to the producer's terms under AC-22. A consumer must use authenticated read or propagate `NotAdmitted`; it cannot silently omit operation-dependent behavior or parse JSON to recover the facts. | Test (TC-047) |
 | FR-035-AC-26 | PLANNED (IR-1087). With the exact reader-admitted V2 source supplied through an explicit authenticated handoff, strict reading the lowerer's canonical V1 bytes returns a `ContractPackageV1` whose every represented term equals the producer's and source's term as a represented typed body and whose operation views separately match the source's populated and legitimately absent admitted values. A mismatched source identity or lock, absent represented source node, or changed represented operation or non-operation node produces a typed handoff error and no partially authenticated package, even when the V1 wire is internally canonical; this is not a new plain-reader refusal code. The handoff retains the plain reader's wire, identity, dependency and limit decisions. The CG consumer's routed quantity-conversion and checked-graph association controls pass using only this admitted V1 value, without a JSON bridge. | Test (TC-047) |
+| FR-035-AC-27 | PLANNED (IR-1104). For producer-admitted mixed accounting, the requested-root kind at each `unsupported` accounting index equals the exact `CheckedNodeKind` of that record's `node_id` in the admitted V2 source, including an unrepresented `Temporal(TemporalClause)` root whose first unsupported reachable node is a distinct `Temporal(Fairness)` node referenced in its fairness argument, and separately direct `Temporal(Fairness)` and `Temporal(Formula)` requests. Interposing a healthy sibling or another request does not shift the index, change the sibling disposition, or substitute the first unsupported node's kind. | Test (TC-047) |
+| FR-035-AC-28 | PLANNED (IR-1104). `read_with_source` of the producer's canonical V1 bytes and exact reader-admitted V2 source returns the same requested-root kind for every `unsupported` accounting index as the producer. A mismatched source identity or lock, or a source missing an `unsupported` requested root, returns a typed handoff error and no authenticated package; ordinary V1 reader refusal or limit outcomes retain their existing precedence. No requested-root kind is inferred from `node_tag`, `unsupported_node_id`, or a same-tag represented node. | Test (TC-047) |
+| FR-035-AC-29 | PLANNED (IR-1104). For a canonical V1 package admitted by plain `read`, querying an `unsupported` accounting index returns typed `NotAdmitted` for the requested-root kind, including when the requested key is represented through another root. A non-`unsupported` or out-of-range index returns typed absence, distinct from `NotAdmitted`. Neither query changes the existing `unsupported` record's first-reachable `unsupported_node_id`/`node_tag` or an independent sibling's result. | Test (TC-047) |
+| FR-035-AC-30 | PLANNED (IR-1104). Producer and authenticated reader requested-root-kind queries change none of the six FR-330 wire members, the closed `unsupported` payload, canonical bytes or identity. Fairness, formula and temporal-clause requests with the same `temporal` tag remain distinguishable through the typed view, while the V1 wire's first-reachable-node tag remains unchanged. | Test (TC-047) |
 
 FR-035-AC-12 through FR-035-AC-14 are backed by tagged TC-047 reader tests in
 `tests/it/complete_v1_contract_package.rs`; the specified workspace test gate, lint, and grammar validation pass.

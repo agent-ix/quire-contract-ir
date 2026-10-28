@@ -13,7 +13,7 @@ relationships:
 ## Description
 
 Verify FR-035-AC-2, FR-035-AC-5 through FR-035-AC-8, FR-035-AC-10 through FR-035-AC-18,
-and planned FR-035-AC-23 through FR-035-AC-26,
+and planned FR-035-AC-23 through FR-035-AC-30,
 and the aggregate FR-330 package separately from TC-044's per-item semantic
 and refusal tests. Focused FR-330
 emitter and strict-reader controls run in
@@ -125,6 +125,33 @@ missing, stale or wrong selected package. Query refused, unrequested reached
 and absent keys, then compare all six wire properties and identity before and
 after the read-only queries.
 
+For FR-035-AC-27 through FR-035-AC-30, lower one admitted V2 source with
+separate requested `temporal/fairness`, `temporal/formula` and
+`temporal/temporal_clause` roots, a healthy sibling, and a temporal-clause root
+whose admitted fairness argument references a distinct fairness node with the
+least typed key among temporal nodes in the clause's reached closure, making
+that node the first unsupported reachable node under
+a profile that does not support the temporal family. Include a refused root
+absent from the represented V1 graph. The fairness node's application has
+zero operands and only its admitted declaration dependency; it does not
+reference the temporal clause.
+At each `feature_accounting` index, compare the producer's requested-root
+`CheckedNodeKind` with the independently located V2 source root and compare
+the unchanged `unsupported_node_id` and `node_tag` with the first unsupported
+reachable node. Interpose a healthy request and verify the accounting indices
+and sibling results. Strict-read the producer's canonical V1 bytes both with
+the exact reader-admitted V2 source through `read_with_source` and without a
+source through plain `read`. The authenticated result must match the producer's
+requested-root kinds; the plain result must report typed `NotAdmitted` for each
+`unsupported` index, including a requested root also represented through a
+different lowered root. Query a healthy record and an out-of-range index and
+require typed absence, distinct from `NotAdmitted`. Supply a mismatched source
+identity and lock separately, and a source missing the requested root through
+a controlled test-only mutation; require a typed handoff error with no
+partially authenticated package. Also assert existing V1 reader refusal and
+limit precedence over source handoff. Compare all six wire members, canonical
+bytes and identity before and after the typed queries.
+
 ## Expected Results
 
 One FR-330 package carries the exact represented node set and its reached
@@ -156,6 +183,13 @@ empty when appropriate, with the exact keys and order of IR's own lowering
 classification. Refused requests return their typed disposition;
 unrequested reached or absent roots return typed absence. No such query changes
 the six-field wire or identity.
+The unsupported requested-root-kind view distinguishes fairness, formula and
+temporal-clause roots despite their shared `temporal` tag, independently of
+which reachable node made lowering unsupported. Producer and authenticated
+reader return identical typed kinds; plain reader returns `NotAdmitted` for
+unsupported records and typed absence for other or out-of-range indices.
+Mismatched or missing source returns a handoff error without changing ordinary
+reader refusal or limit precedence. The closed wire and identity are unchanged.
 
 For FR-035-AC-23 through FR-035-AC-25, admit V2 source operations with
 populated mode, law definitions and member declaration and with all three
@@ -212,3 +246,4 @@ PLANNED/UNRUN.
 The tagged nested-refusal test backs FR-035-AC-17 for both reader codes.
 The tagged dependency-diamond test backs FR-035-AC-18 with both typed paths.
 FR-035-AC-23 through FR-035-AC-26 are PLANNED/UNRUN (IR-1087).
+FR-035-AC-27 through FR-035-AC-30 are PLANNED/UNRUN (IR-1104).
