@@ -2402,7 +2402,7 @@ impl ContractPackageWireV1 {
                 }
             }
         }
-        let stale_type_targets = super::derived_keys::stale_type_key_targets(
+        let deferred_keys = super::derived_keys::deferred_key_targets(
             &self.semantic_graph.nodes,
             &kinds,
             limits.bytes,
@@ -2412,7 +2412,7 @@ impl ContractPackageWireV1 {
             &kinds,
             &terms,
             &positions,
-            &stale_type_targets,
+            &deferred_keys,
         )?;
         super::operations::validate_application_keys(
             &self.semantic_graph.nodes,
@@ -2427,6 +2427,7 @@ impl ContractPackageWireV1 {
             &kinds,
             &terms,
             &positions,
+            &deferred_keys,
             &[],
             &mut *meter,
             limits.bytes,

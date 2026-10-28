@@ -22,58 +22,118 @@ use crate::checked_package::shared::{
 };
 use quire_canonical::{Encode, Error, Sink, Writer};
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
-/// A rekeyed type can leave a parameter pointing at its old, correctly
-/// derived key. Only that dependent reference waits for key authentication.
-pub(super) fn stale_type_key_targets(
+/// An old canonical key can remain in a dependent reference when its target
+/// has been rekeyed. Resolve it only when the retained-key lookup misses;
+/// ambiguous old keys cannot identify a target.
+pub(super) struct DeferredKeyTargets(BTreeMap<CheckedNodeId, Option<usize>>);
+
+impl DeferredKeyTargets {
+    pub(super) fn position(
+        &self,
+        id: &CheckedNodeId,
+        index: &BTreeMap<&CheckedNodeId, usize>,
+    ) -> Option<usize> {
+        index
+            .get(id)
+            .copied()
+            .or_else(|| self.0.get(id).copied().flatten())
+    }
+}
+
+/// Compute the old canonical keys of stale nodes before resolving dependent
+/// references. Key authentication still visits retained IDs in digest order.
+pub(super) fn deferred_key_targets(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     bytes: u64,
-) -> BTreeSet<CheckedNodeId> {
-    nodes
-        .iter()
-        .zip(kinds)
-        .filter_map(|(node, kind)| {
-            let derived = match (kind, node.owner.as_ref()) {
-                (
-                    CheckedNodeKind::Model(form),
-                    Some(super::CheckedNodeOwner::Model {
-                        identity,
-                        node: owner_node,
-                    }),
-                ) => {
-                    let declaration = match form {
-                        super::ModelForm::RecordValueType => DeclarationForm::RecordValueType,
-                        super::ModelForm::TupleValueType => DeclarationForm::TupleValueType,
-                        super::ModelForm::VariantType => DeclarationForm::VariantType,
-                        _ => return None,
+) -> DeferredKeyTargets {
+    let mut targets = BTreeMap::new();
+    for (position, (node, kind)) in nodes.iter().zip(kinds).enumerate() {
+        let derived = match (kind, node.owner.as_ref()) {
+            (
+                CheckedNodeKind::Model(form),
+                Some(super::CheckedNodeOwner::Model {
+                    identity,
+                    node: owner_node,
+                }),
+            ) => {
+                let declaration = match form {
+                    super::ModelForm::ObjectType => DeclarationForm::ObjectType,
+                    super::ModelForm::StateMachine => DeclarationForm::StateMachine,
+                    super::ModelForm::Process => DeclarationForm::Process,
+                    super::ModelForm::PersistenceInterface => DeclarationForm::PersistenceInterface,
+                    super::ModelForm::RecordValueType => DeclarationForm::RecordValueType,
+                    super::ModelForm::TupleValueType => DeclarationForm::TupleValueType,
+                    super::ModelForm::VariantType => DeclarationForm::VariantType,
+                    super::ModelForm::SystemsInterface => DeclarationForm::SystemsInterface,
+                    super::ModelForm::ModelRoot
+                    | super::ModelForm::ModelImport
+                    | super::ModelForm::ValueType
+                    | super::ModelForm::EventType
+                    | super::ModelForm::Namespace
+                    | super::ModelForm::SystemsPart
+                    | super::ModelForm::SystemsPort
+                    | super::ModelForm::SystemsConnection
+                    | super::ModelForm::SystemsAllocation => continue,
+                };
+                let Ok(derived) = declaration_key(identity, declaration, owner_node, bytes) else {
+                    continue;
+                };
+                derived
+            }
+            (
+                CheckedNodeKind::Relation(super::RelationForm::Relationship),
+                Some(super::CheckedNodeOwner::Model {
+                    identity,
+                    node: owner_node,
+                }),
+            ) => {
+                let Ok(derived) =
+                    declaration_key(identity, DeclarationForm::Relationship, owner_node, bytes)
+                else {
+                    continue;
+                };
+                derived
+            }
+            (
+                CheckedNodeKind::ScalarType(_)
+                | CheckedNodeKind::CompositeType(_)
+                | CheckedNodeKind::BoundedDomain(_)
+                | CheckedNodeKind::Hybrid(super::HybridForm::Model),
+                _,
+            ) => {
+                if let Some(preimage) = node.nominal_identity_preimage.as_ref() {
+                    let Ok(derived) = preimage.digest(bytes) else {
+                        continue;
                     };
-                    declaration_key(identity, declaration, owner_node, bytes).ok()?
+                    derived
+                } else if node.recursion_group.is_none() {
+                    let Ok(derived) = structural_key(&node_preimage(node, None, None), bytes)
+                    else {
+                        continue;
+                    };
+                    derived
+                } else {
+                    continue;
                 }
-                (
-                    CheckedNodeKind::ScalarType(_)
-                    | CheckedNodeKind::CompositeType(_)
-                    | CheckedNodeKind::BoundedDomain(_)
-                    | CheckedNodeKind::Hybrid(super::HybridForm::Model),
-                    _,
-                ) => {
-                    if let Some(preimage) = node.nominal_identity_preimage.as_ref() {
-                        preimage.digest(bytes).ok()?
-                    } else if node.recursion_group.is_none() {
-                        structural_key(&node_preimage(node, None, None), bytes).ok()?
-                    } else {
-                        return None;
-                    }
-                }
-                _ => return None,
-            };
-            (derived != node.node_id.digest.as_ref()).then_some(CheckedNodeId {
-                domain: NODE_DOMAIN.into(),
-                digest: derived.into(),
-            })
-        })
-        .collect()
+            }
+            _ => continue,
+        };
+        if derived == node.node_id.digest.as_ref() {
+            continue;
+        }
+        let key = CheckedNodeId {
+            domain: NODE_DOMAIN.into(),
+            digest: derived.into(),
+        };
+        targets
+            .entry(key)
+            .and_modify(|target| *target = None)
+            .or_insert(Some(position));
+    }
+    DeferredKeyTargets(targets)
 }
 
 /// One of the ten shapes whose key the reader derives.
@@ -424,6 +484,7 @@ pub(super) fn validate_derived_keys(
     kinds: &[CheckedNodeKind],
     terms: &[Option<super::CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
+    deferred: &DeferredKeyTargets,
     _references: &[Vec<super::BodyReference>],
     meter: &mut WorkMeter,
     bytes: u64,
@@ -485,9 +546,9 @@ pub(super) fn validate_derived_keys(
         } else {
             String::new()
         };
-        let semantic_type_kind = index
-            .get(&node.semantic_type)
-            .and_then(|&target| kinds.get(target))
+        let semantic_type_kind = deferred
+            .position(&node.semantic_type, index)
+            .and_then(|target| kinds.get(target))
             .copied();
         if !valid_derived_shape(node, kind, &integer, semantic_type_kind, reference_target) {
             return Err(stale(at(), node_id, None));
@@ -512,9 +573,9 @@ pub(super) fn validate_derived_keys(
         if kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) {
             let target = super::structural::reference_type_target(node)
                 .ok_or_else(|| encoder_failure(node_pointer(position).key("body")))?;
-            let target_kind = index
-                .get(&target)
-                .and_then(|&target_position| kinds.get(target_position))
+            let target_kind = deferred
+                .position(&target, index)
+                .and_then(|target_position| kinds.get(target_position))
                 .copied();
             if !matches!(
                 target_kind,
@@ -876,6 +937,7 @@ mod tests {
             &kinds,
             &terms,
             &index,
+            &deferred_key_targets(&graph, &kinds, BYTES),
             &no_references,
             &mut meter,
             BYTES
@@ -895,6 +957,7 @@ mod tests {
             &kinds,
             &terms,
             &index,
+            &deferred_key_targets(&tampered, &kinds, BYTES),
             &no_references,
             &mut meter,
             BYTES
@@ -935,6 +998,7 @@ mod tests {
             &[kind],
             &terms,
             &index,
+            &deferred_key_targets(&graph, &[kind], BYTES),
             &[vec![]],
             &mut meter,
             BYTES
@@ -952,6 +1016,7 @@ mod tests {
                 &[kind],
                 &terms,
                 &index,
+                &deferred_key_targets(&graph, &[kind], BYTES),
                 &[vec![]],
                 &mut unpaid,
                 BYTES
@@ -1053,6 +1118,7 @@ mod tests {
             &kinds,
             &terms,
             &index,
+            &deferred_key_targets(&graph, &kinds, BYTES),
             &references,
             &mut exact,
             BYTES
@@ -1070,6 +1136,7 @@ mod tests {
             &kinds,
             &terms,
             &index,
+            &deferred_key_targets(&graph, &kinds, BYTES),
             &references,
             &mut denied,
             BYTES,

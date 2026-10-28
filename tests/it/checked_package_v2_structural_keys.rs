@@ -2503,6 +2503,52 @@ fn tc_048_derived_expected_keys_rekey_unreferenced_nodes_in_both_branches() {
     admitted("second bound with returned key", &rekeyed_second);
 }
 
+/// Provenance: IR-1059, QSpec FR-322-AC-154; FR-069-AC-6 stays open.
+#[test]
+fn dependent_bounds_semantic_type_waits_for_target_key() {
+    let base = base();
+    let mut package = base.package;
+    let retained = "f".repeat(64);
+    let position = at(&package, &base.sequence);
+    package["semantic_graph"]["nodes"][position]["node_id"] = node_id(&retained);
+    package["semantic_graph"]["nodes"][position]["semantic_type"] = node_id(&retained);
+    rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
+    assert_eq!(
+        refusal_of("dependent bounds type", &package, &evidence_for(&package)),
+        stale_at(&package, &retained),
+    );
+}
+
+/// Provenance: IR-1059, QSpec FR-322-AC-154; FR-069-AC-6 stays open.
+#[test]
+fn dependent_reference_target_waits_for_model_key() {
+    let document = orders_document(1000);
+    let range = integer_range_key("0", "1000");
+    let (package, evidence) = member_read(&document, &range, &[&document]);
+    let order = order_key();
+    let (reference, reference_node) = collection("reference", &order);
+    let mut package = with_nodes(package, vec![reference_node]);
+    assert!(matches!(
+        read(&package, &evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    let retained = "f".repeat(64);
+    assert!(
+        reference < retained,
+        "reference target lookup precedes stale model key"
+    );
+    let position = at(&package, &order);
+    package["semantic_graph"]["nodes"][position]["node_id"] = node_id(&retained);
+    package["semantic_graph"]["nodes"][position]["semantic_type"] = node_id(&retained);
+    rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
+    assert_eq!(
+        refusal_of("dependent reference target", &package, &evidence),
+        stale_at(&package, &retained),
+    );
+}
+
 #[trace("FR-038-AC-184", "FR-038-AC-185", "TC-048")]
 #[test]
 fn tc_048_application_expected_key_survives_reader_and_dispatch() {

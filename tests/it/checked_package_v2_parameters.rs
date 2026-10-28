@@ -18,9 +18,9 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CheckedParameterDeclaration, CheckedParameterDeclarationError, CompleteLoweringProfileV2,
-    CompleteLoweringRecordV2,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedParameterDeclaration, CheckedParameterDeclarationError,
+    CompleteLoweringProfileV2, CompleteLoweringRecordV2,
 };
 use serde_json::{json, Value};
 use std::sync::LazyLock;
@@ -156,6 +156,7 @@ const DIMENSION: usize = 0;
 const METRE: usize = 1;
 const SECOND: usize = 3;
 const KILOMETRE: usize = 4;
+const INTEGER_NODE: usize = 6;
 const P1: usize = 8;
 const E1: usize = 10;
 const COMPOUND: usize = 12;
@@ -332,6 +333,51 @@ fn invalid_at(package: &Value, position: usize, member: &str) -> ExpectedRefusal
         None,
         &node_key(package, position),
     )
+}
+
+/// A rekeyed target's old canonical key remains available to the shape
+/// stage, leaving the target's own key authentication to choose the refusal.
+/// Provenance: IR-1059, QSpec FR-322-AC-154; FR-069-AC-6 stays open.
+#[test]
+fn dependent_compound_unit_references_wait_for_target_key() {
+    let mut root = parameters_package();
+    root["semantic_graph"]["nodes"][METRE]["node_id"] = node_id(&"f".repeat(64));
+    rebuild_source_map(&mut root);
+    refresh_identity(&mut root);
+    let root_refusal = refused(&root);
+    // STD-536 will settle the nominal-stage code, cause and locus. The
+    // dependent compound-body refusal must not mask the root node's key.
+    assert_eq!(
+        root_refusal.path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{METRE}/node_id"))
+    );
+
+    let mut independent = root.clone();
+    independent["semantic_graph"]["nodes"][COMPOUND]["body"]["members"][0]["members"][1]["value"]
+        ["value"] = json!("0");
+    refresh_identity(&mut independent);
+    assert_eq!(
+        refused(&independent),
+        invalid_at(&independent, COMPOUND, FIRST_TERM),
+    );
+
+    let mut exponent = parameters_package();
+    let retained = "f".repeat(63) + "e";
+    exponent["semantic_graph"]["nodes"][INTEGER_NODE]["node_id"] = node_id(&retained);
+    exponent["semantic_graph"]["nodes"][INTEGER_NODE]["semantic_type"] = node_id(&retained);
+    rebuild_source_map(&mut exponent);
+    refresh_identity(&mut exponent);
+    let refusal = refused(&exponent);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::StaleNodeKey)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{INTEGER_NODE}/node_id"))
+    );
+    assert_eq!(refusal.locus, Some(id_of(&retained)));
 }
 
 #[trace("TC-048", "TC-050", "FR-038-AC-22", "FR-038-AC-23", "FR-038-AC-308")]

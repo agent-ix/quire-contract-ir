@@ -49,7 +49,10 @@
 //!   of its body. `result_type` and literal `type` annotations are not
 //!   dependencies.
 //!
-//! This shape stage does not re-derive keys. `derived_keys` checks owner-free,
+//! This shape stage does not re-derive keys. A missing target that equals a
+//! rekeyed node's canonical key resolves to that node for shape checks; its
+//! dependent absence waits for the later key stage. Independent malformed
+//! shape still refuses here. `derived_keys` checks owner-free,
 //! ungrouped structural nodes against QSL's `quire.structural-node/v1`
 //! preimage after application keys and before nominal keys; IR-630 owns the
 //! owner-bearing and grouped follow-up (FR-038-AC-123).
@@ -62,6 +65,7 @@
 //! The stage charges no work of its own: every body term it walks was
 //! parsed, shape-validated and charged once by the per-node body loop.
 
+use super::derived_keys::DeferredKeyTargets;
 use super::identity::is_identifier;
 use super::{
     ApplicationOperator, CheckedTerm, CheckedTermView, ExecutionPoint, LiteralKind,
@@ -125,11 +129,12 @@ struct Graph<'a> {
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
     index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    deferred: &'a DeferredKeyTargets,
 }
 
 impl Graph<'_> {
     fn node(&self, id: &CheckedNodeId) -> Option<(&CheckedSemanticNodeV2, CheckedNodeKind)> {
-        let position = *self.index.get(id)?;
+        let position = self.deferred.position(id, self.index)?;
         Some((self.nodes.get(position)?, *self.kinds.get(position)?))
     }
 
@@ -334,12 +339,13 @@ pub(super) fn validate_structural_nodes(
     kinds: &[CheckedNodeKind],
     terms: &[Option<super::CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
-    stale_type_targets: &BTreeSet<CheckedNodeId>,
+    deferred: &DeferredKeyTargets,
 ) -> Result<(), ValidationFailure> {
     let graph = Graph {
         nodes,
         kinds,
         index,
+        deferred,
     };
     for (&node_id, &position) in index {
         let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
@@ -426,9 +432,7 @@ pub(super) fn validate_structural_nodes(
                     None
                 }
             }
-            Some(StructuralForm::Parameter) => {
-                parameter_defect(node, term, &graph, stale_type_targets)
-            }
+            Some(StructuralForm::Parameter) => parameter_defect(node, term, &graph),
             Some(StructuralForm::CompoundUnit) => compound_unit_defect(node, term, &graph),
             Some(StructuralForm::OperationAnchor) => term
                 .and_then(typed_anchor_body)
@@ -524,30 +528,27 @@ fn parameter_defect(
     node: &CheckedSemanticNodeV2,
     term: Option<&super::CheckedTerm>,
     graph: &Graph<'_>,
-    stale_type_targets: &BTreeSet<CheckedNodeId>,
 ) -> Option<Defect> {
     let is_binder_type = node.semantic_type != node.node_id
-        && ((graph.node(&node.semantic_type).is_none()
-            && stale_type_targets.contains(&node.semantic_type))
-            || graph
-                .node(&node.semantic_type)
-                .is_some_and(|(type_node, kind)| {
-                    // A binder may also be typed at a selected model value declaration.
-                    kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
-                        || kind == CheckedNodeKind::Model(ModelForm::TupleValueType)
-                        || kind == CheckedNodeKind::Hybrid(super::HybridForm::Model)
-                        || (kind == CheckedNodeKind::Model(ModelForm::VariantType)
-                            && matches!(
-                                type_node.owner.as_ref(),
-                                Some(super::CheckedNodeOwner::Model { .. })
-                            ))
-                        || matches!(
-                            kind.tag(),
-                            CheckedNodeTag::ScalarType
-                                | CheckedNodeTag::CompositeType
-                                | CheckedNodeTag::BoundedDomain
-                        )
-                }));
+        && graph
+            .node(&node.semantic_type)
+            .is_some_and(|(type_node, kind)| {
+                // A binder may also be typed at a selected model value declaration.
+                kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
+                    || kind == CheckedNodeKind::Model(ModelForm::TupleValueType)
+                    || kind == CheckedNodeKind::Hybrid(super::HybridForm::Model)
+                    || (kind == CheckedNodeKind::Model(ModelForm::VariantType)
+                        && matches!(
+                            type_node.owner.as_ref(),
+                            Some(super::CheckedNodeOwner::Model { .. })
+                        ))
+                    || matches!(
+                        kind.tag(),
+                        CheckedNodeTag::ScalarType
+                            | CheckedNodeTag::CompositeType
+                            | CheckedNodeTag::BoundedDomain
+                    )
+            });
     if !is_binder_type {
         return Some(Defect::SemanticType);
     }
