@@ -10,6 +10,7 @@ use quire_contract_model::{
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
+use std::path::Path;
 
 /// Apply one published RFC 6902 operation. The vector's patch is the source of
 /// both the mutation and its expected package identity.
@@ -537,25 +538,59 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
 /// remains open until the full published matrix passes.
 #[test]
 fn duration_tuple_position_projects_to_resolved_second_unit() {
-    duration_projection_control(false);
-    duration_projection_control(true);
+    for scenario in [
+        DurationCase::Source,
+        DurationCase::Selected,
+        DurationCase::Missing,
+        DurationCase::InvalidSelectedWithSource,
+        DurationCase::BothSelected,
+        DurationCase::BothSourceResult,
+    ] {
+        duration_projection_control(scenario);
+    }
 }
 
-fn duration_projection_control(selected_unit: bool) {
+#[derive(Clone, Copy, Debug)]
+enum DurationCase {
+    Source,
+    Selected,
+    Missing,
+    InvalidSelectedWithSource,
+    BothSelected,
+    BothSourceResult,
+}
+
+fn duration_projection_control(scenario: DurationCase) {
     let fixtures = fixtures_dir();
     let proposal = proposal_dir_of(&fixtures);
+    let selected_unit = matches!(
+        scenario,
+        DurationCase::Selected
+            | DurationCase::InvalidSelectedWithSource
+            | DurationCase::BothSelected
+            | DurationCase::BothSourceResult
+    );
+    let source_unit = matches!(
+        scenario,
+        DurationCase::Source
+            | DurationCase::InvalidSelectedWithSource
+            | DurationCase::BothSelected
+            | DurationCase::BothSourceResult
+    );
+    let selected_valid = !matches!(scenario, DurationCase::InvalidSelectedWithSource);
     let mut selected =
         read_json(&proposal.join("domain-package-acme-shapes.json")).expect("selected Semantic IR");
     selected["types"][1]["positions"][1]["typeRef"] = json!("ix://quire/native/Duration");
     if selected_unit {
         let origin = selected["types"][1]["origin"].clone();
+        let dimension = if selected_valid { "Time" } else { "Length" };
         selected["dimensions"] = json!([{
-            "identity":"ix://acme/shapes/Time", "name":"Time",
+            "identity":format!("ix://acme/shapes/{dimension}"), "name":dimension,
             "base":true, "terms":[], "origin":origin
         }]);
         selected["units"] = json!([{
             "identity":"ix://acme/shapes/s", "name":"s",
-            "dimension":"ix://acme/shapes/Time", "scale":"1", "offset":"0",
+            "dimension":format!("ix://acme/shapes/{dimension}"), "scale":"1", "offset":"0",
             "origin":origin
         }]);
     }
@@ -563,65 +598,26 @@ fn duration_projection_control(selected_unit: bool) {
 
     let mut package = read_json(&fixtures.join("positive-model-tuple-union.json"))
         .expect("published positive package");
-    let mut timed =
-        read_json(&fixtures.join("positive-timed-model-nodes.json")).expect("published time units");
-    let dimension = 42;
-    let unit = 43;
-    if selected_unit {
-        let owner =
-            json!({"kind":"model", "identity":"acme/shapes", "node":"ix://acme/shapes/Pair"});
-        for index in [dimension, unit] {
-            timed["semantic_graph"]["nodes"][index]
-                .as_object_mut()
-                .expect("nominal node")
-                .remove("owner");
-            timed["semantic_graph"]["nodes"][index]["nominal_identity_preimage"]["owner"] =
-                owner.clone();
-        }
-    }
-    timed["semantic_graph"]["nodes"][dimension]["nominal_identity_preimage"]
-        ["qualified_declaration"] = if selected_unit {
-        json!(["acme", "shapes", "Time"])
-    } else {
-        json!(["Time"])
-    };
-    timed["semantic_graph"]["nodes"][dimension]["declaration"]["qualified_name"] = timed
-        ["semantic_graph"]["nodes"][dimension]["nominal_identity_preimage"]
-        ["qualified_declaration"]
-        .clone();
-    let old_dimension = timed["semantic_graph"]["nodes"][dimension]["node_id"]["digest"]
-        .as_str()
-        .expect("dimension digest")
-        .to_owned();
-    let new_dimension = super::fixture_support::sha256_hex(&super::fixture_support::canonical(
-        &timed["semantic_graph"]["nodes"][dimension]["nominal_identity_preimage"],
-    ));
-    super::fixture_support::rename_node(&mut timed, &old_dimension, &new_dimension);
-    timed["semantic_graph"]["nodes"][unit]["nominal_identity_preimage"]["qualified_declaration"] =
-        if selected_unit {
-            json!(["acme", "shapes", "s"])
-        } else {
-            json!(["s"])
-        };
-    timed["semantic_graph"]["nodes"][unit]["declaration"]["qualified_name"] = timed
-        ["semantic_graph"]["nodes"][unit]["nominal_identity_preimage"]["qualified_declaration"]
-        .clone();
-    let old_unit = timed["semantic_graph"]["nodes"][unit]["node_id"]["digest"]
-        .as_str()
-        .expect("unit digest")
-        .to_owned();
-    let new_unit = super::fixture_support::sha256_hex(&super::fixture_support::canonical(
-        &timed["semantic_graph"]["nodes"][unit]["nominal_identity_preimage"],
-    ));
-    super::fixture_support::rename_node(&mut timed, &old_unit, &new_unit);
-
     let retained = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 32, 37];
     let mut nodes: Vec<Value> = retained
         .iter()
         .map(|index| package["semantic_graph"]["nodes"][*index].clone())
         .collect();
-    nodes.push(timed["semantic_graph"]["nodes"][dimension].clone());
-    nodes.push(timed["semantic_graph"]["nodes"][unit].clone());
+    let mut nominal_maps = Vec::new();
+    let mut source_id = None;
+    let mut selected_id = None;
+    if source_unit {
+        let (pair, entries, unit_id) = duration_nominal_pair(&fixtures, false, true);
+        nodes.extend(pair);
+        nominal_maps.extend(entries);
+        source_id = Some(unit_id);
+    }
+    if selected_unit {
+        let (pair, entries, unit_id) = duration_nominal_pair(&fixtures, true, selected_valid);
+        nodes.extend(pair);
+        nominal_maps.extend(entries);
+        selected_id = Some(unit_id);
+    }
     package["semantic_graph"]["nodes"] = Value::Array(nodes);
     let ids: BTreeSet<_> = package["semantic_graph"]["nodes"]
         .as_array()
@@ -642,25 +638,21 @@ fn duration_projection_control(selected_unit: bool) {
                 .as_str()
                 .is_some_and(|digest| ids.contains(digest))
         });
-    for index in [dimension, unit] {
-        let id = &timed["semantic_graph"]["nodes"][index]["node_id"];
-        let entry = timed["source_map"]
-            .as_array()
-            .expect("timed source map")
-            .iter()
-            .find(|entry| entry["node_id"] == *id)
-            .expect("unit source map")
-            .clone();
-        package["source_map"]
-            .as_array_mut()
-            .expect("source map")
-            .push(entry);
-    }
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .extend(nominal_maps);
     let result = package["semantic_graph"]["nodes"][11]["body"]["result_type"].clone();
     assert_eq!(result, package["semantic_graph"]["nodes"][8]["node_id"]);
-    let unit_id = timed["semantic_graph"]["nodes"][unit]["node_id"].clone();
-    package["semantic_graph"]["nodes"][11]["body"]["result_type"] = unit_id.clone();
-    package["semantic_graph"]["nodes"][11]["semantic_type"] = unit_id;
+    let result_unit = if matches!(scenario, DurationCase::BothSourceResult) {
+        source_id.as_ref()
+    } else {
+        selected_id.as_ref().or(source_id.as_ref())
+    };
+    if let Some(unit_id) = result_unit {
+        package["semantic_graph"]["nodes"][11]["body"]["result_type"] = unit_id.clone();
+        package["semantic_graph"]["nodes"][11]["semantic_type"] = unit_id.clone();
+    }
     package["lock"]["model_selections"][0]["digest"] = json!(digest);
     package["identity_preimage"]["model_selections"][0]["digest"] = json!(digest);
     super::fixture_support::rekey_application_node(&mut package, 11);
@@ -675,10 +667,115 @@ fn duration_projection_control(selected_unit: bool) {
         CheckedPackageReadLimits::bounded(),
         &evidence,
     );
-    assert!(
-        matches!(read, CheckedPackageV2ReadResult::Admitted(_)),
-        "selected_unit={selected_unit}: {read:?}"
-    );
+    match (scenario, read) {
+        (
+            DurationCase::Source | DurationCase::Selected | DurationCase::BothSelected,
+            CheckedPackageV2ReadResult::Admitted(_),
+        ) => {}
+        (DurationCase::Missing, CheckedPackageV2ReadResult::Refused(refusal)) => {
+            assert_eq!(refusal.code, Code::MissingDeclaration);
+            assert_eq!(refusal.cause, Some(Cause::MissingName));
+            assert_eq!(
+                refusal.path.as_ref().map(ToString::to_string).as_deref(),
+                Some("/semantic_graph/nodes/11")
+            );
+        }
+        (
+            DurationCase::InvalidSelectedWithSource | DurationCase::BothSourceResult,
+            CheckedPackageV2ReadResult::Refused(refusal),
+        ) => {
+            assert_eq!(refusal.code, Code::IllTyped);
+            assert_eq!(refusal.cause, Some(Cause::OperatorIneligible));
+            assert_eq!(
+                refusal.path.as_ref().map(ToString::to_string).as_deref(),
+                Some("/semantic_graph/nodes/11")
+            );
+        }
+        (case, result) => panic!("{case:?}: unexpected Duration projection outcome {result:?}"),
+    }
+}
+
+/// Re-key the authoritative timed fixture's Time/s pair for one owner. The
+/// selected invalid case uses a base Length so its nominal graph remains
+/// valid while its Duration member has no type.
+fn duration_nominal_pair(
+    fixtures: &Path,
+    selected: bool,
+    valid: bool,
+) -> (Vec<Value>, Vec<Value>, Value) {
+    let mut timed =
+        read_json(&fixtures.join("positive-timed-model-nodes.json")).expect("published time units");
+    let dimension = 42;
+    let unit = 43;
+    if selected {
+        let owner =
+            json!({"kind":"model", "identity":"acme/shapes", "node":"ix://acme/shapes/Pair"});
+        for index in [dimension, unit] {
+            timed["semantic_graph"]["nodes"][index]
+                .as_object_mut()
+                .expect("nominal node")
+                .remove("owner");
+            timed["semantic_graph"]["nodes"][index]["nominal_identity_preimage"]["owner"] =
+                owner.clone();
+        }
+    }
+    let dimension_name = if valid { "Time" } else { "Length" };
+    timed["semantic_graph"]["nodes"][dimension]["nominal_identity_preimage"]
+        ["qualified_declaration"] = if selected {
+        json!(["acme", "shapes", dimension_name])
+    } else {
+        json!([dimension_name])
+    };
+    timed["semantic_graph"]["nodes"][dimension]["declaration"]["qualified_name"] = timed
+        ["semantic_graph"]["nodes"][dimension]["nominal_identity_preimage"]
+        ["qualified_declaration"]
+        .clone();
+    let old_dimension = timed["semantic_graph"]["nodes"][dimension]["node_id"]["digest"]
+        .as_str()
+        .expect("dimension digest")
+        .to_owned();
+    let new_dimension = super::fixture_support::sha256_hex(&super::fixture_support::canonical(
+        &timed["semantic_graph"]["nodes"][dimension]["nominal_identity_preimage"],
+    ));
+    super::fixture_support::rename_node(&mut timed, &old_dimension, &new_dimension);
+    timed["semantic_graph"]["nodes"][unit]["nominal_identity_preimage"]["qualified_declaration"] =
+        if selected {
+            json!(["acme", "shapes", "s"])
+        } else {
+            json!(["s"])
+        };
+    timed["semantic_graph"]["nodes"][unit]["declaration"]["qualified_name"] = timed
+        ["semantic_graph"]["nodes"][unit]["nominal_identity_preimage"]["qualified_declaration"]
+        .clone();
+    let old_unit = timed["semantic_graph"]["nodes"][unit]["node_id"]["digest"]
+        .as_str()
+        .expect("unit digest")
+        .to_owned();
+    let new_unit = super::fixture_support::sha256_hex(&super::fixture_support::canonical(
+        &timed["semantic_graph"]["nodes"][unit]["nominal_identity_preimage"],
+    ));
+    super::fixture_support::rename_node(&mut timed, &old_unit, &new_unit);
+    let nodes: Vec<_> = [dimension, unit]
+        .iter()
+        .map(|index| timed["semantic_graph"]["nodes"][*index].clone())
+        .collect();
+    let maps = nodes
+        .iter()
+        .map(|node| {
+            timed["source_map"]
+                .as_array()
+                .expect("timed source map")
+                .iter()
+                .find(|entry| entry["node_id"] == node["node_id"])
+                .expect("nominal source map")
+                .clone()
+        })
+        .collect();
+    (
+        nodes,
+        maps,
+        timed["semantic_graph"]["nodes"][unit]["node_id"].clone(),
+    )
 }
 
 /// QSpec FR-322 reads duplicate tuple ordinals before the resulting gap and
