@@ -6096,7 +6096,7 @@ fn event_compensation_requires_a_template_target() {
     );
 }
 
-fn package_with_admitted_compensation() -> (Value, usize, usize) {
+pub(crate) fn package_with_admitted_compensation() -> (Value, usize, usize) {
     let (state, _) = crate::checked_package_v2_frame_entries::state_operand_fixture();
     let (mut package, root) = package_with_step_control_on(state, "event");
     let local = compensation_template(

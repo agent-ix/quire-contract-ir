@@ -2198,7 +2198,68 @@ pub(super) fn validate_catalog_graph(
                 }
                 _ => (Vec::new(), BTreeSet::new()),
             },
-            _ => (Vec::new(), BTreeSet::new()),
+            None => {
+                let operations = match abstract_key.as_ref() {
+                    RefinementKey::Local(model) => graph
+                        .local_node(model)
+                        .and_then(|node| match node.owner.as_ref() {
+                            Some(super::CheckedNodeOwner::ModelRoot { identity, .. }) => {
+                                Some(identity.as_ref())
+                            }
+                            _ => None,
+                        })
+                        .map(|identity| owners.operation_classes(identity, meter))
+                        .transpose()?
+                        .unwrap_or_default(),
+                    RefinementKey::External(model) => graph
+                        .dependencies
+                        .selected_package(&model.package)
+                        .and_then(|selected| {
+                            selected
+                                .graph()
+                                .nodes
+                                .iter()
+                                .find(|node| node.node_id == model.node)
+                                .and_then(|node| match node.owner.as_ref() {
+                                    Some(super::CheckedNodeOwner::ModelRoot {
+                                        identity, ..
+                                    }) => Some((selected, identity.as_ref())),
+                                    _ => None,
+                                })
+                        })
+                        .map(|(selected, identity)| {
+                            selected.models.operation_classes(identity, meter)
+                        })
+                        .transpose()?
+                        .unwrap_or_default(),
+                };
+                let mut classes = operations
+                    .into_iter()
+                    .map(|operation| {
+                        let key = |node| match abstract_key.as_ref() {
+                            RefinementKey::Local(_) => RefinementKey::Local(node),
+                            RefinementKey::External(model) => {
+                                RefinementKey::External(RefinementPackageNodeKey {
+                                    package: model.package.clone(),
+                                    node,
+                                })
+                            }
+                        };
+                        DeclaredGraphClass {
+                            class: format!("{}::{}", operation.object, operation.operation),
+                            node: key(operation.node),
+                            binder_types: operation.binder_types.map_or(
+                                BinderSignature::Unspecified,
+                                |types| {
+                                    BinderSignature::Known(types.into_iter().map(key).collect())
+                                },
+                            ),
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                classes.sort_unstable_by(|left, right| left.class.cmp(&right.class));
+                (classes, BTreeSet::new())
+            }
         };
         compare_abstract_classes(
             &catalog.r#abstract,
@@ -2397,9 +2458,10 @@ fn protocol_classes(
                         })
                         .and_then(|trigger| nodes.iter().find(|node| node.id == trigger))
                         .map(|trigger| trigger.semantic_type);
-                    if let (Some(name), Some(trigger_type)) =
-                        (clause_name.qualified_name.get(1), trigger_type)
-                    {
+                    if let (Some(name), Some(trigger_type)) = (
+                        alias_free_protocol_path(&clause_name.qualified_name),
+                        trigger_type,
+                    ) {
                         classes.push(DeclaredGraphClass {
                             class: format!("activate {name}"),
                             node: key(clause.id),
@@ -2451,10 +2513,17 @@ fn protocol_classes(
                     .map(|id| key(&id))
             };
             for class in classes_for_node {
+                let class_binders = if matches!(operator, CatalogOperator::Compensation)
+                    && class.starts_with("cend ")
+                {
+                    BinderSignature::Known(Vec::new())
+                } else {
+                    binder_types.clone()
+                };
                 classes.push(DeclaredGraphClass {
                     class,
                     node: key(member.id),
-                    binder_types: binder_types.clone(),
+                    binder_types: class_binders,
                 });
             }
         }
@@ -2664,6 +2733,7 @@ enum CatalogOperator {
     Channel,
     Parallel,
     Attempt,
+    Compensation,
     Event,
     Send,
     Receive,
@@ -2684,6 +2754,7 @@ fn catalog_operator(kind: super::CheckedNodeKind, operator: &str) -> Option<Cata
         (Protocol(ProtocolForm::Channel), "channel") => CatalogOperator::Channel,
         (Protocol(ProtocolForm::Control), "parallel") => CatalogOperator::Parallel,
         (Protocol(ProtocolForm::Control), "attempt") => CatalogOperator::Attempt,
+        (Protocol(ProtocolForm::Compensation), "compensate") => CatalogOperator::Compensation,
         (Protocol(ProtocolForm::Control), "event") => CatalogOperator::Event,
         (Protocol(ProtocolForm::Control), "send") => CatalogOperator::Send,
         (Protocol(ProtocolForm::Control), "receive") => CatalogOperator::Receive,
@@ -2701,7 +2772,10 @@ fn protocol_binder_types(
     signatures: CatalogSignatures<'_, '_>,
     meter: &mut super::WorkMeter,
 ) -> Result<BinderSignature<CheckedNodeId>, ValidationFailure> {
-    if matches!(operator, CatalogOperator::Attempt) {
+    if matches!(
+        operator,
+        CatalogOperator::Attempt | CatalogOperator::Compensation
+    ) {
         let Some(anchor) = bound_reference(arguments, "operation")
             .and_then(|id| nodes.iter().find(|node| node.id == id))
             .and_then(|node| node.term)
@@ -2745,6 +2819,7 @@ fn protocol_binder_types(
         | CatalogOperator::Channel
         | CatalogOperator::Parallel
         | CatalogOperator::Attempt
+        | CatalogOperator::Compensation
         | CatalogOperator::Fence
         | CatalogOperator::TimeoutFromAwait => return Ok(BinderSignature::Known(Vec::new())),
     };
@@ -2786,11 +2861,10 @@ fn protocol_member_classes(
     arguments: &[CheckedTerm],
     name: &[Box<str>],
 ) -> Option<Vec<String>> {
-    let clause = name.get(1)?.as_ref();
-    let node = name.last()?.as_ref();
-    let path = format!("{clause}::{node}");
+    let path = alias_free_protocol_path(name)?;
     match operator {
         CatalogOperator::Parallel => Some(vec![format!("fork {path}"), format!("join {path}")]),
+        CatalogOperator::Compensation => Some(vec![path.clone(), format!("cend {path}")]),
         CatalogOperator::Attempt
         | CatalogOperator::Event
         | CatalogOperator::Send
@@ -2827,6 +2901,17 @@ fn protocol_member_classes(
             Some(classes)
         }
     }
+}
+
+/// Drop only the package-local namespace, retaining the complete declaration path.
+fn alias_free_protocol_path(name: &[Box<str>]) -> Option<String> {
+    (name.len() >= 2).then(|| {
+        name[1..]
+            .iter()
+            .map(AsRef::as_ref)
+            .collect::<Vec<&str>>()
+            .join("::")
+    })
 }
 
 fn compare_declared_classes(
