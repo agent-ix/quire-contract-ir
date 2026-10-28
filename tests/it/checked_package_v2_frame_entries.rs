@@ -19,12 +19,13 @@ use ix_trace_rs::trace;
 use quire_canonical::Limits;
 use quire_contract_model::{
     encode_checked_package_v2, CheckedApplicationOperation, CheckedComparisonPath,
-    CheckedComparisonRefusal, CheckedExecutionPoint, CheckedMemberType, CheckedNodeId,
-    CheckedNodeTag, CheckedOperationAnchorBody, CheckedPackageIdentityPreimageRefV2,
-    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2,
-    CompleteLoweringRecordV2, StateClauseKind,
+    CheckedComparisonRefusal, CheckedExecutionPoint, CheckedExecutionPointRefusal,
+    CheckedMemberType, CheckedNodeId, CheckedNodeTag, CheckedOccurrence, CheckedOccurrenceRole,
+    CheckedOperationAnchorBody, CheckedPackageIdentityPreimageRefV2, CheckedPackageLimit,
+    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    StateClauseKind,
 };
 use serde_json::{json, Value};
 use std::sync::LazyLock;
@@ -3770,4 +3771,159 @@ fn tc_050_admitted_frame_and_state_clause_nodes_lower_under_a_state_profile() {
             nodes(&value)[at]
         );
     }
+}
+
+/// The V2 point is returned from the admitted typed clause, including a name
+/// that the authored-contract AnchorName grammar does not admit.
+#[trace("TC-462", "FR-058-AC-5", "FR-058-AC-9")]
+#[test]
+fn tc_462_public_accessor_returns_exact_admitted_points_without_source_bytes() {
+    fn cg_consumer(
+        package: &CheckedPackageV2,
+        clause: &CheckedNodeId,
+        claim: &CheckedOccurrence,
+    ) -> Result<CheckedExecutionPoint, CheckedExecutionPointRefusal> {
+        package
+            .clause_execution_point(clause, claim)
+            .map_err(|error| match error.code {
+                CheckedExecutionPointRefusal::UnknownClause => error.code,
+                CheckedExecutionPointRefusal::NotStateClause => error.code,
+                CheckedExecutionPointRefusal::MissingClaimOccurrence => error.code,
+                CheckedExecutionPointRefusal::MissingExecutionPoint => error.code,
+            })
+    }
+
+    let cases = [
+        (
+            pointed_invariant(json!({"kind": "initialization", "name": "startup"})),
+            "invariant",
+            CheckedExecutionPoint::Initialization {
+                name: "startup".into(),
+            },
+        ),
+        (
+            pointed_constraint(json!({"kind": "handler", "name": "tick now"})),
+            "constraint",
+            CheckedExecutionPoint::Handler {
+                name: "tick now".into(),
+            },
+        ),
+        (
+            pointed_state_package(
+                Some(json!({"kind": "pre", "operation": "deposit"})),
+                Some(json!({"kind": "pre", "operation": "deposit"})),
+            ),
+            "precondition",
+            CheckedExecutionPoint::Pre {
+                operation: "deposit".into(),
+            },
+        ),
+        (
+            pointed_state_package(
+                Some(json!({"kind": "post", "operation": "deposit"})),
+                Some(json!({"kind": "post", "operation": "deposit"})),
+            ),
+            "precondition",
+            CheckedExecutionPoint::Post {
+                operation: "deposit".into(),
+            },
+        ),
+    ];
+    for (source, clause_kind, expected) in cases {
+        let position = source.clause(clause_kind);
+        let admitted = match read(&source.value) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("pointed package refused: {other:?}"),
+        };
+        let clause = admitted.graph().nodes[position].node_id.clone();
+        let claim = admitted.graph().nodes[position].occurrences[0].clone();
+        let unchanged = admitted.clone();
+        let identity = admitted.package_id().clone();
+        drop(source);
+        assert_eq!(
+            cg_consumer(&admitted, &clause, &claim),
+            Ok(expected.clone())
+        );
+        assert_eq!(
+            cg_consumer(&admitted, &clause, &claim),
+            Ok(expected.clone())
+        );
+        assert_eq!(cg_consumer(&unchanged, &clause, &claim), Ok(expected));
+        assert_eq!(admitted, unchanged);
+        assert_eq!(*admitted.package_id(), identity);
+    }
+}
+
+/// Refusals are selected by node, form, authentic claim, then retained point.
+#[trace("TC-462", "FR-058-AC-3", "FR-058-AC-4", "FR-058-AC-10")]
+#[test]
+fn tc_462_public_accessor_refuses_in_closed_precedence_order() {
+    let source = pointed_invariant(json!({"kind": "handler", "name": "tick"}));
+    let pointed = source.clause("invariant");
+    let unpointed = source.clause("precondition");
+    let anchor = source.at("state", "operation_anchor");
+    let admitted = match read(&source.value) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("pointed package refused: {other:?}"),
+    };
+    let clause = admitted.graph().nodes[pointed].node_id.clone();
+    let unpointed = admitted.graph().nodes[unpointed].node_id.clone();
+    let anchor = admitted.graph().nodes[anchor].node_id.clone();
+    let claim = admitted.graph().nodes[pointed].occurrences[0].clone();
+    let wrong_role = CheckedOccurrence {
+        role: CheckedOccurrenceRole::Expression,
+        ordinal: claim.ordinal,
+    };
+    let wrong_ordinal = CheckedOccurrence {
+        role: CheckedOccurrenceRole::Claim,
+        ordinal: claim.ordinal + 1,
+    };
+    let absent = typed_node_id(&"ee".repeat(32));
+    for (selected, occurrence, expected) in [
+        (
+            &absent,
+            &wrong_role,
+            CheckedExecutionPointRefusal::UnknownClause,
+        ),
+        (
+            &anchor,
+            &wrong_role,
+            CheckedExecutionPointRefusal::NotStateClause,
+        ),
+        (
+            &clause,
+            &wrong_role,
+            CheckedExecutionPointRefusal::MissingClaimOccurrence,
+        ),
+        (
+            &clause,
+            &wrong_ordinal,
+            CheckedExecutionPointRefusal::MissingClaimOccurrence,
+        ),
+        (
+            &unpointed,
+            &claim,
+            CheckedExecutionPointRefusal::MissingExecutionPoint,
+        ),
+    ] {
+        let error = admitted
+            .clause_execution_point(selected, occurrence)
+            .expect_err("selection must refuse");
+        assert_eq!(error.code, expected);
+        assert_eq!(&error.clause, selected);
+        assert_eq!(&error.claim, occurrence);
+    }
+    assert_eq!(
+        admitted.clause_execution_point(&clause, &claim),
+        Ok(CheckedExecutionPoint::Handler {
+            name: "tick".into()
+        })
+    );
+    for &code in CheckedExecutionPointRefusal::all() {
+        assert_eq!(
+            CheckedExecutionPointRefusal::from_code(code.as_str()),
+            Some(code)
+        );
+    }
+    assert_eq!(CheckedExecutionPointRefusal::from_code("unknown"), None);
 }
