@@ -31,15 +31,21 @@ fn check_fixture(fixture: CheckedApplicationOperationFixture) {
     assert!(operation.is_test_fixture());
     assert_eq!(operation.identity(), expected.identity.as_deref());
     assert_eq!(
-        operation.mode().map(|mode| (mode.kind, mode.value)),
+        operation
+            .mode()
+            .expect("fixture views")
+            .map(|mode| (mode.kind, mode.value)),
         expected
             .mode
             .as_ref()
             .map(|(kind, value)| (*kind, value.as_ref()))
     );
-    assert_eq!(operation.law_definitions(), expected.law_definitions);
     assert_eq!(
-        operation.member_declaration(),
+        operation.law_definitions().expect("fixture views"),
+        expected.law_definitions
+    );
+    assert_eq!(
+        operation.member_declaration().expect("fixture views"),
         expected.member_declaration.as_ref()
     );
 }

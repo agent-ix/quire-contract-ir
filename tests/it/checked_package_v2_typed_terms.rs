@@ -6,8 +6,9 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
 use quire_contract_model::{
-    CheckedApplicationOperation, CheckedPackageReadLimits, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CheckedSemanticId, CheckedTerm, StateClauseKind,
+    CheckedApplicationOperation, CheckedOperationViewError, CheckedPackageReadLimits,
+    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedSemanticId, CheckedTerm, ExecutionPoint, ExecutionPointName,
+    StateClauseKind,
 };
 use serde_json::json;
 
@@ -17,6 +18,7 @@ use serde_json::json;
     "FR-038-AC-332",
     "FR-038-AC-333",
     "FR-038-AC-334",
+    "FR-038-AC-341",
     "FR-040-AC-37"
 )]
 #[test]
@@ -36,11 +38,26 @@ fn public_deserialization_does_not_admit_operation_views() {
     let operation: CheckedApplicationOperation =
         serde_json::from_value(forged.clone()).expect("public decode retains the wire record");
     assert_eq!(operation.identity(), Some("not-in-the-operation-catalog"));
-    assert_eq!(operation.state_clause_kind(), None);
-    assert_eq!(operation.projection_field(), None);
-    assert_eq!(operation.member_declaration(), None);
-    assert_eq!(operation.mode(), None);
-    assert!(operation.law_definitions().is_empty());
+    assert_eq!(
+        operation.state_clause_kind(),
+        Err(CheckedOperationViewError::NotAdmitted)
+    );
+    assert_eq!(
+        operation.projection_field(),
+        Err(CheckedOperationViewError::NotAdmitted)
+    );
+    assert_eq!(
+        operation.member_declaration(),
+        Err(CheckedOperationViewError::NotAdmitted)
+    );
+    assert_eq!(
+        operation.mode(),
+        Err(CheckedOperationViewError::NotAdmitted)
+    );
+    assert_eq!(
+        operation.law_definitions(),
+        Err(CheckedOperationViewError::NotAdmitted)
+    );
     assert_eq!(
         serde_json::to_value(&operation).expect("wire round trip"),
         forged
@@ -52,7 +69,10 @@ fn public_deserialization_does_not_admit_operation_views() {
     });
     let decoded: CheckedApplicationOperation =
         serde_json::from_value(clause.clone()).expect("public clause decode");
-    assert_eq!(decoded.state_clause_kind(), None);
+    assert_eq!(
+        decoded.state_clause_kind(),
+        Err(CheckedOperationViewError::NotAdmitted)
+    );
     assert_eq!(
         serde_json::to_value(&decoded).expect("clause wire round trip"),
         clause
@@ -60,8 +80,55 @@ fn public_deserialization_does_not_admit_operation_views() {
     assert_eq!(
         CheckedApplicationOperation::state_clause(StateClauseKind::Invariant, None)
             .state_clause_kind(),
-        Some(StateClauseKind::Invariant),
+        Ok(Some(StateClauseKind::Invariant)),
     );
+
+    let absent: CheckedApplicationOperation = serde_json::from_value(json!({
+        "identity": "quire.op.function.call", "laws": [], "mode": null,
+        "member": null, "leaves": []
+    }))
+    .expect("closed operation record");
+    assert_eq!(
+        absent.state_clause_kind(),
+        Err(CheckedOperationViewError::NotAdmitted)
+    );
+    assert_eq!(
+        absent.projection_field(),
+        Err(CheckedOperationViewError::NotAdmitted)
+    );
+    assert_eq!(
+        absent.member_declaration(),
+        Err(CheckedOperationViewError::NotAdmitted)
+    );
+    assert_eq!(absent.mode(), Err(CheckedOperationViewError::NotAdmitted));
+    assert_eq!(
+        absent.law_definitions(),
+        Err(CheckedOperationViewError::NotAdmitted)
+    );
+}
+
+#[trace("TC-047", "FR-035-AC-22", "FR-035-AC-25")]
+#[test]
+fn operation_equality_uses_record_and_execution_point_not_view_provenance() {
+    let admitted = CheckedApplicationOperation::state_clause(
+        StateClauseKind::Invariant,
+        Some(ExecutionPoint::Pre {
+            operation: ExecutionPointName::new("step").expect("point name"),
+        }),
+    );
+    let decoded: CheckedApplicationOperation =
+        serde_json::from_value(serde_json::to_value(&admitted).expect("operation wire"))
+            .expect("operation decode");
+    assert_eq!(admitted, decoded);
+    assert_eq!(decoded.mode(), Err(CheckedOperationViewError::NotAdmitted));
+    assert_eq!(admitted.mode(), Ok(None));
+    let other_point = CheckedApplicationOperation::state_clause(
+        StateClauseKind::Invariant,
+        Some(ExecutionPoint::Post {
+            operation: ExecutionPointName::new("step").expect("point name"),
+        }),
+    );
+    assert_ne!(admitted, other_point);
 }
 
 #[trace("FR-349-AC-1", "FR-349-AC-3")]

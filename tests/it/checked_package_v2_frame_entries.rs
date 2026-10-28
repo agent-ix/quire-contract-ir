@@ -2127,7 +2127,7 @@ fn tc_056_shared_frame_checks_scoped_deletes_for_each_anchor() {
 }
 
 /// ACs: FR-040-AC-8, FR-040-AC-9
-#[trace("TC-056", "FR-040-AC-37")]
+#[trace("TC-056", "FR-040-AC-37", "TC-048", "FR-038-AC-341")]
 #[test]
 fn tc_056_public_state_clause_kind_tracks_reader_admission() {
     let mut package = with_postcondition(StatePackage::new(), None);
@@ -2150,7 +2150,10 @@ fn tc_056_public_state_clause_kind_tracks_reader_admission() {
         let CheckedTerm::Application { operation, .. } = &node.body else {
             panic!("{name} clause is an application");
         };
-        assert_eq!(operation.state_clause_kind(), Some(expected));
+        assert_eq!(
+            operation.state_clause_kind().expect("admitted views"),
+            Some(expected)
+        );
     }
     let plain = admitted
         .graph()
@@ -2165,7 +2168,7 @@ fn tc_056_public_state_clause_kind_tracks_reader_admission() {
             _ => None,
         })
         .expect("fixture includes a non-clause operation");
-    assert_eq!(plain.state_clause_kind(), None);
+    assert_eq!(plain.state_clause_kind().expect("admitted views"), None);
     let malformed = StatePackage::new().edit(package.clause("invariant"), |node| {
         node["body"]["operation"]["member"]["clause"] = json!("unknown");
     });
