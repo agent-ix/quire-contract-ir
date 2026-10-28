@@ -375,12 +375,16 @@ fn tc_056_record_owner_index_uses_selected_row_work_budget() {
 /// [`read_semantic_ir`] under a work limit nothing reaches, with the field
 /// tables the lock stage builds.
 pub(in crate::checked_package::v2) fn read(document: &Value) -> Result<DomainModel, ModelRefusal> {
+    read_with_unit_refs(document, &Arc::new(BTreeMap::new()))
+}
+
+/// Test intake with already resolved selected unit keys.
+pub(in crate::checked_package::v2) fn read_with_unit_refs(
+    document: &Value,
+    unit_refs: &UnitRefs,
+) -> Result<DomainModel, ModelRefusal> {
     let mut meter = WorkMeter::new(u64::MAX);
-    match read_semantic_ir(
-        document,
-        &mut Budget::new(&mut meter, 0, BYTES),
-        &Arc::new(BTreeMap::new()),
-    ) {
+    match read_semantic_ir(document, &mut Budget::new(&mut meter, 0, BYTES), unit_refs) {
         Ok(model) => {
             let mut models = [model];
             build_field_tables(&mut models, &mut meter).expect("no limit is reached");

@@ -5651,14 +5651,18 @@ mod tests {
         }
     }
 
-    /// IR-1059 slice 2: FR-322 step 4 gives native floats scalar type nodes.
-    /// A selected variant payload must retain those exact node keys in case order.
+    /// IR-1059 slice 2: FR-322 step 4 gives native floats scalar type nodes
+    /// and resolved units their quantity node. Selected variant payloads
+    /// retain those exact keys in case order.
     #[test]
     fn selected_model_union_float_payloads_have_scalar_node_keys() {
         use crate::checked_package::v2::model_members::{
             declaration_key, tests as model_tests, DeclarationForm, MemberType,
         };
+        use std::sync::Arc;
         const VARIANT: &str = "ix://acme/orders/Measurements";
+        const UNIT: &str = "ix://quire/unit/acme/orders/ms";
+        let unit_key = "ab".repeat(32);
         let variant = json!({
             "identity": VARIANT,
             "kind": {"module": "acme/orders", "name": "variant"},
@@ -5667,6 +5671,8 @@ mod tests {
                  "payloadType": "ix://quire/native/Float32"},
                 {"identity": format!("{VARIANT}/A64"), "name": "A64",
                  "payloadType": "ix://quire/native/Float64"},
+                {"identity": format!("{VARIANT}/MUnit"), "name": "MUnit",
+                 "payloadType": UNIT},
             ],
         });
         let mut selected = model_tests::document(vec![variant]);
@@ -5675,7 +5681,9 @@ mod tests {
             .expect("constructs")
             .push(json!({"kind":{"module":"acme/orders","name":"variant"},
                 "construct":{"meaning":"quire.meaning.model.variant-type/v1"}}));
-        let model = model_tests::read(&selected).expect("float payloads admit at model intake");
+        let unit_refs = Arc::new(BTreeMap::from([(UNIT.into(), unit_key.clone().into())]));
+        let model = model_tests::read_with_unit_refs(&selected, &unit_refs)
+            .expect("float and resolved unit payloads admit at model intake");
         let owners = ModelOwners::new(std::slice::from_ref(&model), |_| Ok(())).expect("owners");
         let key = declaration_key(
             "acme/orders",
@@ -5692,10 +5700,11 @@ mod tests {
             super::selected_union_members(&type_id, &owners, &mut WorkMeter::new(100_000))
                 .expect("bounded member resolution")
                 .expect("payload union");
-        assert_eq!(members.len(), 2);
+        assert_eq!(members.len(), 3);
         for (member, name, member_type) in [
             (&members[0], "A64", MemberType::Float64),
-            (&members[1], "Z32", MemberType::Float32),
+            (&members[1], "MUnit", MemberType::Quantity(unit_key.into())),
+            (&members[2], "Z32", MemberType::Float32),
         ] {
             assert_eq!(member.name.as_ref(), name);
             assert_eq!(member.payload.len(), 1);

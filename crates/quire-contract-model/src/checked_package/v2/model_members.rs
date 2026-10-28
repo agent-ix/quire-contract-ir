@@ -1848,6 +1848,8 @@ pub(super) struct SelectionRefusal {
     pub(super) declaration_origin: Option<IntakeDeclarationOrigin>,
     /// Member path within the selected type definition, retained privately.
     pub(super) declaration_path: Option<Vec<Segment>>,
+    /// A selected-document pointer that the public refusal contract locates.
+    pub(super) document_pointer: Option<JsonPointer>,
     pub(super) mismatch: Option<(CheckedSemanticId, CheckedSemanticId)>,
 }
 
@@ -1863,6 +1865,7 @@ impl SelectionRefusal {
             declaration_identity: None,
             declaration_origin: None,
             declaration_path: None,
+            document_pointer: None,
             mismatch: None,
         }
     }
@@ -1894,6 +1897,7 @@ impl SelectionRefusal {
             declaration_identity: identity.map(Box::from),
             declaration_origin: retained_origin(node.get("origin"), budget)?,
             declaration_path: None,
+            document_pointer: None,
             mismatch: None,
         })
     }
@@ -1918,6 +1922,33 @@ impl SelectionRefusal {
         }
         Ok(retained)
     }
+}
+
+/// FR-322 selected variant payload refusals name both the selection row and
+/// the exact payload member in the selected Semantic IR document.
+fn unsupported_variant_payload(
+    case: &Value,
+    type_index: usize,
+    case_index: usize,
+    budget: &mut Budget<'_>,
+) -> Result<SelectionRefusal, ValidationFailure> {
+    let mut refusal = SelectionRefusal::located(
+        ModelRefusal::new(
+            CheckedPackageRefusalCode::UnsupportedConstruct,
+            CheckedPackageRefusalCause::DeclarationForm,
+        ),
+        case,
+        budget,
+    )?;
+    refusal.document_pointer = Some(
+        JsonPointer::root()
+            .key("types")
+            .index(type_index)
+            .key("variants")
+            .index(case_index)
+            .key("payloadType"),
+    );
+    Ok(refusal)
 }
 
 /// Why FR-322 step 1 stopped at one `model_selections` row: a refusal, or a
@@ -3150,7 +3181,9 @@ pub(super) fn read_semantic_ir(
                 }
             }
             meaning::Kind::ValueType => {
-                model.value_types.insert((*node).into(), None);
+                model
+                    .value_types
+                    .insert((*node).into(), semantic_ir_value_type(declared));
             }
             meaning::Kind::TupleValueType => {
                 model.tuple_types.insert((*node).into(), Vec::new());
@@ -3255,9 +3288,8 @@ pub(super) fn read_semantic_ir(
                 }
             }
             meaning::Kind::ValueType => {
-                model
-                    .value_types
-                    .insert(node.into(), semantic_ir_value_type(declared));
+                // Bounds were read with the classified declarations, before
+                // variant payload references are checked.
             }
             meaning::Kind::TupleValueType => {
                 if [
@@ -3386,6 +3418,9 @@ pub(super) fn read_semantic_ir(
                 }
             }
             meaning::Kind::VariantType => {
+                let Some(&type_index) = document_positions.get(node) else {
+                    return Err(ModelRefusal::malformed().into());
+                };
                 let cases = match list(declared, "variants") {
                     Ok(cases) => cases,
                     Err(refusal) => {
@@ -3393,7 +3428,7 @@ pub(super) fn read_semantic_ir(
                     }
                 };
                 let mut names = BTreeMap::new();
-                for case in cases {
+                for (case_index, case) in cases.iter().enumerate() {
                     let name = match text(case, "name") {
                         Ok(name) => name,
                         Err(refusal) => {
@@ -3415,13 +3450,8 @@ pub(super) fn read_semantic_ir(
                         Some(Value::String(reference)) => {
                             let Some(resolved) = SelectedTypeRef::from_admitted_name(reference)
                             else {
-                                return Err(SelectionRefusal::located(
-                                    ModelRefusal::new(
-                                        CheckedPackageRefusalCode::UnsupportedConstruct,
-                                        CheckedPackageRefusalCause::DeclarationForm,
-                                    ),
-                                    case,
-                                    budget,
+                                return Err(unsupported_variant_payload(
+                                    case, type_index, case_index, budget,
                                 )?
                                 .into());
                             };
@@ -3438,25 +3468,33 @@ pub(super) fn read_semantic_ir(
                     };
                     if let Some(reference) = &payload {
                         let valid = match reference {
-                            SelectedTypeRef::Native(NativeTypeRef::Clock)
+                            SelectedTypeRef::Native(
+                                NativeTypeRef::Boolean
+                                | NativeTypeRef::Integer
+                                | NativeTypeRef::Float32
+                                | NativeTypeRef::Float64
+                                | NativeTypeRef::String
+                                | NativeTypeRef::Uuid
+                                | NativeTypeRef::Timestamp,
+                            ) => true,
+                            SelectedTypeRef::Native(
+                                NativeTypeRef::Rational
+                                | NativeTypeRef::Decimal
+                                | NativeTypeRef::Text
+                                | NativeTypeRef::Clock,
+                            )
                             | SelectedTypeRef::Map(..) => false,
-                            SelectedTypeRef::Native(_) => true,
                             SelectedTypeRef::Unit(name) => model.unit_refs.contains_key(name),
                             SelectedTypeRef::Declared(name) => {
-                                model.value_types.contains_key(name)
+                                model.value_types.get(name).is_some_and(Option::is_some)
                                     || scope.records.contains(name.as_ref())
                                     || model.tuple_types.contains_key(name)
                                     || model.variant_types.contains_key(name)
                             }
                         };
                         if !valid {
-                            return Err(SelectionRefusal::located(
-                                ModelRefusal::new(
-                                    CheckedPackageRefusalCode::UnsupportedConstruct,
-                                    CheckedPackageRefusalCause::DeclarationForm,
-                                ),
-                                case,
-                                budget,
+                            return Err(unsupported_variant_payload(
+                                case, type_index, case_index, budget,
                             )?
                             .into());
                         }

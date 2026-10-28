@@ -1886,6 +1886,7 @@ fn validate_domain_packages(
                             declaration_identity,
                             declaration_origin,
                             declaration_path,
+                            document_pointer,
                             mismatch,
                         } = *refused;
                         // Intake metadata is private. Its owning lifetime ends at
@@ -1899,6 +1900,13 @@ fn validate_domain_packages(
                                 expected,
                                 actual,
                             )))
+                        } else if let Some(document_pointer) = document_pointer {
+                            ValidationFailure::refused_because_in_document(
+                                refusal.code,
+                                path,
+                                refusal.cause,
+                                document_pointer,
+                            )
                         } else {
                             ValidationFailure::refused_because(refusal.code, path, refusal.cause)
                         }

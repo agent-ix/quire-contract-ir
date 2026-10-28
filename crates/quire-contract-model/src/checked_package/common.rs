@@ -86,6 +86,24 @@ impl ValidationFailure {
         })))
     }
 
+    /// A model-selection refusal whose selected-document member is also
+    /// specified by the intake contract.
+    pub(super) fn refused_because_in_document(
+        code: CheckedPackageRefusalCode,
+        path: JsonPointer,
+        cause: CheckedPackageRefusalCause,
+        document_pointer: JsonPointer,
+    ) -> Self {
+        Self::Refused(Box::new(CheckedPackageRefusal::new(RefusalFields {
+            code,
+            path: Some(path),
+            cause: Some(cause),
+            locus: None,
+            contract_version: None,
+            document_pointer: Some(document_pointer),
+        })))
+    }
+
     /// A refusal about the byte stream rather than any value: malformed JSON
     /// or non-canonical bytes.
     pub(super) fn refused_bytes(code: CheckedPackageRefusalCode) -> Self {
