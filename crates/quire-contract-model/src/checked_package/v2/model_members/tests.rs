@@ -458,8 +458,8 @@ const WIDGET: &str = "ix://acme/orders/Widget";
 const GADGET: &str = "ix://acme/orders/Gadget";
 const LINK: &str = "ix://acme/orders/relationship/Widget-links-Gadget";
 
-/// Trace: FR-069-AC-1, FR-069-AC-4, FR-069-AC-6.
-#[trace("TC-940")]
+/// IR-1059 slice 1: local tuple order and variant payload retention.
+/// The published TC-940 vector and full FR-069 matrix remain open.
 #[test]
 fn selected_tuple_positions_and_variant_payloads_are_retained() {
     const PAIR: &str = "ix://acme/orders/Pair";

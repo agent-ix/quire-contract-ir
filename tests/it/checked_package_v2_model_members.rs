@@ -333,8 +333,8 @@ fn refused(
     }
 }
 
-/// Trace: FR-069-AC-1, FR-069-AC-4.
-#[trace("TC-940")]
+/// IR-1059 slice 1: local owner and selected declaration intake.
+/// The published TC-940 vector and full FR-069 matrix remain open.
 #[test]
 fn selected_tuple_and_payload_variant_declarations_admit() {
     let tuple = format!("ix://{IDENTITY}/Pair");
@@ -383,6 +383,73 @@ fn selected_tuple_and_payload_variant_declarations_admit() {
     assert!(
         matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
         "{result:?}"
+    );
+}
+
+/// IR-1059 slice 1: a selected payload variant is a union in operation typing.
+#[test]
+fn selected_payload_variant_uses_union_family_in_binary_operations() {
+    let mut document = variant_document_named(TIER, &["Gold", "2x"]);
+    document["types"][0]["variants"][0]["payloadType"] = json!("ix://quire/native/Integer");
+    let digest = sha256_hex(&canonical(&document));
+    let (mut package, _, variant_key) = variant_package(&["Gold", "2x"], &[], false);
+    package["lock"]["model_selections"][0]["digest"] = json!(digest);
+    let boolean = structural_key("scalar_type", "boolean", None, None, &empty());
+    let (left, left_node) = parameter("left", "3", &variant_key);
+    let (right, right_node) = parameter("right", "4", &variant_key);
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    nodes.extend([
+        wire_node(&boolean, "scalar_type", "boolean", &boolean, &[], empty()),
+        left_node,
+        right_node,
+    ]);
+    let body = json!({
+        "term":"application", "operator":"binary",
+        "operation":{"identity":"quire.op.structural.eq", "laws":[], "mode":null,
+            "member":null, "leaves":[]},
+        "result_type":node_id(&boolean),
+        "arguments":[reference(&left), reference(&right)],
+    });
+    let mut equality = wire_node(
+        &application_node_key("expression", "binary", &boolean, &body),
+        "expression",
+        "binary",
+        &boolean,
+        &[&left, &right],
+        body,
+    );
+    equality["occurrences"] = json!([{"role":"expression","ordinal":0}]);
+    nodes.push(equality);
+    settle(&mut package);
+    let mut evidence = evidence_for(&package);
+    evidence
+        .insert_domain_package_document(digest, canonical(&document))
+        .expect("payload variant selected document");
+    let result = read(&package, &evidence);
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+        "{result:?}"
+    );
+
+    let equality_index = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["body"]["operation"]["identity"] == "quire.op.structural.eq")
+        .expect("structural equality");
+    package["semantic_graph"]["nodes"][equality_index]["body"]["operation"]["identity"] =
+        json!("quire.op.enum.eq");
+    settle(&mut package);
+    let refusal = refused(&package, &evidence);
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (
+            CheckedPackageRefusalCode::IllTyped,
+            Some(CheckedPackageRefusalCause::OperatorIneligible)
+        ),
+        "{refusal:?}"
     );
 }
 

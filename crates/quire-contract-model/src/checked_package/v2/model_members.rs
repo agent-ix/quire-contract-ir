@@ -1555,6 +1555,20 @@ pub(super) struct ModelOwners<'m> {
 }
 
 impl<'m> ModelOwners<'m> {
+    /// The selected variant's family, determined by its retained payload types.
+    pub(super) fn variant_family(&self, key: &CheckedNodeId) -> Option<&'static str> {
+        let owner = self.owner_by_key(key)?;
+        if owner.form != DeclarationForm::VariantType {
+            return None;
+        }
+        let cases = owner.package.variant_types.get(owner.node)?;
+        Some(if cases.values().any(Option::is_some) {
+            "union"
+        } else {
+            "enum"
+        })
+    }
+
     pub(super) fn owner_by_key(&self, key: &CheckedNodeId) -> Option<Owner<'m>> {
         self.by_key.get(key.digest.as_ref()).copied()
     }
