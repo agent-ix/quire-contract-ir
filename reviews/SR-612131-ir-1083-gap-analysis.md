@@ -48,3 +48,7 @@ FAIL: partial tests make the computed matrix report full AC coverage while the s
 ## Disposition verdict
 
 Round 1 at f1d31d0bb6262b635b6ccf442de69570b7d6cb46: all recorded findings fixed. Full published public-reader vectors remain pending STD-541, and GD-03 exact locus remains pending STD-540. Aggregate gate belongs to the lead.
+
+## Final-head scanner addendum
+
+Head 8a1aeb445e45ec733b9c5d230e8310ee3f07511c: The scanner repair adds attributes only; tests and their trace tags are unchanged. Quire matrix still leaves FR-038-AC-335..340 untagged. No new gap finding. Full public-reader vectors remain pending STD-541; GD-03 exact locus remains pending STD-540.
