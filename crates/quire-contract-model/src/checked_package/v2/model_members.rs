@@ -443,6 +443,20 @@ pub(super) struct IntegerBounds {
     pub(super) upper: i128,
 }
 
+/// A selected `Text[min, max; profile]` value type.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct TextBounds {
+    pub(super) lower: u64,
+    pub(super) upper: u64,
+    pub(super) profile: Box<str>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) enum ValueBounds {
+    Integer(IntegerBounds),
+    Text(TextBounds),
+}
+
 /// The declarations of one admitted domain package document that FR-322's
 /// model-owned member rule consults.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -462,7 +476,7 @@ pub(super) struct DomainModel {
     /// Record value types, with their own and inherited fields.
     pub(super) record_types: BTreeMap<Box<str>, FieldBearingTypeDecl>,
     /// Value types, by IR node identity; `None` when not bound as `Int[lo, hi]`.
-    pub(super) value_types: BTreeMap<Box<str>, Option<IntegerBounds>>,
+    pub(super) value_types: BTreeMap<Box<str>, Option<ValueBounds>>,
     /// Exact semantic case names of selected variant types, by declaration identity.
     pub(super) variant_types: BTreeMap<Box<str>, BTreeSet<Box<str>>>,
     /// Checked-package unit `typeRef` to the unit node digest.
@@ -672,12 +686,12 @@ enum BodyMember<'a> {
 struct Binding<'a> {
     term: &'static str,
     name: &'static str,
-    value: IntegerLiteral<'a>,
+    value: BoundLiteral<'a>,
 }
 
-/// An `Integer`-typed `literal` term.
+/// A bound literal typed at either Integer or Text.
 #[derive(Serialize, FixedShape)]
-struct IntegerLiteral<'a> {
+struct BoundLiteral<'a> {
     term: &'static str,
     #[serde(rename = "type")]
     type_node: NodeRef<'a>,
@@ -738,6 +752,8 @@ pub(super) enum MemberType {
     Clock,
     /// `Int[lo, hi]`.
     IntRange(IntegerBounds),
+    /// `Text[min, max; profile]`.
+    TextBounds(TextBounds),
     /// `Reference<O>`, by the digest of `O`'s model declaration node.
     Reference(Box<str>),
     /// A value record, by its owner-bearing declaration node key.
@@ -796,6 +812,23 @@ impl MemberType {
                         integer: &integer,
                         lower: &range.lower.to_string(),
                         upper: &range.upper.to_string(),
+                    },
+                    bytes,
+                )
+            }
+            Self::TextBounds(bounds) => {
+                let text = anonymous("scalar_type", "text", None, StructuralBody::Empty, bytes)?;
+                let integer = Self::Integer.node_key(bytes)?;
+                anonymous(
+                    "bounded_domain",
+                    "text_bounds",
+                    Some(&text),
+                    StructuralBody::TextBounds {
+                        integer: &integer,
+                        text: &text,
+                        lower: &bounds.lower.to_string(),
+                        upper: &bounds.upper.to_string(),
+                        profile: &bounds.profile,
                     },
                     bytes,
                 )
@@ -871,6 +904,13 @@ pub(super) enum StructuralBody<'a> {
         lower: &'a str,
         upper: &'a str,
     },
+    TextBounds {
+        integer: &'a str,
+        text: &'a str,
+        lower: &'a str,
+        upper: &'a str,
+        profile: &'a str,
+    },
 }
 
 impl<'a> StructuralBody<'a> {
@@ -883,6 +923,13 @@ impl<'a> StructuralBody<'a> {
                 lower,
                 upper,
             } => bounds(integer, lower, upper),
+            Self::TextBounds {
+                integer,
+                text,
+                lower,
+                upper,
+                profile,
+            } => text_bounds(integer, text, lower, upper, profile),
         }
     }
 }
@@ -927,7 +974,7 @@ fn bounds<'a>(integer: &'a str, lower: &'a str, upper: &'a str) -> AggregateBody
         BodyMember::Binding(Binding {
             term: "binding",
             name,
-            value: IntegerLiteral {
+            value: BoundLiteral {
                 term: "literal",
                 type_node: node_ref(integer),
                 value,
@@ -936,6 +983,32 @@ fn bounds<'a>(integer: &'a str, lower: &'a str, upper: &'a str) -> AggregateBody
         })
     };
     aggregate(vec![binding("min", lower), binding("max", upper)])
+}
+
+fn text_bounds<'a>(
+    integer: &'a str,
+    text: &'a str,
+    lower: &'a str,
+    upper: &'a str,
+    profile: &'a str,
+) -> AggregateBody<'a> {
+    let binding = |name: &'static str, type_key: &'a str, value: &'a str, value_kind| {
+        BodyMember::Binding(Binding {
+            term: "binding",
+            name,
+            value: BoundLiteral {
+                term: "literal",
+                type_node: node_ref(type_key),
+                value,
+                value_kind,
+            },
+        })
+    };
+    aggregate(vec![
+        binding("min", integer, lower, "integer"),
+        binding("max", integer, upper, "integer"),
+        binding("text_profile", text, profile, "text"),
+    ])
 }
 
 /// The member step 3 resolves.
@@ -1245,7 +1318,10 @@ impl DomainModel {
             SelectedTypeRef::Declared(name) => name.as_ref(),
         };
         if let Some(bounds) = self.value_types.get(type_ref) {
-            return bounds.map(MemberType::IntRange);
+            return bounds.as_ref().map(|bounds| match bounds {
+                ValueBounds::Integer(range) => MemberType::IntRange(*range),
+                ValueBounds::Text(bounds) => MemberType::TextBounds(bounds.clone()),
+            });
         }
         if self.record_types.contains_key(type_ref) {
             return declaration_key(
@@ -2337,14 +2413,10 @@ fn member_identity(member: &Value, owner: &str) -> Result<Box<str>, ModelRefusal
     Ok(identity.into())
 }
 
-/// An FCD value type bound as `Int[lo, hi]`: `scalar` `integer` with one
-/// `min` and one `max` constraint whose bounds read as integers, `lo <= hi`.
+/// An FCD value type bound as `Int[lo, hi]` or `Text[min, max; profile]`.
 // Reads a selected domain package document's value type.
-fn semantic_ir_value_type(value: &Value) -> Option<IntegerBounds> {
-    if value.get("scalar").and_then(Value::as_str) != Some("integer") {
-        return None;
-    }
-    let bound = |keyword: &str| -> Option<i128> {
+fn semantic_ir_value_type(value: &Value) -> Option<ValueBounds> {
+    let constraint = |keyword: &str| -> Option<&Value> {
         let mut found = list(value, "constraints")
             .ok()?
             .iter()
@@ -2355,14 +2427,46 @@ fn semantic_ir_value_type(value: &Value) -> Option<IntegerBounds> {
         if found.next().is_some() {
             return None;
         }
-        match constraint.get("operands")?.get("value")? {
+        Some(constraint)
+    };
+    let integer = |keyword| -> Option<i128> {
+        match constraint(keyword)?.get("operands")?.get("value")? {
             Value::Number(number) => number.as_i64().map(i128::from),
             Value::String(text) => text.parse().ok(),
             _ => None,
         }
     };
-    let (lower, upper) = (bound("min")?, bound("max")?);
-    (lower <= upper).then_some(IntegerBounds { lower, upper })
+    match value.get("scalar").and_then(Value::as_str)? {
+        "integer" => {
+            let (lower, upper) = (integer("min")?, integer("max")?);
+            (lower <= upper).then_some(ValueBounds::Integer(IntegerBounds { lower, upper }))
+        }
+        "string" => {
+            let (lower, upper) = (
+                u64::try_from(integer("minLength")?).ok()?,
+                u64::try_from(integer("maxLength")?).ok()?,
+            );
+            let name = constraint("format")?
+                .get("operands")?
+                .get("name")?
+                .as_str()?;
+            let profile = name.strip_prefix("text-profile:")?;
+            if lower > upper
+                || !matches!(
+                    profile,
+                    "unicode-scalars" | "nfc" | "nfd" | "nfkc" | "nfkd" | "binary-utf8"
+                )
+            {
+                return None;
+            }
+            Some(ValueBounds::Text(TextBounds {
+                lower,
+                upper,
+                profile: profile.into(),
+            }))
+        }
+        _ => None,
+    }
 }
 
 /// FR-154's declaration-refusal order for one node. Parameter collisions and

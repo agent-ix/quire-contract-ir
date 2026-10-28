@@ -591,6 +591,33 @@ mod tests {
                 &integer,
                 bounds(&integer, &range.lower.to_string(), &range.upper.to_string()),
             ),
+            MemberType::TextBounds(bounds) => {
+                let text = super::super::model_members::anonymous(
+                    "scalar_type",
+                    "text",
+                    None,
+                    super::super::model_members::StructuralBody::Empty,
+                    BYTES,
+                )
+                .expect("text key");
+                let bound = |name, ty: &str, value: String, value_kind| {
+                    json!({"term":"binding", "name":name, "value":{
+                        "term":"literal", "type":node_id(ty), "value":value,
+                        "value_kind":value_kind
+                    }})
+                };
+                wire(
+                    &key,
+                    "bounded_domain",
+                    "text_bounds",
+                    &text,
+                    json!({"term":"aggregate", "members":[
+                        bound("min", &integer, bounds.lower.to_string(), "integer"),
+                        bound("max", &integer, bounds.upper.to_string(), "integer"),
+                        bound("text_profile", &text, bounds.profile.to_string(), "text")
+                    ]}),
+                )
+            }
             MemberType::Reference(target) => {
                 wire(&key, "composite_type", "reference", &key, over(target))
             }

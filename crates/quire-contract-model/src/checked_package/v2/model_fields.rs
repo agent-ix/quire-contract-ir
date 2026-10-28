@@ -792,6 +792,15 @@ pub enum CheckedMemberType {
         /// The inclusive upper bound.
         upper: i128,
     },
+    /// `Text[min, max; profile]` from a selected value type.
+    TextBounds {
+        /// Inclusive minimum text length.
+        lower: u64,
+        /// Inclusive maximum text length.
+        upper: u64,
+        /// QSpec text profile spelling.
+        profile: Box<str>,
+    },
     /// `Reference<O>`: the model declaration node of the referenced object type.
     Reference(CheckedNodeId),
     /// A record value with no object identity: its model declaration node.
@@ -849,6 +858,11 @@ impl From<&MemberType> for CheckedMemberType {
             MemberType::IntRange(range) => Self::IntRange {
                 lower: range.lower,
                 upper: range.upper,
+            },
+            MemberType::TextBounds(bounds) => Self::TextBounds {
+                lower: bounds.lower,
+                upper: bounds.upper,
+                profile: bounds.profile.clone(),
             },
             MemberType::Reference(target) => Self::Reference(CheckedNodeId {
                 domain: NODE_DOMAIN.into(),
