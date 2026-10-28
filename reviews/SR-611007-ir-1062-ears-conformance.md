@@ -1,0 +1,30 @@
+---
+id: SR-611007
+title: "EARS review of IR-1062 PR 615"
+type: SpecReview
+analysis: ears-conformance
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-068-join-selected-process-and-persistence-declarations.md; spec/checked_package/matrix/TC-463-selected-process-and-persistence-owners.md; spec/spec.md"
+review_set: subset
+---
+
+## Summary
+
+Reviewed PR #615 exact head d61d8dc8320c9282e9d2e95f36cf1065fd0aa447 against IR base f543c24b and QSpec origin/main. Examined FR-068-AC-1 through AC-5, TC-463 and the spec index addition.
+
+## Verdict
+
+**PASS.** The new Description and Behavior statements use named reader subjects and observable SHALL responses; scoped Quire grammar validation reported zero findings.
+
+## Scope
+
+- FR-068 Description and Behavior (examined): selected declaration owner derivation, member resolution, refusal stage and clause-edge ordering.
+- FR-068-AC-1 through AC-5 (examined): selected form admission, members and references, adverse owners, FR-154 intake and FR-064 clause edges.
+- TC-463 Procedure and Expected Results (examined): public reader, write/read/read, QSpec vectors and independent identity oracle.
+- QSpec FR-322-AC-63/65/72 and TC-280 (context only): authoritative owner and member behavior.
+- IR FR-038-AC-155 and FR-064-AC-4 (context only): earlier owner join and later clause edge.
+
+## Findings
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-001 | low | No findings (placeholder) | - |
