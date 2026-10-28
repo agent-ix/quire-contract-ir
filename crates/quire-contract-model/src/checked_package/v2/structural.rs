@@ -37,11 +37,12 @@
 //!   a quantity whose unit is a product, quotient or power. It is its own
 //!   semantic type; its body is an `aggregate` of terms, each exactly
 //!   `aggregate{[binding "unit" = reference(a root `scalar_type`/`unit`
-//!   node), binding "exponent" = a canonical nonzero integer literal typed
+//!   node), binding "exponent" = a canonical integer literal typed
 //!   at a `scalar_type`/`integer` node]}`, strictly ascending by unit key
 //!   (the `quire.value.compound-unit/v1` term order); `dependencies` is
 //!   exactly those unit keys in that order. The empty body is the
-//!   dimensionless unit.
+//!   dimensionless unit. Zero exponent is a derived-shape semantic defect
+//!   after all structural keys have been checked.
 //! - **Application-node dependency join** (FR-322
 //!   `application_node_preimage`): a node whose body contains an
 //!   `application` term anywhere has `dependencies` exactly the unique,
@@ -88,6 +89,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// The member of one node a structural defect is about.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Defect {
+    Node,
     SemanticType,
     Dependencies,
     RecursionGroup,
@@ -107,6 +109,7 @@ impl Defect {
     fn pointer(self, position: usize) -> JsonPointer {
         let node = node_pointer(position);
         match self {
+            Self::Node => node,
             Self::SemanticType => node.key("semantic_type"),
             Self::Dependencies => node.key("dependencies"),
             Self::RecursionGroup => node.key("recursion_group"),
@@ -540,6 +543,7 @@ fn parameter_defect(
 ) -> Option<Defect> {
     let is_binder_type = node.semantic_type != node.node_id
         && (graph.dependent_target(&node.semantic_type)
+            || graph.node(&node.semantic_type).is_none()
             || graph
                 .node(&node.semantic_type)
                 .is_some_and(|(type_node, kind)| {
@@ -671,6 +675,15 @@ fn compound_unit_defect(
     };
     let mut units: Vec<CheckedNodeId> = Vec::with_capacity(terms.len());
     for (index, term) in terms.iter().enumerate() {
+        if let Some(unit) = typed_aggregate(term)
+            .and_then(|members| members.first())
+            .and_then(|member| typed_binding(member, "unit"))
+            .and_then(typed_reference)
+        {
+            if graph.node(unit).is_none() && !graph.dependent_target(unit) {
+                return Some(Defect::Node);
+            }
+        }
         let Some(unit) = typed_compound_unit_term(term, graph) else {
             return Some(Defect::BodyMember(index));
         };
@@ -712,8 +725,25 @@ fn typed_compound_unit_term(term: &super::CheckedTerm, graph: &Graph<'_>) -> Opt
             )
         })
         .and_then(Value::as_str)
-        .is_some_and(is_nonzero_integer);
+        .is_some_and(is_integer_bound);
     (is_root_unit && exponent_ok).then(|| unit.clone())
+}
+
+/// The zero exponent is a well-formed integer term whose semantic shape is
+/// refused only after every structural key has been checked.
+pub(super) fn compound_unit_has_zero_exponent(term: Option<&super::CheckedTerm>) -> bool {
+    term.and_then(typed_aggregate).is_some_and(|terms| {
+        terms.iter().any(|term| {
+            typed_aggregate(term).is_some_and(|members| {
+                members.get(1).is_some_and(|exponent| {
+                    typed_binding(exponent, "exponent").and_then(|value| match value {
+                        super::CheckedTerm::Literal { value, .. } => value.as_str(),
+                        _ => None,
+                    }) == Some("0")
+                })
+            })
+        })
+    })
 }
 
 /// A `state`/`operation_anchor` body (QSpec FR-342).

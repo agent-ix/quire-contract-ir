@@ -647,34 +647,6 @@ pub(super) fn validate_derived_keys(
         if derived != node_id.digest.as_ref() {
             return Err(stale(at(), node_id, Some(derived)));
         }
-        if kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) {
-            let target = super::structural::reference_type_target(node)
-                .ok_or_else(|| encoder_failure(node_pointer(position).key("body")))?;
-            let target_kind = deferred
-                .position(&target, index)
-                .and_then(|target_position| kinds.get(target_position))
-                .copied();
-            if !deferred.ambiguous(&target, index)
-                && !matches!(
-                    target_kind,
-                    Some(
-                        CheckedNodeKind::Model(
-                            super::ModelForm::ObjectType
-                                | super::ModelForm::Process
-                                | super::ModelForm::StateMachine
-                                | super::ModelForm::SystemsInterface
-                        ) | CheckedNodeKind::Relation(super::RelationForm::Relationship)
-                    )
-                )
-            {
-                return Err(ValidationFailure::refused_at(
-                    CheckedPackageRefusalCode::InvalidPackage,
-                    at(),
-                    Some(CheckedPackageRefusalCause::InvalidDerivedShape),
-                    node.node_id.clone(),
-                ));
-            }
-        }
     }
     // Sorting by retained member identity is independent of retained labels.
     let mut ordered: Vec<_> = groups.iter().collect();
@@ -718,6 +690,48 @@ pub(super) fn validate_derived_keys(
             if let Some(node) = nodes.get(group.least) {
                 return Err(stale(at(), &node.node_id, None));
             }
+        }
+    }
+    // Semantic shape follows both structural-key passes. A current key with
+    // an invalid compound-unit exponent or reference target is a shape
+    // refusal; an earlier stale key retains precedence over it.
+    for (&node_id, &position) in index {
+        let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
+            continue;
+        };
+        let invalid = if kind == CheckedNodeKind::ScalarType(super::ScalarTypeForm::CompoundUnit) {
+            super::structural::compound_unit_has_zero_exponent(
+                terms.get(position).and_then(Option::as_ref),
+            )
+        } else if kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) {
+            let target = super::structural::reference_type_target(node)
+                .ok_or_else(|| encoder_failure(node_pointer(position).key("body")))?;
+            let target_kind = deferred
+                .position(&target, index)
+                .and_then(|target_position| kinds.get(target_position))
+                .copied();
+            !deferred.ambiguous(&target, index)
+                && !matches!(
+                    target_kind,
+                    Some(
+                        CheckedNodeKind::Model(
+                            super::ModelForm::ObjectType
+                                | super::ModelForm::Process
+                                | super::ModelForm::StateMachine
+                                | super::ModelForm::SystemsInterface
+                        ) | CheckedNodeKind::Relation(super::RelationForm::Relationship)
+                    )
+                )
+        } else {
+            false
+        };
+        if invalid {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                node_pointer(position).key("node_id"),
+                Some(CheckedPackageRefusalCause::InvalidDerivedShape),
+                node_id.clone(),
+            ));
         }
     }
     Ok(())

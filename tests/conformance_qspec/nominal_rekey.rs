@@ -30,7 +30,10 @@ fn published_nominal_rekey_rows_match_reader_stage_and_locus() {
     evidence.support_feature("quire.value.complete/v1");
     for row in rows {
         let id = row["id"].as_str().expect("published rekey row id");
-        assert!(seen.insert(id), "duplicate published rekey row {id}");
+        assert!(
+            seen.insert(id.to_owned()),
+            "duplicate published rekey row {id}"
+        );
         let mut package = base.clone();
         for patch in row["patch"].as_array().expect("published patch list") {
             apply_wire_patch(&mut package, patch);
@@ -62,7 +65,7 @@ fn published_nominal_rekey_rows_match_reader_stage_and_locus() {
     }
     assert_eq!(
         seen,
-        BTreeSet::from(["NK-00", "NK-01", "NK-02", "NK-03", "NK-04", "NK-05", "NK-06", "NK-07"])
+        (0..=14).map(|index| format!("NK-{index:02}")).collect()
     );
 }
 
@@ -112,7 +115,7 @@ fn independent_dangling_unit_reference_precedes_nominal_rekey() {
         assert_eq!(refusal.cause, None, "{id}");
         assert_eq!(
             refusal.path.as_ref().map(ToString::to_string).as_deref(),
-            Some("/semantic_graph/nodes/3/body/members/0"),
+            Some("/semantic_graph/nodes/3"),
             "{id}"
         );
     }

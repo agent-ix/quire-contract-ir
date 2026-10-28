@@ -730,7 +730,7 @@ fn tc_048_a_grouped_union_key_has_public_reader_stage_precedence() {
                 Code::MissingDeclaration,
                 Some(Cause::MissingSelection),
                 "/semantic_graph/nodes/12/node_id".to_owned(),
-                true,
+                false,
             ),
             "graph" => (
                 Code::InvalidSemanticGraph,

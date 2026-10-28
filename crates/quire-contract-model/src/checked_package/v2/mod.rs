@@ -2637,6 +2637,35 @@ fn validate_graph(
     // unresolved-reference `invalid_semantic_graph`.
     let deferred_keys = deferred_key_targets(&graph.nodes, &kinds, limits.bytes);
     validate_structural_nodes(&graph.nodes, &kinds, &terms, &index, &deferred_keys)?;
+    // An independent dangling body reference belongs to graph shape. A
+    // target equal to a stale node's recomputed key waits for that key stage.
+    for (&node_id, &position) in &index {
+        if !matches!(
+            kinds[position],
+            CheckedNodeKind::ScalarType(_)
+                | CheckedNodeKind::CompositeType(_)
+                | CheckedNodeKind::BoundedDomain(_)
+                | CheckedNodeKind::Value(_)
+                | CheckedNodeKind::Expression(_)
+                | CheckedNodeKind::Function(_)
+                | CheckedNodeKind::Model(_)
+        ) {
+            continue;
+        }
+        if references[position].iter().any(|(target, site)| {
+            site.member == ReferenceMember::Target
+                && !index.contains_key(target)
+                && deferred_keys.position(target, &index).is_none()
+                && !deferred_keys.ambiguous(target, &index)
+        }) {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                node_pointer(position),
+                None,
+                node_id.clone(),
+            ));
+        }
+    }
     for &position in index.values() {
         if !matches!(
             kinds.get(position),
@@ -2687,15 +2716,40 @@ fn validate_graph(
         meter,
         limits.bytes,
     )?;
-    validate_nominal_nodes(
-        &graph.nodes,
-        &kinds,
-        &index,
-        &wire.lock,
-        models,
-        meter,
-        limits.bytes,
-    )?;
+    // The generic edge-existence stage follows all structural keys and
+    // derived-shape semantics. Family-owned edge checks (including frames)
+    // retain their own later refusal and locus.
+    for (&node_id, &position) in &index {
+        if !matches!(
+            kinds[position],
+            CheckedNodeKind::ScalarType(_)
+                | CheckedNodeKind::CompositeType(_)
+                | CheckedNodeKind::BoundedDomain(_)
+                | CheckedNodeKind::Value(_)
+                | CheckedNodeKind::Expression(_)
+                | CheckedNodeKind::Function(_)
+                | CheckedNodeKind::Model(_)
+        ) {
+            continue;
+        }
+        let node = &graph.nodes[position];
+        let missing = if !index.contains_key(&node.semantic_type) {
+            Some(node_pointer(position).key("semantic_type"))
+        } else {
+            node.dependencies
+                .iter()
+                .position(|dependency| !index.contains_key(dependency))
+                .map(|dependency| node_pointer(position).key("dependencies").index(dependency))
+        };
+        if let Some(path) = missing {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                path,
+                None,
+                node_id.clone(),
+            ));
+        }
+    }
     model_root::validate_completeness(&graph.nodes, &kinds, &wire.lock)?;
     validate_declaration_names(&graph.nodes, &kinds, &index)?;
     // FR-038 "The timed interval form" stage 2: the last graph check of the

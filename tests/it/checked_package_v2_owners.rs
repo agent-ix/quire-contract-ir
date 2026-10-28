@@ -1645,32 +1645,18 @@ fn tc_228_one_model_owner_lookup_consumes_one_validation_visit() {
 #[trace("TC-228", "FR-038-AC-155")]
 #[test]
 fn tc_228_owner_defects_use_digest_order_ahead_of_a_lower_stale_key() {
-    let mut package = v2_all_families();
-    let application = package["semantic_graph"]["nodes"]
+    let mut package = source_package_form("composite_type", "record", "LowKey");
+    let structural = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
-        .iter()
-        .enumerate()
-        .filter(|(_, node)| node["body"]["term"] == "application")
-        .min_by_key(|(_, node)| {
-            node["node_id"]["digest"]
-                .as_str()
-                .expect("digest")
-                .to_owned()
-        })
-        .map(|(position, _)| position)
-        .expect("application-keyed node");
-    let stale_key = package["semantic_graph"]["nodes"][application]["node_id"]["digest"]
+        .len()
+        - 1;
+    let stale_key = package["semantic_graph"]["nodes"][structural]["node_id"]["digest"]
         .as_str()
         .expect("digest")
         .to_owned();
-    let operation = package["semantic_graph"]["nodes"][application]["body"]["operation"]
-        ["identity"]
-        .as_str()
-        .expect("operation")
-        .to_owned();
-    package["semantic_graph"]["nodes"][application]["body"]["operation"]["identity"] =
-        json!(format!("{operation}.changed"));
+    package["semantic_graph"]["nodes"][structural]["declaration"]["qualified_name"] =
+        json!(["Example", "Changed"]);
     refresh_identity(&mut package);
     let CheckedPackageV2ReadResult::Refused(stale_refusal) = read(&package) else {
         panic!("the changed application preimage must have a stale key");
@@ -1685,7 +1671,7 @@ fn tc_228_owner_defects_use_digest_order_ahead_of_a_lower_stale_key() {
     );
     assert_eq!(
         stale_refusal.path.expect("path").as_str(),
-        format!("/semantic_graph/nodes/{application}/node_id")
+        format!("/semantic_graph/nodes/{structural}/node_id")
     );
 
     let mut owners = Vec::new();
@@ -1715,7 +1701,7 @@ fn tc_228_owner_defects_use_digest_order_ahead_of_a_lower_stale_key() {
     assert_eq!(
         owners.len(),
         2,
-        "two owner keys above the stale application key"
+        "two owner keys above the stale structural key"
     );
     owners.sort_by(|left, right| {
         right.0["node_id"]["digest"]
