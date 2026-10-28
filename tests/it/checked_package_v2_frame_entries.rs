@@ -4018,7 +4018,7 @@ fn tc_462_point_change_rekeys_node_and_package_without_losing_accessor_value() {
         ),
     ] {
         let sources = [initialized, handled, renamed];
-        let positions = sources.map(|source| source.clause(kind));
+        let positions = std::array::from_fn::<_, 3, _>(|index| sources[index].clause(kind));
         let bodies = std::array::from_fn::<_, 3, _>(|index| {
             &sources[index].value["semantic_graph"]["nodes"][positions[index]]["body"]
         });
