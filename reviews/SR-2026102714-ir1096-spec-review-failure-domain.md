@@ -21,7 +21,7 @@ key. That key is the minimum (`source.identity`, `start`, `end`) triple across
 every region of every `source_map` entry for that node; identities compare as
 UTF-8 bytes and positions as integers. Equal keys or a later member whose
 key is below its predecessor SHALL refuse `invalid_se
-- FR-038-AC-342 (examined): PLANNED/UNRUN (IR-1096). The public V2 reader admits QSpec's selected `AO-01` timed-slot package and `AO-05` tie-on-start package, including six root reference aggregates and a place's `guards` in strictly increasing minimum source-region order. It refuses each identity-current `AO-02`, `AO-03`, `AO-04`, `AO-06` and `AO-07` patch as `invalid_semantic_graph` with no cause at the vector's exact first out-of-order member locus; `AO-03` does not admit merely because references are in node-id digest order, `AO-06` compares ends when starts tie, and `AO-07` considers the earlier 
+- FR-038-AC-342 (examined): PLANNED/UNRUN (IR-1096). The public V2 reader admits QSpec's selected `AO-01` timed-slot package and `AO-05` tie-on-start package, including six root reference aggregates and a place's `guards` in strictly increasing minimum source-region order. It refuses each identity-current `AO-02`, `AO-03`, `AO-04`, `AO-06` and `AO-07` patch as `invalid_semantic_graph` with no cause at the vector's exact first out-of-order member locus; `AO-03` does not admit merely because references are in node-id digest order, `AO-06` compares ends when starts tie, and `AO-07` considers the earlier
 - TC-048 (examined): Status: PLANNED/UNRUN (IR-1096). Read the `aggregate_order` section of QSpec's
 published `proposals/checked-package-v2/timed-slot-selector-vectors.json`
 from the selected QSpec checkout. Apply `AO-01` through `AO-07` to the public
