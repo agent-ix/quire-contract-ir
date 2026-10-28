@@ -17,7 +17,7 @@ use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializ
 use serde_json::{error::Category, Value};
 
 /// An application operation whose state-clause point has a typed carrier.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CheckedApplicationOperation {
     record: Value,
     execution_point: Option<CheckedExecutionPoint>,
@@ -45,6 +45,14 @@ impl CheckedApplicationOperation {
 
     pub(super) fn record(&self) -> &Value {
         &self.record
+    }
+
+    pub(super) fn get(&self, key: &str) -> Option<&Value> {
+        self.record.get(key)
+    }
+
+    pub(super) fn pointer(&self, pointer: &str) -> Option<&Value> {
+        self.record.pointer(pointer)
     }
 
     #[cfg(test)]
@@ -117,7 +125,7 @@ impl<'de> Deserialize<'de> for CheckedApplicationOperation {
 
 impl Encode for CheckedApplicationOperation {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
-        writer.serialize(self)
+        self.with_point().encode_into(writer)
     }
 }
 

@@ -624,7 +624,7 @@ mod tests {
         let CheckedTerm::Application { operation, .. } = &mut package.terms[3] else {
             panic!("application term");
         };
-        operation["identity"] = json!("test.unknown");
+        operation.record_mut()["identity"] = json!("test.unknown");
         assert_eq!(
             package.scalar_application_operands(&application, &occurrence),
             Err(CheckedScalarOperandError::UnknownOperator)

@@ -693,15 +693,16 @@ fn operation_defect(
     else {
         return Ok(None);
     };
-    let operation = match serde_path_to_error::deserialize::<_, OperationWire>(operation_value) {
-        Ok(operation) => operation,
-        Err(error) => {
-            return Ok(Some(ValidationFailure::refused(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                decoder_pointer(application.body(&["operation"]), error.path()),
-            )))
-        }
-    };
+    let operation =
+        match serde_path_to_error::deserialize::<_, OperationWire>(operation_value.record()) {
+            Ok(operation) => operation,
+            Err(error) => {
+                return Ok(Some(ValidationFailure::refused(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    decoder_pointer(application.body(&["operation"]), error.path()),
+                )))
+            }
+        };
     meter.charge(
         1 + u64::try_from(operation.laws.len()).unwrap_or(u64::MAX)
             + u64::try_from(operation.leaves.len()).unwrap_or(u64::MAX),
