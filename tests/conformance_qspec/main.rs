@@ -44,6 +44,7 @@ mod extension;
 mod fixture_support;
 mod hybrid;
 mod model_root;
+mod model_tuple_union;
 mod reaches_population;
 mod single_body;
 mod timed_model;

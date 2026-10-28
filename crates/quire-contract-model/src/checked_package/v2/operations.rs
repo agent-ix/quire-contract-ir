@@ -54,7 +54,7 @@
 use super::application_identity::{application_digest_admitted, ApplicationGroup};
 use super::dependency_references::{DependencyReferences, Referrer, SuppliedDependencies};
 use super::model_members::{
-    declaration_key, Budget, CollectionKind, DeclarationForm, EndSelectionError, MemberKind,
+    declaration_key, units, Budget, CollectionKind, DeclarationForm, EndSelectionError, MemberKind,
     MemberType, ModelFailure, ModelOwners, ModelRefusal, Resolved, SelectedEnds,
 };
 use super::operation_catalog::{
@@ -1750,6 +1750,7 @@ fn check_operands(
 fn union_type<'g>(
     type_id: &CheckedNodeId,
     graph: &Graph<'g>,
+    owners: &'g ModelOwners<'_>,
     meter: &mut WorkMeter,
     structural: &mut StructuralTypes,
     at: &JsonPointer,
@@ -1757,14 +1758,62 @@ fn union_type<'g>(
     let Some((position, kind)) = structural.resolve(type_id, graph, meter, at)? else {
         return Ok(None);
     };
-    if kind != CheckedNodeKind::CompositeType(CompositeTypeForm::Union) {
+    match kind {
+        CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => Ok(graph
+            .terms
+            .get(position)
+            .and_then(Option::as_ref)
+            .and_then(typed_union_type_body)),
+        CheckedNodeKind::Model(ModelForm::VariantType) => {
+            selected_union_members(&graph.nodes[position].node_id, owners, meter)
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Selected model cases have no union-type body node. Their payload keys come
+/// from the selected document, in UTF-8 case-name order.
+fn selected_union_members<'m>(
+    type_id: &CheckedNodeId,
+    owners: &'m ModelOwners<'_>,
+    meter: &mut WorkMeter,
+) -> Result<Option<Vec<UnionMember<'m>>>, ValidationFailure> {
+    let Some(owner) = owners.owner_by_key(type_id) else {
+        return Ok(None);
+    };
+    if owner.form != DeclarationForm::VariantType {
         return Ok(None);
     }
-    Ok(graph
-        .terms
-        .get(position)
-        .and_then(Option::as_ref)
-        .and_then(typed_union_type_body))
+    let Some(cases) = owner.package.variant_types.get(owner.node) else {
+        return Ok(None);
+    };
+    if !cases.values().any(Option::is_some) {
+        return Ok(None);
+    }
+    let mut budget = Budget::new(meter, owner.selection, owner.package.bytes);
+    budget.charge(units(cases.len()))?;
+    let mut members = Vec::with_capacity(cases.len());
+    for (name, payload_type) in cases {
+        let payload = if let Some(payload_type) = payload_type {
+            let Some(member_type) = owner.package.element_type(payload_type) else {
+                return Ok(None);
+            };
+            let digest = member_type.node_key(owner.package.bytes).map_err(|_| {
+                ValidationFailure::refused(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    budget.row(),
+                )
+            })?;
+            vec![CheckedNodeId {
+                domain: NODE_DOMAIN.into(),
+                digest: digest.into(),
+            }]
+        } else {
+            Vec::new()
+        };
+        members.push(UnionMember { name, payload });
+    }
+    Ok(Some(members))
 }
 
 /// QSpec FR-440's `union_arms` constraint: the arguments past the scrutinee
@@ -1800,6 +1849,7 @@ fn union_arms_hold(
     let Some(members) = union_type(
         &type_id,
         graph,
+        owners,
         meter,
         structural,
         &application.body(&["operation"]),
@@ -2016,16 +2066,22 @@ fn union_defect(
                 CheckedPackageRefusalCause::TypeMismatch,
             )
         };
-        if kinds[declared] != CheckedNodeKind::CompositeType(CompositeTypeForm::Union) {
+        let members = match kinds[declared] {
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => graph
+                .terms
+                .get(declared)
+                .and_then(Option::as_ref)
+                .and_then(typed_union_type_body),
+            CheckedNodeKind::Model(ModelForm::VariantType) => {
+                selected_union_members(&node.semantic_type, owners, meter)?
+            }
+            _ => None,
+        };
+        let Some(members) = members else {
+            if kinds[declared] == CheckedNodeKind::CompositeType(CompositeTypeForm::Union) {
+                return Ok(None);
+            }
             return Ok(mismatch());
-        }
-        let Some(members) = graph
-            .terms
-            .get(declared)
-            .and_then(Option::as_ref)
-            .and_then(typed_union_type_body)
-        else {
-            return Ok(None);
         };
         let Some(member) = members.iter().find(|member| member.name == name) else {
             return Ok(mismatch());
