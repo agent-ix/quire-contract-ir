@@ -2473,6 +2473,7 @@ fn protocol_classes(
         }),
         None => RefinementKey::Local(id.clone()),
     };
+    meter.charge(super::model_members::units(nodes.len()), || at.clone())?;
     let clause_paths: Vec<_> = nodes
         .iter()
         .filter(|node| {
@@ -2495,6 +2496,17 @@ fn protocol_classes(
                     .filter(|(_, path)| {
                         name.qualified_name.len() > path.len()
                             && name.qualified_name.starts_with(path)
+                            && name.qualified_name.get(path.len()).is_some_and(|segment| {
+                                matches!(
+                                    segment.as_ref(),
+                                    "role"
+                                        | "channel"
+                                        | "compensate"
+                                        | "finish"
+                                        | "terminal"
+                                        | "run"
+                                )
+                            })
                     })
                     .max_by_key(|(_, path)| path.len())
                     .map(|(id, _)| *id)
