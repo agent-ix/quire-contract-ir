@@ -45,8 +45,7 @@ the `quire_contract_ir` probe fails to compile.
 
 ## Typed operation fixture feature consumer
 
-Planned for IR-1088; no implementation or criterion credit is claimed by this
-specification change. Verify FR-019-AC-14 through AC-16 with an external
+Implemented in IR-1088. Verify FR-019-AC-14 through AC-16 with an external
 consumer compiled twice: default features and `test-support`. The default
 build must reject imports of `CheckedApplicationOperationFixture` and
 `CheckedApplicationOperationFixtureError` and calls to
