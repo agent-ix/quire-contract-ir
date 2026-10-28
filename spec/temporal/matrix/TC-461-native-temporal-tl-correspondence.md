@@ -112,13 +112,13 @@ once by QSpec FR-092; strong previous is `once[1,1]`.
   decision has no Boolean and preserves its ordered causes, progress/closure,
   settlement, support, completeness and supersession axes.
 - The canonical record line is 1429 bytes with SHA-256
-  `4befba23cd2d9f6bf169a6283bccb4a6d7fb1d262ba6a6881ad51941980d0468`;
+  `af94ffed6cf2056cac630658154340137d6380fe6cf095a8a6511ca75aeb4213`;
   the interval mutation gives
-  `b1f4e466ac7bff919df0eb66e489fa647ddafbc4e0e2a293d4948d6e6732b192`,
+  `8dbb7a21dd50d966b9912e59dfca7816f3ebda90c5591fbc2df9a2f5544efba7`,
   the model mutation
-  `dfba6542b29042cf87d6977fb9c2be032b6cc59d7b8f136a72707cdcb3d6cb93`,
+  `f736217757ea655a077861685a257707d92e872b83101fdc5d1437d062a6e4d2`,
   and the bridge mutation
-  `bdc9cc6624f98270329f394c97f312bde89618e8ff610772b3206837e5934596`.
+  `9b5860c947e2237d5bacda3fe3da0e0b110e8ae7d7fb80862229e3234390ef7a`.
 - Malformed or over-limit inputs produce one deterministic refusal or
   incomplete result with no partial artifact and no evaluator invocation by
   Contract IR. Exact limits admit; one past yields `limit-reached` naming the

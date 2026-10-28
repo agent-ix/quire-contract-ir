@@ -267,12 +267,13 @@ The next code block contains one complete RFC 8785 record preimage as a single
 UTF-8 line. The line has **1429 bytes excluding the Markdown line ending**.
 Its 64-zero digests are fixture identity values for the byte-level record and
 reference check; owner-admission controls in AC-1 use actual owner-read artifact
-bytes and their recomputed digests. The capture value is exactly 60 ASCII `v`
+bytes and their recomputed digests. The admitted execution-origin identity is `origin-1`, matching the
+whole-execution `anchor.kind`, and the capture value is exactly 54 ASCII `v`
 characters. SHA-256 of the exact line is
-`4befba23cd2d9f6bf169a6283bccb4a6d7fb1d262ba6a6881ad51941980d0468`.
+`af94ffed6cf2056cac630658154340137d6380fe6cf095a8a6511ca75aeb4213`.
 
 ```json
-{"anchor":{"binder":null,"kind":"origin"},"bindings":[{"leaf":0,"predicate":"p","predicate_node":0,"proposition":0}],"bridge":{"definition":"0000000000000000000000000000000000000000000000000000000000000000","profile":{"profile":"quire.native-temporal-correspondence/v1","selection":{"profile":"mltl.closed-trace/v1"}}},"captures":[{"index":0,"value":"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"}],"clause":{"declaration":0,"identity":"c"},"clock":{"name":"event-position","parameters":{}},"closure":{"surrounding":"closed"},"definition":{"identity":"d","revision":"r"},"history":null,"intervals":[[0,1]],"models":[{"alias":"m","package":"0000000000000000000000000000000000000000000000000000000000000000"}],"observation":{"origin":null,"trace":"0000000000000000000000000000000000000000000000000000000000000000"},"package":"0000000000000000000000000000000000000000000000000000000000000000","source":{"digest":"0000000000000000000000000000000000000000000000000000000000000000","span":[0,1]},"target":{"formula":"0000000000000000000000000000000000000000000000000000000000000000","formula_edition":"formula-v1","profile":"mltl.closed-trace/v1","request":"0000000000000000000000000000000000000000000000000000000000000000","trace":"0000000000000000000000000000000000000000000000000000000000000000","trace_contract":"mltl.closed-trace/v1","valuation":"0000000000000000000000000000000000000000000000000000000000000000"}}
+{"anchor":{"binder":null,"kind":"origin"},"bindings":[{"leaf":0,"predicate":"p","predicate_node":0,"proposition":0}],"bridge":{"definition":"0000000000000000000000000000000000000000000000000000000000000000","profile":{"profile":"quire.native-temporal-correspondence/v1","selection":{"profile":"mltl.closed-trace/v1"}}},"captures":[{"index":0,"value":"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"}],"clause":{"declaration":0,"identity":"c"},"clock":{"name":"event-position","parameters":{}},"closure":{"surrounding":"closed"},"definition":{"identity":"d","revision":"r"},"history":null,"intervals":[[0,1]],"models":[{"alias":"m","package":"0000000000000000000000000000000000000000000000000000000000000000"}],"observation":{"origin":"origin-1","trace":"0000000000000000000000000000000000000000000000000000000000000000"},"package":"0000000000000000000000000000000000000000000000000000000000000000","source":{"digest":"0000000000000000000000000000000000000000000000000000000000000000","span":[0,1]},"target":{"formula":"0000000000000000000000000000000000000000000000000000000000000000","formula_edition":"formula-v1","profile":"mltl.closed-trace/v1","request":"0000000000000000000000000000000000000000000000000000000000000000","trace":"0000000000000000000000000000000000000000000000000000000000000000","trace_contract":"mltl.closed-trace/v1","valuation":"0000000000000000000000000000000000000000000000000000000000000000"}}
 ```
 
 Starting from that exact record, change **only** the named member below,
@@ -281,9 +282,9 @@ bytes. Each mutation remains 1429 bytes:
 
 | Mutation | SHA-256 |
 | --- | --- |
-| `intervals` from `[[0,1]]` to `[[0,2]]` | `b1f4e466ac7bff919df0eb66e489fa647ddafbc4e0e2a293d4948d6e6732b192` |
-| `models[0].package` from 64 `0`s to 64 `a`s | `dfba6542b29042cf87d6977fb9c2be032b6cc59d7b8f136a72707cdcb3d6cb93` |
-| `bridge.definition` from 64 `0`s to 64 `b`s | `bdc9cc6624f98270329f394c97f312bde89618e8ff610772b3206837e5934596` |
+| `intervals` from `[[0,1]]` to `[[0,2]]` | `8dbb7a21dd50d966b9912e59dfca7816f3ebda90c5591fbc2df9a2f5544efba7` |
+| `models[0].package` from 64 `0`s to 64 `a`s | `f736217757ea655a077861685a257707d92e872b83101fdc5d1437d062a6e4d2` |
+| `bridge.definition` from 64 `0`s to 64 `b`s | `9b5860c947e2237d5bacda3fe3da0e0b110e8ae7d7fb80862229e3234390ef7a` |
 
 The **correspondence reference** SHALL be `{domain, digest}` with `domain`
 `"quire.native-temporal-correspondence/v1"` and `digest` the SHA-256 of the
