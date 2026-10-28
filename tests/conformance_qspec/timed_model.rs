@@ -371,6 +371,17 @@ fn timed_aggregate_source_identity_precedes_region_start() {
     first_source["regions"][0]["source"]["identity"] = json!("A-example");
     first_source["regions"][0]["start"] = json!(5000);
     first_source["regions"][0]["end"] = json!(5001);
+    let extra_source = package["source_map"]
+        .as_array()
+        .expect("source map")
+        .iter()
+        .find(|entry| entry["node_id"] == first)
+        .expect("first place source")["regions"][0]["source"]
+        .clone();
+    package["lock"]["sources"]
+        .as_array_mut()
+        .expect("locked sources")
+        .push(extra_source);
     let admitted = read_package_with_document(&package, "source identity first", &document)
         .expect("source identity control read");
     assert!(
@@ -386,6 +397,7 @@ fn timed_aggregate_source_identity_precedes_region_start() {
     first_source["regions"][0]["source"]["identity"] = json!("z-example");
     first_source["regions"][0]["start"] = json!(0);
     first_source["regions"][0]["end"] = json!(1);
+    package["lock"]["sources"][1]["identity"] = json!("z-example");
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_package_with_document(&package, "source identity after", &document)
             .expect("source identity refusal read")
