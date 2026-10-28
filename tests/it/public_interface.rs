@@ -920,7 +920,14 @@ fn exported_items() -> BTreeMap<String, BTreeSet<String>> {
                 public_modules.insert(module);
             }
             PublicDeclaration::Export { module, name } => {
-                if module == "output_mapping" && name == "MappingAllocationPoint" {
+                if (module == "output_mapping" && name == "MappingAllocationPoint")
+                    || (module == "checked_package"
+                        && [
+                            "CheckedApplicationOperationFixture",
+                            "CheckedApplicationOperationFixtureError",
+                        ]
+                        .contains(&name.as_str()))
+                {
                     continue;
                 }
                 assert!(
@@ -1336,6 +1343,61 @@ fn tc_058_fault_injection_adds_only_its_named_export() {
             .filter(|line| *line == "pub use output_mapping::MappingAllocationPoint;")
             .count(),
         1
+    );
+}
+
+/// Trace: FR-019-AC-16, TC-058.
+#[trace("TC-058", "FR-019-AC-16")]
+#[test]
+fn tc_058_test_support_exports_are_independent_of_fault_injection() {
+    let fixture_export = "#[cfg(feature = \"test-support\")]\npub use checked_package::{\n    CheckedApplicationOperationFixture, CheckedApplicationOperationFixtureError,\n};";
+    assert!(MODEL_ROOT.contains(fixture_export));
+    assert_eq!(exported_items(), expected_items());
+}
+
+/// Trace: FR-019-AC-15, TC-058.
+#[cfg(feature = "test-support")]
+#[trace("TC-058", "FR-019-AC-15")]
+#[test]
+fn tc_058_fixture_operation_does_not_bypass_strict_package_admission() {
+    use crate::support::checked_package::{
+        canonical, evidence_for, pointer, refresh_identity, rekey_application_node, v2_all_families,
+    };
+    use quire_contract_model::{
+        CheckedApplicationOperation, CheckedApplicationOperationFixture, CheckedPackageReadLimits,
+        CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    };
+
+    let fixture = CheckedApplicationOperation::from_test_fixture(
+        CheckedApplicationOperationFixture::default(),
+    )
+    .expect("intentional absent identity is a valid typed fixture");
+    let operation = serde_json::to_value(&fixture).expect("fixture serializes as operation wire");
+    assert!(operation.get("test_fixture").is_none());
+    let mut package = v2_all_families();
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "function" && node["body"]["term"] == "application")
+        .expect("function call application");
+    package["semantic_graph"]["nodes"][position]["body"]["operation"] = operation;
+    rekey_application_node(&mut package, position);
+    refresh_identity(&mut package);
+    let result = CheckedPackageV2::read(
+        &canonical(&package),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&package),
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("missing operation identity must be refused: {result:?}");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+    assert_eq!(
+        refusal.path,
+        Some(pointer(&format!(
+            "/semantic_graph/nodes/{position}/body/operation/identity"
+        )))
     );
 }
 
