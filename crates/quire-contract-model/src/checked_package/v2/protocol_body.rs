@@ -1655,7 +1655,7 @@ pub(super) fn group_value<'a>(term: &'a CheckedTerm, name: &str) -> Option<&'a C
     binding_value(members(term)?, name)
 }
 
-fn check_member_dependencies(
+fn check_member_targets(
     check: &MemberCheck<'_>,
     term: &CheckedTerm,
     path: JsonPointer,
@@ -1671,15 +1671,11 @@ fn check_member_dependencies(
             }
         }
         CheckedTerm::Binding { value, .. } => {
-            check_member_dependencies(check, value, path.key("value"))?
+            check_member_targets(check, value, path.key("value"))?
         }
         CheckedTerm::Aggregate { members } => {
             for (position, member) in members.iter().enumerate() {
-                check_member_dependencies(
-                    check,
-                    member,
-                    path.clone().key("members").index(position),
-                )?;
+                check_member_targets(check, member, path.clone().key("members").index(position))?;
             }
         }
         _ => {}
@@ -2484,7 +2480,7 @@ fn check_member(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for (ordinal, term) in arguments.iter().enumerate() {
-        check_member_dependencies(
+        check_member_targets(
             check,
             term,
             node_pointer(check.position)
@@ -2492,22 +2488,6 @@ fn check_member(
                 .key("arguments")
                 .index(ordinal),
         )?;
-    }
-    if let Some(expected) = check.terms[check.position]
-        .as_ref()
-        .and_then(super::structural::application_dependencies)
-    {
-        if !check.nodes[check.position]
-            .dependencies
-            .iter()
-            .eq(expected.iter())
-        {
-            return Err(check.refuse(
-                Code::InvalidSemanticGraph,
-                None,
-                node_pointer(check.position).key("dependencies"),
-            ));
-        }
     }
     let role = |position| check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role));
     let parameter = |position| check.is(position, CheckedNodeKind::Value(ValueForm::Parameter));
@@ -3292,7 +3272,7 @@ fn check_clause_slots(
     let activation = check.at(arguments, 1);
     if let Some(guard) = group_value(activation, "guard") {
         let path = check.argument_path(1).key("members").index(2).key("value");
-        check_member_dependencies(check, guard, path.clone())?;
+        check_member_targets(check, guard, path.clone())?;
         let mut allowed = BTreeSet::new();
         if let Some(trigger) = scope.activation {
             allowed.insert(trigger);
@@ -3319,7 +3299,7 @@ fn check_clause_slots(
             .key("members")
             .index(1)
             .key("value");
-        check_member_dependencies(check, initializer, path)?;
+        check_member_targets(check, initializer, path)?;
         let mut allowed = scope.c0[..1 + usize::from(scope.activation.is_some())]
             .iter()
             .copied()
