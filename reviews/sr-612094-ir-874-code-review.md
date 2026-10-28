@@ -1,5 +1,5 @@
 ---
-id: SR-612092
+id: SR-612094
 title: "IR-874 PR 647 code and Rust review"
 type: SpecReview
 analysis: code-review
@@ -23,4 +23,4 @@ PASS for scoped code and Rust review. The merged-main conflict retained both the
 
 ## Coverage
 
-Examined FR-038-AC-325, FR-038-AC-328, FR-038-AC-329 and FR-038-AC-330; the QSpec catalog clauses and TC-048 items 14 through 17 were context. Examined all four changed files. The selected concrete root, local/external abstract root, clause-path spelling, source-default memory, Effect/Commit/cend mapping, stage and refusal loci are handled by the reader. Acceptance-test omissions are recorded separately in SR-612093. No applicable AssuranceProfile was found.
+Examined FR-038-AC-325, FR-038-AC-328, FR-038-AC-329 and FR-038-AC-330; the QSpec catalog clauses and TC-048 items 14 through 17 were context. Examined all four changed files. The selected concrete root, local/external abstract root, clause-path spelling, source-default memory, Effect/Commit/cend mapping, stage and refusal loci are handled by the reader. Acceptance-test omissions are recorded separately in SR-612095. No applicable AssuranceProfile was found.
