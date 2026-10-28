@@ -10,6 +10,121 @@ use quire_contract_model::{
 };
 use serde_json::json;
 
+/// Translate the published projection mutation to the corresponding member of
+/// QSpec's full Semantic IR document. The projection ordinals are represented
+/// by position identities in that document.
+fn apply_published_intake_patch(document: &mut serde_json::Value, row: &serde_json::Value) {
+    let name = row["name"].as_str().expect("published intake case name");
+    let patch = row["patch"].as_array().expect("published intake patch");
+    if name == "TK-10" {
+        assert!(patch.is_empty(), "published positive intake case");
+        return;
+    }
+    assert_eq!(patch.len(), 1, "{name}: one published mutation");
+    let value = &patch[0]["value"];
+    match name {
+        "TK-01" => document["types"][1]["positions"] = json!([]),
+        "TK-02" => {
+            document["types"][1]["positions"][1]["identity"] = json!("ix://acme/shapes/Pair/p2")
+        }
+        "TK-03" => {
+            document["types"][1]["positions"][1]
+                .as_object_mut()
+                .expect("published position")
+                .remove("typeRef");
+        }
+        "TK-04" => document["types"][1]["fields"] = value.clone(),
+        "TK-05" => document["types"][1]["positions"][1]["typeRef"] = value.clone(),
+        "TK-09" => document["types"][1]["positions"][0]["typeRef"] = value.clone(),
+        "TK-06" => {
+            document["types"][1]["positions"][1]["identity"] = json!("ix://acme/shapes/Pair/p0")
+        }
+        "TK-07" | "TK-08" => document["types"][5]["variants"][0]["payloadType"] = value.clone(),
+        _ => panic!("unrecognized published intake case {name}"),
+    }
+}
+
+/// Provenance: IR-1059, QSpec FR-322 intake rows TK-01 through TK-10.
+/// The remaining FR-069-AC-6 wire and intake combinations stay open.
+#[test]
+fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
+    let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let vectors = read_json(&proposal.join("model-tuple-union-vectors.json"))
+        .expect("published tuple/union vectors");
+    let selected = read_json(&proposal.join("domain-package-acme-shapes.json"))
+        .expect("selected full Semantic IR document");
+    let base = read_json(&fixtures.join("positive-model-tuple-union.json"))
+        .expect("published positive package");
+    let rows = vectors["intake_cases"]
+        .as_array()
+        .expect("published intake cases");
+    assert_eq!(rows.len(), 10, "published intake case inventory");
+    for row in rows {
+        let name = row["name"].as_str().expect("published intake case name");
+        let mut document = selected.clone();
+        let mut package = base.clone();
+        apply_published_intake_patch(&mut document, row);
+        let digest = canonical_digest(&document);
+        package["lock"]["model_selections"][0]["digest"] = json!(digest);
+        package["identity_preimage"]["model_selections"][0]["digest"] = json!(digest);
+        super::fixture_support::refresh_identity(&mut package);
+
+        let mut evidence = CheckedPackageEvidence::new();
+        evidence
+            .insert_domain_package_document(digest, super::fixture_support::canonical(&document))
+            .expect("selected document evidence");
+        evidence.support_feature("quire.value.complete/v1");
+        let result = CheckedPackageV2::read(
+            &super::fixture_support::canonical(&package),
+            CheckedPackageReadLimits::bounded(),
+            &evidence,
+        );
+        if row["expected"]["admitted"] == true {
+            assert!(
+                matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+                "{name}: {result:?}"
+            );
+            continue;
+        }
+        let expected = &row["expected"]["refused"];
+        let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+            panic!("{name}: expected published refusal, got {result:?}");
+        };
+        assert_eq!(
+            super::code_word(refusal.code),
+            expected["code"].as_str().expect("code"),
+            "{name}"
+        );
+        assert_eq!(
+            refusal.cause.map(super::cause_word),
+            expected["cause"].as_str(),
+            "{name}"
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            Some("/lock/model_selections/0"),
+            "{name}"
+        );
+        let document_pointer = match name {
+            "TK-01" | "TK-04" => "/types/1",
+            "TK-02" | "TK-03" | "TK-05" | "TK-06" => "/types/1/positions/1",
+            "TK-09" => "/types/1/positions/0",
+            "TK-07" | "TK-08" => "/types/5/variants/0/payloadType",
+            _ => panic!("unexpected negative case {name}"),
+        };
+        assert_eq!(
+            refusal
+                .document_pointer
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
+            Some(document_pointer),
+            "{name}"
+        );
+    }
+}
+
 /// Provenance: IR-1059 slice 2. Full TC-940 and FR-069 conformance remains open.
 #[test]
 fn published_model_tuple_union_fixture_admits() {
