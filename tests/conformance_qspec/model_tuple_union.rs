@@ -532,15 +532,32 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
 }
 
 /// Trace: FR-069-AC-6. An admitted Duration position is usable as the
-/// Quantity<s> result of a tuple projection when source s is one second of
-/// source Time. The upstream fixtures are read at test time.
+/// Quantity<s> result of a tuple projection when s is one second of its
+/// owner's Time. The upstream fixtures are read at test time.
 #[test]
 fn duration_tuple_position_projects_to_resolved_second_unit() {
+    duration_projection_control(false);
+    duration_projection_control(true);
+}
+
+fn duration_projection_control(selected_unit: bool) {
     let fixtures = fixtures_dir();
     let proposal = proposal_dir_of(&fixtures);
     let mut selected =
         read_json(&proposal.join("domain-package-acme-shapes.json")).expect("selected Semantic IR");
     selected["types"][1]["positions"][1]["typeRef"] = json!("ix://quire/native/Duration");
+    if selected_unit {
+        let origin = selected["types"][1]["origin"].clone();
+        selected["dimensions"] = json!([{
+            "identity":"ix://acme/shapes/Time", "name":"Time",
+            "base":true, "terms":[], "origin":origin
+        }]);
+        selected["units"] = json!([{
+            "identity":"ix://acme/shapes/s", "name":"s",
+            "dimension":"ix://acme/shapes/Time", "scale":"1", "offset":"0",
+            "origin":origin
+        }]);
+    }
     let digest = canonical_digest(&selected);
 
     let mut package = read_json(&fixtures.join("positive-model-tuple-union.json"))
@@ -549,9 +566,25 @@ fn duration_tuple_position_projects_to_resolved_second_unit() {
         read_json(&fixtures.join("positive-timed-model-nodes.json")).expect("published time units");
     let dimension = 42;
     let unit = 43;
+    if selected_unit {
+        let owner =
+            json!({"kind":"model", "identity":"acme/shapes", "node":"ix://acme/shapes/Pair"});
+        for index in [dimension, unit] {
+            timed["semantic_graph"]["nodes"][index]["owner"] = owner.clone();
+            timed["semantic_graph"]["nodes"][index]["nominal_identity_preimage"]["owner"] =
+                owner.clone();
+        }
+    }
     timed["semantic_graph"]["nodes"][dimension]["nominal_identity_preimage"]
-        ["qualified_declaration"] = json!(["Time"]);
-    timed["semantic_graph"]["nodes"][dimension]["declaration"]["qualified_name"] = json!(["Time"]);
+        ["qualified_declaration"] = if selected_unit {
+        json!(["acme", "shapes", "Time"])
+    } else {
+        json!(["Time"])
+    };
+    timed["semantic_graph"]["nodes"][dimension]["declaration"]["qualified_name"] = timed
+        ["semantic_graph"]["nodes"][dimension]["nominal_identity_preimage"]
+        ["qualified_declaration"]
+        .clone();
     let old_dimension = timed["semantic_graph"]["nodes"][dimension]["node_id"]["digest"]
         .as_str()
         .expect("dimension digest")
@@ -561,8 +594,14 @@ fn duration_tuple_position_projects_to_resolved_second_unit() {
     ));
     super::fixture_support::rename_node(&mut timed, &old_dimension, &new_dimension);
     timed["semantic_graph"]["nodes"][unit]["nominal_identity_preimage"]["qualified_declaration"] =
-        json!(["s"]);
-    timed["semantic_graph"]["nodes"][unit]["declaration"]["qualified_name"] = json!(["s"]);
+        if selected_unit {
+            json!(["acme", "shapes", "s"])
+        } else {
+            json!(["s"])
+        };
+    timed["semantic_graph"]["nodes"][unit]["declaration"]["qualified_name"] = timed
+        ["semantic_graph"]["nodes"][unit]["nominal_identity_preimage"]["qualified_declaration"]
+        .clone();
     let old_unit = timed["semantic_graph"]["nodes"][unit]["node_id"]["digest"]
         .as_str()
         .expect("unit digest")
@@ -634,7 +673,7 @@ fn duration_tuple_position_projects_to_resolved_second_unit() {
     );
     assert!(
         matches!(read, CheckedPackageV2ReadResult::Admitted(_)),
-        "{read:?}"
+        "selected_unit={selected_unit}: {read:?}"
     );
 }
 
