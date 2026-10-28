@@ -702,7 +702,7 @@ mod tests {
             MemberType::Integer,
             zero,
             wide.clone(),
-            MemberType::Reference("ab".repeat(32).into()),
+            MemberType::Reference(object_target_key().into()),
             MemberType::Option(Box::new(wide.clone())),
             collection(CollectionKind::Set, None),
             collection(CollectionKind::Bag, None),
@@ -710,6 +710,17 @@ mod tests {
             collection(CollectionKind::OrderedSet, None),
             collection(CollectionKind::Sequence, Some((0, u64::MAX))),
         ]
+    }
+
+    fn object_target_key() -> String {
+        let (object, _) = wire(
+            &"ab".repeat(32),
+            "model",
+            "object_type",
+            &"ab".repeat(32),
+            empty(),
+        );
+        structural_key(&node_preimage(&object, None, None), BYTES).expect("object key")
     }
 
     /// FR-038-AC-130: for each of the ten derived shapes the key the
@@ -741,8 +752,10 @@ mod tests {
 
         // The stage admits each node under its key, and refuses a node whose
         // key is any other node's.
-        let nodes: Vec<(CheckedSemanticNodeV2, CheckedNodeKind)> =
+        let mut nodes: Vec<(CheckedSemanticNodeV2, CheckedNodeKind)> =
             each_shape().iter().map(node_of).collect();
+        let object = object_target_key();
+        nodes.push(wire(&object, "model", "object_type", &object, empty()));
         let (graph, kinds): (Vec<_>, Vec<_>) = nodes.into_iter().unzip();
         let index: BTreeMap<&CheckedNodeId, usize> = graph
             .iter()
