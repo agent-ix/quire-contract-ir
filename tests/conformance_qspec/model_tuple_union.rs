@@ -403,8 +403,24 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
         .expect("selected full Semantic IR document path");
     let selected =
         read_json(&proposal.join(selected_path)).expect("selected full Semantic IR document");
-    let base = read_json(&fixtures.join("positive-model-tuple-union.json"))
+    let mut base = read_json(&fixtures.join("positive-model-tuple-union.json"))
         .expect("published positive package");
+    // Intake mutations can change the types of the published expression
+    // controls. Keep the model declarations and root for this reader replay.
+    base["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("published nodes")
+        .retain(|node| node["node_tag"] == "model");
+    let model_ids: Vec<_> = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("model nodes")
+        .iter()
+        .map(|node| node["node_id"].clone())
+        .collect();
+    base["source_map"]
+        .as_array_mut()
+        .expect("published source map")
+        .retain(|entry| model_ids.contains(&entry["node_id"]));
     let rows = vectors["intake_cases"]
         .as_array()
         .expect("published intake cases");
