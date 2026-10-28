@@ -261,6 +261,7 @@ impl StructuralForm {
                 | ModelForm::ObjectType
                 | ModelForm::ValueType
                 | ModelForm::VariantType
+                | ModelForm::TupleValueType
                 | ModelForm::RecordValueType
                 | ModelForm::EventType
                 | ModelForm::StateMachine
@@ -527,6 +528,7 @@ fn parameter_defect(
             .is_some_and(|(type_node, kind)| {
                 // A binder may also be typed at a selected model value declaration.
                 kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
+                    || kind == CheckedNodeKind::Model(ModelForm::TupleValueType)
                     || kind == CheckedNodeKind::Hybrid(super::HybridForm::Model)
                     || (kind == CheckedNodeKind::Model(ModelForm::VariantType)
                         && matches!(

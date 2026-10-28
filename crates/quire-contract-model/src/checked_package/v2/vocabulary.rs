@@ -220,6 +220,7 @@ closed_vocabulary! {
         ModelImport => "model_import",
         ObjectType => "object_type",
         ValueType => "value_type",
+        TupleValueType => "tuple_value_type",
         VariantType => "variant_type",
         RecordValueType => "record_value_type",
         EventType => "event_type",

@@ -1153,6 +1153,7 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ModelForm::SystemsInterface,
         ) => Some("object"),
         K::Model(ModelForm::RecordValueType) => Some("record"),
+        K::Model(ModelForm::TupleValueType) => Some("tuple"),
         K::Model(
             ModelForm::ModelRoot
             | ModelForm::ModelImport
@@ -1293,6 +1294,7 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | ModelForm::ObjectType
             | ModelForm::ValueType
             | ModelForm::VariantType
+            | ModelForm::TupleValueType
             | ModelForm::RecordValueType
             | ModelForm::EventType
             | ModelForm::StateMachine

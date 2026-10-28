@@ -119,6 +119,7 @@ enum Ty {
     /// `Reference<O>`, by the key of `O`'s model declaration node.
     Reference(String),
     Record(String),
+    Tuple(String),
     Variant(String),
     Quantity(String),
     Option(Box<Ty>),
@@ -160,6 +161,7 @@ fn ty_of(member: &CheckedMemberType) -> Ty {
         } => Ty::TextBounds(*lower, *upper, profile.to_string()),
         CheckedMemberType::Reference(target) => Ty::Reference(target.digest.to_string()),
         CheckedMemberType::Record(target) => Ty::Record(target.digest.to_string()),
+        CheckedMemberType::Tuple(target) => Ty::Tuple(target.digest.to_string()),
         CheckedMemberType::Variant(target) => Ty::Variant(target.digest.to_string()),
         CheckedMemberType::Quantity(target) => Ty::Quantity(target.digest.to_string()),
         CheckedMemberType::Option(element) => Ty::Option(Box::new(ty_of(element))),
@@ -263,7 +265,9 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
             let node = wire_node(&key, "composite_type", "reference", &key, &[target], body);
             add(key, node)
         }
-        Ty::Record(target) | Ty::Variant(target) | Ty::Quantity(target) => target.clone(),
+        Ty::Record(target) | Ty::Tuple(target) | Ty::Variant(target) | Ty::Quantity(target) => {
+            target.clone()
+        }
         Ty::Option(element) => {
             let element = type_nodes(element, nodes);
             let body = json!({"term": "aggregate", "members": [reference(&element)]});
@@ -2016,6 +2020,7 @@ fn perturbed(ty: &Ty, other: &str) -> Ty {
         Ty::TextBounds(lower, upper, profile) => Ty::TextBounds(lower - 1, *upper, profile.clone()),
         Ty::Reference(_) => Ty::Reference(other.to_owned()),
         Ty::Record(_) => Ty::Record(other.to_owned()),
+        Ty::Tuple(_) => Ty::Tuple(other.to_owned()),
         Ty::Variant(_) => Ty::Variant(other.to_owned()),
         Ty::Quantity(_) => Ty::Quantity(other.to_owned()),
         Ty::Option(element) => Ty::Option(Box::new(perturbed(element, other))),
@@ -2290,6 +2295,7 @@ fn tc_227_the_public_shape_is_closed_and_takes_one_node_id() {
             CheckedMemberType::TextBounds { .. } => 13,
             CheckedMemberType::Reference(_) => 3,
             CheckedMemberType::Record(_) => 6,
+            CheckedMemberType::Tuple(_) => 14,
             CheckedMemberType::Variant(_) => 7,
             CheckedMemberType::Quantity(_) => 11,
             CheckedMemberType::Option(_) => 4,

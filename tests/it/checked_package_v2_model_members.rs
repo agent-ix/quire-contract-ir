@@ -333,6 +333,59 @@ fn refused(
     }
 }
 
+/// Trace: FR-069-AC-1, FR-069-AC-4.
+#[trace("TC-940")]
+#[test]
+fn selected_tuple_and_payload_variant_declarations_admit() {
+    let tuple = format!("ix://{IDENTITY}/Pair");
+    let variant = format!("ix://{IDENTITY}/Maybe");
+    let mut document = domain_document(json!({}));
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .extend([
+            json!({"kind":{"module":IDENTITY,"name":"tuple"},
+                "construct":{"meaning":"quire.meaning.model.tuple-value-type/v1"}}),
+            json!({"kind":{"module":IDENTITY,"name":"variant"},
+                "construct":{"meaning":"quire.meaning.model.variant-type/v1"}}),
+        ]);
+    document["types"].as_array_mut().expect("types").extend([
+        json!({
+            "identity":tuple, "displayName":"Pair",
+            "kind":{"module":IDENTITY,"name":"tuple"},
+            "positions":[
+                {"identity":format!("{tuple}/p0"),"typeRef":"ix://quire/native/Boolean"},
+                {"identity":format!("{tuple}/p1"),"typeRef":"ix://quire/native/Integer"}
+            ]
+        }),
+        json!({
+            "identity":variant, "displayName":"Maybe",
+            "kind":{"module":IDENTITY,"name":"variant"},
+            "variants":[
+                {"identity":format!("{variant}/None"),"name":"None"},
+                {"identity":format!("{variant}/Some"),"name":"Some","payloadType":tuple}
+            ]
+        }),
+    ]);
+    let (mut package, evidence) = package_over(&document, "total");
+    for (name, form) in [(&tuple, "tuple_value_type"), (&variant, "variant_type")] {
+        let owner = json!({"kind":"model", "identity":IDENTITY, "node":name});
+        let key = structural_key("model", form, None, Some(owner.clone()), &empty());
+        let mut node = wire_node(&key, "model", form, &key, &[], empty());
+        node["owner"] = owner;
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(node);
+    }
+    settle(&mut package);
+    let result = read(&package, &evidence);
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+        "{result:?}"
+    );
+}
+
 /// A selected unordered variant declaration and its exact semantic cases.
 fn variant_document_named(declared: &str, cases: &[&str]) -> Value {
     let mut document = domain_document(json!({}));

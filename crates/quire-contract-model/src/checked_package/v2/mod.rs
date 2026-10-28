@@ -2052,6 +2052,7 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | ModelForm::ObjectType
             | ModelForm::ValueType
             | ModelForm::VariantType
+            | ModelForm::TupleValueType
             | ModelForm::RecordValueType
             | ModelForm::EventType
             | ModelForm::StateMachine
@@ -2282,6 +2283,7 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
             | ModelForm::ObjectType
             | ModelForm::ValueType
             | ModelForm::VariantType
+            | ModelForm::TupleValueType
             | ModelForm::RecordValueType
             | ModelForm::EventType
             | ModelForm::StateMachine
