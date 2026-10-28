@@ -1392,6 +1392,111 @@ impl RefinementGraph<'_, '_> {
         }
         Ok(operation)
     }
+
+    fn require_concrete_owner(
+        &self,
+        declaration: &CheckedNodeId,
+        selected_root: &CheckedNodeId,
+        at: JsonPointer,
+        locus: &CheckedNodeId,
+    ) -> Result<(), ValidationFailure> {
+        use super::CheckedNodeOwner;
+        let selected = self
+            .local_node(selected_root)
+            .and_then(|node| match &node.owner {
+                Some(CheckedNodeOwner::ModelRoot { identity, .. }) => Some(identity),
+                _ => None,
+            });
+        let declared = self
+            .local_node(declaration)
+            .and_then(|node| match &node.owner {
+                Some(CheckedNodeOwner::Model { identity, .. }) => Some(identity),
+                _ => None,
+            });
+        if selected.is_some() && selected == declared {
+            Ok(())
+        } else {
+            Err(wrong_binding(at, locus))
+        }
+    }
+
+    fn require_concrete_class_source(
+        &self,
+        source: &CheckedNodeId,
+        selected_root: &CheckedNodeId,
+        at: JsonPointer,
+        locus: &CheckedNodeId,
+        meter: &mut super::WorkMeter,
+    ) -> Result<(), ValidationFailure> {
+        use super::{CheckedNodeKind as K, CheckedNodeOwner};
+        let kind = self.local_kind(source, at.clone(), locus)?;
+        if kind == K::State(super::StateForm::OperationAnchor) {
+            self.require_concrete_step_anchor(source, selected_root, at, locus)?;
+            return Ok(());
+        }
+        if matches!(kind, K::Model(_)) {
+            return self.require_concrete_owner(source, selected_root, at, locus);
+        }
+        let selected_identity = self.local_node(selected_root).and_then(|root| {
+            if let Some(CheckedNodeOwner::ModelRoot { identity, .. }) = &root.owner {
+                Some(identity.as_ref())
+            } else {
+                None
+            }
+        });
+        let clause = if kind == K::Protocol(super::ProtocolForm::ProtocolClause) {
+            Some(source)
+        } else if matches!(kind, K::Protocol(_)) {
+            let name = self
+                .local_node(source)
+                .and_then(|node| node.declaration.as_ref());
+            let mut closest = None;
+            for &position in self.index.values() {
+                meter.charge(1, || at.clone())?;
+                let candidate = &self.nodes[position];
+                if self.kinds[position] != K::Protocol(super::ProtocolForm::ProtocolClause) {
+                    continue;
+                }
+                let Some(path) = candidate
+                    .declaration
+                    .as_ref()
+                    .map(|decl| &decl.qualified_name)
+                else {
+                    continue;
+                };
+                if name.is_some_and(|name| protocol_clause_prefix(&name.qualified_name, path))
+                    && closest.is_none_or(|(_, length)| path.len() >= length)
+                {
+                    closest = Some((&candidate.node_id, path.len()));
+                }
+            }
+            closest.map(|(id, _)| id)
+        } else {
+            None
+        };
+        // A malformed clause owner has its own earlier protocol-body refusal.
+        // Only compare an otherwise valid concrete class against the selected
+        // root here, so that this row check does not mask that owner defect.
+        let Some(clause) = clause else {
+            return Err(wrong_binding(at, locus));
+        };
+        let valid_clause_owner = self
+            .local_node(clause)
+            .and_then(|node| node.owner_model.as_ref());
+        if !valid_clause_owner.is_some_and(|id| {
+            self.index.get(id).is_some_and(|&position| {
+                self.kinds[position] == K::Model(super::ModelForm::ObjectType)
+            })
+        }) {
+            return Ok(());
+        }
+        let declared_identity = self.key_owner_identity(&RefinementKey::Local(clause.clone()));
+        if selected_identity.is_some() && selected_identity == declared_identity {
+            Ok(())
+        } else {
+            Err(wrong_binding(at, locus))
+        }
+    }
 }
 
 fn wrong_binding(at: JsonPointer, locus: &CheckedNodeId) -> ValidationFailure {
@@ -1595,6 +1700,12 @@ fn validate_rows(
         graph.require_local_kind(
             &row.concrete,
             K::Relation(RelationForm::Population),
+            at.clone().key("concrete"),
+            locus,
+        )?;
+        graph.require_concrete_owner(
+            &row.concrete,
+            &node.semantic_type,
             at.key("concrete"),
             locus,
         )?;
@@ -1611,6 +1722,12 @@ fn validate_rows(
         graph.require_local_kind(
             &row.concrete_type,
             K::Model(ModelForm::ObjectType),
+            at.clone().key("concrete_type"),
+            locus,
+        )?;
+        graph.require_concrete_owner(
+            &row.concrete_type,
+            &node.semantic_type,
             at.clone().key("concrete_type"),
             locus,
         )?;
@@ -1649,6 +1766,15 @@ fn validate_rows(
             };
             if !matches_node {
                 return Err(wrong_binding(at.clone().key("source_node"), locus));
+            }
+            if let Some(source) = &row.source_node {
+                graph.require_concrete_class_source(
+                    source,
+                    &node.semantic_type,
+                    at.clone().key("source_node"),
+                    locus,
+                    meter,
+                )?;
             }
         } else if let Some(source) = &row.source_node {
             let operation = graph.require_concrete_step_anchor(
@@ -1723,6 +1849,12 @@ fn validate_rows(
             at.clone().key("concrete_type"),
             locus,
         )?;
+        graph.require_concrete_owner(
+            &row.concrete_type,
+            &node.semantic_type,
+            at.clone().key("concrete_type"),
+            locus,
+        )?;
         graph.local_kind(&row.type_id, at.clone().key("type"), locus)?;
         if let CheckedTerm::Reference { target } = &row.initial {
             graph.require_local_kind(
@@ -1735,8 +1867,8 @@ fn validate_rows(
         for (update_index, update) in row.updates.iter().enumerate() {
             let update_at = at.clone().key("updates").index(update_index);
             meter.charge(1, || update_at.clone())?;
-            graph.require_anchor_subject(
-                &RefinementKey::Local(update.operation.clone()),
+            graph.require_concrete_step_anchor(
+                &update.operation,
                 &node.semantic_type,
                 update_at.key("operation"),
                 locus,
@@ -1746,8 +1878,8 @@ fn validate_rows(
     for (index, row) in assume.iter().enumerate() {
         let at = root.clone().key("assume").index(index);
         meter.charge(1, || at.clone())?;
-        graph.require_anchor_subject(
-            &RefinementKey::Local(row.operation.clone()),
+        graph.require_concrete_step_anchor(
+            &row.operation,
             &node.semantic_type,
             at.key("operation"),
             locus,
@@ -2458,6 +2590,17 @@ fn dependency_protocol_nodes(package: &super::CheckedPackageV2) -> Vec<ProtocolC
         .collect()
 }
 
+fn protocol_clause_prefix(member: &[Box<str>], path: &[Box<str>]) -> bool {
+    member.len() > path.len()
+        && member.starts_with(path)
+        && member.get(path.len()).is_some_and(|segment| {
+            matches!(
+                segment.as_ref(),
+                "role" | "channel" | "compensate" | "finish" | "terminal" | "run"
+            )
+        })
+}
+
 fn protocol_classes(
     nodes: &[ProtocolCatalogNode<'_>],
     model: &CheckedNodeId,
@@ -2502,21 +2645,7 @@ fn protocol_classes(
                 })?;
                 clause_paths
                     .iter()
-                    .filter(|(_, path)| {
-                        name.qualified_name.len() > path.len()
-                            && name.qualified_name.starts_with(path)
-                            && name.qualified_name.get(path.len()).is_some_and(|segment| {
-                                matches!(
-                                    segment.as_ref(),
-                                    "role"
-                                        | "channel"
-                                        | "compensate"
-                                        | "finish"
-                                        | "terminal"
-                                        | "run"
-                                )
-                            })
-                    })
+                    .filter(|(_, path)| protocol_clause_prefix(&name.qualified_name, path))
                     .max_by_key(|(_, path)| path.len())
                     .map(|(id, _)| *id)
             } else {
