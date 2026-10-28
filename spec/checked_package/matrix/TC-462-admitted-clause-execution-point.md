@@ -17,6 +17,12 @@ IR-1040 wire admission and IR-1013 accessor implementation. Read producer
 fixtures from their authoritative checkouts at test time; copy no QSL or
 QSpec file.
 
+The V2 accessor returns `quire_contract_model::CheckedExecutionPoint` with
+the exact nonempty QSpec point name. Existing authored-contract consumers
+continue to use `ExecutionPoint` and its identifier-validated `AnchorName`
+under FR-011-AC-3. The test SHALL NOT convert between these two point types
+or treat an `AnchorName` conversion failure as a V2 accessor refusal.
+
 ## Test Procedure
 
 1. Have the authoritative QSL producer emit separate point-qualified clause
@@ -30,7 +36,11 @@ QSpec file.
    distinct rederived node id and package id; each node's authentic claims
    return only that node's exact point. Change only the handler name and
    rekey, then assert the changed result and identity. Do not assert that
-   different points can live on one clause node (SUPERSEDED AC-2).
+   different points can live on one clause node (SUPERSEDED AC-2). Separately,
+   construct an otherwise admissible V2 reader control with a nonempty point
+   name outside FR-011's identifier grammar, such as `tick now`, and verify
+   the accessor returns it unchanged through `CheckedExecutionPoint`. This
+   control does not give QSL producer-origin credit.
 3. Query absent, wrong-form, wrong-role, wrong-ordinal and other-node
    selections, including combined faults, to check `UnknownClause`,
    `NotStateClause`, `MissingClaimOccurrence`, then `MissingExecutionPoint`
@@ -56,7 +66,8 @@ QSpec file.
 ## Expected Results
 
 The accessor returns the exact point retained from the selected admitted
-clause node for every authentic claim; two different points imply different
+clause node for every authentic claim, including a QSpec-admitted name that
+FR-011's `AnchorName` would refuse; two different points imply different
 clause node identities. Invalid selections return the named typed refusal
 in order. Absent points return `MissingExecutionPoint`. Malformed or
 inapplicable node-body carriers refuse admission under FR-040 with no
