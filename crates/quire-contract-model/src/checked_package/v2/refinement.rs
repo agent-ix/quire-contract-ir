@@ -1324,20 +1324,67 @@ impl RefinementGraph<'_, '_> {
     fn require_anchor_subject(
         &self,
         key: &RefinementKey,
-        subject: &CheckedNodeId,
+        subject: &RefinementKey,
         at: JsonPointer,
         locus: &CheckedNodeId,
     ) -> Result<Box<str>, ValidationFailure> {
+        use super::{CheckedNodeKind as K, CheckedNodeOwner, ModelForm};
         self.require_kind(
             key,
-            super::CheckedNodeKind::State(super::StateForm::OperationAnchor),
+            K::State(super::StateForm::OperationAnchor),
             at.clone(),
             locus,
         )?;
         let Some((context, operation)) = self.key_anchor(key) else {
             return Err(wrong_binding(at, locus));
         };
-        if context != *subject {
+        // An anchor names its declaring type, while `subject` names the selected model root.
+        let (declaring_kind, declaring_identity, selected_identity) = match (key, subject) {
+            (RefinementKey::Local(_), RefinementKey::Local(root)) => {
+                let kind = self.local_kind(&context, at.clone(), locus)?;
+                let declaring = self
+                    .local_node(&context)
+                    .and_then(|node| match &node.owner {
+                        Some(CheckedNodeOwner::Model { identity, .. }) => Some(identity.as_ref()),
+                        _ => None,
+                    });
+                let selected = self.local_node(root).and_then(|node| match &node.owner {
+                    Some(CheckedNodeOwner::ModelRoot { identity, .. }) => Some(identity.as_ref()),
+                    _ => None,
+                });
+                (kind, declaring, selected)
+            }
+            (RefinementKey::External(anchor), RefinementKey::External(root))
+                if anchor.package == root.package =>
+            {
+                let Some(selected) = self.dependencies.selected_package(&anchor.package) else {
+                    return Err(wrong_binding(at, locus));
+                };
+                let Some(kind) = selected.node_kind(&context) else {
+                    return Err(wrong_binding(at, locus));
+                };
+                let declaring = selected.node(&context).and_then(|node| match &node.owner {
+                    Some(CheckedNodeOwner::Model { identity, .. }) => Some(identity.as_ref()),
+                    _ => None,
+                });
+                let selected = selected
+                    .node(&root.node)
+                    .and_then(|node| match &node.owner {
+                        Some(CheckedNodeOwner::ModelRoot { identity, .. }) => {
+                            Some(identity.as_ref())
+                        }
+                        _ => None,
+                    });
+                (kind, declaring, selected)
+            }
+            _ => return Err(wrong_binding(at, locus)),
+        };
+        if !matches!(
+            declaring_kind,
+            K::Model(ModelForm::ObjectType | ModelForm::Process | ModelForm::StateMachine)
+        ) || declaring_identity.is_none()
+            || declaring_identity != selected_identity
+        {
             return Err(wrong_binding(at, locus));
         }
         Ok(operation)
@@ -1684,10 +1731,6 @@ fn validate_rows(
     };
     let root = node_at(position).key("body");
     let locus = &node.node_id;
-    let abstract_id = match abstract_key.as_ref() {
-        RefinementKey::Local(id) => id,
-        RefinementKey::External(external) => &external.node,
-    };
     for (index, row) in populations.iter().enumerate() {
         let at = root.clone().key("populations").index(index);
         meter.charge(1, || at.clone())?;
@@ -1794,7 +1837,7 @@ fn validate_rows(
             RefinementStepTarget::Operation { operation, .. } => {
                 graph.require_anchor_subject(
                     operation,
-                    abstract_id,
+                    abstract_key,
                     target_at.key("operation"),
                     locus,
                 )?;
@@ -1888,7 +1931,7 @@ fn validate_rows(
     for (index, row) in ensure.iter().enumerate() {
         let at = root.clone().key("ensure").index(index);
         meter.charge(1, || at.clone())?;
-        graph.require_anchor_subject(&row.operation, abstract_id, at.key("operation"), locus)?;
+        graph.require_anchor_subject(&row.operation, abstract_key, at.key("operation"), locus)?;
     }
     Ok(())
 }
