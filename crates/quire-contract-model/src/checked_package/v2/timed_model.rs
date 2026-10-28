@@ -16,7 +16,7 @@ use crate::checked_package::common::{
     NODE_DOMAIN,
 };
 use crate::checked_package::shared::{
-    CheckedOccurrenceRole, CheckedPackageRefusalCode, JsonPointer,
+    CheckedOccurrenceRole, CheckedPackageRefusalCode, CheckedSourceMapEntry, JsonPointer,
 };
 use serde_json::Value;
 
@@ -572,7 +572,9 @@ fn declared_field_type(
     let optional_clock_element = field.optional
         && matches!(
             field.slot.type_ref.as_ref(),
-            Some(SelectedTypeRef::Native(super::model_members::NativeTypeRef::Clock))
+            Some(SelectedTypeRef::Native(
+                super::model_members::NativeTypeRef::Clock
+            ))
         )
         && (multiplicity.lower, multiplicity.upper) != (1, Some(1));
     let element = if optional_clock_element {
@@ -981,12 +983,97 @@ fn binding_at(position: usize, index: usize) -> JsonPointer {
         .key("value")
 }
 
+type SourceOrderKey<'a> = (&'a str, u64, u64);
+
+/// A source-map entry may add an earlier region to an existing node. Keep
+/// the minimum across every occurrence and region, independently of node id.
+fn source_order_keys<'a>(
+    source_map: &'a [CheckedSourceMapEntry],
+    meter: &mut WorkMeter,
+) -> Result<BTreeMap<&'a CheckedNodeId, SourceOrderKey<'a>>, ValidationFailure> {
+    let mut keys = BTreeMap::new();
+    for entry in source_map {
+        for region in &entry.regions {
+            meter.charge(1, || JsonPointer::root().key("source_map"))?;
+            let key = (region.source.identity.as_ref(), region.start, region.end);
+            keys.entry(&entry.node_id)
+                .and_modify(|minimum| {
+                    if key < *minimum {
+                        *minimum = key;
+                    }
+                })
+                .or_insert(key);
+        }
+    }
+    Ok(keys)
+}
+
+fn check_reference_order(
+    body: &CheckedTerm,
+    position: usize,
+    binding: usize,
+    keys: &BTreeMap<&CheckedNodeId, SourceOrderKey<'_>>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let mut previous = None;
+    for (index, member) in bound(body, binding)
+        .map(typed_members)
+        .unwrap_or_default()
+        .iter()
+        .enumerate()
+    {
+        let at = binding_at(position, binding).key("members").index(index);
+        meter.charge(1, || at.clone())?;
+        let key = typed_target(member)
+            .and_then(|target| keys.get(target))
+            .copied();
+        // Graph-shape and source-map checks have already validated every
+        // reference and region. Their refusal has precedence over this step.
+        let Some(key) = key else {
+            continue;
+        };
+        if previous.is_some_and(|before| key <= before) {
+            return Err(ValidationFailure::refused(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                at,
+            ));
+        }
+        previous = Some(key);
+    }
+    Ok(())
+}
+
+fn check_timed_reference_order(
+    kinds: &[CheckedNodeKind],
+    terms: &[Option<CheckedTerm>],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    source_map: &[CheckedSourceMapEntry],
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let keys = source_order_keys(source_map, meter)?;
+    for &position in index.values() {
+        let bindings: &[usize] = match kinds.get(position) {
+            Some(CheckedNodeKind::TimedModel(TimedModelForm::Model)) => &[3, 4, 5, 6, 7, 8],
+            Some(CheckedNodeKind::TimedModel(TimedModelForm::Place)) => &[3],
+            _ => continue,
+        };
+        let Some(body) = terms.get(position).and_then(Option::as_ref) else {
+            continue;
+        };
+        for &binding in bindings {
+            check_reference_order(body, position, binding, &keys, meter)?;
+        }
+    }
+    Ok(())
+}
+
 /// Join the retained timed roots, members and local typed targets in digest order.
 pub(super) fn validate_models<'a>(
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
     terms: &'a [Option<CheckedTerm>],
     index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    source_map: &[CheckedSourceMapEntry],
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -1021,6 +1108,9 @@ pub(super) fn validate_models<'a>(
                 }
             }
         }
+    }
+    if !roots.is_empty() {
+        check_timed_reference_order(kinds, terms, index, source_map, meter)?;
     }
     for &position in index.values() {
         let Some(CheckedNodeKind::TimedModel(form)) = kinds.get(position).copied() else {
@@ -1282,6 +1372,107 @@ pub(super) fn validate_models<'a>(
 mod tests {
     use super::*;
     use std::path::Path;
+
+    fn apply_order_patch(package: &mut Value, patch: &Value) {
+        let path = patch["path"].as_str().expect("published patch path");
+        let (parent, member) = path.rsplit_once('/').expect("published patch member");
+        let target = package.pointer_mut(parent).expect("published patch parent");
+        match (
+            patch["op"].as_str().expect("published patch operation"),
+            target,
+        ) {
+            ("replace", Value::Object(map)) => {
+                *map.get_mut(member).expect("published replacement") = patch["value"].clone();
+            }
+            ("replace", Value::Array(items)) => {
+                let index = member.parse::<usize>().expect("published array index");
+                *items.get_mut(index).expect("published replacement") = patch["value"].clone();
+            }
+            ("add", Value::Array(items)) if member == "-" => {
+                items.push(patch["value"].clone());
+            }
+            (operation, _) => panic!("unsupported published patch {operation} at {path}"),
+        }
+    }
+
+    /// The full public-reader control waits on the QSpec selected document's
+    /// orphan model owners. This checks the order algorithm over QSpec's exact
+    /// source maps and identity-current AO patches without inventing vectors.
+    #[test]
+    fn ir1096_published_aggregate_order_keys_and_loci() {
+        let Ok(root) = std::env::var("QUIRE_SPECIFICATION_DIR") else {
+            return;
+        };
+        let proposal = Path::new(&root).join("proposals/checked-package-v2");
+        let vectors: Value = serde_json::from_slice(
+            &std::fs::read(proposal.join("timed-slot-selector-vectors.json"))
+                .expect("published timed slot vectors"),
+        )
+        .expect("published vector JSON");
+        let fixture: Value = serde_json::from_slice(
+            &std::fs::read(proposal.join("fixtures/positive-timed-slot-nodes.json"))
+                .expect("published timed slot package"),
+        )
+        .expect("published package JSON");
+        let cases = vectors["aggregate_order"]["cases"]
+            .as_array()
+            .expect("published AO cases");
+        assert_eq!(cases.len(), 7);
+        for case in cases {
+            let id = case["id"].as_str().expect("AO id");
+            let mut package = fixture.clone();
+            if let Some(patches) = case["patch"].as_array() {
+                for patch in patches {
+                    apply_order_patch(&mut package, patch);
+                }
+            }
+            let nodes = package["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("graph nodes");
+            let root_position = nodes
+                .iter()
+                .position(|node| {
+                    node["node_tag"] == "timed_model" && node["semantic_form"] == "timed_model"
+                })
+                .expect("timed model root");
+            let root = &nodes[root_position];
+            let root_id: CheckedNodeId =
+                serde_json::from_value(root["node_id"].clone()).expect("root id");
+            let body: CheckedTerm =
+                serde_json::from_value(root["body"].clone()).expect("root body");
+            let source_map: Vec<CheckedSourceMapEntry> =
+                serde_json::from_value(package["source_map"].clone()).expect("source map");
+            let kinds = vec![CheckedNodeKind::TimedModel(TimedModelForm::Model); nodes.len()];
+            let mut terms = vec![None; nodes.len()];
+            terms[root_position] = Some(body);
+            let index = BTreeMap::from([(&root_id, root_position)]);
+            let actual = check_timed_reference_order(
+                &kinds,
+                &terms,
+                &index,
+                &source_map,
+                &mut WorkMeter::new(100_000),
+            );
+            if case["expected"] == "admitted" {
+                assert!(actual.is_ok(), "{id}: {actual:?}");
+            } else {
+                let Err(ValidationFailure::Refused(refusal)) = actual else {
+                    panic!("{id}: expected order refusal, got {actual:?}");
+                };
+                assert_eq!(
+                    refusal.code,
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    "{id}"
+                );
+                assert_eq!(refusal.cause, None, "{id}");
+                assert_eq!(
+                    refusal.path.as_ref().map(ToString::to_string).as_deref(),
+                    case["locus"].as_str(),
+                    "{id}"
+                );
+            }
+        }
+    }
 
     /// Provenance: IR-1083, QSpec STD-526 SL-01..08 and SR-01..04.
     #[test]

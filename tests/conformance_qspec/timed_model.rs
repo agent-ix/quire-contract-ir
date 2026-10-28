@@ -15,6 +15,516 @@ fn published() -> Value {
         .expect("published timed model must be available")
 }
 
+fn apply_published_timed_patch(package: &mut Value, patch: &Value) {
+    let path = patch["path"].as_str().expect("published patch path");
+    let (parent, member) = path.rsplit_once('/').expect("published patch member");
+    let target = package.pointer_mut(parent).expect("published patch parent");
+    match (
+        patch["op"].as_str().expect("published patch operation"),
+        target,
+    ) {
+        ("replace", Value::Object(map)) => {
+            *map.get_mut(member).expect("published replacement") = patch["value"].clone();
+        }
+        ("replace", Value::Array(items)) => {
+            let index = member.parse::<usize>().expect("published array index");
+            *items.get_mut(index).expect("published replacement") = patch["value"].clone();
+        }
+        ("add", Value::Array(items)) if member == "-" => items.push(patch["value"].clone()),
+        ("add", Value::Array(items)) => {
+            let index = member.parse::<usize>().expect("published insertion index");
+            items.insert(index, patch["value"].clone());
+        }
+        ("remove", Value::Array(items)) => {
+            let index = member.parse::<usize>().expect("published removal index");
+            items.remove(index);
+        }
+        (operation, _) => panic!("unsupported published patch {operation} at {path}"),
+    }
+}
+
+fn sort_timed_graph_dependencies(package: &mut Value) {
+    for node in package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("graph nodes")
+    {
+        node["dependencies"]
+            .as_array_mut()
+            .expect("node dependencies")
+            .sort_by(|left, right| {
+                (left["domain"].as_str(), left["digest"].as_str())
+                    .cmp(&(right["domain"].as_str(), right["digest"].as_str()))
+            });
+    }
+}
+
+fn root_with_two_timed_members(fixture: &Value, form: &str, binding: usize) -> (Value, usize) {
+    let mut package = fixture.clone();
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes");
+    let root_position = nodes
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "timed_model" && node["semantic_form"] == "timed_model"
+        })
+        .expect("timed root");
+    let original = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "timed_model" && node["semantic_form"] == form)
+        .expect("published timed member")
+        .clone();
+    assert_eq!(
+        package["semantic_graph"]["nodes"][root_position]["body"]["members"][binding]["value"]
+            ["members"]
+            .as_array()
+            .expect("root aggregate")
+            .len(),
+        1
+    );
+    let alternate = if matches!(form, "clock_reset" | "clock_constraint") {
+        nodes
+            .iter()
+            .find(|node| {
+                node["node_tag"] == "timed_model"
+                    && node["semantic_form"] == "clock_place"
+                    && node["node_id"] != original["body"]["members"][0]["value"]["target"]
+            })
+            .expect("alternate clock place")["node_id"]
+            .clone()
+    } else {
+        nodes
+            .iter()
+            .find(|node| {
+                node["node_tag"] == "expression" && node["semantic_form"] == "presence_read"
+            })
+            .expect("alternate Boolean expression")["node_id"]
+            .clone()
+    };
+    let provisional = json!({"domain":"quire.checked-semantic-node/v1", "digest":"f".repeat(64)});
+    assert!(!nodes.iter().any(|node| node["node_id"] == provisional));
+    let mut second = original.clone();
+    second["node_id"] = provisional.clone();
+    second["semantic_type"] = provisional.clone();
+    second["body"]["members"][0]["value"]["target"] = alternate.clone();
+    second["dependencies"][0] = alternate;
+    let mut source = package["source_map"]
+        .as_array()
+        .expect("source map")
+        .iter()
+        .find(|entry| entry["node_id"] == original["node_id"])
+        .expect("member source")
+        .clone();
+    source["node_id"] = provisional.clone();
+    source["regions"][0]["start"] = json!(3000 + binding);
+    source["regions"][0]["end"] = json!(3001 + binding);
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(source);
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("graph nodes")
+        .push(second);
+    let root = &mut package["semantic_graph"]["nodes"][root_position];
+    root["body"]["members"][binding]["value"]["members"]
+        .as_array_mut()
+        .expect("root aggregate")
+        .push(json!({"term":"reference", "target":provisional.clone()}));
+    root["dependencies"]
+        .as_array_mut()
+        .expect("root dependencies")
+        .push(provisional);
+    root["dependencies"]
+        .as_array_mut()
+        .expect("root dependencies")
+        .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    fixture_support::mint_ungrouped_structural_keys(&mut package);
+    sort_timed_graph_dependencies(&mut package);
+    fixture_support::refresh_identity(&mut package);
+    (package, root_position)
+}
+
+/// Public-reader evidence over QSpec's selected package and exact AO patches.
+#[trace("TC-048", "FR-038-AC-342")]
+#[test]
+fn timed_aggregate_order_published_vectors_read_at_exact_loci() {
+    let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let vectors = read_json(&proposal.join("timed-slot-selector-vectors.json"))
+        .expect("published timed slot vectors");
+    let cases = vectors["aggregate_order"]["cases"]
+        .as_array()
+        .expect("published AO cases");
+    assert_eq!(cases.len(), 7);
+    let fixture = read_json(&fixtures.join("positive-timed-slot-nodes.json"))
+        .expect("published timed slot package");
+    let document = proposal.join("domain-package-acme-timed-slots.json");
+    for case in cases {
+        let id = case["id"].as_str().expect("AO id");
+        let mut candidate = fixture.clone();
+        if let Some(patches) = case["patch"].as_array() {
+            for patch in patches {
+                apply_published_timed_patch(&mut candidate, patch);
+            }
+        }
+        let actual = read_package_with_document(&candidate, id, &document)
+            .expect("published selected package read");
+        match (case["expected"].as_str(), actual) {
+            (Some("admitted"), CheckedPackageV2ReadResult::Admitted(_)) => {}
+            (Some("refused"), CheckedPackageV2ReadResult::Refused(refusal)) => {
+                assert_eq!(
+                    Some(code_word(refusal.code)),
+                    case["expected_code"].as_str(),
+                    "{id}"
+                );
+                assert_eq!(refusal.cause, None, "{id}");
+                assert_eq!(
+                    refusal.path.as_ref().map(ToString::to_string).as_deref(),
+                    case["locus"].as_str(),
+                    "{id}"
+                );
+            }
+            (expected, actual) => panic!("{id}: expected {expected:?}, got {actual:?}"),
+        }
+    }
+    for id in ["GD-02", "GD-03"] {
+        let case = vectors["guards"]
+            .as_array()
+            .expect("published guard cases")
+            .iter()
+            .find(|case| case["id"] == id)
+            .expect("published guard control");
+        let mut candidate = fixture.clone();
+        for patch in case["patch"].as_array().expect("published guard patch") {
+            apply_published_timed_patch(&mut candidate, patch);
+        }
+        let CheckedPackageV2ReadResult::Refused(refusal) =
+            read_package_with_document(&candidate, id, &document)
+                .expect("selected guard control read")
+        else {
+            panic!("{id}: guard control must refuse");
+        };
+        assert_eq!(
+            Some(code_word(refusal.code)),
+            case["expected_code"].as_str(),
+            "{id}"
+        );
+        assert_eq!(
+            refusal.cause.map(cause_word),
+            case["expected_cause"].as_str(),
+            "{id}"
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            case["locus"].as_str(),
+            "{id}"
+        );
+    }
+}
+
+/// Equal minimum regions of distinct members are rejected at the second
+/// reference, for both the root and a place's guard aggregate.
+#[trace("TC-048", "FR-038-AC-342")]
+#[test]
+fn timed_aggregate_equal_source_keys_refuse_at_second_member() {
+    let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let fixture = read_json(&fixtures.join("positive-timed-slot-nodes.json"))
+        .expect("published timed slot package");
+    let document = proposal.join("domain-package-acme-timed-slots.json");
+    let root_position = fixture["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes")
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "timed_model" && node["semantic_form"] == "timed_model"
+        })
+        .expect("timed root");
+
+    let mut root_equal = fixture.clone();
+    let places = &root_equal["semantic_graph"]["nodes"][root_position]["body"]["members"][3]
+        ["value"]["members"];
+    let first = places[0]["target"].clone();
+    let second = places[1]["target"].clone();
+    assert_ne!(first, second);
+    let entries = root_equal["source_map"].as_array().expect("source map");
+    let first_region = entries
+        .iter()
+        .find(|entry| entry["node_id"] == first)
+        .expect("first place source")["regions"][0]
+        .clone();
+    let second_entry = root_equal["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .iter_mut()
+        .find(|entry| entry["node_id"] == second)
+        .expect("second place source");
+    second_entry["regions"][0] = first_region;
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package_with_document(&root_equal, "equal root keys", &document)
+            .expect("equal root package read")
+    else {
+        panic!("equal root keys must refuse");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidSemanticGraph, None)
+    );
+    assert_eq!(
+        refusal.path.unwrap().to_string(),
+        format!("/semantic_graph/nodes/{root_position}/body/members/3/value/members/1")
+    );
+
+    let mut guard_equal = fixture;
+    let nodes = guard_equal["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes");
+    let place_position = nodes
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "timed_model"
+                && node["semantic_form"] == "clock_place"
+                && node["body"]["members"][3]["value"]["members"]
+                    .as_array()
+                    .is_some_and(|guards| guards.len() == 1)
+        })
+        .expect("guarded place");
+    let first_guard =
+        nodes[place_position]["body"]["members"][3]["value"]["members"][0]["target"].clone();
+    let second_guard = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "expression" && node["semantic_form"] == "presence_read")
+        .expect("other Boolean expression")["node_id"]
+        .clone();
+    assert_ne!(first_guard, second_guard);
+    let first_region = guard_equal["source_map"]
+        .as_array()
+        .expect("source map")
+        .iter()
+        .find(|entry| entry["node_id"] == first_guard)
+        .expect("first guard source")["regions"][0]
+        .clone();
+    guard_equal["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .iter_mut()
+        .find(|entry| entry["node_id"] == second_guard)
+        .expect("second guard source")["regions"][0] = first_region;
+    let place = &mut guard_equal["semantic_graph"]["nodes"][place_position];
+    place["body"]["members"][3]["value"]["members"]
+        .as_array_mut()
+        .expect("place guards")
+        .push(json!({"term":"reference", "target":second_guard.clone()}));
+    place["dependencies"]
+        .as_array_mut()
+        .expect("place dependencies")
+        .push(second_guard);
+    place["dependencies"]
+        .as_array_mut()
+        .expect("place dependencies")
+        .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    fixture_support::mint_ungrouped_structural_keys(&mut guard_equal);
+    sort_timed_graph_dependencies(&mut guard_equal);
+    fixture_support::refresh_identity(&mut guard_equal);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package_with_document(&guard_equal, "equal place guard keys", &document)
+            .expect("equal guard package read")
+    else {
+        panic!("equal place guard keys must refuse");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidSemanticGraph, None)
+    );
+    assert_eq!(
+        refusal.path.unwrap().to_string(),
+        format!("/semantic_graph/nodes/{place_position}/body/members/3/value/members/1")
+    );
+}
+
+#[trace("TC-048", "FR-038-AC-342")]
+#[test]
+fn timed_aggregate_source_identity_precedes_region_start() {
+    let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let mut package = read_json(&fixtures.join("positive-timed-slot-nodes.json"))
+        .expect("published timed slot package");
+    let document = proposal.join("domain-package-acme-timed-slots.json");
+    let root_position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes")
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "timed_model" && node["semantic_form"] == "timed_model"
+        })
+        .expect("timed root");
+    let first = package["semantic_graph"]["nodes"][root_position]["body"]["members"][3]["value"]
+        ["members"][0]["target"]
+        .clone();
+    let first_source = package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .iter_mut()
+        .find(|entry| entry["node_id"] == first)
+        .expect("first place source");
+    first_source["regions"][0]["source"]["identity"] = json!("A-example");
+    first_source["regions"][0]["start"] = json!(5000);
+    first_source["regions"][0]["end"] = json!(5001);
+    let admitted = read_package_with_document(&package, "source identity first", &document)
+        .expect("source identity control read");
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "earlier identity precedes later start: {admitted:?}"
+    );
+    let first_source = package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .iter_mut()
+        .find(|entry| entry["node_id"] == first)
+        .expect("first place source");
+    first_source["regions"][0]["source"]["identity"] = json!("z-example");
+    first_source["regions"][0]["start"] = json!(0);
+    first_source["regions"][0]["end"] = json!(1);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package_with_document(&package, "source identity after", &document)
+            .expect("source identity refusal read")
+    else {
+        panic!("later source identity must refuse before numeric start");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidSemanticGraph, None)
+    );
+    assert_eq!(
+        refusal.path.unwrap().to_string(),
+        format!("/semantic_graph/nodes/{root_position}/body/members/3/value/members/1")
+    );
+}
+
+/// Each remaining timed-root aggregate has an admitted two-member control
+/// and an identity-current swapped reference that the public reader rejects.
+#[trace("TC-048", "FR-038-AC-342")]
+#[test]
+fn timed_aggregate_each_root_branch_enforces_source_order() {
+    let fixtures = fixtures_dir();
+    let fixture = read_json(&fixtures.join("positive-timed-slot-nodes.json"))
+        .expect("published timed slot package");
+    let document = proposal_dir_of(&fixtures).join("domain-package-acme-timed-slots.json");
+    for (form, binding) in [
+        ("clock_reset", 4),
+        ("clock_guard", 5),
+        ("time_invariant", 6),
+        ("clock_constraint", 8),
+    ] {
+        let (mut package, root_position) = root_with_two_timed_members(&fixture, form, binding);
+        let admitted =
+            read_package_with_document(&package, form, &document).expect("ordered aggregate read");
+        assert!(
+            matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+            "{form}: ordered two-member control must admit: {admitted:?}"
+        );
+        package["semantic_graph"]["nodes"][root_position]["body"]["members"][binding]["value"]
+            ["members"]
+            .as_array_mut()
+            .expect("root aggregate")
+            .swap(0, 1);
+        fixture_support::mint_ungrouped_structural_keys(&mut package);
+        sort_timed_graph_dependencies(&mut package);
+        fixture_support::refresh_identity(&mut package);
+        let CheckedPackageV2ReadResult::Refused(refusal) =
+            read_package_with_document(&package, form, &document).expect("swapped aggregate read")
+        else {
+            panic!("{form}: swapped aggregate must refuse");
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::InvalidSemanticGraph, None),
+            "{form}"
+        );
+        assert_eq!(
+            refusal.path.unwrap().to_string(),
+            format!("/semantic_graph/nodes/{root_position}/body/members/{binding}/value/members/1"),
+            "{form}"
+        );
+    }
+}
+
+#[trace("TC-048", "FR-038-AC-342")]
+#[test]
+fn timed_place_guards_enforce_source_order_after_an_admitted_pair() {
+    let fixtures = fixtures_dir();
+    let mut package = read_json(&fixtures.join("positive-timed-slot-nodes.json"))
+        .expect("published timed slot package");
+    let document = proposal_dir_of(&fixtures).join("domain-package-acme-timed-slots.json");
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes");
+    let place_position = nodes
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "timed_model"
+                && node["semantic_form"] == "clock_place"
+                && node["body"]["members"][3]["value"]["members"]
+                    .as_array()
+                    .is_some_and(|guards| guards.len() == 1)
+        })
+        .expect("guarded place");
+    let second_guard = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "expression" && node["semantic_form"] == "presence_read")
+        .expect("other Boolean expression")["node_id"]
+        .clone();
+    let place = &mut package["semantic_graph"]["nodes"][place_position];
+    assert_ne!(
+        place["body"]["members"][3]["value"]["members"][0]["target"],
+        second_guard
+    );
+    place["body"]["members"][3]["value"]["members"]
+        .as_array_mut()
+        .expect("place guards")
+        .push(json!({"term":"reference", "target":second_guard.clone()}));
+    place["dependencies"]
+        .as_array_mut()
+        .expect("place dependencies")
+        .push(second_guard);
+    place["dependencies"]
+        .as_array_mut()
+        .expect("place dependencies")
+        .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    fixture_support::mint_ungrouped_structural_keys(&mut package);
+    sort_timed_graph_dependencies(&mut package);
+    fixture_support::refresh_identity(&mut package);
+    let admitted = read_package_with_document(&package, "ordered place guards", &document)
+        .expect("ordered place guard read");
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "ordered place guards must admit: {admitted:?}"
+    );
+
+    package["semantic_graph"]["nodes"][place_position]["body"]["members"][3]["value"]["members"]
+        .as_array_mut()
+        .expect("place guards")
+        .swap(0, 1);
+    fixture_support::mint_ungrouped_structural_keys(&mut package);
+    sort_timed_graph_dependencies(&mut package);
+    fixture_support::refresh_identity(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package_with_document(&package, "swapped place guards", &document)
+            .expect("swapped place guard read")
+    else {
+        panic!("swapped place guards must refuse");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidSemanticGraph, None)
+    );
+    assert_eq!(
+        refusal.path.unwrap().to_string(),
+        format!("/semantic_graph/nodes/{place_position}/body/members/3/value/members/1")
+    );
+}
+
 /// The slot fixture selects the complete FCD document, including its named
 /// sequence and map definitions, rather than an isolated node projection.
 #[trace("TC-048", "FR-038-AC-335", "FR-038-AC-339", "FR-038-AC-340")]
@@ -822,6 +1332,8 @@ fn timed_model_distinct_place_nodes_with_same_model_path_and_different_guards_re
         .expect("published place provenance")
         .clone();
     source["node_id"] = provisional.clone();
+    source["regions"][0]["start"] = json!(1008);
+    source["regions"][0]["end"] = json!(1009);
     wire["source_map"].as_array_mut().unwrap().push(source);
     wire["semantic_graph"]["nodes"]
         .as_array_mut()
