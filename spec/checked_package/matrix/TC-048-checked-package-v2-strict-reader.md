@@ -23,6 +23,8 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/TC-966
     type: references
+  - target: ix://agent-ix/quire-specification/TC-367
+    type: references
 ---
 # TC-048: CheckedPackage V2 strict reader re-derives package and nominal identities
 
@@ -2836,3 +2838,41 @@ its key and that the reader never supplies a missing graph node or a second
 spelling for the default initial state. The process provider and host trace
 checks HY-15 and HY-16 remain QSpec TC-966's evidence, outside this IR
 reader test.
+
+## Symbolic clock slots and place presence (FR-038-AC-335 through FR-038-AC-340)
+
+Status: PLANNED/UNRUN (IR-1083). Read QSpec's published
+`proposals/checked-package-v2/timed-slot-selector-vectors.json` from the
+selected QSpec checkout. Do not store a local copy. Apply its complete
+SL-01..SL-08, SR-01..SR-04, GD-01..GD-03 and PR-01..PR-06 cases through the
+public V2 reader, rebuilding dependent identities for a semantic mutation.
+Compare exact admission or each vector's expected code and cause. Compare the
+RFC 6901 locus suffix recorded by SR-01..04 and PR-04..06. For GD-02, derive
+the later root `clock_places` reference locus from QSpec FR-322-AC-120 and
+assert it separately from the vector. GD-03 records no locus suffix, and
+FR-322-AC-150 fixes no exact locus: assert its code, cause, stage and refusal
+now; keep the exact-locus check PLANNED under STD-540 until QSpec fixes that
+contract. Check the reader stage against FR-322's stated order. Keep
+strict-wire, graph-shape and stale-key checks ahead of the timed-model and
+operation-body checks.
+
+For AC-335, inspect the admitted template path and selector node identity,
+not merely the selector's semantic type. Assert one place node for three
+Sequence instances; separate Set, Bag, OrderedSet and nested-Sequence paths;
+the exact Text key type node for Map; and the slot-step refusal for a literal,
+an expression or the wrong domain type node. For AC-336, admit empty guard
+aggregates on a guard-free root and place, then assert a changed guard changes
+the place key while a duplicate path refuses, and an unlisted guard refuses.
+
+For AC-337 and AC-338, admit `present(other.v)`, `present(self.q[i])` and the
+quantifier's `present(e)` with Boolean result and ordered place, owner and slot
+arguments. Check that `e` is typed at the slot selector domain, that each
+application and its shared place template have the expected independent keys,
+and that no presence member is added to another node. Assert exact argument
+loci for a missing slot, non-place first argument, wrong owner and wrong slot
+type. Include the existing one-operand Option term as an unchanged control.
+
+For AC-339, join `Option<Clock>` and `Sequence<Option<Clock>>` resolved-path
+rows to the selected declaration's member type and optional presence. Assert
+that Option adds no path step, the terminal inner Clock is accepted, and a
+missing or mismatched selected member is refused at the place join.
