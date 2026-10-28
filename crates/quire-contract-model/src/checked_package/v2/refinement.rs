@@ -784,6 +784,22 @@ pub(super) fn check_wire(body: &Value, at: &Trail<'_>) -> Result<(), ValidationF
     if let Some(catalog) = body.get("class_catalog") {
         check_catalog_wire(catalog, &at.key("class_catalog"))?;
     }
+    for side in ["assume", "ensure"] {
+        let side_at = at.key(side);
+        for (index, row) in array(body, side, at)?.iter().enumerate() {
+            let row_at = side_at.index(index);
+            if let Some(kind) = row.get("kind") {
+                if serde_json::from_value::<RefinementFairnessKind>(kind.clone()).is_err() {
+                    return Err(invalid(&row_at.key("kind")));
+                }
+            }
+            if let Some(granularity) = row.get("granularity") {
+                if serde_json::from_value::<RefinementGranularity>(granularity.clone()).is_err() {
+                    return Err(invalid(&row_at.key("granularity")));
+                }
+            }
+        }
+    }
     let typed = serde_json::from_value::<CheckedTerm>(body.clone()).map_err(|_| {
         let path = locate_closed_value_failure::<CheckedTerm>(body)
             .map(|(path, _)| decoder_pointer(at.pointer(), &path))
