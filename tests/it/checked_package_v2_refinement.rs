@@ -3623,6 +3623,53 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
     let (mut empty, empty_evidence) = machine_package();
     row_empty_refinement(&mut empty);
     let (one, one_evidence, one_position) = catalog_free_operation_package("object_type");
+    let (mut two, two_evidence, two_position) = catalog_free_operation_package("state_machine");
+    let source_anchor = two["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "operation_anchor")
+        .expect("first anchor")
+        .clone();
+    let mut second_anchor = source_anchor.clone();
+    second_anchor["body"]["members"][1]["value"]["value"] = json!("toggleAgain");
+    let context = second_anchor["semantic_type"]["digest"]
+        .as_str()
+        .expect("context digest");
+    second_anchor["node_id"] = node_id(&structural_key(
+        "state",
+        "operation_anchor",
+        Some(context),
+        &second_anchor["body"],
+    ));
+    let second_id = second_anchor["node_id"].clone();
+    two["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(second_anchor);
+    let source = two["lock"]["sources"][0].clone();
+    two["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(json!({
+            "node_id":second_id,"role":"anchor","ordinal":0,
+            "regions":[{"source":source,"start":10,"end":11}]
+        }));
+    append_catalog_free_step(&mut two, two_position, "toggleAgain");
+    let node = &mut two["semantic_graph"]["nodes"][two_position];
+    node["body"]["steps"][1]["source_node"] = second_id.clone();
+    let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
+    dependencies.push(second_id);
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    node["body"]["steps"]
+        .as_array_mut()
+        .expect("steps")
+        .sort_by(|left, right| {
+            left["source_node"]["digest"]
+                .as_str()
+                .cmp(&right["source_node"]["digest"].as_str())
+        });
+    rekey_refinement(&mut two, two_position);
     for (package, evidence, position, generated) in [
         (
             &empty,
@@ -3635,6 +3682,7 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
             1,
         ),
         (&one, &one_evidence, one_position, 2),
+        (&two, &two_evidence, two_position, 3),
     ] {
         let CheckedPackageV2ReadResult::Admitted(admitted) = read(package, evidence) else {
             panic!(
@@ -3689,6 +3737,47 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
         panic!(
             "hidden-field refinement refused: {:?}",
             read(&hidden, &hidden_evidence)
+        );
+    };
+    assert_eq!(admitted.graph().nodes[position].occurrences.len(), 1);
+
+    let (mut history, history_evidence, position) = catalog_free_operation_package("object_type");
+    let nodes = history["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let object = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "object_type")
+        .expect("concrete object")["node_id"]
+        .clone();
+    let text_type = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "text")
+        .expect("text type")["node_id"]
+        .clone();
+    let owner = &mut history["semantic_graph"]["nodes"][position];
+    owner["body"]["histories"] = json!([{
+        "concrete_type":object,"name":"past","type":text_type,
+        "initial":{"term":"literal","type":text_type,"value_kind":"text","value":"old"},
+        "updates":[]
+    }]);
+    let dependencies = owner["dependencies"].as_array_mut().expect("dependencies");
+    dependencies.extend([object, text_type]);
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.dedup();
+    rekey_refinement(&mut history, position);
+    let id = history["semantic_graph"]["nodes"][position]["node_id"].clone();
+    history["semantic_graph"]["nodes"][position]["occurrences"] =
+        json!([{"role":"declaration","ordinal":0}]);
+    history["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .retain(|entry| entry["node_id"] != id || entry["role"] == "declaration");
+    refresh_identity(&mut history);
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&history, &history_evidence) else {
+        panic!(
+            "history refinement refused: {:?}",
+            read(&history, &history_evidence)
         );
     };
     assert_eq!(admitted.graph().nodes[position].occurrences.len(), 1);
@@ -3773,15 +3862,17 @@ fn refinement_occurrence_defects_choose_lower_retained_digest_over_graph_order()
     let (lower, higher) = (&owners[0].1, &owners[1].1);
     let first = owners[0].0;
     let second = owners[1].0;
-    package["semantic_graph"]["nodes"]
-        .as_array_mut()
-        .expect("nodes")
-        .swap(first, second);
+    if first < second {
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .swap(first, second);
+    }
     let ordered = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes");
-    assert_eq!(ordered[first]["node_id"], *higher);
-    assert_eq!(ordered[second]["node_id"], *lower);
+    assert_eq!(ordered[first.min(second)]["node_id"], *higher);
+    assert_eq!(ordered[first.max(second)]["node_id"], *lower);
     let mut lower_at = None;
     for (entry_index, entry) in package["source_map"]
         .as_array_mut()
