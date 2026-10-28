@@ -55,6 +55,25 @@ entry-member order where FR-375 fixes no further tie-break. Rebuild
 identities after every body mutation except the stale-key control; keep
 the same selected packages in the identity comparisons.
 
+For FR-061-AC-14 through AC-16, construct catalog-free model-only refinements
+with operation steps anchored at declaring object-type, process and state-
+machine nodes of the selected concrete model. Include an operation inherited
+by the selected type whose anchor remains at its declaring type. Keep the
+refinement `semantic_type` at the canonical concrete `model_root`, recompute
+identities and assert admission and read/write/read retention. Mutate one
+control at a time: remove `source_node`, use an unresolved or wrong-kind
+source node, change `source_class` away from the anchor's operation name, and
+use an anchor whose context belongs to a foreign model or the wrong selected
+subject. Assert the exact FR-061-AC-15 code, cause and row pointer. Combine a
+step defect with one earlier-stage defect, then put defects in two ordered
+steps, and assert FR-061-AC-16 precedence. Finally use a separate valid
+protocol refinement with a present catalog; change its row class to one
+absent from the concrete catalog, then restore the class and change its
+`source_node` away from the matching catalog entry. Confirm the existing
+missing-class and wrong-node refusals. Recompute all
+identities after each mutation except an intentional stale-key precedence
+control.
+
 ## Expected Results
 
 Each positive vector admits and round-trips with the same complete node,
@@ -66,3 +85,7 @@ change identity. Earlier reader stages win over later refinement joins.
 The simultaneous body defects report the first FR-375 stage, then the first
 header or array and nested array in that stage, then the first array index
 and schema-declared entry member where FR-375 fixes no further tie-break.
+Catalog-free operation rows admit declaring contexts owned by the selected
+concrete subject, including inherited declarations, without equating the
+context to `model_root`. The adverse and combined controls return the
+FR-061-AC-15 and AC-16 refusals at their specified loci.
