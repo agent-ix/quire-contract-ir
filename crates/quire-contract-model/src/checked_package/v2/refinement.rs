@@ -2473,6 +2473,39 @@ fn protocol_classes(
         }),
         None => RefinementKey::Local(id.clone()),
     };
+    let clause_paths: Vec<_> = nodes
+        .iter()
+        .filter(|node| {
+            node.kind == super::CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolClause)
+        })
+        .filter_map(|node| {
+            node.name
+                .map(|name| (node.id, name.qualified_name.as_slice()))
+        })
+        .collect();
+    let mut closest_clauses = Vec::with_capacity(nodes.len());
+    for member in nodes {
+        let closest = if matches!(member.kind, super::CheckedNodeKind::Protocol(_)) {
+            if let Some(name) = member.name {
+                meter.charge(super::model_members::units(clause_paths.len()), || {
+                    at.clone()
+                })?;
+                clause_paths
+                    .iter()
+                    .filter(|(_, path)| {
+                        name.qualified_name.len() > path.len()
+                            && name.qualified_name.starts_with(path)
+                    })
+                    .max_by_key(|(_, path)| path.len())
+                    .map(|(id, _)| *id)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        closest_clauses.push(closest);
+    }
     for clause in nodes {
         let clause_identity = clause
             .owner_model
@@ -2522,12 +2555,13 @@ fn protocol_classes(
                 }
             }
         }
-        for member in nodes {
+        for (member, closest_clause) in nodes.iter().zip(&closest_clauses) {
             meter.charge(1, || at.clone())?;
             let Some(name) = member.name else {
                 continue;
             };
-            if !matches!(member.kind, super::CheckedNodeKind::Protocol(_))
+            if *closest_clause != Some(clause.id)
+                || !matches!(member.kind, super::CheckedNodeKind::Protocol(_))
                 || name.qualified_name.len() <= clause_name.qualified_name.len()
                 || !name.qualified_name.starts_with(&clause_name.qualified_name)
             {

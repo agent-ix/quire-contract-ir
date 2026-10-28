@@ -4303,23 +4303,36 @@ fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
         "{admitted:?}"
     );
 
-    for (wrong_class, path) in [
+    for (class_index, wrong_class, path) in [
         (
+            1,
             "fork OrderFlow::Holder",
             format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete"),
         ),
         (
+            1,
             "fork OtherFlow::Holder",
             format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete"),
         ),
         (
+            1,
             "fork Example::OrderFlow::run::Holder",
+            format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete"),
+        ),
+        (
+            1,
+            "fork Example::OrderFlow::Main::Holder",
+            format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete"),
+        ),
+        (
+            2,
+            "join Example::OrderFlow::Main::Holder",
             format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete"),
         ),
     ] {
         let mut wrong = package.clone();
-        wrong["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"][1]
-            ["class"] = json!(wrong_class);
+        wrong["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"]
+            [class_index]["class"] = json!(wrong_class);
         rekey_refinement(&mut wrong, position);
         let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong, &evidence) else {
             panic!("truncated or substituted declaration path admitted: {wrong_class}");
@@ -4538,6 +4551,120 @@ fn refinement_catalog_preserves_two_clause_paths_of_different_depths() {
             "wrong refusal locus for {substituted}"
         );
     }
+}
+
+/// Trace: FR-038-AC-329
+#[trace("TC-048", "FR-038-AC-329")]
+#[test]
+fn refinement_catalog_assigns_nested_members_only_to_inner_clause() {
+    let (mut base, _) = crate::checked_package_v2_protocol_body::protocol_holder_case_on(
+        v2_all_families(),
+        "parallel",
+    );
+    let mut nested = base.clone();
+    for node in nested["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+    {
+        if node["node_tag"] != "protocol" {
+            continue;
+        }
+        let Some(path) = node["declaration"]["qualified_name"].as_array_mut() else {
+            continue;
+        };
+        if path.len() >= 2 && path[0] == "Example" && path[1] == "OrderFlow" {
+            path.insert(2, json!("Inner"));
+            for segment in path.iter_mut() {
+                if *segment == "Closed" {
+                    *segment = json!("InnerClosed");
+                } else if *segment == "Holder" {
+                    *segment = json!("InnerHolder");
+                }
+            }
+        }
+    }
+    settle(&mut nested);
+    let nested_nodes = nested["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .filter(|node| {
+            node["node_tag"] == "protocol"
+                && node["declaration"]["qualified_name"][0] == "Example"
+                && node["declaration"]["qualified_name"][1] == "OrderFlow"
+                && node["declaration"]["qualified_name"][2] == "Inner"
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    base["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .extend(nested_nodes);
+    rebuild_source_map(&mut base);
+    settle(&mut base);
+    let (mut package, evidence) = concrete_protocol_refinement_on(
+        base,
+        ProtocolStepRows::Empty,
+        ProtocolClauseOwner::SelectedModel,
+    );
+    let mut entries = Vec::new();
+    let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
+    for node in package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+    {
+        let Some(operator) = node["body"]["operation"]["member"]["operator"].as_str() else {
+            continue;
+        };
+        match operator {
+            "finish" => entries.push(json!({"class":protocol_class_path(node),
+                "node":node["node_id"], "binder_types":[boolean]})),
+            "parallel" => {
+                let path = protocol_class_path(node);
+                for kind in ["fork", "join"] {
+                    entries.push(json!({"class":format!("{kind} {path}"),
+                        "node":node["node_id"], "binder_types":[]}));
+                }
+            }
+            _ => {}
+        }
+    }
+    entries.push(json!({"class":"memory drain", "memory_model":"sc",
+        "drain":"store-buffer-flush"}));
+    entries.sort_by(|left, right| left["class"].as_str().cmp(&right["class"].as_str()));
+    assert!(entries
+        .iter()
+        .any(|entry| entry["class"] == "Example::OrderFlow::Inner::InnerClosed"));
+    assert!(entries
+        .iter()
+        .any(|entry| entry["class"] == "fork Example::OrderFlow::Inner::InnerHolder"));
+    set_concrete_catalog(&mut package, entries.clone());
+    assert_unique_node_ids(&package);
+    let admitted = read(&package, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "nested clause catalog must admit: {admitted:?}"
+    );
+
+    let mut wrong = package.clone();
+    let inner_finish = entries
+        .iter_mut()
+        .find(|entry| entry["class"] == "Example::OrderFlow::Inner::InnerClosed")
+        .expect("inner finish");
+    inner_finish["class"] = json!("Example::OrderFlow::InnerClosed");
+    entries.sort_by(|left, right| left["class"].as_str().cmp(&right["class"].as_str()));
+    let position = set_concrete_catalog(&mut wrong, entries);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong, &evidence) else {
+        panic!("outer-derived class for inner finish admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete").as_str())
+    );
 }
 
 /// Trace: FR-038-AC-329
