@@ -1621,7 +1621,7 @@ node, and `enum.lt` and `structural.eq` over the variant refuse
 `ill_typed`/`operator-ineligible` at the first argument. Those two are extra
 test controls and are not required by the criterion text.
 
-## Protocol node forms (FR-038-AC-281 through FR-038-AC-292; FR-038-AC-326)
+## Protocol node forms (FR-038-AC-281 through FR-038-AC-292; FR-038-AC-324 through FR-038-AC-327)
 
 Use QSpec FR-464, FR-465 and FR-466 and the authored tables in TC-946, TC-947
 and TC-948 as the current independent expected outcomes. Build each case into
@@ -1649,9 +1649,17 @@ vector or schema is copied into this repository.
    require unchanged keys.
 3. Admit valid declaration paths and one-clause membership. Refuse a wrong
    prefix, duplicate or unattached member, double-held control, missing or
-   duplicate queue and wrong-clause queue. Exercise absent dependencies and
-   wrong-form targets separately, comparing code, cause, pointer and node
-   locus.
+   duplicate queue and wrong-clause queue. For each protocol-family form with
+   a local body target, omit one existing target from `dependencies` while
+   rebuilding the package identity; require `invalid_semantic_graph` at
+   that node's `/dependencies` in the graph stage, before a separate
+   protocol-body defect. Add an extra dependency and require the same
+   graph-stage refusal. Separately name a nonexistent local target in both
+   the body and `dependencies`, rebuilding identity, and require
+   `missing_declaration`/`missing-name` at the target. Compare full
+   code, cause, pointer and node locus, using QSpec TC-946 C13/C13a,
+   A8/A8a, A9/A9a and OM-09 as independent clause vectors
+   (FR-038-AC-285/327).
 4. Exercise static and replicated roles, channels with each delivery and
    ordering premise, literal and symbolic queues, finish and terminal,
    thirteen control operators and compensation with `commit` present and
@@ -1711,9 +1719,13 @@ vector or schema is copied into this repository.
    digest-ordered rows and no extra row. In a separate identity-consistent
    wire mutation, duplicate the same `requirements` set entry; require
    `invalid_semantic_graph` under the clause's set rule and no relation.
-   Remove the `requirements` or `each` trigger dependency in separate
-   packages and require `missing_declaration`/`missing-name` at the target
-   and no exposed relation (FR-038-AC-324; QSpec TC-946).
+   Omit an existing `requirements` or `each` trigger target from
+   `dependencies` in separate packages; require graph-stage
+   `invalid_semantic_graph` at the clause's `/dependencies` and no
+   exposed relation. Separately replace the body target with a nonexistent
+   local id, list it in `dependencies`, and require
+   `missing_declaration`/`missing-name` at the target with no relation
+   (FR-038-AC-324/327; QSpec TC-946 A8/A8a/A9/A9a).
 8. Use QSpec TC-310's `CC-01`, `CC-03` to `CC-05`, `CC-08` and `CC-11`
    catalog cases from the selected checkout, rebuilding keys, dependencies,
    package identity and provenance carriers as each vector requires. Admit
