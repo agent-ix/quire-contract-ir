@@ -2487,21 +2487,21 @@ impl ContractPackageWireV1 {
             &mut *meter,
             limits.bytes,
         )?;
+        super::identity::validate_nominal_nodes(
+            &self.semantic_graph.nodes,
+            &kinds,
+            &positions,
+            &self.package.source.lock,
+            &[],
+            &mut *meter,
+            limits.bytes,
+        )?;
         super::derived_keys::validate_derived_keys(
             &self.semantic_graph.nodes,
             &kinds,
             &terms,
             &positions,
             &deferred_keys,
-            &[],
-            &mut *meter,
-            limits.bytes,
-        )?;
-        super::identity::validate_nominal_nodes(
-            &self.semantic_graph.nodes,
-            &kinds,
-            &positions,
-            &self.package.source.lock,
             &[],
             &mut *meter,
             limits.bytes,

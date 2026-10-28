@@ -2627,7 +2627,6 @@ fn validate_graph(
         });
     }
     model_root::validate_shape(&graph.nodes, &kinds, &terms)?;
-    validate_owner_joins(wire, &kinds, &terms, models, meter)?;
     // Graph-shape body and dependency rules FR-322 orders before the general
     // stale-key stage: the structural forms' bodies and occurrence roles and
     // the application-node dependency join. Then, in reader order, the
@@ -2666,8 +2665,18 @@ fn validate_graph(
     }
     refinement::validate_dependencies(&graph.nodes, &kinds, &terms)?;
     validate_application_keys(&graph.nodes, &kinds, &terms, &index, meter, limits.bytes)?;
-    // FR-038-AC-127: the derived-shape key stage, after the application keys
-    // and before the nominal keys.
+    validate_nominal_nodes(
+        &graph.nodes,
+        &kinds,
+        &index,
+        &wire.lock,
+        models,
+        meter,
+        limits.bytes,
+    )?;
+    validate_owner_joins(wire, &kinds, &terms, models, meter)?;
+    // Nominal keys precede owner joins and structural keys; application keys
+    // and graph shape have already been authenticated.
     validate_derived_keys(
         &graph.nodes,
         &kinds,
@@ -2687,6 +2696,7 @@ fn validate_graph(
         meter,
         limits.bytes,
     )?;
+    model_root::validate_completeness(&graph.nodes, &kinds, &wire.lock)?;
     validate_declaration_names(&graph.nodes, &kinds, &index)?;
     // FR-038 "The timed interval form" stage 2: the last graph check of the
     // nodes before the frame step.

@@ -25,12 +25,13 @@ fn root_owner_pointer(package: &Value) -> String {
 
 /// Apply one published RFC 6902 operation. The vector's patch is the source of
 /// both the mutation and its expected package identity.
-fn apply_wire_patch(package: &mut Value, patch: &Value) {
+pub(super) fn apply_wire_patch(package: &mut Value, patch: &Value) {
     let path = patch["path"].as_str().expect("published patch path");
     let (parent, member) = path.rsplit_once('/').expect("patch member");
     let target = package.pointer_mut(parent).expect("published patch parent");
     let operation = patch["op"].as_str().expect("published patch operation");
     match (operation, target) {
+        ("add", Value::Array(items)) if member == "-" => items.push(patch["value"].clone()),
         ("replace", Value::Object(map)) => {
             *map.get_mut(member).expect("published replacement target") = patch["value"].clone();
         }

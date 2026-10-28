@@ -46,6 +46,7 @@ mod fixture_support;
 mod hybrid;
 mod model_root;
 mod model_tuple_union;
+mod nominal_rekey;
 mod reaches_population;
 mod selection_vectors;
 mod single_body;

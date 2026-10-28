@@ -669,7 +669,10 @@ pub(super) fn validate_nominal_nodes(
     let mut roots = BTreeSet::new();
     let mut equivalence_pairs = BTreeSet::new();
     let mut equivalences = Vec::new();
-    for (position, (node, kind)) in nodes.iter().zip(kinds).enumerate() {
+    for &position in index.values() {
+        let (Some(node), Some(kind)) = (nodes.get(position), kinds.get(position)) else {
+            continue;
+        };
         let site = Site { node, position };
         let required = NominalKind::required_by(*kind);
         let preimage = match (required, &node.nominal_identity_preimage) {
