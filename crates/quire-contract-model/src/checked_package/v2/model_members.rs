@@ -92,6 +92,8 @@ mod meaning {
     /// Every FR-208 meaning accepted by the selected Semantic IR document.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     pub(super) enum Kind {
+        SequenceType,
+        MapType,
         ObjectType,
         ValueType,
         RecordValueType,
@@ -217,6 +219,19 @@ pub(super) enum SelectedTypeRef {
     Declared(Box<str>),
     /// A map's value type; retained for timed clock-place resolution.
     Map(Box<str>, Box<str>),
+}
+
+/// An FCD collection type definition selected by a model document.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) enum SelectedCollectionDefinition {
+    Sequence(SelectedTypeRef),
+    Map(SelectedTypeRef),
+}
+
+#[derive(Clone, Copy)]
+enum SelectedCollectionLayer {
+    Sequence,
+    Map,
 }
 
 /// The closed native names accepted by the selected model grammar.
@@ -484,6 +499,8 @@ pub(super) struct DomainModel {
     pub(super) value_types: BTreeMap<Box<str>, Option<ValueBounds>>,
     /// Exact semantic cases and optional payload types of selected variants.
     pub(super) variant_types: BTreeMap<Box<str>, BTreeMap<Box<str>, Option<SelectedTypeRef>>>,
+    /// FCD sequence (`items`) and map (`values`) type definitions.
+    pub(super) collection_types: BTreeMap<Box<str>, SelectedCollectionDefinition>,
     /// Checked-package unit `typeRef` to the unit node digest.
     pub(super) unit_refs: UnitRefs,
     /// Relationship declarations, by IR node identity.
@@ -1315,6 +1332,36 @@ impl DomainModel {
 
     /// FR-322 step 4's element type of a declared `typeRef`.
     pub(super) fn element_type(&self, type_ref: &SelectedTypeRef) -> Option<MemberType> {
+        let mut current = type_ref;
+        let mut seen = BTreeSet::new();
+        let mut sequence_layers = 0;
+        while let SelectedTypeRef::Declared(name) = current {
+            let Some(definition) = self.collection_types.get(name) else {
+                break;
+            };
+            if !seen.insert(name.clone()) {
+                return None;
+            }
+            match definition {
+                SelectedCollectionDefinition::Sequence(items) => {
+                    sequence_layers += 1;
+                    current = items;
+                }
+                SelectedCollectionDefinition::Map(_) => return None,
+            }
+        }
+        let mut element = self.element_type_leaf(current)?;
+        for _ in 0..sequence_layers {
+            element = MemberType::Collection {
+                kind: CollectionKind::Sequence,
+                element: Box::new(element),
+                bounds: None,
+            };
+        }
+        Some(element)
+    }
+
+    fn element_type_leaf(&self, type_ref: &SelectedTypeRef) -> Option<MemberType> {
         let type_ref = match type_ref {
             SelectedTypeRef::Map(_, _) => return None,
             SelectedTypeRef::Unit(name) => {
@@ -1392,6 +1439,50 @@ impl DomainModel {
             .map(|key| MemberType::Reference(key.into()))
     }
 
+    /// Render the selected field type used by a timed clock-place path.
+    pub(super) fn clock_type_name(&self, type_ref: &SelectedTypeRef) -> Option<String> {
+        let mut current = type_ref;
+        let mut seen = BTreeSet::new();
+        let mut layers = Vec::new();
+        while let SelectedTypeRef::Declared(name) = current {
+            let Some(definition) = self.collection_types.get(name) else {
+                break;
+            };
+            if !seen.insert(name.clone()) {
+                return None;
+            }
+            match definition {
+                SelectedCollectionDefinition::Sequence(items) => {
+                    layers.push(SelectedCollectionLayer::Sequence);
+                    current = items;
+                }
+                SelectedCollectionDefinition::Map(values) => {
+                    layers.push(SelectedCollectionLayer::Map);
+                    current = values;
+                }
+            }
+        }
+        let mut rendered = match current {
+            SelectedTypeRef::Native(NativeTypeRef::Clock) => {
+                Some("ix://quire/native/Clock".to_owned())
+            }
+            SelectedTypeRef::Native(NativeTypeRef::Text) => {
+                Some("ix://quire/native/Text".to_owned())
+            }
+            SelectedTypeRef::Native(_) => None,
+            SelectedTypeRef::Unit(name) => Some(name.to_string()),
+            SelectedTypeRef::Map(key, value) => Some(format!("Map<{key}, {value}>")),
+            SelectedTypeRef::Declared(name) => Some(name.to_string()),
+        }?;
+        for layer in layers.into_iter().rev() {
+            rendered = match layer {
+                SelectedCollectionLayer::Sequence => format!("Sequence<{rendered}>"),
+                SelectedCollectionLayer::Map => format!("Map<Text, {rendered}>"),
+            };
+        }
+        Some(rendered)
+    }
+
     /// FR-322 step 4 over one declared `typeRef` and multiplicity; `None`
     /// when the tables give the slot no type.
     pub(super) fn slot_type(&self, slot: &TypedSlot) -> Option<MemberType> {
@@ -1413,14 +1504,26 @@ impl DomainModel {
         })
     }
 
-    /// A field's type: its slot type, wrapped in `Option` when its presence
-    /// is `optional`.
+    /// A field's type. Timed clock collections retain optionality on each
+    /// selected clock element; other optional fields wrap the whole slot.
     pub(super) fn field_type(&self, field: &FieldDecl) -> Option<MemberType> {
         let slot = self.slot_type(&field.slot)?;
-        Some(if field.optional {
-            MemberType::Option(Box::new(slot))
-        } else {
-            slot
+        Some(match (field.optional, field.slot.type_ref.as_ref(), slot) {
+            (
+                true,
+                Some(SelectedTypeRef::Native(NativeTypeRef::Clock)),
+                MemberType::Collection {
+                    kind,
+                    element,
+                    bounds,
+                },
+            ) => MemberType::Collection {
+                kind,
+                element: Box::new(MemberType::Option(element)),
+                bounds,
+            },
+            (true, _, slot) => MemberType::Option(Box::new(slot)),
+            (false, _, slot) => slot,
         })
     }
 
@@ -2955,6 +3058,7 @@ struct Scope<'v> {
 /// A node's own refusal, from its identity, its kind and whether another
 /// node shares its identity, in FR-154's table order.
 // Reads a selected domain package document's node id prefix.
+#[ix_trace_rs::string_edge]
 fn classify<'v>(
     prefix: &str,
     meanings: &BTreeMap<(&str, &str), &'v str>,
@@ -2965,15 +3069,20 @@ fn classify<'v>(
         if !node.strip_prefix(prefix).is_some_and(is_object_id) {
             return Err(ModelRefusal::malformed());
         }
-        declared
-            .get("kind")
-            .filter(|kind| kind.is_object())
-            .and_then(|kind| {
-                let module = kind.get("module")?.as_str()?;
-                let name = kind.get("name")?.as_str()?;
-                meanings.get(&(module, name)).copied()
-            })
-            .and_then(meaning::Kind::from_wire)
+        let meaning = match declared.get("kind") {
+            Some(Value::String(kind)) if kind == "sequence" => Some(meaning::Kind::SequenceType),
+            Some(Value::String(kind)) if kind == "map" => Some(meaning::Kind::MapType),
+            Some(kind) if kind.is_object() => {
+                let module = kind.get("module").and_then(Value::as_str);
+                let name = kind.get("name").and_then(Value::as_str);
+                module
+                    .zip(name)
+                    .and_then(|(module, name)| meanings.get(&(module, name)).copied())
+                    .and_then(meaning::Kind::from_wire)
+            }
+            _ => None,
+        };
+        meaning
             .map(|meaning| (*declared, meaning))
             .ok_or_else(ModelRefusal::malformed)
     };
@@ -3011,6 +3120,12 @@ fn node_size(value: &Value) -> u64 {
         "variants",
     ] {
         total = total.saturating_add(len(value, member));
+    }
+    if matches!(
+        value.get("kind").and_then(Value::as_str),
+        Some("sequence" | "map")
+    ) {
+        total = total.saturating_add(1);
     }
     for operation in value
         .get("operations")
@@ -3100,6 +3215,7 @@ pub(super) fn read_semantic_ir(
         tuple_types: BTreeMap::new(),
         value_types: BTreeMap::new(),
         variant_types: BTreeMap::new(),
+        collection_types: BTreeMap::new(),
         unit_refs: unit_refs.clone(),
         relationships: BTreeMap::new(),
         populations: BTreeSet::new(),
@@ -3153,6 +3269,7 @@ pub(super) fn read_semantic_ir(
         };
         scope.all_types.insert(node);
         match meaning {
+            meaning::Kind::SequenceType | meaning::Kind::MapType => {}
             meaning::Kind::ObjectType
             | meaning::Kind::StateMachine
             | meaning::Kind::Process
@@ -3251,6 +3368,40 @@ pub(super) fn read_semantic_ir(
         };
         budget.charge(node_size(declared))?;
         match meaning {
+            meaning::Kind::SequenceType | meaning::Kind::MapType => {
+                let member = if meaning == meaning::Kind::SequenceType {
+                    "items"
+                } else {
+                    "values"
+                };
+                let reference = text(declared, member)?;
+                let selected = SelectedTypeRef::from_admitted_name(reference)
+                    .ok_or_else(ModelRefusal::malformed)?;
+                let refusal = match &selected {
+                    SelectedTypeRef::Map(..) => Some(ModelRefusal::malformed()),
+                    SelectedTypeRef::Unit(name) if !model.unit_refs.contains_key(name) => {
+                        Some(ModelRefusal::missing_name())
+                    }
+                    SelectedTypeRef::Declared(name)
+                        if scope.relationships.contains(name.as_ref()) =>
+                    {
+                        Some(ModelRefusal::malformed())
+                    }
+                    SelectedTypeRef::Declared(name) if !scope.all_types.contains(name.as_ref()) => {
+                        Some(ModelRefusal::missing_name())
+                    }
+                    _ => None,
+                };
+                if let Some(refusal) = refusal {
+                    return Err(SelectionRefusal::located(refusal, declared, budget)?.into());
+                }
+                let definition = if meaning == meaning::Kind::SequenceType {
+                    SelectedCollectionDefinition::Sequence(selected)
+                } else {
+                    SelectedCollectionDefinition::Map(selected)
+                };
+                model.collection_types.insert(node.into(), definition);
+            }
             meaning::Kind::ObjectType
             | meaning::Kind::StateMachine
             | meaning::Kind::Process
@@ -3645,6 +3796,7 @@ impl References<'_> {
             || self.model.variant_types.contains_key(node)
             || self.model.tuple_types.contains_key(node)
             || self.model.record_types.contains_key(node)
+            || self.model.collection_types.contains_key(node)
             || self.scope.records.contains(node)
             || self.model.other_types.contains(node)
             || self.scope.relationships.contains(node)
@@ -3666,17 +3818,11 @@ impl References<'_> {
             CheckedTypeRefInput::Malformed => {
                 defects.push(Row::Meaning, &path, ModelRefusal::malformed());
             }
-            CheckedTypeRefInput::Declared
-                if self.scope.objects.contains(type_ref)
-                    || self.scope.records.contains(type_ref)
-                    || self.model.value_types.contains_key(type_ref)
-                    || self.model.variant_types.contains_key(type_ref)
-                    || self.model.tuple_types.contains_key(type_ref)
-                    || self.model.other_types.contains(type_ref) => {}
-            CheckedTypeRefInput::Declared if self.scope.refused.contains(type_ref) => {}
             CheckedTypeRefInput::Declared if self.scope.relationships.contains(type_ref) => {
                 defects.push(Row::Meaning, &path, ModelRefusal::malformed());
             }
+            CheckedTypeRefInput::Declared if self.scope.all_types.contains(type_ref) => {}
+            CheckedTypeRefInput::Declared if self.scope.refused.contains(type_ref) => {}
             CheckedTypeRefInput::Declared => {
                 defects.push(Row::Reference, &path, ModelRefusal::missing_name());
             }

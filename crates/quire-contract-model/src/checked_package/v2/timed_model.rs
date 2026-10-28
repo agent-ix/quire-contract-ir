@@ -4,8 +4,8 @@
 //! Closed timed-model node wire shapes checked before identity validation.
 
 use super::model_members::{
-    Budget, CollectionKind, FieldDecl, MemberKind, ModelFailure, ModelOwners, NativeTypeRef,
-    Resolved, SelectedTypeRef,
+    Budget, CollectionKind, FieldDecl, MemberKind, ModelFailure, ModelOwners, Resolved,
+    SelectedTypeRef,
 };
 use super::{
     CheckedNodeId, CheckedNodeOwner, CheckedTerm, CheckedTermView, LiteralKind,
@@ -16,7 +16,7 @@ use crate::checked_package::common::{
     NODE_DOMAIN,
 };
 use crate::checked_package::shared::{
-    CheckedOccurrenceRole, CheckedPackageRefusalCode, JsonPointer,
+    CheckedOccurrenceRole, CheckedPackageRefusalCode, CheckedSourceMapEntry, JsonPointer,
 };
 use serde_json::Value;
 
@@ -563,15 +563,25 @@ impl<'a> RenderedCollectionType<'a> {
     }
 }
 
-fn declared_field_type(field: &FieldDecl) -> Option<String> {
-    let element = match field.slot.type_ref.as_ref()? {
-        SelectedTypeRef::Native(NativeTypeRef::Clock) => "ix://quire/native/Clock".to_owned(),
-        SelectedTypeRef::Native(NativeTypeRef::Text) => "ix://quire/native/Text".to_owned(),
-        SelectedTypeRef::Declared(name) | SelectedTypeRef::Unit(name) => name.to_string(),
-        SelectedTypeRef::Map(key, value) => format!("Map<{key}, {value}>"),
-        _ => return None,
-    };
+fn declared_field_type(
+    field: &FieldDecl,
+    render: impl FnOnce(&SelectedTypeRef) -> Option<String>,
+) -> Option<String> {
+    let element = render(field.slot.type_ref.as_ref()?)?;
     let multiplicity = field.slot.multiplicity;
+    let optional_clock_element = field.optional
+        && matches!(
+            field.slot.type_ref.as_ref(),
+            Some(SelectedTypeRef::Native(
+                super::model_members::NativeTypeRef::Clock
+            ))
+        )
+        && (multiplicity.lower, multiplicity.upper) != (1, Some(1));
+    let element = if optional_clock_element {
+        format!("Option<{element}>")
+    } else {
+        element
+    };
     let value = if (multiplicity.lower, multiplicity.upper) == (1, Some(1)) {
         element
     } else {
@@ -583,7 +593,7 @@ fn declared_field_type(field: &FieldDecl) -> Option<String> {
         };
         format!("{kind}<{element}>")
     };
-    Some(if field.optional {
+    Some(if field.optional && !optional_clock_element {
         format!("Option<{value}>")
     } else {
         value
@@ -622,6 +632,7 @@ fn selector_fits(
     }
 }
 
+#[ix_trace_rs::string_edge]
 fn check_resolved_path(
     graph: &Graph<'_>,
     position: usize,
@@ -727,7 +738,10 @@ fn check_resolved_path(
                 return Err(fail(at));
             };
             let actual_declaring = field.identity.rsplit_once('/').map(|(owner, _)| owner);
-            let actual_type = declared_field_type(field).ok_or_else(|| fail(at.clone()))?;
+            let actual_type = declared_field_type(field, |reference| {
+                model_owner.package.clock_type_name(reference)
+            })
+            .ok_or_else(|| fail(at.clone()))?;
             if actual_declaring != declaring
                 || Some(field.identity.as_ref()) != identity
                 || actual_type != member_type.unwrap_or_default()
@@ -736,11 +750,17 @@ fn check_resolved_path(
             }
             if steps.get(index + 1).and_then(path_step_kind) == Some(PathStepKind::Slot) {
                 let multiplicity = field.slot.multiplicity;
-                let expected = match field.slot.type_ref.as_ref() {
-                    Some(SelectedTypeRef::Map(..)) => {
+                let unwrapped = actual_type
+                    .strip_prefix("Option<")
+                    .and_then(|inner| inner.strip_suffix('>'))
+                    .unwrap_or(&actual_type);
+                let expected = match RenderedCollectionType::from_wire(unwrapped) {
+                    RenderedCollectionType::Map(_)
+                        if (multiplicity.lower, multiplicity.upper) == (1, Some(1)) =>
+                    {
                         Some(("map", "0".to_owned(), "unbounded".to_owned()))
                     }
-                    Some(_) if (multiplicity.lower, multiplicity.upper) != (1, Some(1)) => {
+                    _ if (multiplicity.lower, multiplicity.upper) != (1, Some(1)) => {
                         let kind =
                             CollectionKind::of(multiplicity.ordered, multiplicity.unique).form();
                         Some((
@@ -964,12 +984,105 @@ fn binding_at(position: usize, index: usize) -> JsonPointer {
         .key("value")
 }
 
+type SourceOrderKey<'a> = (&'a str, u64, u64);
+
+/// A source-map entry may add an earlier region to an existing node. Keep
+/// the minimum across every occurrence and region, independently of node id.
+fn source_order_keys<'a>(
+    source_map: &'a [CheckedSourceMapEntry],
+    meter: &mut WorkMeter,
+) -> Result<BTreeMap<&'a CheckedNodeId, SourceOrderKey<'a>>, ValidationFailure> {
+    let mut keys = BTreeMap::new();
+    for entry in source_map {
+        for region in &entry.regions {
+            meter.charge(1, || JsonPointer::root().key("source_map"))?;
+            let key = (region.source.identity.as_ref(), region.start, region.end);
+            keys.entry(&entry.node_id)
+                .and_modify(|minimum| {
+                    if key < *minimum {
+                        *minimum = key;
+                    }
+                })
+                .or_insert(key);
+        }
+    }
+    Ok(keys)
+}
+
+fn check_reference_order(
+    body: &CheckedTerm,
+    position: usize,
+    binding: usize,
+    keys: &BTreeMap<&CheckedNodeId, SourceOrderKey<'_>>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let mut previous = None;
+    let mut seen = BTreeSet::new();
+    for (index, member) in bound(body, binding)
+        .map(typed_members)
+        .unwrap_or_default()
+        .iter()
+        .enumerate()
+    {
+        let at = binding_at(position, binding).key("members").index(index);
+        meter.charge(1, || at.clone())?;
+        let Some(target) = typed_target(member) else {
+            continue;
+        };
+        // A repeated node is the existing duplicate-place defect. Preserve
+        // that more specific refusal; equal order keys of distinct nodes are
+        // still checked here.
+        if !seen.insert(target) {
+            continue;
+        }
+        let key = keys.get(target).copied();
+        // Graph-shape and source-map checks have already validated every
+        // reference and region. Their refusal has precedence over this step.
+        let Some(key) = key else {
+            continue;
+        };
+        if previous.is_some_and(|before| key <= before) {
+            return Err(ValidationFailure::refused(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                at,
+            ));
+        }
+        previous = Some(key);
+    }
+    Ok(())
+}
+
+fn check_timed_reference_order(
+    kinds: &[CheckedNodeKind],
+    terms: &[Option<CheckedTerm>],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    source_map: &[CheckedSourceMapEntry],
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let keys = source_order_keys(source_map, meter)?;
+    for &position in index.values() {
+        let bindings: &[usize] = match kinds.get(position) {
+            Some(CheckedNodeKind::TimedModel(TimedModelForm::Model)) => &[3, 4, 5, 6, 7, 8],
+            Some(CheckedNodeKind::TimedModel(TimedModelForm::Place)) => &[3],
+            _ => continue,
+        };
+        let Some(body) = terms.get(position).and_then(Option::as_ref) else {
+            continue;
+        };
+        for &binding in bindings {
+            check_reference_order(body, position, binding, &keys, meter)?;
+        }
+    }
+    Ok(())
+}
+
 /// Join the retained timed roots, members and local typed targets in digest order.
 pub(super) fn validate_models<'a>(
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
     terms: &'a [Option<CheckedTerm>],
     index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    source_map: &[CheckedSourceMapEntry],
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -1004,6 +1117,9 @@ pub(super) fn validate_models<'a>(
                 }
             }
         }
+    }
+    if !roots.is_empty() {
+        check_timed_reference_order(kinds, terms, index, source_map, meter)?;
     }
     for &position in index.values() {
         let Some(CheckedNodeKind::TimedModel(form)) = kinds.get(position).copied() else {
@@ -1350,7 +1466,7 @@ mod tests {
 
     #[test]
     fn ir1083_selected_field_presence_and_multiplicity_render_the_clock_path_type() {
-        use super::super::model_members::{Multiplicity, TypedSlot};
+        use super::super::model_members::{Multiplicity, NativeTypeRef, TypedSlot};
         let mut field = FieldDecl {
             identity: "ix://acme/orders/Order/v".into(),
             slot: TypedSlot {
@@ -1367,7 +1483,13 @@ mod tests {
             redefines: None,
         };
         assert_eq!(
-            declared_field_type(&field).as_deref(),
+            declared_field_type(&field, |reference| match reference {
+                SelectedTypeRef::Native(NativeTypeRef::Clock) => {
+                    Some("ix://quire/native/Clock".to_owned())
+                }
+                _ => None,
+            })
+            .as_deref(),
             Some("Option<ix://quire/native/Clock>")
         );
         field.optional = false;
@@ -1378,7 +1500,13 @@ mod tests {
             unique: false,
         };
         assert_eq!(
-            declared_field_type(&field).as_deref(),
+            declared_field_type(&field, |reference| match reference {
+                SelectedTypeRef::Native(NativeTypeRef::Clock) => {
+                    Some("ix://quire/native/Clock".to_owned())
+                }
+                _ => None,
+            })
+            .as_deref(),
             Some("Sequence<ix://quire/native/Clock>")
         );
     }
