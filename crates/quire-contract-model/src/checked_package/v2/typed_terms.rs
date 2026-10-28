@@ -5,7 +5,7 @@
 //! has bounded term depth, so serde's recursion here is independent of input
 //! byte length.
 
-use super::{ApplicationOperator, BodyTerm, LiteralKind, StateClauseKind};
+use super::{ApplicationOperator, BodyTerm, LiteralKind, OperationModeKind, StateClauseKind};
 use super::{
     RefinementAssume, RefinementEnsure, RefinementHistory, RefinementKey, RefinementObject,
     RefinementPopulation, RefinementStep,
@@ -22,6 +22,40 @@ use serde_json::{error::Category, Value};
 pub struct CheckedApplicationOperation {
     record: Value,
     execution_point: Option<ExecutionPoint>,
+    views: Option<CheckedOperationViews>,
+}
+
+/// The admitted kind and value of an operation's mode.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CheckedOperationModeView<'a> {
+    /// The catalogued mode kind.
+    pub kind: OperationModeKind,
+    /// The admitted mode value.
+    pub value: &'a str,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(super) struct CheckedOperationViews {
+    pub(super) state_clause_kind: Option<StateClauseKind>,
+    pub(super) projection_field: Option<(CheckedNodeId, Box<str>)>,
+    pub(super) member_declaration: Option<CheckedNodeId>,
+    pub(super) mode: Option<(OperationModeKind, Box<str>)>,
+    pub(super) law_definitions: Vec<CheckedArtifactRef>,
+}
+
+impl CheckedOperationViews {
+    fn replace_node_id(&mut self, old: &CheckedNodeId, new: &CheckedNodeId) {
+        if let Some((declaration, _)) = &mut self.projection_field {
+            if declaration == old {
+                *declaration = new.clone();
+            }
+        }
+        if let Some(declaration) = &mut self.member_declaration {
+            if declaration == old {
+                *declaration = new.clone();
+            }
+        }
+    }
 }
 
 impl CheckedApplicationOperation {
@@ -33,6 +67,10 @@ impl CheckedApplicationOperation {
                 "member": {"kind": "state_clause", "clause": clause}, "leaves": []
             }),
             execution_point,
+            views: Some(CheckedOperationViews {
+                state_clause_kind: Some(clause),
+                ..CheckedOperationViews::default()
+            }),
         }
     }
 
@@ -44,6 +82,45 @@ impl CheckedApplicationOperation {
     /// The catalogued identity of this application operation.
     pub fn identity(&self) -> Option<&str> {
         self.record.get("identity").and_then(Value::as_str)
+    }
+
+    /// The admitted state-clause kind, or `None` for another member shape.
+    pub fn state_clause_kind(&self) -> Option<StateClauseKind> {
+        self.views.as_ref()?.state_clause_kind
+    }
+
+    /// The admitted field declaration and name, or `None` for another member shape.
+    pub fn projection_field(&self) -> Option<(&CheckedNodeId, &str)> {
+        self.views
+            .as_ref()?
+            .projection_field
+            .as_ref()
+            .map(|(declaration, name)| (declaration, name.as_ref()))
+    }
+
+    /// The admitted member declaration, when the member carries one.
+    pub fn member_declaration(&self) -> Option<&CheckedNodeId> {
+        self.views.as_ref()?.member_declaration.as_ref()
+    }
+
+    /// The admitted operation mode kind and value, when present.
+    pub fn mode(&self) -> Option<CheckedOperationModeView<'_>> {
+        self.views
+            .as_ref()?
+            .mode
+            .as_ref()
+            .map(|(kind, value)| CheckedOperationModeView { kind: *kind, value })
+    }
+
+    /// The admitted law definitions in operation order.
+    pub fn law_definitions(&self) -> &[CheckedArtifactRef] {
+        self.views
+            .as_ref()
+            .map_or(&[], |views| &views.law_definitions)
+    }
+
+    pub(super) fn install_admitted_views(&mut self, views: CheckedOperationViews) {
+        self.views = Some(views);
     }
 
     pub(super) fn record(&self) -> &Value {
@@ -78,6 +155,7 @@ impl CheckedApplicationOperation {
         Self {
             record,
             execution_point,
+            views: None,
         }
     }
 
@@ -523,6 +601,9 @@ impl CheckedTerm {
                 ..
             } => {
                 replace_node_ids_in_value(&mut operation.record, old, new);
+                if let Some(views) = &mut operation.views {
+                    views.replace_node_id(old, new);
+                }
                 replace(result_type, old, new);
                 for argument in arguments {
                     argument.replace_node_id(old, new);
