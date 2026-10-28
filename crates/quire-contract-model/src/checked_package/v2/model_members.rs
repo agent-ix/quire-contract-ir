@@ -3058,6 +3058,7 @@ struct Scope<'v> {
 /// A node's own refusal, from its identity, its kind and whether another
 /// node shares its identity, in FR-154's table order.
 // Reads a selected domain package document's node id prefix.
+#[ix_trace_rs::string_edge]
 fn classify<'v>(
     prefix: &str,
     meanings: &BTreeMap<(&str, &str), &'v str>,

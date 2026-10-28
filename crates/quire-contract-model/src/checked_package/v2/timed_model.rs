@@ -632,6 +632,7 @@ fn selector_fits(
     }
 }
 
+#[ix_trace_rs::string_edge]
 fn check_resolved_path(
     graph: &Graph<'_>,
     position: usize,
