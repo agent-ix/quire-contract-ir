@@ -8666,6 +8666,15 @@ fn nested_repeat_guard_and_maximum_determine_outer_progress() {
         .push(exhausted_node);
     zero["semantic_graph"]["nodes"][nested]["body"]["arguments"][6]["value"]["members"] =
         json!([{"term": "reference", "target": exhausted}]);
+    let mut positive = zero.clone();
+    positive["semantic_graph"]["nodes"][nested]["body"]["arguments"][2]["value"]["members"][0]
+        ["value"] = json!("1");
+    settle(&mut positive);
+    assert!(
+        matches!(read(&positive), CheckedPackageV2ReadResult::Admitted(_)),
+        "positive nested maximum: {:?}",
+        read(&positive)
+    );
     settle(&mut zero);
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&zero) else {
         panic!("zero nested maximum must refuse outer repeat");

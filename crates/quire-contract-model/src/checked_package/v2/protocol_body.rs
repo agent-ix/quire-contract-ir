@@ -4408,7 +4408,6 @@ fn causal_edge(
     Ok(())
 }
 
-#[string_edge]
 #[derive(Clone, Copy)]
 enum GuardOp {
     Constant(bool),
@@ -4417,6 +4416,16 @@ enum GuardOp {
     And,
     Or,
     Implies,
+}
+
+fn guard_connective(identity: Option<&str>, arity: usize) -> Option<GuardOp> {
+    match (identity, arity) {
+        (Some("quire.op.boolean.not"), 1) => Some(GuardOp::Not),
+        (Some("quire.op.boolean.and"), 2) => Some(GuardOp::And),
+        (Some("quire.op.boolean.or"), 2) => Some(GuardOp::Or),
+        (Some("quire.op.boolean.implies"), 2) => Some(GuardOp::Implies),
+        _ => None,
+    }
 }
 
 fn guard_never_exits(
@@ -4433,16 +4442,18 @@ fn guard_never_exits(
     let mut pending = vec![(guard, None, false)];
     while let Some((term, key, complete)) = pending.pop() {
         if complete {
-            let CheckedTerm::Application { operation, .. } = term else {
+            let CheckedTerm::Application {
+                operation,
+                arguments,
+                ..
+            } = term
+            else {
                 unreachable!("only connective applications complete")
             };
-            program.push(match operation.identity() {
-                Some("quire.op.boolean.not") => GuardOp::Not,
-                Some("quire.op.boolean.and") => GuardOp::And,
-                Some("quire.op.boolean.or") => GuardOp::Or,
-                Some("quire.op.boolean.implies") => GuardOp::Implies,
-                _ => unreachable!("only connective applications complete"),
-            });
+            program.push(
+                guard_connective(operation.identity(), arguments.len())
+                    .expect("validated connective arity"),
+            );
             continue;
         }
         if let Some(id) = key {
@@ -4457,8 +4468,17 @@ fn guard_never_exits(
                     program.push(GuardOp::Atom(index));
                     continue;
                 }
-                let referenced =
-                    &check.terms[*check.index.get(target).expect("validated guard reference")];
+                let target_position = *check.index.get(target).expect("validated guard reference");
+                let referenced = &check.terms[target_position];
+                if !matches!(
+                    check.kinds[target_position],
+                    CheckedNodeKind::Value(ValueForm::Literal) | CheckedNodeKind::Expression(_)
+                ) {
+                    let index = atoms.len();
+                    atoms.push(target);
+                    program.push(GuardOp::Atom(index));
+                    continue;
+                }
                 (referenced, Some(target))
             }
             _ => (term, key),
@@ -4477,16 +4497,7 @@ fn guard_never_exits(
                 operation,
                 arguments,
                 ..
-            } if matches!(
-                operation.identity(),
-                Some(
-                    "quire.op.boolean.not"
-                        | "quire.op.boolean.and"
-                        | "quire.op.boolean.or"
-                        | "quire.op.boolean.implies"
-                )
-            ) =>
-            {
+            } if guard_connective(operation.identity(), arguments.len()).is_some() => {
                 pending.push((term, key, true));
                 for argument in arguments {
                     pending.push((argument, None, false));
@@ -4511,9 +4522,10 @@ fn guard_never_exits(
         }
     }
     let mut valuation = vec![false; atoms.len() + inline_atoms.len()];
+    let mut values = Vec::with_capacity(program.len());
     loop {
         meter.charge(1, || node_pointer(position))?;
-        let mut values = Vec::with_capacity(program.len());
+        values.clear();
         for op in &program {
             match op {
                 GuardOp::Constant(value) => values.push(*value),
@@ -4545,6 +4557,7 @@ fn guard_never_exits(
     }
 }
 
+#[string_edge]
 fn check_clause_causality(
     check: &MemberCheck<'_>,
     arguments: &[CheckedTerm],
