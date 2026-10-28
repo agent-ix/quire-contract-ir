@@ -99,6 +99,13 @@ declaration shape, position sequence and type reference in QSpec FR-322's
 published order. It SHALL preserve FR-154's typed code and cause through the
 existing public refusal conversion, including `unsupported_construct` with
 `declaration-form` for an unresolved or unsupported `Variant.payloadType`.
+For the published `TK-11` through `TK-35` intake cases, this includes native
+and package-bound `Rational`, `Decimal` and bare or unbounded `Text`, their
+resolving aliases, admitted bounded `Text`, admitted `Float32` and `Float64`
+aliases (including an alias chain), and admitted unbounded `Bytes` and
+`JsonObject`. Tuple positions and variant payloads retain the different
+QSpec refusal codes, causes and loci. A tuple defect precedes a later variant
+defect, including when the tuple's type has no admitted V2 mapping.
 
 The writer of [FR-051](./FR-051-encode-checked-package-v2-envelope.md) SHALL
 encode supplied `model`/`tuple_value_type` and payload-bearing
@@ -129,6 +136,12 @@ trusting a fixture's stale id. The typed writer SHALL round trip the positive
 package through the production reader without losing tuple positions or
 variant payload types.
 
+Conformance SHALL replay every published `intake_cases` entry, including
+admitted controls, and every `wire_cases` entry; it SHALL compare each
+refusal's code, cause, RFC 6901 location and specified reader stage. The
+vector case lists are authoritative, so an added published case is not
+silently skipped by an in-repo fixed count or range.
+
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
@@ -138,9 +151,9 @@ variant payload types.
 | FR-069-AC-3 | A `quire.op.tuple.project` over a selected model tuple resolves each valid position to the published type, including a tuple or union type reference; an out-of-range position or wrong declaring tuple refuses `ill_typed`/`operator-ineligible` at the application member. An anonymous structural tuple is not accepted as that model declaration. | Test |
 | FR-069-AC-4 | A payload-free variant has family `enum`; a mixed nullary/payload variant has family `union`, case order is ascending UTF-8 name, and payload cases retain exactly one resolved position-zero type. Adding or removing the first payload changes the selected document digest, model-root key and package id without changing the variant declaration key. | Test |
 | FR-069-AC-5 | The published `union_value`, `enum_value`, equality, case-arm and structural-leaf cases pass through the production reader: a nullary union case uses an empty-payload `union_value`; union-family `enum_value` and enum-family `union_value` refuse with the specified typed mismatch; recursive tuple/union declarations admit without a graph recursion group and their leaf walk terminates with QSpec's reachable-text rule. | Test |
-| FR-069-AC-6 | Every published intake and wire mutation returns its exact QSpec code, cause and location at its specified stage, including duplicate or gapped tuple positions, absent/unsupported/unresolved position `typeRef`, illegal tuple members, unresolved/unsupported `Variant.payloadType`, malformed owner, stale tuple key and owner-kind mismatch. A document with both a tuple and variant defect reports the tuple defect first. No malformed declaration produces an admitted partial package or a panic. | Test |
+| FR-069-AC-6 | Every published `TK-01` through `TK-35` intake case and `TW-00` through `TW-26` wire case returns the exact QSpec admission or, for a refused case, code, cause and location at its specified stage, including duplicate or gapped tuple positions, absent/unsupported/unresolved position `typeRef`, illegal tuple members, unresolved/unsupported `Variant.payloadType`, malformed owner, stale tuple key and owner-kind mismatch. The `TK-11` through `TK-35` controls distinguish tuple-position `invalid_model_binding`/`malformed-declaration` from variant-payload `unsupported_construct`/`declaration-form` for native, package-bound and aliased `Rational`, `Decimal` and bare or unbounded `Text`; they admit the published bounded `Text`, floating aliases and unbounded `Bytes`/`JsonObject` cases. A document with both a tuple and variant defect reports the tuple defect first. No malformed declaration produces an admitted partial package or a panic. A newly published vector case is replayed without narrowing this criterion to these numbered cases. | Test |
 | FR-069-AC-7 | `encode_checked_package_v2` emits the supplied tuple and payload-variant nodes under the existing eight-member V2 envelope and preserves the supplied package id and selection rows. The positive typed package encodes canonically and its bytes read back with the same admitted positions, payload types, node keys and package identity; a changed supplied id is preserved by the writer and refused by the reader. | Test |
-| FR-069-AC-8 | `make conformance-qspec` loads the positive fixture, `model-tuple-union-vectors.json`, its full Semantic IR `selected_document`, the two tuple/union entries in `node-identity-vectors.json`, and the model union member entries in QSpec's `union_member_vectors` from `QUIRE_SPECIFICATION_DIR`; it compares the document's derived `domain_package` projection with the vector, hashes the full document for the selection digest, recomputes identities and runs every tuple/union case against production intake, key derivation and reader paths. Missing or malformed files fail the run. The test does not hash only vector JSON or copy QSpec artifacts into IR. | Test, Inspection |
+| FR-069-AC-8 | `make conformance-qspec` loads the positive fixture, `model-tuple-union-vectors.json`, its full Semantic IR `selected_document`, the two tuple/union entries in `node-identity-vectors.json`, and the model union member entries in QSpec's `union_member_vectors` from `QUIRE_SPECIFICATION_DIR`; it compares the document's derived `domain_package` projection with the vector, hashes the full document for the selection digest, recomputes identities and runs every published tuple/union intake and wire case, including admitted controls, against production intake, key derivation and reader paths. Missing or malformed files and omitted published cases fail the run. The test does not hash only vector JSON or copy QSpec artifacts into IR. | Test, Inspection |
 
 ## Dependencies
 
