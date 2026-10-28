@@ -1328,12 +1328,11 @@ fn tc_056_duplicate_clause_point_precedes_version_and_identity_checks() {
     };
     assert_eq!(refusal.code, Code::DuplicateMember);
     assert_eq!(refusal.cause, None);
+    let expected_path =
+        format!("/semantic_graph/nodes/{clause}/body/operation/member/execution_point");
     assert_eq!(
         refusal.path.as_ref().map(|path| path.as_str()),
-        Some(
-            format!("/semantic_graph/nodes/{clause}/body/operation/member/execution_point")
-                .as_str()
-        )
+        Some(expected_path.as_str())
     );
 }
 
