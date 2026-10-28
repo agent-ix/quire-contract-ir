@@ -18,6 +18,7 @@ mod dependency_references;
 mod derived_keys;
 pub(in crate::checked_package) mod encode;
 mod execution_point;
+mod execution_point_accessor;
 mod extension;
 mod flat_wire;
 mod frame;
@@ -78,6 +79,7 @@ pub use contract_package::{
     ContractScalarOperandViewV1, ContractScalarOwnRangeV1, ContractSelectedReferenceV1,
     ContractSemanticGraphV1, ContractSourceMapV1, ContractSourceV1,
 };
+pub use execution_point_accessor::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
 pub use identity::*;
 pub use lower::*;
 pub use model_fields::{
