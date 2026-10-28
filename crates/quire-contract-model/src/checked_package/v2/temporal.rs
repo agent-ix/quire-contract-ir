@@ -451,7 +451,7 @@ struct TypeArgumentMember {
 }
 
 /// Whether `member` has the closed shape its catalogued member `kind`
-/// requires; the other member kinds are checked elsewhere.
+/// requires; deeper member joins are checked elsewhere.
 pub(in crate::checked_package) fn member_is_well_formed(
     kind: OperationMemberKind,
     member: &Value,
@@ -461,8 +461,13 @@ pub(in crate::checked_package) fn member_is_well_formed(
         OperationMemberKind::Fairness => read_fairness_member(member).is_some(),
         OperationMemberKind::TypeArgument => TypeArgumentMember::deserialize(member)
             .is_ok_and(|member| member.kind == OperationMemberKind::TypeArgument),
-        OperationMemberKind::Field
-        | OperationMemberKind::Position
+        OperationMemberKind::Field => {
+            member.get("name").and_then(Value::as_str).is_some()
+                && member.get("declaration").is_some_and(|value| {
+                    serde_json::from_value::<CheckedNodeId>(value.clone()).is_ok()
+                })
+        }
+        OperationMemberKind::Position
         | OperationMemberKind::Element
         | OperationMemberKind::RelationshipEnd
         | OperationMemberKind::Operation

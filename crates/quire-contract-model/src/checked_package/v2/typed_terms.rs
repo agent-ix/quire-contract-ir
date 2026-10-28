@@ -5,7 +5,7 @@
 //! has bounded term depth, so serde's recursion here is independent of input
 //! byte length.
 
-use super::{ApplicationOperator, BodyTerm, LiteralKind, StateClauseKind};
+use super::{ApplicationOperator, BodyTerm, LiteralKind, OperationModeKind, StateClauseKind};
 use super::{
     RefinementAssume, RefinementEnsure, RefinementHistory, RefinementKey, RefinementObject,
     RefinementPopulation, RefinementStep,
@@ -22,6 +22,73 @@ use serde_json::{error::Category, Value};
 pub struct CheckedApplicationOperation {
     record: Value,
     execution_point: Option<ExecutionPoint>,
+    views: CheckedOperationViews,
+}
+
+/// The admitted kind and value of an operation's mode.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CheckedOperationModeView<'a> {
+    /// The catalogued mode kind.
+    pub kind: OperationModeKind,
+    /// The admitted mode value.
+    pub value: &'a str,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct CheckedOperationViews {
+    state_clause_kind: Option<StateClauseKind>,
+    projection_field: Option<(CheckedNodeId, Box<str>)>,
+    member_declaration: Option<CheckedNodeId>,
+    mode: Option<(OperationModeKind, Box<str>)>,
+    law_definitions: Vec<CheckedArtifactRef>,
+}
+
+impl CheckedOperationViews {
+    fn from_record(record: &Value) -> Self {
+        let member = record.get("member").and_then(Value::as_object);
+        let member_declaration = member
+            .and_then(|member| member.get("declaration"))
+            .and_then(|value| serde_json::from_value(value.clone()).ok());
+        let projection_field = member.and_then(|member| {
+            if member.get("kind")?.as_str()? != "field" {
+                return None;
+            }
+            Some((
+                member_declaration.clone()?,
+                member.get("name")?.as_str()?.into(),
+            ))
+        });
+        let state_clause_kind = member.and_then(|member| {
+            if member.get("kind")?.as_str()? != "state_clause" {
+                return None;
+            }
+            StateClauseKind::from_wire(member.get("clause")?.as_str()?)
+        });
+        let mode = record
+            .get("mode")
+            .and_then(Value::as_object)
+            .and_then(|mode| {
+                Some((
+                    OperationModeKind::from_wire(mode.get("kind")?.as_str()?)?,
+                    mode.get("value")?.as_str()?.into(),
+                ))
+            });
+        let law_definitions = record
+            .get("laws")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|law| law.get("definition"))
+            .filter_map(|definition| serde_json::from_value(definition.clone()).ok())
+            .collect();
+        Self {
+            state_clause_kind,
+            projection_field,
+            member_declaration,
+            mode,
+            law_definitions,
+        }
+    }
 }
 
 impl CheckedApplicationOperation {
@@ -33,6 +100,10 @@ impl CheckedApplicationOperation {
                 "member": {"kind": "state_clause", "clause": clause}, "leaves": []
             }),
             execution_point,
+            views: CheckedOperationViews {
+                state_clause_kind: Some(clause),
+                ..CheckedOperationViews::default()
+            },
         }
     }
 
@@ -44,6 +115,37 @@ impl CheckedApplicationOperation {
     /// The catalogued identity of this application operation.
     pub fn identity(&self) -> Option<&str> {
         self.record.get("identity").and_then(Value::as_str)
+    }
+
+    /// The admitted state-clause kind, or `None` for another member shape.
+    pub fn state_clause_kind(&self) -> Option<StateClauseKind> {
+        self.views.state_clause_kind
+    }
+
+    /// The admitted field declaration and name, or `None` for another member shape.
+    pub fn projection_field(&self) -> Option<(&CheckedNodeId, &str)> {
+        self.views
+            .projection_field
+            .as_ref()
+            .map(|(declaration, name)| (declaration, name.as_ref()))
+    }
+
+    /// The admitted member declaration, when the member carries one.
+    pub fn member_declaration(&self) -> Option<&CheckedNodeId> {
+        self.views.member_declaration.as_ref()
+    }
+
+    /// The admitted operation mode kind and value, when present.
+    pub fn mode(&self) -> Option<CheckedOperationModeView<'_>> {
+        self.views
+            .mode
+            .as_ref()
+            .map(|(kind, value)| CheckedOperationModeView { kind: *kind, value })
+    }
+
+    /// The admitted law definitions in operation order.
+    pub fn law_definitions(&self) -> &[CheckedArtifactRef] {
+        &self.views.law_definitions
     }
 
     pub(super) fn record(&self) -> &Value {
@@ -75,9 +177,11 @@ impl CheckedApplicationOperation {
             } else {
                 None
             };
+        let views = CheckedOperationViews::from_record(&record);
         Self {
             record,
             execution_point,
+            views,
         }
     }
 
@@ -523,6 +627,7 @@ impl CheckedTerm {
                 ..
             } => {
                 replace_node_ids_in_value(&mut operation.record, old, new);
+                operation.views = CheckedOperationViews::from_record(&operation.record);
                 replace(result_type, old, new);
                 for argument in arguments {
                     argument.replace_node_id(old, new);

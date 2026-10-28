@@ -11,7 +11,8 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm,
+    OperationModeKind,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -594,6 +595,243 @@ pub(super) fn admitted_fixture(identity: &str) -> Option<Value> {
         _ => return None,
     }
     Some(f.package)
+}
+
+#[trace(
+    "TC-048",
+    "FR-038-AC-331",
+    "FR-038-AC-332",
+    "FR-038-AC-333",
+    "FR-038-AC-334"
+)]
+#[test]
+fn tc_048_public_operation_views_follow_admitted_values() {
+    let (wire, evidence) = crate::checked_package_v2_model_fields::record_project_control();
+    let admitted = match read_with_evidence(&wire, &evidence) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("field fixture refused: {other:?}"),
+    };
+    let operation = admitted
+        .graph()
+        .nodes
+        .iter()
+        .find_map(|node| match &node.body {
+            CheckedTerm::Application { operation, .. }
+                if operation.identity() == Some("quire.op.record.project") =>
+            {
+                Some(operation)
+            }
+            _ => None,
+        })
+        .expect("field projection application");
+    let member = &wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["body"]["operation"]["identity"] == "quire.op.record.project")
+        .expect("field projection source")["body"]["operation"]["member"];
+    let declaration = serde_json::from_value(member["declaration"].clone()).expect("node id");
+    assert_eq!(operation.projection_field(), Some((&declaration, "string")));
+    assert_eq!(operation.member_declaration(), Some(&declaration));
+    assert_eq!(operation.mode(), None);
+    assert!(operation.law_definitions().is_empty());
+
+    for (identity, kind, value, laws) in [
+        (
+            "quire.op.numeric.convert_rounding",
+            OperationModeKind::Rounding,
+            "exact",
+            0,
+        ),
+        (
+            "quire.op.model.lookup",
+            OperationModeKind::Absence,
+            "option",
+            0,
+        ),
+        (
+            "quire.op.ieee.from_exact",
+            OperationModeKind::Rounding,
+            "exact",
+            1,
+        ),
+    ] {
+        let wire = admitted_fixture(identity).expect("admitted fixture");
+        let admitted = match read(&wire) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("{identity} fixture refused: {other:?}"),
+        };
+        let operation = admitted
+            .graph()
+            .nodes
+            .iter()
+            .find_map(|node| match &node.body {
+                CheckedTerm::Application { operation, .. }
+                    if operation.identity() == Some(identity) =>
+                {
+                    Some(operation)
+                }
+                _ => None,
+            })
+            .expect("admitted operation");
+        let mode = operation.mode().expect("admitted mode");
+        assert_eq!((mode.kind, mode.value), (kind, value));
+        assert_eq!(operation.law_definitions().len(), laws);
+        if laws == 1 {
+            assert_eq!(
+                operation.law_definitions()[0].authority.as_ref(),
+                "agent-ix"
+            );
+            assert_eq!(
+                operation.law_definitions()[0].identity.as_ref(),
+                "quire.value.ieee754-2019-default/v1"
+            );
+        }
+        assert_eq!(operation.projection_field(), None);
+    }
+
+    let wire = admitted_fixture("quire.op.tuple.project").expect("position fixture");
+    let admitted = match read(&wire) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("position fixture refused: {other:?}"),
+    };
+    let operation = admitted
+        .graph()
+        .nodes
+        .iter()
+        .find_map(|node| match &node.body {
+            CheckedTerm::Application { operation, .. }
+                if operation.identity() == Some("quire.op.tuple.project") =>
+            {
+                Some(operation)
+            }
+            _ => None,
+        })
+        .expect("position application");
+    assert_eq!(operation.projection_field(), None);
+    assert!(operation.member_declaration().is_some());
+    assert_eq!(operation.mode(), None);
+    assert!(operation.law_definitions().is_empty());
+
+    let wire = admitted_fixture("quire.op.quantity.convert").expect("quantity fixture");
+    let admitted = match read(&wire) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("quantity fixture refused: {other:?}"),
+    };
+    let operation = admitted
+        .graph()
+        .nodes
+        .iter()
+        .find_map(|node| match &node.body {
+            CheckedTerm::Application { operation, .. }
+                if operation.identity() == Some("quire.op.quantity.convert") =>
+            {
+                Some(operation)
+            }
+            _ => None,
+        })
+        .expect("quantity conversion application");
+    let declared = &wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["body"]["operation"]["identity"] == "quire.op.quantity.convert")
+        .expect("quantity source")["body"]["operation"]["member"]["declaration"];
+    let declared = serde_json::from_value(declared.clone()).expect("quantity declaration");
+    assert_eq!(operation.member_declaration(), Some(&declared));
+    assert_eq!(operation.projection_field(), None);
+
+    let catalog: Value = serde_json::from_str(
+        quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1,
+    )
+    .expect("catalogue JSON");
+    let entry = catalog["operations"]
+        .as_array()
+        .expect("operations")
+        .iter()
+        .find(|entry| entry["identity"] == "quire.op.integer.add")
+        .expect("integer add entry");
+    let wire = simple_fixture(entry).expect("plain operation fixture");
+    let admitted = match read(&wire) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("plain fixture refused: {other:?}"),
+    };
+    let operation = admitted
+        .graph()
+        .nodes
+        .iter()
+        .find_map(|node| match &node.body {
+            CheckedTerm::Application { operation, .. }
+                if operation.identity() == Some("quire.op.integer.add") =>
+            {
+                Some(operation)
+            }
+            _ => None,
+        })
+        .expect("plain application");
+    assert_eq!(operation.member_declaration(), None);
+    assert_eq!(operation.projection_field(), None);
+    assert_eq!(operation.mode(), None);
+    assert!(operation.law_definitions().is_empty());
+}
+
+#[trace(
+    "TC-048",
+    "FR-038-AC-331",
+    "FR-038-AC-332",
+    "FR-038-AC-333",
+    "FR-038-AC-334"
+)]
+#[test]
+fn tc_048_malformed_operation_facts_have_no_admitted_view() {
+    let (mut field, evidence) = crate::checked_package_v2_model_fields::record_project_control();
+    let field_node = field["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .iter_mut()
+        .find(|node| node["body"]["operation"]["identity"] == "quire.op.record.project")
+        .expect("field projection");
+    field_node["body"]["operation"]["member"]["declaration"] = json!(false);
+    settle(&mut field);
+    let result = read_with_evidence(&field, &evidence);
+    assert!(
+        matches!(&result, CheckedPackageV2ReadResult::Refused(_)),
+        "{result:?}"
+    );
+
+    let (mut unselected, evidence) =
+        crate::checked_package_v2_model_fields::record_project_control();
+    let field_node = unselected["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .iter_mut()
+        .find(|node| node["body"]["operation"]["identity"] == "quire.op.record.project")
+        .expect("field projection");
+    field_node["body"]["operation"]["member"]["declaration"] = node_id(&"f".repeat(64));
+    settle(&mut unselected);
+    assert!(matches!(
+        read_with_evidence(&unselected, &evidence),
+        CheckedPackageV2ReadResult::Refused(_)
+    ));
+
+    let mut mode = admitted_fixture("quire.op.numeric.convert_rounding").expect("mode fixture");
+    let mode_node = mode["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .iter_mut()
+        .find(|node| node["body"]["operation"]["identity"] == "quire.op.numeric.convert_rounding")
+        .expect("rounding conversion");
+    mode_node["body"]["operation"]["mode"]["kind"] = json!("unknown");
+    settle(&mut mode);
+    assert!(matches!(
+        read(&mode),
+        CheckedPackageV2ReadResult::Refused(_)
+    ));
+
+    let mut law = admitted_fixture("quire.op.ieee.from_exact").expect("law fixture");
+    law["lock"]["definition_selections"] = json!([]);
+    settle(&mut law);
+    assert!(matches!(read(&law), CheckedPackageV2ReadResult::Refused(_)));
 }
 
 #[trace("TC-048", "FR-038-AC-251")]

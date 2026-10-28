@@ -3107,7 +3107,13 @@ fn check_field_member(
     let declaration: CheckedNodeId =
         serde_json::from_value(member.get("declaration")?.clone()).ok()?;
     let name = member.get("name")?.as_str()?;
-    let position = *graph.index.get(&declaration)?;
+    let Some(&position) = graph.index.get(&declaration) else {
+        return Some(application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            application.body(&["operation", "member", "declaration"]),
+            CheckedPackageRefusalCause::OperatorIneligible,
+        ));
+    };
     let CheckedTerm::Aggregate { members } = graph.terms.get(position)?.as_ref()? else {
         return None;
     };
