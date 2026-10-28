@@ -136,6 +136,54 @@ another root reaches it. Neither case SHALL synthesize a root closure.
 This read-only view SHALL leave the admitted six-field FR-330 wire and its
 identity unchanged.
 
+For each represented application operation in a package assembled from an
+admitted V2 source, lowering SHALL carry that source operation's validated
+typed views into the `ContractPackageV1` term at the same `CheckedNodeId`.
+The source and lowered terms SHALL compare equal as represented typed bodies;
+separately, their populated views and legitimate absence SHALL agree:
+`mode()`, `law_definitions()` and
+`member_declaration()` SHALL report the same admitted typed values on both.
+Lowering SHALL NOT derive these views by deserializing the emitted operation
+JSON or by accepting an unvalidated term as admitted. The retained views are
+read-only admission facts, not new FR-330 wire members, and SHALL leave the
+six wire members, canonical bytes and identity unchanged.
+
+Contract IR SHALL distinguish authenticated operation views from an operation
+with no such views on a `ContractPackageV1` term reconstructed by strict
+reading of V1 wire bytes. The sole plain strict V1 reader SHALL continue to
+admit every otherwise valid canonical package, including one with represented
+application operations, under its existing dependency, identity and exact-limit
+rules. It SHALL return the represented terms through the existing keyed lookup.
+The FR-038 accessors SHALL return typed `NotAdmitted` on those terms without
+authenticated operation views, distinct from admitted absence.
+
+`CheckedTerm` equality SHALL compare the represented typed body. In an
+application operation it SHALL compare the operation's represented record and
+execution point; it SHALL NOT compare the private validated-view cache or its
+presence. The cache is an admission fact outside the represented V1 body.
+Thus an operation term returned by a valid plain strict read SHALL compare
+equal to the producer's term under the unchanged FR-035-AC-22 obligation,
+while their view accessors still report different provenance. This semantic
+equality SHALL apply to nested application operations as well as body roots;
+it SHALL NOT make `NotAdmitted` equivalent to admitted absence, install views,
+or change wire members, canonical bytes or identity.
+
+The strict reader SHALL offer an explicit authenticated source handoff accepting
+the reader-admitted V2 source package as an input. It SHALL first apply the
+same strict V1 wire, correspondence, identity, dependency and limit checks,
+without bypassing or reordering them. The authenticated handoff SHALL compare
+the V1 wire's source package identity and lock with that source and, for every
+represented node, its full node key, kind, semantic type, dependencies and body
+with the admitted source node before installing views. Only the corresponding
+source term's validated views may be installed. For a missing or mismatched
+source or represented node, the authenticated handoff SHALL return a typed
+handoff error and no partially authenticated package;
+that error SHALL NOT be a new FR-330 plain-reader refusal code. A directly
+deserialized operation with no validated views remains distinct from admitted
+absence by FR-038's typed `NotAdmitted` accessor refusal. A consumer requiring
+operation facts to generate behavior SHALL use the authenticated handoff or
+propagate `NotAdmitted` rather than silently skip that behavior.
+
 The admitted package SHALL retain each represented local node's exact
 `CheckedNodeKind`, aligned with that node after canonical graph ordering,
 including recursion-group member ordering. Lowering SHALL carry the kind from
@@ -214,6 +262,10 @@ admit no `ContractPackageV1`.
 | FR-035-AC-20 | For mixed accounting with an `unsupported` request whose node is absent from the represented graph, producer admission and strict reading return its exact typed `CheckedNodeTag` at its zero-based FR-330 `feature_accounting` index. Querying an out-of-range index or any non-`unsupported` record returns no tag, even when its requested node is represented; interposed consumer context or excluded requests do not shift this accounting index. | Test |
 | FR-035-AC-21 | Retaining kinds and unsupported tags changes none of the six FR-330 wire members, canonical bytes or identity; a malformed node kind or unsupported tag retains the strict reader's existing refusal code, location and precedence, and an exhausted limit still returns `Incomplete` without an admitted typed view. | Test |
 | FR-035-AC-22 | For every represented local key, both the producer's and strict reader's admitted `ContractPackageV1` return the exact node and the same optional `CheckedTerm` admitted from its source body through keyed lookups, independent of graph ordinal. An absent key returns no node or term. These retained lookups change no wire member, canonical byte or identity. | Test (TC-047) |
+| FR-035-AC-23 | PLANNED (IR-1087). For a V2 reader-admitted operation with a populated mode, ordered law definitions and member declaration, the producer's lowered `ContractPackageV1::term` at its exact key has the source term's validated views and returns the same typed values; the source and lowered `CheckedTerm` compare equal as represented typed bodies. Reordering represented graph nodes does not misassociate views, and lowering does not deserialize emitted operation JSON to construct them. | Test (TC-047) |
+| FR-035-AC-24 | PLANNED (IR-1087). For a V2 reader-admitted operation legitimately lacking mode, laws and member declaration, source and lowered terms compare equal, and each returns admitted absence or an admitted empty law view. The six FR-330 wire members, canonical bytes and identity are unchanged by view retention. | Test (TC-047) |
+| FR-035-AC-25 | PLANNED (IR-1087). A never-admitted direct-deserialized operation returns typed `NotAdmitted` for mode, law definitions and member declaration, distinctly from AC-24's admitted absence. Plain strict V1 reading admits an otherwise valid canonical package with represented application operations, including at the exact work limit, and returns each represented term through keyed lookup; its operation views return typed `NotAdmitted`, while its terms compare equal to the producer's terms under AC-22. A consumer must use authenticated read or propagate `NotAdmitted`; it cannot silently omit operation-dependent behavior or parse JSON to recover the facts. | Test (TC-047) |
+| FR-035-AC-26 | PLANNED (IR-1087). With the exact reader-admitted V2 source supplied through an explicit authenticated handoff, strict reading the lowerer's canonical V1 bytes returns a `ContractPackageV1` whose every represented term equals the producer's and source's term as a represented typed body and whose operation views separately match the source's populated and legitimately absent admitted values. A mismatched source identity or lock, absent represented source node, or changed represented operation or non-operation node produces a typed handoff error and no partially authenticated package, even when the V1 wire is internally canonical; this is not a new plain-reader refusal code. The handoff retains the plain reader's wire, identity, dependency and limit decisions. The CG consumer's routed quantity-conversion and checked-graph association controls pass using only this admitted V1 value, without a JSON bridge. | Test (TC-047) |
 
 FR-035-AC-12 through FR-035-AC-14 are backed by tagged TC-047 reader tests in
 `tests/it/complete_v1_contract_package.rs`; the specified workspace test gate, lint, and grammar validation pass.

@@ -2881,3 +2881,16 @@ For AC-339, join `Option<Clock>` and `Sequence<Option<Clock>>` resolved-path
 rows to the selected declaration's member type and optional presence. Assert
 that Option adds no path step, the terminal inner Clock is accepted, and a
 missing or mismatched selected member is refused at the place join.
+
+## Admitted operation-view provenance (FR-038-AC-341)
+
+Read V2 operations with populated field projection, member declaration, mode,
+law definitions and state-clause kind through the public checked-package
+reader. Assert each fallible accessor returns its exact typed admitted value.
+Read corresponding admitted operations without each optional fact; assert
+admitted `None` or an admitted empty law view. Construct a term through direct
+deserialization of the same operation record, with no reader admission, and
+assert that each accessor returns typed `NotAdmitted` rather than those absent
+values. A malformed declaration, mode or law still refuses at reader admission;
+the provenance check does not change that precedence. These controls are
+PLANNED/UNRUN under IR-1087.

@@ -4302,22 +4302,29 @@ operation decode. `projection_field()` returns a pair of the field's
 `CheckedNodeId` declaration and its exact name only when the member is a
 catalogued `field`; `member_declaration()` returns the admitted
 `CheckedNodeId` wherever the member has a declaration, independently of its
-kind. Both return `None` when their respective member fact is absent or
+kind. Both return admitted `None` when their respective member fact is absent or
 inapplicable. In particular, a non-field member cannot yield a field pair,
 and a member with no declaration cannot yield a fabricated node id.
 
-`mode()` returns `Option<CheckedOperationModeView<'_>>`, with the closed
+`mode()` returns an admitted `Option<CheckedOperationModeView<'_>>`, with the closed
 `OperationModeKind` and the exact catalogued value borrowed from the admitted
 mode. `None` means no mode; an operation with a different mode kind remains
 distinguishable through the view's kind. The value is a text value because the
 catalog owns its vocabulary; the public return is the typed mode view, not a
 raw JSON value or an unconstrained mode getter. `law_definitions()` returns
-the admitted law definitions as typed `CheckedArtifactRef` values in their
+an admitted view of the law definitions as typed `CheckedArtifactRef` values in their
 admitted order; an operation with no laws returns an empty view. A consumer
 matches both authority and identity when identity alone is insufficient to
 identify a definition. These views do not re-parse the operation's JSON,
 expose `record`, `get` or `pointer`, or alter admission and refusal order.
-An operation rejected by the reader has no public admitted view.
+Each of `state_clause_kind()`, `projection_field()`, `member_declaration()`,
+`mode()` and `law_definitions()` SHALL return a typed `NotAdmitted` refusal when
+the operation has no validated operation views. The admitted value is distinct
+from that refusal: an absent optional member returns admitted `None`, and no
+laws return an admitted empty view. Direct deserialization of an operation
+term is not operation admission. Neither it nor a term reconstructed from a
+wire body without authenticated operation views may report admitted absence.
+An operation rejected by the V2 reader has no public admitted view.
 
 The `operation` of a node whose body root is an `application` term is read as its
 own closed shape. A value that is not an object of that shape, such as a bare
@@ -5377,6 +5384,7 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-332 | Implemented (IR-1082). Through the public V2 reader, `member_declaration()` returns the exact admitted `CheckedNodeId` for a field member and a catalogued non-field member carrying `declaration`, including `quire.op.quantity.convert`; it returns `None` when the admitted member has no declaration or is absent. A malformed declaration is refused by admission and cannot be returned. | Test (TC-048) |
 | FR-038-AC-333 | Implemented (IR-1082). Through the public V2 reader, an admitted rounding-mode operation returns a `CheckedOperationModeView` with `OperationModeKind::Rounding` and its exact admitted value. A different admitted mode kind returns that kind and its value; an operation with no mode returns `None`. A malformed or catalog-ineligible mode is refused by admission and cannot be returned. | Test (TC-048) |
 | FR-038-AC-334 | Implemented (IR-1082). Through the public V2 reader, `law_definitions()` returns the exact admitted `CheckedArtifactRef` authority/identity pair for each law, in admitted order; no laws return an empty view. A law with an unselected or malformed definition is refused by admission and cannot be returned. The accessor exposes no raw operation record. | Test (TC-048) |
+| FR-038-AC-341 | PLANNED (IR-1087). For a V2 reader-admitted operation with no mode, member declaration, field projection, state-clause kind or laws, the five typed accessors return admitted absence or an admitted empty law view; for an otherwise identical direct-deserialized operation without validated views, each returns a typed `NotAdmitted` refusal, never the admitted absence value. Populated V2 operations retain their admitted values under the same fallible accessors. | Test (TC-048) |
 | FR-038-AC-246 | Implemented (IR-803). For a reader-admitted `quire.op.structural.eq` application, `composite_application_operands` returns `CheckedCompositeOperator::Eq` together with its operands; for an otherwise equivalent reader-admitted `quire.op.structural.ne` application it returns `CheckedCompositeOperator::Ne` together with its operands. Between those cases, only the returned operator and the selected application's identity and occurrence may differ; operands (including order, child identities, semantic types and domains), ordinals and `consumed_work` are equal. The AC-182 public-fields inspection in `tests/it/checked_package_v2_composite_operands.rs` (`inspect_public_fields`) must exhaustively match both `CheckedCompositeOperator` variants, without a wildcard arm or `#[non_exhaustive]`. The consumer needs no separate operation lookup. TC-048 composite operand tests verify both cases. | Test (TC-048) |
 | FR-038-AC-303 | A self-typed `relation`/`population` node with no declaration, nominal preimage or recursion group, an empty aggregate body, empty dependencies and a `ModelOwner` admits when its key matches the closed `ModelDeclarationNode` preimage. The two QSpec P7/P8 preimages yield their distinct published keys; changing either owner string changes the key. An absent owner on the node refuses `malformed_wire` before key or join checks, and a wrong fixed member refuses by the existing model-declaration shape rule. | Test (TC-229) |
 | FR-038-AC-304 | After FR-154 admission, the reader joins a population reference's `owner.node` to the raw `identity` of a `populations` record in the document selected by `owner.identity`. A record without an `identity` string, with a `node` member, with an unresolved `kind` construct, or with a construct whose meaning is not population refuses `invalid_model_binding`/`malformed-declaration` at the selection before the join. The QSpec `counters` and `archive` owners admit; an unknown node, an object-type node claimed as a population, and a population node claimed as an object type or relationship each refuse `missing_declaration`/`missing-selection` at the first offending node id. The reference node's digest never substitutes for the declaration key. | Test (TC-229) |
