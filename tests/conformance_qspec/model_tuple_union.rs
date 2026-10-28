@@ -10,6 +10,144 @@ use quire_contract_model::{
 };
 use serde_json::json;
 
+/// Translate the published projection mutation to the corresponding member of
+/// QSpec's full Semantic IR document. The projection ordinals are represented
+/// by position identities in that document.
+fn apply_published_intake_patch(document: &mut serde_json::Value, row: &serde_json::Value) {
+    let name = row["name"].as_str().expect("published intake case name");
+    let patch = row["patch"].as_array().expect("published intake patch");
+    if name == "TK-10" {
+        assert!(patch.is_empty(), "published positive intake case");
+        return;
+    }
+    assert_eq!(patch.len(), 1, "{name}: one published mutation");
+    let value = &patch[0]["value"];
+    let expected_path = match name {
+        "TK-01" => "/tuple_types/0/positions",
+        "TK-02" | "TK-06" => "/tuple_types/0/positions/1/ordinal",
+        "TK-03" | "TK-05" => "/tuple_types/0/positions/1/typeRef",
+        "TK-04" => "/tuple_types/0/fields",
+        "TK-07" | "TK-08" => "/variant_types/0/cases/0/payloadType",
+        "TK-09" => "/tuple_types/0/positions/0/typeRef",
+        _ => panic!("unrecognized published intake case {name}"),
+    };
+    assert_eq!(patch[0]["path"], expected_path, "{name}: mutation locus");
+    let expected_op = match name {
+        "TK-03" => "remove",
+        "TK-04" => "add",
+        _ => "replace",
+    };
+    assert_eq!(patch[0]["op"], expected_op, "{name}: mutation operation");
+    match name {
+        "TK-01" => document["types"][1]["positions"] = value.clone(),
+        "TK-02" | "TK-06" => {
+            document["types"][1]["positions"][1]["identity"] = json!(format!(
+                "ix://acme/shapes/Pair/p{}",
+                value.as_u64().expect("published ordinal")
+            ))
+        }
+        "TK-03" => {
+            let removed = document["types"][1]["positions"][1]
+                .as_object_mut()
+                .expect("published position")
+                .remove("typeRef");
+            assert!(removed.is_some(), "{name}: published remove target");
+        }
+        "TK-04" => document["types"][1]["fields"] = value.clone(),
+        "TK-05" => document["types"][1]["positions"][1]["typeRef"] = value.clone(),
+        "TK-09" => document["types"][1]["positions"][0]["typeRef"] = value.clone(),
+        "TK-07" | "TK-08" => document["types"][5]["variants"][0]["payloadType"] = value.clone(),
+        _ => unreachable!("checked published intake case"),
+    }
+}
+
+/// Provenance: IR-1059, QSpec FR-322 intake rows TK-01 through TK-10.
+/// The remaining FR-069-AC-6 wire and intake combinations stay open.
+#[test]
+fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
+    let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let vectors = read_json(&proposal.join("model-tuple-union-vectors.json"))
+        .expect("published tuple/union vectors");
+    assert_eq!(vectors["base"], "fixtures/positive-model-tuple-union.json");
+    let selected_path = vectors["selected_document"]
+        .as_str()
+        .expect("selected full Semantic IR document path");
+    let selected =
+        read_json(&proposal.join(selected_path)).expect("selected full Semantic IR document");
+    let base = read_json(&fixtures.join("positive-model-tuple-union.json"))
+        .expect("published positive package");
+    let rows = vectors["intake_cases"]
+        .as_array()
+        .expect("published intake cases");
+    assert_eq!(rows.len(), 10, "published intake case inventory");
+    for row in rows {
+        let name = row["name"].as_str().expect("published intake case name");
+        let mut document = selected.clone();
+        let mut package = base.clone();
+        apply_published_intake_patch(&mut document, row);
+        let digest = canonical_digest(&document);
+        package["lock"]["model_selections"][0]["digest"] = json!(digest);
+        package["identity_preimage"]["model_selections"][0]["digest"] = json!(digest);
+        super::fixture_support::refresh_identity(&mut package);
+
+        let mut evidence = CheckedPackageEvidence::new();
+        evidence
+            .insert_domain_package_document(digest, super::fixture_support::canonical(&document))
+            .expect("selected document evidence");
+        evidence.support_feature("quire.value.complete/v1");
+        let result = CheckedPackageV2::read(
+            &super::fixture_support::canonical(&package),
+            CheckedPackageReadLimits::bounded(),
+            &evidence,
+        );
+        if row["expected"]["admitted"] == true {
+            assert!(
+                matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+                "{name}: {result:?}"
+            );
+            continue;
+        }
+        let expected = &row["expected"]["refused"];
+        let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+            panic!("{name}: expected published refusal, got {result:?}");
+        };
+        assert_eq!(
+            super::code_word(refusal.code),
+            expected["code"].as_str().expect("code"),
+            "{name}"
+        );
+        assert_eq!(
+            refusal.cause.map(super::cause_word),
+            expected["cause"].as_str(),
+            "{name}"
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            Some("/lock/model_selections/0"),
+            "{name}"
+        );
+        let projection_locus = expected["at"].as_str().expect("published refusal locus");
+        let document_pointer = if let Some(suffix) = projection_locus.strip_prefix("/tuple_types/0")
+        {
+            format!("/types/1{suffix}")
+        } else if let Some(suffix) = projection_locus.strip_prefix("/variant_types/0/cases") {
+            format!("/types/5/variants{suffix}")
+        } else {
+            panic!("{name}: unexpected published refusal locus {projection_locus}")
+        };
+        assert_eq!(
+            refusal
+                .document_pointer
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
+            Some(document_pointer.as_str()),
+            "{name}"
+        );
+    }
+}
+
 /// Provenance: IR-1059 slice 2. Full TC-940 and FR-069 conformance remains open.
 #[test]
 fn published_model_tuple_union_fixture_admits() {
