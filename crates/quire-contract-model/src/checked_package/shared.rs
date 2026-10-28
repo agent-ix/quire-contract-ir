@@ -155,6 +155,9 @@ pub enum CheckedPackageRefusalCause {
     /// `stale-node-key`: an application node whose retained key is not the
     /// JCS SHA-256 of its own preimage.
     StaleNodeKey,
+    /// `invalid-derived-shape`: a correctly keyed derived node has an
+    /// inadmissible semantic target.
+    InvalidDerivedShape,
     /// `unknown-operation`: an `operation.identity` absent from the catalog.
     UnknownOperation,
     /// `operation-class-mismatch`: the application's `operator` does not

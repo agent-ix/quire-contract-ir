@@ -249,7 +249,9 @@ fn tc_053_two_defective_frames_refuse_at_the_lower_keyed_frame() {
     // `deletes` reversed.
     lower_frame["node_id"] = node_id(&"0505".repeat(16));
     lower_frame["body"]["creates"] = Value::Array(Vec::new());
-    lower_frame["body"]["deletes"] = Value::Array(vec![process, object_type]);
+    let mut deletes = vec![process, object_type];
+    deletes.sort_by(|left, right| right["digest"].as_str().cmp(&left["digest"].as_str()));
+    lower_frame["body"]["deletes"] = Value::Array(deletes);
 
     let mut package = base.clone();
     let nodes = package["semantic_graph"]["nodes"]

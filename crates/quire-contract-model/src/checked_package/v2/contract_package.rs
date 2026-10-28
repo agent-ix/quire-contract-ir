@@ -1524,6 +1524,7 @@ fn cause_admitted(code: CheckedPackageRefusalCode, cause: CheckedPackageRefusalC
         | Cause::OperationMemberMismatch
         | Cause::OperationModeTypeMismatch
         | Cause::StaleNodeKey
+        | Cause::InvalidDerivedShape
         | Cause::DeclarationNominalMismatch => code == Code::InvalidPackage,
         Cause::AmbiguousName => code == Code::AmbiguousDeclaration,
         Cause::ByteDigestMismatch | Cause::DigestDomainMismatch | Cause::ContentMismatch => {

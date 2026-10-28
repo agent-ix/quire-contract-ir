@@ -1163,6 +1163,26 @@ fn owned_clause(mut package: Value, document: &Value, declared: &str, clause: &s
     package
 }
 
+/// Trace: FR-068-AC-2, QSpec FR-322-AC-63
+#[trace("TC-463")]
+#[test]
+fn selected_record_invariant_owner_joins_its_real_declaration() {
+    let (base, mut document) = model_package();
+    let address = "ix://acme/owners/Address";
+    document["constructs"][0]["construct"]["meaning"] =
+        json!("quire.meaning.model.record-value-type/v1");
+    document["types"][0]["identity"] = json!(address);
+    document["types"][0]["displayName"] = json!("Address");
+    let package = owned_clause(base, &document, address, "invariant");
+    assert!(
+        matches!(
+            read_with_model(&package, &document),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "selected Address invariant must pass the owner join"
+    );
+}
+
 fn refused(package: &Value, code: CheckedPackageRefusalCode, path: &str) {
     let CheckedPackageV2ReadResult::Refused(refusal) = read(package) else {
         panic!("owner mutation must refuse");

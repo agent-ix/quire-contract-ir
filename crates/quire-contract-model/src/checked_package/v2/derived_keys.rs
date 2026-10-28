@@ -445,6 +445,32 @@ pub(super) fn validate_derived_keys(
         if derived != node_id.digest.as_ref() {
             return Err(stale(at(), node_id, Some(derived)));
         }
+        if kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) {
+            let target = super::structural::reference_type_target(node)
+                .ok_or_else(|| encoder_failure(node_pointer(position).key("body")))?;
+            let target_kind = index
+                .get(&target)
+                .and_then(|&target_position| kinds.get(target_position))
+                .copied();
+            if !matches!(
+                target_kind,
+                Some(
+                    CheckedNodeKind::Model(
+                        super::ModelForm::ObjectType
+                            | super::ModelForm::Process
+                            | super::ModelForm::StateMachine
+                            | super::ModelForm::SystemsInterface
+                    ) | CheckedNodeKind::Relation(super::RelationForm::Relationship)
+                )
+            ) {
+                return Err(ValidationFailure::refused_at(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    at(),
+                    Some(CheckedPackageRefusalCause::InvalidDerivedShape),
+                    node.node_id.clone(),
+                ));
+            }
+        }
     }
     // Sorting by retained member identity is independent of retained labels.
     let mut ordered: Vec<_> = groups.iter().collect();
@@ -591,6 +617,33 @@ mod tests {
                 &integer,
                 bounds(&integer, &range.lower.to_string(), &range.upper.to_string()),
             ),
+            MemberType::TextBounds(bounds) => {
+                let text = super::super::model_members::anonymous(
+                    "scalar_type",
+                    "text",
+                    None,
+                    super::super::model_members::StructuralBody::Empty,
+                    BYTES,
+                )
+                .expect("text key");
+                let bound = |name, ty: &str, value: String, value_kind| {
+                    json!({"term":"binding", "name":name, "value":{
+                        "term":"literal", "type":id(ty), "value":value,
+                        "value_kind":value_kind
+                    }})
+                };
+                wire(
+                    &key,
+                    "bounded_domain",
+                    "text_bounds",
+                    &text,
+                    json!({"term":"aggregate", "members":[
+                        bound("min", &integer, bounds.lower.to_string(), "integer"),
+                        bound("max", &integer, bounds.upper.to_string(), "integer"),
+                        bound("text_profile", &text, bounds.profile.to_string(), "text")
+                    ]}),
+                )
+            }
             MemberType::Reference(target) => {
                 wire(&key, "composite_type", "reference", &key, over(target))
             }
@@ -649,7 +702,7 @@ mod tests {
             MemberType::Integer,
             zero,
             wide.clone(),
-            MemberType::Reference("ab".repeat(32).into()),
+            MemberType::Reference(object_target_key().into()),
             MemberType::Option(Box::new(wide.clone())),
             collection(CollectionKind::Set, None),
             collection(CollectionKind::Bag, None),
@@ -657,6 +710,17 @@ mod tests {
             collection(CollectionKind::OrderedSet, None),
             collection(CollectionKind::Sequence, Some((0, u64::MAX))),
         ]
+    }
+
+    fn object_target_key() -> String {
+        let (object, _) = wire(
+            &"ab".repeat(32),
+            "model",
+            "object_type",
+            &"ab".repeat(32),
+            empty(),
+        );
+        structural_key(&node_preimage(&object, None, None), BYTES).expect("object key")
     }
 
     /// FR-038-AC-130: for each of the ten derived shapes the key the
@@ -688,8 +752,10 @@ mod tests {
 
         // The stage admits each node under its key, and refuses a node whose
         // key is any other node's.
-        let nodes: Vec<(CheckedSemanticNodeV2, CheckedNodeKind)> =
+        let mut nodes: Vec<(CheckedSemanticNodeV2, CheckedNodeKind)> =
             each_shape().iter().map(node_of).collect();
+        let object = object_target_key();
+        nodes.push(wire(&object, "model", "object_type", &object, empty()));
         let (graph, kinds): (Vec<_>, Vec<_>) = nodes.into_iter().unzip();
         let index: BTreeMap<&CheckedNodeId, usize> = graph
             .iter()
