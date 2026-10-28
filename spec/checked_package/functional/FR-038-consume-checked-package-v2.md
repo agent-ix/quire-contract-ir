@@ -1843,7 +1843,41 @@ clause and which clauses contribute refinement classes.
 Within a clause it SHALL check references, activation and captures, the
 derived causal relation and progress, then slots. Within a slot it SHALL
 check forbidden `over` and model-state reads before binder scope and
-decision facts. After every protocol node passes these checks, it SHALL
+decision facts. The progress check SHALL follow QSpec FR-464's nested-repeat
+rule. A nested `repeat` contributes a necessary step to an enclosing
+`repeat` exactly when its guard has no false valuation over independent
+atoms, its `maximum` is absent or at least 1, and its own body necessarily
+steps. The `exhausted` control never contributes a step. Entering a nested
+`repeat` from outside resets its counter, including on each iteration of
+the enclosing control. A sequence needs one stepping child, a choice needs
+every case to step, and `parallel` and `await` supply their own steps.
+
+The reader SHALL build the nested guard's atoms from every `visible` entry
+in set order, including unread entries, then from every other maximal
+subterm that is neither an inline or referenced Boolean `value`/`literal`
+constant nor an application of `quire.op.boolean.not`, `.and`, `.or` or
+`.implies`. It discovers those subterms by a depth-first walk that visits
+the last connective operand first. A listed expression stays one atom; its
+operands are not descended into. Equal node ids denote one atom, while
+reversed operands of `quire.op.boolean.eq` remain distinct atoms. The
+reader treats the atoms as independent, enumerates valuations from all
+false as a little-endian counter with the first atom least significant,
+and stops at the first false guard valuation. It adds no wire member and
+compares neither guards nor guard and body.
+
+After the causal-cycle check and before any progress refusal, the reader
+SHALL run this valuation check on every `repeat` inside another `repeat`'s
+`body`, however deep and even with `maximum: 0`. A `repeat` in `exhausted`
+or outside every other `repeat` body incurs no valuation charge. Atom
+collection and comparison charge nothing; each valuation charges one
+`CheckedPackageReadLimits.work` unit before evaluation. A denied charge
+returns incomplete `stage_limit_exceeded`/`work-budget-exceeded` at the
+nested control, with no progress refusal. When valuation completes, the
+reader reports the first nonprogressing `repeat` in tree order as
+`unsupported_construct`/`declaration-form`, naming it and the selected
+protocol profile. A causal cycle wins over both valuation and progress.
+
+After every protocol node passes these checks, it SHALL
 compare each present refinement `class_catalog` with the complete classes
 reconstructed from the selected model declarations and admitted local or
 directly selected dependency protocol graph. It SHALL compare concrete
@@ -5419,6 +5453,19 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-288 | Each of the thirteen control operators admits its FR-466 ordered arguments and local reference, type, bounds, label and ordering checks: `sequence`, `choice`, `parallel`, `repeat`, `await`, `check`, `send`, `receive`, `attempt`, `effect`, `event`, `commit` and `fence`. A choice or parallel branch list with fewer than two entries, repeated labels, a receive naming a non-send, an effect naming a non-attempt, an await naming an ineligible event, a non-Boolean guard or constraint, an invalid join count or an ineligible memory or ordering spelling refuses with the FR-466 code, cause and locus, without changing the accepted meaning of another operator. | Test (TC-048) |
 | FR-038-AC-289 | A `compensate` body admits the thirteen FR-466 bindings in order, including distinct registration and activation captures, a trigger, interval, at-least-one attempt, retry relation, optional commit and recovery predicate. `commit never` is an absent optional Group, not a fabricated commit. The reader refuses a forward target that is not an `effect`, a commit target that is not a `commit`, an inverted interval or zero attempts, a commit that dominates its forward effect, and a read outside any of the five compensation stages with the corresponding FR-466 code, cause and locus; a commit in one case of a `choice` or in a non-all parallel branch before the effect is admitted when it does not dominate that effect, and the package creates no runtime compensation instance. | Test (TC-048) |
 | FR-038-AC-290 | For each clause the reader constructs the QSpec FR-464 derived causal relation from control containment, sequencing, receive/send, effect/attempt and await edges, not source order or timestamps. A receive before its send or an await anchored at a later control refuses `invalid_package`/`definition-cycle` naming the cycle; a same pair on independent parallel branches admits. A repeat whose body can complete with no progress on a path refuses `unsupported_construct`/`declaration-form`, while a repeat with a real step admits with or without a maximum and loop proof. | Test (TC-048) |
+| FR-038-AC-344 | An outer `repeat` whose sole body control is a nested `repeat` around an `attempt` admits when the nested guard exit is infeasible and its maximum is absent or positive. | Test (TC-048; QSpec TC-946 R13/R14/R24)
+| FR-038-AC-345 | The same outer `repeat` refuses `unsupported_construct`/`declaration-form` at the outer control when the nested guard exit is feasible, regardless of an absent or positive maximum. | Test (TC-048; QSpec TC-946 R16)
+| FR-038-AC-346 | The same outer `repeat` refuses `unsupported_construct`/`declaration-form` at the outer control when the nested maximum is zero, even if its guard exit is infeasible. | Test (TC-048; QSpec TC-946 R15)
+| FR-038-AC-347 | A nested `repeat` with a nonstepping body supplies no progress to its outer `repeat`, even when `exhausted` contains an `attempt`; the first progress refusal is at the outer control. | Test (TC-048; QSpec TC-946 R18)
+| FR-038-AC-348 | An outer `repeat` containing a nested control with a feasible exit admits when a sequence sibling, parallel or await provides the necessary step; a choice admits only when all cases step. | Test (TC-048; QSpec TC-946 R17/R19)
+| FR-038-AC-349 | A nested guard whose listed visible entry is the composite expression `E = a and b` treats `E` as one independent atom beside `a` and `b`; `E or not a or not b` therefore has a feasible exit and leaves its sole-step outer `repeat` refused. | Test (TC-048; QSpec TC-946 R22)
+| FR-038-AC-350 | A nested guard `eq(a,b) or not eq(a,b)` has an infeasible exit, while `eq(a,b) or not eq(b,a)` has a feasible exit when the two distinct equality nodes are listed; the outer sole-step `repeat` admits only the first. | Test (TC-048; QSpec TC-946 R20)
+| FR-038-AC-351 | An inline or referenced Boolean literal `true` is a constant rather than an atom, so the outer sole-step `repeat` admits when its nested guard is either `true` or `a or true`. | Test (TC-048; QSpec TC-946 R23)
+| FR-038-AC-352 | A nested two-atom tautology charges four valuation work units, while a nested `a or b` charges only its first, all-false valuation; atom collection and comparison add no work units. | Test (TC-048; QSpec TC-946 R21)
+| FR-038-AC-353 | A valuation charge denied by `CheckedPackageReadLimits.work` returns incomplete `stage_limit_exceeded`/`work-budget-exceeded` at the nested control before an enclosing progress refusal, including for a nested maximum of zero. | Test (TC-048; QSpec TC-946 R21)
+| FR-038-AC-354 | A standalone `repeat` guard with 30 visible atoms consumes the same reader work as its `true` replacement, because no valuation runs outside another `repeat` body. | Test (TC-048; QSpec TC-946 R21)
+| FR-038-AC-355 | A nested `repeat max 1 while true` around an `attempt` with an `exhausted` `check` supplies the outer body's step on every outer iteration because its counter resets on entry. | Test (TC-048; QSpec TC-946 R24)
+| FR-038-AC-356 | A causal-cycle refusal precedes nested valuation and progress outcomes; when the cycle is removed, denied valuation precedes the first nonprogressing `repeat` in tree order. | Test (TC-048; QSpec FR-464-AC-12, TC-946 O5/O7/R18/R21)
 | FR-038-AC-291 | Binder levels start at the introducing construct's entry count; protocol `over` is level 0, an `each` trigger follows, captures advance in their authored order, and a control binder is at the size of its readable input set. The reader admits reads within the FR-464/466 stage tables and refuses a wrong level, duplicate readable name, forward or foreign binder, or read after a branch, choice, repeat or await path where the binder is unavailable with the specified code, cause, stage and owner. In a binders-only slot, including each `choice` or `repeat` `visible` entry and guard, a direct read of `over` or model state refuses `ill_typed`/`operator-ineligible` at the read before binder-scope or decision-fact checks. | Test (TC-048) |
 | FR-038-AC-292 | At a `choice` or `repeat` decision the reader admits only QSpec FR-466 visible facts owned by the deciding role and listed individually in `visible`; a field fact from another role, a readable but ineligible `send`, `effect` or `commit` binder or protocol activation binder, a fact reachable only inside a composite entry, or a readable fact omitted from `visible` refuses `wrong_snapshot`/`wrong-observation` with the specified `other-role`, `ineligible-kind` or `unlisted` reason and a retained binder and field. In each of the four `choice`/`repeat` `visible`/guard slots a direct read of protocol input `over` refuses `ill_typed`/`operator-ineligible` at the read, naming the slot, never `wrong_snapshot`. A bare read of any record binder, including the protocol activation binder, with no field projection refuses `ill_typed`/`operator-ineligible` at that bare read with the slot detail after scope and model-state checks and before decision-fact checks; it never fabricates a field or `wrong_snapshot` detail. A read of the finish binder or a compensation-template binder in any of those slots refuses `missing_declaration`/`missing-name` with `read` `stage` or `foreign` respectively, never `wrong_snapshot`. A slot holding both an `over` read and a binder read reports the `over` refusal first; a slot holding an out-of-scope binder read and an in-scope ineligible binder read reports `missing-name` first; a slot holding a bare record binder read and an in-scope ineligible field read reports the bare-read refusal first in either operand order. | Test (TC-048; QSpec FR-466-AC-14/16, TC-948 DF7g/DF7h) |
 | FR-038-AC-324 | For an admitted protocol clause the reader derives one activation-relation row per distinct required temporal clause from the clause's `activation` and `requirements` alone, in ascending required-clause node-id digest order. `CheckedPackageV2::protocol_activation_relation` returns the rows for all local clauses in ascending clause node-id digest order, with exactly the public row fields and `Origin`/`Each` variants specified above, and with no separate wire or identity member; repeated calls and equal admitted packages return equal rows without changing the package or charging reader work. The row contains the protocol clause key, `origin` or `each` with the trigger key, and the required temporal clause key. No requirement gives no row; two source `requires temporal` declarations encoded as one canonical set entry give one row; two duplicate wire entries refuse `invalid_semantic_graph` under the clause's set rule and expose no relation; a second distinct requirement gives two rows; a temporal clause sharing the clock but not required gives no row. An existing `requirements` or `each` trigger target omitted from the clause's `dependencies` refuses `invalid_semantic_graph` at the clause's `/dependencies` before the protocol step; a target listed there but absent from the graph refuses `missing_declaration`/`missing-name` at that target. Neither exposes a partial relation. | Test (TC-048; QSpec TC-946) |
