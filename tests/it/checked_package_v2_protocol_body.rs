@@ -8631,8 +8631,35 @@ fn boolean_expression(package: &mut Value, identity: &str, operands: &[Value]) -
     target
 }
 
-fn boolean_atoms() -> (Value, Value) {
-    (node_id(&family_key("dddd")), node_id(&family_key("a4a4")))
+fn boolean_atoms(package: &mut Value) -> (Value, Value) {
+    let mut second = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| {
+            node["node_tag"] == "value"
+                && node["semantic_form"] == "literal"
+                && node["semantic_type"] == node_id(&family_key("aaaa"))
+        })
+        .expect("Boolean value literal")
+        .clone();
+    let first = second["node_id"].clone();
+    second["body"] = json!({"term": "aggregate", "members": [{
+        "term": "literal", "type": node_id(&family_key("aaaa")),
+        "value_kind": "boolean", "value": false
+    }]});
+    second["node_id"] = node_id(&structural_key(
+        "value",
+        "literal",
+        Some(&family_key("aaaa")),
+        &second["body"],
+    ));
+    let second_target = second["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(second);
+    (first, second_target)
 }
 
 /// Trace: FR-038-AC-344, FR-038-AC-345, FR-038-AC-346, FR-038-AC-351
@@ -8812,7 +8839,7 @@ fn set_nested_guard(package: &mut Value, nested: usize, guard: &Value, visible: 
 #[test]
 fn nested_repeat_keeps_visible_composites_and_ordered_equalities_as_atoms() {
     let (mut package, outer, nested) = nested_repeat_case();
-    let (a, b) = boolean_atoms();
+    let (a, b) = boolean_atoms(&mut package);
     let not_a = boolean_expression(&mut package, "quire.op.boolean.not", &[a.clone()]);
     let not_b = boolean_expression(&mut package, "quire.op.boolean.not", &[b.clone()]);
     let a_or_not_a = boolean_expression(
@@ -8833,9 +8860,8 @@ fn nested_repeat_keeps_visible_composites_and_ordered_equalities_as_atoms() {
     set_nested_guard(&mut package, nested, &tautology, &[]);
     assert!(
         matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
-        "two-atom tautology: {:?}; node 32: {}",
-        read(&package),
-        package["semantic_graph"]["nodes"][32]
+        "two-atom tautology: {:?}",
+        read(&package)
     );
 
     let composite = boolean_expression(
@@ -8913,7 +8939,7 @@ fn nested_repeat_keeps_visible_composites_and_ordered_equalities_as_atoms() {
 #[test]
 fn nested_repeat_stops_at_first_false_two_atom_valuation() {
     let (mut package, outer, nested) = nested_repeat_case();
-    let (a, b) = boolean_atoms();
+    let (a, b) = boolean_atoms(&mut package);
     let guard = boolean_expression(&mut package, "quire.op.boolean.or", &[a.clone(), b.clone()]);
     set_nested_guard(&mut package, nested, &guard, &[]);
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
