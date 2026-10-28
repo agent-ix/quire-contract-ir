@@ -662,6 +662,10 @@ fn duration_projection_control(scenario: DurationCase) {
         .insert_domain_package_document(digest, super::fixture_support::canonical(&selected))
         .expect("selected evidence");
     evidence.support_feature("quire.value.complete/v1");
+    let expected_locus = package["semantic_graph"]["nodes"][11]["node_id"]["digest"]
+        .as_str()
+        .expect("application digest")
+        .to_owned();
     let read = CheckedPackageV2::read(
         &super::fixture_support::canonical(&package),
         CheckedPackageReadLimits::bounded(),
@@ -679,6 +683,10 @@ fn duration_projection_control(scenario: DurationCase) {
                 refusal.path.as_ref().map(ToString::to_string).as_deref(),
                 Some("/semantic_graph/nodes/11")
             );
+            assert_eq!(
+                refusal.locus.as_ref().map(|id| id.digest.as_ref()),
+                Some(expected_locus.as_str())
+            );
         }
         (
             DurationCase::InvalidSelectedWithSource | DurationCase::BothSourceResult,
@@ -689,6 +697,10 @@ fn duration_projection_control(scenario: DurationCase) {
             assert_eq!(
                 refusal.path.as_ref().map(ToString::to_string).as_deref(),
                 Some("/semantic_graph/nodes/11")
+            );
+            assert_eq!(
+                refusal.locus.as_ref().map(|id| id.digest.as_ref()),
+                Some(expected_locus.as_str())
             );
         }
         (case, result) => panic!("{case:?}: unexpected Duration projection outcome {result:?}"),
