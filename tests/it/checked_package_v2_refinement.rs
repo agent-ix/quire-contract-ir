@@ -1962,6 +1962,171 @@ fn selected_population_package() -> (Value, CheckedPackageEvidence, Value, Value
     (package, evidence, id, object_id)
 }
 
+#[trace("TC-062", "FR-061-AC-1")]
+#[test]
+fn complete_model_refinement_retains_all_rows_through_public_roundtrip() {
+    let (mut package, evidence, population, object) = selected_population_package();
+    let machine = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "state_machine")
+        .expect("selected machine")["node_id"]
+        .clone();
+    let context = machine["digest"].as_str().expect("context digest");
+    let frame_body = json!({
+        "term":"frame", "modifies":[], "creates":[], "deletes":[], "deletes_scoped":[]
+    });
+    let frame = node_id(&structural_key(
+        "state",
+        "frame",
+        Some(context),
+        &frame_body,
+    ));
+    let text_type = node_id(&crate::support::checked_package::family_key("a1a1"));
+    let text_body = json!({"term":"aggregate", "members":[]});
+    let anchor_body = json!({"term":"aggregate", "members":[
+        {"term":"binding", "name":"context", "value":{"term":"reference", "target":machine}},
+        {"term":"binding", "name":"operation", "value":{"term":"literal", "type":text_type,
+            "value_kind":"text", "value":"toggle"}},
+        {"term":"binding", "name":"frame", "value":{"term":"reference", "target":frame}}
+    ]});
+    let anchor = node_id(&structural_key(
+        "state",
+        "operation_anchor",
+        Some(context),
+        &anchor_body,
+    ));
+    let mut anchor_dependencies = vec![machine.clone(), frame.clone()];
+    anchor_dependencies
+        .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    let source = package["lock"]["sources"][0].clone();
+    for node in [
+        json!({"node_id":text_type, "schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"scalar_type", "semantic_form":"text", "semantic_type":text_type,
+            "dependencies":[], "occurrences":[{"role":"type","ordinal":0}], "body":text_body}),
+        json!({"node_id":frame, "schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"state", "semantic_form":"frame", "semantic_type":machine,
+            "dependencies":[], "occurrences":[{"role":"generated","ordinal":0}], "body":frame_body}),
+        json!({"node_id":anchor, "schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"state", "semantic_form":"operation_anchor", "semantic_type":machine,
+            "dependencies":anchor_dependencies, "occurrences":[{"role":"anchor","ordinal":0}],
+            "body":anchor_body}),
+    ] {
+        let occurrence = &node["occurrences"][0];
+        package["source_map"].as_array_mut().expect("source map").push(json!({
+            "node_id":node["node_id"], "role":occurrence["role"], "ordinal":occurrence["ordinal"],
+            "regions":[{"source":source,"start":10,"end":11}]
+        }));
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(node);
+    }
+    refresh_identity(&mut package);
+    one_step_refinement_with_step(
+        &mut package,
+        json!({
+            "source_class":"toggle", "source_node":anchor, "target":{"kind":"stutter"}
+        }),
+    );
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["body"]["populations"] = json!([{"abstract":population,"concrete":population}]);
+    node["body"]["objects"] = json!([{
+        "abstract_type":object,"concrete_type":object,"fields":[]
+    }]);
+    node["body"]["histories"] = json!([{
+        "concrete_type":object, "name":"past", "type":text_type,
+        "initial":{"term":"literal","type":text_type,"value_kind":"text","value":"old"},
+        "updates":[{"operation":anchor,
+            "expression":{"term":"literal","type":text_type,"value_kind":"text","value":"new"}}]
+    }]);
+    node["body"]["assume"] = json!([{
+        "operation":anchor, "kind":"weak", "granularity":"whole"
+    }]);
+    let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
+    dependencies.extend([population, object, text_type]);
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.dedup();
+    rekey_refinement(&mut package, position);
+    keep_refinement_declaration_occurrence(&mut package, position);
+
+    let expected = package["semantic_graph"]["nodes"][position].clone();
+    let selected_root = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| {
+            node["semantic_form"] == "model_root" && node["owner"]["identity"] == MODEL_IDENTITY
+        })
+        .expect("selected model root")["node_id"]
+        .clone();
+    assert_eq!(expected["node_tag"], "relation");
+    assert_eq!(expected["semantic_form"], "refinement");
+    assert_eq!(expected["semantic_type"], selected_root);
+    assert_eq!(expected["body"]["abstract"], selected_root);
+    assert_ne!(
+        selected_root, machine,
+        "model root must differ from declaration"
+    );
+    let body = expected["body"].as_object().expect("body");
+    assert_eq!(body.len(), 9);
+    for member in ["populations", "objects", "steps", "histories", "assume"] {
+        assert_eq!(
+            body[member].as_array().expect("row array").len(),
+            1,
+            "{member}"
+        );
+    }
+    assert!(body["ensure"].as_array().expect("ensure array").is_empty());
+    for absent in ["protocol", "abstract_internal", "class_catalog"] {
+        assert!(!body.contains_key(absent), "{absent}");
+    }
+    let refinement_id: quire_contract_model::CheckedNodeId =
+        serde_json::from_value(expected["node_id"].clone()).expect("refinement id");
+    let CheckedPackageV2ReadResult::Admitted(first) = read(&package, &evidence) else {
+        panic!(
+            "complete refinement refused: {:?}",
+            read(&package, &evidence)
+        );
+    };
+    let Some(CheckedTerm::Refinement { .. }) = first.term(&refinement_id) else {
+        panic!("complete rows were not retained as a typed refinement");
+    };
+    assert_eq!(
+        serde_json::to_value(first.term(&refinement_id)).expect("typed refinement"),
+        expected["body"]
+    );
+    let bytes = writer_bytes(&package);
+    assert_eq!(bytes, canonical(&package));
+    let written: Value = serde_json::from_slice(&bytes).expect("writer JSON");
+    assert_eq!(written["semantic_graph"]["nodes"][position], expected);
+    let CheckedPackageV2ReadResult::Admitted(second) =
+        CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence)
+    else {
+        panic!("writer output refused");
+    };
+    let second_bytes = writer_bytes(&written);
+    let CheckedPackageV2ReadResult::Admitted(third) = CheckedPackageV2::read(
+        &second_bytes,
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    ) else {
+        panic!("second writer output refused");
+    };
+    assert_eq!(first.package_id(), second.package_id());
+    assert_eq!(second.package_id(), third.package_id());
+    assert_eq!(
+        serde_json::to_value(third.term(&refinement_id)).expect("reread refinement"),
+        expected["body"]
+    );
+}
+
 #[trace("TC-062", "FR-061-AC-3")]
 #[test]
 fn swapped_concrete_root_refuses_foreign_population_first() {
