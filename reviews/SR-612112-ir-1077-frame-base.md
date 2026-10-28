@@ -1,5 +1,5 @@
 ---
-id: SR-612100
+id: SR-612112
 title: IR-1077 frame seam base review
 type: SpecReview
 analysis: base
