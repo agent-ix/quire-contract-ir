@@ -1745,8 +1745,8 @@ fn check_operands(
     Ok(None)
 }
 
-/// The members of the union type node `type_id` names, through aliases and
-/// bounded domains; `None` when it names no union type node.
+/// The members of the structural union or selected model union `type_id`
+/// names, through aliases and bounded domains; `None` for another family.
 fn union_type<'g>(
     type_id: &CheckedNodeId,
     graph: &Graph<'g>,
@@ -1986,7 +1986,8 @@ fn case_placement_defect(position: usize, graph: &Graph<'_>) -> Option<Validatio
 /// node-id digest order: a union type holds no member name twice
 /// (`invalid_package`/`duplicate-member`) and every payload reference names a
 /// type node (`ill_typed`/`operator-ineligible`); a union value's
-/// `semantic_type` is a union type node, its binding names a member of it, and
+/// `semantic_type` is a structural or selected model union type node; its
+/// binding names a member of it, and
 /// its payload terms are that member's payload in count and in type, a record
 /// payload type also admitting a conforming record (FR-347)
 /// (`ill_typed`/`type-mismatch`). Each is located at the node. A body that is
