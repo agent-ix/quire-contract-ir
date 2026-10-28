@@ -223,6 +223,157 @@ fn timed_aggregate_order_published_vectors_read_at_exact_loci() {
     }
 }
 
+/// Each published order defect remains present while an earlier reader stage
+/// refuses a second, independent defect.
+#[trace("TC-048", "FR-038-AC-342")]
+#[test]
+fn timed_aggregate_order_preserves_earlier_refusal_stages() {
+    let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let vectors = read_json(&proposal.join("timed-slot-selector-vectors.json"))
+        .expect("published timed slot vectors");
+    let original = read_json(&fixtures.join("positive-timed-slot-nodes.json"))
+        .expect("published selected package");
+    let document = proposal.join("domain-package-acme-timed-slots.json");
+    let root_position = original["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes")
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "timed_model" && node["semantic_form"] == "timed_model"
+        })
+        .expect("timed root");
+    let original_root_id = original["semantic_graph"]["nodes"][root_position]["node_id"].clone();
+    let root_at = format!("/semantic_graph/nodes/{root_position}");
+
+    let cases = vectors["aggregate_order"]["cases"]
+        .as_array()
+        .expect("published AO cases");
+    for id in ["AO-02", "AO-03", "AO-04", "AO-06", "AO-07"] {
+        let case = cases
+            .iter()
+            .find(|case| case["id"] == id)
+            .expect("published adverse AO case");
+        assert_eq!(case["expected"], "refused", "{id}");
+        let mut ordered_defect = original.clone();
+        for patch in case["patch"].as_array().expect("AO patch") {
+            apply_published_timed_patch(&mut ordered_defect, patch);
+        }
+        let CheckedPackageV2ReadResult::Refused(order_refusal) =
+            read_package_with_document(&ordered_defect, id, &document)
+                .expect("published AO package read")
+        else {
+            panic!("{id}: published AO patch must refuse");
+        };
+        assert_eq!(order_refusal.code, Code::InvalidSemanticGraph, "{id}");
+        assert_eq!(order_refusal.cause, None, "{id}");
+        assert_eq!(
+            order_refusal
+                .path
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
+            case["locus"].as_str(),
+            "{id}"
+        );
+
+        let mut malformed = ordered_defect.clone();
+        malformed["semantic_graph"]["nodes"][root_position]["occurrences"] = json!("not-an-array");
+        fixture_support::refresh_identity(&mut malformed);
+        let CheckedPackageV2ReadResult::Refused(refusal) =
+            read_package_with_document(&malformed, id, &document)
+                .expect("malformed AO package read")
+        else {
+            panic!("{id}: malformed occurrences must refuse");
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::MalformedWire, None),
+            "{id}"
+        );
+        assert_eq!(
+            refusal.path.unwrap().to_string(),
+            format!("{root_at}/occurrences"),
+            "{id}"
+        );
+
+        let mut missing_dependency = ordered_defect.clone();
+        let first_place = missing_dependency["semantic_graph"]["nodes"][root_position]["body"]
+            ["members"][3]["value"]["members"][0]["target"]
+            .clone();
+        let dependencies = missing_dependency["semantic_graph"]["nodes"][root_position]
+            ["dependencies"]
+            .as_array_mut()
+            .expect("root dependencies");
+        let dependency_position = dependencies
+            .iter()
+            .position(|dependency| *dependency == first_place)
+            .expect("referenced place dependency");
+        dependencies.remove(dependency_position);
+        fixture_support::refresh_identity(&mut missing_dependency);
+        let CheckedPackageV2ReadResult::Refused(refusal) =
+            read_package_with_document(&missing_dependency, id, &document)
+                .expect("missing-dependency AO package read")
+        else {
+            panic!("{id}: missing dependency must refuse");
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::InvalidSemanticGraph, None),
+            "{id}"
+        );
+        assert_eq!(
+            refusal.path.unwrap().to_string(),
+            format!("{root_at}/dependencies"),
+            "{id}"
+        );
+
+        let mut stale_key = ordered_defect;
+        let root = &mut stale_key["semantic_graph"]["nodes"][root_position];
+        if matches!(id, "AO-02" | "AO-03" | "AO-04") {
+            let changed_root_id = root["node_id"].clone();
+            root["node_id"] = original_root_id.clone();
+            root["semantic_type"] = original_root_id.clone();
+            let source = stale_key["source_map"]
+                .as_array_mut()
+                .expect("source map")
+                .iter_mut()
+                .find(|entry| entry["node_id"] == changed_root_id)
+                .expect("changed root source");
+            source["node_id"] = original_root_id.clone();
+        } else {
+            let last_place = root["body"]["members"][3]["value"]["members"]
+                .as_array()
+                .expect("root clock places")
+                .last()
+                .expect("last place")
+                .clone();
+            root["body"]["members"][3]["value"]["members"]
+                .as_array_mut()
+                .expect("root clock places")
+                .push(last_place);
+        }
+        fixture_support::refresh_identity(&mut stale_key);
+        let CheckedPackageV2ReadResult::Refused(refusal) =
+            read_package_with_document(&stale_key, id, &document)
+                .expect("stale-key AO package read")
+        else {
+            panic!("{id}: stale root key must refuse");
+        };
+        assert_eq!(refusal.code, Code::InvalidPackage, "{id}");
+        assert_eq!(
+            refusal.cause.map(cause_word),
+            Some("stale-node-key"),
+            "{id}"
+        );
+        assert_eq!(
+            refusal.path.unwrap().to_string(),
+            format!("{root_at}/node_id"),
+            "{id}"
+        );
+    }
+}
+
 /// Equal minimum regions of distinct members are rejected at the second
 /// reference, for both the root and a place's guard aggregate.
 #[trace("TC-048", "FR-038-AC-342")]
@@ -539,7 +690,6 @@ fn timed_place_guards_enforce_source_order_after_an_admitted_pair() {
 
 /// The slot fixture selects the complete FCD document, including its named
 /// sequence and map definitions, rather than an isolated node projection.
-#[trace("TC-048", "FR-038-AC-335", "FR-038-AC-339", "FR-038-AC-340")]
 #[test]
 fn timed_slot_selected_package_admits_nested_and_optional_clock_places() {
     let fixtures = fixtures_dir();
