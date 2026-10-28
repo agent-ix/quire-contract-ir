@@ -3691,6 +3691,14 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
             );
         };
         let owner = &admitted.graph().nodes[position];
+        assert_eq!(
+            admitted.graph().nodes.len(),
+            package["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .len(),
+            "reader must retain generated occurrences on the owner"
+        );
         let occurrences: Vec<_> = admitted
             .source_map()
             .iter()
@@ -3722,6 +3730,24 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
         );
     };
     assert_eq!(admitted.graph().nodes[position].occurrences.len(), 1);
+    let mut extra_generated = any.clone();
+    let source = extra_generated["lock"]["sources"][0].clone();
+    extra_generated["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(json!({
+            "node_id":id,"role":"generated","ordinal":0,
+            "regions":[{"source":source,"start":20,"end":30}]
+        }));
+    let at = extra_generated["source_map"]
+        .as_array()
+        .expect("source map")
+        .len()
+        - 1;
+    invalid_value_at(
+        read(&extra_generated, &any_evidence),
+        &format!("/source_map/{at}"),
+    );
     assert_eq!(
         admitted
             .source_map()
