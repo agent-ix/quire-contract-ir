@@ -490,7 +490,7 @@ fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
         &expression,
         &ValueType::Text,
         &ExecutionPoint::Pre {
-            operation: AnchorName::new("render").unwrap(),
+            operation: AnchorName::new("render").unwrap().into(),
         },
         false,
     )
@@ -554,7 +554,7 @@ fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
                 name: SymbolName::new("Record").unwrap(),
             },
             &ExecutionPoint::Pre {
-                operation: AnchorName::new("render").unwrap(),
+                operation: AnchorName::new("render").unwrap().into(),
             },
             false,
         )
@@ -599,7 +599,7 @@ fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
             &unreduced,
             &ValueType::rational(rational_type.clone()),
             &ExecutionPoint::Pre {
-                operation: AnchorName::new("calculate").unwrap(),
+                operation: AnchorName::new("calculate").unwrap().into(),
             },
             false,
         )
@@ -609,7 +609,7 @@ fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
             &reduced,
             &ValueType::rational(rational_type),
             &ExecutionPoint::Pre {
-                operation: AnchorName::new("calculate").unwrap(),
+                operation: AnchorName::new("calculate").unwrap().into(),
             },
             false,
         )
@@ -665,7 +665,7 @@ fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
             &collection,
             &ValueType::collection(collection_type),
             &ExecutionPoint::Pre {
-                operation: AnchorName::new("calculate").unwrap(),
+                operation: AnchorName::new("calculate").unwrap().into(),
             },
             false,
         )

@@ -204,6 +204,33 @@ earlier refusal. A wrong body on another `relation` form
 does not become a refinement, and a valid refinement body on an unknown form
 still refuses at `semantic_form`.
 
+### Catalog-free operation step join
+
+For a model-only refinement with no `class_catalog`, the reader SHALL join
+each step's local `source_node` to an admitted `state`/`operation_anchor` node.
+The anchor's operation name SHALL equal the row's alias-free `source_class`.
+Its `context` SHALL be the object type, process or state machine that declares
+that operation in the selected concrete model subject, including a declaration
+from which the selected type inherits the operation. The anchor remains at
+the declaring node when the operation is inherited. The reader SHALL establish
+subject membership through the declaring node's selected model ownership;
+the anchor `context` is a declaration node and SHALL NOT be compared for
+equality with the refinement `semantic_type`, which is the selected concrete
+model's canonical `model_root`.
+
+An absent `source_node` for an operation class SHALL refuse
+`invalid_semantic_graph` at the offending step entry in the earlier closed-body
+check. An unresolved `source_node` SHALL refuse
+`missing_declaration`/`missing-name` at `source_node`. A present node of
+another kind or an anchor declaring an operation of a foreign or wrong
+selected model subject SHALL refuse
+`invalid_model_binding`/`malformed-declaration` at `source_node`; a mismatch
+between the anchor's operation name and `source_class` SHALL refuse that
+same code and cause at `source_class`. These joins SHALL run in FR-375's
+existing row order, after the earlier wire, identity, canonical-order,
+header and catalog checks. The present-`class_catalog` row-to-catalog path
+and its refusal order remain as specified above.
+
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
@@ -221,6 +248,9 @@ still refuses at `semantic_form`.
 | FR-061-AC-11 | Starting from an otherwise valid package, deleting `drain` from `memory drain`, changing its value or type, adding it to `memory flush`, assigning `memory flush` model `sc` or `ra`, or adding `node`, `binder_types` or another unknown entry member refuses `malformed_wire` at the closed-wire stage, with the offending node/member location and no admitted package or defaulted field. With identities recomputed, reordering the three drains, repeating a (`memory drain`, `memory_model`) pair, or repeating a declared class spelling refuses `invalid_semantic_graph` at the first out-of-order or later duplicate catalog entry after the dedicated key check. | Test |
 | FR-061-AC-12 | A protocol refinement catalog includes one `memory drain` per distinct `sc`, `tso` or `ra` source-default model selected by a `parallel` in its subject and additionally one `memory flush` for a TSO source default. Two `parallel` controls selecting the same source-default model contribute one entry per model, not one per control. In a present catalog, an omitted required drain or TSO flush, an extra memory class, or a memory class from another selected subject refuses `invalid_semantic_graph` at the catalog array or entry after the protocol-body check; a wholly absent required catalog refuses earlier in the refinement step. A request-time memory override changes neither catalog nor package id. | Test |
 | FR-061-AC-13 | With all identities recomputed, changing a schema-valid drain entry's `memory_model` changes the dedicated refinement node id and package id; retaining its old node id refuses `invalid_package`/`stale-node-key` at `node_id` before catalog joins. A local catalog class node or binder type omitted from the exact `dependencies` list refuses `invalid_semantic_graph` at `/dependencies` before the dedicated key check, while no memory entry contributes a node or binder dependency. | Test |
+| FR-061-AC-14 | In a model-only refinement without `class_catalog`, a step whose `source_class` names an operation and whose local `source_node` is that operation's anchor admits when the anchor `context` is the object type, process or state machine declaring the operation in the selected concrete model subject. The same holds when the selected type inherits the operation: the anchor stays at its declaring type, while the refinement `semantic_type` stays at the selected concrete model's canonical `model_root`. The admitted row and identities survive read/write/read. | Test |
+| FR-061-AC-15 | For a catalog-free operation step, an absent `source_node` refuses `invalid_semantic_graph` at the step entry in the earlier closed-body check; an unresolved `source_node` refuses `missing_declaration`/`missing-name` at `source_node`. A present wrong-kind node or an anchor for a foreign or wrong selected model subject refuses `invalid_model_binding`/`malformed-declaration` at `source_node`; an anchor whose operation name differs from `source_class` refuses the same pair at `source_class`. None admits a partial package. | Test |
+| FR-061-AC-16 | With a catalog-free step defect and an earlier wire, identity, canonical-order, header or catalog defect, the earlier FR-375 stage wins; with two step-row defects, the first row in canonical order wins. A refinement with `class_catalog` continues to join a step to its concrete catalog entry, including the existing missing-class and wrong-node refusals, independently of the catalog-free anchor rule. | Test |
 
 ## Dependencies
 
@@ -232,6 +262,5 @@ still refuses at `semantic_form`.
 
 ## Status
 
-Planned. The current IR reader rejects `relation`/`refinement` at the closed
-semantic-form gate. The merged QSpec wire now defines its admission shape;
-this FR does not claim implementation evidence.
+Planned for the catalog-free operation step join. This addition does not claim
+implementation evidence.

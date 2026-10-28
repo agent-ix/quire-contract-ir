@@ -110,6 +110,8 @@ fn declaration_key(short: &str, form: &str) -> String {
 enum Ty {
     Boolean,
     Integer,
+    Float32,
+    Float64,
     String,
     Uuid,
     Timestamp,
@@ -119,6 +121,7 @@ enum Ty {
     /// `Reference<O>`, by the key of `O`'s model declaration node.
     Reference(String),
     Record(String),
+    Tuple(String),
     Variant(String),
     Quantity(String),
     Option(Box<Ty>),
@@ -148,6 +151,8 @@ fn ty_of(member: &CheckedMemberType) -> Ty {
     match member {
         CheckedMemberType::Boolean => Ty::Boolean,
         CheckedMemberType::Integer => Ty::Integer,
+        CheckedMemberType::Float32 => Ty::Float32,
+        CheckedMemberType::Float64 => Ty::Float64,
         CheckedMemberType::String => Ty::String,
         CheckedMemberType::Uuid => Ty::Uuid,
         CheckedMemberType::Timestamp => Ty::Timestamp,
@@ -160,6 +165,7 @@ fn ty_of(member: &CheckedMemberType) -> Ty {
         } => Ty::TextBounds(*lower, *upper, profile.to_string()),
         CheckedMemberType::Reference(target) => Ty::Reference(target.digest.to_string()),
         CheckedMemberType::Record(target) => Ty::Record(target.digest.to_string()),
+        CheckedMemberType::Tuple(target) => Ty::Tuple(target.digest.to_string()),
         CheckedMemberType::Variant(target) => Ty::Variant(target.digest.to_string()),
         CheckedMemberType::Quantity(target) => Ty::Quantity(target.digest.to_string()),
         CheckedMemberType::Option(element) => Ty::Option(Box::new(ty_of(element))),
@@ -197,10 +203,19 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
         key
     };
     match ty {
-        Ty::Boolean | Ty::Integer | Ty::String | Ty::Uuid | Ty::Timestamp | Ty::Clock => {
+        Ty::Boolean
+        | Ty::Integer
+        | Ty::Float32
+        | Ty::Float64
+        | Ty::String
+        | Ty::Uuid
+        | Ty::Timestamp
+        | Ty::Clock => {
             let form = match ty {
                 Ty::Boolean => "boolean",
                 Ty::Integer => "integer",
+                Ty::Float32 => "float32",
+                Ty::Float64 => "float64",
                 Ty::String => "string",
                 Ty::Uuid => "uuid",
                 Ty::Timestamp => "timestamp",
@@ -263,7 +278,9 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
             let node = wire_node(&key, "composite_type", "reference", &key, &[target], body);
             add(key, node)
         }
-        Ty::Record(target) | Ty::Variant(target) | Ty::Quantity(target) => target.clone(),
+        Ty::Record(target) | Ty::Tuple(target) | Ty::Variant(target) | Ty::Quantity(target) => {
+            target.clone()
+        }
         Ty::Option(element) => {
             let element = type_nodes(element, nodes);
             let body = json!({"term": "aggregate", "members": [reference(&element)]});
@@ -1949,7 +1966,7 @@ fn expected_kinds() -> Vec<(&'static str, Option<Ty>)> {
         ("text", None),
         ("rational", None),
         ("decimal", None),
-        ("float", None),
+        ("float", Some(Ty::Float32)),
         ("pump", None),
         ("alarm", None),
         ("label", None),
@@ -2003,7 +2020,9 @@ fn perturbed(ty: &Ty, other: &str) -> Ty {
     match ty {
         Ty::Boolean => Ty::Integer,
         Ty::Integer => Ty::Boolean,
-        Ty::String | Ty::Uuid | Ty::Timestamp | Ty::Clock => Ty::Boolean,
+        Ty::Float32 | Ty::Float64 | Ty::String | Ty::Uuid | Ty::Timestamp | Ty::Clock => {
+            Ty::Boolean
+        }
         Ty::Range(lower, upper) if upper > lower => Ty::Range(*lower, upper - 1),
         Ty::Range(lower, upper) if *lower < i128::MAX => Ty::Range(*lower, upper + 1),
         Ty::Range(lower, upper) => Ty::Range(lower - 1, *upper),
@@ -2016,6 +2035,7 @@ fn perturbed(ty: &Ty, other: &str) -> Ty {
         Ty::TextBounds(lower, upper, profile) => Ty::TextBounds(lower - 1, *upper, profile.clone()),
         Ty::Reference(_) => Ty::Reference(other.to_owned()),
         Ty::Record(_) => Ty::Record(other.to_owned()),
+        Ty::Tuple(_) => Ty::Tuple(other.to_owned()),
         Ty::Variant(_) => Ty::Variant(other.to_owned()),
         Ty::Quantity(_) => Ty::Quantity(other.to_owned()),
         Ty::Option(element) => Ty::Option(Box::new(perturbed(element, other))),
@@ -2073,7 +2093,7 @@ fn tc_227_the_returned_type_is_the_type_admission_compares() {
         assert_eq!((refused.0, refused.1), INELIGIBLE, "{name}: {perturbed:?}");
         checked += 1;
     }
-    assert_eq!(checked, 14, "every field with a derived type was exercised");
+    assert_eq!(checked, 15, "every field with a derived type was exercised");
 }
 
 // --- AC-139 ----------------------------------------------------------------------
@@ -2282,6 +2302,8 @@ fn tc_227_the_public_shape_is_closed_and_takes_one_node_id() {
         match ty {
             CheckedMemberType::Boolean => 0,
             CheckedMemberType::Integer => 1,
+            CheckedMemberType::Float32 => 15,
+            CheckedMemberType::Float64 => 16,
             CheckedMemberType::String => 8,
             CheckedMemberType::Uuid => 9,
             CheckedMemberType::Timestamp => 10,
@@ -2290,6 +2312,7 @@ fn tc_227_the_public_shape_is_closed_and_takes_one_node_id() {
             CheckedMemberType::TextBounds { .. } => 13,
             CheckedMemberType::Reference(_) => 3,
             CheckedMemberType::Record(_) => 6,
+            CheckedMemberType::Tuple(_) => 14,
             CheckedMemberType::Variant(_) => 7,
             CheckedMemberType::Quantity(_) => 11,
             CheckedMemberType::Option(_) => 4,
@@ -2312,6 +2335,8 @@ fn tc_227_the_public_shape_is_closed_and_takes_one_node_id() {
         }
     }
     assert_eq!(member(&CheckedMemberType::Boolean), 0);
+    assert_eq!(member(&CheckedMemberType::Float32), 15);
+    assert_eq!(member(&CheckedMemberType::Float64), 16);
     assert_eq!(collection(CheckedCollectionKind::OrderedSet), 3);
     assert_eq!(error(&CheckedModelFieldsError::UnknownNode), 0);
 }

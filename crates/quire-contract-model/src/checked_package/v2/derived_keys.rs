@@ -6,8 +6,8 @@
 
 use super::encode::GroupBody;
 use super::model_members::{
-    structural_key, CollectionKind, MemberType, StructuralPreimage, StructuralRecursion,
-    StructuralType,
+    declaration_key, structural_key, CollectionKind, DeclarationForm, MemberType,
+    StructuralPreimage, StructuralRecursion, StructuralType,
 };
 use super::structural::{
     aggregate_members, binding, is_integer_bound, is_non_negative_integer, reference_target,
@@ -23,6 +23,163 @@ use crate::checked_package::shared::{
 use quire_canonical::{Encode, Error, Sink, Writer};
 use serde_json::Value;
 use std::collections::BTreeMap;
+
+/// An old canonical key can remain in a dependent reference when its target
+/// has been rekeyed. Resolve it only when the retained-key lookup misses;
+/// ambiguous old keys cannot identify a target.
+pub(super) struct DeferredKeyTargets(BTreeMap<CheckedNodeId, Option<usize>>);
+
+impl DeferredKeyTargets {
+    pub(super) fn position(
+        &self,
+        id: &CheckedNodeId,
+        index: &BTreeMap<&CheckedNodeId, usize>,
+    ) -> Option<usize> {
+        index
+            .get(id)
+            .copied()
+            .or_else(|| self.0.get(id).copied().flatten())
+    }
+
+    /// A retained miss names more than one stale node's canonical key. The
+    /// structural stage cannot choose a target; its dependent type check
+    /// waits for the digest-ordered key stage to refuse a stale node.
+    pub(super) fn ambiguous(
+        &self,
+        id: &CheckedNodeId,
+        index: &BTreeMap<&CheckedNodeId, usize>,
+    ) -> bool {
+        !index.contains_key(id) && self.0.get(id).is_some_and(Option::is_none)
+    }
+}
+
+/// Compute the old canonical keys of stale nodes before resolving dependent
+/// references. Key authentication still visits retained IDs in digest order.
+pub(super) fn deferred_key_targets(
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    bytes: u64,
+) -> DeferredKeyTargets {
+    let mut targets = BTreeMap::new();
+    let groups = group_contexts(nodes);
+    for (position, (node, kind)) in nodes.iter().zip(kinds).enumerate() {
+        if !pre_key_reference_target(node, *kind) {
+            continue;
+        }
+        // Use the same preimage authority as the key stage, including group
+        // ordinals. Computation here never refuses or charges work: an invalid
+        // preimage is left for the ordinary graph/key stage to diagnose.
+        let derived = match (declaration_form(*kind), node.owner.as_ref()) {
+            (
+                Some(form),
+                Some(super::CheckedNodeOwner::Model {
+                    identity,
+                    node: owner_node,
+                }),
+            ) if node.declaration.is_none() => declaration_key(identity, form, owner_node, bytes),
+            _ => match node.nominal_identity_preimage.as_ref() {
+                Some(preimage) => preimage.digest(bytes),
+                None => {
+                    let group = node
+                        .recursion_group
+                        .as_deref()
+                        .and_then(|label| groups.get(label));
+                    structural_key(
+                        &node_preimage(node, group, node.recursion_group.as_deref()),
+                        bytes,
+                    )
+                }
+            },
+        };
+        let Ok(derived) = derived else {
+            continue;
+        };
+        if derived == node.node_id.digest.as_ref() {
+            continue;
+        }
+        let key = CheckedNodeId {
+            domain: NODE_DOMAIN.into(),
+            digest: derived.into(),
+        };
+        targets
+            .entry(key)
+            .and_modify(|target| *target = None)
+            .or_insert(Some(position));
+    }
+    DeferredKeyTargets(targets)
+}
+
+/// All target kinds accepted by a pre-key lookup in structural or key-shape
+/// validation. A new family or form must be classified here explicitly.
+fn pre_key_reference_target(node: &CheckedSemanticNodeV2, kind: CheckedNodeKind) -> bool {
+    use super::{HybridForm, ModelForm, RelationForm};
+    match kind {
+        CheckedNodeKind::ScalarType(_)
+        | CheckedNodeKind::CompositeType(_)
+        | CheckedNodeKind::BoundedDomain(_) => true,
+        CheckedNodeKind::Hybrid(form) => matches!(form, HybridForm::Model),
+        CheckedNodeKind::Model(form) => match form {
+            ModelForm::RecordValueType
+            | ModelForm::TupleValueType
+            | ModelForm::ObjectType
+            | ModelForm::Process
+            | ModelForm::StateMachine
+            | ModelForm::SystemsInterface => true,
+            ModelForm::VariantType => {
+                matches!(
+                    node.owner.as_ref(),
+                    Some(super::CheckedNodeOwner::Model { .. })
+                )
+            }
+            ModelForm::ModelRoot
+            | ModelForm::ModelImport
+            | ModelForm::ValueType
+            | ModelForm::EventType
+            | ModelForm::PersistenceInterface
+            | ModelForm::Namespace
+            | ModelForm::SystemsPart
+            | ModelForm::SystemsPort
+            | ModelForm::SystemsConnection
+            | ModelForm::SystemsAllocation => false,
+        },
+        CheckedNodeKind::Relation(form) => match form {
+            RelationForm::Relationship => true,
+            RelationForm::Population
+            | RelationForm::Membership
+            | RelationForm::CausalRelation
+            | RelationForm::Refinement => false,
+        },
+        CheckedNodeKind::Extension(_)
+        | CheckedNodeKind::TimedModel(_)
+        | CheckedNodeKind::Value(_)
+        | CheckedNodeKind::Expression(_)
+        | CheckedNodeKind::Function(_)
+        | CheckedNodeKind::State(_)
+        | CheckedNodeKind::Temporal(_)
+        | CheckedNodeKind::Protocol(_)
+        | CheckedNodeKind::Claim(_)
+        | CheckedNodeKind::Correspondence(_) => false,
+    }
+}
+
+fn declaration_form(kind: CheckedNodeKind) -> Option<DeclarationForm> {
+    match kind {
+        CheckedNodeKind::Model(form) => match form {
+            super::ModelForm::ObjectType => Some(DeclarationForm::ObjectType),
+            super::ModelForm::StateMachine => Some(DeclarationForm::StateMachine),
+            super::ModelForm::Process => Some(DeclarationForm::Process),
+            super::ModelForm::RecordValueType => Some(DeclarationForm::RecordValueType),
+            super::ModelForm::TupleValueType => Some(DeclarationForm::TupleValueType),
+            super::ModelForm::VariantType => Some(DeclarationForm::VariantType),
+            super::ModelForm::SystemsInterface => Some(DeclarationForm::SystemsInterface),
+            _ => None,
+        },
+        CheckedNodeKind::Relation(super::RelationForm::Relationship) => {
+            Some(DeclarationForm::Relationship)
+        }
+        _ => None,
+    }
+}
 
 /// One of the ten shapes whose key the reader derives.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -167,10 +324,12 @@ pub(super) fn valid_derived_shape(
     kind: CheckedNodeKind,
     integer: &str,
     semantic_type_kind: Option<CheckedNodeKind>,
+    semantic_type_deferred: bool,
     reference: fn(&Value) -> Option<CheckedNodeId>,
 ) -> bool {
     if let Some(shape) = Shape::of(kind) {
         let bounded_type_matches = shape != Shape::CollectionBounds
+            || semantic_type_deferred
             || semantic_type_kind.is_some_and(|kind| {
                 matches!(
                     kind,
@@ -199,7 +358,11 @@ pub(super) fn valid_derived_shape(
         )
     ) || (matches!(
         kind,
-        CheckedNodeKind::Model(super::ModelForm::RecordValueType | super::ModelForm::VariantType)
+        CheckedNodeKind::Model(
+            super::ModelForm::RecordValueType
+                | super::ModelForm::TupleValueType
+                | super::ModelForm::VariantType,
+        )
     ) && matches!(
         node.owner.as_ref(),
         Some(super::CheckedNodeOwner::Model { .. })
@@ -262,6 +425,42 @@ pub(super) struct Group<'a> {
     pub(super) members: Vec<usize>,
     pub(super) ordinals: BTreeMap<&'a CheckedNodeId, usize>,
     pub(super) least: usize,
+}
+
+/// Shared wire-order group context for both dependent-target resolution and
+/// the authenticated key stage. This only builds ordinals; key and label
+/// errors remain at their original validation stage.
+fn group_contexts(nodes: &[CheckedSemanticNodeV2]) -> BTreeMap<&str, Group<'_>> {
+    let mut groups = BTreeMap::new();
+    for (position, node) in nodes.iter().enumerate() {
+        if let Some(label) = node.recursion_group.as_deref() {
+            add_group_member(&mut groups, nodes, label, position, node);
+        }
+    }
+    groups
+}
+
+fn add_group_member<'a>(
+    groups: &mut BTreeMap<&'a str, Group<'a>>,
+    nodes: &[CheckedSemanticNodeV2],
+    label: &'a str,
+    position: usize,
+    node: &'a CheckedSemanticNodeV2,
+) {
+    let group = groups.entry(label).or_insert_with(|| Group {
+        members: Vec::new(),
+        ordinals: BTreeMap::new(),
+        least: position,
+    });
+    let ordinal = group.members.len();
+    group.members.push(position);
+    group.ordinals.insert(&node.node_id, ordinal);
+    if nodes
+        .get(group.least)
+        .is_some_and(|least| node.node_id < least.node_id)
+    {
+        group.least = position;
+    }
 }
 
 pub(super) fn node_preimage<'a>(
@@ -368,6 +567,7 @@ pub(super) fn validate_derived_keys(
     kinds: &[CheckedNodeKind],
     terms: &[Option<super::CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
+    deferred: &DeferredKeyTargets,
     _references: &[Vec<super::BodyReference>],
     meter: &mut WorkMeter,
     bytes: u64,
@@ -376,26 +576,21 @@ pub(super) fn validate_derived_keys(
     for (position, node) in nodes.iter().enumerate() {
         if let Some(label) = node.recursion_group.as_deref() {
             meter.charge(1, || node_pointer(position).key("recursion_group"))?;
-            let group = groups.entry(label).or_insert_with(|| Group {
-                members: Vec::new(),
-                ordinals: BTreeMap::new(),
-                least: position,
-            });
-            let ordinal = group.members.len();
-            group.members.push(position);
-            group.ordinals.insert(&node.node_id, ordinal);
-            if nodes
-                .get(group.least)
-                .is_some_and(|least| node.node_id < least.node_id)
-            {
-                group.least = position;
-            }
+            add_group_member(&mut groups, nodes, label, position, node);
         }
     }
     for (&node_id, &position) in index {
         let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
             continue;
         };
+        if selected_model_tuple_or_variant(node, kind) {
+            // Authenticate selected declarations in the same retained-digest
+            // order as every other structural key. Their preimage has no
+            // semantic-type reference, so a later dangling reference cannot
+            // mask a stale selected declaration key (QSpec TW-05).
+            validate_selected_model_declaration_key(node, kind, terms, position, meter, bytes)?;
+            continue;
+        }
         if kind == CheckedNodeKind::Relation(super::RelationForm::Refinement) {
             continue;
         }
@@ -421,11 +616,18 @@ pub(super) fn validate_derived_keys(
         } else {
             String::new()
         };
-        let semantic_type_kind = index
-            .get(&node.semantic_type)
-            .and_then(|&target| kinds.get(target))
+        let semantic_type_kind = deferred
+            .position(&node.semantic_type, index)
+            .and_then(|target| kinds.get(target))
             .copied();
-        if !valid_derived_shape(node, kind, &integer, semantic_type_kind, reference_target) {
+        if !valid_derived_shape(
+            node,
+            kind,
+            &integer,
+            semantic_type_kind,
+            deferred.ambiguous(&node.semantic_type, index),
+            reference_target,
+        ) {
             return Err(stale(at(), node_id, None));
         }
         let group = node
@@ -448,21 +650,23 @@ pub(super) fn validate_derived_keys(
         if kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) {
             let target = super::structural::reference_type_target(node)
                 .ok_or_else(|| encoder_failure(node_pointer(position).key("body")))?;
-            let target_kind = index
-                .get(&target)
-                .and_then(|&target_position| kinds.get(target_position))
+            let target_kind = deferred
+                .position(&target, index)
+                .and_then(|target_position| kinds.get(target_position))
                 .copied();
-            if !matches!(
-                target_kind,
-                Some(
-                    CheckedNodeKind::Model(
-                        super::ModelForm::ObjectType
-                            | super::ModelForm::Process
-                            | super::ModelForm::StateMachine
-                            | super::ModelForm::SystemsInterface
-                    ) | CheckedNodeKind::Relation(super::RelationForm::Relationship)
+            if !deferred.ambiguous(&target, index)
+                && !matches!(
+                    target_kind,
+                    Some(
+                        CheckedNodeKind::Model(
+                            super::ModelForm::ObjectType
+                                | super::ModelForm::Process
+                                | super::ModelForm::StateMachine
+                                | super::ModelForm::SystemsInterface
+                        ) | CheckedNodeKind::Relation(super::RelationForm::Relationship)
+                    )
                 )
-            ) {
+            {
                 return Err(ValidationFailure::refused_at(
                     CheckedPackageRefusalCode::InvalidPackage,
                     at(),
@@ -517,6 +721,43 @@ pub(super) fn validate_derived_keys(
         }
     }
     Ok(())
+}
+
+fn validate_selected_model_declaration_key(
+    node: &CheckedSemanticNodeV2,
+    kind: CheckedNodeKind,
+    terms: &[Option<CheckedTerm>],
+    position: usize,
+    meter: &mut WorkMeter,
+    bytes: u64,
+) -> Result<(), ValidationFailure> {
+    let at = || node_pointer(position).key("node_id");
+    meter.charge(1, at)?;
+    if !valid_derived_shape(node, kind, "", None, false, reference_target) {
+        return Err(stale(at(), &node.node_id, None));
+    }
+    let Some(term) = terms.get(position).and_then(Option::as_ref) else {
+        return Err(encoder_failure(node_pointer(position).key("body")));
+    };
+    charge_terms(term, position, meter)?;
+    meter.charge(1, at)?;
+    let derived = structural_key(&node_preimage(node, None, None), bytes)
+        .map_err(|_| encoder_failure(at()))?;
+    if derived != node.node_id.digest.as_ref() {
+        return Err(stale(at(), &node.node_id, Some(derived)));
+    }
+    Ok(())
+}
+
+fn selected_model_tuple_or_variant(node: &CheckedSemanticNodeV2, kind: CheckedNodeKind) -> bool {
+    matches!(
+        kind,
+        CheckedNodeKind::Model(super::ModelForm::TupleValueType | super::ModelForm::VariantType)
+    ) && node.nominal_identity_preimage.is_none()
+        && matches!(
+            node.owner.as_ref(),
+            Some(super::CheckedNodeOwner::Model { .. })
+        )
 }
 
 /// QSL's group digest array consists of lowercase member-local digests.
@@ -606,6 +847,8 @@ mod tests {
         match member {
             MemberType::Boolean => wire(&key, "scalar_type", "boolean", &key, empty()),
             MemberType::Integer => wire(&key, "scalar_type", "integer", &key, empty()),
+            MemberType::Float32 => wire(&key, "scalar_type", "float32", &key, empty()),
+            MemberType::Float64 => wire(&key, "scalar_type", "float64", &key, empty()),
             MemberType::String => wire(&key, "scalar_type", "string", &key, empty()),
             MemberType::Uuid => wire(&key, "scalar_type", "uuid", &key, empty()),
             MemberType::Timestamp => wire(&key, "scalar_type", "timestamp", &key, empty()),
@@ -647,7 +890,10 @@ mod tests {
             MemberType::Reference(target) => {
                 wire(&key, "composite_type", "reference", &key, over(target))
             }
-            MemberType::Record(_) | MemberType::Variant(_) | MemberType::Quantity(_) => {
+            MemberType::Record(_)
+            | MemberType::Tuple(_)
+            | MemberType::Variant(_)
+            | MemberType::Quantity(_) => {
                 panic!("a nominal type is a selected declaration, not a derived node")
             }
             MemberType::Option(inner) => {
@@ -770,6 +1016,7 @@ mod tests {
             &kinds,
             &terms,
             &index,
+            &deferred_key_targets(&graph, &kinds, BYTES),
             &no_references,
             &mut meter,
             BYTES
@@ -789,6 +1036,7 @@ mod tests {
             &kinds,
             &terms,
             &index,
+            &deferred_key_targets(&tampered, &kinds, BYTES),
             &no_references,
             &mut meter,
             BYTES
@@ -829,6 +1077,7 @@ mod tests {
             &[kind],
             &terms,
             &index,
+            &deferred_key_targets(&graph, &[kind], BYTES),
             &[vec![]],
             &mut meter,
             BYTES
@@ -846,6 +1095,7 @@ mod tests {
                 &[kind],
                 &terms,
                 &index,
+                &deferred_key_targets(&graph, &[kind], BYTES),
                 &[vec![]],
                 &mut unpaid,
                 BYTES
@@ -947,6 +1197,7 @@ mod tests {
             &kinds,
             &terms,
             &index,
+            &deferred_key_targets(&graph, &kinds, BYTES),
             &references,
             &mut exact,
             BYTES
@@ -964,6 +1215,7 @@ mod tests {
             &kinds,
             &terms,
             &index,
+            &deferred_key_targets(&graph, &kinds, BYTES),
             &references,
             &mut denied,
             BYTES,

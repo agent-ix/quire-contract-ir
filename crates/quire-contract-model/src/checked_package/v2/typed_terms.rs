@@ -11,6 +11,7 @@ use super::{
     RefinementPopulation, RefinementStep,
 };
 use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedSemanticId};
+use crate::identity::ExecutionPoint;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
@@ -20,15 +21,12 @@ use serde_json::{error::Category, Value};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CheckedApplicationOperation {
     record: Value,
-    execution_point: Option<CheckedExecutionPoint>,
+    execution_point: Option<ExecutionPoint>,
 }
 
 impl CheckedApplicationOperation {
     /// Construct the catalogued state-clause operation without a JSON payload.
-    pub fn state_clause(
-        clause: StateClauseKind,
-        execution_point: Option<CheckedExecutionPoint>,
-    ) -> Self {
+    pub fn state_clause(clause: StateClauseKind, execution_point: Option<ExecutionPoint>) -> Self {
         Self {
             record: serde_json::json!({
                 "identity": "quire.op.state.clause", "laws": [], "mode": null,
@@ -39,7 +37,7 @@ impl CheckedApplicationOperation {
     }
 
     /// The retained point of a state-clause application, if present.
-    pub fn execution_point(&self) -> Option<&CheckedExecutionPoint> {
+    pub fn execution_point(&self) -> Option<&ExecutionPoint> {
         self.execution_point.as_ref()
     }
 
@@ -70,7 +68,7 @@ impl CheckedApplicationOperation {
             if record.get("identity").and_then(Value::as_str) == Some("quire.op.state.clause") {
                 let member = record.get_mut("member").and_then(Value::as_object_mut);
                 member.and_then(|member| {
-                    let point = CheckedExecutionPoint::from_wire(member.get("execution_point")?)?;
+                    let point = ExecutionPoint::from_wire(member.get("execution_point")?)?;
                     member.remove("execution_point");
                     Some(point)
                 })
@@ -92,16 +90,16 @@ impl CheckedApplicationOperation {
             member.insert(
                 "execution_point".into(),
                 match point {
-                    CheckedExecutionPoint::Initialization { name } => {
+                    ExecutionPoint::Initialization { name } => {
                         serde_json::json!({"kind": "initialization", "name": name})
                     }
-                    CheckedExecutionPoint::Handler { name } => {
+                    ExecutionPoint::Handler { name } => {
                         serde_json::json!({"kind": "handler", "name": name})
                     }
-                    CheckedExecutionPoint::Pre { operation } => {
+                    ExecutionPoint::Pre { operation } => {
                         serde_json::json!({"kind": "pre", "operation": operation})
                     }
-                    CheckedExecutionPoint::Post { operation } => {
+                    ExecutionPoint::Post { operation } => {
                         serde_json::json!({"kind": "post", "operation": operation})
                     }
                 },
@@ -137,43 +135,6 @@ impl Encode for CheckedApplicationOperation {
     }
 }
 
-/// A closed execution point carried by an admitted V2 anchor or state clause.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize, FixedShape)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum CheckedExecutionPoint {
-    /// Initialization of the named source anchor.
-    Initialization {
-        /// Nonempty source anchor name.
-        name: Box<str>,
-    },
-    /// Handler of the named source anchor.
-    Handler {
-        /// Nonempty source anchor name.
-        name: Box<str>,
-    },
-    /// The named operation before its body.
-    Pre {
-        /// Nonempty operation name.
-        operation: Box<str>,
-    },
-    /// The named operation after its body.
-    Post {
-        /// Nonempty operation name.
-        operation: Box<str>,
-    },
-}
-
-impl CheckedExecutionPoint {
-    pub(super) fn from_wire(value: &Value) -> Option<Self> {
-        let point: Self = Self::deserialize(value).ok()?;
-        let name = match &point {
-            Self::Initialization { name } | Self::Handler { name } => name,
-            Self::Pre { operation } | Self::Post { operation } => operation,
-        };
-        (!name.is_empty()).then_some(point)
-    }
-}
-
 /// An admitted operation anchor body with three expression bindings and an
 /// optional bare point binding. The point itself is not an expression term.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -181,7 +142,7 @@ pub struct CheckedOperationAnchorBody {
     /// Context, operation and frame bindings, in wire order.
     pub members: [CheckedTerm; 3],
     /// The optional closed fourth binding's bare value.
-    pub execution_point: Option<CheckedExecutionPoint>,
+    pub execution_point: Option<ExecutionPoint>,
 }
 
 impl Serialize for CheckedOperationAnchorBody {
@@ -193,7 +154,7 @@ impl Serialize for CheckedOperationAnchorBody {
                 struct PointBinding<'a> {
                     term: &'static str,
                     name: &'static str,
-                    value: &'a CheckedExecutionPoint,
+                    value: &'a ExecutionPoint,
                 }
                 let mut sequence = serializer.serialize_seq(Some(
                     self.0.members.len() + usize::from(self.0.execution_point.is_some()),
@@ -1097,7 +1058,7 @@ pub struct CheckedAbstractionParameter {
 
 #[cfg(test)]
 mod tests {
-    use super::{CheckedBindingName, CheckedExecutionPoint, CheckedTerm, TermConversionCause};
+    use super::{CheckedBindingName, CheckedTerm, ExecutionPoint, TermConversionCause};
     use ix_trace_rs::trace;
     use quire_canonical::{to_vec, Limits};
     use serde_json::{error::Category, json};
@@ -1109,7 +1070,7 @@ mod tests {
             json!({"kind": "pre", "operation": "scaled"}),
             json!({"kind": "post", "operation": "scaled"}),
         ] {
-            let point = CheckedExecutionPoint::from_wire(&wire).expect("closed point");
+            let point = ExecutionPoint::from_wire(&wire).expect("closed point");
             assert!(CheckedTerm::decode_admitted(&wire).is_err());
             assert_eq!(serde_json::to_value(&point).expect("serialize point"), wire);
             assert_eq!(
@@ -1122,7 +1083,7 @@ mod tests {
             json!({"kind": "pre", "operation": "scaled", "extra": true}),
             json!({"kind": "unknown", "operation": "scaled"}),
         ] {
-            assert!(CheckedExecutionPoint::from_wire(&malformed).is_none());
+            assert!(ExecutionPoint::from_wire(&malformed).is_none());
             assert!(CheckedTerm::decode_admitted(&malformed).is_err());
         }
     }

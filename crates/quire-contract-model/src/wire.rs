@@ -5,7 +5,7 @@ use crate::decimal::IntegerString;
 use crate::expression::{INTEGER_BOUNDS_PATH, RATIONAL_BOUNDS_PATH};
 use crate::{
     conformance::{canonical_value, diagnostics_value},
-    identity::{WireRequirementRef, WireSourceSpan},
+    identity::{WireExecutionPoint, WireRequirementRef, WireSourceSpan},
     limits::{MAX_SEMANTIC_COLLECTION_ITEMS, MAX_SEMANTIC_DEPTH, MAX_SEMANTIC_NODES},
     BooleanOperator, CanonicalProfile, CollectionType, ComparisonOperator, DeclarationEnvironment,
     Diagnostic, DiagnosticCode, EnumDeclaration, EnumVariantDeclaration, ExecutionPoint,
@@ -28,7 +28,7 @@ struct ExpressionInput {
     functions: Vec<WireFunctionDeclaration>,
     expression: WireExpression,
     expected_type: WireValueType,
-    execution_point: ExecutionPoint,
+    execution_point: WireExecutionPoint,
     clause_root: bool,
 }
 
@@ -602,6 +602,7 @@ pub(crate) fn check_expression_input(
         serde_json::from_value(input).map_err(|_| vec![wire_type_error("expression")])?;
     let semantic_nodes = one(preflight(&request))?;
     let request_owner = one(request.owner.validate())?;
+    let execution_point = one(request.execution_point.validate())?;
     if let Some((owner, anchor)) = binding {
         if &request_owner != owner {
             return Err(vec![Diagnostic::error(
@@ -610,7 +611,7 @@ pub(crate) fn check_expression_input(
                 "expression.owner",
             )]);
         }
-        if &request.execution_point != anchor {
+        if &execution_point != anchor {
             return Err(vec![Diagnostic::error(
                 DiagnosticCode::IncompatibleClauseAnchor,
                 "expression execution point differs from the bound clause anchor",
@@ -646,7 +647,7 @@ pub(crate) fn check_expression_input(
     let expression = environment.check_expression(
         &expression,
         &expected,
-        &request.execution_point,
+        &execution_point,
         request.clause_root,
     )?;
     Ok(CheckedExpression {
@@ -963,6 +964,36 @@ mod tests {
         )
     }
 
+    /// Both expression input routes apply authored identifier validation
+    /// before a widened checked-package point can reach expression checking.
+    #[trace("FR-058-AC-11", "FR-011-AC-3")]
+    #[test]
+    fn expression_inputs_refuse_non_identifier_point_names() {
+        let owner = RequirementRef::parse("agent-ix/pkg", "REQ_a", 1).unwrap();
+        let anchor = ExecutionPoint::Pre {
+            operation: crate::AnchorName::new("check").unwrap().into(),
+        };
+        let mut base = request(
+            json!({"node": "boolean_literal", "value": true, "source": span()}),
+            json!({"kind": "boolean"}),
+        );
+        base["clause_root"] = json!(true);
+        for name in ["", "tick now"] {
+            let input = with_member(&base, "/execution_point/operation", json!(name));
+            assert_eq!(
+                operation_refusal(input.clone()),
+                ("invalid_identifier".into(), "clause.anchor.name".into()),
+                "unbound expression point {name:?}"
+            );
+            let diagnostics = check_expression_input(input, Some((&owner, &anchor)))
+                .err()
+                .expect("binding expression must refuse invalid point name");
+            assert_eq!(diagnostics.len(), 1);
+            assert_eq!(diagnostics[0].code, DiagnosticCode::InvalidIdentifier);
+            assert_eq!(diagnostics[0].path, "clause.anchor.name");
+        }
+    }
+
     /// A revision or byte offset above 2^53 (and a zero revision) in the
     /// owner or in any span member reaches the expression operation as the
     /// constructor's registered code and path, not `invalid_wire_format`;
@@ -1152,7 +1183,7 @@ mod tests {
     ) {
         let owner = RequirementRef::parse("agent-ix/pkg", "REQ_a", 1).unwrap();
         let anchor = ExecutionPoint::Pre {
-            operation: crate::AnchorName::new("check").unwrap(),
+            operation: crate::AnchorName::new("check").unwrap().into(),
         };
         let mut base = request(
             json!({"node": "boolean_literal", "value": true, "source": span()}),

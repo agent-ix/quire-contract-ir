@@ -49,7 +49,10 @@
 //!   of its body. `result_type` and literal `type` annotations are not
 //!   dependencies.
 //!
-//! This shape stage does not re-derive keys. `derived_keys` checks owner-free,
+//! This shape stage does not re-derive keys. A missing target that equals a
+//! rekeyed node's canonical key resolves to that node for shape checks; its
+//! dependent absence waits for the later key stage. Independent malformed
+//! shape still refuses here. `derived_keys` checks owner-free,
 //! ungrouped structural nodes against QSL's `quire.structural-node/v1`
 //! preimage after application keys and before nominal keys; IR-630 owns the
 //! owner-bearing and grouped follow-up (FR-038-AC-123).
@@ -62,9 +65,10 @@
 //! The stage charges no work of its own: every body term it walks was
 //! parsed, shape-validated and charged once by the per-node body loop.
 
+use super::derived_keys::DeferredKeyTargets;
 use super::identity::is_identifier;
 use super::{
-    ApplicationOperator, CheckedExecutionPoint, CheckedTerm, CheckedTermView, LiteralKind,
+    ApplicationOperator, CheckedTerm, CheckedTermView, ExecutionPoint, LiteralKind,
     OperationMemberKind, StateClauseKind,
 };
 use super::{
@@ -125,16 +129,25 @@ struct Graph<'a> {
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
     index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    deferred: &'a DeferredKeyTargets,
 }
 
 impl Graph<'_> {
     fn node(&self, id: &CheckedNodeId) -> Option<(&CheckedSemanticNodeV2, CheckedNodeKind)> {
-        let position = *self.index.get(id)?;
+        let position = self.deferred.position(id, self.index)?;
         Some((self.nodes.get(position)?, *self.kinds.get(position)?))
     }
 
     fn kind(&self, id: &CheckedNodeId) -> Option<CheckedNodeKind> {
         self.node(id).map(|(_, kind)| kind)
+    }
+
+    fn dependent_target(&self, id: &CheckedNodeId) -> bool {
+        self.deferred.ambiguous(id, self.index)
+    }
+
+    fn type_matches_or_deferred(&self, id: &CheckedNodeId, form: ScalarTypeForm) -> bool {
+        self.kind(id) == Some(CheckedNodeKind::ScalarType(form)) || self.dependent_target(id)
     }
 }
 
@@ -261,6 +274,7 @@ impl StructuralForm {
                 | ModelForm::ObjectType
                 | ModelForm::ValueType
                 | ModelForm::VariantType
+                | ModelForm::TupleValueType
                 | ModelForm::RecordValueType
                 | ModelForm::EventType
                 | ModelForm::StateMachine
@@ -333,11 +347,13 @@ pub(super) fn validate_structural_nodes(
     kinds: &[CheckedNodeKind],
     terms: &[Option<super::CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
+    deferred: &DeferredKeyTargets,
 ) -> Result<(), ValidationFailure> {
     let graph = Graph {
         nodes,
         kinds,
         index,
+        deferred,
     };
     for (&node_id, &position) in index {
         let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
@@ -434,7 +450,7 @@ pub(super) fn validate_structural_nodes(
                 if node
                     .body
                     .pointer("/operation/member/execution_point")
-                    .is_some_and(|point| CheckedExecutionPoint::from_wire(point).is_none())
+                    .is_some_and(|point| ExecutionPoint::from_wire(point).is_none())
                 {
                     Some(Defect::ClausePoint)
                 } else {
@@ -522,29 +538,33 @@ fn parameter_defect(
     graph: &Graph<'_>,
 ) -> Option<Defect> {
     let is_binder_type = node.semantic_type != node.node_id
-        && graph
-            .node(&node.semantic_type)
-            .is_some_and(|(type_node, kind)| {
-                // A binder may also be typed at a selected model value declaration.
-                kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
-                    || kind == CheckedNodeKind::Hybrid(super::HybridForm::Model)
-                    || (kind == CheckedNodeKind::Model(ModelForm::VariantType)
-                        && matches!(
-                            type_node.owner.as_ref(),
-                            Some(super::CheckedNodeOwner::Model { .. })
-                        ))
-                    || matches!(
-                        kind.tag(),
-                        CheckedNodeTag::ScalarType
-                            | CheckedNodeTag::CompositeType
-                            | CheckedNodeTag::BoundedDomain
-                    )
-            });
+        && (graph.dependent_target(&node.semantic_type)
+            || graph
+                .node(&node.semantic_type)
+                .is_some_and(|(type_node, kind)| {
+                    // A binder may also be typed at a selected model value declaration.
+                    kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
+                        || kind == CheckedNodeKind::Model(ModelForm::TupleValueType)
+                        || kind == CheckedNodeKind::Hybrid(super::HybridForm::Model)
+                        || (kind == CheckedNodeKind::Model(ModelForm::VariantType)
+                            && matches!(
+                                type_node.owner.as_ref(),
+                                Some(super::CheckedNodeOwner::Model { .. })
+                            ))
+                        || matches!(
+                            kind.tag(),
+                            CheckedNodeTag::ScalarType
+                                | CheckedNodeTag::CompositeType
+                                | CheckedNodeTag::BoundedDomain
+                        )
+                }));
     if !is_binder_type {
         return Some(Defect::SemanticType);
     }
     if term
-        .and_then(|term| typed_parameter_binding(term, &|id| graph.kind(id)))
+        .and_then(|term| {
+            typed_parameter_binding_with(term, &|id, form| graph.type_matches_or_deferred(id, form))
+        })
         .is_none()
     {
         return Some(Defect::Body);
@@ -587,18 +607,14 @@ fn typed_literal<'a>(
     term: &'a super::CheckedTerm,
     value_kind: LiteralKind,
     type_form: ScalarTypeForm,
-    kind_of: &impl Fn(&CheckedNodeId) -> Option<CheckedNodeKind>,
+    type_matches: &impl Fn(&CheckedNodeId, ScalarTypeForm) -> bool,
 ) -> Option<&'a Value> {
     match term {
         super::CheckedTerm::Literal {
             type_id,
             value_kind: found,
             value,
-        } if *found == value_kind
-            && kind_of(type_id) == Some(CheckedNodeKind::ScalarType(type_form)) =>
-        {
-            Some(value)
-        }
+        } if *found == value_kind && type_matches(type_id, type_form) => Some(value),
         _ => None,
     }
 }
@@ -607,11 +623,22 @@ pub(super) fn typed_parameter_binding<'a>(
     body: &'a super::CheckedTerm,
     kind_of: &impl Fn(&CheckedNodeId) -> Option<CheckedNodeKind>,
 ) -> Option<(&'a str, &'a str)> {
+    typed_parameter_binding_with(body, &|id, form| {
+        kind_of(id) == Some(CheckedNodeKind::ScalarType(form))
+    })
+}
+
+fn typed_parameter_binding_with<'a>(
+    body: &'a super::CheckedTerm,
+    type_matches: &impl Fn(&CheckedNodeId, ScalarTypeForm) -> bool,
+) -> Option<(&'a str, &'a str)> {
     let [name, level] = typed_aggregate(body)? else {
         return None;
     };
     let name = typed_binding(name, "name")
-        .and_then(|value| typed_literal(value, LiteralKind::Text, ScalarTypeForm::Text, kind_of))
+        .and_then(|value| {
+            typed_literal(value, LiteralKind::Text, ScalarTypeForm::Text, type_matches)
+        })
         .and_then(Value::as_str)
         .filter(|name| is_identifier(name))?;
     let level = typed_binding(level, "level")
@@ -620,7 +647,7 @@ pub(super) fn typed_parameter_binding<'a>(
                 value,
                 LiteralKind::Integer,
                 ScalarTypeForm::Integer,
-                kind_of,
+                type_matches,
             )
         })
         .and_then(Value::as_str)
@@ -665,21 +692,22 @@ fn typed_compound_unit_term(term: &super::CheckedTerm, graph: &Graph<'_>) -> Opt
     let unit = typed_binding(unit, "unit").and_then(typed_reference)?;
     // A dimension's canonical root unit has no target unit in its nominal
     // preimage; the nominal stage admits exactly one such unit.
-    let is_root_unit = graph.node(unit).is_some_and(|(node, kind)| {
-        kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
-            && matches!(
-                &node.nominal_identity_preimage,
-                Some(NominalIdentityPreimage::Unit(preimage))
-                    if preimage.target_unit_node_id.is_none()
-            )
-    });
+    let is_root_unit = graph.dependent_target(unit)
+        || graph.node(unit).is_some_and(|(node, kind)| {
+            kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
+                && matches!(
+                    &node.nominal_identity_preimage,
+                    Some(NominalIdentityPreimage::Unit(preimage))
+                        if preimage.target_unit_node_id.is_none()
+                )
+        });
     let exponent_ok = typed_binding(exponent, "exponent")
         .and_then(|value| {
             typed_literal(
                 value,
                 LiteralKind::Integer,
                 ScalarTypeForm::Integer,
-                &|id| graph.kind(id),
+                &|id, form| graph.type_matches_or_deferred(id, form),
             )
         })
         .and_then(Value::as_str)
@@ -696,7 +724,7 @@ pub(super) struct AnchorBody<'a> {
     /// The operation's frame node.
     pub(super) frame: CheckedNodeId,
     /// Optional point, retained separately from the three expression terms.
-    pub(super) execution_point: Option<CheckedExecutionPoint>,
+    pub(super) execution_point: Option<ExecutionPoint>,
 }
 
 /// The admitted anchor body, or `None` for any other typed shape.
@@ -741,7 +769,7 @@ pub(super) struct ClauseBody {
     /// The anchor reference's target.
     pub(super) anchor: CheckedNodeId,
     /// Optional closed point of the clause application member.
-    pub(super) execution_point: Option<CheckedExecutionPoint>,
+    pub(super) execution_point: Option<ExecutionPoint>,
 }
 
 /// The five identity-bearing references of a Boolean state transition.

@@ -115,9 +115,11 @@ SHALL also read the tuple and union declaration entries of
 `node-identity-vectors.json` and the model union member entries of
 `union_member_vectors` named by QSpec FR-322. IR conformance
 SHALL read those files from that checkout, never from copies in this repo, and
-fail if they are absent or malformed. It SHALL supply the vector's selected
-`domain_package` as model evidence, recompute its digest using the existing
-canonical identity path, read the published positive package through the
+fail if they are absent or malformed. It SHALL read the vector's
+`selected_document` from that checkout as the full Semantic IR model evidence,
+derive and compare the vector's `domain_package` projection from that document,
+and recompute the full document digest using the existing canonical identity
+path. It SHALL read the published positive package through the
 production reader, and compare the observed keys and results with the vector's
 declaration, family, position, field-type, member, union-value, enum-value,
 equality, identity, application-key, recursion, intake and wire cases.
@@ -138,7 +140,7 @@ variant payload types.
 | FR-069-AC-5 | The published `union_value`, `enum_value`, equality, case-arm and structural-leaf cases pass through the production reader: a nullary union case uses an empty-payload `union_value`; union-family `enum_value` and enum-family `union_value` refuse with the specified typed mismatch; recursive tuple/union declarations admit without a graph recursion group and their leaf walk terminates with QSpec's reachable-text rule. | Test |
 | FR-069-AC-6 | Every published intake and wire mutation returns its exact QSpec code, cause and location at its specified stage, including duplicate or gapped tuple positions, absent/unsupported/unresolved position `typeRef`, illegal tuple members, unresolved/unsupported `Variant.payloadType`, malformed owner, stale tuple key and owner-kind mismatch. A document with both a tuple and variant defect reports the tuple defect first. No malformed declaration produces an admitted partial package or a panic. | Test |
 | FR-069-AC-7 | `encode_checked_package_v2` emits the supplied tuple and payload-variant nodes under the existing eight-member V2 envelope and preserves the supplied package id and selection rows. The positive typed package encodes canonically and its bytes read back with the same admitted positions, payload types, node keys and package identity; a changed supplied id is preserved by the writer and refused by the reader. | Test |
-| FR-069-AC-8 | `make conformance-qspec` loads the positive fixture, `model-tuple-union-vectors.json`, the two tuple/union entries in `node-identity-vectors.json`, and the model union member entries in QSpec's `union_member_vectors` from `QUIRE_SPECIFICATION_DIR`; it recomputes identities and runs every tuple/union case against production intake, key derivation and reader paths. Missing or malformed files fail the run. The test does not hash only vector JSON or copy QSpec artifacts into IR. | Test, Inspection |
+| FR-069-AC-8 | `make conformance-qspec` loads the positive fixture, `model-tuple-union-vectors.json`, its full Semantic IR `selected_document`, the two tuple/union entries in `node-identity-vectors.json`, and the model union member entries in QSpec's `union_member_vectors` from `QUIRE_SPECIFICATION_DIR`; it compares the document's derived `domain_package` projection with the vector, hashes the full document for the selection digest, recomputes identities and runs every tuple/union case against production intake, key derivation and reader paths. Missing or malformed files fail the run. The test does not hash only vector JSON or copy QSpec artifacts into IR. | Test, Inspection |
 
 ## Dependencies
 

@@ -612,6 +612,24 @@ impl RetainedModels {
         Ok(classes)
     }
 
+    /// The selected variant's family, for checked projections after admission.
+    pub(super) fn variant_family(&self, key: &CheckedNodeId) -> Option<&'static str> {
+        let declared = self.index.0.get(key.digest.as_ref())?;
+        if declared.form != DeclarationForm::VariantType {
+            return None;
+        }
+        let cases = self
+            .models
+            .get(declared.selection)?
+            .variant_types
+            .get(&declared.node)?;
+        Some(if cases.values().any(Option::is_some) {
+            "union"
+        } else {
+            "enum"
+        })
+    }
+
     pub(super) fn refinement_object_fields(
         &self,
         key: &CheckedNodeId,
@@ -821,6 +839,10 @@ pub enum CheckedMemberType {
     Boolean,
     /// `Integer`.
     Integer,
+    /// Native IEEE binary32 with exact rounding.
+    Float32,
+    /// Native IEEE binary64 with exact rounding.
+    Float64,
     /// Native String, distinct from profiled Text.
     String,
     /// Native UUID.
@@ -849,7 +871,9 @@ pub enum CheckedMemberType {
     Reference(CheckedNodeId),
     /// A record value with no object identity: its model declaration node.
     Record(CheckedNodeId),
-    /// A selected model variant declaration with unordered enum cases.
+    /// A selected model tuple declaration with ordered positions.
+    Tuple(CheckedNodeId),
+    /// A selected model variant declaration; selected payloads determine its family.
     Variant(CheckedNodeId),
     /// `Quantity<u>`: the checked unit node of `u`.
     Quantity(CheckedNodeId),
@@ -895,6 +919,8 @@ impl From<&MemberType> for CheckedMemberType {
         match member_type {
             MemberType::Boolean => Self::Boolean,
             MemberType::Integer => Self::Integer,
+            MemberType::Float32 => Self::Float32,
+            MemberType::Float64 => Self::Float64,
             MemberType::String => Self::String,
             MemberType::Uuid => Self::Uuid,
             MemberType::Timestamp => Self::Timestamp,
@@ -913,6 +939,10 @@ impl From<&MemberType> for CheckedMemberType {
                 digest: target.clone(),
             }),
             MemberType::Record(target) => Self::Record(CheckedNodeId {
+                domain: NODE_DOMAIN.into(),
+                digest: target.clone(),
+            }),
+            MemberType::Tuple(target) => Self::Tuple(CheckedNodeId {
                 domain: NODE_DOMAIN.into(),
                 digest: target.clone(),
             }),

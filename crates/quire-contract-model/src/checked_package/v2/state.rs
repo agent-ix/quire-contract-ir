@@ -39,7 +39,7 @@ use super::structural::{
     typed_transition_body, AnchorBody, TransitionBody,
 };
 use super::{
-    ApplicationOperator, CheckedExecutionPoint, CheckedNodeKind, CheckedTerm, CompositeTypeForm,
+    ApplicationOperator, CheckedNodeKind, CheckedTerm, CompositeTypeForm, ExecutionPoint,
     ExpressionForm, ModelForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, ScalarTypeForm,
     StateClauseKind, StateForm, ValueForm, WorkMeter,
 };
@@ -362,10 +362,10 @@ fn check_anchor(
     }
     if let Some(point) = &body.execution_point {
         let matches_operation = match point {
-            CheckedExecutionPoint::Pre { operation }
-            | CheckedExecutionPoint::Post { operation } => operation.as_ref() == body.operation,
-            CheckedExecutionPoint::Initialization { .. }
-            | CheckedExecutionPoint::Handler { .. } => false,
+            ExecutionPoint::Pre { operation } | ExecutionPoint::Post { operation } => {
+                operation.as_ref() == body.operation
+            }
+            ExecutionPoint::Initialization { .. } | ExecutionPoint::Handler { .. } => false,
         };
         if !matches_operation {
             return Err(model_refusal(
@@ -527,25 +527,19 @@ fn check_clause_point(
 ) -> Result<(), ValidationFailure> {
     let valid = match (&body.execution_point, anchor) {
         (None, None) => true,
-        (
-            Some(
-                CheckedExecutionPoint::Initialization { .. }
-                | CheckedExecutionPoint::Handler { .. },
-            ),
-            None,
-        ) => true,
+        (Some(ExecutionPoint::Initialization { .. } | ExecutionPoint::Handler { .. }), None) => {
+            true
+        }
         (Some(_), None) => false,
         (point, Some(anchor)) => {
             let applicable = match point {
                 None => true,
-                Some(
-                    CheckedExecutionPoint::Pre { operation }
-                    | CheckedExecutionPoint::Post { operation },
-                ) => operation.as_ref() == anchor.operation,
-                Some(
-                    CheckedExecutionPoint::Initialization { .. }
-                    | CheckedExecutionPoint::Handler { .. },
-                ) => false,
+                Some(ExecutionPoint::Pre { operation } | ExecutionPoint::Post { operation }) => {
+                    operation.as_ref() == anchor.operation
+                }
+                Some(ExecutionPoint::Initialization { .. } | ExecutionPoint::Handler { .. }) => {
+                    false
+                }
             };
             applicable && point == &anchor.execution_point
         }

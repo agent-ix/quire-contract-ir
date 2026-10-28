@@ -16,8 +16,9 @@
 //! The fixtures are QSpec's and are read from a `quire-specification` checkout
 //! named by `QUIRE_SPECIFICATION_DIR`; nothing of them is copied into this
 //! repository. This target is outside the run of `make test` (its manifest
-//! entry has `test = false`, and a plain `make test` has no checkout) and is
-//! run by `make conformance-qspec` alone. It fails, and never skips, when the
+//! entry has `test = false`, and a plain `make test` has no checkout). CI
+//! compiles this target without running it. `make conformance-qspec` runs its
+//! fixture tests; they fail, and never skip, when the
 //! variable is unset or empty, when it names a path that does not hold
 //! `proposals/checked-package-v2/fixtures/`, when a file cannot be read or is
 //! not JSON, when a list is absent or empty, and when a result is not the
@@ -44,6 +45,7 @@ mod extension;
 mod fixture_support;
 mod hybrid;
 mod model_root;
+mod model_tuple_union;
 mod reaches_population;
 mod single_body;
 mod timed_model;

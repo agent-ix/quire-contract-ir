@@ -332,7 +332,14 @@ fn derive_structural_candidates_raw(
                 }
             }
         }
-        if !valid_derived_shape(node, kind, &integer, semantic_type_kind, reference_selector) {
+        if !valid_derived_shape(
+            node,
+            kind,
+            &integer,
+            semantic_type_kind,
+            false,
+            reference_selector,
+        ) {
             return Err(malformed(position, node));
         }
         charge_terms(&node.body, position, &mut work)?;

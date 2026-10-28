@@ -1200,6 +1200,7 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             | ModelForm::ObjectType
             | ModelForm::ValueType
             | ModelForm::VariantType
+            | ModelForm::TupleValueType
             | ModelForm::RecordValueType
             | ModelForm::EventType
             | ModelForm::StateMachine

@@ -519,8 +519,9 @@ pub struct CheckedPackageRefusal {
     /// `code` is [`CheckedPackageRefusalCode::UnknownContractVersion`].
     pub contract_version: Option<Box<str>>,
     /// The RFC 6901 pointer supplied by a requirement in addition to `path`:
-    /// into a selected model document for its noncanonical number, or into
-    /// the checked package for an unheld extension definition (FR-469).
+    /// into a selected model document for its noncanonical number or an
+    /// unsupported variant payload, or into the checked package for an
+    /// unheld extension definition (FR-469).
     pub document_pointer: Option<JsonPointer>,
     /// Selected or pinned identity in a content or byte digest mismatch.
     pub expected: Option<CheckedSemanticId>,
