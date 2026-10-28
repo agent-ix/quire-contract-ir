@@ -9042,11 +9042,11 @@ fn nested_repeat_stops_at_first_false_two_atom_valuation() {
 #[test]
 fn nested_repeat_valuation_charges_and_denial_precede_progress() {
     let (mut package, outer, nested) = nested_repeat_case();
-    let step = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .len()
-        - 1;
+    let later_control = nested + 1;
+    assert_eq!(
+        package["semantic_graph"]["nodes"][later_control]["declaration"]["qualified_name"],
+        json!(["Example", "OrderFlow", "run", "Main", "Holder", "Right"])
+    );
     let (a, b) = boolean_atoms(&mut package);
     let not_a = boolean_expression(
         &mut package,
@@ -9096,7 +9096,7 @@ fn nested_repeat_valuation_charges_and_denial_precede_progress() {
     assert_eq!(later.consumed, v + 1);
     assert_eq!(
         later.path.as_ref().map(ToString::to_string),
-        Some(format!("/semantic_graph/nodes/{step}"))
+        Some(format!("/semantic_graph/nodes/{later_control}"))
     );
     let t = decision_work(&package);
     assert!(matches!(
