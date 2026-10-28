@@ -416,10 +416,7 @@ fn field_entry(kind: CheckedNodeKind) -> bool {
     matches!(
         kind,
         CheckedNodeKind::Model(
-            ModelForm::ObjectType
-                | ModelForm::RecordValueType
-                | ModelForm::StateMachine
-                | ModelForm::Process
+            ModelForm::ObjectType | ModelForm::RecordValueType | ModelForm::StateMachine
         )
     )
 }

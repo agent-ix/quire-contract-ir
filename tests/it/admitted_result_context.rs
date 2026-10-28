@@ -1113,9 +1113,17 @@ fn ir987_scalar_and_result_results_bytes_and_work_match_admitted_fixture() {
         }
     }
     refresh_identity_projection(&mut prior_wire);
-    assert_eq!(
-        canonical(&prior_wire),
-        include_bytes!("../fixtures/ir987/scalar.json")
+    let prior_bytes = canonical(&prior_wire);
+    let expected_prior = include_bytes!("../fixtures/ir987/scalar.json");
+    assert!(
+        prior_bytes == expected_prior,
+        "IR987 scalar fixture differs at byte {:?} (actual {} bytes, expected {} bytes)",
+        prior_bytes
+            .iter()
+            .zip(expected_prior.iter())
+            .position(|(actual, expected)| actual != expected),
+        prior_bytes.len(),
+        expected_prior.len()
     );
     assert_eq!(
         *checked.package_id(),
