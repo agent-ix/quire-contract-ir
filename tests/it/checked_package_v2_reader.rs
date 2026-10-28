@@ -13,7 +13,7 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    read_checked_package, CheckedOccurrenceRole, CheckedPackageDispatchResult,
+    read_checked_package, CheckedNodeTag, CheckedOccurrenceRole, CheckedPackageDispatchResult,
     CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult, ExpressionForm, NominalIdentityPreimage,
@@ -2039,7 +2039,6 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
         "record_value_type",
         "event_type",
         "process",
-        "persistence_interface",
         "namespace",
         "systems_interface",
         "systems_part",
@@ -2094,6 +2093,15 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
         read(&state_machine, &evidence),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
+    let (persistence, evidence) = crate::checked_package_v2_refinement::selected_forms_package();
+    let result = read(&persistence, &evidence);
+    let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
+        panic!("selected persistence interface must admit: {result:?}");
+    };
+    assert!(admitted.graph().nodes.iter().any(|node| {
+        node.node_tag == CheckedNodeTag::Model
+            && node.semantic_form.as_ref() == "persistence_interface"
+    }));
     let mut export = base.clone();
     export["semantic_graph"]["nodes"][model]["semantic_form"] = json!("model_export");
     refresh_identity(&mut export);
