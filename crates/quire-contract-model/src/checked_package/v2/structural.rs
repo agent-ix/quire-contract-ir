@@ -334,6 +334,7 @@ pub(super) fn validate_structural_nodes(
     kinds: &[CheckedNodeKind],
     terms: &[Option<super::CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
+    stale_selected_targets: &BTreeSet<CheckedNodeId>,
 ) -> Result<(), ValidationFailure> {
     let graph = Graph {
         nodes,
@@ -425,7 +426,9 @@ pub(super) fn validate_structural_nodes(
                     None
                 }
             }
-            Some(StructuralForm::Parameter) => parameter_defect(node, term, &graph),
+            Some(StructuralForm::Parameter) => {
+                parameter_defect(node, term, &graph, stale_selected_targets)
+            }
             Some(StructuralForm::CompoundUnit) => compound_unit_defect(node, term, &graph),
             Some(StructuralForm::OperationAnchor) => term
                 .and_then(typed_anchor_body)
@@ -521,27 +524,30 @@ fn parameter_defect(
     node: &CheckedSemanticNodeV2,
     term: Option<&super::CheckedTerm>,
     graph: &Graph<'_>,
+    stale_selected_targets: &BTreeSet<CheckedNodeId>,
 ) -> Option<Defect> {
     let is_binder_type = node.semantic_type != node.node_id
-        && graph
-            .node(&node.semantic_type)
-            .is_some_and(|(type_node, kind)| {
-                // A binder may also be typed at a selected model value declaration.
-                kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
-                    || kind == CheckedNodeKind::Model(ModelForm::TupleValueType)
-                    || kind == CheckedNodeKind::Hybrid(super::HybridForm::Model)
-                    || (kind == CheckedNodeKind::Model(ModelForm::VariantType)
-                        && matches!(
-                            type_node.owner.as_ref(),
-                            Some(super::CheckedNodeOwner::Model { .. })
-                        ))
-                    || matches!(
-                        kind.tag(),
-                        CheckedNodeTag::ScalarType
-                            | CheckedNodeTag::CompositeType
-                            | CheckedNodeTag::BoundedDomain
-                    )
-            });
+        && ((graph.node(&node.semantic_type).is_none()
+            && stale_selected_targets.contains(&node.semantic_type))
+            || graph
+                .node(&node.semantic_type)
+                .is_some_and(|(type_node, kind)| {
+                    // A binder may also be typed at a selected model value declaration.
+                    kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
+                        || kind == CheckedNodeKind::Model(ModelForm::TupleValueType)
+                        || kind == CheckedNodeKind::Hybrid(super::HybridForm::Model)
+                        || (kind == CheckedNodeKind::Model(ModelForm::VariantType)
+                            && matches!(
+                                type_node.owner.as_ref(),
+                                Some(super::CheckedNodeOwner::Model { .. })
+                            ))
+                        || matches!(
+                            kind.tag(),
+                            CheckedNodeTag::ScalarType
+                                | CheckedNodeTag::CompositeType
+                                | CheckedNodeTag::BoundedDomain
+                        )
+                }));
     if !is_binder_type {
         return Some(Defect::SemanticType);
     }

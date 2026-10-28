@@ -2402,11 +2402,17 @@ impl ContractPackageWireV1 {
                 }
             }
         }
+        let stale_selected_targets = super::derived_keys::stale_selected_declaration_targets(
+            &self.semantic_graph.nodes,
+            &kinds,
+            limits.bytes,
+        );
         super::structural::validate_structural_nodes(
             &self.semantic_graph.nodes,
             &kinds,
             &terms,
             &positions,
+            &stale_selected_targets,
         )?;
         super::operations::validate_application_keys(
             &self.semantic_graph.nodes,

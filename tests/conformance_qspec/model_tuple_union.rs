@@ -124,6 +124,75 @@ fn published_model_tuple_union_wire_cases_match_reader_refusals() {
     assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
 }
 
+/// A selected declaration rekey may leave its old type key in a parameter.
+/// That dependent dangling reference waits for key authentication, while an
+/// independent graph defect still wins and ordinary stale keys keep digest order.
+/// Provenance: IR-1059, QSpec FR-322 graph-shape and stale-key precedence.
+#[test]
+fn selected_declaration_rekey_preserves_independent_refusal_order() {
+    let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let vectors = read_json(&proposal.join("model-tuple-union-vectors.json"))
+        .expect("published tuple/union vectors");
+    let selected_path = vectors["selected_document"]
+        .as_str()
+        .expect("selected document path");
+    let selected = read_json(&proposal.join(selected_path)).expect("selected document");
+    let digest = canonical_digest(&selected);
+    let mut evidence = CheckedPackageEvidence::new();
+    evidence
+        .insert_domain_package_document(digest, super::fixture_support::canonical(&selected))
+        .expect("selected document evidence");
+    evidence.support_feature("quire.value.complete/v1");
+    let base = read_json(&fixtures.join("positive-model-tuple-union.json"))
+        .expect("published positive package");
+    let tw05 = vectors["wire_cases"]
+        .as_array()
+        .expect("published wire rows")
+        .iter()
+        .find(|row| row["id"] == "TW-05")
+        .expect("published stale tuple row");
+    let mut rekeyed = base.clone();
+    for patch in tw05["patch"].as_array().expect("published patch list") {
+        apply_wire_patch(&mut rekeyed, patch);
+    }
+    rekeyed["semantic_graph"]["nodes"][31]["dependencies"] = json!([]);
+    super::fixture_support::refresh_identity(&mut rekeyed);
+    let result = CheckedPackageV2::read(
+        &super::fixture_support::canonical(&rekeyed),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("independent graph defect must refuse: {result:?}");
+    };
+    assert_eq!(refusal.code, Code::InvalidSemanticGraph);
+    assert_eq!(refusal.cause, None);
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        Some("/semantic_graph/nodes/31/dependencies")
+    );
+
+    let mut two_stale = base;
+    two_stale["semantic_graph"]["nodes"][0]["body"] = tw05["patch"][0]["value"]["body"].clone();
+    two_stale["semantic_graph"]["nodes"][14]["body"]["members"][0]["value"]["value"] = json!("qq");
+    super::fixture_support::refresh_identity(&mut two_stale);
+    let result = CheckedPackageV2::read(
+        &super::fixture_support::canonical(&two_stale),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("lower-digest structural stale key must refuse: {result:?}");
+    };
+    assert_eq!(refusal.code, Code::InvalidPackage);
+    assert_eq!(refusal.cause, Some(Cause::StaleNodeKey));
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        Some("/semantic_graph/nodes/14/node_id")
+    );
+}
+
 /// Translate the published projection mutation to the corresponding member of
 /// QSpec's full Semantic IR document. The projection ordinals are represented
 /// by position identities in that document.

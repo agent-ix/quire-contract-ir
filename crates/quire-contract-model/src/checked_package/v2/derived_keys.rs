@@ -6,8 +6,8 @@
 
 use super::encode::GroupBody;
 use super::model_members::{
-    structural_key, CollectionKind, MemberType, StructuralPreimage, StructuralRecursion,
-    StructuralType,
+    declaration_key, structural_key, CollectionKind, DeclarationForm, MemberType,
+    StructuralPreimage, StructuralRecursion, StructuralType,
 };
 use super::structural::{
     aggregate_members, binding, is_integer_bound, is_non_negative_integer, reference_target,
@@ -22,7 +22,45 @@ use crate::checked_package::shared::{
 };
 use quire_canonical::{Encode, Error, Sink, Writer};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+
+/// A rekeyed selected declaration can leave a parameter pointing at its old,
+/// correctly derived key. That dependent reference is resolved after the key
+/// stage; it must not turn TW-05 into a graph-shape refusal.
+pub(super) fn stale_selected_declaration_targets(
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    bytes: u64,
+) -> BTreeSet<CheckedNodeId> {
+    nodes
+        .iter()
+        .zip(kinds)
+        .filter(|(node, kind)| selected_model_tuple_or_variant(node, **kind))
+        .filter_map(|(node, kind)| {
+            let super::CheckedNodeOwner::Model {
+                identity,
+                node: owner_node,
+            } = node.owner.as_ref()?
+            else {
+                return None;
+            };
+            let form = match kind {
+                CheckedNodeKind::Model(super::ModelForm::TupleValueType) => {
+                    DeclarationForm::TupleValueType
+                }
+                CheckedNodeKind::Model(super::ModelForm::VariantType) => {
+                    DeclarationForm::VariantType
+                }
+                _ => return None,
+            };
+            let derived = declaration_key(identity, form, owner_node, bytes).ok()?;
+            (derived != node.node_id.digest.as_ref()).then_some(CheckedNodeId {
+                domain: NODE_DOMAIN.into(),
+                digest: derived.into(),
+            })
+        })
+        .collect()
+}
 
 /// One of the ten shapes whose key the reader derives.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -401,7 +439,11 @@ pub(super) fn validate_derived_keys(
             continue;
         };
         if selected_model_tuple_or_variant(node, kind) {
-            // These keys were authenticated before structural references.
+            // Authenticate selected declarations in the same retained-digest
+            // order as every other structural key. Their preimage has no
+            // semantic-type reference, so a later dangling reference cannot
+            // mask a stale selected declaration key (QSpec TW-05).
+            validate_selected_model_declaration_key(node, kind, terms, position, meter, bytes)?;
             continue;
         }
         if kind == CheckedNodeKind::Relation(super::RelationForm::Refinement) {
@@ -527,38 +569,28 @@ pub(super) fn validate_derived_keys(
     Ok(())
 }
 
-/// QSpec TW-05: authenticate selected tuple and variant declaration keys
-/// before another node's now-dangling semantic type can mask a stale key.
-pub(super) fn validate_selected_model_declaration_keys(
-    nodes: &[CheckedSemanticNodeV2],
-    kinds: &[CheckedNodeKind],
+fn validate_selected_model_declaration_key(
+    node: &CheckedSemanticNodeV2,
+    kind: CheckedNodeKind,
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    position: usize,
     meter: &mut WorkMeter,
     bytes: u64,
 ) -> Result<(), ValidationFailure> {
-    for (&node_id, &position) in index {
-        let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
-            continue;
-        };
-        if !selected_model_tuple_or_variant(node, kind) {
-            continue;
-        }
-        let at = || node_pointer(position).key("node_id");
-        meter.charge(1, at)?;
-        if !valid_derived_shape(node, kind, "", None, reference_target) {
-            return Err(stale(at(), node_id, None));
-        }
-        let Some(term) = terms.get(position).and_then(Option::as_ref) else {
-            return Err(encoder_failure(node_pointer(position).key("body")));
-        };
-        charge_terms(term, position, meter)?;
-        meter.charge(1, at)?;
-        let derived = structural_key(&node_preimage(node, None, None), bytes)
-            .map_err(|_| encoder_failure(at()))?;
-        if derived != node_id.digest.as_ref() {
-            return Err(stale(at(), node_id, Some(derived)));
-        }
+    let at = || node_pointer(position).key("node_id");
+    meter.charge(1, at)?;
+    if !valid_derived_shape(node, kind, "", None, reference_target) {
+        return Err(stale(at(), &node.node_id, None));
+    }
+    let Some(term) = terms.get(position).and_then(Option::as_ref) else {
+        return Err(encoder_failure(node_pointer(position).key("body")));
+    };
+    charge_terms(term, position, meter)?;
+    meter.charge(1, at)?;
+    let derived = structural_key(&node_preimage(node, None, None), bytes)
+        .map_err(|_| encoder_failure(at()))?;
+    if derived != node.node_id.digest.as_ref() {
+        return Err(stale(at(), &node.node_id, Some(derived)));
     }
     Ok(())
 }
