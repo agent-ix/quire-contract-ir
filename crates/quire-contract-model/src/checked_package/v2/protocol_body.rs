@@ -4412,6 +4412,8 @@ fn causal_edge(
 enum GuardOp {
     Constant(bool),
     Atom(usize),
+    Load(usize),
+    Store(usize),
     Not,
     And,
     Or,
@@ -4420,16 +4422,12 @@ enum GuardOp {
 
 enum GuardAtom<'a> {
     Node(&'a CheckedNodeId),
-    Inline(&'a CheckedTerm),
+    Inline,
 }
 
 impl GuardAtom<'_> {
     fn same_node(&self, id: &CheckedNodeId) -> bool {
         matches!(self, Self::Node(candidate) if *candidate == id)
-    }
-
-    fn same_inline(&self, term: &CheckedTerm) -> bool {
-        matches!(self, Self::Inline(candidate) if *candidate == term)
     }
 }
 
@@ -4454,6 +4452,7 @@ fn guard_never_exits(
             .map(GuardAtom::Node)
             .collect();
     let mut program = Vec::new();
+    let mut compiled = Vec::new();
     let guard = binding_value(args, "guard").expect("validated guard");
     let mut pending = vec![(guard, None, false)];
     while let Some((term, key, complete)) = pending.pop() {
@@ -4470,6 +4469,13 @@ fn guard_never_exits(
                 guard_connective(operation.identity(), arguments.len())
                     .expect("validated connective arity"),
             );
+            if let Some(id) = key {
+                let index = compiled
+                    .iter()
+                    .position(|candidate| candidate == &id)
+                    .expect("registered connective");
+                program.push(GuardOp::Store(index));
+            }
             continue;
         }
         if let Some(id) = key {
@@ -4485,6 +4491,10 @@ fn guard_never_exits(
                     .position(|candidate| candidate.same_node(target))
                 {
                     program.push(GuardOp::Atom(index));
+                    continue;
+                }
+                if let Some(index) = compiled.iter().position(|candidate| *candidate == target) {
+                    program.push(GuardOp::Load(index));
                     continue;
                 }
                 let target_position = *check.index.get(target).expect("validated guard reference");
@@ -4522,6 +4532,9 @@ fn guard_never_exits(
                 arguments,
                 ..
             } if guard_connective(operation.identity(), arguments.len()).is_some() => {
+                if let Some(id) = key {
+                    compiled.push(id);
+                }
                 pending.push((term, key, true));
                 for argument in arguments {
                     pending.push((argument, None, false));
@@ -4532,14 +4545,9 @@ fn guard_never_exits(
                     let index = atoms.len();
                     atoms.push(GuardAtom::Node(id));
                     index
-                } else if let Some(index) = atoms
-                    .iter()
-                    .position(|candidate| candidate.same_inline(term))
-                {
-                    index
                 } else {
                     let index = atoms.len();
-                    atoms.push(GuardAtom::Inline(term));
+                    atoms.push(GuardAtom::Inline);
                     index
                 };
                 program.push(GuardOp::Atom(index));
@@ -4548,6 +4556,7 @@ fn guard_never_exits(
     }
     let mut valuation = vec![false; atoms.len()];
     let mut values = Vec::with_capacity(program.len());
+    let mut cache = vec![false; compiled.len()];
     loop {
         meter.charge(1, || node_pointer(position))?;
         values.clear();
@@ -4555,6 +4564,10 @@ fn guard_never_exits(
             match op {
                 GuardOp::Constant(value) => values.push(*value),
                 GuardOp::Atom(index) => values.push(valuation[*index]),
+                GuardOp::Load(index) => values.push(cache[*index]),
+                GuardOp::Store(index) => {
+                    cache[*index] = *values.last().expect("validated connective result");
+                }
                 GuardOp::Not => {
                     let value = values.pop().expect("validated not operand");
                     values.push(!value);

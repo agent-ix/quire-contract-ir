@@ -12,8 +12,8 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedNodeId, CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits,
+    CheckedPackageRefusal, CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult, CheckedProtocolActivation, CheckedProtocolActivationRow,
     CheckedProtocolRefusalDetail,
 };
@@ -25,6 +25,51 @@ fn read(package: &Value) -> CheckedPackageV2ReadResult {
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
     )
+}
+
+fn read_at_work(package: &Value, work: u64) -> CheckedPackageV2ReadResult {
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = work;
+    CheckedPackageV2::read(&canonical(package), limits, &evidence_for(package))
+}
+
+fn decision_work(package: &Value) -> u64 {
+    let (mut lower, mut upper) = (0, CheckedPackageReadLimits::bounded().work);
+    assert!(matches!(
+        read_at_work(package, upper),
+        CheckedPackageV2ReadResult::Admitted(_) | CheckedPackageV2ReadResult::Refused(_)
+    ));
+    while lower + 1 < upper {
+        let middle = lower + (upper - lower) / 2;
+        if matches!(
+            read_at_work(package, middle),
+            CheckedPackageV2ReadResult::Incomplete(_)
+        ) {
+            lower = middle;
+        } else {
+            upper = middle;
+        }
+    }
+    upper
+}
+
+fn longest_nested_work_charge_run(package: &Value, nested: usize, boundary: u64) -> usize {
+    let path = format!("/semantic_graph/nodes/{nested}");
+    let mut run = 0;
+    let mut longest = 0;
+    for work in boundary.saturating_sub(32)..boundary + 32 {
+        if matches!(read_at_work(package, work), CheckedPackageV2ReadResult::Incomplete(ref incomplete)
+            if incomplete.limit_kind == CheckedPackageLimit::Work
+                && incomplete.path.as_ref().is_some_and(|candidate| candidate.as_str() == path)
+                && incomplete.consumed == work + 1)
+        {
+            run += 1;
+            longest = longest.max(run);
+        } else {
+            run = 0;
+        }
+    }
+    longest
 }
 
 fn read_with_model(
@@ -8662,13 +8707,14 @@ fn boolean_atoms(package: &mut Value) -> (Value, Value) {
     (first, second_target)
 }
 
-/// Trace: FR-038-AC-344, FR-038-AC-345, FR-038-AC-346, FR-038-AC-351
+/// Trace: FR-038-AC-344, FR-038-AC-345, FR-038-AC-346, FR-038-AC-351, FR-038-AC-355
 #[trace(
     "TC-048",
     "FR-038-AC-344",
     "FR-038-AC-345",
     "FR-038-AC-346",
-    "FR-038-AC-351"
+    "FR-038-AC-351",
+    "FR-038-AC-355"
 )]
 #[test]
 fn nested_repeat_guard_and_maximum_determine_outer_progress() {
@@ -8840,8 +8886,16 @@ fn set_nested_guard(package: &mut Value, nested: usize, guard: &Value, visible: 
 fn nested_repeat_keeps_visible_composites_and_ordered_equalities_as_atoms() {
     let (mut package, outer, nested) = nested_repeat_case();
     let (a, b) = boolean_atoms(&mut package);
-    let not_a = boolean_expression(&mut package, "quire.op.boolean.not", &[a.clone()]);
-    let not_b = boolean_expression(&mut package, "quire.op.boolean.not", &[b.clone()]);
+    let not_a = boolean_expression(
+        &mut package,
+        "quire.op.boolean.not",
+        std::slice::from_ref(&a),
+    );
+    let not_b = boolean_expression(
+        &mut package,
+        "quire.op.boolean.not",
+        std::slice::from_ref(&b),
+    );
     let a_or_not_a = boolean_expression(
         &mut package,
         "quire.op.boolean.or",
@@ -8893,7 +8947,11 @@ fn nested_repeat_keeps_visible_composites_and_ordered_equalities_as_atoms() {
 
     let equal = boolean_expression(&mut package, "quire.op.boolean.eq", &[a.clone(), b.clone()]);
     let reversed = boolean_expression(&mut package, "quire.op.boolean.eq", &[b, a]);
-    let not_equal = boolean_expression(&mut package, "quire.op.boolean.not", &[equal.clone()]);
+    let not_equal = boolean_expression(
+        &mut package,
+        "quire.op.boolean.not",
+        std::slice::from_ref(&equal),
+    );
     let same_identity = boolean_expression(
         &mut package,
         "quire.op.boolean.or",
@@ -8910,8 +8968,11 @@ fn nested_repeat_keeps_visible_composites_and_ordered_equalities_as_atoms() {
         "same equality atom: {:?}",
         read(&package)
     );
-    let not_reversed =
-        boolean_expression(&mut package, "quire.op.boolean.not", &[reversed.clone()]);
+    let not_reversed = boolean_expression(
+        &mut package,
+        "quire.op.boolean.not",
+        std::slice::from_ref(&reversed),
+    );
     let distinct_identity = boolean_expression(
         &mut package,
         "quire.op.boolean.or",
@@ -8962,11 +9023,196 @@ fn nested_repeat_stops_at_first_false_two_atom_valuation() {
     );
 }
 
+/// Trace: FR-038-AC-352, FR-038-AC-353
+#[trace("TC-048", "FR-038-AC-352", "FR-038-AC-353")]
+#[test]
+fn nested_repeat_valuation_charges_and_denial_precede_progress() {
+    let (mut package, outer, nested) = nested_repeat_case();
+    let (a, b) = boolean_atoms(&mut package);
+    let not_a = boolean_expression(
+        &mut package,
+        "quire.op.boolean.not",
+        std::slice::from_ref(&a),
+    );
+    let not_b = boolean_expression(
+        &mut package,
+        "quire.op.boolean.not",
+        std::slice::from_ref(&b),
+    );
+    let a_or_not_a = boolean_expression(&mut package, "quire.op.boolean.or", &[a.clone(), not_a]);
+    let b_or_not_b = boolean_expression(&mut package, "quire.op.boolean.or", &[b.clone(), not_b]);
+    let tautology = boolean_expression(
+        &mut package,
+        "quire.op.boolean.and",
+        &[a_or_not_a, b_or_not_b],
+    );
+    let disjunction = boolean_expression(&mut package, "quire.op.boolean.or", &[a, b]);
+    set_nested_guard(&mut package, nested, &disjunction, &[]);
+    let first_decision = decision_work(&package);
+    assert!(
+        matches!(read_at_work(&package, first_decision), CheckedPackageV2ReadResult::Refused(ref refusal)
+        if refusal.code == CheckedPackageRefusalCode::UnsupportedConstruct
+            && refusal.path.as_ref().is_some_and(|path| path.as_str() == format!("/semantic_graph/nodes/{outer}")))
+    );
+    assert!(longest_nested_work_charge_run(&package, nested, first_decision) < 4);
+    set_nested_guard(&mut package, nested, &tautology, &[]);
+    assert_eq!(
+        longest_nested_work_charge_run(&package, nested, first_decision),
+        4
+    );
+
+    package["semantic_graph"]["nodes"][nested]["body"]["arguments"][2]["value"]["members"] = json!([{
+        "term": "literal", "type": node_id(&family_key("a3a3")), "value_kind": "integer", "value": "0"
+    }]);
+    let mut exhausted_body = package["semantic_graph"]["nodes"][nested]["body"].clone();
+    exhausted_body["operation"]["member"]["operator"] = json!("check");
+    exhausted_body["arguments"] = json!([{
+        "term": "binding", "name": "condition", "value": {
+            "term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true
+        }
+    }]);
+    let exhausted = protocol_named_node(
+        "control",
+        &[
+            "Example",
+            "OrderFlow",
+            "run",
+            "Main",
+            "Holder",
+            "Left",
+            "Exhausted",
+        ],
+        exhausted_body,
+        &[],
+    );
+    let exhausted_target = exhausted["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(exhausted);
+    package["semantic_graph"]["nodes"][nested]["body"]["arguments"][6]["value"]["members"] =
+        json!([{"term": "reference", "target": exhausted_target}]);
+    settle(&mut package);
+    let zero_decision = decision_work(&package);
+    assert_eq!(
+        longest_nested_work_charge_run(&package, nested, zero_decision),
+        4,
+        "maximum zero must still run valuation"
+    );
+}
+
+/// Trace: FR-038-AC-356
+#[trace("TC-048", "FR-038-AC-356")]
+#[test]
+fn nested_repeat_causal_cycle_precedes_valuation_and_progress() {
+    let (mut package, children) = protocol_holder_case("await");
+    let holder = holder_position(&package);
+    let outer = children[1];
+    let (repeat_fixture, repeat_outer, repeat_inner) = nested_repeat_case();
+    let fence_body = repeat_fixture["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .last()
+        .expect("fence")["body"]
+        .clone();
+    let fence = protocol_named_node(
+        "control",
+        &[
+            "Example",
+            "OrderFlow",
+            "run",
+            "Main",
+            "Holder",
+            "Then",
+            "Inner",
+            "Body",
+        ],
+        fence_body,
+        &[],
+    );
+    let fence_target = fence["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(fence);
+    let mut inner_body = repeat_fixture["semantic_graph"]["nodes"][repeat_inner]["body"].clone();
+    inner_body["arguments"][5]["value"]["target"] = fence_target;
+    inner_body["arguments"][2]["value"]["members"] = json!([]);
+    inner_body["arguments"][6]["value"]["members"] = json!([]);
+    let inner = protocol_named_node(
+        "control",
+        &[
+            "Example",
+            "OrderFlow",
+            "run",
+            "Main",
+            "Holder",
+            "Then",
+            "Inner",
+        ],
+        inner_body,
+        &[],
+    );
+    let nested = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    let inner_target = inner["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(inner);
+    let mut outer_body = repeat_fixture["semantic_graph"]["nodes"][repeat_outer]["body"].clone();
+    outer_body["arguments"][5]["value"]["target"] = inner_target;
+    outer_body["arguments"][2]["value"]["members"] = json!([]);
+    outer_body["arguments"][6]["value"]["members"] = json!([]);
+    package["semantic_graph"]["nodes"][outer]["body"] = outer_body;
+    let (a, b) = boolean_atoms(&mut package);
+    let guard = boolean_expression(&mut package, "quire.op.boolean.or", &[a, b]);
+    set_nested_guard(&mut package, nested, &guard, &[]);
+    let decision = decision_work(&package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_at_work(&package, decision) else {
+        panic!("outer repeat must refuse after a complete valuation");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::UnsupportedConstruct,
+        "{refusal:?}"
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{outer}"))
+    );
+    let nested_path = format!("/semantic_graph/nodes/{nested}");
+    let nested_charges = (decision.saturating_sub(32)..decision).filter(|work| matches!(
+        read_at_work(&package, *work), CheckedPackageV2ReadResult::Incomplete(ref incomplete)
+            if incomplete.limit_kind == CheckedPackageLimit::Work
+                && incomplete.path.as_ref().is_some_and(|path| path.as_str() == nested_path)
+    )).collect::<Vec<_>>();
+    // Reverse progress visits this node after the single false valuation.
+    let denied = nested_charges[nested_charges.len() - 2];
+    let event = package["semantic_graph"]["nodes"][children[0]]["node_id"].clone();
+    package["semantic_graph"]["nodes"][holder]["body"]["arguments"][0]["value"]["members"][1]
+        ["value"]["target"] = event;
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_at_work(&package, denied) else {
+        panic!(
+            "causal cycle must win over denied valuation: {:?}",
+            read_at_work(&package, denied)
+        );
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::DefinitionCycle)
+    );
+}
+
 /// Trace: FR-038-AC-348
 #[trace("TC-048", "FR-038-AC-348")]
 #[test]
-fn sequence_sibling_supplies_step_when_nested_repeat_can_exit() {
-    let (mut package, _, sequence) = nested_repeat_case();
+fn nested_repeat_sequence_and_parallel_supply_step_but_choice_requires_each_case() {
+    let (mut package, outer, sequence) = nested_repeat_case();
     let sibling = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -9016,6 +9262,8 @@ fn sequence_sibling_supplies_step_when_nested_repeat_can_exit() {
         .as_array_mut()
         .expect("nodes")
         .push(inner);
+    let owner =
+        package["semantic_graph"]["nodes"][sequence]["body"]["arguments"][0]["value"].clone();
     let sequence_body = &mut package["semantic_graph"]["nodes"][sequence]["body"];
     sequence_body["operation"]["member"]["operator"] = json!("sequence");
     sequence_body["arguments"] = json!([{
@@ -9029,6 +9277,63 @@ fn sequence_sibling_supplies_step_when_nested_repeat_can_exit() {
         matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
         "sequence sibling: {:?}",
         read(&package)
+    );
+    let branch = |label: &str, target: &Value, guard: bool| {
+        json!({
+            "term": "aggregate", "members": [
+                {"term": "binding", "name": "label", "value": {"term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": label}},
+                {"term": "binding", "name": "guard", "value": {"term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": guard}},
+                {"term": "binding", "name": "body", "value": {"term": "reference", "target": target}}
+            ]
+        })
+    };
+    let mut left = branch("Left", &inner_target, true);
+    let mut right = branch("Right", &sibling_target, true);
+    left["members"].as_array_mut().expect("branch").remove(1);
+    right["members"].as_array_mut().expect("branch").remove(1);
+    let body = &mut package["semantic_graph"]["nodes"][sequence]["body"];
+    body["operation"]["member"]["operator"] = json!("parallel");
+    body["arguments"] = json!([
+        {"term": "binding", "name": "memory", "value": {"term": "aggregate", "members": []}},
+        {"term": "binding", "name": "branches", "value": {"term": "aggregate", "members": [left, right]}},
+        {"term": "binding", "name": "join", "value": {"term": "aggregate", "members": [
+            {"term": "binding", "name": "policy", "value": {"term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "all"}}
+        ]}},
+        {"term": "binding", "name": "joined", "value": {"term": "aggregate", "members": [
+            {"term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "Left"},
+            {"term": "literal", "type": node_id(&family_key("a1a1")), "value_kind": "text", "value": "Right"}
+        ]}},
+        {"term": "binding", "name": "outstanding", "value": {"term": "aggregate", "members": []}}
+    ]);
+    settle(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "parallel step: {:?}",
+        read(&package)
+    );
+    let body = &mut package["semantic_graph"]["nodes"][sequence]["body"];
+    body["operation"]["member"]["operator"] = json!("choice");
+    body["arguments"] = json!([
+        {"term": "binding", "name": "owner", "value": owner},
+        {"term": "binding", "name": "visible", "value": {"term": "aggregate", "members": []}},
+        {"term": "binding", "name": "cases", "value": {"term": "aggregate", "members": [
+            branch("Left", &inner_target, true), branch("Right", &sibling_target, true)
+        ]}}
+    ]);
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!(
+            "choice with one nonstepping case must refuse outer repeat: {:?}",
+            read(&package)
+        );
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::UnsupportedConstruct
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{outer}"))
     );
 }
 
@@ -9059,6 +9364,52 @@ fn nested_repeat_referenced_boolean_literal_is_constant() {
         "referenced literal: {:?}",
         read(&package)
     );
+    let (atom, _) = boolean_atoms(&mut package);
+    let guard = boolean_expression(&mut package, "quire.op.boolean.or", &[atom, literal_target]);
+    set_nested_guard(&mut package, nested, &guard, &[]);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "atom or true: {:?}",
+        read(&package)
+    );
+}
+
+/// Trace: FR-038-AC-354
+#[trace("TC-048", "FR-038-AC-354")]
+#[test]
+fn standalone_repeat_does_not_valuate_thirty_visible_atoms() {
+    let (mut package, _) = protocol_holder_case("repeat");
+    let repeat = holder_position(&package);
+    let (mut previous, _) = boolean_atoms(&mut package);
+    let mut visible = Vec::new();
+    for _ in 0..30 {
+        previous = boolean_expression(&mut package, "quire.op.boolean.not", &[previous]);
+        visible.push(previous.clone());
+    }
+    let guard = boolean_expression(
+        &mut package,
+        "quire.op.boolean.and",
+        &[visible[0].clone(), visible[1].clone()],
+    );
+    let true_guard = boolean_expression(
+        &mut package,
+        "quire.op.boolean.or",
+        &[visible[0].clone(), visible[1].clone()],
+    );
+    set_nested_guard(&mut package, repeat, &guard, &visible);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "standalone guard: {:?}",
+        read(&package)
+    );
+    let guard_work = decision_work(&package);
+    set_nested_guard(&mut package, repeat, &true_guard, &visible);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "true replacement: {:?}",
+        read(&package)
+    );
+    assert_eq!(decision_work(&package), guard_work);
 }
 
 /// Trace: FR-038-AC-290
