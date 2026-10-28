@@ -613,10 +613,10 @@ fn duration_tuple_position_projects_to_resolved_second_unit() {
             .expect("source map")
             .push(entry);
     }
-    let result = package["semantic_graph"]["nodes"][11]["body"]["operation"]["result_type"].clone();
+    let result = package["semantic_graph"]["nodes"][11]["body"]["result_type"].clone();
     assert_eq!(result, package["semantic_graph"]["nodes"][8]["node_id"]);
     let unit_id = timed["semantic_graph"]["nodes"][unit]["node_id"].clone();
-    package["semantic_graph"]["nodes"][11]["body"]["operation"]["result_type"] = unit_id.clone();
+    package["semantic_graph"]["nodes"][11]["body"]["result_type"] = unit_id.clone();
     package["semantic_graph"]["nodes"][11]["semantic_type"] = unit_id;
     package["lock"]["model_selections"][0]["digest"] = json!(digest);
     package["identity_preimage"]["model_selections"][0]["digest"] = json!(digest);
