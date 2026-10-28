@@ -404,7 +404,7 @@ closed_vocabulary! {
 closed_vocabulary! {
     /// The closed `clause` of a `quire.op.state.clause` application's
     /// `state_clause` member (QSpec FR-341).
-    pub(in crate::checked_package) StateClauseKind {
+    pub StateClauseKind {
         Invariant => "invariant",
         Constraint => "constraint",
         Precondition => "precondition",

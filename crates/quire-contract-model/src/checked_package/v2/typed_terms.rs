@@ -5,7 +5,7 @@
 //! has bounded term depth, so serde's recursion here is independent of input
 //! byte length.
 
-use super::{ApplicationOperator, BodyTerm, LiteralKind};
+use super::{ApplicationOperator, BodyTerm, LiteralKind, StateClauseKind};
 use super::{
     RefinementAssume, RefinementEnsure, RefinementHistory, RefinementKey, RefinementObject,
     RefinementPopulation, RefinementStep,
@@ -15,6 +15,109 @@ use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{error::Category, Value};
+
+/// An application operation whose state-clause point has a typed carrier.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CheckedApplicationOperation {
+    record: Value,
+    execution_point: Option<CheckedExecutionPoint>,
+}
+
+impl CheckedApplicationOperation {
+    /// Construct the catalogued state-clause operation without a JSON payload.
+    pub fn state_clause(
+        clause: StateClauseKind,
+        execution_point: Option<CheckedExecutionPoint>,
+    ) -> Self {
+        Self {
+            record: serde_json::json!({
+                "identity": "quire.op.state.clause", "laws": [], "mode": null,
+                "member": {"kind": "state_clause", "clause": clause}, "leaves": []
+            }),
+            execution_point,
+        }
+    }
+
+    /// The retained point of a state-clause application, if present.
+    pub fn execution_point(&self) -> Option<&CheckedExecutionPoint> {
+        self.execution_point.as_ref()
+    }
+
+    fn from_record(mut record: Value) -> Result<Self, &'static str> {
+        let execution_point =
+            if record.get("identity").and_then(Value::as_str) == Some("quire.op.state.clause") {
+                match record
+                    .get_mut("member")
+                    .and_then(Value::as_object_mut)
+                    .and_then(|member| member.remove("execution_point"))
+                {
+                    Some(point) => Some(
+                        CheckedExecutionPoint::from_wire(&point)
+                            .ok_or("invalid state-clause execution point")?,
+                    ),
+                    None => None,
+                }
+            } else {
+                None
+            };
+        Ok(Self {
+            record,
+            execution_point,
+        })
+    }
+
+    fn with_point(&self) -> Value {
+        let mut record = self.record.clone();
+        if let (Some(point), Some(member)) = (
+            &self.execution_point,
+            record.get_mut("member").and_then(Value::as_object_mut),
+        ) {
+            member.insert(
+                "execution_point".into(),
+                match point {
+                    CheckedExecutionPoint::Initialization { name } => {
+                        serde_json::json!({"kind": "initialization", "name": name})
+                    }
+                    CheckedExecutionPoint::Handler { name } => {
+                        serde_json::json!({"kind": "handler", "name": name})
+                    }
+                    CheckedExecutionPoint::Pre { operation } => {
+                        serde_json::json!({"kind": "pre", "operation": operation})
+                    }
+                    CheckedExecutionPoint::Post { operation } => {
+                        serde_json::json!({"kind": "post", "operation": operation})
+                    }
+                },
+            );
+        }
+        record
+    }
+}
+
+impl std::ops::Deref for CheckedApplicationOperation {
+    type Target = Value;
+    fn deref(&self) -> &Self::Target {
+        &self.record
+    }
+}
+
+impl Serialize for CheckedApplicationOperation {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.with_point().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for CheckedApplicationOperation {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::from_record(Value::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
+impl Encode for CheckedApplicationOperation {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.serialize(self)
+    }
+}
 
 /// A closed execution point carried by an admitted V2 anchor or state clause.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize, FixedShape)]
@@ -184,7 +287,7 @@ pub enum CheckedTerm {
         /// The closed operator class.
         operator: ApplicationOperator,
         /// The catalogued operation's closed wire record.
-        operation: Value,
+        operation: CheckedApplicationOperation,
         /// The declared result type node.
         result_type: CheckedNodeId,
         /// Typed argument terms in source order.
@@ -440,7 +543,7 @@ impl CheckedTerm {
                 arguments,
                 ..
             } => {
-                replace_node_ids_in_value(operation, old, new);
+                replace_node_ids_in_value(&mut operation.record, old, new);
                 replace(result_type, old, new);
                 for argument in arguments {
                     argument.replace_node_id(old, new);
