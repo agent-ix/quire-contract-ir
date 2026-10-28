@@ -2631,7 +2631,9 @@ fn tc_048_each_self_typed_shape_needs_its_id_and_type_changed_together() {
         "ordered_set",
     ] {
         let element = if form == "reference" {
-            family_key("1515")
+            // The base already contains Reference<Account>; use the other
+            // selected model declaration to keep this witness distinct.
+            family_key("1616")
         } else {
             base.zero.clone()
         };
