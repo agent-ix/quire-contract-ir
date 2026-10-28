@@ -2630,7 +2630,12 @@ fn tc_048_each_self_typed_shape_needs_its_id_and_type_changed_together() {
         "sequence",
         "ordered_set",
     ] {
-        let (key, member) = collection(form, &base.zero);
+        let element = if form == "reference" {
+            family_key("1515")
+        } else {
+            base.zero.clone()
+        };
+        let (key, member) = collection(form, &element);
         let package = with_nodes(base.package.clone(), vec![member]);
         assert_self_type_control(form, &package, &key);
     }

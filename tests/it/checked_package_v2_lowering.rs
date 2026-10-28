@@ -646,15 +646,17 @@ fn forms_package(scalar_form: &str, composite_form: &str) -> Forms {
         composite_form,
         "option" | "reference" | "set" | "bag" | "sequence" | "ordered_set"
     );
+    let reference_target =
+        (composite_form == "reference").then(|| checked_package::family_key("1515"));
     let (composite_key, composite) = if self_typed {
-        let body = checked_package::over_body(&scalar_key);
+        let body = checked_package::over_body(reference_target.as_deref().unwrap_or(&scalar_key));
         let key = checked_package::structural_key("composite_type", composite_form, None, &body);
         let composite = node(
             &key,
             "composite_type",
             composite_form,
             &key,
-            &[&scalar_key],
+            &[reference_target.as_deref().unwrap_or(&scalar_key)],
             body,
         );
         (key, composite)
@@ -676,7 +678,7 @@ fn forms_package(scalar_form: &str, composite_form: &str) -> Forms {
         (key, composite)
     };
     let mut value = v2_all_families();
-    value["semantic_graph"]["nodes"] = json!([
+    let mut nodes = json!([
         node(
             &scalar_key,
             "scalar_type",
@@ -695,6 +697,22 @@ fn forms_package(scalar_form: &str, composite_form: &str) -> Forms {
             empty()
         ),
     ]);
+    if composite_form == "reference" {
+        let mut selected = value["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| {
+                node["node_id"] == checked_package::node_id(&checked_package::family_key("1515"))
+            })
+            .expect("selected Account")
+            .clone();
+        selected["dependencies"] = json!([]);
+        nodes.as_array_mut().expect("nodes").push(selected);
+    } else {
+        value["lock"]["model_selections"] = json!([]);
+    }
+    value["semantic_graph"]["nodes"] = nodes;
     checked_package::rebuild_source_map(&mut value);
     refresh_identity(&mut value);
     Forms {

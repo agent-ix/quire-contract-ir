@@ -112,6 +112,31 @@ pub fn family_model_document() -> Value {
     })
 }
 
+/// Adds the selected Account declaration as a valid `Reference` target to a
+/// synthetic package that otherwise contains only anonymous or nominal nodes.
+pub fn add_family_reference_target(package: &mut Value) -> String {
+    let key = family_key("1515");
+    let selected = v2_all_families();
+    let selection = selected["lock"]["model_selections"][0].clone();
+    package["lock"]["model_selections"]
+        .as_array_mut()
+        .expect("model selections")
+        .push(selection);
+    let mut declaration = selected["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_id"] == node_id(&key))
+        .expect("selected Account")
+        .clone();
+    declaration["dependencies"] = json!([]);
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(declaration);
+    key
+}
+
 /// The exact minimum `work` `CheckedPackageV2::read` charges to admit
 /// `v2_all_families()`. Measured by binary search directly against the real
 /// reader — the same technique

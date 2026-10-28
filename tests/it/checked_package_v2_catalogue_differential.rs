@@ -4,8 +4,9 @@
 //! Catalogue-wide admission differential for the IR-225 member-result rule.
 
 use crate::support::checked_package::{
-    application_node_key, canonical, evidence_for, family_key, node_id, nominal_fixture_members,
-    nominal_package, rebuild_source_map, refresh_identity, settle, structural_key,
+    add_family_reference_target, application_node_key, canonical, evidence_for, family_key,
+    node_id, nominal_fixture_members, nominal_package, rebuild_source_map, refresh_identity,
+    settle, structural_key,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -513,7 +514,8 @@ pub(super) fn admitted_fixture(identity: &str) -> Option<Value> {
             );
         }
         "quire.op.reference.upcast" => {
-            let reference_type = composite(&mut f.package, "reference", &u);
+            let target = add_family_reference_target(&mut f.package);
+            let reference_type = composite(&mut f.package, "reference", &target);
             let expression = expression_reference(&mut f.package, &f.left.clone(), &reference_type);
             application(
                 &mut f,
@@ -527,7 +529,8 @@ pub(super) fn admitted_fixture(identity: &str) -> Option<Value> {
             );
         }
         "quire.op.model.all_instances" => {
-            let reference_type = composite(&mut f.package, "reference", &u);
+            let target = add_family_reference_target(&mut f.package);
+            let reference_type = composite(&mut f.package, "reference", &target);
             let set = composite(&mut f.package, "set", &reference_type);
             let pop = population(&mut f, &reference_type);
             application(
@@ -542,7 +545,8 @@ pub(super) fn admitted_fixture(identity: &str) -> Option<Value> {
             );
         }
         "quire.op.model.lookup" => {
-            let reference_type = composite(&mut f.package, "reference", &u);
+            let target = add_family_reference_target(&mut f.package);
+            let reference_type = composite(&mut f.package, "reference", &target);
             let option = composite(&mut f.package, "option", &u);
             let pop = population(&mut f, &reference_type);
             let expression = expression_reference(&mut f.package, &f.left.clone(), &reference_type);
