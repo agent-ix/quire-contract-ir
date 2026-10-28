@@ -136,6 +136,38 @@ another root reaches it. Neither case SHALL synthesize a root closure.
 This read-only view SHALL leave the admitted six-field FR-330 wire and its
 identity unchanged.
 
+For each represented application operation in a package assembled from an
+admitted V2 source, lowering SHALL carry that source operation's validated
+typed views into the `ContractPackageV1` term at the same `CheckedNodeId`.
+The source and lowered terms SHALL compare equal, including populated views
+and legitimate absence: `mode()`, `law_definitions()` and
+`member_declaration()` SHALL report the same admitted typed values on both.
+Lowering SHALL NOT derive these views by deserializing the emitted operation
+JSON or by accepting an unvalidated term as admitted. The retained views are
+read-only admission facts, not new FR-330 wire members, and SHALL leave the
+six wire members, canonical bytes and identity unchanged.
+
+Contract IR SHALL distinguish authenticated operation views from an operation
+with no such views on a `ContractPackageV1` term reconstructed by strict
+reading of V1 wire bytes. The strict reader SHALL offer an explicit authenticated source
+handoff accepting the reader-admitted V2 source package as an input. Before
+installing views, it SHALL compare the V1 wire's source package identity and
+lock with that source and, for every represented operation, its full node key,
+kind, semantic type, dependencies and body with the admitted source node.
+Only the corresponding source term's validated views may be installed. A
+missing or mismatched source or represented operation SHALL return a typed
+refusal, not an admitted package with partial views. Contract IR's authenticated
+read SHALL preserve the existing strict wire, correspondence, identity, dependency
+and limit checks; supplying a source SHALL NOT bypass or reorder them. Where
+the reader has no authenticated source, Contract IR's public operation-view
+accessors SHALL return the typed `NotAdmitted` refusal specified by FR-038.
+They SHALL NOT report an admitted empty law list or absent mode/member. A consumer
+requiring operation facts to generate behavior SHALL use the authenticated
+handoff or propagate this refusal rather than silently skip that behavior.
+The ordinary represented node and typed body lookups of FR-035-AC-22 remain
+available; their existing equality requirement is not relaxed by the view
+provenance rule.
+
 The admitted package SHALL retain each represented local node's exact
 `CheckedNodeKind`, aligned with that node after canonical graph ordering,
 including recursion-group member ordering. Lowering SHALL carry the kind from
@@ -214,6 +246,10 @@ admit no `ContractPackageV1`.
 | FR-035-AC-20 | For mixed accounting with an `unsupported` request whose node is absent from the represented graph, producer admission and strict reading return its exact typed `CheckedNodeTag` at its zero-based FR-330 `feature_accounting` index. Querying an out-of-range index or any non-`unsupported` record returns no tag, even when its requested node is represented; interposed consumer context or excluded requests do not shift this accounting index. | Test |
 | FR-035-AC-21 | Retaining kinds and unsupported tags changes none of the six FR-330 wire members, canonical bytes or identity; a malformed node kind or unsupported tag retains the strict reader's existing refusal code, location and precedence, and an exhausted limit still returns `Incomplete` without an admitted typed view. | Test |
 | FR-035-AC-22 | For every represented local key, both the producer's and strict reader's admitted `ContractPackageV1` return the exact node and the same optional `CheckedTerm` admitted from its source body through keyed lookups, independent of graph ordinal. An absent key returns no node or term. These retained lookups change no wire member, canonical byte or identity. | Test (TC-047) |
+| FR-035-AC-23 | PLANNED (IR-1087). For a V2 reader-admitted operation with a populated mode, ordered law definitions and member declaration, the producer's lowered `ContractPackageV1::term` at its exact key has the source term's equal validated views and returns the same typed values; the source and lowered `CheckedTerm` compare equal. Reordering represented graph nodes does not misassociate views, and lowering does not deserialize emitted operation JSON to construct them. | Test (TC-047) |
+| FR-035-AC-24 | PLANNED (IR-1087). For a V2 reader-admitted operation legitimately lacking mode, laws and member declaration, source and lowered terms compare equal, and each returns admitted absence or an admitted empty law view. The six FR-330 wire members, canonical bytes and identity are unchanged by view retention. | Test (TC-047) |
+| FR-035-AC-25 | PLANNED (IR-1087). A never-admitted direct-deserialized operation and a plain strict V1 reader term without authenticated V2 source return typed `NotAdmitted` for mode, law definitions and member declaration, distinctly from AC-24's admitted absence. A consumer with only `&ContractPackageV1` must use authenticated read or propagate that refusal; it cannot silently omit an operation-dependent behavior or parse JSON to recover the facts. | Test (TC-047) |
+| FR-035-AC-26 | PLANNED (IR-1087). With the exact reader-admitted V2 source supplied through an explicit authenticated handoff, strict reading the lowerer's canonical V1 bytes returns a `ContractPackageV1` whose represented operation terms and typed views equal the producer's and source's terms, including populated and legitimately absent values. A mismatched source identity or lock, absent represented source operation, or changed represented operation node refuses with a typed code and no partially admitted package, even when the V1 wire is internally canonical. The handoff retains the plain reader's wire, identity, dependency and limit decisions. The CG consumer's routed quantity-conversion and checked-graph association controls pass using only this admitted V1 value, without a JSON bridge. | Test (TC-047) |
 
 FR-035-AC-12 through FR-035-AC-14 are backed by tagged TC-047 reader tests in
 `tests/it/complete_v1_contract_package.rs`; the specified workspace test gate, lint, and grammar validation pass.

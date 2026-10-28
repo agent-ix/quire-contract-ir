@@ -12,7 +12,8 @@ relationships:
 
 ## Description
 
-Verify FR-035-AC-2, FR-035-AC-5 through FR-035-AC-8, and FR-035-AC-10 through FR-035-AC-18,
+Verify FR-035-AC-2, FR-035-AC-5 through FR-035-AC-8, FR-035-AC-10 through FR-035-AC-18,
+and planned FR-035-AC-23 through FR-035-AC-26,
 and the aggregate FR-330 package separately from TC-044's per-item semantic
 and refusal tests. Focused FR-330
 emitter and strict-reader controls run in
@@ -156,6 +157,29 @@ classification. Refused requests return their typed disposition;
 unrequested reached or absent roots return typed absence. No such query changes
 the six-field wire or identity.
 
+For FR-035-AC-23 through FR-035-AC-25, admit V2 source operations with
+populated mode, law definitions and member declaration and with all three
+legitimately absent. Lower each into an in-memory `ContractPackageV1` and
+compare the source and keyed lowered `CheckedTerm` for full equality, then
+compare each fallible typed accessor's admitted value. Repeat with represented
+nodes reordered; key lookup must still return the matching operation views.
+Compare canonical V1 bytes and identity before and after view retention.
+Construct a direct-deserialized term lacking validated views and read the
+canonical V1 package through its plain strict reader without V2 source evidence;
+assert the named typed `NotAdmitted` refusal, distinct from admitted absence.
+Read the same bytes through an explicit authenticated handoff with the exact
+reader-admitted V2 source. Compare source, producer and reader terms and all
+three typed accessors, including their admitted absence cases. In otherwise
+canonical V1 packages, separately supply a wrong source identity, wrong lock,
+absent represented operation and changed represented operation body; each
+must return a typed refusal and no partial package. Repeat the plain reader's
+strict wire, identity, dependency and limit probes through the authenticated
+handoff to show it does not bypass or reorder those decisions. At a consumer
+holding only `&ContractPackageV1`, use the authenticated value to assert
+routed quantity conversion and checked-graph association, and assert a
+refused view cannot silently omit an operation-dependent step or cause a
+fallback JSON parse.
+
 ## Status
 
 Implemented with focused tests in `tests/it/complete_v1_contract_package.rs`
@@ -176,3 +200,4 @@ assert the specified cause and path. TC-044's FR-330 status remains
 PLANNED/UNRUN.
 The tagged nested-refusal test backs FR-035-AC-17 for both reader codes.
 The tagged dependency-diamond test backs FR-035-AC-18 with both typed paths.
+FR-035-AC-23 through FR-035-AC-26 are PLANNED/UNRUN (IR-1087).
