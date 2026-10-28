@@ -9,13 +9,13 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedCapability, CheckedDiagnosticsV2, CheckedPackageEvidence,
-    CheckedPackageIdentityPreimageRefV2, CheckedPackageIdentityPreimageV2, CheckedPackageLockV2,
-    CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedRefinementStepRowRegion,
-    CheckedSemanticGraphV2, CheckedSemanticId, CheckedSourceMapEntry, CheckedTerm,
-    RefinementClassCatalog, RefinementConcreteClass, RefinementDrain, RefinementMemoryClass,
-    RefinementMemoryModel, RefinementTsoModel,
+    encode_checked_package_v2, CheckedCapability, CheckedDiagnosticsV2, CheckedOccurrenceRole,
+    CheckedPackageEvidence, CheckedPackageIdentityPreimageRefV2, CheckedPackageIdentityPreimageV2,
+    CheckedPackageLockV2, CheckedPackageReadLimits, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedRefinementStepRowRegion, CheckedSemanticGraphV2, CheckedSemanticId,
+    CheckedSourceMapEntry, CheckedTerm, RefinementClassCatalog, RefinementConcreteClass,
+    RefinementDrain, RefinementMemoryClass, RefinementMemoryModel, RefinementTsoModel,
 };
 use serde_json::{json, Value};
 
@@ -3615,6 +3615,334 @@ fn refinement_step_regions_bind_generated_occurrences_before_row_join() {
         })
         .expect("generated step");
     invalid_value_at(read(&wrong, &evidence), &format!("/source_map/{at}"));
+}
+
+#[trace("TC-062", "FR-061-AC-8")]
+#[test]
+fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
+    let (mut empty, empty_evidence) = machine_package();
+    row_empty_refinement(&mut empty);
+    let (one, one_evidence, one_position) = catalog_free_operation_package("object_type");
+    let (mut two, two_evidence, two_position) = catalog_free_operation_package("state_machine");
+    let source_anchor = two["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "operation_anchor")
+        .expect("first anchor")
+        .clone();
+    let mut second_anchor = source_anchor.clone();
+    second_anchor["body"]["members"][1]["value"]["value"] = json!("toggleAgain");
+    let context = second_anchor["semantic_type"]["digest"]
+        .as_str()
+        .expect("context digest");
+    second_anchor["node_id"] = node_id(&structural_key(
+        "state",
+        "operation_anchor",
+        Some(context),
+        &second_anchor["body"],
+    ));
+    let second_id = second_anchor["node_id"].clone();
+    two["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(second_anchor);
+    let source = two["lock"]["sources"][0].clone();
+    two["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(json!({
+            "node_id":second_id,"role":"anchor","ordinal":0,
+            "regions":[{"source":source,"start":10,"end":11}]
+        }));
+    append_catalog_free_step(&mut two, two_position, "toggleAgain");
+    let node = &mut two["semantic_graph"]["nodes"][two_position];
+    node["body"]["steps"][1]["source_node"] = second_id.clone();
+    let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
+    dependencies.push(second_id);
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    node["body"]["steps"]
+        .as_array_mut()
+        .expect("steps")
+        .sort_by(|left, right| {
+            left["source_node"]["digest"]
+                .as_str()
+                .cmp(&right["source_node"]["digest"].as_str())
+        });
+    rekey_refinement(&mut two, two_position);
+    for (package, evidence, position, generated) in [
+        (
+            &empty,
+            &empty_evidence,
+            empty["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .len()
+                - 1,
+            1,
+        ),
+        (&one, &one_evidence, one_position, 2),
+        (&two, &two_evidence, two_position, 3),
+    ] {
+        let CheckedPackageV2ReadResult::Admitted(admitted) = read(package, evidence) else {
+            panic!(
+                "proof-eligible refinement refused: {:?}",
+                read(package, evidence)
+            );
+        };
+        let owner = &admitted.graph().nodes[position];
+        assert_eq!(
+            admitted.graph().nodes.len(),
+            package["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .len(),
+            "reader must retain generated occurrences on the owner"
+        );
+        let occurrences: Vec<_> = admitted
+            .source_map()
+            .iter()
+            .filter(|entry| entry.node_id == owner.node_id)
+            .map(|entry| (entry.role.clone(), entry.ordinal))
+            .collect();
+        let mut expected = vec![(CheckedOccurrenceRole::Declaration, 0)];
+        expected.extend((0..generated).map(|ordinal| (CheckedOccurrenceRole::Generated, ordinal)));
+        assert_eq!(occurrences, expected);
+        assert_eq!(owner.occurrences.len(), expected.len());
+    }
+
+    let (mut any, any_evidence, position) = catalog_free_operation_package("object_type");
+    let owner = &mut any["semantic_graph"]["nodes"][position];
+    owner["body"]["steps"][0]["target"] = json!({"kind":"any"});
+    rekey_refinement(&mut any, position);
+    let id = any["semantic_graph"]["nodes"][position]["node_id"].clone();
+    any["semantic_graph"]["nodes"][position]["occurrences"] =
+        json!([{"role":"declaration","ordinal":0}]);
+    any["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .retain(|entry| entry["node_id"] != id || entry["role"] == "declaration");
+    refresh_identity(&mut any);
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&any, &any_evidence) else {
+        panic!(
+            "any-target refinement refused: {:?}",
+            read(&any, &any_evidence)
+        );
+    };
+    assert_eq!(admitted.graph().nodes[position].occurrences.len(), 1);
+    let mut extra_generated = any.clone();
+    let source = extra_generated["lock"]["sources"][0].clone();
+    extra_generated["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(json!({
+            "node_id":id,"role":"generated","ordinal":0,
+            "regions":[{"source":source,"start":20,"end":30}]
+        }));
+    let at = extra_generated["source_map"]
+        .as_array()
+        .expect("source map")
+        .len()
+        - 1;
+    invalid_value_at(
+        read(&extra_generated, &any_evidence),
+        &format!("/source_map/{at}"),
+    );
+    assert_eq!(
+        admitted
+            .source_map()
+            .iter()
+            .filter(|entry| entry.node_id == admitted.graph().nodes[position].node_id)
+            .count(),
+        1
+    );
+
+    let (hidden, hidden_evidence, position) =
+        catalog_free_operation_package_with_inheritance("object_type", true);
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&hidden, &hidden_evidence) else {
+        panic!(
+            "hidden-field refinement refused: {:?}",
+            read(&hidden, &hidden_evidence)
+        );
+    };
+    assert_eq!(admitted.graph().nodes[position].occurrences.len(), 1);
+
+    let (mut history, history_evidence, position) = catalog_free_operation_package("object_type");
+    let nodes = history["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let object = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "object_type")
+        .expect("concrete object")["node_id"]
+        .clone();
+    let text_type = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "text")
+        .expect("text type")["node_id"]
+        .clone();
+    let owner = &mut history["semantic_graph"]["nodes"][position];
+    owner["body"]["histories"] = json!([{
+        "concrete_type":object,"name":"past","type":text_type,
+        "initial":{"term":"literal","type":text_type,"value_kind":"text","value":"old"},
+        "updates":[]
+    }]);
+    let dependencies = owner["dependencies"].as_array_mut().expect("dependencies");
+    dependencies.extend([object, text_type]);
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.dedup();
+    rekey_refinement(&mut history, position);
+    let id = history["semantic_graph"]["nodes"][position]["node_id"].clone();
+    history["semantic_graph"]["nodes"][position]["occurrences"] =
+        json!([{"role":"declaration","ordinal":0}]);
+    history["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .retain(|entry| entry["node_id"] != id || entry["role"] == "declaration");
+    refresh_identity(&mut history);
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&history, &history_evidence) else {
+        panic!(
+            "history refinement refused: {:?}",
+            read(&history, &history_evidence)
+        );
+    };
+    assert_eq!(admitted.graph().nodes[position].occurrences.len(), 1);
+}
+
+#[trace("TC-062", "FR-061-AC-8")]
+#[test]
+fn refinement_occurrence_entry_defects_and_missing_entry_have_exact_loci() {
+    let (baseline, evidence, position) = catalog_free_operation_package("object_type");
+    let id = baseline["semantic_graph"]["nodes"][position]["node_id"].clone();
+    let generated = baseline["source_map"]
+        .as_array()
+        .expect("source map")
+        .iter()
+        .position(|entry| {
+            entry["node_id"] == id && entry["role"] == "generated" && entry["ordinal"] == 0
+        })
+        .expect("initial obligation");
+    let mut duplicate = baseline.clone();
+    let repeated = duplicate["source_map"][generated].clone();
+    duplicate["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(repeated);
+    let duplicate_at = duplicate["source_map"]
+        .as_array()
+        .expect("source map")
+        .len()
+        - 1;
+    invalid_value_at(
+        read(&duplicate, &evidence),
+        &format!("/source_map/{duplicate_at}"),
+    );
+
+    for (role, ordinal) in [("type", 0), ("generated", 2)] {
+        let mut extra = baseline.clone();
+        let mut entry = extra["source_map"][generated].clone();
+        entry["role"] = json!(role);
+        entry["ordinal"] = json!(ordinal);
+        extra["source_map"]
+            .as_array_mut()
+            .expect("source map")
+            .push(entry);
+        let at = extra["source_map"].as_array().expect("source map").len() - 1;
+        invalid_value_at(read(&extra, &evidence), &format!("/source_map/{at}"));
+    }
+
+    let mut wrong_region = baseline.clone();
+    wrong_region["source_map"][generated]["regions"][0]["start"] = json!(21);
+    invalid_value_at(
+        read(&wrong_region, &evidence),
+        &format!("/source_map/{generated}"),
+    );
+
+    let mut missing = baseline;
+    missing["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .retain(|entry| {
+            !(entry["node_id"] == id && entry["role"] == "generated" && entry["ordinal"] == 1)
+        });
+    invalid_value_at(read(&missing, &evidence), "/source_map");
+}
+
+#[trace("TC-062", "FR-061-AC-8")]
+#[test]
+fn refinement_occurrence_defects_choose_lower_retained_digest_over_graph_order() {
+    let (mut package, evidence) = machine_package();
+    row_empty_refinement(&mut package);
+    let (mut stepped, _) = machine_package();
+    one_step_refinement(&mut stepped);
+    let stepped_node = stepped["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .last()
+        .expect("step owner")
+        .clone();
+    let stepped_id = stepped_node["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(stepped_node);
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .extend(
+            stepped["source_map"]
+                .as_array()
+                .expect("stepped source map")
+                .iter()
+                .filter(|entry| entry["node_id"] == stepped_id)
+                .cloned(),
+        );
+    package["refinement_step_rows"] = stepped["refinement_step_rows"].clone();
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let mut owners: Vec<_> = nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| node["semantic_form"] == "refinement")
+        .map(|(position, node)| (position, node["node_id"].clone()))
+        .collect();
+    assert_eq!(owners.len(), 2);
+    owners.sort_by(|left, right| left.1["digest"].as_str().cmp(&right.1["digest"].as_str()));
+    let (lower, higher) = (&owners[0].1, &owners[1].1);
+    let first = owners[0].0;
+    let second = owners[1].0;
+    if first < second {
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .swap(first, second);
+    }
+    let ordered = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    assert_eq!(ordered[first.min(second)]["node_id"], *higher);
+    assert_eq!(ordered[first.max(second)]["node_id"], *lower);
+    let mut lower_at = None;
+    for (entry_index, entry) in package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .iter_mut()
+        .enumerate()
+    {
+        if (entry["node_id"] == *lower || entry["node_id"] == *higher)
+            && entry["role"] == "generated"
+            && entry["ordinal"] == 0
+        {
+            entry["regions"][0]["start"] = json!(21);
+            if entry["node_id"] == *lower {
+                lower_at = Some(entry_index);
+            }
+        }
+    }
+    refresh_identity(&mut package);
+    let at = lower_at.expect("lower owner source map entry");
+    invalid_value_at(read(&package, &evidence), &format!("/source_map/{at}"));
 }
 
 #[test]
