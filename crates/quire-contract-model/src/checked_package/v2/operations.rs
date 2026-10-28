@@ -942,19 +942,22 @@ fn operation_defect(
         )));
     }
 
-    if let Some(failure) = check_operands(
-        application,
-        &operation,
-        entry,
-        graph,
-        owners,
-        catalog,
-        &mut OperationWork {
-            meter: &mut *meter,
-            structural: &mut structural,
-        },
-    )? {
-        return Ok(Some(failure));
+    let place_presence = check_place_presence(application, &operation, graph, owners, meter)?;
+    if !place_presence {
+        if let Some(failure) = check_operands(
+            application,
+            &operation,
+            entry,
+            graph,
+            owners,
+            catalog,
+            &mut OperationWork {
+                meter: &mut *meter,
+                structural: &mut structural,
+            },
+        )? {
+            return Ok(Some(failure));
+        }
     }
     if let Some(failure) =
         check_type_argument_member_result(application, &operation, entry, graph, owners, catalog)
@@ -2988,6 +2991,122 @@ fn check_state_result(
             CheckedPackageRefusalCause::OperatorIneligible,
         )
     })
+}
+
+/// The clock-place form of `present` uses the place's selector domains, not
+/// the catalog's ordinary one-option operand shape.
+fn check_place_presence(
+    application: Application<'_>,
+    operation: &OperationWire,
+    graph: &Graph<'_>,
+    owners: &ModelOwners<'_>,
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
+    if application.node.semantic_form.as_ref() != "presence_read"
+        || operation.identity.as_ref() != "quire.op.option.present"
+    {
+        return Ok(false);
+    }
+    let Some(arguments) = admitted_arguments(application, graph) else {
+        return Ok(false);
+    };
+    let first = arguments.first();
+    let place = first
+        .and_then(|argument| match argument {
+            CheckedTerm::Reference { target } => graph.index.get(target).copied(),
+            _ => None,
+        })
+        .filter(|&position| {
+            graph.kinds.get(position)
+                == Some(&CheckedNodeKind::TimedModel(super::TimedModelForm::Place))
+        });
+    let Some(place) = place else {
+        let option = first
+            .and_then(|argument| {
+                operand_type_node_typed(argument, graph.nodes, graph.kinds, graph.index)
+            })
+            .and_then(|type_id| resolve_selected_family(&type_id, graph, owners))
+            == Some("option");
+        if option {
+            return Ok(false);
+        }
+        return Err(application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            application.body(&["arguments"]).index(0),
+            CheckedPackageRefusalCause::OperatorIneligible,
+        ));
+    };
+    let Some(place_body) = graph.terms.get(place).and_then(Option::as_ref) else {
+        return Ok(false);
+    };
+    let Some((model, selectors)) = super::timed_model::place_template(place_body) else {
+        return Ok(false);
+    };
+    meter.charge(units(selectors.len()), || application.body(&["arguments"]))?;
+    if arguments.len() != selectors.len() + 2 {
+        return Err(application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            application.body(&["arguments"]),
+            CheckedPackageRefusalCause::OperatorIneligible,
+        ));
+    }
+    let result_type = graph
+        .terms
+        .get(application.position)
+        .and_then(Option::as_ref)
+        .and_then(|term| match term {
+            CheckedTerm::Application { result_type, .. } => Some(result_type),
+            _ => None,
+        });
+    if result_type
+        .and_then(|id| graph.index.get(id).copied())
+        .and_then(|position| graph.kinds.get(position))
+        != Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean))
+        || result_type != Some(&application.node.semantic_type)
+    {
+        return Err(application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            application.body(&["result_type"]),
+            CheckedPackageRefusalCause::OperatorIneligible,
+        ));
+    }
+    let owner_type = presence_value_type(&arguments[1], graph)
+        .and_then(|type_id| reference_target(&type_id, graph).or(Some(type_id)));
+    if owner_type.as_ref() != Some(model) {
+        return Err(application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            application.body(&["arguments"]).index(1),
+            CheckedPackageRefusalCause::TypeMismatch,
+        ));
+    }
+    for (offset, selector) in selectors.iter().enumerate() {
+        let argument_index = offset + 2;
+        let actual = presence_value_type(&arguments[argument_index], graph);
+        if actual.as_ref() != Some(*selector) {
+            return Err(application.refuse(
+                CheckedPackageRefusalCode::IllTyped,
+                application.body(&["arguments"]).index(argument_index),
+                CheckedPackageRefusalCause::TypeMismatch,
+            ));
+        }
+    }
+    Ok(true)
+}
+
+fn presence_value_type(argument: &CheckedTerm, graph: &Graph<'_>) -> Option<CheckedNodeId> {
+    match argument {
+        CheckedTerm::Reference { target } => {
+            let position = *graph.index.get(target)?;
+            let kind = *graph.kinds.get(position)?;
+            if is_type_shaped(kind) || kind.tag() == CheckedNodeTag::Model {
+                return None;
+            }
+            Some(graph.nodes.get(position)?.semantic_type.clone())
+        }
+        CheckedTerm::Literal { type_id, .. } => Some(type_id.clone()),
+        CheckedTerm::Application { result_type, .. } => Some(result_type.clone()),
+        _ => None,
+    }
 }
 
 /// FR-322 "Model-owned members" steps 2 to 4 for a `field` or `operation`
@@ -10117,6 +10236,193 @@ mod tests {
         assert!(catalog.family_fits("temporal", "any_term"));
         assert!(!catalog.family_fits("temporal", "boolean"));
         assert!(!catalog.family_fits("temporal", "any_value"));
+    }
+
+    /// Trace: FR-038-AC-337, FR-038-AC-338, TC-048.
+    /// Provenance: IR-1083, QSpec STD-526 PR-01..06 node records.
+    #[test]
+    fn ir1083_published_place_presence_nodes_check_owner_slots_and_refusal_loci() {
+        let Ok(root) = std::env::var("QUIRE_SPECIFICATION_DIR") else {
+            return;
+        };
+        let path = std::path::Path::new(&root)
+            .join("proposals/checked-package-v2/timed-slot-selector-vectors.json");
+        let bytes = std::fs::read(path).expect("published timed slot vectors");
+        let vectors: Value = serde_json::from_slice(&bytes).expect("published vector JSON");
+        let presence = &vectors["presence"];
+        let model =
+            presence["places"]["v"]["node"]["body"]["members"][0]["value"]["target"].clone();
+        let integer = json!({
+            "domain": NODE_DOMAIN,
+            "digest": vectors["type_nodes"]["integer"],
+        });
+        let reference_type = json!({
+            "domain": NODE_DOMAIN,
+            "digest": vectors["type_nodes"]["owner_reference_type"],
+        });
+        let boolean = presence["cases"][0]["node"]["semantic_type"].clone();
+        let support = |id: Value, tag: &str, form: &str, ty: Value, body: Value| {
+            serde_json::from_value::<CheckedSemanticNodeV2>(json!({
+                "node_id": id,
+                "schema_version": "quire.checked-semantic-graph/v2",
+                "node_tag": tag,
+                "semantic_form": form,
+                "semantic_type": ty,
+                "dependencies": [],
+                "occurrences": [],
+                "body": body,
+            }))
+            .expect("support node")
+        };
+        let cases = presence["cases"].as_array().expect("presence cases");
+        assert_eq!(cases.len(), 6);
+        for case in cases {
+            let id = case["id"].as_str().expect("case id");
+            let app: CheckedSemanticNodeV2 =
+                serde_json::from_value(case["node"].clone()).expect("published application");
+            let model_node: CheckedSemanticNodeV2 =
+                serde_json::from_value(vectors["model_join"]["node"].clone())
+                    .expect("published selected model node");
+            let mut nodes = vec![app, model_node];
+            for key in ["v", "q"] {
+                nodes.push(
+                    serde_json::from_value(presence["places"][key]["node"].clone())
+                        .expect("published place node"),
+                );
+            }
+            nodes.push(support(
+                reference_type.clone(),
+                "composite_type",
+                "reference",
+                reference_type.clone(),
+                json!({"term":"aggregate","members":[{"term":"reference","target":model.clone()}]}),
+            ));
+            nodes.push(support(
+                integer.clone(),
+                "scalar_type",
+                "integer",
+                integer.clone(),
+                json!({"term":"aggregate","members":[]}),
+            ));
+            nodes.push(support(
+                boolean.clone(),
+                "scalar_type",
+                "boolean",
+                boolean.clone(),
+                json!({"term":"aggregate","members":[]}),
+            ));
+            let owner_ids = [
+                cases[0]["node"]["body"]["arguments"][1]["target"].clone(),
+                cases[1]["node"]["body"]["arguments"][1]["target"].clone(),
+            ];
+            for owner_id in owner_ids {
+                nodes.push(support(
+                    owner_id,
+                    "value",
+                    "parameter",
+                    reference_type.clone(),
+                    json!({"term":"aggregate","members":[]}),
+                ));
+            }
+            for index_id in [
+                cases[1]["node"]["body"]["arguments"][2]["target"].clone(),
+                cases[2]["node"]["body"]["arguments"][2]["target"].clone(),
+            ] {
+                nodes.push(support(
+                    index_id,
+                    "value",
+                    "parameter",
+                    integer.clone(),
+                    json!({"term":"aggregate","members":[]}),
+                ));
+            }
+            let kinds = kinds_of(&nodes);
+            let terms = decoded_terms(&nodes);
+            let index: BTreeMap<_, _> = nodes
+                .iter()
+                .enumerate()
+                .map(|(position, node)| (&node.node_id, position))
+                .collect();
+            let graph = Graph {
+                nodes: &nodes,
+                kinds: &kinds,
+                terms: &terms,
+                index: &index,
+            };
+            let operation: super::OperationWire =
+                serde_json::from_value(nodes[0].body["operation"].clone())
+                    .expect("published present operation");
+            let actual = super::check_place_presence(
+                super::Application {
+                    node: &nodes[0],
+                    position: 0,
+                },
+                &operation,
+                &graph,
+                &ModelOwners::default(),
+                &mut WorkMeter::new(1_000),
+            );
+            if case["expected"] == "admitted" {
+                assert_eq!(actual, Ok(true), "{id}: published admission");
+            } else {
+                let Err(ValidationFailure::Refused(refusal)) = actual else {
+                    panic!("{id}: expected typed refusal, got {actual:?}");
+                };
+                assert_eq!(case["expected_code"], "ill_typed", "{id}: published code");
+                assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped, "{id}");
+                let cause = match case["expected_cause"].as_str() {
+                    Some("operator-ineligible") => CheckedPackageRefusalCause::OperatorIneligible,
+                    Some("type-mismatch") => CheckedPackageRefusalCause::TypeMismatch,
+                    other => panic!("{id}: unexpected published cause {other:?}"),
+                };
+                assert_eq!(refusal.cause, Some(cause), "{id}");
+                assert!(
+                    refusal
+                        .path
+                        .expect("refusal locus")
+                        .to_string()
+                        .ends_with(case["locus_suffix"].as_str().expect("published locus")),
+                    "{id}: refusal locus"
+                );
+            }
+        }
+    }
+
+    /// Trace: FR-038-AC-340, TC-048.
+    #[test]
+    fn ir1083_option_operand_keeps_the_catalogued_presence_form() {
+        let boolean = graph_node(
+            '2',
+            "scalar_type",
+            "boolean",
+            &node_id('2'),
+            json!({"term":"aggregate","members":[]}),
+        );
+        let option = graph_node(
+            '3',
+            "composite_type",
+            "option",
+            &node_id('3'),
+            json!({"term":"aggregate","members":[{"term":"reference","target":node_id('2')}]}),
+        );
+        let value = graph_node(
+            '4',
+            "value",
+            "option_value",
+            &node_id('3'),
+            json!({"term":"aggregate","members":[]}),
+        );
+        let mut application = custom_application_node(
+            "present",
+            plain_operation("quire.op.option.present"),
+            vec![json!({"term":"reference","target":node_id('4')})],
+        );
+        application.semantic_form = "presence_read".into();
+        assert_eq!(
+            defect_for_graph(vec![application, boolean, option, value]),
+            Ok(None),
+            "one Option value still takes the catalogued presence path"
+        );
     }
 
     /// FR-038-AC-69: a `temporal_interval` or `fairness` member on an entry

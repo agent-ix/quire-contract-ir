@@ -4,7 +4,8 @@
 //! Closed timed-model node wire shapes checked before identity validation.
 
 use super::model_members::{
-    Budget, MemberKind, ModelFailure, ModelOwners, Resolved, SelectedTypeRef,
+    Budget, CollectionKind, FieldDecl, MemberKind, ModelFailure, ModelOwners, NativeTypeRef,
+    Resolved, SelectedTypeRef,
 };
 use super::{
     CheckedNodeId, CheckedNodeOwner, CheckedTerm, CheckedTermView, LiteralKind,
@@ -524,9 +525,21 @@ fn path_step_kind(step: &CheckedTerm) -> Option<PathStepKind> {
     text_member(step, 0).and_then(PathStepKind::from_wire)
 }
 
+/// The selected model and selector type nodes of an already validated place template.
+pub(super) fn place_template(place: &CheckedTerm) -> Option<(&CheckedNodeId, Vec<&CheckedNodeId>)> {
+    let model = bound(place, 0).and_then(typed_target)?;
+    let steps = bound(place, 1).map(typed_members)?;
+    let selectors = steps
+        .iter()
+        .filter(|step| path_step_kind(step) == Some(PathStepKind::Slot))
+        .map(|step| bound(step, 2).and_then(typed_target))
+        .collect::<Option<Vec<_>>>()?;
+    Some((model, selectors))
+}
+
 enum RenderedCollectionType<'a> {
     Map(&'a str),
-    OtherCollection(&'a str),
+    OtherCollection(&'a str, &'static str),
     Other,
 }
 
@@ -536,46 +549,73 @@ impl<'a> RenderedCollectionType<'a> {
         if let Some(inner) = text.strip_prefix("Map<").and_then(|s| s.strip_suffix('>')) {
             return Self::Map(inner);
         }
-        for prefix in ["Sequence<", "Set<", "Bag<", "OrderedSet<"] {
+        for (prefix, kind) in [
+            ("Sequence<", "sequence"),
+            ("Set<", "set"),
+            ("Bag<", "bag"),
+            ("OrderedSet<", "ordered_set"),
+        ] {
             if let Some(inner) = text.strip_prefix(prefix).and_then(|s| s.strip_suffix('>')) {
-                return Self::OtherCollection(inner);
+                return Self::OtherCollection(inner, kind);
             }
         }
         Self::Other
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-enum CollectionKind {
-    Map,
-    Other,
+fn declared_field_type(field: &FieldDecl) -> Option<String> {
+    let element = match field.slot.type_ref.as_ref()? {
+        SelectedTypeRef::Native(NativeTypeRef::Clock) => "ix://quire/native/Clock".to_owned(),
+        SelectedTypeRef::Native(NativeTypeRef::Text) => "ix://quire/native/Text".to_owned(),
+        SelectedTypeRef::Declared(name) | SelectedTypeRef::Unit(name) => name.to_string(),
+        SelectedTypeRef::Map(key, value) => format!("Map<{key}, {value}>"),
+        _ => return None,
+    };
+    let multiplicity = field.slot.multiplicity;
+    let value = if (multiplicity.lower, multiplicity.upper) == (1, Some(1)) {
+        element
+    } else {
+        let kind = match CollectionKind::of(multiplicity.ordered, multiplicity.unique) {
+            CollectionKind::Set => "Set",
+            CollectionKind::Bag => "Bag",
+            CollectionKind::Sequence => "Sequence",
+            CollectionKind::OrderedSet => "OrderedSet",
+        };
+        format!("{kind}<{element}>")
+    };
+    Some(if field.optional {
+        format!("Option<{value}>")
+    } else {
+        value
+    })
 }
 
-impl CollectionKind {
-    #[ix_trace_rs::string_edge]
-    fn from_wire(text: &str) -> Self {
-        if text == "map" {
-            Self::Map
-        } else {
-            Self::Other
+fn terminal_clock(value: &str) -> bool {
+    let inner = value
+        .strip_prefix("Option<")
+        .and_then(|value| value.strip_suffix('>'))
+        .unwrap_or(value);
+    inner == "ix://quire/native/Clock"
+}
+
+fn selector_fits(
+    parent_type: &str,
+    collection: &str,
+    member_type: &str,
+    selector_kind: Option<CheckedNodeKind>,
+) -> bool {
+    match RenderedCollectionType::from_wire(parent_type) {
+        RenderedCollectionType::Map(inner) if collection == "map" => {
+            inner.split_once(", ").is_some_and(|(key, value)| {
+                key == "Text"
+                    && value == member_type
+                    && selector_kind == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Text))
+            })
         }
-    }
-}
-
-#[derive(Clone, Copy, Eq, PartialEq)]
-enum MapKeyKind {
-    Text,
-    Other,
-}
-
-impl MapKeyKind {
-    #[ix_trace_rs::string_edge]
-    fn from_wire(text: &str) -> Self {
-        if text == "Text" {
-            Self::Text
-        } else {
-            Self::Other
+        RenderedCollectionType::OtherCollection(_, kind) if collection == kind => {
+            selector_kind == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Integer))
         }
+        _ => false,
     }
 }
 
@@ -627,7 +667,7 @@ fn check_resolved_path(
                 .as_deref()
                 .and_then(|ty| match RenderedCollectionType::from_wire(ty) {
                     RenderedCollectionType::Map(_) => Some(ty.to_owned()),
-                    RenderedCollectionType::OtherCollection(inner) => Some(inner.to_owned()),
+                    RenderedCollectionType::OtherCollection(inner, _) => Some(inner.to_owned()),
                     RenderedCollectionType::Other => None,
                 })
         } else {
@@ -684,59 +724,57 @@ fn check_resolved_path(
                 return Err(fail(at));
             };
             let actual_declaring = field.identity.rsplit_once('/').map(|(owner, _)| owner);
-            let actual_type = match field.slot.type_ref.as_ref() {
-                Some(SelectedTypeRef::Native(super::model_members::NativeTypeRef::Clock)) => {
-                    "ix://quire/native/Clock".to_owned()
-                }
-                Some(SelectedTypeRef::Native(super::model_members::NativeTypeRef::Text)) => {
-                    "ix://quire/native/Text".to_owned()
-                }
-                Some(SelectedTypeRef::Declared(name) | SelectedTypeRef::Unit(name)) => {
-                    name.to_string()
-                }
-                Some(SelectedTypeRef::Map(key, value)) => format!("Map<{key}, {value}>"),
-                _ => return Err(fail(at)),
-            };
+            let actual_type = declared_field_type(field).ok_or_else(|| fail(at.clone()))?;
             if actual_declaring != declaring
                 || Some(field.identity.as_ref()) != identity
                 || actual_type != member_type.unwrap_or_default()
             {
                 return Err(fail(at));
             }
+            if steps.get(index + 1).and_then(path_step_kind) == Some(PathStepKind::Slot) {
+                let multiplicity = field.slot.multiplicity;
+                let expected = match field.slot.type_ref.as_ref() {
+                    Some(SelectedTypeRef::Map(..)) => {
+                        Some(("map", "0".to_owned(), "unbounded".to_owned()))
+                    }
+                    Some(_) if (multiplicity.lower, multiplicity.upper) != (1, Some(1)) => {
+                        let kind =
+                            CollectionKind::of(multiplicity.ordered, multiplicity.unique).form();
+                        Some((
+                            kind,
+                            multiplicity.lower.to_string(),
+                            multiplicity
+                                .upper
+                                .map_or_else(|| "unbounded".to_owned(), |upper| upper.to_string()),
+                        ))
+                    }
+                    _ => None,
+                };
+                if expected.as_ref().is_none_or(|(kind, lower, upper)| {
+                    collection != Some(*kind)
+                        || minimum != Some(lower.as_str())
+                        || maximum != Some(upper.as_str())
+                }) {
+                    return Err(fail(at));
+                }
+            }
         }
         if expected_identity.as_deref() != identity {
             return Err(fail(at));
         }
-        if step_kind == Some(PathStepKind::Slot)
-            && collection.map(CollectionKind::from_wire) == Some(CollectionKind::Map)
-        {
-            let Some(map_inner) = parent_type.as_deref().and_then(|name| {
-                match RenderedCollectionType::from_wire(name) {
-                    RenderedCollectionType::Map(inner) => Some(inner),
-                    _ => None,
-                }
-            }) else {
-                return Err(fail(at));
-            };
-            let Some((key_type, value_type)) = map_inner.split_once(", ") else {
-                return Err(fail(at));
-            };
-            let text_node = graph
-                .kinds
-                .iter()
-                .position(|kind| *kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Text))
-                .ok_or_else(|| fail(at.clone()))?;
-            let selector_target = bound(step, 2).and_then(typed_target);
-            let selector_position = selector_target
-                .and_then(|key| graph.index.get(key))
-                .copied();
-            let text_node_id = &graph.nodes[text_node].node_id;
-            if MapKeyKind::from_wire(key_type) != MapKeyKind::Text
-                || value_type != member_type.unwrap_or_default()
-                || selector_position
-                    .is_none_or(|selector| graph.nodes[selector].semantic_type != *text_node_id)
-            {
-                return Err(fail(at));
+        if step_kind == Some(PathStepKind::Slot) {
+            let step_at = binding_at(position, 1).key("members").index(index);
+            let selector_kind = bound(step, 2)
+                .and_then(typed_target)
+                .and_then(|target| graph.index.get(target).copied())
+                .and_then(|position| graph.kinds.get(position).copied());
+            if !selector_fits(
+                parent_type.as_deref().unwrap_or_default(),
+                text_member(step, 1).unwrap_or_default(),
+                member_type.unwrap_or_default(),
+                selector_kind,
+            ) {
+                return Err(fail(step_at));
             }
         }
         let next_kind = steps.get(index + 1).and_then(path_step_kind);
@@ -756,7 +794,11 @@ fn check_resolved_path(
         }
         expected_declaring = member_type.map(str::to_owned);
     }
-    if rows.last().and_then(|row| text_member(row, 3)) != Some("ix://quire/native/Clock") {
+    if !rows
+        .last()
+        .and_then(|row| text_member(row, 3))
+        .is_some_and(terminal_clock)
+    {
         return Err(fail(
             rows_at.key("members").index(rows.len().saturating_sub(1)),
         ));
@@ -1214,4 +1256,119 @@ pub(super) fn validate_models<'a>(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    /// Trace: FR-038-AC-335, FR-038-AC-339.
+    /// Provenance: IR-1083, QSpec STD-526 SL-01..08 and SR-01..04.
+    #[test]
+    fn ir1083_published_slot_selectors_match_their_type_nodes() {
+        let Ok(root) = std::env::var("QUIRE_SPECIFICATION_DIR") else {
+            return;
+        };
+        let path =
+            Path::new(&root).join("proposals/checked-package-v2/timed-slot-selector-vectors.json");
+        let bytes = std::fs::read(path).expect("published timed slot vectors");
+        let vectors: Value = serde_json::from_slice(&bytes).expect("published vector JSON");
+        let cases = vectors["cases"].as_array().expect("published slot cases");
+        assert_eq!(cases.len(), 12);
+        let mut seen = BTreeSet::new();
+        for case in cases {
+            let id = case["id"].as_str().expect("case id");
+            assert!(seen.insert(id));
+            let steps = case["node"]["body"]["members"][1]["value"]["members"]
+                .as_array()
+                .expect("place path");
+            let rows = case["node"]["body"]["members"][2]["value"]["members"]
+                .as_array()
+                .expect("resolved path");
+            assert_eq!(steps.len(), rows.len(), "{id}: resolved row count");
+            let mut checked = false;
+            for (index, step) in steps.iter().enumerate() {
+                if step["members"][0]["value"]["value"] != "slot" {
+                    continue;
+                }
+                checked = true;
+                let parent = rows[index - 1]["members"][3]["value"]["value"]
+                    .as_str()
+                    .expect("parent type");
+                let collection = step["members"][1]["value"]["value"]
+                    .as_str()
+                    .expect("collection kind");
+                let member = rows[index]["members"][3]["value"]["value"]
+                    .as_str()
+                    .expect("selected member type");
+                let selector = &step["members"][2]["value"];
+                let selector_kind = match selector["target"]["digest"].as_str() {
+                    Some(digest) if Some(digest) == vectors["type_nodes"]["integer"].as_str() => {
+                        Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Integer))
+                    }
+                    Some(digest) if Some(digest) == vectors["type_nodes"]["text"].as_str() => {
+                        Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Text))
+                    }
+                    Some(_) => Some(CheckedNodeKind::Expression(
+                        super::super::ExpressionForm::Query,
+                    )),
+                    None => None,
+                };
+                let fits = selector_fits(parent, collection, member, selector_kind);
+                assert_eq!(fits, case["expected"] == "admitted", "{id}: selector fit");
+            }
+            assert!(checked, "{id}: slot case has a slot step");
+        }
+        for ordinal in 1..=8 {
+            assert!(seen.contains(format!("SL-{ordinal:02}").as_str()));
+        }
+        for ordinal in 1..=4 {
+            assert!(seen.contains(format!("SR-{ordinal:02}").as_str()));
+        }
+    }
+
+    /// Trace: FR-038-AC-339.
+    #[test]
+    fn ir1083_optional_clock_terminal_unwraps_once() {
+        assert!(terminal_clock("Option<ix://quire/native/Clock>"));
+        assert!(terminal_clock("ix://quire/native/Clock"));
+        assert!(!terminal_clock("Option<Option<ix://quire/native/Clock>>"));
+    }
+
+    /// Trace: FR-038-AC-335, FR-038-AC-339.
+    #[test]
+    fn ir1083_selected_field_presence_and_multiplicity_render_the_clock_path_type() {
+        use super::super::model_members::{Multiplicity, TypedSlot};
+        let mut field = FieldDecl {
+            identity: "ix://acme/orders/Order/v".into(),
+            slot: TypedSlot {
+                name: Some("v".into()),
+                type_ref: Some(SelectedTypeRef::Native(NativeTypeRef::Clock)),
+                multiplicity: Multiplicity {
+                    lower: 1,
+                    upper: Some(1),
+                    ordered: false,
+                    unique: true,
+                },
+            },
+            optional: true,
+            redefines: None,
+        };
+        assert_eq!(
+            declared_field_type(&field).as_deref(),
+            Some("Option<ix://quire/native/Clock>")
+        );
+        field.optional = false;
+        field.slot.multiplicity = Multiplicity {
+            lower: 0,
+            upper: Some(3),
+            ordered: true,
+            unique: false,
+        };
+        assert_eq!(
+            declared_field_type(&field).as_deref(),
+            Some("Sequence<ix://quire/native/Clock>")
+        );
+    }
 }
