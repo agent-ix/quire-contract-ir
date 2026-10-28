@@ -11,6 +11,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-specification/FR-322-AC-132
     type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-135
+    type: references
   - target: ix://agent-ix/quire-specification/FR-375-AC-25
     type: references
 ---
@@ -94,12 +96,11 @@ refinement-header defect. The reader SHALL admit no partial package.
 
 A root whose closed `ModelRootOwner` identity/digest pair is absent from
 `model_selections` SHALL refuse the whole package, with no inferred
-selection or rewritten owner. QSpec FR-322-AC-132 assigns this case to the
-V2 schema, while FR-322's detailed owner-join order assigns it to a reader
-`missing_declaration`/`missing-selection` refusal at the node's `owner`.
-STD-500 must reconcile the published schema and reader and fix the exact
-stage, code, cause and RFC 6901 pointer before IR freezes this case's test
-oracle or claims admission. Neither interpretation is selected here.
+selection or rewritten owner. The V2 schema SHALL admit this well-formed
+root; the reader SHALL refuse `missing_declaration`/`missing-selection` in
+the owner join at `/semantic_graph/nodes/{i}/owner`, after earlier wire,
+selected-document, graph and occurrence defects and before root
+completeness. This follows QSpec FR-322-AC-135's resolved STD-500 rule.
 
 The reader SHALL resolve a refinement's local concrete `semantic_type` and
 local model-subject `abstract` key to the corresponding selected model roots.
@@ -117,7 +118,7 @@ continues to own the refinement body and its later header-join order.
 | FR-065-AC-2 | The root has absent `declaration`, `recursion_group` and nominal preimage, empty aggregate body and dependencies, and exactly one `generated` occurrence at ordinal zero whose source-map region is the source occurrence of the selected model package. A declaration occurrence, wrong role or ordinal, wrong or missing region, or extra occurrence refuses through FR-322's occurrence/source-map check; none is silently repaired. | Test |
 | FR-065-AC-3 | The root's node id equals the JCS SHA-256 of the exact closed `ModelDeclarationNode` preimage containing `ModelRootOwner` and `semantic_type: null`, including QSpec's published model-root vector. Changing only a source alias while preserving the selected identity and digest leaves the root id unchanged. A different selected identity or changed selected-package content gives a different identity or digest and, after rebuilding, different root and package ids. A retained stale root key refuses under FR-322's structural-key check. | Test |
 | FR-065-AC-4 | For zero, one and multiple object types or state machines in a selected model document, the package has exactly one root for that selection; zero selected packages produce no root. After earlier wire, selected-evidence, graph, occurrence, owner and key checks pass, a selection with no root refuses `invalid_semantic_graph` with no cause at `/semantic_graph/nodes`, in selected-row order before declaration and refinement meaning. Cloning a valid root as a second graph node refuses `invalid_semantic_graph` with no cause at the later `/semantic_graph/nodes/{j}/node_id` in graph shape, before key checking. Giving that second root a distinct retained id but the same owner pair refuses `invalid_package`/`stale-node-key` at its `/semantic_graph/nodes/{j}/node_id` in the structural-key stage; a prior graph defect wins. The reader never chooses a representative declaration or admits a partial package. | Test |
-| FR-065-AC-5 | An absent or extra `ModelRootOwner` member, a `ModelOwner` on a root, or a `ModelRootOwner` on another form refuses at the closed wire/owner-presence stage. A well-formed root whose owner identity/digest pair is not selected also refuses, without inferred selection or repaired owner; an earlier independent defect wins according to FR-322's order. The exact stage, code, cause and RFC 6901 pointer for this unselected-pair case remain pending QSpec STD-500, which must reconcile FR-322-AC-132, the detailed owner-join rule, the schema and an authoritative negative control before this portion is claimed or its test oracle fixed. | Test |
+| FR-065-AC-5 | An absent or extra `ModelRootOwner` member, a `ModelOwner` on a root, or a `ModelRootOwner` on another form refuses at the closed wire/owner-presence stage. A well-formed root whose owner identity/digest pair is not selected is admitted by the V2 schema and refuses `missing_declaration`/`missing-selection` in the reader's owner join at `/semantic_graph/nodes/{i}/owner`, without inferred selection or repaired owner; an earlier independent defect wins according to FR-322's order. QSpec's authoritative negative control MR-04 fixes that code, cause and pointer. | Test |
 | FR-065-AC-6 | A model-subject refinement uses the selected concrete root for `semantic_type` and the selected abstract root for its local `abstract` key, including an otherwise row-empty refinement. A protocol-subject refinement uses the abstract model root plus the exact protocol clause key. A root in a directly selected dependency resolves only through its package key. A header naming an object type, state machine, alias-derived surrogate, unselected dependency or wrong selected root refuses under FR-375's header joins after earlier FR-322 checks; the reader does not infer a substitute. | Test |
 | FR-065-AC-7 | An external consumer uses the public typed writer and strict reader to carry `model_root` and `ModelRootOwner` through the existing V2 graph and envelope; read/write/read retains the exact root owner, node id, package id and generated source correspondence. | Test |
 | FR-065-AC-8 | Source inspection finds one typed V2 graph and envelope path for the root, with no parallel untyped writer, fallback owner inference, compatibility reader, copied QSpec schema or fixture. | Inspection |
@@ -132,12 +133,14 @@ continues to own the refinement body and its later header-join order.
   admission; this requirement supplies the selected model-root carrier that
   its header joins require.
 - QSpec `ix://agent-ix/quire-specification/FR-322-AC-132` and
-  `ix://agent-ix/quire-specification/FR-375-AC-25` own the authoritative root
-  and refinement-header semantics.
+  `ix://agent-ix/quire-specification/FR-322-AC-135` own the selected root,
+  schema boundary and unselected-owner refusal.
+- QSpec `ix://agent-ix/quire-specification/FR-375-AC-25` owns the
+  refinement-header semantics.
 
 ## Status
 
-Planned. The measured IR typed owner and model-form vocabularies do not yet
-include `model_root`, so no reader or writer acceptance is claimed. The
-unselected-pair refusal oracle in AC-5 remains blocked by QSpec STD-500;
-the full refusal obligation remains in this requirement.
+In progress. The typed root carrier and reader are implemented; AC-5's
+unselected-owner refusal is fixed by merged QSpec STD-500. AC-2's source
+correspondence remains open for reconciliation with QSpec FR-322-AC-136;
+this requirement retains its full source-correspondence obligation.
