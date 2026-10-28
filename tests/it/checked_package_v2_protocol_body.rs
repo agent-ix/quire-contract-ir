@@ -3508,11 +3508,7 @@ fn listed_protocol_body_target_missing_from_graph_reaches_body_join() {
 fn listed_clause_targets_missing_from_graph_reach_their_body_joins() {
     let missing = node_id(&"f".repeat(64));
     for (label, mut package, ordinal) in [
-        (
-            "C13a compensation",
-            package_with_admitted_compensation().0,
-            8,
-        ),
+        ("C13a compensation", v2_all_families(), 8),
         ("A8a requirement", v2_all_families(), 7),
     ] {
         let clause = clause_position(&package);
