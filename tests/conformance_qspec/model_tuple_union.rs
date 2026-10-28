@@ -531,9 +531,10 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
     }
 }
 
-/// Trace: FR-069-AC-6. An admitted Duration position is usable as the
+/// An admitted Duration position is usable as the
 /// Quantity<s> result of a tuple projection when s is one second of its
-/// owner's Time. The upstream fixtures are read at test time.
+/// owner's Time. The upstream fixtures are read at test time. FR-069-AC-6
+/// remains open until the full published matrix passes.
 #[test]
 fn duration_tuple_position_projects_to_resolved_second_unit() {
     duration_projection_control(false);
