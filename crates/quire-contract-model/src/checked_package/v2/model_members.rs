@@ -31,7 +31,8 @@
 //!    `result_type` or argument type is compared by key.
 //!
 //! Scope. [`read_semantic_ir`] reads the declarations these steps consult:
-//! object types, record value types, variant types, systems interfaces,
+//! object types, processes, state machines, persistence interfaces,
+//! record value types, variant types, systems interfaces,
 //! integer value types and relationship declarations, with their cases,
 //! fields, operations, supertypes and member redefinitions. A type of any
 //! other FR-208 meaning is recorded as declared,
@@ -2566,7 +2567,7 @@ struct Scope<'v> {
     /// Type nodes whose own declaration is refused; a reference to one is
     /// not reported again, its own refusal stands for it (FR-154).
     refused: BTreeSet<&'v str>,
-    /// Field and operation members of the object types.
+    /// Field and operation members of selected field-bearing declarations.
     members: BTreeSet<Box<str>>,
     /// Relationship identities are collected before any declaration body is read.
     relationships: BTreeSet<&'v str>,
