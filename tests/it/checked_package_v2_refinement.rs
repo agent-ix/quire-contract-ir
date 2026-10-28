@@ -3847,7 +3847,31 @@ fn refinement_occurrence_entry_defects_and_missing_entry_have_exact_loci() {
 fn refinement_occurrence_defects_choose_lower_retained_digest_over_graph_order() {
     let (mut package, evidence) = machine_package();
     row_empty_refinement(&mut package);
-    one_step_refinement(&mut package);
+    let (mut stepped, _) = machine_package();
+    one_step_refinement(&mut stepped);
+    let stepped_node = stepped["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .last()
+        .expect("step owner")
+        .clone();
+    let stepped_id = stepped_node["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(stepped_node);
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .extend(
+            stepped["source_map"]
+                .as_array()
+                .expect("stepped source map")
+                .iter()
+                .filter(|entry| entry["node_id"] == stepped_id)
+                .cloned(),
+        );
+    package["refinement_step_rows"] = stepped["refinement_step_rows"].clone();
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes");
