@@ -593,6 +593,15 @@ fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
             json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[boolean]}),
         ],
     );
+    let refinement = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "refinement")
+        .expect("refinement");
+    base["semantic_graph"]["nodes"][refinement]["body"]["class_catalog"]["abstract"] = json!([{"class":"Gate::toggle", "node":extra[1]["node_id"],
+            "binder_types":[gate_reference]}]);
+    rekey_refinement(&mut base, refinement);
     let control = read(&base, &evidence);
     assert!(
         matches!(control, CheckedPackageV2ReadResult::Admitted(_)),
@@ -2798,7 +2807,7 @@ fn refinement_step_defect_precedes_wrong_protocol_clause_owner() {
         })],
     );
     package["semantic_graph"]["nodes"][refinement]["body"]["steps"][0]["source_class"] =
-        json!("OrderFlow::Closed");
+        json!("OrderFlow::finish::Closed");
     rekey_refinement(&mut package, refinement);
     let baseline = read(&package, &evidence);
     assert!(
@@ -3397,6 +3406,95 @@ fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
         "{admitted:?}"
     );
 
+    for (class_name, class_index, other_node) in [
+        ("Commit", 2, effect.clone()),
+        ("ForwardEffect", 5, commit.clone()),
+    ] {
+        let mut missing = package.clone();
+        let mut changed = entries.clone();
+        changed.remove(class_index);
+        set_concrete_catalog(&mut missing, changed);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&missing, &evidence) else {
+            panic!("omitted {class_name} admitted");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(
+                format!("/semantic_graph/nodes/{refinement}/body/class_catalog/concrete").as_str()
+            )
+        );
+
+        let mut duplicate = package.clone();
+        let mut changed = entries.clone();
+        changed.insert(class_index + 1, changed[class_index].clone());
+        set_concrete_catalog(&mut duplicate, changed);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&duplicate, &evidence) else {
+            panic!("duplicate {class_name} admitted");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(
+                format!(
+                    "/semantic_graph/nodes/{refinement}/body/class_catalog/concrete/{}",
+                    class_index + 1
+                )
+                .as_str()
+            )
+        );
+
+        let mut wrong_node = package.clone();
+        let mut changed = entries.clone();
+        changed[class_index]["node"] = other_node;
+        set_concrete_catalog(&mut wrong_node, changed);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_node, &evidence) else {
+            panic!("{class_name} associated with another node admitted");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration)
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(
+                format!(
+                    "/semantic_graph/nodes/{refinement}/body/class_catalog/concrete/{class_index}"
+                )
+                .as_str()
+            )
+        );
+
+        let mut wrong_binder = package.clone();
+        let mut changed = entries.clone();
+        changed[class_index]["binder_types"] = json!([receiver.clone()]);
+        set_concrete_catalog(&mut wrong_binder, changed);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_binder, &evidence) else {
+            panic!("{class_name} with wrong binder admitted");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration)
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(
+                format!(
+                    "/semantic_graph/nodes/{refinement}/body/class_catalog/concrete/{class_index}"
+                )
+                .as_str()
+            )
+        );
+    }
+
     let mut abstract_package = package.clone();
     let clause = abstract_package["semantic_graph"]["nodes"]
         .as_array()
@@ -3822,13 +3920,52 @@ fn refinement_catalog_preserves_two_clause_paths_of_different_depths() {
     assert!(entries
         .iter()
         .any(|entry| entry["class"] == "fork Nested::OrderFlow::run::Main::Holder"));
-    set_concrete_catalog(&mut package, entries);
+    set_concrete_catalog(&mut package, entries.clone());
     assert_unique_node_ids(&package);
     let admitted = read(&package, &evidence);
     assert!(
         matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
         "{admitted:?}"
     );
+
+    for (original, substituted) in [
+        (
+            "Nested::OrderFlow::finish::Closed",
+            "Nested::OtherFlow::finish::Closed",
+        ),
+        (
+            "fork Nested::OrderFlow::run::Main::Holder",
+            "fork Nested::OrderFlow::Holder",
+        ),
+    ] {
+        let mut wrong = package.clone();
+        let mut changed = entries.clone();
+        let entry = changed
+            .iter_mut()
+            .find(|entry| entry["class"] == original)
+            .expect("class in positive catalog");
+        entry["class"] = json!(substituted);
+        changed.sort_by(|left, right| left["class"].as_str().cmp(&right["class"].as_str()));
+        let position = set_concrete_catalog(&mut wrong, changed);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong, &evidence) else {
+            panic!("substituted class {substituted} admitted");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph
+        );
+        let path = refusal
+            .path
+            .as_ref()
+            .expect("catalog refusal path")
+            .as_str();
+        assert!(
+            path.starts_with(&format!(
+                "/semantic_graph/nodes/{position}/body/class_catalog/concrete"
+            )),
+            "wrong refusal locus for {substituted}: {path}"
+        );
+    }
 }
 
 /// Provenance: IR-874 timeout class on an admitted await node.

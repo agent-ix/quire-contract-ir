@@ -1,19 +1,19 @@
 ---
-id: SR-567887
-title: "IR-874 PR 574 code-review review"
+id: SR-612089
+title: "IR-874 PR 647 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, tests/it/checked_package_v2_protocol_body.rs; PR #574 frozen head d922a9ca87a928ba534e2d70539ff089c5e05141 against 54565d18"
+scope: "agent-ix/quire-contract-ir; IR-874; PR #647; model_fields.rs, refinement.rs, checked_package_v2_protocol_body.rs, checked_package_v2_refinement.rs"
 review_set: subset
 ---
 
 ## Summary
 
-Reviewed the frozen compensation diff against QSpec FR-464/466 and IR FR-038, including malformed input, typed references, work charging, refusal order and public-reader tests.
+Reviewed the four-file PR diff at 4b2c7aeca902236323bbec7cdbedc5e18d156ec9 against FR-038-AC-325/328/329/330 and QSpec FR-375-AC-23/26/27/28. Read repository AGENTS.md and CLAUDE.md, Rust style and review guidance, model owner and retained-model callers, and the changed public-reader integration tests. No production code defect remains in the reviewed diff. No copied dependency artifact, new compatibility layer, manifest or workflow gate change appears.
 
 ## Verdict
 
-**PASS** — no code or Rust-style findings in this local compensation slice. The remaining global protocol stages remain Planned.
+PASS for scoped code and Rust review. The merged-main conflict retained both the new selected-model operation enumeration and main's variant-family accessor. The first hosted string-edge check caught a branch gated by `class.starts_with("cend ")`; head 4b2c7aec uses a typed `empty_binders` flag. The coder reports focused format, string-edge and diff checks green on that head. This reviewer did not repeat the aggregate gate; hosted Rust Checks and the code lead's final conformance gate are pending.
 
 ## Findings
 
@@ -21,14 +21,6 @@ Reviewed the frozen compensation diff against QSpec FR-464/466 and IR FR-038, in
 | --- | --- | --- | --- |
 | FND-001 | low | No findings (placeholder) | - |
 
-## Scope
-
-- **FR-038-AC-282 (examined)**: Each of the seven protocol member forms admits only the FR-464, FR-465 or FR-466 fixed argument names, order and term shapes for its selected operator: thirteen clause bindings, the role, channel, queue, finish and terminal layouts, thirteen control layouts and thirteen compensation bindings. A missing, extra, reordered, wrongly shaped or misspelled binding refuses `malformed_wire`; an optional Group admits zero or one member only, an interval has non-negative integer bounds with lower no greater than upper, and a set or sorted-record list repeated or out of its specified ascending order refus
-- **FR-038-AC-284 (context_only)**: The reader runs a protocol step after state-graph, temporal, abstraction, refinement, terminal, step-relation, hybrid and timed-model and before operations. That step reports the first defect by QSpec FR-464 order: placement of applications and member references, operator and law, declarations, member nodes in role/channel/queue/obligation/control/compensation order, membership, clauses, then refinement class-catalog graph joins; nodes within a stage are visited by ascending node-id digest. A package with both a refinement-step and protocol defect reports the refinement defect; one with both a
-- **FR-038-AC-289 (examined)**: A `compensate` body admits the thirteen FR-466 bindings in order, including distinct registration and activation captures, a trigger, interval, at-least-one attempt, retry relation, optional commit and recovery predicate. `commit never` is an absent optional Group, not a fabricated commit. The reader refuses a forward target that is not an `effect`, a commit target that is not a `commit`, an inverted interval or zero attempts, a commit that dominates its forward effect, and a read outside any of the five compensation stages with the corresponding FR-466 code, cause and locus; a commit in one c
-- **FR-466-AC-11 (examined)**: A `compensate` template is admitted with `commit` present and absent (`never`), each of the thirteen arguments in order, and with a commit that follows or is unordered against the forward effect; `attempts.maximum: 0` and an inverted `within` refuse `ill_typed`/`type-mismatch` (member, expected, actual), and a commit that dominates the forward effect refuses `unsupported_construct`/`declaration-form` retaining the profile and reason `commit-precedes-effect`, while a commit in one case of a `choice` before the effect is admitted; a `forward` that is not an `effect` control and a `commit` that i
-- **FR-466-AC-12 (context_only)**: Compensation scope, by the five stages: the trigger guard reads the trigger binder, the protocol captures and the registration captures and refuses the forward binder and the protocol activation binder (`missing_declaration`/`missing-name`) and `over` (`ill_typed`/`operator-ineligible`); an activation capture reads the trigger binder, `over`, the captures and earlier activation captures; the retry relation reads `earlier`, `later` and the captures and refuses the trigger binder (`missing-name`) and `over` (`operator-ineligible`); the recovery predicate reads its binder and the captures and ref
-
 ## Coverage
 
-The diff changes Rust model code and public-reader tests only; no CI, dependency, spec or plan file changed. The seven compensation integration tests passed on the frozen head. The captured-record test gap is recorded separately in SR-567888. Full protocol membership, causality, commit dominance and binder-slot stages remain outside this slice.
+Examined FR-038-AC-325, FR-038-AC-328, FR-038-AC-329 and FR-038-AC-330; the QSpec catalog clauses and TC-048 items 14 through 17 were context. Examined all four changed files. The selected concrete root, local/external abstract root, clause-path spelling, source-default memory, Effect/Commit/cend mapping, stage and refusal loci are handled by the reader. Acceptance-test omissions are recorded separately in SR-612090. No applicable AssuranceProfile was found.
