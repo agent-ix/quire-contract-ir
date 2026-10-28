@@ -2712,6 +2712,20 @@ fn history_initial_literal_and_local_literal_reference_roundtrip() {
             [0]["initial"],
         initial
     );
+    let literal_bytes = writer_bytes(&package);
+    let CheckedPackageV2ReadResult::Admitted(literal_reread) = CheckedPackageV2::read(
+        &literal_bytes,
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    ) else {
+        panic!("literal writer output refused");
+    };
+    assert_eq!(first.package_id(), literal_reread.package_id());
+    assert_eq!(
+        serde_json::to_value(&literal_reread.graph().nodes[position].body)
+            .expect("reread literal body")["histories"][0]["initial"],
+        initial
+    );
     let literal = json!({
         "node_id":node_id(&structural_key(
             "value", "literal", type_id["digest"].as_str(), &initial
