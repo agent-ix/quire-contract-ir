@@ -1351,13 +1351,6 @@ impl MemberCheck<'_> {
             return Err(self.refuse(Code::MalformedWire, None, path));
         };
         let target_path = path.key("target");
-        if !self.nodes[self.position].dependencies.contains(target) {
-            return Err(self.refuse(
-                Code::MissingDeclaration,
-                Some(Cause::MissingName),
-                target_path,
-            ));
-        }
         let Some(&position) = self.index.get(target) else {
             return Err(self.refuse(
                 Code::MissingDeclaration,
@@ -1669,7 +1662,7 @@ fn check_member_dependencies(
 ) -> Result<(), ValidationFailure> {
     match term {
         CheckedTerm::Reference { target } => {
-            if !check.nodes[check.position].dependencies.contains(target) {
+            if !check.index.contains_key(target) {
                 return Err(check.refuse(
                     Code::MissingDeclaration,
                     Some(Cause::MissingName),
