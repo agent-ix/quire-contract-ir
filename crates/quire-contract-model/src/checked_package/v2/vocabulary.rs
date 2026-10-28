@@ -17,7 +17,8 @@
 //!
 //! A clause's temporal profile (QSpec FR-250's five members), a `fairness`
 //! member's `fairness_kind` and `granularity` are decoded the same way, into
-//! crate-private enums the temporal step reads.
+//! Closed V2 wire vocabularies. `StateClauseKind` is public for typed clause
+//! construction; the other catalog decisions remain crate-private.
 //!
 //! The semantic term grammar inside a node `body` stays JSON, so its closed
 //! members are decoded by the `common` edge readers (`body_term`,
