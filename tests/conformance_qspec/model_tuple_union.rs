@@ -32,8 +32,14 @@ fn apply_published_intake_patch(document: &mut serde_json::Value, row: &serde_js
         _ => panic!("unrecognized published intake case {name}"),
     };
     assert_eq!(patch[0]["path"], expected_path, "{name}: mutation locus");
+    let expected_op = match name {
+        "TK-03" => "remove",
+        "TK-04" => "add",
+        _ => "replace",
+    };
+    assert_eq!(patch[0]["op"], expected_op, "{name}: mutation operation");
     match name {
-        "TK-01" => document["types"][1]["positions"] = json!([]),
+        "TK-01" => document["types"][1]["positions"] = value.clone(),
         "TK-02" | "TK-06" => {
             document["types"][1]["positions"][1]["identity"] = json!(format!(
                 "ix://acme/shapes/Pair/p{}",
@@ -41,10 +47,11 @@ fn apply_published_intake_patch(document: &mut serde_json::Value, row: &serde_js
             ))
         }
         "TK-03" => {
-            document["types"][1]["positions"][1]
+            let removed = document["types"][1]["positions"][1]
                 .as_object_mut()
                 .expect("published position")
                 .remove("typeRef");
+            assert!(removed.is_some(), "{name}: published remove target");
         }
         "TK-04" => document["types"][1]["fields"] = value.clone(),
         "TK-05" => document["types"][1]["positions"][1]["typeRef"] = value.clone(),
