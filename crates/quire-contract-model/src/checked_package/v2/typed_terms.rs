@@ -43,6 +43,15 @@ impl CheckedApplicationOperation {
         self.execution_point.as_ref()
     }
 
+    pub(super) fn record(&self) -> &Value {
+        &self.record
+    }
+
+    #[cfg(test)]
+    pub(super) fn record_mut(&mut self) -> &mut Value {
+        &mut self.record
+    }
+
     fn from_record(mut record: Value) -> Result<Self, &'static str> {
         let execution_point =
             if record.get("identity").and_then(Value::as_str) == Some("quire.op.state.clause") {
@@ -91,13 +100,6 @@ impl CheckedApplicationOperation {
             );
         }
         record
-    }
-}
-
-impl std::ops::Deref for CheckedApplicationOperation {
-    type Target = Value;
-    fn deref(&self) -> &Self::Target {
-        &self.record
     }
 }
 
