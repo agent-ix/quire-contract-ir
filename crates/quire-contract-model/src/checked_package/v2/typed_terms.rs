@@ -118,6 +118,7 @@ impl CheckedApplicationOperation {
 
     /// Construct a test operation without admitting a package or accepting a JSON view.
     #[cfg(feature = "test-support")]
+    #[ix_trace_rs::string_edge]
     pub fn from_test_fixture(
         fixture: CheckedApplicationOperationFixture,
     ) -> Result<Self, CheckedApplicationOperationFixtureError> {
