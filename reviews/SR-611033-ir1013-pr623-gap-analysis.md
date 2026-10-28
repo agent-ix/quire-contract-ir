@@ -35,3 +35,13 @@ Planless criterion-to-test audit of the accessor PR. The new TC-462 tests bind A
 ### FND-001
 
 The test tagged FR-058-AC-9 constructs four independent packages and compares returned points. It does not compare node IDs or package IDs between initialization and handler, and it does not rekey after changing only the handler name and assert the new accessor result. TC-056 checks carrier identity for the first distinction, but its FR-040 tags do not establish the accessor half of AC-9. A wrong accessor that returned a point from another node after rekeying could leave the current AC-9 tagged test green.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Commit 71c870d2 adds an AC-9 tagged test for invariant and constraint, checks shared nonpoint arguments, distinct node and package identities across initialization/handler and handler-name changes, and reads the exact point through the accessor on each admitted rekeyed package. |
+
+## Disposition verdict
+
+**PASS at ad800259** for the recorded finding. This is a focused disposition on the test fix, not a repeat review or aggregate gate result. Fresh QSL producer AC-1/6 evidence remains with QSL-1183.
