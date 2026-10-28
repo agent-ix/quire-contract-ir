@@ -1016,6 +1016,7 @@ fn check_reference_order(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let mut previous = None;
+    let mut seen = BTreeSet::new();
     for (index, member) in bound(body, binding)
         .map(typed_members)
         .unwrap_or_default()
@@ -1024,9 +1025,16 @@ fn check_reference_order(
     {
         let at = binding_at(position, binding).key("members").index(index);
         meter.charge(1, || at.clone())?;
-        let key = typed_target(member)
-            .and_then(|target| keys.get(target))
-            .copied();
+        let Some(target) = typed_target(member) else {
+            continue;
+        };
+        // A repeated node is the existing duplicate-place defect. Preserve
+        // that more specific refusal; equal order keys of distinct nodes are
+        // still checked here.
+        if !seen.insert(target) {
+            continue;
+        }
+        let key = keys.get(target).copied();
         // Graph-shape and source-map checks have already validated every
         // reference and region. Their refusal has precedence over this step.
         let Some(key) = key else {
@@ -1395,9 +1403,8 @@ mod tests {
         }
     }
 
-    /// The full public-reader control waits on the QSpec selected document's
-    /// orphan model owners. This checks the order algorithm over QSpec's exact
-    /// source maps and identity-current AO patches without inventing vectors.
+    /// Check the order algorithm over QSpec's exact source maps and
+    /// identity-current AO patches without inventing vectors.
     #[test]
     fn ir1096_published_aggregate_order_keys_and_loci() {
         let Ok(root) = std::env::var("QUIRE_SPECIFICATION_DIR") else {
