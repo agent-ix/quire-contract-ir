@@ -808,7 +808,6 @@ fn tc_056_exactly_fifteen_model_forms_admit() {
         "record_value_type",
         "event_type",
         "process",
-        "persistence_interface",
         "namespace",
         "systems_interface",
         "systems_part",
@@ -829,6 +828,20 @@ fn tc_056_exactly_fifteen_model_forms_admit() {
         ),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
+    // Persistence interfaces also require an owner from a selected model.
+    let (persistence, evidence) = crate::checked_package_v2_refinement::selected_forms_package();
+    let result = CheckedPackageV2::read(
+        &canonical(&persistence),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    );
+    let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
+        panic!("selected persistence interface must admit: {result:?}");
+    };
+    assert!(admitted.graph().nodes.iter().any(|node| {
+        node.node_tag == CheckedNodeTag::Model
+            && node.semantic_form.as_ref() == "persistence_interface"
+    }));
     for form in [
         "field_declaration",
         "operation_declaration",

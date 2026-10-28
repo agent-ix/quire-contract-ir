@@ -172,7 +172,7 @@ fn selected_form_document() -> Value {
     document
 }
 
-fn selected_forms_package() -> (Value, CheckedPackageEvidence) {
+pub(crate) fn selected_forms_package() -> (Value, CheckedPackageEvidence) {
     selected_forms_package_with(selected_form_document())
 }
 
