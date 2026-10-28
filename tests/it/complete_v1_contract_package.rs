@@ -1320,12 +1320,15 @@ fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
     let absent = serde_json::to_value(missing()).expect("missing node id");
     missing_root["feature_accounting"][0]["node_id"] = absent.clone();
     missing_root["source_map"]["requested_items"][0]["requested_item"] = absent.clone();
+    missing_root["source_map"]["requested_items"][0]["occurrences"] = json!([]);
     missing_root["source_map"]["refusals"][0]["requested_item"] = absent;
+    missing_root["source_map"]["refusals"][0]["occurrences"] = json!([]);
     let missing_root = rehashed(missing_root);
-    assert!(matches!(
-        read(&missing_root),
-        ContractPackageReadResult::Admitted(_)
-    ));
+    let missing_root_read = read(&missing_root);
+    assert!(
+        matches!(missing_root_read, ContractPackageReadResult::Admitted(_)),
+        "{missing_root_read:?}"
+    );
     assert_eq!(
         ContractPackageWireV1::read_with_source(
             &missing_root,
