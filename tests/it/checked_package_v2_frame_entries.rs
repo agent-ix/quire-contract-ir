@@ -20,11 +20,11 @@ use quire_canonical::Limits;
 use quire_contract_model::{
     encode_checked_package_v2, CheckedApplicationOperation, CheckedComparisonPath,
     CheckedComparisonRefusal, CheckedExecutionPoint, CheckedMemberType, CheckedNodeId,
-    CheckedNodeTag, CheckedPackageIdentityPreimageRefV2, CheckedPackageLimit,
-    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
-    StateClauseKind,
+    CheckedNodeTag, CheckedOperationAnchorBody, CheckedPackageIdentityPreimageRefV2,
+    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef,
+    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2,
+    CompleteLoweringRecordV2, StateClauseKind,
 };
 use serde_json::{json, Value};
 use std::sync::LazyLock;
@@ -1353,6 +1353,12 @@ fn tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects() {
             panic!("admitted anchor must have one typed form");
         };
         assert_eq!(typed_anchor.execution_point, expected_point);
+        let constructed_anchor =
+            CheckedTerm::OperationAnchorBody(Box::new(CheckedOperationAnchorBody {
+                members: typed_anchor.members.clone(),
+                execution_point: expected_point.clone(),
+            }));
+        assert_eq!(constructed_anchor, admitted.graph().nodes[anchor].body);
         let CheckedTerm::Application {
             operator,
             operation,
