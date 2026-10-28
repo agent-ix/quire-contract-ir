@@ -2013,10 +2013,19 @@ pub(super) fn validate_occurrences(
             declarations.insert(&entry.node_id, entry.regions.as_slice());
         }
     }
-    for (position, node) in nodes.iter().enumerate() {
-        if kinds[position] != super::CheckedNodeKind::Relation(super::RelationForm::Refinement) {
-            continue;
-        }
+    let mut refinement_positions: Vec<_> = nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(position, _)| {
+            (kinds[position] == super::CheckedNodeKind::Relation(super::RelationForm::Refinement))
+                .then_some(position)
+        })
+        .collect();
+    refinement_positions.sort_unstable_by(|&left, &right| {
+        nodes[left].node_id.digest.cmp(&nodes[right].node_id.digest)
+    });
+    for position in refinement_positions {
+        let node = &nodes[position];
         let Some(body) = terms[position].as_ref() else {
             continue;
         };
