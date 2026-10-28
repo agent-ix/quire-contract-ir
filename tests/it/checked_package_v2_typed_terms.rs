@@ -7,8 +7,8 @@ use ix_trace_rs::trace;
 use quire_canonical::Limits;
 use quire_contract_model::{
     CheckedApplicationOperation, CheckedOperationViewError, CheckedPackageReadLimits,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedSemanticId, CheckedTerm, ExecutionPoint, ExecutionPointName,
-    StateClauseKind,
+    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedSemanticId, CheckedTerm, ExecutionPoint,
+    ExecutionPointName, StateClauseKind,
 };
 use serde_json::json;
 

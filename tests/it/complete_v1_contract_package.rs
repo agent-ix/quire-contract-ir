@@ -155,7 +155,7 @@ fn read_with_limits(bytes: &[u8], limits: CheckedPackageReadLimits) -> ContractP
     ContractPackageWireV1::read(bytes, limits, &ContractDependencies::new())
 }
 
-fn operation<'a>(term: &'a CheckedTerm) -> &'a quire_contract_model::CheckedApplicationOperation {
+fn operation(term: &CheckedTerm) -> &quire_contract_model::CheckedApplicationOperation {
     let CheckedTerm::Application { operation, .. } = term else {
         panic!("represented operation term");
     };
@@ -301,7 +301,9 @@ fn v1_handoff_preserves_populated_mode_laws_and_member_declaration() {
                 _ => None,
             })
             .expect("selected operation");
-        let lowered = source.lower(std::slice::from_ref(&key), &profile());
+        let mut profile = profile();
+        profile.require_bounds = false;
+        let lowered = source.lower(std::slice::from_ref(&key), &profile);
         let producer = lowered.package.wire().expect("lowered wire");
         let ContractPackageReadResult::Admitted(authenticated) =
             ContractPackageWireV1::read_with_source(
@@ -330,6 +332,45 @@ fn v1_handoff_preserves_populated_mode_laws_and_member_declaration() {
         );
         assert_eq!(authenticated.wire(), producer.wire());
     }
+}
+
+#[trace("TC-047", "FR-035-AC-23", "FR-035-AC-26")]
+#[test]
+fn v1_handoff_keeps_operation_views_after_source_node_reordering() {
+    let mut fixture = checked_package::positive_operation_identities();
+    fixture["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("source nodes")
+        .reverse();
+    settle(&mut fixture);
+    let source = admit(&fixture);
+    let key = source
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| matches!(&node.body, CheckedTerm::Application { .. }))
+        .expect("source operation")
+        .node_id
+        .clone();
+    let lowered = source.lower(std::slice::from_ref(&key), &profile());
+    let producer = lowered.package.wire().expect("lowered wire");
+    let ContractPackageReadResult::Admitted(authenticated) =
+        ContractPackageWireV1::read_with_source(
+            bytes(&lowered),
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::new(),
+            &source,
+        )
+        .expect("corresponding source")
+    else {
+        panic!("canonical package must admit");
+    };
+    assert_eq!(authenticated.term(&key), producer.term(&key));
+    assert_eq!(authenticated.term(&key), source.term(&key));
+    assert_eq!(
+        operation(authenticated.term(&key).expect("keyed operation")).mode(),
+        operation(source.term(&key).expect("source operation")).mode()
+    );
 }
 
 #[trace("TC-047", "FR-035-AC-26")]
@@ -394,40 +435,84 @@ fn v1_source_handoff_is_atomic_and_preserves_plain_refusal_precedence() {
         Err(ContractSourceHandoffError::MissingNode(_))
     ));
 
-    let mut changed: Value = serde_json::from_slice(bytes(&lowered)).expect("wire json");
-    let operation_node = changed["semantic_graph"]["nodes"]
-        .as_array_mut()
-        .expect("represented nodes")
-        .iter_mut()
-        .find(|node| node["body"]["term"] == "application")
-        .expect("represented operation");
-    operation_node["body"]["operation"]["identity"] = json!("quire.op.function.call.changed");
+    let original_operation = admit(
+        &crate::checked_package_v2_catalogue_differential::admitted_fixture(
+            "quire.op.numeric.convert_rounding",
+        )
+        .expect("rounding operation source"),
+    );
+    let changed_operation = admit(
+        &crate::checked_package_v2_catalogue_differential::admitted_fixture(
+            "quire.op.ieee.from_exact",
+        )
+        .expect("different admitted operation source"),
+    );
+    let changed_key = changed_operation
+        .graph()
+        .nodes
+        .iter()
+        .find_map(|node| match &node.body {
+            CheckedTerm::Application { operation, .. }
+                if operation.identity() == Some("quire.op.ieee.from_exact") =>
+            {
+                Some(node.node_id.clone())
+            }
+            _ => None,
+        })
+        .expect("changed operation key");
+    assert!(original_operation.term(&changed_key).is_none());
+    let mut no_bounds = profile();
+    no_bounds.require_bounds = false;
+    let changed_lowered = changed_operation.lower(std::slice::from_ref(&changed_key), &no_bounds);
+    let mut changed: Value =
+        serde_json::from_slice(bytes(&changed_lowered)).expect("changed operation V1 wire");
+    changed["package"]["source"]["package_id"] =
+        serde_json::to_value(original_operation.package_id()).expect("original source identity");
+    changed["package"]["source"]["lock"] =
+        serde_json::to_value(original_operation.lock()).expect("original source lock");
     let changed = rehashed(changed);
     assert!(matches!(
         read(&changed),
         ContractPackageReadResult::Admitted(_)
     ));
-    assert_eq!(
+    assert!(matches!(
         ContractPackageWireV1::read_with_source(
             &changed,
             CheckedPackageReadLimits::bounded(),
             &ContractDependencies::new(),
-            &source,
+            &original_operation,
         ),
-        Err(ContractSourceHandoffError::NodeMismatch(key))
-    );
+        Err(ContractSourceHandoffError::MissingNode(_))
+    ));
 
-    let other_source = admit(&mixed_fixture());
-    let other_lowered = other_source.lower(&[id("eeee")], &profile());
-    let mut changed: Value = serde_json::from_slice(bytes(&other_lowered)).expect("wire json");
-    let reference_node = changed["semantic_graph"]["nodes"]
+    let original_reference = admit(&mixed_fixture());
+    let mut changed_reference_wire = mixed_fixture();
+    let reference = changed_reference_wire["semantic_graph"]["nodes"]
         .as_array_mut()
-        .expect("represented nodes")
+        .expect("source nodes")
         .iter_mut()
         .find(|node| node["body"]["term"] == "reference")
-        .expect("represented reference");
-    reference_node["body"]["target"] =
-        checked_package::node_id(&checked_package::family_key("aaaa"));
+        .expect("reference source node");
+    reference["body"]["target"] = checked_package::node_id(&checked_package::family_key("aaaa"));
+    mint_ungrouped_structural_keys(&mut changed_reference_wire);
+    settle(&mut changed_reference_wire);
+    let changed_reference = admit(&changed_reference_wire);
+    let changed_key = changed_reference
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| matches!(&node.body, CheckedTerm::Reference { .. }))
+        .expect("changed reference node")
+        .node_id
+        .clone();
+    assert!(original_reference.term(&changed_key).is_none());
+    let changed_lowered = changed_reference.lower(std::slice::from_ref(&changed_key), &profile());
+    let mut changed: Value =
+        serde_json::from_slice(bytes(&changed_lowered)).expect("changed reference V1 wire");
+    changed["package"]["source"]["package_id"] =
+        serde_json::to_value(original_reference.package_id()).expect("original source identity");
+    changed["package"]["source"]["lock"] =
+        serde_json::to_value(original_reference.lock()).expect("original source lock");
     let changed = rehashed(changed);
     assert!(matches!(
         read(&changed),
@@ -438,9 +523,9 @@ fn v1_source_handoff_is_atomic_and_preserves_plain_refusal_precedence() {
             &changed,
             CheckedPackageReadLimits::bounded(),
             &ContractDependencies::new(),
-            &other_source,
+            &original_reference,
         ),
-        Err(ContractSourceHandoffError::NodeMismatch(_))
+        Err(ContractSourceHandoffError::MissingNode(_))
     ));
 
     let mut stale: Value = serde_json::from_slice(bytes(&lowered)).expect("wire json");
