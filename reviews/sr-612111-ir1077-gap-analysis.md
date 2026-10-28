@@ -33,3 +33,13 @@ CONDITIONAL. The changed object-type path has public reader/writer evidence, but
 - TC-062 (examined): For FR-061-AC-14 through AC-16, construct catalog-free model-only refinements with operation steps anchored at declaring object-type, process and state-machine nodes of the selected concrete model.
 
 Computed Quire matrix reports FR-061-AC-14, FR-061-AC-15 and FR-061-AC-16 all untagged at this PR head. The new tests use TC-062 tags only. Plan completion: not assessed.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | deferred | FR-040 process/state-machine admission is owner-held in draft IR #650 pending Peter; PR #651 tests object_type only. AC-14 remains uncredited and must remain untagged until the full process/state-machine oracle passes. |
+| FND-002 | rejected | Already covered at c3023198: the test adds a second model selection and foreign model evidence, constructs that selected model’s anchor, keeps refinement semantic_type on the original model_root, and asserts invalid_model_binding/malformed-declaration at steps/0/source_node. Fix head 9b27ece5 adds explicit two-selection and original-root assertions. |
+| FND-003 | rejected | Already covered at c3023198: save then other share one source_node, so the canonical sort key differs only by class and save > other; index 1 is out of order while other also mismatches anchor operation save. Reversing the rows repairs order and exposes invalid_model_binding at index 0/source_class. Fix head 9b27ece5 makes these preconditions explicit. |
+| FND-004 | fixed | 9b27ece5 adds an admitted present-catalog protocol refinement, then changes only steps/0/source_node to the model root, rekeys, and asserts invalid_model_binding/malformed-declaration at the exact row pointer. |
+| FND-005 | deferred | At 9b27ece5, tests now directly trace FR-061-AC-15 and AC-16; the remaining AC-14 trace is deliberately withheld because process/state-machine admission is owner-held under draft IR #650 and the whole criterion is not yet backed. |
