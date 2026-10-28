@@ -18,13 +18,31 @@ use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializ
 use serde_json::{error::Category, Value};
 
 /// An application operation whose state-clause point has a typed carrier.
-#[derive(Clone, Debug, Eq, PartialEq)]
+/// Equality compares the represented record and point; admission views are
+/// private provenance and do not affect represented-body equality.
+#[derive(Clone, Debug)]
 pub struct CheckedApplicationOperation {
     record: Value,
     execution_point: Option<ExecutionPoint>,
     views: Option<CheckedOperationViews>,
     #[cfg(feature = "test-support")]
     test_fixture: bool,
+}
+
+impl PartialEq for CheckedApplicationOperation {
+    fn eq(&self, other: &Self) -> bool {
+        self.record == other.record && self.execution_point == other.execution_point
+    }
+}
+
+impl Eq for CheckedApplicationOperation {}
+
+/// An operation view was requested without reader admission.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum CheckedOperationViewError {
+    /// The operation was decoded directly or read from unauthenticated V1 bytes.
+    #[error("operation views are not admitted")]
+    NotAdmitted,
 }
 
 /// Typed, validated input for a test-only application operation.
@@ -214,38 +232,49 @@ impl CheckedApplicationOperation {
     }
 
     /// The admitted state-clause kind, or `None` for another member shape.
-    pub fn state_clause_kind(&self) -> Option<StateClauseKind> {
-        self.views.as_ref()?.state_clause_kind
+    /// Returns `NotAdmitted` when validated views were not installed.
+    pub fn state_clause_kind(&self) -> Result<Option<StateClauseKind>, CheckedOperationViewError> {
+        Ok(self.admitted_views()?.state_clause_kind)
     }
 
     /// The admitted field declaration and name, or `None` for another member shape.
-    pub fn projection_field(&self) -> Option<(&CheckedNodeId, &str)> {
-        self.views
-            .as_ref()?
+    /// Returns `NotAdmitted` when validated views were not installed.
+    pub fn projection_field(
+        &self,
+    ) -> Result<Option<(&CheckedNodeId, &str)>, CheckedOperationViewError> {
+        Ok(self
+            .admitted_views()?
             .projection_field
             .as_ref()
-            .map(|(declaration, name)| (declaration, name.as_ref()))
+            .map(|(declaration, name)| (declaration, name.as_ref())))
     }
 
     /// The admitted member declaration, when the member carries one.
-    pub fn member_declaration(&self) -> Option<&CheckedNodeId> {
-        self.views.as_ref()?.member_declaration.as_ref()
+    /// Returns `NotAdmitted` when validated views were not installed.
+    pub fn member_declaration(&self) -> Result<Option<&CheckedNodeId>, CheckedOperationViewError> {
+        Ok(self.admitted_views()?.member_declaration.as_ref())
     }
 
     /// The admitted operation mode kind and value, when present.
-    pub fn mode(&self) -> Option<CheckedOperationModeView<'_>> {
-        self.views
-            .as_ref()?
+    /// Returns `NotAdmitted` when validated views were not installed.
+    pub fn mode(&self) -> Result<Option<CheckedOperationModeView<'_>>, CheckedOperationViewError> {
+        Ok(self
+            .admitted_views()?
             .mode
             .as_ref()
-            .map(|(kind, value)| CheckedOperationModeView { kind: *kind, value })
+            .map(|(kind, value)| CheckedOperationModeView { kind: *kind, value }))
     }
 
     /// The admitted law definitions in operation order.
-    pub fn law_definitions(&self) -> &[CheckedArtifactRef] {
+    /// Returns `NotAdmitted` when validated views were not installed.
+    pub fn law_definitions(&self) -> Result<&[CheckedArtifactRef], CheckedOperationViewError> {
+        Ok(&self.admitted_views()?.law_definitions)
+    }
+
+    fn admitted_views(&self) -> Result<&CheckedOperationViews, CheckedOperationViewError> {
         self.views
             .as_ref()
-            .map_or(&[], |views| &views.law_definitions)
+            .ok_or(CheckedOperationViewError::NotAdmitted)
     }
 
     pub(super) fn install_admitted_views(&mut self, views: CheckedOperationViews) {

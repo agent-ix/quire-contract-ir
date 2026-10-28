@@ -9,11 +9,12 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedPackageLimit, CheckedPackageReadLimits,
-    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
-    ContractDependencies, ContractDispositionV1, ContractPackageReadResult, ContractPackageWireV1,
-    ContractRootViewV1, CONTRACT_IR_SEMANTIC_DOMAIN, CONTRACT_PACKAGE_VERSION,
+    CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedOperationViewError, CheckedPackageLimit,
+    CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
+    CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm,
+    CompleteLoweringProfileV2, CompleteLoweringRecordV2, ContractDependencies,
+    ContractDispositionV1, ContractPackageReadResult, ContractPackageWireV1, ContractRootViewV1,
+    ContractSourceHandoffError, CONTRACT_IR_SEMANTIC_DOMAIN, CONTRACT_PACKAGE_VERSION,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -152,6 +153,392 @@ fn read(bytes: &[u8]) -> ContractPackageReadResult {
 
 fn read_with_limits(bytes: &[u8], limits: CheckedPackageReadLimits) -> ContractPackageReadResult {
     ContractPackageWireV1::read(bytes, limits, &ContractDependencies::new())
+}
+
+fn operation(term: &CheckedTerm) -> &quire_contract_model::CheckedApplicationOperation {
+    let CheckedTerm::Application { operation, .. } = term else {
+        panic!("represented operation term");
+    };
+    operation
+}
+
+#[trace(
+    "TC-047",
+    "FR-035-AC-23",
+    "FR-035-AC-24",
+    "FR-035-AC-25",
+    "FR-035-AC-26"
+)]
+#[test]
+fn v1_operation_views_require_authenticated_source() {
+    let source = admit(&checked_package::positive_operation_identities());
+    let key = source
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| matches!(&node.body, CheckedTerm::Application { .. }))
+        .expect("operation node")
+        .node_id
+        .clone();
+    let lowered = source.lower(std::slice::from_ref(&key), &profile());
+    let producer = lowered.package.wire().expect("lowered wire");
+    let source_term = source.term(&key).expect("admitted source term");
+    let producer_term = producer.term(&key).expect("producer term");
+    assert_eq!(producer_term, source_term);
+    assert_eq!(operation(producer_term).mode(), Ok(None));
+    assert_eq!(operation(producer_term).law_definitions(), Ok(&[][..]));
+
+    let ContractPackageReadResult::Admitted(plain) = read(bytes(&lowered)) else {
+        panic!("plain canonical V1 read");
+    };
+    let plain_term = plain.term(&key).expect("plain term");
+    assert_eq!(plain_term, producer_term);
+    assert_eq!(
+        CheckedTerm::Aggregate {
+            members: vec![plain_term.clone()],
+        },
+        CheckedTerm::Aggregate {
+            members: vec![producer_term.clone()],
+        }
+    );
+    assert_eq!(
+        operation(plain_term).mode(),
+        Err(CheckedOperationViewError::NotAdmitted)
+    );
+    assert_eq!(
+        operation(plain_term).law_definitions(),
+        Err(CheckedOperationViewError::NotAdmitted)
+    );
+    assert_eq!(
+        operation(plain_term).member_declaration(),
+        Err(CheckedOperationViewError::NotAdmitted)
+    );
+
+    let mut lower_work = 0;
+    let mut upper_work = CheckedPackageReadLimits::bounded().work;
+    while lower_work < upper_work {
+        let middle = lower_work + (upper_work - lower_work) / 2;
+        let limits = CheckedPackageReadLimits {
+            work: middle,
+            ..CheckedPackageReadLimits::bounded()
+        };
+        match read_with_limits(bytes(&lowered), limits) {
+            ContractPackageReadResult::Admitted(_) => upper_work = middle,
+            ContractPackageReadResult::Incomplete(_) => lower_work = middle + 1,
+            other => panic!("valid package at work {middle}: {other:?}"),
+        }
+    }
+    assert!(upper_work > 0);
+    let exact = CheckedPackageReadLimits {
+        work: upper_work,
+        ..CheckedPackageReadLimits::bounded()
+    };
+    let ContractPackageReadResult::Admitted(exact_package) =
+        read_with_limits(bytes(&lowered), exact)
+    else {
+        panic!("exact work boundary must admit");
+    };
+    assert_eq!(exact_package.term(&key), Some(source_term));
+    assert_eq!(
+        operation(exact_package.term(&key).unwrap()).mode(),
+        Err(CheckedOperationViewError::NotAdmitted)
+    );
+    assert!(matches!(
+        read_with_limits(
+            bytes(&lowered),
+            CheckedPackageReadLimits {
+                work: upper_work - 1,
+                ..exact
+            }
+        ),
+        ContractPackageReadResult::Incomplete(_)
+    ));
+
+    let authenticated = ContractPackageWireV1::read_with_source(
+        bytes(&lowered),
+        CheckedPackageReadLimits::bounded(),
+        &ContractDependencies::new(),
+        &source,
+    )
+    .expect("source correspondence");
+    let ContractPackageReadResult::Admitted(authenticated) = authenticated else {
+        panic!("authenticated canonical V1 read");
+    };
+    assert_eq!(authenticated.wire(), plain.wire());
+    assert_eq!(authenticated.identity(), plain.identity());
+    assert_eq!(authenticated.term(&key), Some(source_term));
+    assert_eq!(
+        operation(authenticated.term(&key).unwrap()).mode(),
+        Ok(None)
+    );
+    assert_eq!(
+        operation(authenticated.term(&key).unwrap()).law_definitions(),
+        Ok(&[][..])
+    );
+}
+
+#[trace("TC-047", "FR-035-AC-23", "FR-035-AC-24", "FR-035-AC-26")]
+#[test]
+fn v1_handoff_preserves_populated_mode_laws_and_member_declaration() {
+    for identity in [
+        "quire.op.ieee.from_exact",
+        "quire.op.quantity.convert",
+        "quire.op.numeric.convert_rounding",
+    ] {
+        let fixture = crate::checked_package_v2_catalogue_differential::admitted_fixture(identity)
+            .expect("catalog fixture");
+        let source = admit(&fixture);
+        let key = source
+            .graph()
+            .nodes
+            .iter()
+            .find_map(|node| match &node.body {
+                CheckedTerm::Application { operation, .. }
+                    if operation.identity() == Some(identity) =>
+                {
+                    Some(node.node_id.clone())
+                }
+                _ => None,
+            })
+            .expect("selected operation");
+        let mut profile = profile();
+        profile.require_bounds = false;
+        let lowered = source.lower(std::slice::from_ref(&key), &profile);
+        let producer = lowered.package.wire().expect("lowered wire");
+        let ContractPackageReadResult::Admitted(authenticated) =
+            ContractPackageWireV1::read_with_source(
+                bytes(&lowered),
+                CheckedPackageReadLimits::bounded(),
+                &ContractDependencies::new(),
+                &source,
+            )
+            .expect("corresponding source")
+        else {
+            panic!("canonical package must admit");
+        };
+        let source_term = source.term(&key).expect("source term");
+        let produced_term = producer.term(&key).expect("producer term");
+        let read_term = authenticated.term(&key).expect("authenticated term");
+        assert_eq!(produced_term, source_term);
+        assert_eq!(read_term, source_term);
+        assert_eq!(operation(read_term).mode(), operation(source_term).mode());
+        assert_eq!(
+            operation(read_term).law_definitions(),
+            operation(source_term).law_definitions()
+        );
+        assert_eq!(
+            operation(read_term).member_declaration(),
+            operation(source_term).member_declaration()
+        );
+        assert_eq!(authenticated.wire(), producer.wire());
+    }
+}
+
+#[trace("TC-047", "FR-035-AC-23", "FR-035-AC-26")]
+#[test]
+fn v1_handoff_keeps_operation_views_after_source_node_reordering() {
+    let mut fixture = checked_package::positive_operation_identities();
+    fixture["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("source nodes")
+        .reverse();
+    settle(&mut fixture);
+    let source = admit(&fixture);
+    let key = source
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| matches!(&node.body, CheckedTerm::Application { .. }))
+        .expect("source operation")
+        .node_id
+        .clone();
+    let lowered = source.lower(std::slice::from_ref(&key), &profile());
+    let producer = lowered.package.wire().expect("lowered wire");
+    let ContractPackageReadResult::Admitted(authenticated) =
+        ContractPackageWireV1::read_with_source(
+            bytes(&lowered),
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::new(),
+            &source,
+        )
+        .expect("corresponding source")
+    else {
+        panic!("canonical package must admit");
+    };
+    assert_eq!(authenticated.term(&key), producer.term(&key));
+    assert_eq!(authenticated.term(&key), source.term(&key));
+    assert_eq!(
+        operation(authenticated.term(&key).expect("keyed operation")).mode(),
+        operation(source.term(&key).expect("source operation")).mode()
+    );
+}
+
+#[trace("TC-047", "FR-035-AC-26")]
+#[test]
+fn v1_source_handoff_is_atomic_and_preserves_plain_refusal_precedence() {
+    let source = admit(&checked_package::positive_operation_identities());
+    let key = source
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| matches!(&node.body, CheckedTerm::Application { .. }))
+        .expect("operation node")
+        .node_id
+        .clone();
+    let lowered = source.lower(std::slice::from_ref(&key), &profile());
+    let wrong_source = admit(&mixed_fixture());
+    assert_eq!(
+        ContractPackageWireV1::read_with_source(
+            bytes(&lowered),
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::new(),
+            &wrong_source,
+        ),
+        Err(ContractSourceHandoffError::SourceIdentity)
+    );
+
+    let mut wrong_lock: Value = serde_json::from_slice(bytes(&lowered)).expect("wire json");
+    wrong_lock["package"]["source"]["lock"] =
+        serde_json::to_value(wrong_source.lock()).expect("lock wire");
+    let wrong_lock = rehashed(wrong_lock);
+    assert!(matches!(
+        read(&wrong_lock),
+        ContractPackageReadResult::Admitted(_)
+    ));
+    assert_eq!(
+        ContractPackageWireV1::read_with_source(
+            &wrong_lock,
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::new(),
+            &source,
+        ),
+        Err(ContractSourceHandoffError::SourceLock)
+    );
+
+    let mut unrelated: Value = serde_json::from_slice(bytes(&lowered)).expect("wire json");
+    unrelated["package"]["source"]["package_id"] =
+        serde_json::to_value(wrong_source.package_id()).expect("source id wire");
+    unrelated["package"]["source"]["lock"] =
+        serde_json::to_value(wrong_source.lock()).expect("source lock wire");
+    let unrelated = rehashed(unrelated);
+    assert!(matches!(
+        read(&unrelated),
+        ContractPackageReadResult::Admitted(_)
+    ));
+    assert!(matches!(
+        ContractPackageWireV1::read_with_source(
+            &unrelated,
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::new(),
+            &wrong_source,
+        ),
+        Err(ContractSourceHandoffError::MissingNode(_))
+    ));
+
+    let original_operation = admit(
+        &crate::checked_package_v2_catalogue_differential::admitted_fixture(
+            "quire.op.numeric.convert_rounding",
+        )
+        .expect("rounding operation source"),
+    );
+    let changed_operation = admit(
+        &crate::checked_package_v2_catalogue_differential::admitted_fixture(
+            "quire.op.ieee.from_exact",
+        )
+        .expect("different admitted operation source"),
+    );
+    let changed_key = changed_operation
+        .graph()
+        .nodes
+        .iter()
+        .find_map(|node| match &node.body {
+            CheckedTerm::Application { operation, .. }
+                if operation.identity() == Some("quire.op.ieee.from_exact") =>
+            {
+                Some(node.node_id.clone())
+            }
+            _ => None,
+        })
+        .expect("changed operation key");
+    assert!(original_operation.term(&changed_key).is_none());
+    let mut no_bounds = profile();
+    no_bounds.require_bounds = false;
+    let changed_lowered = changed_operation.lower(std::slice::from_ref(&changed_key), &no_bounds);
+    let mut changed: Value =
+        serde_json::from_slice(bytes(&changed_lowered)).expect("changed operation V1 wire");
+    changed["package"]["source"]["package_id"] =
+        serde_json::to_value(original_operation.package_id()).expect("original source identity");
+    changed["package"]["source"]["lock"] =
+        serde_json::to_value(original_operation.lock()).expect("original source lock");
+    let changed = rehashed(changed);
+    assert!(matches!(
+        read(&changed),
+        ContractPackageReadResult::Admitted(_)
+    ));
+    assert!(matches!(
+        ContractPackageWireV1::read_with_source(
+            &changed,
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::new(),
+            &original_operation,
+        ),
+        Err(ContractSourceHandoffError::MissingNode(_))
+    ));
+
+    let original_reference = admit(&mixed_fixture());
+    let mut changed_reference_wire = mixed_fixture();
+    let reference = changed_reference_wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("source nodes")
+        .iter_mut()
+        .find(|node| node["body"]["term"] == "reference")
+        .expect("reference source node");
+    reference["body"]["target"] = checked_package::node_id(&checked_package::family_key("aaaa"));
+    mint_ungrouped_structural_keys(&mut changed_reference_wire);
+    settle(&mut changed_reference_wire);
+    let changed_reference = admit(&changed_reference_wire);
+    let changed_key = changed_reference
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| matches!(&node.body, CheckedTerm::Reference { .. }))
+        .expect("changed reference node")
+        .node_id
+        .clone();
+    assert!(original_reference.term(&changed_key).is_none());
+    let changed_lowered = changed_reference.lower(std::slice::from_ref(&changed_key), &profile());
+    let mut changed: Value =
+        serde_json::from_slice(bytes(&changed_lowered)).expect("changed reference V1 wire");
+    changed["package"]["source"]["package_id"] =
+        serde_json::to_value(original_reference.package_id()).expect("original source identity");
+    changed["package"]["source"]["lock"] =
+        serde_json::to_value(original_reference.lock()).expect("original source lock");
+    let changed = rehashed(changed);
+    assert!(matches!(
+        read(&changed),
+        ContractPackageReadResult::Admitted(_)
+    ));
+    assert!(matches!(
+        ContractPackageWireV1::read_with_source(
+            &changed,
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::new(),
+            &original_reference,
+        ),
+        Err(ContractSourceHandoffError::MissingNode(_))
+    ));
+
+    let mut stale: Value = serde_json::from_slice(bytes(&lowered)).expect("wire json");
+    stale["identity"]["digest"] = json!("0".repeat(64));
+    assert!(matches!(
+        ContractPackageWireV1::read_with_source(
+            &canonical(&stale),
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::new(),
+            &wrong_source,
+        ),
+        Ok(ContractPackageReadResult::Refused(_))
+    ));
 }
 
 #[trace("TC-047", "FR-035-AC-22")]

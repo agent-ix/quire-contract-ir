@@ -602,7 +602,8 @@ pub(super) fn admitted_fixture(identity: &str) -> Option<Value> {
     "FR-038-AC-331",
     "FR-038-AC-332",
     "FR-038-AC-333",
-    "FR-038-AC-334"
+    "FR-038-AC-334",
+    "FR-038-AC-341"
 )]
 #[test]
 fn tc_048_public_operation_views_follow_admitted_values() {
@@ -631,10 +632,19 @@ fn tc_048_public_operation_views_follow_admitted_values() {
         .find(|node| node["body"]["operation"]["identity"] == "quire.op.record.project")
         .expect("field projection source")["body"]["operation"]["member"];
     let declaration = serde_json::from_value(member["declaration"].clone()).expect("node id");
-    assert_eq!(operation.projection_field(), Some((&declaration, "string")));
-    assert_eq!(operation.member_declaration(), Some(&declaration));
-    assert_eq!(operation.mode(), None);
-    assert!(operation.law_definitions().is_empty());
+    assert_eq!(
+        operation.projection_field().expect("admitted views"),
+        Some((&declaration, "string"))
+    );
+    assert_eq!(
+        operation.member_declaration().expect("admitted views"),
+        Some(&declaration)
+    );
+    assert_eq!(operation.mode().expect("admitted views"), None);
+    assert!(operation
+        .law_definitions()
+        .expect("admitted views")
+        .is_empty());
 
     for (identity, kind, value, laws) in [
         (
@@ -674,20 +684,30 @@ fn tc_048_public_operation_views_follow_admitted_values() {
                 _ => None,
             })
             .expect("admitted operation");
-        let mode = operation.mode().expect("admitted mode");
+        let mode = operation
+            .mode()
+            .expect("admitted views")
+            .expect("admitted mode");
         assert_eq!((mode.kind, mode.value), (kind, value));
-        assert_eq!(operation.law_definitions().len(), laws);
+        assert_eq!(
+            operation.law_definitions().expect("admitted views").len(),
+            laws
+        );
         if laws == 1 {
             assert_eq!(
-                operation.law_definitions()[0].authority.as_ref(),
+                operation.law_definitions().expect("admitted views")[0]
+                    .authority
+                    .as_ref(),
                 "agent-ix"
             );
             assert_eq!(
-                operation.law_definitions()[0].identity.as_ref(),
+                operation.law_definitions().expect("admitted views")[0]
+                    .identity
+                    .as_ref(),
                 "quire.value.ieee754-2019-default/v1"
             );
         }
-        assert_eq!(operation.projection_field(), None);
+        assert_eq!(operation.projection_field().expect("admitted views"), None);
     }
 
     let wire = admitted_fixture("quire.op.tuple.project").expect("position fixture");
@@ -708,10 +728,16 @@ fn tc_048_public_operation_views_follow_admitted_values() {
             _ => None,
         })
         .expect("position application");
-    assert_eq!(operation.projection_field(), None);
-    assert!(operation.member_declaration().is_some());
-    assert_eq!(operation.mode(), None);
-    assert!(operation.law_definitions().is_empty());
+    assert_eq!(operation.projection_field().expect("admitted views"), None);
+    assert!(operation
+        .member_declaration()
+        .expect("admitted views")
+        .is_some());
+    assert_eq!(operation.mode().expect("admitted views"), None);
+    assert!(operation
+        .law_definitions()
+        .expect("admitted views")
+        .is_empty());
 
     let wire = admitted_fixture("quire.op.quantity.convert").expect("quantity fixture");
     let admitted = match read(&wire) {
@@ -738,8 +764,11 @@ fn tc_048_public_operation_views_follow_admitted_values() {
         .find(|node| node["body"]["operation"]["identity"] == "quire.op.quantity.convert")
         .expect("quantity source")["body"]["operation"]["member"]["declaration"];
     let declared = serde_json::from_value(declared.clone()).expect("quantity declaration");
-    assert_eq!(operation.member_declaration(), Some(&declared));
-    assert_eq!(operation.projection_field(), None);
+    assert_eq!(
+        operation.member_declaration().expect("admitted views"),
+        Some(&declared)
+    );
+    assert_eq!(operation.projection_field().expect("admitted views"), None);
 
     let catalog: Value = serde_json::from_str(
         quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1,
@@ -769,10 +798,16 @@ fn tc_048_public_operation_views_follow_admitted_values() {
             _ => None,
         })
         .expect("plain application");
-    assert_eq!(operation.member_declaration(), None);
-    assert_eq!(operation.projection_field(), None);
-    assert_eq!(operation.mode(), None);
-    assert!(operation.law_definitions().is_empty());
+    assert_eq!(
+        operation.member_declaration().expect("admitted views"),
+        None
+    );
+    assert_eq!(operation.projection_field().expect("admitted views"), None);
+    assert_eq!(operation.mode().expect("admitted views"), None);
+    assert!(operation
+        .law_definitions()
+        .expect("admitted views")
+        .is_empty());
 }
 
 #[trace(

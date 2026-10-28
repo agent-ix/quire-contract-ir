@@ -759,6 +759,19 @@ pub enum ContractPackageReadResult {
     Incomplete(CheckedPackageIncomplete),
 }
 
+/// An admitted V1 package does not correspond to the supplied admitted V2 source.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ContractSourceHandoffError {
+    /// The source package identity differs from the represented provenance.
+    SourceIdentity,
+    /// The source lock differs from the represented provenance.
+    SourceLock,
+    /// A represented key has no node in the admitted source.
+    MissingNode(CheckedNodeId),
+    /// A represented node differs from the admitted source node.
+    NodeMismatch(CheckedNodeId),
+}
+
 /// Supplied dependency packages are keyed by their selected library identity.
 pub type ContractDependencies<'a> = BTreeMap<&'a str, ContractDependencyInput<'a>>;
 
@@ -1009,6 +1022,49 @@ impl ContractPackageWireV1 {
                 ContractPackageReadResult::Incomplete(incomplete)
             }
         }
+    }
+
+    /// Reads canonical V1 bytes, then authenticates represented terms against an
+    /// already reader-admitted V2 source. Plain reader refusals and limits take
+    /// precedence over source correspondence errors.
+    pub fn read_with_source(
+        bytes: &[u8],
+        limits: CheckedPackageReadLimits,
+        dependencies: &ContractDependencies<'_>,
+        source: &CheckedPackageV2,
+    ) -> Result<ContractPackageReadResult, ContractSourceHandoffError> {
+        let mut package = match Self::read(bytes, limits, dependencies) {
+            ContractPackageReadResult::Admitted(package) => package,
+            other => return Ok(other),
+        };
+        if package.wire.package.source.package_id != *source.package_id() {
+            return Err(ContractSourceHandoffError::SourceIdentity);
+        }
+        if package.wire.package.source.lock != *source.lock() {
+            return Err(ContractSourceHandoffError::SourceLock);
+        }
+        let source_nodes = source
+            .graph()
+            .nodes
+            .iter()
+            .map(|node| (&node.node_id, node))
+            .collect::<BTreeMap<_, _>>();
+        let mut source_terms = Vec::with_capacity(package.wire.semantic_graph.nodes.len());
+        for represented in &package.wire.semantic_graph.nodes {
+            let key = &represented.node_id;
+            let node = source_nodes
+                .get(key)
+                .ok_or_else(|| ContractSourceHandoffError::MissingNode(key.clone()))?;
+            if node.to_raw() != *represented {
+                return Err(ContractSourceHandoffError::NodeMismatch(key.clone()));
+            }
+            let term = source
+                .term(key)
+                .ok_or_else(|| ContractSourceHandoffError::MissingNode(key.clone()))?;
+            source_terms.push(Some(term.clone()));
+        }
+        package.terms = source_terms;
+        Ok(ContractPackageReadResult::Admitted(package))
     }
 
     fn admit(
