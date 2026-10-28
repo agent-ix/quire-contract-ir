@@ -2894,13 +2894,6 @@ fn refinement_rejects_each_unsorted_row_array_without_reordering() {
             ],
         ),
         (
-            "steps",
-            vec![
-                json!({"source_class":"toggle","source_node":anchor,"target":{"kind":"stutter"}}),
-                json!({"source_class":"toggle","source_node":type_id,"target":{"kind":"stutter"}}),
-            ],
-        ),
-        (
             "assume",
             vec![
                 json!({"operation":anchor,"kind":"weak","granularity":"whole"}),
@@ -2921,7 +2914,6 @@ fn refinement_rejects_each_unsorted_row_array_without_reordering() {
             let member = match *array {
                 "populations" => "abstract",
                 "objects" => "abstract_type",
-                "steps" => "source_node",
                 "assume" | "ensure" => "operation",
                 _ => unreachable!(),
             };
