@@ -1305,6 +1305,7 @@ fn lowers_as_data(case: &str, package: &Value, node: &str, tag: CheckedNodeTag) 
             authority: "quire".into(),
             identity: "complete-v1".into(),
         },
+        required_source_selections: Vec::new(),
         supported_tags: every_tag.into_iter().collect(),
         require_bounds: false,
         work_limit: u64::MAX,

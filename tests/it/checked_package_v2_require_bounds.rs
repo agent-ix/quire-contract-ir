@@ -236,6 +236,7 @@ fn bounded_profile() -> CompleteLoweringProfileV2 {
             authority: "quire".into(),
             identity: "complete-v1".into(),
         },
+        required_source_selections: Vec::new(),
         supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
         require_bounds: true,
         work_limit: 100_000,
