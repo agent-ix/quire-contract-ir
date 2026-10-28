@@ -49,6 +49,16 @@ fn canonical_execution_point_keeps_authored_identifier_refusal() {
         ReferenceBody::Literal,
     )
     .is_ok());
+
+    for name in ["", "tick now"] {
+        let mut wire = serde_json::to_value(valid_package()).unwrap();
+        wire["requirements"][0]["clauses"][0]["anchor"]["operation"] = name.into();
+        assert_eq!(
+            package_error(&wire)[0].code,
+            DiagnosticCode::InvalidIdentifier,
+            "authored wire name {name:?}"
+        );
+    }
 }
 
 fn span_at(source: &SourceIdentity, start: u64, end: u64) -> SourceSpan {
