@@ -216,7 +216,7 @@ impl<'a> Walk for StateApplicationPlacement<'a> {
     }
 }
 
-fn is_object_type(kind: CheckedNodeKind) -> bool {
+fn is_operation_context(kind: CheckedNodeKind) -> bool {
     matches!(
         kind,
         CheckedNodeKind::Model(
@@ -288,8 +288,8 @@ fn check_anchor(
             .key("members")
             .index(member)
     };
-    let (context, context_kind) =
-        join(anchor, &body.context, is_object_type, graph).map_err(|refusal| {
+    let (context, context_kind) = join(anchor, &body.context, is_operation_context, graph)
+        .map_err(|refusal| {
             model_refusal(
                 refusal,
                 target_at(0).key("value").key("target"),
@@ -400,10 +400,10 @@ fn check_clause(
         clause,
         &body.anchor,
         |kind| {
-            kind == if model_clause {
-                CheckedNodeKind::Model(ModelForm::ObjectType)
+            if model_clause {
+                is_operation_context(kind)
             } else {
-                CheckedNodeKind::State(StateForm::OperationAnchor)
+                kind == CheckedNodeKind::State(StateForm::OperationAnchor)
             }
         },
         graph,

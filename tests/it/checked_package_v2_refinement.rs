@@ -888,7 +888,7 @@ fn catalog_free_operation_package_with_inheritance(
     form: &str,
     inherited: bool,
 ) -> (Value, CheckedPackageEvidence, usize) {
-    catalog_free_operation_package_config(form, inherited, false)
+    catalog_free_operation_package_config(form, inherited, false, false)
 }
 
 fn rewrite_identity_prefix(value: &mut Value, old: &str, new: &str) {
@@ -914,6 +914,7 @@ fn catalog_free_operation_package_config(
     form: &str,
     inherited: bool,
     inherited_field: bool,
+    drop_supertype: bool,
 ) -> (Value, CheckedPackageEvidence, usize) {
     let mut document = selected_form_document();
     document["types"][0]["fields"] = json!([{
@@ -927,8 +928,26 @@ fn catalog_free_operation_package_config(
         "typeRef":format!("ix://{MODEL_IDENTITY}/Account"),
         "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}
     }]);
+    document["types"][0]["operations"][0]["returns"] = json!({
+        "typeRef":"ix://quire/native/Integer",
+        "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}
+    });
     document["types"][1]["operations"][0]["params"][0]["typeRef"] =
         json!(format!("ix://{MODEL_IDENTITY}/Account"));
+    for (index, name) in [(0, "toggleAgain"), (1, "goAgain")] {
+        let mut second = document["types"][index]["operations"][0].clone();
+        let type_name = if index == 0 { "Machine" } else { "Flow" };
+        second["identity"] = json!(format!("ix://{MODEL_IDENTITY}/{type_name}/{name}"));
+        second["name"] = json!(name);
+        second["params"][0]["identity"] = json!(format!(
+            "ix://{MODEL_IDENTITY}/{type_name}/{name}/{}",
+            if index == 0 { "target" } else { "step" }
+        ));
+        document["types"][index]["operations"]
+            .as_array_mut()
+            .expect("operations")
+            .push(second);
+    }
     if inherited_field {
         let (index, parent_name) = match form {
             "process" => (1, "BaseFlow"),
@@ -988,13 +1007,25 @@ fn catalog_free_operation_package_config(
         let child_identity = format!("ix://{MODEL_IDENTITY}/{child_name}");
         rewrite_identity_prefix(&mut child, &parent_identity, &child_identity);
         child["displayName"] = json!(child_name);
-        child["supertypes"] = json!([parent_identity]);
+        child["supertypes"] = if drop_supertype {
+            json!([])
+        } else {
+            json!([parent_identity])
+        };
         if form == "process" {
+            child["fields"] = json!([{
+                "identity":format!("{child_identity}/subId"), "name":"subId",
+                "typeRef":"ix://quire/native/Integer", "presence":"required",
+                "nullable":false, "defaultKind":"none",
+                "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}
+            }]);
+            child["identityFields"] = json!([format!("{child_identity}/subId")]);
             child["operations"][0]["identity"] = json!(format!("{child_identity}/localGo"));
             child["operations"][0]["name"] = json!("localGo");
             child["operations"][0]["params"][0]["identity"] =
                 json!(format!("{child_identity}/localGo/step"));
         } else if form == "state_machine" {
+            child["fields"] = json!([]);
             child["operations"][0]["identity"] = json!(format!("{child_identity}/localToggle"));
             child["operations"][0]["name"] = json!("localToggle");
             child["operations"][0]["params"][0]["identity"] =
@@ -1017,6 +1048,7 @@ fn catalog_free_operation_package_config(
         None
     };
     let (mut package, evidence) = selected_forms_package_with(document);
+    let child_id = child.as_ref().map(|node| node["node_id"].clone());
     let first_added = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -1130,6 +1162,21 @@ fn catalog_free_operation_package_config(
             .retain(|entry| entry["node_id"] != refinement_id || entry["role"] == "declaration");
         refresh_identity(&mut package);
     }
+    if let Some(child_id) = child_id {
+        let inherited_name = match form {
+            "object_type" => "address",
+            "process" => "n",
+            "state_machine" => "openFlag",
+            _ => panic!("unsupported inherited model form"),
+        };
+        edit_catalog_free_frame(&mut package, position, |frame| {
+            frame["dependencies"] = json!([child_id]);
+            frame["body"]["modifies"] = json!([{
+                "kind":"field", "declaration":child_id,
+                "name":inherited_name, "scope":"every-object"
+            }]);
+        });
+    }
     (package, evidence, position)
 }
 
@@ -1190,6 +1237,225 @@ fn edit_catalog_free_frame(
     frame
 }
 
+fn rebind_catalog_free_anchor(
+    package: &mut Value,
+    refinement: usize,
+    context: &Value,
+    operation: &str,
+) -> usize {
+    let anchor = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "operation_anchor")
+        .expect("anchor");
+    let old = package["semantic_graph"]["nodes"][anchor]["node_id"]["digest"]
+        .as_str()
+        .expect("anchor digest")
+        .to_owned();
+    let node = &mut package["semantic_graph"]["nodes"][anchor];
+    node["semantic_type"] = context.clone();
+    node["body"]["members"][0]["value"]["target"] = context.clone();
+    node["body"]["members"][1]["value"]["value"] = json!(operation);
+    let mut dependencies = vec![
+        context.clone(),
+        node["body"]["members"][2]["value"]["target"].clone(),
+    ];
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    node["dependencies"] = json!(dependencies);
+    let new = structural_key(
+        "state",
+        "operation_anchor",
+        context["digest"].as_str(),
+        &node["body"],
+    );
+    crate::support::checked_package::rename_node(package, &old, &new);
+    for node in package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+    {
+        node["dependencies"]
+            .as_array_mut()
+            .expect("dependencies")
+            .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    }
+    rekey_refinement(package, refinement);
+    anchor
+}
+
+#[trace("TC-056", "FR-040-AC-39")]
+#[test]
+fn process_and_machine_anchors_refuse_inherited_only_and_cross_type_frames() {
+    for (form, own, inherited_name) in [
+        ("process", "localGo", "go"),
+        ("state_machine", "localToggle", "toggle"),
+    ] {
+        let (base, evidence, refinement) =
+            catalog_free_operation_package_with_inheritance(form, true);
+        let child = base["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| {
+                node["semantic_form"] == form
+                    && node["owner"]["node"]
+                        .as_str()
+                        .is_some_and(|name| name.contains("/Sub"))
+            })
+            .expect("subtype")["node_id"]
+            .clone();
+        let mut cross_type = base.clone();
+        let anchor = rebind_catalog_free_anchor(&mut cross_type, refinement, &child, own);
+        assert_step_refusal(
+            read(&cross_type, &evidence),
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            &format!("/semantic_graph/nodes/{anchor}"),
+        );
+
+        let mut inherited_only = base;
+        edit_catalog_free_frame(&mut inherited_only, refinement, |frame| {
+            frame["semantic_type"] = child.clone();
+        });
+        let anchor =
+            rebind_catalog_free_anchor(&mut inherited_only, refinement, &child, inherited_name);
+        assert_step_refusal(
+            read(&inherited_only, &evidence),
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            &format!("/semantic_graph/nodes/{anchor}/body/members/1"),
+        );
+    }
+}
+
+#[trace("TC-056", "FR-040-AC-39")]
+#[test]
+fn two_own_operations_on_process_or_machine_share_one_frame() {
+    for (form, other_operation) in [("process", "goAgain"), ("state_machine", "toggleAgain")] {
+        let (mut package, evidence, _) = catalog_free_operation_package(form);
+        let original = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["semantic_form"] == "operation_anchor")
+            .expect("anchor")
+            .clone();
+        let mut second = original.clone();
+        second["body"]["members"][1]["value"]["value"] = json!(other_operation);
+        let context = second["semantic_type"]["digest"].as_str().expect("context");
+        second["node_id"] = node_id(&structural_key(
+            "state",
+            "operation_anchor",
+            Some(context),
+            &second["body"],
+        ));
+        assert_eq!(
+            original["body"]["members"][2]["value"], second["body"]["members"][2]["value"],
+            "the two anchors name the same frame"
+        );
+        let source = package["lock"]["sources"][0].clone();
+        package["source_map"]
+            .as_array_mut()
+            .expect("source map")
+            .push(json!({
+                "node_id":second["node_id"], "role":"anchor", "ordinal":0,
+                "regions":[{"source":source,"start":10,"end":11}]
+            }));
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(second);
+        refresh_identity(&mut package);
+        let result = read(&package, &evidence);
+        assert!(
+            matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+            "{form}: {result:?}"
+        );
+    }
+}
+
+#[trace("TC-056", "FR-040-AC-39")]
+#[test]
+fn process_and_machine_anchors_refuse_non_object_context_forms() {
+    for form in ["process", "state_machine"] {
+        let (base, evidence, refinement) = catalog_free_operation_package(form);
+        for rejected in [
+            "record_value_type",
+            "event_type",
+            "persistence_interface",
+            "systems_interface",
+        ] {
+            let mut package = base.clone();
+            let mut evidence = evidence.clone();
+            let context = match rejected {
+                "event_type" => {
+                    let body = json!({"term":"aggregate","members":[]});
+                    let id = node_id(&structural_key("model", "event_type", None, &body));
+                    package["semantic_graph"]["nodes"].as_array_mut().expect("nodes").push(json!({
+                        "node_id":id,"schema_version":"quire.checked-semantic-graph/v2",
+                        "node_tag":"model","semantic_form":"event_type","semantic_type":id,
+                        "dependencies":[],"occurrences":[{"role":"type","ordinal":0}],"body":body
+                    }));
+                    id
+                }
+                "systems_interface" => {
+                    let document = crate::support::checked_package::family_model_document();
+                    evidence
+                        .insert_domain_package_document(
+                            sha256_hex(&canonical(&document)),
+                            canonical(&document),
+                        )
+                        .expect("family evidence");
+                    let family = v2_all_families();
+                    package["lock"]["model_selections"]
+                        .as_array_mut()
+                        .expect("selections")
+                        .push(family["lock"]["model_selections"][0].clone());
+                    package["lock"]["model_selections"]
+                        .as_array_mut()
+                        .expect("selections")
+                        .sort_by(|left, right| {
+                            left["identity"].as_str().cmp(&right["identity"].as_str())
+                        });
+                    let interface =
+                        crate::support::checked_package::selected_interface_model_node();
+                    let id = interface["node_id"].clone();
+                    package["semantic_graph"]["nodes"]
+                        .as_array_mut()
+                        .expect("nodes")
+                        .push(interface);
+                    id
+                }
+                _ => package["semantic_graph"]["nodes"]
+                    .as_array()
+                    .expect("nodes")
+                    .iter()
+                    .find(|node| node["semantic_form"] == rejected)
+                    .expect("rejected context")["node_id"]
+                    .clone(),
+            };
+            if matches!(rejected, "event_type" | "systems_interface") {
+                let source = package["lock"]["sources"][0].clone();
+                package["source_map"]
+                    .as_array_mut()
+                    .expect("source map")
+                    .push(json!({
+                        "node_id":context,"role":"type","ordinal":0,
+                        "regions":[{"source":source,"start":10,"end":11}]
+                    }));
+                refresh_identity(&mut package);
+            }
+            let anchor = rebind_catalog_free_anchor(&mut package, refinement, &context, "missing");
+            assert_step_refusal(
+                read(&package, &evidence),
+                CheckedPackageRefusalCode::InvalidModelBinding,
+                Some(CheckedPackageRefusalCause::MalformedDeclaration),
+                &format!("/semantic_graph/nodes/{anchor}/body/members/0/value/target"),
+            );
+        }
+    }
+}
+
 #[trace("TC-056", "TC-062", "FR-061-AC-14", "FR-040-AC-38", "FR-040-AC-39")]
 #[test]
 fn catalog_free_process_and_machine_frames_admit_declared_fields_and_scoped_parameters() {
@@ -1198,7 +1464,7 @@ fn catalog_free_process_and_machine_frames_admit_declared_fields_and_scoped_para
         ("state_machine", "openFlag", "target"),
     ] {
         let (mut package, evidence, refinement) =
-            catalog_free_operation_package_config(form, false, true);
+            catalog_free_operation_package_config(form, false, true, false);
         let declaring = package["semantic_graph"]["nodes"]
             .as_array()
             .expect("nodes")
@@ -1435,6 +1701,22 @@ fn catalog_free_operation_step_joins_selected_object_type() {
             serde_json::to_value(&second.graph().nodes[position].body).expect("roundtrip body"),
             "{form}"
         );
+        if inherited {
+            let (without_supertype, evidence, _) =
+                catalog_free_operation_package_config(form, true, false, true);
+            let frame = without_supertype["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .iter()
+                .position(|node| node["node_tag"] == "state" && node["semantic_form"] == "frame")
+                .expect("inherited frame");
+            assert_step_refusal(
+                read(&without_supertype, &evidence),
+                CheckedPackageRefusalCode::MissingDeclaration,
+                Some(CheckedPackageRefusalCause::MissingName),
+                &format!("/semantic_graph/nodes/{frame}/body/modifies/0"),
+            );
+        }
     }
 }
 
@@ -5548,4 +5830,255 @@ fn refinement_state_machine_owner_and_kind_are_exact() {
         read(&wrong_kind, &evidence),
         CheckedPackageV2ReadResult::Refused(_)
     ));
+}
+
+#[trace("TC-056", "FR-040-AC-39")]
+#[test]
+fn process_and_machine_clause_signatures_use_declared_context() {
+    use crate::support::checked_package::{BOOLEAN_KEY, INTEGER_KEY};
+    for form in ["process", "state_machine"] {
+        let (mut package, evidence, refinement) = catalog_free_operation_package(form);
+        let original_nodes = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .len();
+        let original_source_map = package["source_map"].clone();
+        let nodes = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes");
+        let context = nodes
+            .iter()
+            .find(|node| node["semantic_form"] == form)
+            .expect("context")["node_id"]
+            .clone();
+        let anchor = nodes
+            .iter()
+            .find(|node| node["semantic_form"] == "operation_anchor")
+            .expect("anchor")["node_id"]
+            .clone();
+        let account = nodes
+            .iter()
+            .find(|node| node["semantic_form"] == "object_type")
+            .expect("account")["node_id"]
+            .clone();
+        let text_type = node_id(&crate::support::checked_package::family_key("a1a1"));
+        let mk_ref_type = |target: &Value| {
+            let body = json!({"term":"aggregate","members":[{"term":"reference","target":target}]});
+            let key = structural_key("composite_type", "reference", None, &body);
+            (key, body)
+        };
+        let (self_type, self_body) = mk_ref_type(&context);
+        let (argument_type, argument_body) = mk_ref_type(&account);
+        let mk_parameter = |name: &str, ty: &str, level: &str| {
+            let body = json!({"term":"aggregate","members":[
+                {"term":"binding","name":"name","value":{"term":"literal","type":text_type,"value_kind":"text","value":name}},
+                {"term":"binding","name":"level","value":{"term":"literal","type":node_id(INTEGER_KEY),"value_kind":"integer","value":level}}
+            ]});
+            let key = structural_key("value", "parameter", Some(ty), &body);
+            (key, body)
+        };
+        let (self_key, self_parameter) = mk_parameter("self", &self_type, "0");
+        let (argument_key, argument_parameter) = mk_parameter(
+            if form == "process" { "step" } else { "target" },
+            &argument_type,
+            "1",
+        );
+        let (result_key, result_parameter) = mk_parameter("result", INTEGER_KEY, "1");
+        let family = v2_all_families();
+        for key in [
+            BOOLEAN_KEY,
+            INTEGER_KEY,
+            &crate::support::checked_package::family_key("dddd"),
+        ] {
+            let node = family["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("family nodes")
+                .iter()
+                .find(|node| node["node_id"] == node_id(key))
+                .expect("family type or condition")
+                .clone();
+            let nodes = package["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("nodes");
+            if !nodes
+                .iter()
+                .any(|existing| existing["node_id"] == node["node_id"])
+            {
+                nodes.push(node);
+            }
+        }
+        let node = |key: &str,
+                    tag: &str,
+                    semantic_form: &str,
+                    ty: &str,
+                    deps: Vec<Value>,
+                    role: &str,
+                    body: Value| {
+            json!({"node_id":node_id(key),"schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":tag,"semantic_form":semantic_form,"semantic_type":node_id(ty),
+                "dependencies":deps,"occurrences":[{"role":role,"ordinal":0}],"body":body})
+        };
+        let added = vec![
+            node(
+                &self_type,
+                "composite_type",
+                "reference",
+                &self_type,
+                vec![context.clone()],
+                "type",
+                self_body,
+            ),
+            node(
+                &argument_type,
+                "composite_type",
+                "reference",
+                &argument_type,
+                vec![account],
+                "type",
+                argument_body,
+            ),
+            node(
+                &self_key,
+                "value",
+                "parameter",
+                &self_type,
+                vec![],
+                "expression",
+                self_parameter,
+            ),
+            node(
+                &argument_key,
+                "value",
+                "parameter",
+                &argument_type,
+                vec![],
+                "expression",
+                argument_parameter,
+            ),
+            node(
+                &result_key,
+                "value",
+                "parameter",
+                INTEGER_KEY,
+                vec![],
+                "expression",
+                result_parameter,
+            ),
+        ];
+        for node in added {
+            let nodes = package["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("nodes");
+            if !nodes
+                .iter()
+                .any(|existing| existing["node_id"] == node["node_id"])
+            {
+                nodes.push(node);
+            }
+        }
+        let condition = node_id(&crate::support::checked_package::family_key("dddd"));
+        let mut positions = Vec::new();
+        for (index, (clause, anchor_id, params)) in [
+            ("invariant", context.clone(), vec![self_key.as_str()]),
+            ("constraint", context.clone(), vec![self_key.as_str()]),
+            (
+                "precondition",
+                anchor.clone(),
+                vec![self_key.as_str(), argument_key.as_str()],
+            ),
+            (
+                "postcondition",
+                anchor.clone(),
+                vec![
+                    self_key.as_str(),
+                    result_key.as_str(),
+                    argument_key.as_str(),
+                ],
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let members: Vec<Value> = params
+                .iter()
+                .map(|key| json!({"term":"reference","target":node_id(key)}))
+                .collect();
+            let body = json!({"term":"application","operator":"state_clause",
+            "operation":{"identity":"quire.op.state.clause","laws":[],"mode":null,
+                "member":{"kind":"state_clause","clause":clause},"leaves":[]},
+            "result_type":node_id(BOOLEAN_KEY),"arguments":[
+                {"term":"aggregate","members":members},
+                {"term":"reference","target":anchor_id},
+                {"term":"reference","target":condition}
+            ]});
+            let mut deps: Vec<Value> = params
+                .iter()
+                .map(|key| node_id(key))
+                .chain([anchor_id, condition.clone()])
+                .collect();
+            deps.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+            deps.dedup();
+            let position = package["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .len();
+            positions.push(position);
+            let key = format!("{:02x}", 0xe0 + index).repeat(32);
+            package["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("nodes")
+                .push(node(
+                    &key,
+                    "state",
+                    "state_clause",
+                    BOOLEAN_KEY,
+                    deps,
+                    "claim",
+                    body,
+                ));
+        }
+        crate::support::checked_package::mint_ungrouped_structural_keys(&mut package);
+        rekey_refinement(&mut package, refinement);
+        settle(&mut package);
+        let source = package["lock"]["sources"][0].clone();
+        let mut source_map = original_source_map.as_array().expect("source map").clone();
+        for node in &package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")[original_nodes..]
+        {
+            let occurrence = &node["occurrences"][0];
+            source_map.push(json!({"node_id":node["node_id"],"role":occurrence["role"],
+                "ordinal":occurrence["ordinal"],"regions":[{"source":source,"start":10,"end":11}]}));
+        }
+        package["source_map"] = json!(source_map);
+        refresh_identity(&mut package);
+        assert_unique_node_ids(&package);
+        let admitted = read(&package, &evidence);
+        assert!(
+            matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+            "{form}: {admitted:?}"
+        );
+        for position in positions {
+            let mut wrong = package.clone();
+            let old_clause = wrong["semantic_graph"]["nodes"][position]["node_id"].clone();
+            wrong["semantic_graph"]["nodes"][position]["body"]["arguments"][0]["members"][0]
+                ["target"] = node_id(&result_key);
+            settle(&mut wrong);
+            let new_clause = wrong["semantic_graph"]["nodes"][position]["node_id"].clone();
+            let mut source_map = package["source_map"].clone();
+            for entry in source_map.as_array_mut().expect("source map") {
+                if entry["node_id"] == old_clause {
+                    entry["node_id"] = new_clause.clone();
+                }
+            }
+            wrong["source_map"] = source_map;
+            refresh_identity(&mut wrong);
+            assert_step_refusal(
+                read(&wrong, &evidence),
+                CheckedPackageRefusalCode::IllTyped,
+                Some(CheckedPackageRefusalCause::OperatorIneligible),
+                &format!("/semantic_graph/nodes/{position}/body/arguments/0"),
+            );
+        }
+    }
 }
