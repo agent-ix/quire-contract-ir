@@ -745,9 +745,27 @@ lower every node.
 Then mutate one parameter, the compound unit or the application node at a
 time and re-read. The package admits and every node lowers; each parameter
 body mutation (level, name or binding) refuses as `invalid_semantic_graph` at
-the parameter node's `body`, every other mutation as `invalid_semantic_graph`
-at the member it breaks, each located at the mutated node, and the
-dimensionless compound unit admits.
+the parameter node's `body`. A compound-unit term naming a non-unit, a wrong
+dependency list or a non-self type refuses `invalid_semantic_graph` at the
+broken member. A zero exponent, repeated unit or noncanonical term order
+under a current compound-unit key refuses `invalid_package`/
+`invalid-derived-shape` at its `node_id`, with that key as `locus`, after all
+applicable key checks; retaining the old key for the changed body instead
+refuses `invalid_package`/`stale-node-key` there. Other application mutations
+keep their own specified graph or catalog refusal. The dimensionless compound
+unit admits.
+
+## Nominal rekey and derived-shape order (FR-038-AC-343)
+
+Replay QSpec's published `NK-00` through `NK-14` rows through the public V2
+reader, with the exact code, cause, pointer and node locus. Pair a compound
+unit whose duplicate term has a recomputed current key with the same changed
+body under its retained old key: the first refuses `invalid_package`/
+`invalid-derived-shape` at its `node_id`, the second `invalid_package`/
+`stale-node-key` there. Keep the term naming a non-unit and the wrong
+dependency and non-self-type controls at their graph-shape stage. Assert the
+independent dangling-reference and dependent semantic-edge controls at their
+specified positions in the one FR-038-AC-343 order.
 
 ## Model-owned members (FR-038-AC-27 through FR-038-AC-30)
 

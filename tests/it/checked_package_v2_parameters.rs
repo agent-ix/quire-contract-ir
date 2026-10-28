@@ -556,7 +556,7 @@ fn tc_048_a_malformed_parameter_node_refuses() {
     );
 }
 
-#[trace("TC-048", "FR-038-AC-22")]
+#[trace("TC-048", "FR-038-AC-22", "FR-038-AC-343")]
 #[test]
 fn tc_048_a_malformed_compound_unit_node_refuses() {
     let metre = node_key(&parameters_package(), METRE);
