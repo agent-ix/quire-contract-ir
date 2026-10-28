@@ -109,14 +109,61 @@ fn with_requirements(rows: &[Value], work_limit: u64) -> CompleteLoweringProfile
     selected
 }
 
+fn tc_935_rows() -> (Value, Value, Value) {
+    let t = json!({"role":"temporal_profile","definition":{"authority":"agent-ix","identity":"quire.temporal.infinite-trace/v1"}});
+    let d = json!({"role":"temporal_profile","definition":{"authority":"agent-ix","identity":"quire.temporal.event-position.false-extension/v1"}});
+    let u = json!({"role":"protocol_profile","definition":{"authority":"agent-ix","identity":"quire.protocol.finite-global/v1"}});
+    (t, d, u)
+}
+
+fn assert_tc_935_failed_work(
+    source: &Value,
+    package: &CheckedPackageV2,
+    request: &CheckedNodeId,
+    requirements: &[Value],
+    limit: u64,
+    consumed: u64,
+) {
+    let result = package.lower(
+        std::slice::from_ref(request),
+        &with_requirements(requirements, limit),
+    );
+    assert_eq!(
+        result.records,
+        vec![CompleteLoweringRecordV2::Failed {
+            node_id: request.clone(),
+            limit_kind: CheckedPackageLimit::Work,
+            limit,
+            consumed,
+        }]
+    );
+    assert!(result.package.lowered().is_empty());
+    assert!(result.package.dependencies().is_empty());
+    let wire = result.package.wire().expect("failed-work accounting wire");
+    let emitted = serde_json::to_value(wire.wire()).expect("wire value");
+    assert!(wire.wire().semantic_graph.nodes.is_empty());
+    assert_eq!(emitted["package"]["source"]["lock"], source["lock"]);
+    assert_eq!(
+        emitted["package"]["source"]["package_id"],
+        source["package_id"]
+    );
+    assert_eq!(
+        emitted["package"]["lowering_profile"],
+        json!({"authority":"quire","identity":"complete-v1"})
+    );
+    assert_eq!(
+        emitted["feature_accounting"],
+        json!([{
+            "node_id":request, "disposition":"failed", "limit_kind":"work",
+            "limit":limit.to_string(), "consumed":consumed.to_string()
+        }])
+    );
+}
+
 #[trace("TC-935", "FR-035-AC-9")]
 #[test]
 fn tc_935_required_source_rows_match_exactly_without_changing_provenance() {
-    let all = v2_all_families();
-    let t = all["lock"]["profile_selections"][0].clone();
-    let u = all["lock"]["profile_selections"][1].clone();
-    let mut d = t.clone();
-    d["definition"]["identity"] = json!("different-law");
+    let (t, d, u) = tc_935_rows();
     let mut other_authority = t.clone();
     other_authority["definition"]["authority"] = json!("other-authority");
     let missing = typed_node_id(&"0123456789abcdef".repeat(4));
@@ -157,10 +204,19 @@ fn tc_935_required_source_rows_match_exactly_without_changing_provenance() {
         assert!(serialized.get("required_source_selections").is_none());
         assert_eq!(wire.wire().feature_accounting.len(), 2);
         if succeeds {
-            assert!(result
-                .records
-                .iter()
-                .all(|record| matches!(record, CompleteLoweringRecordV2::Lowered { .. })));
+            for (record, requested) in result.records.iter().zip(&requests) {
+                let node = lowered(record);
+                let source_node = source["semantic_graph"]["nodes"]
+                    .as_array()
+                    .expect("source nodes")
+                    .iter()
+                    .find(|entry| entry["node_id"] == json!(requested))
+                    .expect("requested node in source");
+                assert_eq!(
+                    serde_json::to_value(&node.node).expect("typed node"),
+                    *source_node
+                );
+            }
         } else {
             assert_eq!(
                 result.records,
@@ -211,12 +267,9 @@ fn tc_935_required_source_rows_match_exactly_without_changing_provenance() {
 #[trace("TC-935", "FR-035-AC-9")]
 #[test]
 fn tc_935_compatibility_uses_existing_per_request_work_meter() {
-    let all = v2_all_families();
-    let t = all["lock"]["profile_selections"][0].clone();
-    let mut d = t.clone();
-    d["definition"]["identity"] = json!("different-law");
-    let (_, empty, request) = selected_nominal(vec![]);
-    let (_, differing, _) = selected_nominal(vec![d]);
+    let (t, d, _) = tc_935_rows();
+    let (empty_source, empty, request) = selected_nominal(vec![]);
+    let (differing_source, differing, _) = selected_nominal(vec![d]);
     let failed = |limit, consumed| CompleteLoweringRecordV2::Failed {
         node_id: request.clone(),
         limit_kind: CheckedPackageLimit::Work,
@@ -243,6 +296,14 @@ fn tc_935_compatibility_uses_existing_per_request_work_meter() {
             .records[0],
         failed(1, 2)
     );
+    assert_tc_935_failed_work(
+        &empty_source,
+        &empty,
+        &request,
+        std::slice::from_ref(&t),
+        1,
+        2,
+    );
     assert_eq!(
         differing
             .lower(
@@ -263,6 +324,14 @@ fn tc_935_compatibility_uses_existing_per_request_work_meter() {
             .records[0],
         failed(2, 3)
     );
+    assert_tc_935_failed_work(
+        &differing_source,
+        &differing,
+        &request,
+        std::slice::from_ref(&t),
+        2,
+        3,
+    );
     assert_eq!(
         empty
             .lower(
@@ -271,6 +340,14 @@ fn tc_935_compatibility_uses_existing_per_request_work_meter() {
             )
             .records,
         vec![failed(0, 1); 2]
+    );
+    assert_tc_935_failed_work(
+        &empty_source,
+        &empty,
+        &request,
+        std::slice::from_ref(&t),
+        0,
+        1,
     );
     let absent = typed_node_id(&"0123456789abcdef".repeat(4));
     assert_eq!(
@@ -299,23 +376,28 @@ fn tc_935_compatibility_uses_existing_per_request_work_meter() {
 
     // The scalar root costs one node, one aggregate body term and one self edge.
     // Adding request, requirement and first candidate charges gives 6.
-    let admitted = admit(&all);
+    let (matching_source, admitted, _) = selected_nominal(vec![t.clone()]);
+    let matching_request =
+        serde_json::from_value(matching_source["semantic_graph"]["nodes"][1]["node_id"].clone())
+            .expect("self-typed declaration key");
     let exact = with_requirements(std::slice::from_ref(&t), 6);
     assert_eq!(
-        lowered(&admitted.lower(&[id("aaaa")], &exact).records[0])
-            .node
-            .node_id,
-        id("aaaa")
+        lowered(
+            &admitted
+                .lower(std::slice::from_ref(&matching_request), &exact)
+                .records[0]
+        )
+        .node
+        .node_id,
+        matching_request
     );
-    let one_under = with_requirements(&[t], 5);
-    assert_eq!(
-        admitted.lower(&[id("aaaa")], &one_under).records[0],
-        CompleteLoweringRecordV2::Failed {
-            node_id: id("aaaa"),
-            limit_kind: CheckedPackageLimit::Work,
-            limit: 5,
-            consumed: 6
-        }
+    assert_tc_935_failed_work(
+        &matching_source,
+        &admitted,
+        &matching_request,
+        std::slice::from_ref(&t),
+        5,
+        6,
     );
 }
 
