@@ -29,6 +29,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-mltl/FR-003
     type: depends_on
+  - target: ix://agent-ix/quire-mltl/FR-004
+    type: depends_on
 ---
 # FR-350: Establish native temporal and TL result correspondence
 
@@ -151,6 +153,20 @@ cross-owner join.
   artifact SHALL pass its owner's public reader before it is used. Each
   artifact identity SHALL be computed from its own canonical bytes and SHALL
   NOT substitute for another artifact's identity.
+- Construction SHALL be acyclic. The bridge SHALL first fix the native subject
+  identity from the admitted declaration and the correspondence *profile*
+  identity `quire.native-temporal-correspondence/v1`. It SHALL supply those
+  two exact strings as `RequestInput.subject_identity` and
+  `RequestInput.correspondence_identity` to quire-mltl FR-004, after owner-reading
+  the formula, proposition map, trace or history, clock and observation facts.
+  It SHALL then owner-read the derived request, take the SHA-256 of that
+  request's canonical bytes for `target.request`, construct the correspondence
+  record containing that digest, and only then derive the bridge-owned record
+  reference. The request SHALL NOT contain the record reference or record
+  digest, and the record reference SHALL NOT replace the request's opaque
+  correspondence profile identity. A request carrying a different profile
+  identity or a record whose `target.request` disagrees with the owner-read
+  request SHALL be refused before projection is admitted.
 - The correspondence record SHALL preserve the exact package digest,
   declaration and clause identity, native source digest and span, selected
   language/profile definition, model/type/predicate bindings, anchor, captures,
@@ -186,6 +202,15 @@ cross-owner join.
   pair matches SHALL be the decision; the cause set SHALL list the cause of
   every row the pair matches, in table order. A final `agreement` row has no
   cause, and its decision carries an empty cause set:
+  The bridge SHALL first attempt each owner's reader and the projection's
+  subject, request, profile and correspondence checks. A refused owner read or
+  failed correspondence check SHALL become a typed refused state for the first
+  row; it SHALL NOT be used as a value. Each row predicate SHALL then be
+  evaluated against the same pair of resulting states, independently of earlier
+  matches. The first matching row selects the decision, while every matching
+  non-final row contributes its named cause once in table order. If no row
+  matches, the join SHALL refuse the pair as `result-mismatch` without a
+  Boolean. A later equal-final row SHALL NOT override an earlier failure row.
 
 | Validated mapped state | Join decision | Cause |
 | --- | --- | --- |
@@ -222,7 +247,7 @@ The **correspondence record** of profile
 | --- | --- |
 | `anchor` | `{binder, kind}`: `kind` `"origin"` for a whole-execution origin activation or `"trigger"` for a trigger activation (the two activation records FR-044 emits), and `binder` the trigger binder's name, `null` for `origin` |
 | `bindings` | one `{leaf, predicate, predicate_node, proposition}` per `holds` leaf in ascending leaf handle: the leaf handle, the leaf's checked predicate name, the predicate's checked node id (which fixes its parameter and result types, the type binding), and the TL proposition id |
-| `bridge` | `{definition, profile}`: the `raw-artifact-digest` of the bridge definition, the RFC 8785 bytes of `{profile, selection}` with `selection` the `TlSelection`, and `profile` `"quire.native-temporal-correspondence/v1"` |
+| `bridge` | `{definition, profile}`: the `raw-artifact-digest` of the bridge definition, and a `profile` object `{profile, selection}` serialized in RFC 8785 form as part of the record, with `selection` the `TlSelection` and its inner `profile` `"quire.native-temporal-correspondence/v1"` |
 | `captures` | one `{index, value}` per capture in declaration order, `value` the capture's canonical value |
 | `clause` | `{declaration, identity}`: the declaration index and the clause's declared name |
 | `clock` | `{name, parameters}`: the emitted clock binding name and the authenticated parameter map |
@@ -235,6 +260,30 @@ The **correspondence record** of profile
 | `package` | the `/2` package digest |
 | `source` | `{digest, span}`: the native source's `raw-artifact-digest` and the clause's `[start, end]` byte span |
 | `target` | `{formula, formula_edition, profile, request, trace, trace_contract, valuation}`: the digests of the generated formula, request, trace or history and valuation cells (each the SHA-256 of that artifact's own canonical bytes), the formula edition, the TL target profile and the trace or history contract |
+
+### Canonical record vector for FR-350-AC-7
+
+The next code block contains one complete RFC 8785 record preimage as a single
+UTF-8 line. The line has **1429 bytes excluding the Markdown line ending**.
+Its 64-zero digests are fixture identity values for the byte-level record and
+reference check; owner-admission controls in AC-1 use actual owner-read artifact
+bytes and their recomputed digests. The capture value is exactly 60 ASCII `v`
+characters. SHA-256 of the exact line is
+`4befba23cd2d9f6bf169a6283bccb4a6d7fb1d262ba6a6881ad51941980d0468`.
+
+```json
+{"anchor":{"binder":null,"kind":"origin"},"bindings":[{"leaf":0,"predicate":"p","predicate_node":0,"proposition":0}],"bridge":{"definition":"0000000000000000000000000000000000000000000000000000000000000000","profile":{"profile":"quire.native-temporal-correspondence/v1","selection":{"profile":"mltl.closed-trace/v1"}}},"captures":[{"index":0,"value":"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"}],"clause":{"declaration":0,"identity":"c"},"clock":{"name":"event-position","parameters":{}},"closure":{"surrounding":"closed"},"definition":{"identity":"d","revision":"r"},"history":null,"intervals":[[0,1]],"models":[{"alias":"m","package":"0000000000000000000000000000000000000000000000000000000000000000"}],"observation":{"origin":null,"trace":"0000000000000000000000000000000000000000000000000000000000000000"},"package":"0000000000000000000000000000000000000000000000000000000000000000","source":{"digest":"0000000000000000000000000000000000000000000000000000000000000000","span":[0,1]},"target":{"formula":"0000000000000000000000000000000000000000000000000000000000000000","formula_edition":"formula-v1","profile":"mltl.closed-trace/v1","request":"0000000000000000000000000000000000000000000000000000000000000000","trace":"0000000000000000000000000000000000000000000000000000000000000000","trace_contract":"mltl.closed-trace/v1","valuation":"0000000000000000000000000000000000000000000000000000000000000000"}}
+```
+
+Starting from that exact record, change **only** the named member below,
+re-encode in RFC 8785 form, and compare SHA-256 of the resulting canonical
+bytes. Each mutation remains 1429 bytes:
+
+| Mutation | SHA-256 |
+| --- | --- |
+| `intervals` from `[[0,1]]` to `[[0,2]]` | `b1f4e466ac7bff919df0eb66e489fa647ddafbc4e0e2a293d4948d6e6732b192` |
+| `models[0].package` from 64 `0`s to 64 `a`s | `dfba6542b29042cf87d6977fb9c2be032b6cc59d7b8f136a72707cdcb3d6cb93` |
+| `bridge.definition` from 64 `0`s to 64 `b`s | `bdc9cc6624f98270329f394c97f312bde89618e8ff610772b3206837e5934596` |
 
 The **correspondence reference** SHALL be `{domain, digest}` with `domain`
 `"quire.native-temporal-correspondence/v1"` and `digest` the SHA-256 of the
@@ -257,6 +306,19 @@ with the published default below (QSpec FR-461). Each is charged before the
 work it pays for. A limit reached exactly admits; one past it SHALL stop with
 `incomplete`, cause `limit-reached{limit, value, setting}`, and no partial
 artifact:
+
+Each limit SHALL be checked independently against its own counter, using the
+effective caller setting or the published default. `value` is the first
+observed count exceeding `setting`; the rejected unit SHALL not be processed.
+When one action would cross several limits, the first check in the table below
+SHALL select the sole returned limit cause. The counters SHALL reset for each
+projection, join or strict-read operation. `max_bytes` counts the canonical
+bytes of each record under construction or read, not a sum over distinct
+records; `max_nodes`, `max_positions`, `max_valuations` and `max_support` count
+distinct visited items of their named kind; `max_causes` counts causes emitted
+by one join; `max_work` counts one unit for each node, position, cell or support
+entry actually visited. A caller may set a smaller positive limit to exercise
+an exact and one-over boundary without constructing a default-sized artifact.
 
 | Limit | Setting | Default | Counts |
 | --- | --- | --- | --- |
