@@ -18,13 +18,40 @@ relationships:
 
 ## Description
 
-Verify FR-040-AC-1 through FR-040-AC-36: the V2 reader admits QSpec FR-340's
+Verify FR-040-AC-1 through FR-040-AC-39: the V2 reader admits QSpec FR-340's
 `FrameModifiesEntry` values, FR-342's operation anchor body, FR-341's state
 clause and parameter bodies and exactly the fifteen `model` forms, and
 refuses every other shape with the code, cause and locus those requirements
 fix, in their reader order.
 
 ## Test Procedure
+
+Planned process and state-machine seam (FR-040-AC-2, AC-5, AC-7 through
+AC-9, AC-30, AC-38 and AC-39): build a selected `Flow` process with own and
+inherited fields and own `go` operation, its `SubFlow` subtype inheriting
+`go`, and a selected `Gate` state machine with own and inherited fields and
+own `toggle` operation. Independently derive checked-package keys for a
+frame and anchor per declaring type. Admit both `semantic_type` values,
+`every-object` field entries on each, a process `creates` and `deletes`, and
+one `parameter` scoped delete matching each own operation's reference
+parameter. Admit a process or state-machine field entry in an object-type
+frame. Refuse state-machine `creates` and `deletes`, an unknown field, a
+`receiver` field scope and `receiver` scoped delete on each non-object frame,
+and wrong-kind frame `semantic_type`, with exact codes, causes and loci from
+FR-040. Pair each meaning-join defect with a canonical-order defect to
+verify precedence. A process or state-machine context anchors its own
+operation with both anchor and frame `semantic_type` equal to that context;
+`(SubFlow, go)` when `go` is only inherited refuses at the operation binding,
+and `(Flow, go)` remains the declaring anchor. Check same-context equal-frame
+sharing and different-context frame nonsharing. A record, event, persistence
+or systems context refuses before operation or scoped-delete checking.
+Admit invariant and constraint clauses binding `self: Reference<C>` and
+operation clauses binding `self`, result and own operation parameters for
+both new contexts. A bad reference parameter of a valid process or
+state-machine anchor refuses at the frame node in the state step. This
+replaces the former unresolved invalid-context admission oracle of AC-30;
+the earlier text remains available in revision history. Use QSpec
+FR-340-AC-12/19/20 and FR-342-AC-2/7/8/9 as the independent oracle.
 
 Build, from this repository's own public vocabulary, checked packages
 holding frames, operation anchors, an invariant, a precondition, a
@@ -127,7 +154,9 @@ ahead of a frame-step defect.
 
 ## Status
 
-FR-040-AC-1 through FR-040-AC-13 are implemented. FR-040-AC-28 supersedes
+FR-040-AC-1 through FR-040-AC-13 have existing tests for their former
+object-type cases; the corrected process/state-machine cases are planned
+under AC-38/39 and are not credited as implemented. FR-040-AC-28 supersedes
 the former shared-frame refusal of FR-040-AC-7. Their tests are in
 `tests/it/checked_package_v2_frame_entries.rs` and the entry eligibility
 tests in `crates/quire-contract-model/src/checked_package/v2/frame.rs`.
