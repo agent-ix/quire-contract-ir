@@ -826,6 +826,10 @@ fn row_empty_refinement(package: &mut Value) {
 
 fn one_step_refinement_with_step(package: &mut Value, step: Value) {
     row_empty_refinement(package);
+    attach_step_to_last_refinement(package, step);
+}
+
+fn attach_step_to_last_refinement(package: &mut Value, step: Value) {
     let nodes = package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes");
@@ -2124,6 +2128,331 @@ fn complete_model_refinement_retains_all_rows_through_public_roundtrip() {
     assert_eq!(
         serde_json::to_value(third.term(&refinement_id)).expect("reread refinement"),
         expected["body"]
+    );
+}
+
+#[trace("TC-062", "FR-061-AC-4")]
+#[test]
+fn model_step_targets_keep_operation_stutter_and_any_through_public_writer() {
+    let (base, evidence, position) = catalog_free_operation_package("object_type");
+    let step = &base["semantic_graph"]["nodes"][position]["body"]["steps"][0];
+    let anchor = step["source_node"].clone();
+    let receiver = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| {
+            node["semantic_form"] == "object_type" && node["owner"]["identity"] == MODEL_IDENTITY
+        })
+        .expect("selected object type")["node_id"]
+        .clone();
+    for (name, target) in [
+        ("stutter", json!({"kind":"stutter"})),
+        ("any", json!({"kind":"any"})),
+        (
+            "operation",
+            json!({
+                "kind":"operation", "operation":anchor,
+                "receiver":{"term":"reference","target":receiver}, "arguments":[]
+            }),
+        ),
+    ] {
+        let mut package = base.clone();
+        let node = &mut package["semantic_graph"]["nodes"][position];
+        node["body"]["steps"][0]["target"] = target.clone();
+        if name == "operation" {
+            let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
+            dependencies.push(receiver.clone());
+            dependencies
+                .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+            dependencies.dedup();
+        }
+        rekey_refinement(&mut package, position);
+        if name == "any" {
+            keep_refinement_declaration_occurrence(&mut package, position);
+        }
+        let key: quire_contract_model::CheckedNodeId =
+            serde_json::from_value(package["semantic_graph"]["nodes"][position]["node_id"].clone())
+                .expect("refinement id");
+        let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
+            panic!("{name} target refused: {:?}", read(&package, &evidence));
+        };
+        let Some(CheckedTerm::Refinement { steps, .. }) = admitted.term(&key) else {
+            panic!("{name} target absent from admitted refinement");
+        };
+        assert_eq!(
+            serde_json::to_value(&steps[0].target).expect("typed target"),
+            target
+        );
+        let encoded = writer_bytes(&package);
+        let written: Value = serde_json::from_slice(&encoded).expect("writer JSON");
+        assert_eq!(
+            written["semantic_graph"]["nodes"][position]["body"]["steps"][0]["target"],
+            target
+        );
+        let CheckedPackageV2ReadResult::Admitted(reread) =
+            CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+        else {
+            panic!("{name} target refused after writer");
+        };
+        let Some(CheckedTerm::Refinement { steps, .. }) = reread.term(&key) else {
+            panic!("{name} target absent after writer");
+        };
+        assert_eq!(
+            serde_json::to_value(&steps[0].target).expect("reread target"),
+            target
+        );
+        assert_eq!(admitted.package_id(), reread.package_id());
+    }
+
+    let mut missing_target = base;
+    let unresolved = node_id(&sha256_hex(b"absent-abstract-operation"));
+    let node = &mut missing_target["semantic_graph"]["nodes"][position];
+    node["body"]["steps"][0]["target"] = json!({
+        "kind":"operation", "operation":unresolved,
+        "receiver":{"term":"reference","target":receiver}, "arguments":[]
+    });
+    let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
+    dependencies.extend([unresolved, receiver]);
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.dedup();
+    rekey_refinement(&mut missing_target, position);
+    assert_step_refusal(
+        read(&missing_target, &evidence),
+        CheckedPackageRefusalCode::MissingDeclaration,
+        Some(CheckedPackageRefusalCause::MissingName),
+        &format!("/semantic_graph/nodes/{position}/body/steps/0/target/operation"),
+    );
+}
+
+#[trace("TC-062", "FR-061-AC-4")]
+#[test]
+fn directly_selected_abstract_operation_target_uses_declaring_owner() {
+    let (dependency_wire, dependency_evidence, _) = catalog_free_operation_package("object_type");
+    let dependency_nodes = dependency_wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let abstract_root = dependency_nodes
+        .iter()
+        .find(|node| {
+            node["semantic_form"] == "model_root" && node["owner"]["identity"] == MODEL_IDENTITY
+        })
+        .expect("abstract root")["node_id"]
+        .clone();
+    let abstract_type = dependency_nodes
+        .iter()
+        .find(|node| {
+            node["semantic_form"] == "object_type" && node["owner"]["identity"] == MODEL_IDENTITY
+        })
+        .expect("abstract type")["node_id"]
+        .clone();
+    let abstract_anchor = dependency_nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "operation_anchor")
+        .expect("abstract operation anchor")["node_id"]
+        .clone();
+    let CheckedPackageV2ReadResult::Admitted(dependency) =
+        read(&dependency_wire, &dependency_evidence)
+    else {
+        panic!("abstract dependency fixture refused");
+    };
+    let dependency_id = dependency_wire["package_id"].clone();
+    let external = |node: Value| json!({"package":dependency_id,"node":node});
+    let (mut package, mut evidence, position) = catalog_free_operation_package("object_type");
+    package["lock"]["dependency_selections"] = json!([{
+        "identity":"test/abstract-operations", "package_id":dependency_id
+    }]);
+    evidence
+        .insert_dependency_package("test/abstract-operations", *dependency)
+        .expect("selected dependency");
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    let source_anchor = node["body"]["steps"][0]["source_node"].clone();
+    node["body"]["abstract"] = external(abstract_root);
+    node["body"]["steps"][0]["target"] = json!({
+        "kind":"operation", "operation":external(abstract_anchor.clone()),
+        "receiver":{"term":"dependency_reference", "package":dependency_id,
+            "node":abstract_type}, "arguments":[]
+    });
+    node["body"]["ensure"] = json!([{
+        "operation":external(abstract_anchor), "kind":"strong", "granularity":"whole"
+    }]);
+    node["dependencies"] = json!([source_anchor]);
+    rekey_refinement(&mut package, position);
+    let key: quire_contract_model::CheckedNodeId =
+        serde_json::from_value(package["semantic_graph"]["nodes"][position]["node_id"].clone())
+            .expect("refinement id");
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
+        panic!(
+            "external abstract operation refused: {:?}",
+            read(&package, &evidence)
+        );
+    };
+    let Some(CheckedTerm::Refinement { steps, ensure, .. }) = admitted.term(&key) else {
+        panic!("external operation not retained");
+    };
+    assert_eq!(
+        serde_json::to_value(&steps[0].target).expect("typed target"),
+        package["semantic_graph"]["nodes"][position]["body"]["steps"][0]["target"]
+    );
+    assert_eq!(
+        serde_json::to_value(ensure).expect("typed ensure"),
+        package["semantic_graph"]["nodes"][position]["body"]["ensure"]
+    );
+    let encoded = writer_bytes(&package);
+    let CheckedPackageV2ReadResult::Admitted(reread) =
+        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+    else {
+        panic!("written external abstract operation refused");
+    };
+    assert_eq!(admitted.package_id(), reread.package_id());
+    assert_eq!(
+        serde_json::to_value(reread.term(&key)).expect("reread refinement"),
+        package["semantic_graph"]["nodes"][position]["body"]
+    );
+}
+
+fn declared_protocol_target_package() -> (Value, CheckedPackageEvidence, usize, Value) {
+    let (mut package, evidence) = concrete_protocol_refinement(
+        ProtocolStepRows::Declared,
+        ProtocolClauseOwner::SelectedModel,
+    );
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let clause = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "protocol_clause")
+        .expect("selected clause")["node_id"]
+        .clone();
+    let finish = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "protocol" && node["semantic_form"] == "obligation")
+        .expect("finish class node")["node_id"]
+        .clone();
+    let binder = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let class = "Example::OrderFlow::Closed";
+    let entry = json!({"class":class, "node":finish, "binder_types":[binder]});
+    let position = set_concrete_catalog(&mut package, vec![entry.clone()]);
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["body"]["protocol"] = clause.clone();
+    node["body"]["class_catalog"]["abstract"] = json!([entry]);
+    node["body"]["steps"][0]["source_class"] = json!(class);
+    node["body"]["steps"][0]["target"] = json!({
+        "kind":"protocol_step", "class":class, "node":finish, "arguments":[]
+    });
+    let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
+    dependencies.push(clause);
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.dedup();
+    rekey_refinement(&mut package, position);
+    (package, evidence, position, finish)
+}
+
+#[trace("TC-062", "FR-061-AC-4")]
+#[test]
+fn declared_protocol_step_target_roundtrips_and_refuses_wrong_row_keys() {
+    let (package, evidence, position, finish) = declared_protocol_target_package();
+    let node = &package["semantic_graph"]["nodes"][position];
+    let key: quire_contract_model::CheckedNodeId =
+        serde_json::from_value(node["node_id"].clone()).expect("refinement id");
+    let target = node["body"]["steps"][0]["target"].clone();
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
+        panic!(
+            "declared protocol target refused: {:?}",
+            read(&package, &evidence)
+        );
+    };
+    let Some(CheckedTerm::Refinement { steps, .. }) = admitted.term(&key) else {
+        panic!("typed declared target missing");
+    };
+    assert_eq!(
+        serde_json::to_value(&steps[0].target).expect("typed target"),
+        target
+    );
+    let encoded = writer_bytes(&package);
+    let written: Value = serde_json::from_slice(&encoded).expect("writer JSON");
+    assert_eq!(
+        written["semantic_graph"]["nodes"][position]["body"]["steps"][0]["target"],
+        target
+    );
+    let CheckedPackageV2ReadResult::Admitted(reread) =
+        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+    else {
+        panic!("written declared protocol target refused");
+    };
+    assert_eq!(admitted.package_id(), reread.package_id());
+    let Some(CheckedTerm::Refinement { steps, .. }) = reread.term(&key) else {
+        panic!("reread declared target missing");
+    };
+    assert_eq!(
+        serde_json::to_value(&steps[0].target).expect("reread target"),
+        target
+    );
+
+    let at = format!("/semantic_graph/nodes/{position}/body/steps/0");
+    let mut absent_source = package.clone();
+    absent_source["semantic_graph"]["nodes"][position]["body"]["steps"][0]
+        .as_object_mut()
+        .expect("step")
+        .remove("source_node");
+    rekey_refinement(&mut absent_source, position);
+    assert_step_refusal(
+        read(&absent_source, &evidence),
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        None,
+        &at,
+    );
+    let mut absent_target = package.clone();
+    absent_target["semantic_graph"]["nodes"][position]["body"]["steps"][0]["target"]
+        .as_object_mut()
+        .expect("target")
+        .remove("node");
+    rekey_refinement(&mut absent_target, position);
+    assert_step_refusal(
+        read(&absent_target, &evidence),
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        None,
+        &format!("{at}/target"),
+    );
+    let mut wrong_target = package.clone();
+    let wrong = wrong_target["semantic_graph"]["nodes"][position]["semantic_type"].clone();
+    wrong_target["semantic_graph"]["nodes"][position]["body"]["steps"][0]["target"]["node"] = wrong;
+    rekey_refinement(&mut wrong_target, position);
+    assert_step_refusal(
+        read(&wrong_target, &evidence),
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration),
+        &format!("{at}/target/node"),
+    );
+    let mut wrong_source = package.clone();
+    wrong_source["semantic_graph"]["nodes"][position]["body"]["steps"][0]["source_node"] =
+        wrong_source["semantic_graph"]["nodes"][position]["semantic_type"].clone();
+    rekey_refinement(&mut wrong_source, position);
+    assert_step_refusal(
+        read(&wrong_source, &evidence),
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration),
+        &format!("{at}/source_node"),
+    );
+    let mut wrong_class = package.clone();
+    wrong_class["semantic_graph"]["nodes"][position]["body"]["steps"][0]["source_class"] =
+        json!("other");
+    rekey_refinement(&mut wrong_class, position);
+    assert_step_refusal(
+        read(&wrong_class, &evidence),
+        CheckedPackageRefusalCode::MissingDeclaration,
+        Some(CheckedPackageRefusalCause::MissingName),
+        &format!("{at}/source_class"),
+    );
+    let mut wrong_operation = package.clone();
+    wrong_operation["semantic_graph"]["nodes"][position]["body"]["steps"][0]["target"] = json!({"kind":"operation", "operation":finish,
+            "receiver":{"term":"reference","target":finish}, "arguments":[]});
+    rekey_refinement(&mut wrong_operation, position);
+    assert_step_refusal(
+        read(&wrong_operation, &evidence),
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration),
+        &format!("{at}/target/operation"),
     );
 }
 
@@ -3690,6 +4019,142 @@ fn memory_catalog_package() -> (Value, CheckedPackageEvidence, usize) {
     let entries = encoded["concrete"].as_array().expect("catalog").clone();
     let position = set_concrete_catalog(&mut package, entries);
     (package, evidence, position)
+}
+
+#[trace("TC-062", "FR-061-AC-4")]
+#[test]
+fn tied_protocol_and_memory_step_rows_keep_canonical_order_and_node_presence() {
+    let (mut package, evidence, position) = memory_catalog_package();
+    let catalog = &package["semantic_graph"]["nodes"][position]["body"]["class_catalog"];
+    let fork = catalog["concrete"]
+        .as_array()
+        .expect("classes")
+        .iter()
+        .find(|entry| entry["class"] == "fork Example::OrderFlow::Holder")
+        .expect("fork class")["node"]
+        .clone();
+    let rows = json!([
+        {"source_class":"fork Example::OrderFlow::Holder", "source_node":fork,
+            "target":{"kind":"stutter"}},
+        {"source_class":"join Example::OrderFlow::Holder", "source_node":fork,
+            "target":{"kind":"stutter"}},
+        {"source_class":"memory drain", "target":{"kind":"stutter"}},
+        {"source_class":"memory flush", "target":{"kind":"any"}}
+    ]);
+    package["semantic_graph"]["nodes"][position]["body"]["steps"] = rows.clone();
+    rekey_refinement(&mut package, position);
+    keep_refinement_declaration_occurrence(&mut package, position);
+    let key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+    let source = package["lock"]["sources"][0].clone();
+    package["refinement_step_rows"] = json!((0..4)
+        .map(|ordinal| json!({
+            "node_id":key, "ordinal":ordinal,
+            "region":{"source":source,"start":31+ordinal,"end":32+ordinal}
+        }))
+        .collect::<Vec<_>>());
+    refresh_identity(&mut package);
+    let key: quire_contract_model::CheckedNodeId =
+        serde_json::from_value(key).expect("refinement id");
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
+        panic!(
+            "canonical tied and memory rows refused: {:?}",
+            read(&package, &evidence)
+        );
+    };
+    let Some(CheckedTerm::Refinement { steps, .. }) = admitted.term(&key) else {
+        panic!("admitted step rows missing");
+    };
+    assert_eq!(serde_json::to_value(steps).expect("typed rows"), rows);
+    let encoded = writer_bytes(&package);
+    let written: Value = serde_json::from_slice(&encoded).expect("writer JSON");
+    assert_eq!(
+        written["semantic_graph"]["nodes"][position]["body"]["steps"],
+        rows
+    );
+    let CheckedPackageV2ReadResult::Admitted(reread) =
+        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+    else {
+        panic!("written tied and memory rows refused");
+    };
+    assert_eq!(admitted.package_id(), reread.package_id());
+    let Some(CheckedTerm::Refinement { steps, .. }) = reread.term(&key) else {
+        panic!("reread step rows missing");
+    };
+    assert_eq!(serde_json::to_value(steps).expect("reread rows"), rows);
+
+    let mut invalid = package.clone();
+    invalid["semantic_graph"]["nodes"][position]["body"]["steps"][2]["source_node"] = fork;
+    rekey_refinement(&mut invalid, position);
+    assert_step_refusal(
+        read(&invalid, &evidence),
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        None,
+        &format!("/semantic_graph/nodes/{position}/body/steps/2"),
+    );
+
+    let clause = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "protocol_clause")
+        .expect("selected clause")["node_id"]
+        .clone();
+    let mut memory_target = package.clone();
+    let node = &mut memory_target["semantic_graph"]["nodes"][position];
+    node["body"]["protocol"] = clause.clone();
+    node["body"]["class_catalog"]["abstract"] = node["body"]["class_catalog"]["concrete"].clone();
+    node["body"]["steps"][2]["target"] = json!({
+        "kind":"protocol_step", "class":"memory drain", "arguments":[]
+    });
+    let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
+    dependencies.push(clause);
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.dedup();
+    rekey_refinement(&mut memory_target, position);
+    let memory_key: quire_contract_model::CheckedNodeId = serde_json::from_value(
+        memory_target["semantic_graph"]["nodes"][position]["node_id"].clone(),
+    )
+    .expect("memory refinement id");
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&memory_target, &evidence) else {
+        panic!(
+            "node-free memory protocol target refused: {:?}",
+            read(&memory_target, &evidence)
+        );
+    };
+    let Some(CheckedTerm::Refinement { steps, .. }) = admitted.term(&memory_key) else {
+        panic!("memory target absent from typed refinement");
+    };
+    assert_eq!(
+        serde_json::to_value(&steps[2].target).expect("memory target"),
+        json!({"kind":"protocol_step","class":"memory drain","arguments":[]})
+    );
+    let encoded = writer_bytes(&memory_target);
+    let CheckedPackageV2ReadResult::Admitted(reread) =
+        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+    else {
+        panic!("written memory protocol target refused");
+    };
+    assert_eq!(admitted.package_id(), reread.package_id());
+    let Some(CheckedTerm::Refinement { steps, .. }) = reread.term(&memory_key) else {
+        panic!("reread memory target absent");
+    };
+    assert_eq!(
+        serde_json::to_value(&steps[2].target).expect("reread memory target"),
+        json!({"kind":"protocol_step","class":"memory drain","arguments":[]})
+    );
+
+    let mut wrong_memory_target = memory_target.clone();
+    wrong_memory_target["semantic_graph"]["nodes"][position]["body"]["steps"][2]["target"]
+        ["node"] = wrong_memory_target["semantic_graph"]["nodes"][position]["body"]["steps"][0]
+        ["source_node"]
+        .clone();
+    rekey_refinement(&mut wrong_memory_target, position);
+    assert_step_refusal(
+        read(&wrong_memory_target, &evidence),
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        None,
+        &format!("/semantic_graph/nodes/{position}/body/steps/2/target"),
+    );
 }
 
 /// Trace: FR-038-AC-325
