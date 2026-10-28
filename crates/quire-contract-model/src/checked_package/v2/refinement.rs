@@ -2513,15 +2513,13 @@ fn protocol_classes(
                     .map(|id| key(&id))
             };
             for class in classes_for_node {
-                let class_binders = if matches!(operator, CatalogOperator::Compensation)
-                    && class.starts_with("cend ")
-                {
+                let class_binders = if class.empty_binders {
                     BinderSignature::Known(Vec::new())
                 } else {
                     binder_types.clone()
                 };
                 classes.push(DeclaredGraphClass {
-                    class,
+                    class: class.name,
                     node: key(member.id),
                     binder_types: class_binders,
                 });
@@ -2853,6 +2851,11 @@ fn bound_reference<'a>(arguments: &'a [CheckedTerm], field: &str) -> Option<&'a 
     })
 }
 
+struct ProtocolMemberClass {
+    name: String,
+    empty_binders: bool,
+}
+
 /// Interprets the admitted delivery and replication literals that determine
 /// FR-432 channel and role classes.
 #[ix_trace_rs::string_edge]
@@ -2860,11 +2863,23 @@ fn protocol_member_classes(
     operator: CatalogOperator,
     arguments: &[CheckedTerm],
     name: &[Box<str>],
-) -> Option<Vec<String>> {
+) -> Option<Vec<ProtocolMemberClass>> {
     let path = alias_free_protocol_path(name)?;
-    match operator {
+    let inherited = |name| ProtocolMemberClass {
+        name,
+        empty_binders: false,
+    };
+    let classes = match operator {
         CatalogOperator::Parallel => Some(vec![format!("fork {path}"), format!("join {path}")]),
-        CatalogOperator::Compensation => Some(vec![path.clone(), format!("cend {path}")]),
+        CatalogOperator::Compensation => {
+            return Some(vec![
+                inherited(path.clone()),
+                ProtocolMemberClass {
+                    name: format!("cend {path}"),
+                    empty_binders: true,
+                },
+            ]);
+        }
         CatalogOperator::Attempt
         | CatalogOperator::Event
         | CatalogOperator::Send
@@ -2900,7 +2915,8 @@ fn protocol_member_classes(
             }
             Some(classes)
         }
-    }
+    }?;
+    Some(classes.into_iter().map(inherited).collect())
 }
 
 /// Drop only the package-local namespace, retaining the complete declaration path.
