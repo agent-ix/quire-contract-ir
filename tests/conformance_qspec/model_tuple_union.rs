@@ -22,8 +22,11 @@ fn published_model_tuple_union_fixture_admits() {
     let package = read_json(&fixtures.join("positive-model-tuple-union.json"))
         .expect("published positive package");
     let digest = canonical_digest(&document);
-    assert_eq!(digest, vector["selection_digest"]);
-    assert_eq!(digest, package["lock"]["model_selections"][0]["digest"]);
+    assert_eq!(vector["selection_digest"].as_str(), Some(digest.as_str()));
+    assert_eq!(
+        package["lock"]["model_selections"][0]["digest"].as_str(),
+        Some(digest.as_str())
+    );
 
     let mut evidence = CheckedPackageEvidence::new();
     evidence
