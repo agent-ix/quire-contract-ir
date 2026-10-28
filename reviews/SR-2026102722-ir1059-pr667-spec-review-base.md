@@ -1,0 +1,30 @@
+---
+id: SR-2026102722
+title: "IR-1059 PR 667 spec-review-base review"
+type: SpecReview
+analysis: base
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md"
+review_set: subset
+---
+
+## Summary
+
+Reviewed IR-1059 PR #667 at 5032e290 against merged QSpec 282a255b FR-322-AC-169/170, TC-940 step 19, nominal-rekey NK-00..14 and tuple/union TW-05..09. The diff changes only FR-038's key-and-join order and refusal loci. No applicable AssuranceProfile was found.
+
+## Verdict
+
+**PASS** — The amended order and published refusal oracle agree with QSpec. The production reader still requires its separate implementation slice.
+
+## Scope
+
+- FR-038-AC-155 (examined): owner joins follow application and nominal keys and precede structural keys; tuple and variant ModelOwner refusals use `/owner`.
+- FR-038-AC-227 (examined): grouped `union_value` application-key refusal precedes owner join and structural-key checks.
+- FR-038-AC-343 (examined): published NK-00..14 and TW-05..09 exact code, cause, locus and total-order replay, including dependent-edge deferral and frame exception.
+- FR-038 Behavior (examined): seven key-and-join stages run for every node form, with stage seven limited to the QSpec node tags.
+- QSpec FR-322-AC-169/170 and TC-940 step 19 (context_only): exact stage order and adjacent-stage precedence vectors.
+
+## Findings
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-001 | low | No findings (placeholder) | - |
