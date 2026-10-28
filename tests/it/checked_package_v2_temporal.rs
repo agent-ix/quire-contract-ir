@@ -450,8 +450,26 @@ fn with_fairness(profile: &str, member: Value) -> (Value, usize) {
 }
 
 pub(crate) fn admitted_fairness_source_for_contract() -> CheckedPackageV2 {
-    let (package, _) = with_fairness(INFINITE, fairness_member(&model_key(ORDER_NODE), "scaled"));
-    admitted("contract source with fairness", &package)
+    for (declaration, name) in [
+        (ORDER_NODE, "scaled"),
+        (ORDER_NODE, "reset"),
+        (LEFT_NODE, "act"),
+        (RIGHT_NODE, "act"),
+    ] {
+        let (package, fair) =
+            with_fairness(INFINITE, fairness_member(&model_key(declaration), name));
+        let fair_key = digest(&package, fair);
+        let earliest_formula = nodes(&package)
+            .iter()
+            .filter(|node| node["semantic_form"] == "formula")
+            .filter_map(|node| node["node_id"]["digest"].as_str())
+            .min()
+            .expect("formula node");
+        if fair_key.as_str() < earliest_formula {
+            return admitted("contract source with fairness", &package);
+        }
+    }
+    panic!("no fairness key sorts before the formula keys")
 }
 
 fn profile_supporting(tags: &[CheckedNodeTag]) -> CompleteLoweringProfileV2 {
