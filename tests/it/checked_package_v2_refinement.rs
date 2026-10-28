@@ -1756,6 +1756,30 @@ fn assert_step_refusal(
     );
 }
 
+fn assert_concrete_row_binding(
+    package: &Value,
+    evidence: &CheckedPackageEvidence,
+    position: usize,
+    path: &str,
+) {
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(package, evidence) else {
+        panic!("concrete row must refuse at {path}");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|pointer| pointer.as_str()),
+        Some(path)
+    );
+    let expected: quire_contract_model::CheckedNodeId =
+        serde_json::from_value(package["semantic_graph"]["nodes"][position]["node_id"].clone())
+            .expect("refinement node id");
+    assert_eq!(refusal.locus, Some(expected));
+}
+
 fn add_second_concrete_root(package: &mut Value, evidence: &mut CheckedPackageEvidence) -> Value {
     let document = crate::support::checked_package::family_model_document();
     let digest = sha256_hex(&canonical(&document));
@@ -1793,6 +1817,114 @@ fn add_second_concrete_root(package: &mut Value, evidence: &mut CheckedPackageEv
     root["node_id"].clone()
 }
 
+fn add_second_concrete_object(package: &mut Value) -> Value {
+    let selected = v2_all_families();
+    let object = selected["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "object_type")
+        .expect("second model object")
+        .clone();
+    let source = package["lock"]["sources"][0].clone();
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(json!({
+            "node_id":object["node_id"], "role":"type", "ordinal":0,
+            "regions":[{"source":source,"start":10,"end":11}]
+        }));
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(object.clone());
+    object["node_id"].clone()
+}
+
+fn selected_population_package() -> (Value, CheckedPackageEvidence, Value) {
+    let (mut package, mut evidence) = machine_package();
+    let mut document = model_document();
+    let population = format!("ix://{MODEL_IDENTITY}/counters");
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind":{"module":MODEL_IDENTITY,"name":"population"},
+            "construct":{"meaning":"quire.meaning.model.population/v1"}
+        }));
+    document["populations"] = json!([{
+        "identity":population,"displayName":"counters",
+        "kind":{"module":MODEL_IDENTITY,"name":"population"},
+        "members":[MODEL_NODE],"extent":"closed",
+        "origin":{"source":{"path":"spec/populations.md",
+            "sourceIdentity":format!("ix://{MODEL_IDENTITY}/spec"),
+            "startColumn":1,"startLine":1}}
+    }]);
+    let digest = sha256_hex(&canonical(&document));
+    evidence
+        .insert_domain_package_document(digest.clone(), canonical(&document))
+        .expect("population document");
+    package["lock"]["model_selections"][0]["digest"] = json!(digest);
+    let owner = json!({"kind":"model","identity":MODEL_IDENTITY,"node":population});
+    let body = json!({"term":"aggregate","members":[]});
+    let id = node_id(&sha256_hex(&canonical(&json!({
+        "version":"quire.structural-node/v1","node_tag":"relation",
+        "semantic_form":"population","semantic_type":null,
+        "declaration":null,"recursion":null,"owner":owner,"body":body
+    }))));
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(json!({
+            "node_id":id,"schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"relation","semantic_form":"population","semantic_type":id,
+            "dependencies":[],"occurrences":[{"role":"generated","ordinal":0}],
+            "owner":owner,"body":body
+        }));
+    let source = package["lock"]["sources"][0].clone();
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(json!({
+            "node_id":id,"role":"generated","ordinal":0,
+            "regions":[{"source":source,"start":10,"end":11}]
+        }));
+    settle(&mut package);
+    (package, evidence, id)
+}
+
+#[trace("TC-062", "FR-061-AC-3")]
+#[test]
+fn swapped_concrete_root_refuses_foreign_population_first() {
+    let (mut package, mut evidence, population) = selected_population_package();
+    row_empty_refinement(&mut package);
+    let position = package["semantic_graph"]["nodes"].as_array().unwrap().len() - 1;
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["body"]["populations"] = json!([{"abstract":population,"concrete":population}]);
+    let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
+    dependencies.push(population);
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.dedup();
+    rekey_refinement(&mut package, position);
+    assert!(
+        matches!(
+            read(&package, &evidence),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "selected population control: {:?}",
+        read(&package, &evidence)
+    );
+    let other_root = add_second_concrete_root(&mut package, &mut evidence);
+    package["semantic_graph"]["nodes"][position]["semantic_type"] = other_root;
+    rekey_refinement(&mut package, position);
+    assert_concrete_row_binding(
+        &package,
+        &evidence,
+        position,
+        &format!("/semantic_graph/nodes/{position}/body/populations/0/concrete"),
+    );
+}
+
 #[trace("TC-062", "FR-061-AC-3", "FR-061-AC-7")]
 #[test]
 fn row_empty_refinement_swapped_concrete_root_admits_distinct_identity() {
@@ -1808,7 +1940,7 @@ fn row_empty_refinement_swapped_concrete_root_admits_distinct_identity() {
         original,
         swapped["semantic_graph"]["nodes"][position]["node_id"]
     );
-    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&swapped, &evidence) else {
+    let CheckedPackageV2ReadResult::Admitted(_) = read(&swapped, &evidence) else {
         panic!(
             "row-empty root swap refused: {:?}",
             read(&swapped, &evidence)
@@ -1820,7 +1952,6 @@ fn row_empty_refinement_swapped_concrete_root_admits_distinct_identity() {
         CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
-    drop(admitted);
 }
 
 #[trace("TC-062", "FR-061-AC-3")]
@@ -1840,11 +1971,15 @@ fn swapped_concrete_root_refuses_first_foreign_object_before_step() {
     node["body"]["objects"] = json!([{
         "abstract_type":object, "concrete_type":object, "fields":[]
     }]);
+    let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
+    dependencies.push(object);
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.dedup();
     rekey_refinement(&mut package, position);
-    assert_step_refusal(
-        read(&package, &evidence),
-        CheckedPackageRefusalCode::InvalidModelBinding,
-        Some(CheckedPackageRefusalCause::MalformedDeclaration),
+    assert_concrete_row_binding(
+        &package,
+        &evidence,
+        position,
         &format!("/semantic_graph/nodes/{position}/body/objects/0/concrete_type"),
     );
 }
@@ -1853,26 +1988,27 @@ fn swapped_concrete_root_refuses_first_foreign_object_before_step() {
 #[test]
 fn swapped_concrete_root_refuses_foreign_catalog_step_before_catalog_difference() {
     let (mut package, mut evidence, position) = catalog_free_operation_package("object_type");
-    let anchor = package["semantic_graph"]["nodes"][position]["body"]["steps"][0]
-        ["source_node"]
-        .clone();
+    let anchor =
+        package["semantic_graph"]["nodes"][position]["body"]["steps"][0]["source_node"].clone();
     let alternate = add_second_concrete_root(&mut package, &mut evidence);
     package["semantic_graph"]["nodes"][position]["semantic_type"] = alternate;
     set_concrete_catalog(
         &mut package,
         vec![json!({"class":"save", "node":anchor, "binder_types":[]})],
     );
-    assert_step_refusal(
-        read(&package, &evidence),
-        CheckedPackageRefusalCode::InvalidModelBinding,
-        Some(CheckedPackageRefusalCause::MalformedDeclaration),
+    assert_concrete_row_binding(
+        &package,
+        &evidence,
+        position,
         &format!("/semantic_graph/nodes/{position}/body/steps/0/source_node"),
     );
 }
 
 fn history_and_assume_operation_package() -> (Value, CheckedPackageEvidence, usize) {
     let (mut package, evidence, position) = catalog_free_operation_package("object_type");
-    let nodes = package["semantic_graph"]["nodes"].as_array().expect("nodes");
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
     let object = nodes
         .iter()
         .find(|node| node["semantic_form"] == "object_type")
@@ -1883,9 +2019,8 @@ fn history_and_assume_operation_package() -> (Value, CheckedPackageEvidence, usi
         .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "text")
         .expect("text type")["node_id"]
         .clone();
-    let anchor = package["semantic_graph"]["nodes"][position]["body"]["steps"][0]
-        ["source_node"]
-        .clone();
+    let anchor =
+        package["semantic_graph"]["nodes"][position]["body"]["steps"][0]["source_node"].clone();
     let node = &mut package["semantic_graph"]["nodes"][position];
     node["body"]["histories"] = json!([{
         "concrete_type":object, "name":"past", "type":text_type,
@@ -1908,27 +2043,186 @@ fn history_and_assume_operation_package() -> (Value, CheckedPackageEvidence, usi
 #[test]
 fn history_update_and_assume_accept_declaring_type_anchor_and_refuse_foreign_root() {
     let (mut package, mut evidence, position) = history_and_assume_operation_package();
-    assert!(matches!(read(&package, &evidence), CheckedPackageV2ReadResult::Admitted(_)),
-        "valid history and assume: {:?}", read(&package, &evidence));
+    assert!(
+        matches!(
+            read(&package, &evidence),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "valid history and assume: {:?}",
+        read(&package, &evidence)
+    );
     let bytes = writer_bytes(&package);
-    assert!(matches!(CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence),
-        CheckedPackageV2ReadResult::Admitted(_)));
+    assert!(matches!(
+        CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
 
     let alternate = add_second_concrete_root(&mut package, &mut evidence);
     package["semantic_graph"]["nodes"][position]["semantic_type"] = alternate.clone();
     package["semantic_graph"]["nodes"][position]["body"]["steps"] = json!([]);
     rekey_refinement(&mut package, position);
-    assert_step_refusal(read(&package, &evidence),
-        CheckedPackageRefusalCode::InvalidModelBinding,
-        Some(CheckedPackageRefusalCause::MalformedDeclaration),
-        &format!("/semantic_graph/nodes/{position}/body/histories/0/concrete_type"));
+    assert_concrete_row_binding(
+        &package,
+        &evidence,
+        position,
+        &format!("/semantic_graph/nodes/{position}/body/histories/0/concrete_type"),
+    );
+
+    let other_object = add_second_concrete_object(&mut package);
+    let old_object = package["semantic_graph"]["nodes"][position]["body"]["histories"][0]
+        ["concrete_type"]
+        .clone();
+    package["semantic_graph"]["nodes"][position]["body"]["histories"][0]["concrete_type"] =
+        other_object.clone();
+    let dependencies = package["semantic_graph"]["nodes"][position]["dependencies"]
+        .as_array_mut()
+        .expect("dependencies");
+    dependencies.retain(|dependency| *dependency != old_object);
+    dependencies.push(other_object);
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.dedup();
+    rekey_refinement(&mut package, position);
+    assert_concrete_row_binding(
+        &package,
+        &evidence,
+        position,
+        &format!("/semantic_graph/nodes/{position}/body/histories/0/updates/0/operation"),
+    );
 
     package["semantic_graph"]["nodes"][position]["body"]["histories"] = json!([]);
+    let abstract_root = package["semantic_graph"]["nodes"][position]["body"]["abstract"].clone();
+    let anchor =
+        package["semantic_graph"]["nodes"][position]["body"]["assume"][0]["operation"].clone();
+    let mut dependencies = vec![abstract_root, anchor];
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.dedup();
+    package["semantic_graph"]["nodes"][position]["dependencies"] = json!(dependencies);
     rekey_refinement(&mut package, position);
-    assert_step_refusal(read(&package, &evidence),
-        CheckedPackageRefusalCode::InvalidModelBinding,
-        Some(CheckedPackageRefusalCause::MalformedDeclaration),
-        &format!("/semantic_graph/nodes/{position}/body/assume/0/operation"));
+    assert_concrete_row_binding(
+        &package,
+        &evidence,
+        position,
+        &format!("/semantic_graph/nodes/{position}/body/assume/0/operation"),
+    );
+}
+
+#[trace("TC-062", "FR-061-AC-3")]
+#[test]
+fn protocol_catalog_presence_precedes_foreign_concrete_step() {
+    let (mut package, evidence) = concrete_protocol_refinement(
+        ProtocolStepRows::Declared,
+        ProtocolClauseOwner::SelectedModel,
+    );
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|node| node["semantic_form"] == "refinement")
+        .expect("refinement");
+    let clause = package["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["semantic_form"] == "protocol_clause")
+        .expect("protocol clause")["node_id"]
+        .clone();
+    let other_root = package["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| {
+            node["semantic_form"] == "model_root" && node["owner"]["identity"] != MODEL_IDENTITY
+        })
+        .expect("other selected root")["node_id"]
+        .clone();
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["semantic_type"] = other_root;
+    node["body"]["protocol"] = clause.clone();
+    let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
+    dependencies.push(clause);
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.dedup();
+    rekey_refinement(&mut package, position);
+    assert_step_refusal(
+        read(&package, &evidence),
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        None,
+        &format!("/semantic_graph/nodes/{position}/body/class_catalog"),
+    );
+}
+
+#[trace("TC-062", "FR-061-AC-3", "FR-061-AC-7")]
+#[test]
+fn protocol_catalog_compares_new_concrete_identity_in_key_order() {
+    let (mut package, evidence) =
+        concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::SelectedModel);
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let finish = nodes
+        .iter()
+        .find(|node| node["body"]["operation"]["member"]["operator"] == "finish")
+        .expect("finish")["node_id"]
+        .clone();
+    let clause = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "protocol_clause")
+        .expect("clause")["node_id"]
+        .clone();
+    let other_root = nodes
+        .iter()
+        .find(|node| {
+            node["semantic_form"] == "model_root" && node["owner"]["identity"] != MODEL_IDENTITY
+        })
+        .expect("second root")["node_id"]
+        .clone();
+    let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let entries = vec![
+        json!({"class":"Example::OrderFlow::Closed", "node":finish, "binder_types":[boolean]}),
+        json!({"class":"activate Example::OrderFlow", "node":clause, "binder_types":[boolean]}),
+    ];
+    let position = set_concrete_catalog(&mut package, entries.clone());
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["body"]["protocol"] = clause.clone();
+    node["body"]["class_catalog"]["abstract"] = json!(entries);
+    let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
+    dependencies.push(clause);
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    dependencies.dedup();
+    rekey_refinement(&mut package, position);
+    assert!(
+        matches!(
+            read(&package, &evidence),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "original protocol catalog: {:?}",
+        read(&package, &evidence)
+    );
+
+    package["semantic_graph"]["nodes"][position]["semantic_type"] = other_root;
+    rekey_refinement(&mut package, position);
+    assert_step_refusal(
+        read(&package, &evidence),
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        None,
+        &format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete"),
+    );
+
+    let mut earlier_extra = package;
+    earlier_extra["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"]
+        .as_array_mut()
+        .expect("concrete catalog")
+        .insert(
+            0,
+            json!({"class":"Aaa::Run", "node":finish, "binder_types":[boolean]}),
+        );
+    rekey_refinement(&mut earlier_extra, position);
+    assert_step_refusal(
+        read(&earlier_extra, &evidence),
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        None,
+        &format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/0"),
+    );
 }
 
 #[trace("TC-062", "FR-061-AC-15")]
