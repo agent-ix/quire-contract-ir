@@ -1611,7 +1611,14 @@ fn memory_catalog_package() -> (Value, CheckedPackageEvidence, usize) {
     (package, evidence, position)
 }
 
-#[trace("FR-061-AC-10", "FR-061-AC-12", "FR-061-AC-13")]
+/// Trace: FR-038-AC-325
+#[trace(
+    "TC-048",
+    "FR-038-AC-325",
+    "FR-061-AC-10",
+    "FR-061-AC-12",
+    "FR-061-AC-13"
+)]
 #[test]
 fn memory_drain_catalog_roundtrips_and_joins_source_defaults() {
     let (package, evidence, position) = memory_catalog_package();
@@ -1782,7 +1789,8 @@ fn abstract_protocol_memory_default_is_catalogued_from_its_own_clause() {
     );
 }
 
-#[trace("FR-061-AC-11")]
+/// Trace: FR-038-AC-325
+#[trace("TC-048", "FR-038-AC-325", "FR-061-AC-11")]
 #[test]
 fn memory_drain_wire_and_catalog_order_refuse_at_their_stage() {
     let (base, evidence, position) = memory_catalog_package();
@@ -1908,7 +1916,8 @@ fn memory_drain_wire_and_catalog_order_refuse_at_their_stage() {
     }
 }
 
-#[trace("FR-061-AC-12", "FR-061-AC-13")]
+/// Trace: FR-038-AC-325
+#[trace("TC-048", "FR-038-AC-325", "FR-061-AC-12", "FR-061-AC-13")]
 #[test]
 fn memory_catalog_completeness_identity_and_dependency_precedence() {
     let (base, evidence, position) = memory_catalog_package();
@@ -3315,12 +3324,11 @@ fn refinement_catalog_reconstructs_abstract_model_operations_without_protocol() 
     );
 }
 
-/// Trace: FR-038-AC-330
-#[trace("TC-048", "FR-038-AC-330")]
+/// Trace: FR-038-AC-325, FR-038-AC-330
+#[trace("TC-048", "FR-038-AC-325", "FR-038-AC-330")]
 #[test]
 fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
-    let (base, _, _) =
-        crate::checked_package_v2_protocol_body::package_with_admitted_compensation();
+    let (base, _, _) = crate::checked_package_v2_protocol_body::package_with_present_commit();
     let (mut package, evidence) = concrete_protocol_refinement_on(
         base,
         ProtocolStepRows::Empty,
@@ -3338,8 +3346,10 @@ fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
     };
     let template = by_operator("compensate");
     let finish = by_operator("finish");
+    let commit = by_operator("commit");
     let event = by_operator("event");
     let attempt = by_operator("attempt");
+    let effect = by_operator("effect");
     let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
     let anchor = nodes
         .iter()
@@ -3356,8 +3366,10 @@ fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
     let entries = vec![
         json!({"class":"OrderFlow::compensate::Undo", "node":template, "binder_types":[receiver]}),
         json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[boolean]}),
+        json!({"class":"OrderFlow::run::Main::Commit", "node":commit, "binder_types":[boolean]}),
         json!({"class":"OrderFlow::run::Main::Event", "node":event, "binder_types":[boolean]}),
         json!({"class":"OrderFlow::run::Main::ForwardAttempt", "node":attempt, "binder_types":[receiver]}),
+        json!({"class":"OrderFlow::run::Main::ForwardEffect", "node":effect, "binder_types":[boolean]}),
         json!({"class":"cend OrderFlow::compensate::Undo", "node":template, "binder_types":[]}),
     ];
     let refinement = set_concrete_catalog(&mut package, entries.clone());
@@ -3394,7 +3406,7 @@ fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
     );
 
     let mut missing = package.clone();
-    set_concrete_catalog(&mut missing, entries[..4].to_vec());
+    set_concrete_catalog(&mut missing, entries[..6].to_vec());
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&missing, &evidence) else {
         panic!("omitted cend admitted");
     };
@@ -3414,7 +3426,7 @@ fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
         .expect("catalog")
         .clone();
     let mut wrong = wrong;
-    wrong[4]["node"] = finish;
+    wrong[6]["node"] = finish;
     set_concrete_catalog(&mut wrong_node, wrong);
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_node, &evidence) else {
         panic!("cend on another node admitted");
@@ -3426,7 +3438,7 @@ fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
     );
     assert_eq!(
         refusal.path.as_ref().map(|path| path.as_str()),
-        Some(format!("/semantic_graph/nodes/{refinement}/body/class_catalog/concrete/4").as_str())
+        Some(format!("/semantic_graph/nodes/{refinement}/body/class_catalog/concrete/6").as_str())
     );
 
     let (mut no_template, no_template_evidence) =
@@ -3461,6 +3473,104 @@ fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
             format!("/semantic_graph/nodes/{no_template_position}/body/class_catalog/concrete/1")
                 .as_str()
         )
+    );
+}
+
+/// Trace: FR-038-AC-330
+#[trace("TC-048", "FR-038-AC-330")]
+#[test]
+fn refinement_catalog_rejects_cend_associated_with_another_template() {
+    let (base, _, _) =
+        crate::checked_package_v2_protocol_body::package_with_admitted_compensation();
+    let (mut package, evidence) = concrete_protocol_refinement_on(
+        base,
+        ProtocolStepRows::Empty,
+        ProtocolClauseOwner::SelectedModel,
+    );
+    let template_position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "compensation")
+        .expect("template");
+    let first_template = package["semantic_graph"]["nodes"][template_position]["node_id"].clone();
+    let mut renamed = package.clone();
+    renamed["semantic_graph"]["nodes"][template_position]["declaration"]["qualified_name"][3] =
+        json!("OtherUndo");
+    settle(&mut renamed);
+    let second_template = renamed["semantic_graph"]["nodes"][template_position].clone();
+    let second_key = second_template["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(second_template);
+    let clause = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "protocol_clause")
+        .expect("clause");
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][8]["value"]["members"]
+        .as_array_mut()
+        .expect("compensations")
+        .push(json!({"term":"reference", "target":second_key}));
+    settle(&mut package);
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let by_operator = |operator: &str| {
+        nodes
+            .iter()
+            .find(|node| node["body"]["operation"]["member"]["operator"] == operator)
+            .expect("operator")["node_id"]
+            .clone()
+    };
+    let finish = by_operator("finish");
+    let event = by_operator("event");
+    let attempt = by_operator("attempt");
+    let effect = by_operator("effect");
+    let anchor = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "operation_anchor")
+        .expect("anchor");
+    let context = &anchor["body"]["members"][0]["value"]["target"];
+    let receiver = nodes
+        .iter()
+        .find(|node| {
+            node["semantic_form"] == "reference" && node["body"]["members"][0]["target"] == *context
+        })
+        .expect("receiver")["node_id"]
+        .clone();
+    let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let mut entries = vec![
+        json!({"class":"OrderFlow::compensate::OtherUndo", "node":second_key, "binder_types":[receiver]}),
+        json!({"class":"OrderFlow::compensate::Undo", "node":first_template, "binder_types":[receiver]}),
+        json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[boolean]}),
+        json!({"class":"OrderFlow::run::Main::Event", "node":event, "binder_types":[boolean]}),
+        json!({"class":"OrderFlow::run::Main::ForwardAttempt", "node":attempt, "binder_types":[receiver]}),
+        json!({"class":"OrderFlow::run::Main::ForwardEffect", "node":effect, "binder_types":[boolean]}),
+        json!({"class":"cend OrderFlow::compensate::OtherUndo", "node":second_key, "binder_types":[]}),
+        json!({"class":"cend OrderFlow::compensate::Undo", "node":first_template, "binder_types":[]}),
+    ];
+    let refinement = set_concrete_catalog(&mut package, entries.clone());
+    let admitted = read(&package, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "{admitted:?}"
+    );
+    entries[7]["node"] = second_key;
+    set_concrete_catalog(&mut package, entries);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+        panic!("cend associated with another template admitted");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{refinement}/body/class_catalog/concrete/7").as_str())
     );
 }
 
@@ -3712,6 +3822,8 @@ fn refinement_catalog_preserves_two_clause_paths_of_different_depths() {
 }
 
 /// Provenance: IR-874 timeout class on an admitted await node.
+/// Trace: FR-038-AC-325
+#[trace("TC-048", "FR-038-AC-325")]
 #[test]
 fn refinement_catalog_joins_timeout_on_await_node() {
     let (base, _) = crate::checked_package_v2_protocol_body::protocol_holder_case_on(
