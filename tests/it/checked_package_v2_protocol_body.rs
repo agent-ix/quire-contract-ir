@@ -53,20 +53,22 @@ fn decision_work(package: &Value) -> u64 {
     upper
 }
 
-fn longest_nested_work_charge_run(package: &Value, nested: usize, boundary: u64) -> usize {
+fn longest_nested_work_charge_run(package: &Value, nested: usize, boundary: u64) -> Vec<u64> {
     let path = format!("/semantic_graph/nodes/{nested}");
-    let mut run = 0;
-    let mut longest = 0;
+    let mut run = Vec::new();
+    let mut longest = Vec::new();
     for work in boundary.saturating_sub(32)..boundary + 32 {
         if matches!(read_at_work(package, work), CheckedPackageV2ReadResult::Incomplete(ref incomplete)
             if incomplete.limit_kind == CheckedPackageLimit::Work
                 && incomplete.path.as_ref().is_some_and(|candidate| candidate.as_str() == path)
                 && incomplete.consumed == work + 1)
         {
-            run += 1;
-            longest = longest.max(run);
+            run.push(work);
+            if run.len() > longest.len() {
+                longest.clone_from(&run);
+            }
         } else {
-            run = 0;
+            run.clear();
         }
     }
     longest
@@ -8638,6 +8640,18 @@ fn nested_repeat_case() -> (Value, usize, usize) {
     (package, outer, nested)
 }
 
+fn relocate_control(package: &mut Value, position: usize, path: &[&str]) {
+    let stale = package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
+        .as_str()
+        .expect("old key")
+        .to_owned();
+    let body = package["semantic_graph"]["nodes"][position]["body"].clone();
+    let fresh = protocol_named_node("control", path, body, &[]);
+    let digest = fresh["node_id"]["digest"].as_str().expect("new key");
+    rename_node(package, &stale, digest);
+    package["semantic_graph"]["nodes"][position]["declaration"] = fresh["declaration"].clone();
+}
+
 fn boolean_expression(package: &mut Value, identity: &str, operands: &[Value]) -> Value {
     let mut expression = package["semantic_graph"]["nodes"]
         .as_array()
@@ -9028,6 +9042,11 @@ fn nested_repeat_stops_at_first_false_two_atom_valuation() {
 #[test]
 fn nested_repeat_valuation_charges_and_denial_precede_progress() {
     let (mut package, outer, nested) = nested_repeat_case();
+    let step = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
     let (a, b) = boolean_atoms(&mut package);
     let not_a = boolean_expression(
         &mut package,
@@ -9054,12 +9073,49 @@ fn nested_repeat_valuation_charges_and_denial_precede_progress() {
         if refusal.code == CheckedPackageRefusalCode::UnsupportedConstruct
             && refusal.path.as_ref().is_some_and(|path| path.as_str() == format!("/semantic_graph/nodes/{outer}")))
     );
-    assert!(longest_nested_work_charge_run(&package, nested, first_decision) < 4);
+    assert!(longest_nested_work_charge_run(&package, nested, first_decision).len() < 4);
     set_nested_guard(&mut package, nested, &tautology, &[]);
+    let four = longest_nested_work_charge_run(&package, nested, first_decision);
+    assert_eq!(four.len(), 4);
+    let v = four[3] + 1;
+    let CheckedPackageV2ReadResult::Incomplete(denied) = read_at_work(&package, v - 1) else {
+        panic!("V-1 must deny the fourth nested valuation");
+    };
+    assert_eq!(denied.limit_kind, CheckedPackageLimit::Work);
+    assert_eq!(denied.limit, v - 1);
+    assert_eq!(denied.consumed, v);
     assert_eq!(
-        longest_nested_work_charge_run(&package, nested, first_decision),
-        4
+        denied.path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{nested}"))
     );
+    let CheckedPackageV2ReadResult::Incomplete(later) = read_at_work(&package, v) else {
+        panic!("V must reach the next charged package value");
+    };
+    assert_eq!(later.limit_kind, CheckedPackageLimit::Work);
+    assert_eq!(later.limit, v);
+    assert_eq!(later.consumed, v + 1);
+    assert_eq!(
+        later.path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{step}"))
+    );
+    let t = decision_work(&package);
+    assert!(matches!(
+        read_at_work(&package, t),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    set_nested_guard(
+        &mut package,
+        nested,
+        &tautology,
+        std::slice::from_ref(&disjunction),
+    );
+    assert_eq!(
+        longest_nested_work_charge_run(&package, nested, first_decision + 8).len(),
+        8,
+        "unread visible atom must double the valuation count"
+    );
+    set_nested_guard(&mut package, nested, &tautology, &[]);
 
     package["semantic_graph"]["nodes"][nested]["body"]["arguments"][2]["value"]["members"] = json!([{
         "term": "literal", "type": node_id(&family_key("a3a3")), "value_kind": "integer", "value": "0"
@@ -9094,10 +9150,22 @@ fn nested_repeat_valuation_charges_and_denial_precede_progress() {
         json!([{"term": "reference", "target": exhausted_target}]);
     settle(&mut package);
     let zero_decision = decision_work(&package);
+    let zero_run = longest_nested_work_charge_run(&package, nested, zero_decision);
+    assert_eq!(zero_run.len(), 4, "maximum zero must still run valuation");
+    let CheckedPackageV2ReadResult::Incomplete(zero_denied) = read_at_work(&package, zero_run[0])
+    else {
+        panic!("maximum zero must charge its first valuation");
+    };
+    assert_eq!(zero_denied.limit_kind, CheckedPackageLimit::Work);
+    assert_eq!(zero_denied.consumed, zero_run[0] + 1);
     assert_eq!(
-        longest_nested_work_charge_run(&package, nested, zero_decision),
-        4,
-        "maximum zero must still run valuation"
+        zero_denied.path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{nested}"))
+    );
+    assert!(
+        matches!(read_at_work(&package, zero_decision), CheckedPackageV2ReadResult::Refused(ref refusal)
+        if refusal.code == CheckedPackageRefusalCode::UnsupportedConstruct
+            && refusal.path.as_ref().is_some_and(|path| path.as_str() == format!("/semantic_graph/nodes/{outer}")))
     );
 }
 
@@ -9337,6 +9405,85 @@ fn nested_repeat_sequence_and_parallel_supply_step_but_choice_requires_each_case
     );
 }
 
+/// Trace: FR-038-AC-348
+#[trace("TC-048", "FR-038-AC-348")]
+#[test]
+fn await_supplies_outer_repeat_step_when_success_repeat_can_exit() {
+    let (mut package, children) = protocol_holder_case("await");
+    let outer = holder_position(&package);
+    for (position, name) in children.iter().copied().zip(["Event", "Then", "Timeout"]) {
+        relocate_control(
+            &mut package,
+            position,
+            &[
+                "Example",
+                "OrderFlow",
+                "run",
+                "Main",
+                "Holder",
+                "Await",
+                name,
+            ],
+        );
+    }
+    let (repeat_fixture, repeat_outer, repeat_inner) = nested_repeat_case();
+    let fence_body = repeat_fixture["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .last()
+        .expect("fence")["body"]
+        .clone();
+    let fence = protocol_named_node(
+        "control",
+        &[
+            "Example",
+            "OrderFlow",
+            "run",
+            "Main",
+            "Holder",
+            "Await",
+            "Then",
+            "Body",
+        ],
+        fence_body,
+        &[],
+    );
+    let fence_target = fence["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(fence);
+    let mut nested_body = repeat_fixture["semantic_graph"]["nodes"][repeat_inner]["body"].clone();
+    nested_body["arguments"][2]["value"]["members"] = json!([]);
+    nested_body["arguments"][4]["value"]["value"] = json!(false);
+    nested_body["arguments"][5]["value"]["target"] = fence_target;
+    nested_body["arguments"][6]["value"]["members"] = json!([]);
+    package["semantic_graph"]["nodes"][children[1]]["body"] = nested_body;
+    let await_body = package["semantic_graph"]["nodes"][outer]["body"].clone();
+    let awaited = protocol_named_node(
+        "control",
+        &["Example", "OrderFlow", "run", "Main", "Holder", "Await"],
+        await_body,
+        &[],
+    );
+    let await_target = awaited["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(awaited);
+    let mut outer_body = repeat_fixture["semantic_graph"]["nodes"][repeat_outer]["body"].clone();
+    outer_body["arguments"][2]["value"]["members"] = json!([]);
+    outer_body["arguments"][5]["value"]["target"] = await_target;
+    outer_body["arguments"][6]["value"]["members"] = json!([]);
+    package["semantic_graph"]["nodes"][outer]["body"] = outer_body;
+    settle(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "await supplies outer progress: {:?}",
+        read(&package)
+    );
+}
+
 /// Trace: FR-038-AC-351
 #[trace("TC-048", "FR-038-AC-351")]
 #[test]
@@ -9381,6 +9528,32 @@ fn standalone_repeat_does_not_valuate_thirty_visible_atoms() {
     let (mut package, _) = protocol_holder_case("repeat");
     let repeat = holder_position(&package);
     let (mut previous, _) = boolean_atoms(&mut package);
+    let mut literal = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| {
+            node["node_tag"] == "value"
+                && node["semantic_form"] == "literal"
+                && node["semantic_type"] == node_id(&family_key("aaaa"))
+        })
+        .expect("Boolean literal")
+        .clone();
+    literal["body"] = json!({
+        "term": "literal", "type": node_id(&family_key("aaaa")),
+        "value_kind": "boolean", "value": true
+    });
+    literal["node_id"] = node_id(&structural_key(
+        "value",
+        "literal",
+        Some(&family_key("aaaa")),
+        &literal["body"],
+    ));
+    let true_literal = literal["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(literal);
     let mut visible = Vec::new();
     for _ in 0..30 {
         previous = boolean_expression(&mut package, "quire.op.boolean.not", &[previous]);
@@ -9389,12 +9562,12 @@ fn standalone_repeat_does_not_valuate_thirty_visible_atoms() {
     let guard = boolean_expression(
         &mut package,
         "quire.op.boolean.and",
-        &[visible[0].clone(), visible[1].clone()],
+        &[visible[0].clone(), true_literal.clone()],
     );
     let true_guard = boolean_expression(
         &mut package,
         "quire.op.boolean.or",
-        &[visible[0].clone(), visible[1].clone()],
+        &[visible[0].clone(), true_literal],
     );
     set_nested_guard(&mut package, repeat, &guard, &visible);
     assert!(
