@@ -729,8 +729,8 @@ fn typed_compound_unit_term(term: &super::CheckedTerm, graph: &Graph<'_>) -> Opt
     (is_root_unit && exponent_ok).then(|| unit.clone())
 }
 
-/// The zero exponent is a well-formed integer term whose semantic shape is
-/// refused only after every structural key has been checked.
+/// Zero exponents and noncanonical unit order are well-formed terms whose
+/// semantic shape is refused only after every structural key has been checked.
 pub(super) fn compound_unit_has_invalid_shape(term: Option<&super::CheckedTerm>) -> bool {
     term.and_then(typed_aggregate).is_some_and(|terms| {
         let mut previous: Option<&CheckedNodeId> = None;

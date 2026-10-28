@@ -110,12 +110,7 @@ fn append_population(package: &mut Value, object: &Value, max: Option<&str>, ext
         }}));
     }
     population["body"] = json!({"term":"aggregate", "members": members});
-    let mut dependencies = vec![set];
-    if max.is_some() || extra {
-        dependencies.push(integer);
-    }
-    dependencies.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
-    population["dependencies"] = json!(dependencies);
+    population["dependencies"] = json!([set]);
     append_rekeyed(package, population)
 }
 
