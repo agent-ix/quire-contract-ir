@@ -2903,9 +2903,34 @@ place `guards` aggregate with equal minimum keys, and assert the second
 reference's exact `invalid_semantic_graph`/null-cause locus in each. Keep an
 ordered duplicate-place control and an ordered unlisted-guard control to
 show their existing refusal codes and loci still apply after order checking.
-For a wire-shape, dependency or stale-key mutation of an order case, assert
-the earlier refusal stage rather than treating it as order evidence. Rebuild
-all affected keys and the package identity for semantic mutations.
+For each remaining aggregate branch—root `resets` (binding 4), `guards` (5),
+`invariants` (6), `constraints` (8), and each place's `guards` (binding 3)—
+build an admissible two-reference control with distinct member nodes and
+strictly increasing source-region keys. For each control, swap the two
+references, rebuild the containing node key, its source-map entry and the
+package identity, and require `invalid_semantic_graph` with null cause at
+`/semantic_graph/nodes/{i}/body/members/{b}/value/members/1`, using that
+control's actual graph index `i` and binding index `b`. Retain the admitted
+original of each pair, and check its exact dependency, declaration and
+source-map joins, so an unrelated defect cannot pass the negative control.
+AO-02/03 cover root `clock_places`, and AO-04 covers root `urgencies`.
+
+For **each** of the five out-of-order AO patches (`AO-02`, `AO-03`, `AO-04`,
+`AO-06`, `AO-07`), make three independent mutations without removing its
+order defect. First replace the timed root's required `occurrences` array
+with a text value and require `malformed_wire` at
+`/semantic_graph/nodes/{i}/occurrences`, before any identity or order check.
+Second remove one still-referenced root dependency and, with the rest of the
+package kept identity-current, require `invalid_semantic_graph` with null
+cause at `/semantic_graph/nodes/{i}/dependencies`, before the key or timed
+step. Third retain the AO patch's reordered body but restore that root's
+pre-patch structural key (including its self semantic type and source-map
+reference), recompute the package identity, and require `invalid_package`/
+`stale-node-key` at `/semantic_graph/nodes/{i}/node_id`, before the timed
+step. Verify that each single-defect AO patch still reaches its published
+order refusal, so none of these earlier-stage controls substitutes for the
+AO result. Rebuild all affected keys and package identity except the
+intentionally stale key in the third mutation.
 
 ## Admitted operation-view provenance (FR-038-AC-341)
 
