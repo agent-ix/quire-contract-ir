@@ -753,6 +753,8 @@ impl CollectionKind {
 pub(super) enum MemberType {
     Boolean,
     Integer,
+    Float32,
+    Float64,
     String,
     Uuid,
     Timestamp,
@@ -801,6 +803,12 @@ impl MemberType {
             }
             Self::Integer => {
                 anonymous("scalar_type", "integer", None, StructuralBody::Empty, bytes)
+            }
+            Self::Float32 => {
+                anonymous("scalar_type", "float32", None, StructuralBody::Empty, bytes)
+            }
+            Self::Float64 => {
+                anonymous("scalar_type", "float64", None, StructuralBody::Empty, bytes)
             }
             Self::String => anonymous("scalar_type", "string", None, StructuralBody::Empty, bytes),
             Self::Uuid => anonymous("scalar_type", "uuid", None, StructuralBody::Empty, bytes),
@@ -1316,15 +1324,13 @@ impl DomainModel {
                 return match native {
                     NativeTypeRef::Boolean => Some(MemberType::Boolean),
                     NativeTypeRef::Integer => Some(MemberType::Integer),
+                    NativeTypeRef::Float32 => Some(MemberType::Float32),
+                    NativeTypeRef::Float64 => Some(MemberType::Float64),
                     NativeTypeRef::String => Some(MemberType::String),
                     NativeTypeRef::Uuid => Some(MemberType::Uuid),
                     NativeTypeRef::Timestamp => Some(MemberType::Timestamp),
                     NativeTypeRef::Clock => Some(MemberType::Clock),
-                    NativeTypeRef::Rational
-                    | NativeTypeRef::Decimal
-                    | NativeTypeRef::Float32
-                    | NativeTypeRef::Float64
-                    | NativeTypeRef::Text => None,
+                    NativeTypeRef::Rational | NativeTypeRef::Decimal | NativeTypeRef::Text => None,
                 };
             }
             SelectedTypeRef::Declared(name) => name.as_ref(),

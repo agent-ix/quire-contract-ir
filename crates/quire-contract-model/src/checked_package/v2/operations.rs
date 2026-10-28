@@ -5651,6 +5651,61 @@ mod tests {
         }
     }
 
+    /// IR-1059 slice 2: FR-322 step 4 gives native floats scalar type nodes.
+    /// A selected variant payload must retain those exact node keys in case order.
+    #[test]
+    fn selected_model_union_float_payloads_have_scalar_node_keys() {
+        use crate::checked_package::v2::model_members::{
+            declaration_key, tests as model_tests, DeclarationForm, MemberType,
+        };
+        const VARIANT: &str = "ix://acme/orders/Measurements";
+        let variant = json!({
+            "identity": VARIANT,
+            "kind": {"module": "acme/orders", "name": "variant"},
+            "variants": [
+                {"identity": format!("{VARIANT}/Z32"), "name": "Z32",
+                 "payloadType": "ix://quire/native/Float32"},
+                {"identity": format!("{VARIANT}/A64"), "name": "A64",
+                 "payloadType": "ix://quire/native/Float64"},
+            ],
+        });
+        let mut selected = model_tests::document(vec![variant]);
+        selected["constructs"]
+            .as_array_mut()
+            .expect("constructs")
+            .push(json!({"kind":{"module":"acme/orders","name":"variant"},
+                "construct":{"meaning":"quire.meaning.model.variant-type/v1"}}));
+        let model = model_tests::read(&selected).expect("float payloads admit at model intake");
+        let owners = ModelOwners::new(std::slice::from_ref(&model), |_| Ok(())).expect("owners");
+        let key = declaration_key(
+            "acme/orders",
+            DeclarationForm::VariantType,
+            VARIANT,
+            model_tests::BYTES,
+        )
+        .expect("variant key");
+        let type_id = CheckedNodeId {
+            domain: NODE_DOMAIN.into(),
+            digest: key.into(),
+        };
+        let members =
+            super::selected_union_members(&type_id, &owners, &mut WorkMeter::new(100_000))
+                .expect("bounded member resolution")
+                .expect("payload union");
+        assert_eq!(members.len(), 2);
+        for (member, name, member_type) in [
+            (&members[0], "A64", MemberType::Float64),
+            (&members[1], "Z32", MemberType::Float32),
+        ] {
+            assert_eq!(member.name.as_ref(), name);
+            assert_eq!(member.payload.len(), 1);
+            let expected = member_type
+                .node_key(model_tests::BYTES)
+                .expect("native scalar key");
+            assert_eq!(member.payload[0].digest.as_ref(), expected.as_str());
+        }
+    }
+
     /// An `application` node whose `operation.identity` is absent from the
     /// catalog is refused `invalid_package`/`unknown-operation`. This is the
     /// criterion the deleted private-sourced fixture tree used to carry (see
