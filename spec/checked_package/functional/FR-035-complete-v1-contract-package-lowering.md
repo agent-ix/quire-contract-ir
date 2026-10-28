@@ -152,18 +152,23 @@ with no such views on a `ContractPackageV1` term reconstructed by strict
 reading of V1 wire bytes. The strict reader SHALL offer an explicit authenticated source
 handoff accepting the reader-admitted V2 source package as an input. Before
 installing views, it SHALL compare the V1 wire's source package identity and
-lock with that source and, for every represented operation, its full node key,
+lock with that source and, for every represented node, its full node key,
 kind, semantic type, dependencies and body with the admitted source node.
 Only the corresponding source term's validated views may be installed. A
-missing or mismatched source or represented operation SHALL return a typed
+missing or mismatched source or represented node SHALL return a typed
 refusal, not an admitted package with partial views. Contract IR's authenticated
 read SHALL preserve the existing strict wire, correspondence, identity, dependency
-and limit checks; supplying a source SHALL NOT bypass or reorder them. Where
-the reader has no authenticated source, Contract IR's public operation-view
-accessors SHALL return the typed `NotAdmitted` refusal specified by FR-038.
-They SHALL NOT report an admitted empty law list or absent mode/member. A consumer
-requiring operation facts to generate behavior SHALL use the authenticated
-handoff or propagate this refusal rather than silently skip that behavior.
+and limit checks; supplying a source SHALL NOT bypass or reorder them. A plain
+strict V1 read with no authenticated V2 source SHALL refuse a package with any
+represented application operation as `operation_source_required`, before
+returning an admitted `ContractPackageV1`; it SHALL continue to admit valid
+packages with no represented application operation. Thus every admitted
+strict-reader term remains equal to the producer's term under FR-035-AC-22.
+A directly deserialized operation with no validated views remains distinct
+from admitted absence by FR-038's typed `NotAdmitted` accessor refusal. A
+consumer requiring operation facts to generate behavior SHALL use the
+authenticated handoff or propagate the plain-read refusal rather than silently
+skip that behavior.
 The ordinary represented node and typed body lookups of FR-035-AC-22 remain
 available; their existing equality requirement is not relaxed by the view
 provenance rule.
@@ -248,8 +253,8 @@ admit no `ContractPackageV1`.
 | FR-035-AC-22 | For every represented local key, both the producer's and strict reader's admitted `ContractPackageV1` return the exact node and the same optional `CheckedTerm` admitted from its source body through keyed lookups, independent of graph ordinal. An absent key returns no node or term. These retained lookups change no wire member, canonical byte or identity. | Test (TC-047) |
 | FR-035-AC-23 | PLANNED (IR-1087). For a V2 reader-admitted operation with a populated mode, ordered law definitions and member declaration, the producer's lowered `ContractPackageV1::term` at its exact key has the source term's equal validated views and returns the same typed values; the source and lowered `CheckedTerm` compare equal. Reordering represented graph nodes does not misassociate views, and lowering does not deserialize emitted operation JSON to construct them. | Test (TC-047) |
 | FR-035-AC-24 | PLANNED (IR-1087). For a V2 reader-admitted operation legitimately lacking mode, laws and member declaration, source and lowered terms compare equal, and each returns admitted absence or an admitted empty law view. The six FR-330 wire members, canonical bytes and identity are unchanged by view retention. | Test (TC-047) |
-| FR-035-AC-25 | PLANNED (IR-1087). A never-admitted direct-deserialized operation and a plain strict V1 reader term without authenticated V2 source return typed `NotAdmitted` for mode, law definitions and member declaration, distinctly from AC-24's admitted absence. A consumer with only `&ContractPackageV1` must use authenticated read or propagate that refusal; it cannot silently omit an operation-dependent behavior or parse JSON to recover the facts. | Test (TC-047) |
-| FR-035-AC-26 | PLANNED (IR-1087). With the exact reader-admitted V2 source supplied through an explicit authenticated handoff, strict reading the lowerer's canonical V1 bytes returns a `ContractPackageV1` whose represented operation terms and typed views equal the producer's and source's terms, including populated and legitimately absent values. A mismatched source identity or lock, absent represented source operation, or changed represented operation node refuses with a typed code and no partially admitted package, even when the V1 wire is internally canonical. The handoff retains the plain reader's wire, identity, dependency and limit decisions. The CG consumer's routed quantity-conversion and checked-graph association controls pass using only this admitted V1 value, without a JSON bridge. | Test (TC-047) |
+| FR-035-AC-25 | PLANNED (IR-1087). A never-admitted direct-deserialized operation returns typed `NotAdmitted` for mode, law definitions and member declaration, distinctly from AC-24's admitted absence. Plain strict V1 reading of canonical bytes with any represented application operation and no authenticated V2 source refuses the entire package as typed `operation_source_required`, returning no term or partially admitted package; plain reading of a package with no represented operation continues to admit and meets AC-22 equality for every represented term. A consumer must use authenticated read or propagate the refusal; it cannot silently omit operation-dependent behavior or parse JSON to recover the facts. | Test (TC-047) |
+| FR-035-AC-26 | PLANNED (IR-1087). With the exact reader-admitted V2 source supplied through an explicit authenticated handoff, strict reading the lowerer's canonical V1 bytes returns a `ContractPackageV1` whose every represented term equals the producer's and source's term, including populated and legitimately absent operation views. A mismatched source identity or lock, absent represented source node, or changed represented operation or non-operation node refuses with a typed code and no partially admitted package, even when the V1 wire is internally canonical. The handoff retains the plain reader's wire, identity, dependency and limit decisions. The CG consumer's routed quantity-conversion and checked-graph association controls pass using only this admitted V1 value, without a JSON bridge. | Test (TC-047) |
 
 FR-035-AC-12 through FR-035-AC-14 are backed by tagged TC-047 reader tests in
 `tests/it/complete_v1_contract_package.rs`; the specified workspace test gate, lint, and grammar validation pass.

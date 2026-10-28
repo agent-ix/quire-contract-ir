@@ -164,14 +164,19 @@ compare the source and keyed lowered `CheckedTerm` for full equality, then
 compare each fallible typed accessor's admitted value. Repeat with represented
 nodes reordered; key lookup must still return the matching operation views.
 Compare canonical V1 bytes and identity before and after view retention.
-Construct a direct-deserialized term lacking validated views and read the
-canonical V1 package through its plain strict reader without V2 source evidence;
-assert the named typed `NotAdmitted` refusal, distinct from admitted absence.
+Construct a direct-deserialized term lacking validated views; assert its
+accessors return typed `NotAdmitted`, distinct from admitted absence. Read a
+canonical V1 package with a represented application operation through the
+plain strict reader without V2 source evidence; assert the entire package
+refuses `operation_source_required` and returns no term. Read a canonical
+package without represented operations through that same plain reader and
+compare every represented term with the producer's term for AC-22 equality.
 Read the same bytes through an explicit authenticated handoff with the exact
 reader-admitted V2 source. Compare source, producer and reader terms and all
 three typed accessors, including their admitted absence cases. In otherwise
 canonical V1 packages, separately supply a wrong source identity, wrong lock,
-absent represented operation and changed represented operation body; each
+absent represented node, changed represented operation body and changed
+represented non-operation body; each
 must return a typed refusal and no partial package. Repeat the plain reader's
 strict wire, identity, dependency and limit probes through the authenticated
 handoff to show it does not bypass or reorder those decisions. At a consumer
