@@ -65,27 +65,22 @@ impl CheckedApplicationOperation {
         &mut self.record
     }
 
-    fn from_record(mut record: Value) -> Result<Self, &'static str> {
+    fn from_record(mut record: Value) -> Self {
         let execution_point =
             if record.get("identity").and_then(Value::as_str) == Some("quire.op.state.clause") {
-                match record
-                    .get_mut("member")
-                    .and_then(Value::as_object_mut)
-                    .and_then(|member| member.remove("execution_point"))
-                {
-                    Some(point) => Some(
-                        CheckedExecutionPoint::from_wire(&point)
-                            .ok_or("invalid state-clause execution point")?,
-                    ),
-                    None => None,
-                }
+                let member = record.get_mut("member").and_then(Value::as_object_mut);
+                member.and_then(|member| {
+                    let point = CheckedExecutionPoint::from_wire(member.get("execution_point")?)?;
+                    member.remove("execution_point");
+                    Some(point)
+                })
             } else {
                 None
             };
-        Ok(Self {
+        Self {
             record,
             execution_point,
-        })
+        }
     }
 
     fn with_point(&self) -> Value {
@@ -124,7 +119,7 @@ impl Serialize for CheckedApplicationOperation {
 
 impl<'de> Deserialize<'de> for CheckedApplicationOperation {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::from_record(Value::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+        Ok(Self::from_record(Value::deserialize(deserializer)?))
     }
 }
 

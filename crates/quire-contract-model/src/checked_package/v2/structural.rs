@@ -852,7 +852,9 @@ pub(super) fn typed_clause_body(body: &super::CheckedTerm) -> Option<ClauseBody>
         return None;
     }
     let member = operation.get("member")?.as_object()?;
-    if !exact_members(member, &["kind", "clause"]) {
+    if !exact_members(member, &["kind", "clause"])
+        && !exact_members(member, &["kind", "clause", "execution_point"])
+    {
         return None;
     }
     if member
@@ -863,7 +865,10 @@ pub(super) fn typed_clause_body(body: &super::CheckedTerm) -> Option<ClauseBody>
     {
         return None;
     }
-    let execution_point = operation.execution_point().cloned();
+    let execution_point = match member.get("execution_point") {
+        Some(point) => Some(CheckedExecutionPoint::from_wire(point)?),
+        None => operation.execution_point().cloned(),
+    };
     let clause = StateClauseKind::from_wire(member.get("clause")?.as_str()?)?;
     let [parameters, anchor, _condition] = arguments.as_slice() else {
         return None;
