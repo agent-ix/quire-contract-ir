@@ -3781,7 +3781,7 @@ fn tc_462_public_accessor_returns_exact_admitted_points_without_source_bytes() {
     fn cg_consumer(
         package: &CheckedPackageV2,
         clause: &CheckedNodeId,
-        claim: &CheckedOccurrence,
+        claim: (&CheckedNodeId, &CheckedOccurrence),
     ) -> Result<CheckedExecutionPoint, CheckedExecutionPointRefusal> {
         package
             .clause_execution_point(clause, claim)
@@ -3841,14 +3841,17 @@ fn tc_462_public_accessor_returns_exact_admitted_points_without_source_bytes() {
         let identity = admitted.package_id().clone();
         drop(source);
         assert_eq!(
-            cg_consumer(&admitted, &clause, &claim),
+            cg_consumer(&admitted, &clause, (&clause, &claim)),
             Ok(expected.clone())
         );
         assert_eq!(
-            cg_consumer(&admitted, &clause, &claim),
+            cg_consumer(&admitted, &clause, (&clause, &claim)),
             Ok(expected.clone())
         );
-        assert_eq!(cg_consumer(&unchanged, &clause, &claim), Ok(expected));
+        assert_eq!(
+            cg_consumer(&unchanged, &clause, (&clause, &claim)),
+            Ok(expected)
+        );
         assert_eq!(admitted, unchanged);
         assert_eq!(*admitted.package_id(), identity);
     }
@@ -3870,6 +3873,18 @@ fn tc_462_public_accessor_refuses_in_closed_precedence_order() {
     let unpointed = admitted.graph().nodes[unpointed].node_id.clone();
     let anchor = admitted.graph().nodes[anchor].node_id.clone();
     let claim = admitted.graph().nodes[pointed].occurrences[0].clone();
+    let other_claim = admitted
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.node_id == unpointed)
+        .and_then(|node| node.occurrences.first())
+        .expect("other clause claim")
+        .clone();
+    assert_eq!(
+        claim, other_claim,
+        "colliding role and ordinal are required"
+    );
     let wrong_role = CheckedOccurrence {
         role: CheckedOccurrenceRole::Expression,
         ordinal: claim.ordinal,
@@ -3879,42 +3894,54 @@ fn tc_462_public_accessor_refuses_in_closed_precedence_order() {
         ordinal: claim.ordinal + 1,
     };
     let absent = typed_node_id(&"ee".repeat(32));
-    for (selected, occurrence, expected) in [
+    for (selected, owner, occurrence, expected) in [
         (
             &absent,
+            &unpointed,
             &wrong_role,
             CheckedExecutionPointRefusal::UnknownClause,
         ),
         (
             &anchor,
+            &unpointed,
             &wrong_role,
             CheckedExecutionPointRefusal::NotStateClause,
         ),
         (
             &clause,
+            &clause,
             &wrong_role,
             CheckedExecutionPointRefusal::MissingClaimOccurrence,
         ),
         (
             &clause,
+            &clause,
             &wrong_ordinal,
             CheckedExecutionPointRefusal::MissingClaimOccurrence,
         ),
         (
+            &clause,
             &unpointed,
-            &claim,
+            &other_claim,
+            CheckedExecutionPointRefusal::MissingClaimOccurrence,
+        ),
+        (
+            &unpointed,
+            &unpointed,
+            &other_claim,
             CheckedExecutionPointRefusal::MissingExecutionPoint,
         ),
     ] {
         let error = admitted
-            .clause_execution_point(selected, occurrence)
+            .clause_execution_point(selected, (owner, occurrence))
             .expect_err("selection must refuse");
         assert_eq!(error.code, expected);
         assert_eq!(&error.clause, selected);
+        assert_eq!(&error.claim_owner, owner);
         assert_eq!(&error.claim, occurrence);
     }
     assert_eq!(
-        admitted.clause_execution_point(&clause, &claim),
+        admitted.clause_execution_point(&clause, (&clause, &claim)),
         Ok(CheckedExecutionPoint::Handler {
             name: "tick".into()
         })
@@ -3926,4 +3953,31 @@ fn tc_462_public_accessor_refuses_in_closed_precedence_order() {
         );
     }
     assert_eq!(CheckedExecutionPointRefusal::from_code("unknown"), None);
+}
+
+/// Every authentic claim of one pointed node reads its one retained point.
+#[trace("TC-462", "FR-058-AC-4", "FR-058-AC-10")]
+#[test]
+fn tc_462_multiple_claims_of_one_node_share_the_admitted_point() {
+    let mut source = pointed_invariant(json!({"kind": "handler", "name": "tick"}));
+    let position = source.clause("invariant");
+    source.value["semantic_graph"]["nodes"][position]["occurrences"]
+        .as_array_mut()
+        .expect("clause occurrences")
+        .push(json!({"role": "claim", "ordinal": 1}));
+    settle(&mut source.value);
+    let admitted = match read(&source.value) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("two-claim package refused: {other:?}"),
+    };
+    let clause = &admitted.graph().nodes[position];
+    assert_eq!(clause.occurrences.len(), 2);
+    for claim in &clause.occurrences {
+        assert_eq!(
+            admitted.clause_execution_point(&clause.node_id, (&clause.node_id, claim)),
+            Ok(CheckedExecutionPoint::Handler {
+                name: "tick".into()
+            })
+        );
+    }
 }
