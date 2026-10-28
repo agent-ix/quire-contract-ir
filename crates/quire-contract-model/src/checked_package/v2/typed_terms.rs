@@ -43,6 +43,11 @@ impl CheckedApplicationOperation {
         self.execution_point.as_ref()
     }
 
+    /// The catalogued identity of this application operation.
+    pub fn identity(&self) -> Option<&str> {
+        self.record.get("identity").and_then(Value::as_str)
+    }
+
     pub(super) fn record(&self) -> &Value {
         &self.record
     }

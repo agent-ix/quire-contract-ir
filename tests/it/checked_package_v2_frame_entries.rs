@@ -18,11 +18,13 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedComparisonPath, CheckedComparisonRefusal, CheckedMemberType,
-    CheckedNodeId, CheckedNodeTag, CheckedPackageIdentityPreimageRefV2, CheckedPackageLimit,
+    encode_checked_package_v2, CheckedApplicationOperation, CheckedComparisonPath,
+    CheckedComparisonRefusal, CheckedExecutionPoint, CheckedMemberType, CheckedNodeId,
+    CheckedNodeTag, CheckedPackageIdentityPreimageRefV2, CheckedPackageLimit,
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
     CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    StateClauseKind,
 };
 use serde_json::{json, Value};
 use std::sync::LazyLock;
@@ -1302,7 +1304,13 @@ fn tc_056_model_clause_points_retain_name_and_change_application_identity() {
     }
 }
 
-#[trace("TC-056", "FR-040-AC-31", "FR-040-AC-33", "FR-040-AC-36")]
+#[trace(
+    "TC-056",
+    "FR-040-AC-31",
+    "FR-040-AC-33",
+    "FR-040-AC-36",
+    "FR-066-AC-3"
+)]
 #[test]
 fn tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects() {
     let absent = pointed_state_package(None, None);
@@ -1315,7 +1323,21 @@ fn tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects() {
         Some(json!({"kind": "post", "operation": "deposit"})),
         Some(json!({"kind": "post", "operation": "deposit"})),
     );
-    for package in [&absent, &pre, &post] {
+    for (package, expected_point) in [
+        (&absent, None),
+        (
+            &pre,
+            Some(CheckedExecutionPoint::Pre {
+                operation: "deposit".into(),
+            }),
+        ),
+        (
+            &post,
+            Some(CheckedExecutionPoint::Post {
+                operation: "deposit".into(),
+            }),
+        ),
+    ] {
         let admitted = match read(&package.value) {
             CheckedPackageV2ReadResult::Admitted(admitted) => admitted,
             other => panic!("pointed package refused: {other:?}"),
@@ -1330,7 +1352,27 @@ fn tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects() {
         else {
             panic!("admitted anchor must have one typed form");
         };
-        assert_eq!(typed_anchor.execution_point.is_some(), point.is_some());
+        assert_eq!(typed_anchor.execution_point, expected_point);
+        let CheckedTerm::Application {
+            operator,
+            operation,
+            result_type,
+            arguments,
+        } = &admitted.graph().nodes[clause].body
+        else {
+            panic!("admitted clause must have a typed application");
+        };
+        assert_eq!(operation.execution_point(), expected_point.as_ref());
+        let constructed = CheckedTerm::Application {
+            operator: *operator,
+            operation: CheckedApplicationOperation::state_clause(
+                StateClauseKind::Precondition,
+                expected_point.clone(),
+            ),
+            result_type: result_type.clone(),
+            arguments: arguments.clone(),
+        };
+        assert_eq!(constructed, admitted.graph().nodes[clause].body);
         if let Some(point) = point {
             assert!(point.get("term").is_none(), "anchor point is not a term");
         }
