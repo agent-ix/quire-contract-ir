@@ -1765,19 +1765,25 @@ fn assert_concrete_row_binding(
     let CheckedPackageV2ReadResult::Refused(refusal) = read(package, evidence) else {
         panic!("concrete row must refuse at {path}");
     };
-    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        "{refusal:?}"
+    );
     assert_eq!(
         refusal.cause,
-        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+        Some(CheckedPackageRefusalCause::MalformedDeclaration),
+        "{refusal:?}"
     );
     assert_eq!(
         refusal.path.as_ref().map(|pointer| pointer.as_str()),
-        Some(path)
+        Some(path),
+        "{refusal:?}"
     );
     let expected: quire_contract_model::CheckedNodeId =
         serde_json::from_value(package["semantic_graph"]["nodes"][position]["node_id"].clone())
             .expect("refinement node id");
-    assert_eq!(refusal.locus, Some(expected));
+    assert_eq!(refusal.locus, Some(expected), "{refusal:?}");
 }
 
 fn add_second_concrete_root(package: &mut Value, evidence: &mut CheckedPackageEvidence) -> Value {
@@ -1967,7 +1973,6 @@ fn swapped_concrete_root_refuses_foreign_population_first() {
     dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
     dependencies.dedup();
     rekey_refinement(&mut package, position);
-    keep_refinement_declaration_occurrence(&mut package, position);
     assert!(
         matches!(
             read(&package, &evidence),
@@ -1991,7 +1996,7 @@ fn swapped_concrete_root_refuses_foreign_population_first() {
     }]);
     node["body"]["steps"] = json!([{
         "source_class":"Machine::toggle","source_node":machine,
-        "target":{"kind":"stutter"}
+        "target":{"kind":"any"}
     }]);
     node["body"]["class_catalog"] = json!({
         "concrete":[{"class":"Machine::toggle","node":machine,"binder_types":[]}],
@@ -2003,6 +2008,12 @@ fn swapped_concrete_root_refuses_foreign_population_first() {
     dependencies.dedup();
     rekey_refinement(&mut package, position);
     keep_refinement_declaration_occurrence(&mut package, position);
+    let id = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+    let source = package["lock"]["sources"][0].clone();
+    package["refinement_step_rows"] = json!([{
+        "node_id":id, "ordinal":0,
+        "region":{"source":source,"start":31,"end":32}
+    }]);
     assert_concrete_row_binding(
         &package,
         &evidence,
@@ -2187,6 +2198,10 @@ fn history_update_and_assume_accept_declaring_type_anchor_and_refuse_foreign_roo
     let alternate = add_second_concrete_root(&mut package, &mut evidence);
     package["semantic_graph"]["nodes"][position]["semantic_type"] = alternate.clone();
     package["semantic_graph"]["nodes"][position]["body"]["steps"] = json!([]);
+    package
+        .as_object_mut()
+        .expect("package")
+        .remove("refinement_step_rows");
     rekey_refinement(&mut package, position);
     assert_concrete_row_binding(
         &package,
@@ -2225,6 +2240,23 @@ fn history_update_and_assume_accept_declaring_type_anchor_and_refuse_foreign_roo
     dependencies.dedup();
     package["semantic_graph"]["nodes"][position]["dependencies"] = json!(dependencies);
     rekey_refinement(&mut package, position);
+    package["semantic_graph"]["nodes"][position]["occurrences"] = json!([
+        {"role":"declaration","ordinal":0},
+        {"role":"generated","ordinal":0}
+    ]);
+    let id = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+    let regions = package["source_map"]
+        .as_array()
+        .expect("source map")
+        .iter()
+        .find(|entry| entry["node_id"] == id && entry["role"] == "declaration")
+        .expect("refinement declaration region")["regions"]
+        .clone();
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(json!({"node_id":id,"role":"generated","ordinal":0,"regions":regions}));
+    refresh_identity(&mut package);
     assert_concrete_row_binding(
         &package,
         &evidence,
