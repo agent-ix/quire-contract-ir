@@ -839,8 +839,7 @@ fn tc_056_exactly_fifteen_model_forms_admit() {
         panic!("selected persistence interface must admit: {result:?}");
     };
     assert!(admitted.graph().nodes.iter().any(|node| {
-        node.node_tag == CheckedNodeTag::Model
-            && node.semantic_form.as_ref() == "persistence_interface"
+        node.node_tag.as_ref() == "model" && node.semantic_form.as_ref() == "persistence_interface"
     }));
     for form in [
         "field_declaration",
