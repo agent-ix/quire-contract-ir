@@ -28,3 +28,9 @@ Reviewed PR #642 at 8b0e53957778f2dd1da5ad2d98207bf28acdf060 against main 66eb6b
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | TC-062 requests one unspecified earlier-stage combined-defect vector, leaving four or more AC-16 precedence branches unverified. Require one control each for wire, identity, canonical-order, header, and catalog versus the step defect. | spec/checked_package/matrix/TC-062-refinement-reader-writer.md:70 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | TC-062 now requires five separate combined controls: wire, identity, canonical order, header, and catalog. Each asserts the earlier refusal and then the remaining row mismatch after repair. |
