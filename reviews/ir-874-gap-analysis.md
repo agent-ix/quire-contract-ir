@@ -25,3 +25,10 @@ CONDITIONAL. Reader code has no identified gap for the examined catalog classes,
 ## Coverage
 
 Examined FR-038-AC-325/328/329/330, QSpec FR-375-AC-23/26/27/28, TC-048 items 14 through 17, the changed reader and all changed tests. The matrix reports all four IR ACs tagged, and the positive abstract-model and cend cases exercise the public reader. Plan completion: not assessed. Optional repository-wide semantic review was not requested; this scoped review checked the changed AC/test/code chain. No applicable AssuranceProfile was found.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | At bb89d019, the public-reader test mutates Commit and ForwardEffect independently for omission, duplicate, wrong node and wrong binder; it asserts code, cause and locus. |
+| FND-002 | still-open | At bb89d019, the dropped-ancestor mutation is added, but `Nested::OtherFlow` names no other selected clause; the actual two selected clause names are `OrderFlow` and `Nested::OrderFlow`. A cross-clause name substitution remains untested. |

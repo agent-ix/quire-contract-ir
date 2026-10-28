@@ -3854,6 +3854,7 @@ fn refinement_catalog_preserves_two_clause_paths_of_different_depths() {
         };
         if path.len() >= 2 && path[0] == "Example" && path[1] == "OrderFlow" {
             path.insert(1, json!("Nested"));
+            path[2] = json!("OtherFlow");
         }
     }
     settle(&mut nested);
@@ -3916,10 +3917,10 @@ fn refinement_catalog_preserves_two_clause_paths_of_different_depths() {
         .any(|entry| entry["class"] == "OrderFlow::finish::Closed"));
     assert!(entries
         .iter()
-        .any(|entry| entry["class"] == "Nested::OrderFlow::finish::Closed"));
+        .any(|entry| entry["class"] == "Nested::OtherFlow::finish::Closed"));
     assert!(entries
         .iter()
-        .any(|entry| entry["class"] == "fork Nested::OrderFlow::run::Main::Holder"));
+        .any(|entry| entry["class"] == "fork Nested::OtherFlow::run::Main::Holder"));
     set_concrete_catalog(&mut package, entries.clone());
     assert_unique_node_ids(&package);
     let admitted = read(&package, &evidence);
@@ -3930,12 +3931,12 @@ fn refinement_catalog_preserves_two_clause_paths_of_different_depths() {
 
     for (original, substituted) in [
         (
-            "Nested::OrderFlow::finish::Closed",
             "Nested::OtherFlow::finish::Closed",
+            "Nested::OrderFlow::finish::Closed",
         ),
         (
-            "fork Nested::OrderFlow::run::Main::Holder",
-            "fork Nested::OrderFlow::Holder",
+            "fork Nested::OtherFlow::run::Main::Holder",
+            "fork Nested::OtherFlow::Holder",
         ),
     ] {
         let mut wrong = package.clone();
@@ -3946,6 +3947,10 @@ fn refinement_catalog_preserves_two_clause_paths_of_different_depths() {
             .expect("class in positive catalog");
         entry["class"] = json!(substituted);
         changed.sort_by(|left, right| left["class"].as_str().cmp(&right["class"].as_str()));
+        let changed_index = changed
+            .iter()
+            .position(|entry| entry["class"] == substituted)
+            .expect("substituted class in catalog");
         let position = set_concrete_catalog(&mut wrong, changed);
         let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong, &evidence) else {
             panic!("substituted class {substituted} admitted");
@@ -3954,16 +3959,15 @@ fn refinement_catalog_preserves_two_clause_paths_of_different_depths() {
             refusal.code,
             CheckedPackageRefusalCode::InvalidSemanticGraph
         );
-        let path = refusal
-            .path
-            .as_ref()
-            .expect("catalog refusal path")
-            .as_str();
-        assert!(
-            path.starts_with(&format!(
-                "/semantic_graph/nodes/{position}/body/class_catalog/concrete"
-            )),
-            "wrong refusal locus for {substituted}: {path}"
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(
+                format!(
+                    "/semantic_graph/nodes/{position}/body/class_catalog/concrete/{changed_index}"
+                )
+                .as_str()
+            ),
+            "wrong refusal locus for {substituted}"
         );
     }
 }
