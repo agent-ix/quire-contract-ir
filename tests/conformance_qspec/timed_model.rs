@@ -6,7 +6,8 @@
 //! full timed semantic criterion qualification belongs to the follow-on slice.
 use super::*;
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedPackageIdentityPreimageRefV2, CheckedTerm,
+    encode_checked_package_v2, CheckedCollectionKind, CheckedMemberType,
+    CheckedPackageIdentityPreimageRefV2, CheckedTerm,
 };
 
 fn published() -> Value {
@@ -28,11 +29,64 @@ fn timed_slot_selected_package_admits_nested_and_optional_clock_places() {
     let CheckedPackageV2ReadResult::Admitted(package) = result else {
         panic!("selected timed slot package must admit: {result:?}");
     };
-    assert_eq!(package.graph().nodes.len(), 72);
+    assert_eq!(
+        package.graph().nodes.len(),
+        wire["semantic_graph"]["nodes"].as_array().unwrap().len()
+    );
     assert_eq!(
         Some(package.package_id().digest.as_ref()),
         wire["package_id"]["digest"].as_str()
     );
+    let order = package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| {
+            node.node_tag.as_ref() == "model"
+                && node.semantic_form.as_ref() == "object_type"
+                && node.owner.as_ref().is_some_and(|owner| {
+                    matches!(owner, quire_contract_model::CheckedNodeOwner::Model { node, .. }
+                        if node.as_ref() == "ix://acme/orders/Order")
+                })
+        })
+        .expect("selected Order declaration");
+    let fields = package
+        .model_object_fields(&order.node_id)
+        .expect("selected Order fields");
+    let g = fields
+        .fields()
+        .iter()
+        .find(|field| field.name() == "g")
+        .expect("nested clock field");
+    let Some(CheckedMemberType::Collection {
+        kind: CheckedCollectionKind::Sequence,
+        element: outer,
+        bounds: None,
+    }) = g.member_type()
+    else {
+        panic!("g must resolve as an unbounded sequence");
+    };
+    assert!(matches!(
+        outer.as_ref(),
+        CheckedMemberType::Collection {
+            kind: CheckedCollectionKind::Sequence,
+            element,
+            bounds: None,
+        } if element.as_ref() == &CheckedMemberType::Clock
+    ));
+    let q = fields
+        .fields()
+        .iter()
+        .find(|field| field.name() == "q")
+        .expect("optional clock sequence field");
+    assert!(matches!(
+        q.member_type(),
+        Some(CheckedMemberType::Collection {
+            kind: CheckedCollectionKind::Sequence,
+            element,
+            bounds: Some((0, 2)),
+        }) if element.as_ref() == &CheckedMemberType::Option(Box::new(CheckedMemberType::Clock))
+    ));
 }
 
 fn encode_package(package: &CheckedPackageV2) -> Vec<u8> {

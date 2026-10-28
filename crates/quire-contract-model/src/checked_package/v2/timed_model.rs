@@ -4,8 +4,8 @@
 //! Closed timed-model node wire shapes checked before identity validation.
 
 use super::model_members::{
-    Budget, CollectionKind, FieldDecl, MemberKind, ModelFailure, ModelOwners, NativeTypeRef,
-    Resolved, SelectedTypeRef,
+    Budget, CollectionKind, FieldDecl, MemberKind, ModelFailure, ModelOwners, Resolved,
+    SelectedTypeRef,
 };
 use super::{
     CheckedNodeId, CheckedNodeOwner, CheckedTerm, CheckedTermView, LiteralKind,
@@ -563,15 +563,23 @@ impl<'a> RenderedCollectionType<'a> {
     }
 }
 
-fn declared_field_type(field: &FieldDecl) -> Option<String> {
-    let element = match field.slot.type_ref.as_ref()? {
-        SelectedTypeRef::Native(NativeTypeRef::Clock) => "ix://quire/native/Clock".to_owned(),
-        SelectedTypeRef::Native(NativeTypeRef::Text) => "ix://quire/native/Text".to_owned(),
-        SelectedTypeRef::Declared(name) | SelectedTypeRef::Unit(name) => name.to_string(),
-        SelectedTypeRef::Map(key, value) => format!("Map<{key}, {value}>"),
-        _ => return None,
-    };
+fn declared_field_type(
+    field: &FieldDecl,
+    render: impl FnOnce(&SelectedTypeRef) -> Option<String>,
+) -> Option<String> {
+    let element = render(field.slot.type_ref.as_ref()?)?;
     let multiplicity = field.slot.multiplicity;
+    let optional_clock_element = field.optional
+        && matches!(
+            field.slot.type_ref.as_ref(),
+            Some(SelectedTypeRef::Native(super::model_members::NativeTypeRef::Clock))
+        )
+        && (multiplicity.lower, multiplicity.upper) != (1, Some(1));
+    let element = if optional_clock_element {
+        format!("Option<{element}>")
+    } else {
+        element
+    };
     let value = if (multiplicity.lower, multiplicity.upper) == (1, Some(1)) {
         element
     } else {
@@ -583,7 +591,7 @@ fn declared_field_type(field: &FieldDecl) -> Option<String> {
         };
         format!("{kind}<{element}>")
     };
-    Some(if field.optional {
+    Some(if field.optional && !optional_clock_element {
         format!("Option<{value}>")
     } else {
         value
@@ -727,7 +735,10 @@ fn check_resolved_path(
                 return Err(fail(at));
             };
             let actual_declaring = field.identity.rsplit_once('/').map(|(owner, _)| owner);
-            let actual_type = declared_field_type(field).ok_or_else(|| fail(at.clone()))?;
+            let actual_type = declared_field_type(field, |reference| {
+                model_owner.package.clock_type_name(reference)
+            })
+            .ok_or_else(|| fail(at.clone()))?;
             if actual_declaring != declaring
                 || Some(field.identity.as_ref()) != identity
                 || actual_type != member_type.unwrap_or_default()
@@ -736,11 +747,17 @@ fn check_resolved_path(
             }
             if steps.get(index + 1).and_then(path_step_kind) == Some(PathStepKind::Slot) {
                 let multiplicity = field.slot.multiplicity;
-                let expected = match field.slot.type_ref.as_ref() {
-                    Some(SelectedTypeRef::Map(..)) => {
+                let unwrapped = actual_type
+                    .strip_prefix("Option<")
+                    .and_then(|inner| inner.strip_suffix('>'))
+                    .unwrap_or(&actual_type);
+                let expected = match RenderedCollectionType::from_wire(unwrapped) {
+                    RenderedCollectionType::Map(_)
+                        if (multiplicity.lower, multiplicity.upper) == (1, Some(1)) =>
+                    {
                         Some(("map", "0".to_owned(), "unbounded".to_owned()))
                     }
-                    Some(_) if (multiplicity.lower, multiplicity.upper) != (1, Some(1)) => {
+                    _ if (multiplicity.lower, multiplicity.upper) != (1, Some(1)) => {
                         let kind =
                             CollectionKind::of(multiplicity.ordered, multiplicity.unique).form();
                         Some((
@@ -1350,7 +1367,7 @@ mod tests {
 
     #[test]
     fn ir1083_selected_field_presence_and_multiplicity_render_the_clock_path_type() {
-        use super::super::model_members::{Multiplicity, TypedSlot};
+        use super::super::model_members::{Multiplicity, NativeTypeRef, TypedSlot};
         let mut field = FieldDecl {
             identity: "ix://acme/orders/Order/v".into(),
             slot: TypedSlot {
@@ -1367,7 +1384,13 @@ mod tests {
             redefines: None,
         };
         assert_eq!(
-            declared_field_type(&field).as_deref(),
+            declared_field_type(&field, |reference| match reference {
+                SelectedTypeRef::Native(NativeTypeRef::Clock) => {
+                    Some("ix://quire/native/Clock".to_owned())
+                }
+                _ => None,
+            })
+            .as_deref(),
             Some("Option<ix://quire/native/Clock>")
         );
         field.optional = false;
@@ -1378,7 +1401,13 @@ mod tests {
             unique: false,
         };
         assert_eq!(
-            declared_field_type(&field).as_deref(),
+            declared_field_type(&field, |reference| match reference {
+                SelectedTypeRef::Native(NativeTypeRef::Clock) => {
+                    Some("ix://quire/native/Clock".to_owned())
+                }
+                _ => None,
+            })
+            .as_deref(),
             Some("Sequence<ix://quire/native/Clock>")
         );
     }
