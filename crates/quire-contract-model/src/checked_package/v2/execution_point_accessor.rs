@@ -44,6 +44,7 @@ impl CheckedExecutionPointRefusal {
     }
 
     /// Parse one stable refusal code.
+    #[ix_trace_rs::string_edge]
     pub fn from_code(code: &str) -> Option<Self> {
         match code {
             "unknown_clause" => Some(Self::UnknownClause),
