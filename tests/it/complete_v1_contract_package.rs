@@ -1434,7 +1434,14 @@ fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
     ) else {
         panic!("V1 identity refusal must precede unsupported source handoff");
     };
-    assert_eq!(refusal.code, Code::StaleDependency);
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::InvalidValue))
+    );
+    assert_eq!(
+        refusal.path.expect("identity path").as_str(),
+        "/identity/digest"
+    );
 }
 
 #[trace("TC-047", "FR-035-AC-21")]
