@@ -28,6 +28,53 @@ use serde_json::value::RawValue;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+/// QSpec's KeyOrdinal admits a JSON integer through 2^53-1, or a canonical
+/// decimal string strictly above that bound.
+#[ix_trace_rs::string_edge]
+fn key_ordinal(value: &Value) -> bool {
+    const MAX_SAFE: &str = "9007199254740991";
+    if let Some(number) = value.as_u64() {
+        return number <= 9_007_199_254_740_991;
+    }
+    let Some(text) = value.as_str() else {
+        return false;
+    };
+    !text.is_empty()
+        && !text.starts_with('0')
+        && text.bytes().all(|byte| byte.is_ascii_digit())
+        && (text.len() > MAX_SAFE.len() || (text.len() == MAX_SAFE.len() && text > MAX_SAFE))
+}
+
+/// Check a present position ordinal before key derivation can mistake its
+/// malformed spelling for a changed application preimage.
+fn position_member_shape(body: &Value) -> bool {
+    let mut pending = vec![body];
+    while let Some(value) = pending.pop() {
+        match value {
+            Value::Array(items) => pending.extend(items),
+            Value::Object(map) => {
+                if map.get("term").and_then(Value::as_str) == Some("application") {
+                    if let Some(member) = map.get("operation").and_then(|op| op.get("member")) {
+                        if member.get("kind").and_then(Value::as_str) == Some("position") {
+                            let Some(fields) = member.as_object() else {
+                                return false;
+                            };
+                            if fields.contains_key("position")
+                                && !fields.get("position").is_some_and(key_ordinal)
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                }
+                pending.extend(map.values());
+            }
+            _ => {}
+        }
+    }
+    true
+}
+
 // The borrowed intake mirrors only the closed containers that contain an
 // arbitrary JSON term. Those terms are decoded after the outer typed wire
 // frame has returned, keeping their recursion off its call stack. Every other
@@ -138,6 +185,12 @@ pub(super) fn decode_borrowed_wire(
             ));
         }
         let body = strict_parse(node.body.get().as_bytes())?;
+        if !position_member_shape(&body) {
+            return Err(ValidationFailure::refused(
+                CheckedPackageRefusalCode::MalformedWire,
+                node_pointer(position),
+            ));
+        }
         nodes.push(RawSemanticNodeV2 {
             node_id: node.node_id,
             schema_version: node.schema_version,

@@ -2402,11 +2402,17 @@ impl ContractPackageWireV1 {
                 }
             }
         }
+        let deferred_keys = super::derived_keys::deferred_key_targets(
+            &self.semantic_graph.nodes,
+            &kinds,
+            limits.bytes,
+        );
         super::structural::validate_structural_nodes(
             &self.semantic_graph.nodes,
             &kinds,
             &terms,
             &positions,
+            &deferred_keys,
         )?;
         super::operations::validate_application_keys(
             &self.semantic_graph.nodes,
@@ -2421,6 +2427,7 @@ impl ContractPackageWireV1 {
             &kinds,
             &terms,
             &positions,
+            &deferred_keys,
             &[],
             &mut *meter,
             limits.bytes,

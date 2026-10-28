@@ -779,13 +779,12 @@ fn selected_variant_admits_enum_equality_and_refuses_order_or_structural_equalit
             Some(CheckedPackageRefusalCause::OperatorIneligible),
             "{operation}"
         );
-        assert_eq!(
-            refusal.path,
-            Some(pointer(&format!(
-                "/semantic_graph/nodes/{position}/body/arguments/0"
-            ))),
-            "{operation}"
-        );
+        let expected_path = if operation == "quire.op.structural.eq" {
+            format!("/semantic_graph/nodes/{position}")
+        } else {
+            format!("/semantic_graph/nodes/{position}/body/arguments/0")
+        };
+        assert_eq!(refusal.path, Some(pointer(&expected_path)), "{operation}");
     }
 }
 
@@ -798,12 +797,7 @@ fn selected_variant_refuses_absent_case_and_empty_declaration() {
         refusal.code,
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
-    assert_eq!(
-        refusal.path,
-        Some(pointer(
-            "/semantic_graph/nodes/9/nominal_identity_preimage/case"
-        ))
-    );
+    assert_eq!(refusal.path, Some(pointer("/semantic_graph/nodes/9")));
 
     let (package, evidence, _) = variant_package(&[], &[], false);
     let refusal = refused(&package, &evidence);
@@ -839,10 +833,7 @@ fn selected_variant_requires_its_exact_model_owner() {
             refusal.cause,
             Some(CheckedPackageRefusalCause::MissingSelection)
         );
-        assert_eq!(
-            refusal.path,
-            Some(pointer("/semantic_graph/nodes/5/node_id"))
-        );
+        assert_eq!(refusal.path, Some(pointer("/semantic_graph/nodes/5/owner")));
     }
 }
 

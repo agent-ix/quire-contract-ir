@@ -313,7 +313,16 @@ pub(super) fn validate_owner_joins(
     });
     for position in positions {
         let node = &wire.semantic_graph.nodes[position];
-        let at = node_pointer(position).key("node_id");
+        let at = if matches!(
+            kinds.get(position),
+            Some(CheckedNodeKind::Model(
+                super::ModelForm::TupleValueType | super::ModelForm::VariantType
+            ))
+        ) {
+            node_pointer(position).key("owner")
+        } else {
+            node_pointer(position).key("node_id")
+        };
         match node.owner.as_ref() {
             Some(CheckedNodeOwner::Source {
                 authority,

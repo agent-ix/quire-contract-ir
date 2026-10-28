@@ -105,7 +105,7 @@ pub use vocabulary::*;
 use crate::identity::ExecutionPoint;
 use closure_index::ClosureIndex;
 use dependency_references::{admit_dependencies, check_derived_closure, SuppliedDependencies};
-use derived_keys::validate_derived_keys;
+use derived_keys::{deferred_key_targets, validate_derived_keys};
 use ix_trace_rs::string_edge;
 use operations::{validate_application_keys, validate_operations};
 use owner::{validate_owner_joins, validate_owner_schema};
@@ -2703,7 +2703,7 @@ fn validate_graph(
     }
     model_root::validate_shape(&graph.nodes, &kinds, &terms)?;
     validate_owner_joins(wire, &kinds, &terms, models, meter)?;
-    // Graph-shape body and dependency rules FR-322 orders before the
+    // Graph-shape body and dependency rules FR-322 orders before the general
     // stale-key stage: the structural forms' bodies and occurrence roles and
     // the application-node dependency join. Then, in reader order, the
     // stale-key, declaration, frame, state and operation steps. All of them
@@ -2711,7 +2711,8 @@ fn validate_graph(
     // so an entry, anchor or clause reference naming no node is the step's
     // own `missing_declaration` refusal rather than the generic
     // unresolved-reference `invalid_semantic_graph`.
-    validate_structural_nodes(&graph.nodes, &kinds, &terms, &index)?;
+    let deferred_keys = deferred_key_targets(&graph.nodes, &kinds, limits.bytes);
+    validate_structural_nodes(&graph.nodes, &kinds, &terms, &index, &deferred_keys)?;
     for &position in index.values() {
         if !matches!(
             kinds.get(position),
@@ -2746,6 +2747,7 @@ fn validate_graph(
         &kinds,
         &terms,
         &index,
+        &deferred_keys,
         &references,
         meter,
         limits.bytes,
