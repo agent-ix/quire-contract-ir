@@ -390,7 +390,7 @@ fn selected_tuple_and_payload_variant_declarations_admit() {
 #[test]
 fn selected_payload_variant_uses_union_family_in_binary_operations() {
     let mut document = variant_document_named(TIER, &["Gold", "2x"]);
-    document["types"][0]["variants"][0]["payloadType"] = json!("ix://quire/native/Integer");
+    document["types"][1]["variants"][0]["payloadType"] = json!("ix://quire/native/Integer");
     let digest = sha256_hex(&canonical(&document));
     let (mut package, _, variant_key) = variant_package(&["Gold", "2x"], &[], false);
     package["lock"]["model_selections"][0]["digest"] = json!(digest);
