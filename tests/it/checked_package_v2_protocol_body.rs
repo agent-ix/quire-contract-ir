@@ -8962,6 +8962,76 @@ fn nested_repeat_stops_at_first_false_two_atom_valuation() {
     );
 }
 
+/// Trace: FR-038-AC-348
+#[trace("TC-048", "FR-038-AC-348")]
+#[test]
+fn sequence_sibling_supplies_step_when_nested_repeat_can_exit() {
+    let (mut package, _, sequence) = nested_repeat_case();
+    let sibling = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    let sibling_target = package["semantic_graph"]["nodes"][sibling]["node_id"].clone();
+    let body = package["semantic_graph"]["nodes"][sibling]["body"].clone();
+    let inner_body = protocol_named_node(
+        "control",
+        &[
+            "Example",
+            "OrderFlow",
+            "run",
+            "Main",
+            "Holder",
+            "Left",
+            "Nested",
+            "Body",
+        ],
+        body,
+        &[],
+    );
+    let inner_body_target = inner_body["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(inner_body);
+    let mut repeat_body = package["semantic_graph"]["nodes"][sequence]["body"].clone();
+    repeat_body["arguments"][4]["value"]["value"] = json!(false);
+    repeat_body["arguments"][5]["value"]["target"] = inner_body_target;
+    let inner = protocol_named_node(
+        "control",
+        &[
+            "Example",
+            "OrderFlow",
+            "run",
+            "Main",
+            "Holder",
+            "Left",
+            "Nested",
+        ],
+        repeat_body,
+        &[],
+    );
+    let inner_target = inner["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(inner);
+    let sequence_body = &mut package["semantic_graph"]["nodes"][sequence]["body"];
+    sequence_body["operation"]["member"]["operator"] = json!("sequence");
+    sequence_body["arguments"] = json!([{
+        "term": "binding", "name": "children", "value": {"term": "aggregate", "members": [
+            {"term": "reference", "target": inner_target},
+            {"term": "reference", "target": sibling_target}
+        ]}
+    }]);
+    settle(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "sequence sibling: {:?}",
+        read(&package)
+    );
+}
+
 /// Trace: FR-038-AC-351
 #[trace("TC-048", "FR-038-AC-351")]
 #[test]
