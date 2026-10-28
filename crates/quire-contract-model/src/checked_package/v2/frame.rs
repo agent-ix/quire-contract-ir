@@ -416,7 +416,10 @@ fn field_entry(kind: CheckedNodeKind) -> bool {
     matches!(
         kind,
         CheckedNodeKind::Model(
-            ModelForm::ObjectType | ModelForm::RecordValueType | ModelForm::StateMachine
+            ModelForm::ObjectType
+                | ModelForm::RecordValueType
+                | ModelForm::StateMachine
+                | ModelForm::Process
         )
     )
 }
@@ -461,7 +464,12 @@ fn frame_defect(
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
     let mut defects = Vec::new();
     match graph.node(&frame.semantic_type) {
-        Some((_, CheckedNodeKind::Model(ModelForm::ObjectType | ModelForm::StateMachine))) => {}
+        Some((
+            _,
+            CheckedNodeKind::Model(
+                ModelForm::ObjectType | ModelForm::StateMachine | ModelForm::Process,
+            ),
+        )) => {}
         found => defects.push(MeaningDefect {
             position: Position::SemanticType,
             digest: frame.semantic_type.digest.clone(),

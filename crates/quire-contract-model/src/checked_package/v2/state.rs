@@ -219,7 +219,9 @@ impl<'a> Walk for StateApplicationPlacement<'a> {
 fn is_object_type(kind: CheckedNodeKind) -> bool {
     matches!(
         kind,
-        CheckedNodeKind::Model(ModelForm::ObjectType | ModelForm::StateMachine)
+        CheckedNodeKind::Model(
+            ModelForm::ObjectType | ModelForm::StateMachine | ModelForm::Process
+        )
     )
 }
 

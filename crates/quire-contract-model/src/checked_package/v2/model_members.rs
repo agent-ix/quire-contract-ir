@@ -455,6 +455,10 @@ pub(super) struct DomainModel {
     pub(super) object_types: BTreeMap<Box<str>, FieldBearingTypeDecl>,
     /// State machine declarations share field and operation parsing with object types.
     pub(super) state_machines: BTreeSet<Box<str>>,
+    /// Process declarations share field and operation parsing with object types.
+    pub(super) processes: BTreeSet<Box<str>>,
+    /// Persistence-interface declarations have a selected owner key.
+    pub(super) persistence_interfaces: BTreeSet<Box<str>>,
     /// Record value types, with their own and inherited fields.
     pub(super) record_types: BTreeMap<Box<str>, FieldBearingTypeDecl>,
     /// Value types, by IR node identity; `None` when not bound as `Int[lo, hi]`.
@@ -483,6 +487,8 @@ pub(super) struct DomainModel {
 pub(super) enum DeclarationForm {
     ObjectType,
     StateMachine,
+    Process,
+    PersistenceInterface,
     RecordValueType,
     VariantType,
     SystemsInterface,
@@ -495,6 +501,8 @@ impl DeclarationForm {
         match self {
             Self::ObjectType
             | Self::StateMachine
+            | Self::Process
+            | Self::PersistenceInterface
             | Self::RecordValueType
             | Self::VariantType
             | Self::SystemsInterface => "model",
@@ -506,6 +514,8 @@ impl DeclarationForm {
         match self {
             Self::ObjectType => "object_type",
             Self::StateMachine => "state_machine",
+            Self::Process => "process",
+            Self::PersistenceInterface => "persistence_interface",
             Self::RecordValueType => "record_value_type",
             Self::VariantType => "variant_type",
             Self::SystemsInterface => "systems_interface",
@@ -1035,7 +1045,7 @@ impl DomainModel {
         &self,
         type_ref: &str,
     ) -> Option<Result<String, quire_canonical::Error>> {
-        if self.state_machines.contains(type_ref) {
+        if self.state_machines.contains(type_ref) || self.processes.contains(type_ref) {
             return None;
         }
         let declared = self.object_types.get(type_ref)?;
@@ -1266,14 +1276,16 @@ impl DomainModel {
         // refusal. The same key (or a longer one for an interface) is derived
         // there under the same limit, and the graph stage refuses the read at
         // the selection row when the encoder refuses it.
-        declaration_key(
-            &self.identity,
-            DeclarationForm::ObjectType,
-            type_ref,
-            self.bytes,
-        )
-        .ok()
-        .map(|key| MemberType::Reference(key.into()))
+        let form = if self.state_machines.contains(type_ref) {
+            DeclarationForm::StateMachine
+        } else if self.processes.contains(type_ref) {
+            DeclarationForm::Process
+        } else {
+            DeclarationForm::ObjectType
+        };
+        declaration_key(&self.identity, form, type_ref, self.bytes)
+            .ok()
+            .map(|key| MemberType::Reference(key.into()))
     }
 
     /// FR-322 step 4 over one declared `typeRef` and multiplicity; `None`
@@ -1345,6 +1357,8 @@ impl DomainModel {
         };
         let form = if self.state_machines.contains(object) {
             DeclarationForm::StateMachine
+        } else if self.processes.contains(object) {
+            DeclarationForm::Process
         } else if declaration.interface {
             DeclarationForm::SystemsInterface
         } else {
@@ -1461,6 +1475,7 @@ impl<'m> ModelOwners<'m> {
                     owner.form,
                     DeclarationForm::ObjectType
                         | DeclarationForm::StateMachine
+                        | DeclarationForm::Process
                         | DeclarationForm::SystemsInterface
                 )
             {
@@ -1509,6 +1524,8 @@ impl<'m> ModelOwners<'m> {
             let objects = package.object_types.iter().map(|(node, declared)| {
                 let form = if package.state_machines.contains(node.as_ref()) {
                     DeclarationForm::StateMachine
+                } else if package.processes.contains(node.as_ref()) {
+                    DeclarationForm::Process
                 } else if declared.interface {
                     DeclarationForm::SystemsInterface
                 } else {
@@ -1533,11 +1550,16 @@ impl<'m> ModelOwners<'m> {
                 .populations
                 .iter()
                 .map(|node| (node, DeclarationForm::Population));
+            let persistence_interfaces = package
+                .persistence_interfaces
+                .iter()
+                .map(|node| (node, DeclarationForm::PersistenceInterface));
             for (node, form) in objects
                 .chain(records)
                 .chain(variants)
                 .chain(relationships)
                 .chain(populations)
+                .chain(persistence_interfaces)
             {
                 charge(index)?;
                 // A key the encoder refuses (a preimage past the byte limit)
@@ -2428,8 +2450,13 @@ type ClassifiedType<'v> = Result<(&'v Value, meaning::Kind), ModelRefusal>;
 struct Scope<'v> {
     /// Object types and systems interfaces.
     objects: BTreeSet<&'v str>,
+    /// Process and state-machine supertypes must stay within their meanings.
+    processes: BTreeSet<&'v str>,
+    state_machines: BTreeSet<&'v str>,
     /// Record value types, which carry value fields without object identity.
     records: BTreeSet<&'v str>,
+    /// Meanings forbidden as a record field's declared type.
+    record_field_forbidden: BTreeSet<&'v str>,
     /// Type nodes whose own declaration is refused; a reference to one is
     /// not reported again, its own refusal stands for it (FR-154).
     refused: BTreeSet<&'v str>,
@@ -2546,6 +2573,8 @@ pub(super) fn read_semantic_ir(
         bytes: budget.bytes,
         object_types: BTreeMap::new(),
         state_machines: BTreeSet::new(),
+        processes: BTreeSet::new(),
+        persistence_interfaces: BTreeSet::new(),
         record_types: BTreeMap::new(),
         value_types: BTreeMap::new(),
         variant_types: BTreeMap::new(),
@@ -2580,7 +2609,10 @@ pub(super) fn read_semantic_ir(
     }
     let mut scope = Scope {
         objects: BTreeSet::new(),
+        processes: BTreeSet::new(),
+        state_machines: BTreeSet::new(),
         records: BTreeSet::new(),
+        record_field_forbidden: BTreeSet::new(),
         refused: BTreeSet::new(),
         members: BTreeSet::new(),
         relationships: BTreeSet::new(),
@@ -2596,12 +2628,24 @@ pub(super) fn read_semantic_ir(
         match meaning {
             meaning::Kind::ObjectType
             | meaning::Kind::StateMachine
+            | meaning::Kind::Process
             | meaning::Kind::SystemsInterface
             | meaning::Kind::RecordValueType => {
                 if meaning == meaning::Kind::RecordValueType {
                     scope.records.insert(node);
                 } else {
                     scope.objects.insert(node);
+                    if meaning == meaning::Kind::Process {
+                        scope.processes.insert(node);
+                    } else if meaning == meaning::Kind::StateMachine {
+                        scope.state_machines.insert(node);
+                    }
+                }
+                if matches!(
+                    meaning,
+                    meaning::Kind::Process | meaning::Kind::StateMachine
+                ) {
+                    scope.record_field_forbidden.insert(node);
                 }
                 // Members and relationships are collected from every object
                 // type before any is read: a reference to one resolves the
@@ -2633,7 +2677,6 @@ pub(super) fn read_semantic_ir(
                 scope.relationships.insert(node);
             }
             meaning::Kind::EventType
-            | meaning::Kind::Process
             | meaning::Kind::PersistenceInterface
             | meaning::Kind::Namespace
             | meaning::Kind::Population
@@ -2641,6 +2684,17 @@ pub(super) fn read_semantic_ir(
             | meaning::Kind::SystemsPort
             | meaning::Kind::SystemsAllocation => {
                 model.other_types.insert((*node).into());
+                if matches!(
+                    meaning,
+                    meaning::Kind::EventType
+                        | meaning::Kind::PersistenceInterface
+                        | meaning::Kind::Namespace
+                ) {
+                    scope.record_field_forbidden.insert(node);
+                }
+                if meaning == meaning::Kind::PersistenceInterface {
+                    model.persistence_interfaces.insert((*node).into());
+                }
             }
         }
     }
@@ -2659,6 +2713,7 @@ pub(super) fn read_semantic_ir(
         match meaning {
             meaning::Kind::ObjectType
             | meaning::Kind::StateMachine
+            | meaning::Kind::Process
             | meaning::Kind::SystemsInterface
             | meaning::Kind::RecordValueType => {
                 let mut defects = Defects::new(declared);
@@ -2667,6 +2722,7 @@ pub(super) fn read_semantic_ir(
                     node,
                     meaning == meaning::Kind::SystemsInterface,
                     meaning == meaning::Kind::RecordValueType,
+                    meaning,
                     &References {
                         model: &model,
                         scope: &scope,
@@ -2692,6 +2748,8 @@ pub(super) fn read_semantic_ir(
                 } else {
                     if meaning == meaning::Kind::StateMachine {
                         model.state_machines.insert(node.into());
+                    } else if meaning == meaning::Kind::Process {
+                        model.processes.insert(node.into());
                     }
                     objects.push((node, object));
                 }
@@ -2752,7 +2810,6 @@ pub(super) fn read_semantic_ir(
                 model.variant_types.insert(node.into(), names);
             }
             meaning::Kind::EventType
-            | meaning::Kind::Process
             | meaning::Kind::PersistenceInterface
             | meaning::Kind::Namespace
             | meaning::Kind::Population
@@ -2872,14 +2929,15 @@ impl References<'_> {
     fn check_supertype(
         &self,
         supertype: &str,
-        record: bool,
+        meaning: meaning::Kind,
         path: &[Segment],
         defects: &mut Defects,
     ) {
-        let eligible = if record {
-            &self.scope.records
-        } else {
-            &self.scope.objects
+        let eligible = match meaning {
+            meaning::Kind::RecordValueType => &self.scope.records,
+            meaning::Kind::Process => &self.scope.processes,
+            meaning::Kind::StateMachine => &self.scope.state_machines,
+            _ => &self.scope.objects,
         };
         if eligible.contains(supertype) || self.scope.refused.contains(supertype) {
             return;
@@ -3232,6 +3290,7 @@ fn semantic_ir_object_type<'v>(
     node: &str,
     interface: bool,
     record: bool,
+    meaning: meaning::Kind,
     references: &References<'_>,
     known_relationships: &BTreeMap<Box<str>, RelationshipDecl>,
     defects: &mut Defects<'v>,
@@ -3240,6 +3299,18 @@ fn semantic_ir_object_type<'v>(
     for (index, field) in items(value, "fields", defects).iter().enumerate() {
         defects.context(field);
         let base = [Segment::Name("fields"), Segment::Index(index)];
+        if record
+            && field
+                .get("typeRef")
+                .and_then(Value::as_str)
+                .is_some_and(|name| references.scope.record_field_forbidden.contains(name))
+        {
+            defects.push(
+                Row::Meaning,
+                &joined(&base, Segment::Name("typeRef")),
+                ModelRefusal::malformed(),
+            );
+        }
         let optional = match text(field, "presence") {
             Ok("required") => false,
             Ok("optional") => true,
@@ -3369,7 +3440,7 @@ fn semantic_ir_object_type<'v>(
         let path = [Segment::Name("supertypes"), Segment::Index(index)];
         match supertype.as_str() {
             Some(supertype) => {
-                references.check_supertype(supertype, record, &path, defects);
+                references.check_supertype(supertype, meaning, &path, defects);
                 supertypes.push(Box::from(supertype));
             }
             None => defects.push(Row::Meaning, &path, ModelRefusal::malformed()),
