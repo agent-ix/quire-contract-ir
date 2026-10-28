@@ -64,13 +64,14 @@ use super::operation_catalog::{
 };
 use super::structural::{typed_union_type_body, typed_union_value_body, UnionMember};
 use super::temporal::member_is_well_formed;
+use super::typed_terms::CheckedOperationViews;
 use super::{
     ApplicationOperator, BodyTerm, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId,
     CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedTerm, ClaimForm,
     CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, LawRole, LiteralKind,
     ModelForm, NominalIdentityPreimage, OperationConstraintKind, OperationMemberKind,
     OperationModeKind, ProtocolForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm,
-    ScalarTypeForm, StateForm, TemporalForm, ValueForm, WorkMeter,
+    ScalarTypeForm, StateClauseKind, StateForm, TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::common::{body_term, decoder_pointer, node_pointer, NODE_DOMAIN};
@@ -239,6 +240,33 @@ impl OperationWire {
         let kind = self.member.as_ref()?.get("kind")?.as_str()?;
         Some(OperationMemberKind::from_wire(kind))
     }
+
+    fn admitted_views(&self) -> CheckedOperationViews {
+        let member_declaration = member_declaration(self);
+        let projection_field = (self.member_kind_class() == Some(Some(OperationMemberKind::Field)))
+            .then(|| {
+                Some((
+                    member_declaration.clone()?,
+                    self.member.as_ref()?.get("name")?.as_str()?.into(),
+                ))
+            })
+            .flatten();
+        let state_clause_kind = (self.member_kind_class()
+            == Some(Some(OperationMemberKind::StateClause)))
+        .then(|| StateClauseKind::from_wire(self.member.as_ref()?.get("clause")?.as_str()?))
+        .flatten();
+        let mode = self
+            .mode
+            .as_ref()
+            .and_then(|mode| Some((mode.kind_class()?, mode.value.clone())));
+        CheckedOperationViews {
+            state_clause_kind,
+            projection_field,
+            member_declaration,
+            mode,
+            law_definitions: self.laws.iter().map(|law| law.definition.clone()).collect(),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -306,7 +334,7 @@ pub(super) fn validate_operations(
     owners: &ModelOwners<'_>,
     dependencies: &SuppliedDependencies<'_>,
     meter: &mut WorkMeter,
-) -> Result<(), ValidationFailure> {
+) -> Result<Vec<(usize, CheckedOperationViews)>, ValidationFailure> {
     let graph = Graph {
         nodes,
         kinds,
@@ -314,6 +342,7 @@ pub(super) fn validate_operations(
         terms,
     };
     let references = DependencyReferences::new(dependencies);
+    let mut admitted_views = Vec::new();
     for &position in index.values() {
         let node = &nodes[position];
         if let Some(failure) = case_placement_defect(position, &graph) {
@@ -349,6 +378,7 @@ pub(super) fn validate_operations(
             references,
             operation_catalog(),
             meter,
+            &mut admitted_views,
         )? {
             return Err(failure);
         }
@@ -356,7 +386,7 @@ pub(super) fn validate_operations(
             return Err(failure);
         }
     }
-    Ok(())
+    Ok(admitted_views)
 }
 
 /// Check each literal type before native payload syntax, including body roots
@@ -675,6 +705,7 @@ fn operation_defect(
     references: DependencyReferences<'_>,
     catalog: &OperationCatalog,
     meter: &mut WorkMeter,
+    admitted_views: &mut Vec<(usize, CheckedOperationViews)>,
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
     let Graph {
         nodes,
@@ -1041,6 +1072,9 @@ fn operation_defect(
             node_pointer(application.position),
             CheckedPackageRefusalCause::OperationLawMismatch,
         )));
+    }
+    if leaf_defect.is_none() {
+        admitted_views.push((application.position, operation.admitted_views()));
     }
     Ok(leaf_defect)
 }
@@ -3107,7 +3141,13 @@ fn check_field_member(
     let declaration: CheckedNodeId =
         serde_json::from_value(member.get("declaration")?.clone()).ok()?;
     let name = member.get("name")?.as_str()?;
-    let position = *graph.index.get(&declaration)?;
+    let Some(&position) = graph.index.get(&declaration) else {
+        return Some(application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            application.body(&["operation", "member", "declaration"]),
+            CheckedPackageRefusalCause::OperatorIneligible,
+        ));
+    };
     let CheckedTerm::Aggregate { members } = graph.terms.get(position)?.as_ref()? else {
         return None;
     };
@@ -5145,6 +5185,7 @@ mod tests {
             DependencyReferences::new(&SuppliedDependencies::default()),
             operation_catalog(),
             &mut meter,
+            &mut Vec::new(),
         )
     }
 
@@ -5180,6 +5221,7 @@ mod tests {
             DependencyReferences::new(&SuppliedDependencies::default()),
             operation_catalog(),
             &mut WorkMeter::new(1_000),
+            &mut Vec::new(),
         );
         assert_eq!(actual, expected);
     }
@@ -5265,6 +5307,7 @@ mod tests {
             DependencyReferences::new(&SuppliedDependencies::default()),
             operation_catalog(),
             &mut meter,
+            &mut Vec::new(),
         );
         (result, meter.consumed())
     }
@@ -9162,6 +9205,7 @@ mod tests {
             DependencyReferences::new(&SuppliedDependencies::default()),
             operation_catalog(),
             &mut meter,
+            &mut Vec::new(),
         );
         assert_eq!(result, Ok(None), "the comparison admits");
         meter.consumed()

@@ -17,8 +17,9 @@
 //!
 //! A clause's temporal profile (QSpec FR-250's five members), a `fairness`
 //! member's `fairness_kind` and `granularity` are decoded the same way, into
-//! Closed V2 wire vocabularies. `StateClauseKind` is public for typed clause
-//! construction; the other catalog decisions remain crate-private.
+//! closed V2 wire vocabularies. `StateClauseKind` and `OperationModeKind` are
+//! public for typed operation views; the other catalog decisions remain
+//! crate-private.
 //!
 //! The semantic term grammar inside a node `body` stays JSON, so its closed
 //! members are decoded by the `common` edge readers (`body_term`,
@@ -427,7 +428,7 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed operation `mode.kind` vocabulary of the operation catalog.
-    pub(in crate::checked_package) OperationModeKind {
+    pub OperationModeKind {
         Rounding => "rounding",
         TextProfile => "text_profile",
         Absence => "absence",

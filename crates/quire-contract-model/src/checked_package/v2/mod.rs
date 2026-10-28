@@ -2902,7 +2902,7 @@ fn validate_graph(
         &owners,
         meter,
     )?;
-    validate_operations(
+    let admitted_views = validate_operations(
         &graph.nodes,
         &kinds,
         &index,
@@ -2912,6 +2912,15 @@ fn validate_graph(
         dependencies,
         meter,
     )?;
+    for (position, views) in admitted_views {
+        let Some(Some(CheckedTerm::Application { operation, .. })) = terms.get_mut(position) else {
+            return Err(refuse(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                node_pointer(position).key("body"),
+            ));
+        };
+        operation.install_admitted_views(views);
+    }
     let mut adjacency = Vec::with_capacity(graph.nodes.len());
     let mut lowering_facts = Vec::with_capacity(graph.nodes.len());
     let reference_pointer = |position: usize, reference: usize| match (

@@ -6,9 +6,63 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
 use quire_contract_model::{
-    CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedSemanticId,
-    CheckedTerm,
+    CheckedApplicationOperation, CheckedPackageReadLimits, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedSemanticId, CheckedTerm, StateClauseKind,
 };
+use serde_json::json;
+
+#[trace(
+    "TC-048",
+    "FR-038-AC-331",
+    "FR-038-AC-332",
+    "FR-038-AC-333",
+    "FR-038-AC-334",
+    "FR-040-AC-37"
+)]
+#[test]
+fn public_deserialization_does_not_admit_operation_views() {
+    let forged = json!({
+        "identity": "not-in-the-operation-catalog",
+        "laws": [
+            {"role": "ieee_profile", "definition": {"authority": "agent-ix", "identity": "unselected"}},
+            {"role": "ieee_profile", "definition": false}
+        ],
+        "mode": {"kind": "rounding", "value": "arbitrary"},
+        "member": {"kind": "field", "declaration": {
+            "domain": "quire.checked-semantic-node/v1", "digest": "a".repeat(64)
+        }, "name": "forged"},
+        "leaves": []
+    });
+    let operation: CheckedApplicationOperation =
+        serde_json::from_value(forged.clone()).expect("public decode retains the wire record");
+    assert_eq!(operation.identity(), Some("not-in-the-operation-catalog"));
+    assert_eq!(operation.state_clause_kind(), None);
+    assert_eq!(operation.projection_field(), None);
+    assert_eq!(operation.member_declaration(), None);
+    assert_eq!(operation.mode(), None);
+    assert!(operation.law_definitions().is_empty());
+    assert_eq!(
+        serde_json::to_value(&operation).expect("wire round trip"),
+        forged
+    );
+
+    let clause = json!({
+        "identity": "quire.op.state.clause", "laws": [], "mode": null,
+        "member": {"kind": "state_clause", "clause": "invariant"}, "leaves": []
+    });
+    let decoded: CheckedApplicationOperation =
+        serde_json::from_value(clause.clone()).expect("public clause decode");
+    assert_eq!(decoded.state_clause_kind(), None);
+    assert_eq!(
+        serde_json::to_value(&decoded).expect("clause wire round trip"),
+        clause
+    );
+    assert_eq!(
+        CheckedApplicationOperation::state_clause(StateClauseKind::Invariant, None)
+            .state_clause_kind(),
+        Some(StateClauseKind::Invariant),
+    );
+}
 
 #[trace("FR-349-AC-1", "FR-349-AC-3")]
 #[test]

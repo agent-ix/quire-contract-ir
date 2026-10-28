@@ -2127,6 +2127,54 @@ fn tc_056_shared_frame_checks_scoped_deletes_for_each_anchor() {
 }
 
 /// ACs: FR-040-AC-8, FR-040-AC-9
+#[trace("TC-056", "FR-040-AC-37")]
+#[test]
+fn tc_056_public_state_clause_kind_tracks_reader_admission() {
+    let mut package = with_postcondition(StatePackage::new(), None);
+    package.value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(clause_node("constraint", &[self_key()], object_key()));
+    settle(&mut package.value);
+    let admitted = match read(&package.value) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("state clause fixture refused: {other:?}"),
+    };
+    for (name, expected) in [
+        ("invariant", StateClauseKind::Invariant),
+        ("constraint", StateClauseKind::Constraint),
+        ("precondition", StateClauseKind::Precondition),
+        ("postcondition", StateClauseKind::Postcondition),
+    ] {
+        let node = &admitted.graph().nodes[package.clause(name)];
+        let CheckedTerm::Application { operation, .. } = &node.body else {
+            panic!("{name} clause is an application");
+        };
+        assert_eq!(operation.state_clause_kind(), Some(expected));
+    }
+    let plain = admitted
+        .graph()
+        .nodes
+        .iter()
+        .find_map(|node| match &node.body {
+            CheckedTerm::Application { operation, .. }
+                if operation.identity() != Some("quire.op.state.clause") =>
+            {
+                Some(operation)
+            }
+            _ => None,
+        })
+        .expect("fixture includes a non-clause operation");
+    assert_eq!(plain.state_clause_kind(), None);
+    let malformed = StatePackage::new().edit(package.clause("invariant"), |node| {
+        node["body"]["operation"]["member"]["clause"] = json!("unknown");
+    });
+    assert!(matches!(
+        read(&malformed.value),
+        CheckedPackageV2ReadResult::Refused(_)
+    ));
+}
+
 #[trace("TC-056", "FR-040-AC-8", "FR-040-AC-9")]
 #[test]
 fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
