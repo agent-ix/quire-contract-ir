@@ -2218,6 +2218,7 @@ fn tc_227_the_public_shape_is_closed_and_takes_one_node_id() {
             CheckedMemberType::Timestamp => 10,
             CheckedMemberType::Clock => 12,
             CheckedMemberType::IntRange { .. } => 2,
+            CheckedMemberType::TextBounds { .. } => 13,
             CheckedMemberType::Reference(_) => 3,
             CheckedMemberType::Record(_) => 6,
             CheckedMemberType::Variant(_) => 7,
