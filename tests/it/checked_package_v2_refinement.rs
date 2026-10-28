@@ -526,12 +526,24 @@ fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
         ("record_value_type", "Address"),
     ]
     .map(|(form, short)| selected_form_node(form, &format!("ix://{MODEL_IDENTITY}/{short}")));
-    let (base, evidence) = concrete_protocol_refinement_with_model(
+    let (mut base, evidence) = concrete_protocol_refinement_with_model(
         v2_all_families(),
         ProtocolStepRows::Empty,
         ProtocolClauseOwner::SelectedModel,
         document,
         extra.to_vec(),
+    );
+    let finish = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["body"]["operation"]["member"]["operator"] == "finish")
+        .expect("finish")["node_id"]
+        .clone();
+    let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
+    set_concrete_catalog(
+        &mut base,
+        vec![json!({"class":"OrderFlow::Closed", "node":finish, "binder_types":[boolean]})],
     );
     let control = read(&base, &evidence);
     assert!(

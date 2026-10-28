@@ -6,7 +6,7 @@
 use crate::support::checked_package::{
     add_family_reference_target, application_node_key, canonical, evidence_for, family_key,
     node_id, nominal_fixture_members, nominal_package, rebuild_source_map, refresh_identity,
-    settle, structural_key,
+    settle, structural_key, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -699,6 +699,21 @@ fn tc_048_every_catalogue_entry_retains_its_constructible_admission() {
         };
         let key = if identity == "quire.op.numeric.narrow" {
             family_key("a3a3")
+        } else if identity == "quire.op.reference.upcast" {
+            let flow = family_key("1616");
+            let selected = v2_all_families();
+            let declaration = selected["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .iter()
+                .find(|node| node["node_id"] == node_id(&flow))
+                .expect("selected Flow")
+                .clone();
+            package["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("nodes")
+                .push(declaration);
+            composite(&mut package, "reference", &flow)
         } else {
             structural_key(
                 "scalar_type",
