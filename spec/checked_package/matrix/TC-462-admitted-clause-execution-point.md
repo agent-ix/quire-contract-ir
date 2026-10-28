@@ -17,6 +17,11 @@ IR-1040 wire admission and IR-1013 accessor implementation. Read producer
 fixtures from their authoritative checkouts at test time; copy no QSL or
 QSpec file.
 
+Pass the selected clause id and an owner-bound claim pair: the claim owner's
+`&CheckedNodeId` together with its `&CheckedOccurrence`. The pair uses only
+the public reference types named by FR-058-AC-5. No unbound-occurrence
+accessor signature or caller-supplied point is allowed.
+
 The V2 accessor returns `quire_contract_model::CheckedExecutionPoint` with
 the exact nonempty QSpec point name. Existing authored-contract consumers
 continue to use `ExecutionPoint` and its identifier-validated `AnchorName`
@@ -28,7 +33,7 @@ or treat an `AnchorName` conversion failure as a V2 accessor refusal.
 1. Have the authoritative QSL producer emit separate point-qualified clause
    nodes for initialization `startup`, handler `tick`, pre `adjust` and post
    `adjust`. Read QSpec-governed V2 bytes with selected model evidence, then
-   call the public accessor with each authentic claim and compare the exact
+   call the public accessor with each authentic owner-bound claim and compare the exact
    model variant and name against the QSL checked binding. Record producer
    version and command at run time.
 2. For invariant and constraint, produce equal conditions and body anchors
@@ -44,9 +49,16 @@ or treat an `AnchorName` conversion failure as a V2 accessor refusal.
 3. Query absent, wrong-form, wrong-role, wrong-ordinal and other-node
    selections, including combined faults, to check `UnknownClause`,
    `NotStateClause`, `MissingClaimOccurrence`, then `MissingExecutionPoint`
-   in order. Query two authentic claims of one pointed node: both return its
-   one retained point. An unpointed node returns `MissingExecutionPoint` for
-   every authentic claim.
+   in order. For the other-node case, use two state-clause nodes that each
+   admit `claim` with the same role and ordinal; pair the other node's id
+   with its claim while selecting the pointed node. Expect
+   `MissingClaimOccurrence` and no point even though the role and ordinal
+   match. Repeat with a different role and ordinal, and with an absent
+   selected clause id or a present non-state-clause selected id to verify
+   the earlier refusals still win. Assert the typed error retains the
+   supplied selected id, claim owner and occurrence. Query two authentic
+   claims of one pointed node: both return its one retained point. An
+   unpointed node returns `MissingExecutionPoint` for every authentic claim.
 4. Duplicate the point JSON member, add a malformed/extra member or put a
    point on another operation member, rekeying where needed. Check the
    strict-wire duplicate and FR-040 schema refusals, exact code/cause/locus,
@@ -57,7 +69,10 @@ or treat an `AnchorName` conversion failure as a V2 accessor refusal.
    both pre and post, plus the inapplicable initialization/handler variants.
    Exercise operation-name and clause-anchor agreement under FR-040.
 5. Compile an external CG-style consumer using only the public accessor and
-   exhaustively matching its result/refusal enum. Repeat calls, clone the
+   exhaustively matching its result/refusal enum. Pass a selected clause
+   reference and a separate owner-bound claim pair, using only public
+   `&CheckedPackageV2`, `&CheckedNodeId` and `&CheckedOccurrence` references.
+   Repeat calls, clone the
    package and compare values, package equality and canonical identity.
    Drop source bytes and repeat. Inspect for one QSpec-governed node carrier,
    no body JSON read at accessor time, QSL binding copy, `export_bindings`
@@ -68,7 +83,8 @@ or treat an `AnchorName` conversion failure as a V2 accessor refusal.
 The accessor returns the exact point retained from the selected admitted
 clause node for every authentic claim, including a QSpec-admitted name that
 FR-011's `AnchorName` would refuse; two different points imply different
-clause node identities. Invalid selections return the named typed refusal
+clause node identities. Invalid selections, including a same-valued claim
+paired with another node's id, return the named typed refusal
 in order. Absent points return `MissingExecutionPoint`. Malformed or
 inapplicable node-body carriers refuse admission under FR-040 with no
 first-wins value. AC-2 and AC-7's original occurrence-keyed scenarios are
