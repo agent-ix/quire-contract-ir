@@ -120,12 +120,14 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
             Some("/lock/model_selections/0"),
             "{name}"
         );
-        let document_pointer = match name {
-            "TK-01" | "TK-04" => "/types/1",
-            "TK-02" | "TK-03" | "TK-05" | "TK-06" => "/types/1/positions/1",
-            "TK-09" => "/types/1/positions/0",
-            "TK-07" | "TK-08" => "/types/5/variants/0/payloadType",
-            _ => panic!("unexpected negative case {name}"),
+        let projection_locus = expected["at"].as_str().expect("published refusal locus");
+        let document_pointer = if let Some(suffix) = projection_locus.strip_prefix("/tuple_types/0")
+        {
+            format!("/types/1{suffix}")
+        } else if let Some(suffix) = projection_locus.strip_prefix("/variant_types/0/cases") {
+            format!("/types/5/variants{suffix}")
+        } else {
+            panic!("{name}: unexpected published refusal locus {projection_locus}")
         };
         assert_eq!(
             refusal
@@ -133,7 +135,7 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
                 .as_ref()
                 .map(ToString::to_string)
                 .as_deref(),
-            Some(document_pointer),
+            Some(document_pointer.as_str()),
             "{name}"
         );
     }
