@@ -524,6 +524,7 @@ fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
         ("process", "Flow"),
         ("state_machine", "Gate"),
         ("record_value_type", "Address"),
+        ("persistence_interface", "Store"),
     ]
     .map(|(form, short)| selected_form_node(form, &format!("ix://{MODEL_IDENTITY}/{short}")));
     let gate = extra[1]["node_id"].clone();

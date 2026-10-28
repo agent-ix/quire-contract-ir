@@ -64,7 +64,7 @@
 
 use super::identity::is_identifier;
 use super::{
-    ApplicationOperator, CheckedExecutionPoint, CheckedTerm, CheckedTermView, LiteralKind,
+    ApplicationOperator, CheckedTerm, CheckedTermView, ExecutionPoint, LiteralKind,
     OperationMemberKind, StateClauseKind,
 };
 use super::{
@@ -261,6 +261,7 @@ impl StructuralForm {
                 | ModelForm::ObjectType
                 | ModelForm::ValueType
                 | ModelForm::VariantType
+                | ModelForm::TupleValueType
                 | ModelForm::RecordValueType
                 | ModelForm::EventType
                 | ModelForm::StateMachine
@@ -434,7 +435,7 @@ pub(super) fn validate_structural_nodes(
                 if node
                     .body
                     .pointer("/operation/member/execution_point")
-                    .is_some_and(|point| CheckedExecutionPoint::from_wire(point).is_none())
+                    .is_some_and(|point| ExecutionPoint::from_wire(point).is_none())
                 {
                     Some(Defect::ClausePoint)
                 } else {
@@ -478,33 +479,16 @@ pub(super) fn validate_structural_nodes(
                 }
                 if let Some(mut expected) = term.and_then(application_dependencies) {
                     expected.insert(owner_model.clone());
-                    // The protocol reader locates an unlisted body reference
-                    // before it checks the clause's complete dependency join.
-                    let body_targets_listed = expected
-                        .iter()
-                        .all(|target| target == owner_model || node.dependencies.contains(target));
-                    if body_targets_listed && !node.dependencies.iter().eq(expected.iter()) {
+                    if !node.dependencies.iter().eq(expected.iter()) {
                         return Err(refuse(Defect::Dependencies));
                     }
                 }
             }
             continue;
         }
-        // These protocol readers check each reference before the aggregate
-        // dependency join, so a missing target has its own locus.
-        if !matches!(
-            kinds.get(position),
-            Some(CheckedNodeKind::Protocol(
-                ProtocolForm::Role
-                    | ProtocolForm::Channel
-                    | ProtocolForm::Queue
-                    | ProtocolForm::Obligation
-            ))
-        ) {
-            if let Some(expected) = term.and_then(application_dependencies) {
-                if !node.dependencies.iter().eq(expected.iter()) {
-                    return Err(refuse(Defect::Dependencies));
-                }
+        if let Some(expected) = term.and_then(application_dependencies) {
+            if !node.dependencies.iter().eq(expected.iter()) {
+                return Err(refuse(Defect::Dependencies));
             }
         }
     }
@@ -544,6 +528,7 @@ fn parameter_defect(
             .is_some_and(|(type_node, kind)| {
                 // A binder may also be typed at a selected model value declaration.
                 kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
+                    || kind == CheckedNodeKind::Model(ModelForm::TupleValueType)
                     || kind == CheckedNodeKind::Hybrid(super::HybridForm::Model)
                     || (kind == CheckedNodeKind::Model(ModelForm::VariantType)
                         && matches!(
@@ -713,7 +698,7 @@ pub(super) struct AnchorBody<'a> {
     /// The operation's frame node.
     pub(super) frame: CheckedNodeId,
     /// Optional point, retained separately from the three expression terms.
-    pub(super) execution_point: Option<CheckedExecutionPoint>,
+    pub(super) execution_point: Option<ExecutionPoint>,
 }
 
 /// The admitted anchor body, or `None` for any other typed shape.
@@ -758,7 +743,7 @@ pub(super) struct ClauseBody {
     /// The anchor reference's target.
     pub(super) anchor: CheckedNodeId,
     /// Optional closed point of the clause application member.
-    pub(super) execution_point: Option<CheckedExecutionPoint>,
+    pub(super) execution_point: Option<ExecutionPoint>,
 }
 
 /// The five identity-bearing references of a Boolean state transition.
@@ -852,9 +837,7 @@ pub(super) fn typed_clause_body(body: &super::CheckedTerm) -> Option<ClauseBody>
         return None;
     }
     let member = operation.get("member")?.as_object()?;
-    if !exact_members(member, &["kind", "clause"])
-        && !exact_members(member, &["kind", "clause", "execution_point"])
-    {
+    if !exact_members(member, &["kind", "clause"]) {
         return None;
     }
     if member
@@ -865,10 +848,7 @@ pub(super) fn typed_clause_body(body: &super::CheckedTerm) -> Option<ClauseBody>
     {
         return None;
     }
-    let execution_point = match member.get("execution_point") {
-        Some(point) => Some(CheckedExecutionPoint::from_wire(point)?),
-        None => None,
-    };
+    let execution_point = operation.execution_point().cloned();
     let clause = StateClauseKind::from_wire(member.get("clause")?.as_str()?)?;
     let [parameters, anchor, _condition] = arguments.as_slice() else {
         return None;

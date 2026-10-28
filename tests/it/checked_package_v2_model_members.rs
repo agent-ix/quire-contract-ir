@@ -333,6 +333,126 @@ fn refused(
     }
 }
 
+/// IR-1059 slice 1: local owner and selected declaration intake.
+/// The published TC-940 vector and full FR-069 matrix remain open.
+#[test]
+fn selected_tuple_and_payload_variant_declarations_admit() {
+    let tuple = format!("ix://{IDENTITY}/Pair");
+    let variant = format!("ix://{IDENTITY}/Maybe");
+    let mut document = domain_document(json!({}));
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .extend([
+            json!({"kind":{"module":IDENTITY,"name":"tuple"},
+                "construct":{"meaning":"quire.meaning.model.tuple-value-type/v1"}}),
+            json!({"kind":{"module":IDENTITY,"name":"variant"},
+                "construct":{"meaning":"quire.meaning.model.variant-type/v1"}}),
+        ]);
+    document["types"].as_array_mut().expect("types").extend([
+        json!({
+            "identity":tuple, "displayName":"Pair",
+            "kind":{"module":IDENTITY,"name":"tuple"},
+            "positions":[
+                {"identity":format!("{tuple}/p0"),"typeRef":"ix://quire/native/Boolean"},
+                {"identity":format!("{tuple}/p1"),"typeRef":"ix://quire/native/Integer"}
+            ]
+        }),
+        json!({
+            "identity":variant, "displayName":"Maybe",
+            "kind":{"module":IDENTITY,"name":"variant"},
+            "variants":[
+                {"identity":format!("{variant}/None"),"name":"None"},
+                {"identity":format!("{variant}/Some"),"name":"Some","payloadType":tuple}
+            ]
+        }),
+    ]);
+    let (mut package, evidence) = package_over(&document, "total");
+    for (name, form) in [(&tuple, "tuple_value_type"), (&variant, "variant_type")] {
+        let owner = json!({"kind":"model", "identity":IDENTITY, "node":name});
+        let key = structural_key("model", form, None, Some(owner.clone()), &empty());
+        let mut node = wire_node(&key, "model", form, &key, &[], empty());
+        node["owner"] = owner;
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(node);
+    }
+    settle(&mut package);
+    let result = read(&package, &evidence);
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+        "{result:?}"
+    );
+}
+
+/// IR-1059 slice 1: a selected payload variant is a union in operation typing.
+#[test]
+fn selected_payload_variant_uses_union_family_in_binary_operations() {
+    let mut document = variant_document_named(TIER, &["Gold", "2x"]);
+    document["types"][1]["variants"][0]["payloadType"] = json!("ix://quire/native/Integer");
+    let digest = sha256_hex(&canonical(&document));
+    let (mut package, _, variant_key) = variant_package(&["Gold", "2x"], &[], false);
+    package["lock"]["model_selections"][0]["digest"] = json!(digest);
+    let boolean = structural_key("scalar_type", "boolean", None, None, &empty());
+    let (left, left_node) = parameter("left", "3", &variant_key);
+    let (right, right_node) = parameter("right", "4", &variant_key);
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    nodes.extend([
+        wire_node(&boolean, "scalar_type", "boolean", &boolean, &[], empty()),
+        left_node,
+        right_node,
+    ]);
+    let body = json!({
+        "term":"application", "operator":"binary",
+        "operation":{"identity":"quire.op.structural.eq", "laws":[], "mode":null,
+            "member":null, "leaves":[]},
+        "result_type":node_id(&boolean),
+        "arguments":[reference(&left), reference(&right)],
+    });
+    let mut equality = wire_node(
+        &application_node_key("expression", "binary", &boolean, &body),
+        "expression",
+        "binary",
+        &boolean,
+        &[&left, &right],
+        body,
+    );
+    equality["occurrences"] = json!([{"role":"expression","ordinal":0}]);
+    nodes.push(equality);
+    settle(&mut package);
+    let mut evidence = evidence_for(&package);
+    evidence
+        .insert_domain_package_document(digest, canonical(&document))
+        .expect("payload variant selected document");
+    let result = read(&package, &evidence);
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+        "{result:?}"
+    );
+
+    let equality_index = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["body"]["operation"]["identity"] == "quire.op.structural.eq")
+        .expect("structural equality");
+    package["semantic_graph"]["nodes"][equality_index]["body"]["operation"]["identity"] =
+        json!("quire.op.enum.eq");
+    settle(&mut package);
+    let refusal = refused(&package, &evidence);
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (
+            CheckedPackageRefusalCode::IllTyped,
+            Some(CheckedPackageRefusalCause::OperatorIneligible)
+        ),
+        "{refusal:?}"
+    );
+}
+
 /// A selected unordered variant declaration and its exact semantic cases.
 fn variant_document_named(declared: &str, cases: &[&str]) -> Value {
     let mut document = domain_document(json!({}));
@@ -3446,7 +3566,7 @@ fn application_of(package: &CheckedPackageV2, operation: &str) -> CheckedNodeId 
         .iter()
         .find(|node| {
             matches!(&node.body, quire_contract_model::CheckedTerm::Application { operation: record, .. }
-                if record.get("identity").and_then(Value::as_str) == Some(operation))
+                if record.identity() == Some(operation))
         })
         .expect("an application of the operation")
         .node_id

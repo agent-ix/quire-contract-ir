@@ -180,16 +180,19 @@ pub use checked_package::{
     DOMAIN_PACKAGE_DIGEST, PACKAGE_DOMAIN_V2,
 };
 
+pub use checked_package::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
+
 pub use checked_package::{
     ApplicationOperator, CheckedAbstractionField, CheckedAbstractionFrame,
     CheckedAbstractionObject, CheckedAbstractionParameter, CheckedAbstractionPopulation,
-    CheckedExecutionPoint, CheckedFieldScope, CheckedFrameModification, CheckedOperationAnchorBody,
-    CheckedScopedDeletion, CheckedTerm, LiteralKind, RefinementAbstractClass, RefinementAssume,
-    RefinementClassCatalog, RefinementConcreteClass, RefinementDrain, RefinementEnsure,
-    RefinementFairnessKind, RefinementField, RefinementGranularity, RefinementHistory,
-    RefinementHistoryUpdate, RefinementKey, RefinementMemoryClass, RefinementMemoryModel,
-    RefinementObject, RefinementOpen, RefinementPackageNodeKey, RefinementPopulation,
-    RefinementStep, RefinementStepArgument, RefinementStepTarget, RefinementTsoModel,
+    CheckedApplicationOperation, CheckedFieldScope, CheckedFrameModification,
+    CheckedOperationAnchorBody, CheckedScopedDeletion, CheckedTerm, LiteralKind,
+    RefinementAbstractClass, RefinementAssume, RefinementClassCatalog, RefinementConcreteClass,
+    RefinementDrain, RefinementEnsure, RefinementFairnessKind, RefinementField,
+    RefinementGranularity, RefinementHistory, RefinementHistoryUpdate, RefinementKey,
+    RefinementMemoryClass, RefinementMemoryModel, RefinementObject, RefinementOpen,
+    RefinementPackageNodeKey, RefinementPopulation, RefinementStep, RefinementStepArgument,
+    RefinementStepTarget, RefinementTsoModel, StateClauseKind,
 };
 pub use code::{Std001Code, Std001CodeError};
 pub use conformance::{
@@ -215,8 +218,8 @@ pub use expression::{
 pub use identity::{
     AnchorName, Clause, ClauseId, ClauseKind, ClauseRef, ContractPackage,
     DefinednessObligationKind, DependencyIdentity, DependencyKind, DependencyName,
-    DependencySource, Diagnostic, DiagnosticCode, ExecutionPoint, PackageId, ReferenceBody,
-    Requirement, RequirementId, RequirementRef, RequirementRevision, SchemaVersion,
+    DependencySource, Diagnostic, DiagnosticCode, ExecutionPoint, ExecutionPointName, PackageId,
+    ReferenceBody, Requirement, RequirementId, RequirementRef, RequirementRevision, SchemaVersion,
     SemanticIdentity, Severity, SourceDocumentId, SourceIdentity, SourceLocation, SourceRevision,
     SourceSpan, StateObservation,
 };

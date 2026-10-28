@@ -1351,13 +1351,6 @@ impl MemberCheck<'_> {
             return Err(self.refuse(Code::MalformedWire, None, path));
         };
         let target_path = path.key("target");
-        if !self.nodes[self.position].dependencies.contains(target) {
-            return Err(self.refuse(
-                Code::MissingDeclaration,
-                Some(Cause::MissingName),
-                target_path,
-            ));
-        }
         let Some(&position) = self.index.get(target) else {
             return Err(self.refuse(
                 Code::MissingDeclaration,
@@ -1662,14 +1655,14 @@ pub(super) fn group_value<'a>(term: &'a CheckedTerm, name: &str) -> Option<&'a C
     binding_value(members(term)?, name)
 }
 
-fn check_member_dependencies(
+fn check_member_targets(
     check: &MemberCheck<'_>,
     term: &CheckedTerm,
     path: JsonPointer,
 ) -> Result<(), ValidationFailure> {
     match term {
         CheckedTerm::Reference { target } => {
-            if !check.nodes[check.position].dependencies.contains(target) {
+            if !check.index.contains_key(target) {
                 return Err(check.refuse(
                     Code::MissingDeclaration,
                     Some(Cause::MissingName),
@@ -1678,15 +1671,11 @@ fn check_member_dependencies(
             }
         }
         CheckedTerm::Binding { value, .. } => {
-            check_member_dependencies(check, value, path.key("value"))?
+            check_member_targets(check, value, path.key("value"))?
         }
         CheckedTerm::Aggregate { members } => {
             for (position, member) in members.iter().enumerate() {
-                check_member_dependencies(
-                    check,
-                    member,
-                    path.clone().key("members").index(position),
-                )?;
+                check_member_targets(check, member, path.clone().key("members").index(position))?;
             }
         }
         _ => {}
@@ -2491,7 +2480,7 @@ fn check_member(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for (ordinal, term) in arguments.iter().enumerate() {
-        check_member_dependencies(
+        check_member_targets(
             check,
             term,
             node_pointer(check.position)
@@ -2499,22 +2488,6 @@ fn check_member(
                 .key("arguments")
                 .index(ordinal),
         )?;
-    }
-    if let Some(expected) = check.terms[check.position]
-        .as_ref()
-        .and_then(super::structural::application_dependencies)
-    {
-        if !check.nodes[check.position]
-            .dependencies
-            .iter()
-            .eq(expected.iter())
-        {
-            return Err(check.refuse(
-                Code::InvalidSemanticGraph,
-                None,
-                node_pointer(check.position).key("dependencies"),
-            ));
-        }
     }
     let role = |position| check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role));
     let parameter = |position| check.is(position, CheckedNodeKind::Value(ValueForm::Parameter));
@@ -3276,30 +3249,11 @@ fn check_clause_slots(
     validated: &[Option<(&str, &[CheckedTerm])>],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    if let (Some(mut expected), Some(owner_model)) = (
-        check.terms[check.position]
-            .as_ref()
-            .and_then(super::structural::application_dependencies),
-        check.nodes[check.position].owner_model.as_ref(),
-    ) {
-        expected.insert(owner_model.clone());
-        if !check.nodes[check.position]
-            .dependencies
-            .iter()
-            .eq(expected.iter())
-        {
-            return Err(check.refuse(
-                Code::InvalidSemanticGraph,
-                None,
-                node_pointer(check.position).key("dependencies"),
-            ));
-        }
-    }
     let scope = ProtocolScope::new(check, arguments, validated, meter)?;
     let activation = check.at(arguments, 1);
     if let Some(guard) = group_value(activation, "guard") {
         let path = check.argument_path(1).key("members").index(2).key("value");
-        check_member_dependencies(check, guard, path.clone())?;
+        check_member_targets(check, guard, path.clone())?;
         let mut allowed = BTreeSet::new();
         if let Some(trigger) = scope.activation {
             allowed.insert(trigger);
@@ -3326,7 +3280,7 @@ fn check_clause_slots(
             .key("members")
             .index(1)
             .key("value");
-        check_member_dependencies(check, initializer, path)?;
+        check_member_targets(check, initializer, path)?;
         let mut allowed = scope.c0[..1 + usize::from(scope.activation.is_some())]
             .iter()
             .copied()
@@ -4271,8 +4225,8 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             return Ok(());
         };
         let mut allowed = BTreeSet::new();
+        allowed.insert(self.c0[0]);
         if self.activation.is_none() {
-            allowed.insert(self.c0[0]);
             allowed.extend(self.captures.iter().copied());
         }
         self.slot(terminal, condition, &allowed, "terminal", None, None, meter)

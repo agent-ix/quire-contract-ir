@@ -199,7 +199,11 @@ pub(super) fn valid_derived_shape(
         )
     ) || (matches!(
         kind,
-        CheckedNodeKind::Model(super::ModelForm::RecordValueType | super::ModelForm::VariantType)
+        CheckedNodeKind::Model(
+            super::ModelForm::RecordValueType
+                | super::ModelForm::TupleValueType
+                | super::ModelForm::VariantType,
+        )
     ) && matches!(
         node.owner.as_ref(),
         Some(super::CheckedNodeOwner::Model { .. })
@@ -606,6 +610,8 @@ mod tests {
         match member {
             MemberType::Boolean => wire(&key, "scalar_type", "boolean", &key, empty()),
             MemberType::Integer => wire(&key, "scalar_type", "integer", &key, empty()),
+            MemberType::Float32 => wire(&key, "scalar_type", "float32", &key, empty()),
+            MemberType::Float64 => wire(&key, "scalar_type", "float64", &key, empty()),
             MemberType::String => wire(&key, "scalar_type", "string", &key, empty()),
             MemberType::Uuid => wire(&key, "scalar_type", "uuid", &key, empty()),
             MemberType::Timestamp => wire(&key, "scalar_type", "timestamp", &key, empty()),
@@ -647,7 +653,10 @@ mod tests {
             MemberType::Reference(target) => {
                 wire(&key, "composite_type", "reference", &key, over(target))
             }
-            MemberType::Record(_) | MemberType::Variant(_) | MemberType::Quantity(_) => {
+            MemberType::Record(_)
+            | MemberType::Tuple(_)
+            | MemberType::Variant(_)
+            | MemberType::Quantity(_) => {
                 panic!("a nominal type is a selected declaration, not a derived node")
             }
             MemberType::Option(inner) => {

@@ -66,7 +66,7 @@ impl CheckedPackageV2 {
             return Err(ReachesLookup::NotReaches);
         };
         (operation.get("identity").and_then(Value::as_str) == Some("quire.op.model.reaches"))
-            .then_some(operation)
+            .then_some(operation.record())
             .ok_or(ReachesLookup::NotReaches)
     }
 
@@ -438,7 +438,7 @@ pub(super) mod tests {
         else {
             panic!("admitted reaches application term");
         };
-        operation
+        operation.record_mut()
     }
 
     #[trace("FR-349-AC-2")]

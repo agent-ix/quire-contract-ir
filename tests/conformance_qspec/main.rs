@@ -38,11 +38,13 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 mod dimension_equivalence;
+mod execution_point_identity;
 mod extension;
 #[path = "../it/support/checked_package.rs"]
 mod fixture_support;
 mod hybrid;
 mod model_root;
+mod model_tuple_union;
 mod reaches_population;
 mod single_body;
 mod timed_model;
@@ -390,6 +392,7 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::UnpreservedModelMeaning => "unpreserved-model-meaning",
         Cause::ConflictingDefinition => "conflicting-definition",
         Cause::InvalidValue => "invalid-value",
+        Cause::InvalidDerivedShape => "invalid-derived-shape",
         Cause::DuplicateMember => "duplicate-member",
         Cause::TypeMismatch => "type-mismatch",
         Cause::NonBooleanRoot => "non-boolean-root",

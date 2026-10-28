@@ -71,7 +71,7 @@ fn typed(expression: Expression, expected: &ValueType) -> TypedExpression {
             &expression,
             expected,
             &ExecutionPoint::Pre {
-                operation: AnchorName::new("render").unwrap(),
+                operation: AnchorName::new("render").unwrap().into(),
             },
             false,
         )

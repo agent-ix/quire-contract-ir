@@ -463,7 +463,7 @@ impl CheckedPackageV2 {
                     CheckedUnsupportedCompositeOperand::ApplicationSubterm,
                 ));
             }
-            let resolution = super::operations::resolve_family_with(
+            let resolution = super::operations::resolve_family_with_selected(
                 &child.semantic_type,
                 |visit| match visit {
                     super::operations::FamilyVisit::Node(id) => {
@@ -476,6 +476,7 @@ impl CheckedPackageV2 {
                         Ok(None)
                     }
                 },
+                |id| self.models.variant_family(id),
             )?;
             let family = match resolution {
                 super::operations::FamilyResolution::Family(family) => Some(family),
@@ -1356,7 +1357,7 @@ mod tests {
         let CheckedTerm::Application { operation, .. } = &mut package.terms[5] else {
             panic!("admitted composite application term");
         };
-        operation
+        operation.record_mut()
     }
 
     fn sync_term(package: &mut CheckedPackageV2, position: usize) {

@@ -11,9 +11,9 @@ relationships:
 ## Description
 
 Verify FR-058-AC-1 and AC-3 through AC-6, the QSpec-aligned AC-8 through
-AC-10, and the explicit SUPERSEDED dispositions of AC-2 and AC-7, using the
-public `CheckedPackageV2` accessor. This test case is Planned and unrun until
-IR-1040 wire admission and IR-1013 accessor implementation. Read producer
+AC-11, and the explicit SUPERSEDED dispositions of AC-2 and AC-7, using the
+public `CheckedPackageV2` accessor. The QSL producer-origin portion remains
+unrun until QSL-1183 emits a fresh qualifying package. Read producer
 fixtures from their authoritative checkouts at test time; copy no QSL or
 QSpec file.
 
@@ -24,11 +24,12 @@ selected clause id and that claim argument. The tuple uses only the public
 reference types named by FR-058-AC-5. No unbound-occurrence accessor
 signature or caller-supplied point is allowed.
 
-The V2 accessor returns `quire_contract_model::CheckedExecutionPoint` with
-the exact nonempty QSpec point name. Existing authored-contract consumers
-continue to use `ExecutionPoint` and its identifier-validated `AnchorName`
-under FR-011-AC-3. The test SHALL NOT convert between these two point types
-or treat an `AnchorName` conversion failure as a V2 accessor refusal.
+The V2 accessor returns the sole public point type,
+`quire_contract_model::ExecutionPoint`, with the exact nonempty QSpec point
+name. Authored-contract constructors and wire readers still apply the
+identifier-validated `AnchorName` rule under FR-011-AC-3. The test SHALL NOT
+convert a V2 point through `AnchorName` or treat an authored validation
+failure as a V2 accessor refusal.
 
 ## Test Procedure
 
@@ -46,7 +47,7 @@ or treat an `AnchorName` conversion failure as a V2 accessor refusal.
    different points can live on one clause node (SUPERSEDED AC-2). Separately,
    construct an otherwise admissible V2 reader control with a nonempty point
    name outside FR-011's identifier grammar, such as `tick now`, and verify
-   the accessor returns it unchanged through `CheckedExecutionPoint`. This
+   the accessor returns it unchanged through `ExecutionPoint`. This
    control does not give QSL producer-origin credit.
 3. Query absent, wrong-form, wrong-role, wrong-ordinal and other-node
    selections, including combined faults, to check `UnknownClause`,
@@ -76,9 +77,13 @@ or treat an `AnchorName` conversion failure as a V2 accessor refusal.
    `&CheckedPackageV2`, `&CheckedNodeId` and `&CheckedOccurrence` references.
    Repeat calls, clone the
    package and compare values, package equality and canonical identity.
-   Drop source bytes and repeat. Inspect for one QSpec-governed node carrier,
-   no body JSON read at accessor time, QSL binding copy, `export_bindings`
-   call, caller point or alternate compatibility path.
+   Drop source bytes and repeat. Verify the crate root exports exactly one
+   public four-variant `ExecutionPoint` and no public `CheckedExecutionPoint`.
+   Pass a canonical point with `tick now` and then an empty name to an authored
+   clause constructor; both must return FR-011's `invalid_identifier`. Inspect
+   for one QSpec-governed node carrier, no body JSON read at accessor time,
+   QSL binding copy, `export_bindings` call, caller point or alternate
+   compatibility path.
 
 ## Expected Results
 

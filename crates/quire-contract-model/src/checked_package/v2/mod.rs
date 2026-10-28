@@ -18,6 +18,7 @@ mod dependency_references;
 mod derived_keys;
 pub(in crate::checked_package) mod encode;
 mod execution_point;
+mod execution_point_accessor;
 mod extension;
 mod flat_wire;
 mod frame;
@@ -78,6 +79,7 @@ pub use contract_package::{
     ContractScalarOperandViewV1, ContractScalarOwnRangeV1, ContractSelectedReferenceV1,
     ContractSemanticGraphV1, ContractSourceMapV1, ContractSourceV1,
 };
+pub use execution_point_accessor::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
 pub use identity::*;
 pub use lower::*;
 pub use model_fields::{
@@ -100,6 +102,7 @@ pub use structural_candidates::{
 pub use typed_terms::*;
 pub use vocabulary::*;
 
+use crate::identity::ExecutionPoint;
 use closure_index::ClosureIndex;
 use dependency_references::{admit_dependencies, check_derived_closure, SuppliedDependencies};
 use derived_keys::validate_derived_keys;
@@ -1883,6 +1886,7 @@ fn validate_domain_packages(
                             declaration_identity,
                             declaration_origin,
                             declaration_path,
+                            document_pointer,
                             mismatch,
                         } = *refused;
                         // Intake metadata is private. Its owning lifetime ends at
@@ -1896,6 +1900,13 @@ fn validate_domain_packages(
                                 expected,
                                 actual,
                             )))
+                        } else if let Some(document_pointer) = document_pointer {
+                            ValidationFailure::refused_because_in_document(
+                                refusal.code,
+                                path,
+                                refusal.cause,
+                                document_pointer,
+                            )
                         } else {
                             ValidationFailure::refused_because(refusal.code, path, refusal.cause)
                         }
@@ -2050,6 +2061,7 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | ModelForm::ObjectType
             | ModelForm::ValueType
             | ModelForm::VariantType
+            | ModelForm::TupleValueType
             | ModelForm::RecordValueType
             | ModelForm::EventType
             | ModelForm::StateMachine
@@ -2280,6 +2292,7 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
             | ModelForm::ObjectType
             | ModelForm::ValueType
             | ModelForm::VariantType
+            | ModelForm::TupleValueType
             | ModelForm::RecordValueType
             | ModelForm::EventType
             | ModelForm::StateMachine
