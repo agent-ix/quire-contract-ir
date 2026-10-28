@@ -2698,6 +2698,27 @@ fn ac5_refusal(
     assert_step_refusal(read(package, evidence), code, None, path);
 }
 
+fn ac5_refusal_preserved_by_writer(
+    package: &Value,
+    evidence: &CheckedPackageEvidence,
+    code: CheckedPackageRefusalCode,
+    path: &str,
+) {
+    ac5_refusal(package, evidence, code, path);
+    let encoded = writer_bytes(package);
+    assert_eq!(
+        encoded,
+        canonical(package),
+        "public writer changed adverse input"
+    );
+    assert_step_refusal(
+        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), evidence),
+        code,
+        None,
+        path,
+    );
+}
+
 #[trace("TC-062", "FR-061-AC-5")]
 #[test]
 fn history_initial_literal_and_local_literal_reference_roundtrip() {
@@ -2780,11 +2801,18 @@ fn history_and_fairness_reject_closed_shape_and_canonical_order_defects() {
                 "member":{"kind":"state_clause","clause":anchor},"leaves":[]},
             "result_type":type_id,"arguments":[]});
     rekey_refinement(&mut package, position);
-    ac5_refusal(
+    ac5_refusal_preserved_by_writer(
         &package,
         &evidence,
         CheckedPackageRefusalCode::InvalidSemanticGraph,
         &format!("{root}/histories/0/initial"),
+    );
+    assert!(
+        serde_json::from_value::<CheckedSemanticGraphV2<CheckedTerm>>(
+            base["semantic_graph"].clone()
+        )
+        .is_ok(),
+        "valid fairness baseline must be representable by the public writer"
     );
     for side in ["assume", "ensure"] {
         for (member, value) in [("kind", "eventual"), ("granularity", "global")] {
@@ -2801,6 +2829,13 @@ fn history_and_fairness_reject_closed_shape_and_canonical_order_defects() {
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 &root,
             );
+            assert!(
+                serde_json::from_value::<CheckedSemanticGraphV2<CheckedTerm>>(
+                    package["semantic_graph"].clone()
+                )
+                .is_err(),
+                "invalid {side} {member} must have no public writer input"
+            );
         }
     }
     let mut package = base.clone();
@@ -2808,7 +2843,7 @@ fn history_and_fairness_reject_closed_shape_and_canonical_order_defects() {
     package["semantic_graph"]["nodes"][position]["body"]["histories"][0]["updates"] =
         json!([update.clone(), update]);
     rekey_refinement(&mut package, position);
-    ac5_refusal(
+    ac5_refusal_preserved_by_writer(
         &package,
         &evidence,
         CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -2820,7 +2855,7 @@ fn history_and_fairness_reject_closed_shape_and_canonical_order_defects() {
         {"name":"past","expression":literal}, {"name":"past","expression":literal}
     ]}]);
     rekey_refinement(&mut package, position);
-    ac5_refusal(
+    ac5_refusal_preserved_by_writer(
         &package,
         &evidence,
         CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -2977,7 +3012,7 @@ fn history_initial_rejects_selected_dependency_literal_reference() {
     package["semantic_graph"]["nodes"][position]["body"]["histories"][0]["initial"] = json!({"term":"dependency_reference","package":dependency_wire["package_id"],
             "node":literal});
     rekey_refinement(&mut package, position);
-    ac5_refusal(
+    ac5_refusal_preserved_by_writer(
         &package,
         &evidence,
         CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -3512,7 +3547,7 @@ fn append_catalog_free_step(package: &mut Value, position: usize, class: &str) {
     refresh_identity(package);
 }
 
-#[trace("TC-062", "FR-061-AC-16")]
+#[trace("TC-062", "FR-061-AC-5", "FR-061-AC-16")]
 #[test]
 fn catalog_free_operation_step_order_precedes_first_row_join() {
     let (mut package, evidence, position) = catalog_free_operation_package("object_type");
@@ -3524,8 +3559,20 @@ fn catalog_free_operation_step_order_precedes_first_row_join() {
     assert_eq!(rows[1]["source_class"], "other");
     assert_eq!(rows[0]["source_node"], rows[1]["source_node"]);
     let at = format!("/semantic_graph/nodes/{position}/body/steps");
+    let encoded = writer_bytes(&package);
+    assert_eq!(
+        encoded,
+        canonical(&package),
+        "writer must preserve step order"
+    );
     assert_step_refusal(
         read(&package, &evidence),
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        None,
+        &format!("{at}/1"),
+    );
+    assert_step_refusal(
+        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence),
         CheckedPackageRefusalCode::InvalidSemanticGraph,
         None,
         &format!("{at}/1"),
