@@ -3409,6 +3409,40 @@ fn protocol_member_body_targets_require_exact_dependencies() {
             "{form} fixture must admit: {admitted:?}"
         );
         let position = protocol_position(&package, form);
+        let mut extra_package = package.clone();
+        let extra = extra_package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .map(|node| &node["node_id"])
+            .find(|id| {
+                !extra_package["semantic_graph"]["nodes"][position]["dependencies"]
+                    .as_array()
+                    .expect("dependencies")
+                    .contains(id)
+            })
+            .expect("unreferenced node")
+            .clone();
+        let dependencies = extra_package["semantic_graph"]["nodes"][position]["dependencies"]
+            .as_array_mut()
+            .expect("dependencies");
+        dependencies.push(extra);
+        dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+        refresh_identity(&mut extra_package);
+        let key = extra_package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
+            .as_str()
+            .expect("node key");
+        assert_eq!(
+            read(&extra_package),
+            refusal_at(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                &format!("/semantic_graph/nodes/{position}/dependencies"),
+                None,
+                key,
+            ),
+            "extra dependency on {form}"
+        );
+
         let omitted = package["semantic_graph"]["nodes"][position]["dependencies"]
             .as_array()
             .expect("dependencies")
