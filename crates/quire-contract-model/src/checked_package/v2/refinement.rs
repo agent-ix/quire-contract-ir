@@ -1392,6 +1392,33 @@ impl RefinementGraph<'_, '_> {
         }
         Ok(operation)
     }
+
+    fn require_concrete_owner(
+        &self,
+        declaration: &CheckedNodeId,
+        selected_root: &CheckedNodeId,
+        at: JsonPointer,
+        locus: &CheckedNodeId,
+    ) -> Result<(), ValidationFailure> {
+        use super::CheckedNodeOwner;
+        let selected = self
+            .local_node(selected_root)
+            .and_then(|node| match &node.owner {
+                Some(CheckedNodeOwner::ModelRoot { identity, .. }) => Some(identity),
+                _ => None,
+            });
+        let declared = self
+            .local_node(declaration)
+            .and_then(|node| match &node.owner {
+                Some(CheckedNodeOwner::Model { identity, .. }) => Some(identity),
+                _ => None,
+            });
+        if selected.is_some() && selected == declared {
+            Ok(())
+        } else {
+            Err(wrong_binding(at, locus))
+        }
+    }
 }
 
 fn wrong_binding(at: JsonPointer, locus: &CheckedNodeId) -> ValidationFailure {
@@ -1595,6 +1622,12 @@ fn validate_rows(
         graph.require_local_kind(
             &row.concrete,
             K::Relation(RelationForm::Population),
+            at.clone().key("concrete"),
+            locus,
+        )?;
+        graph.require_concrete_owner(
+            &row.concrete,
+            &node.semantic_type,
             at.key("concrete"),
             locus,
         )?;
@@ -1611,6 +1644,12 @@ fn validate_rows(
         graph.require_local_kind(
             &row.concrete_type,
             K::Model(ModelForm::ObjectType),
+            at.clone().key("concrete_type"),
+            locus,
+        )?;
+        graph.require_concrete_owner(
+            &row.concrete_type,
+            &node.semantic_type,
             at.clone().key("concrete_type"),
             locus,
         )?;
@@ -1649,6 +1688,18 @@ fn validate_rows(
             };
             if !matches_node {
                 return Err(wrong_binding(at.clone().key("source_node"), locus));
+            }
+            if let Some(source) = &row.source_node {
+                if graph.local_kind(source, at.clone().key("source_node"), locus)?
+                    == K::State(super::StateForm::OperationAnchor)
+                {
+                    graph.require_concrete_step_anchor(
+                        source,
+                        &node.semantic_type,
+                        at.clone().key("source_node"),
+                        locus,
+                    )?;
+                }
             }
         } else if let Some(source) = &row.source_node {
             let operation = graph.require_concrete_step_anchor(
@@ -1723,6 +1774,12 @@ fn validate_rows(
             at.clone().key("concrete_type"),
             locus,
         )?;
+        graph.require_concrete_owner(
+            &row.concrete_type,
+            &node.semantic_type,
+            at.clone().key("concrete_type"),
+            locus,
+        )?;
         graph.local_kind(&row.type_id, at.clone().key("type"), locus)?;
         if let CheckedTerm::Reference { target } = &row.initial {
             graph.require_local_kind(
@@ -1735,8 +1792,8 @@ fn validate_rows(
         for (update_index, update) in row.updates.iter().enumerate() {
             let update_at = at.clone().key("updates").index(update_index);
             meter.charge(1, || update_at.clone())?;
-            graph.require_anchor_subject(
-                &RefinementKey::Local(update.operation.clone()),
+            graph.require_concrete_step_anchor(
+                &update.operation,
                 &node.semantic_type,
                 update_at.key("operation"),
                 locus,
@@ -1746,8 +1803,8 @@ fn validate_rows(
     for (index, row) in assume.iter().enumerate() {
         let at = root.clone().key("assume").index(index);
         meter.charge(1, || at.clone())?;
-        graph.require_anchor_subject(
-            &RefinementKey::Local(row.operation.clone()),
+        graph.require_concrete_step_anchor(
+            &row.operation,
             &node.semantic_type,
             at.key("operation"),
             locus,
