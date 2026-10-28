@@ -2416,6 +2416,7 @@ fn member_identity(member: &Value, owner: &str) -> Result<Box<str>, ModelRefusal
 
 /// An FCD value type bound as `Int[lo, hi]` or `Text[min, max; profile]`.
 // Reads a selected domain package document's value type.
+#[ix_trace_rs::string_edge]
 fn semantic_ir_value_type(value: &Value) -> Option<ValueBounds> {
     let constraint = |keyword: &str| -> Option<&Value> {
         let mut found = list(value, "constraints")
