@@ -1173,7 +1173,7 @@ fn assert_pointed_writer_round_trip(package: &StatePackage, positions: &[usize])
     assert_eq!(read_back.graph(), admitted.graph());
 }
 
-#[trace("TC-056", "FR-040-AC-33", "FR-040-AC-34")]
+#[trace("TC-056", "FR-040-AC-33", "FR-040-AC-34", "FR-066-AC-4")]
 #[test]
 fn tc_056_model_clause_points_retain_name_and_change_application_identity() {
     let absent = StatePackage::new();
@@ -1304,6 +1304,39 @@ fn tc_056_model_clause_points_retain_name_and_change_application_identity() {
     }
 }
 
+#[trace("TC-056", "FR-066-AC-4")]
+#[test]
+fn tc_056_duplicate_clause_point_precedes_version_and_identity_checks() {
+    let mut package = pointed_invariant(json!({"kind": "handler", "name": "tick"}));
+    let clause = package.clause("invariant");
+    package.value["contract_version"] = json!("wrong-version");
+    let bytes = String::from_utf8(canonical(&package.value)).expect("canonical UTF-8");
+    let member = r#""execution_point":{"kind":"handler","name":"tick"}"#;
+    assert_eq!(
+        bytes.matches(member).count(),
+        1,
+        "one clause point to duplicate"
+    );
+    let duplicate = bytes.replacen(member, &format!("{member},{member}"), 1);
+    let refusal = match CheckedPackageV2::read(
+        duplicate.as_bytes(),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&package.value),
+    ) {
+        CheckedPackageV2ReadResult::Refused(refusal) => refusal,
+        other => panic!("duplicate point should refuse: {other:?}"),
+    };
+    assert_eq!(refusal.code, Code::DuplicateMember);
+    assert_eq!(refusal.cause, None);
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(
+            format!("/semantic_graph/nodes/{clause}/body/operation/member/execution_point")
+                .as_str()
+        )
+    );
+}
+
 #[trace(
     "TC-056",
     "FR-040-AC-31",
@@ -1425,7 +1458,7 @@ fn tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects() {
     }
 }
 
-#[trace("TC-056", "FR-040-AC-32", "FR-040-AC-35")]
+#[trace("TC-056", "FR-040-AC-32", "FR-040-AC-35", "FR-066-AC-4")]
 #[test]
 fn tc_056_same_operation_admits_distinct_anchor_points() {
     let mut package = pointed_state_package(
@@ -1520,7 +1553,13 @@ fn tc_056_same_operation_admits_distinct_anchor_points() {
     );
 }
 
-#[trace("TC-056", "FR-040-AC-32", "FR-040-AC-34", "FR-040-AC-35")]
+#[trace(
+    "TC-056",
+    "FR-040-AC-32",
+    "FR-040-AC-34",
+    "FR-040-AC-35",
+    "FR-066-AC-4"
+)]
 #[test]
 fn tc_056_execution_point_shape_and_agreement_refuse_at_their_stage() {
     let anchor = StatePackage::new().at("state", "operation_anchor");
@@ -1698,7 +1737,7 @@ fn tc_056_execution_point_shape_and_agreement_refuse_at_their_stage() {
     );
 }
 
-#[trace("TC-056", "FR-040-AC-35")]
+#[trace("TC-056", "FR-040-AC-35", "FR-066-AC-4")]
 #[test]
 fn tc_056_point_checks_follow_anchor_joins_and_clause_signature() {
     let anchor = position(&ModelPackage::new().value, "state", "operation_anchor");
