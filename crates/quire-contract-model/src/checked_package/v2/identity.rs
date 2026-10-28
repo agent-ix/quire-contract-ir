@@ -812,6 +812,9 @@ impl ExactRatio {
             .ok_or_else(|| invalid(at().key("numerator")))?;
         let denominator = BigInt::parse_bytes(value.denominator.as_bytes(), 10)
             .ok_or_else(|| invalid(at().key("denominator")))?;
+        if denominator.is_zero() {
+            return Err(invalid(at().key("denominator")));
+        }
         Ok(Self {
             numerator,
             denominator,
@@ -924,6 +927,9 @@ pub(super) fn duration_unit_key(
     name: &str,
     meter: &mut WorkMeter,
 ) -> Result<Option<Box<str>>, ValidationFailure> {
+    meter.charge(u64::try_from(nodes.len()).unwrap_or(u64::MAX), || {
+        JsonPointer::root().key("semantic_graph").key("nodes")
+    })?;
     let Some((position, node)) = nodes.iter().enumerate().find(|(_, node)| {
         node.declaration.as_ref().is_some_and(|declaration| {
             let declared = declaration
@@ -943,7 +949,16 @@ pub(super) fn duration_unit_key(
     let Some(NominalIdentityPreimage::Unit(unit)) = &node.nominal_identity_preimage else {
         return Ok(None);
     };
+    let owner_matches = match &unit.owner {
+        NominalOwner::Source { .. } => name == "ix://quire/unit/s",
+        NominalOwner::Model { identity, .. } => name == format!("ix://quire/unit/{identity}/s"),
+        NominalOwner::Definition { .. } => false,
+    };
+    if !owner_matches {
+        return Ok(None);
+    }
     let at = || node_pointer(position);
+    meter.charge(u64::try_from(nodes.len()).unwrap_or(u64::MAX), &at)?;
     let Some(dimension) = nodes
         .iter()
         .find(|candidate| candidate.node_id == unit.dimension_node_id)
@@ -968,7 +983,7 @@ pub(super) fn duration_unit_key(
     let mut current = unit;
     let mut seen = BTreeSet::new();
     loop {
-        meter.charge(1, &at)?;
+        meter.charge(u64::try_from(nodes.len()).unwrap_or(u64::MAX), &at)?;
         let edge_scale = ExactRatio::parse(&current.scale, meter, &at)?;
         let edge_offset = ExactRatio::parse(&current.offset, meter, &at)?;
         offset = offset
