@@ -43,6 +43,41 @@ with no extra or missing item, and the `fault-injection` inventory adds
 `MappingAllocationPoint` alone. The `quire_contract_model` probe builds and
 the `quire_contract_ir` probe fails to compile.
 
+## Typed operation fixture feature consumer
+
+Planned for IR-1088; no implementation or criterion credit is claimed by this
+specification change. Verify FR-019-AC-14 through AC-16 with an external
+consumer compiled twice: default features and `test-support`. The default
+build must reject imports of `CheckedApplicationOperationFixture` and
+`CheckedApplicationOperationFixtureError` and calls to
+`CheckedApplicationOperation::{from_test_fixture,is_test_fixture}`. The
+feature build must import those two fixture types through
+`quire_contract_model`, call the constructor and typed accessors, and fail an
+import through `quire_contract_ir`. Inventory the feature-only exports and
+confirm the default inventory remains exact, `fault-injection` alone still
+adds only `MappingAllocationPoint`, and both features add the union of their
+independent exports.
+
+Construct one fixture for each control used by CG's four scalar derivation
+tests: missing and foreign operation identity; conversion identity with exact
+and non-exact rounding mode; scalar target's exact, nearest-even and
+toward-zero mode precedence; absent, foreign, conflicting, and each valid
+integer-division law definition; absent, text-profile kind, wrong rounding
+value, and matching rounding mode; and present or absent member declaration.
+For every fixture, assert the typed accessors expose exactly the authored
+identity, mode kind and value, ordered definition identities, and member key,
+including intentional absence. Assert `is_test_fixture` remains true when
+all optional inputs are absent and false for direct-serde and actual
+reader-admitted operations. Refuse empty present identity, empty present mode
+value, a law definition with empty authority or identity, and present member
+keys with a wrong domain, wrong digest length, uppercase or nonhexadecimal
+digest with a typed error and no operation. Accept foreign and conflicting nonempty law identities
+as valid fixture shape. Serialize a fixture operation into a candidate package
+wire and confirm the ordinary strict reader still refuses a case admission
+does not permit; the fixture marker must not survive serialization and readback.
+Compile-fail probes reject conversion of a fixture into an admitted
+`ContractPackageV1` or `CheckedPackageV2` without the production reader.
+
 ## Status
 
 Implemented: `tc_058_model_root_exports_exactly_the_fr_019_public_items`,
