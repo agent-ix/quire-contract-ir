@@ -29,3 +29,10 @@ CONDITIONAL. This partial harness slice is reviewable, but the two cross-platfor
 - TC-019 (examined): Analysis evidence method remains unresolved under PLAT-1160; a source trace tag is not a substitute for that channel.
 - All changed source and Cargo files were examined. No production behavior outside the named harness changed, and no applicable AssuranceProfile was found.
 - Quoin matrix on the repository reports NFR-001-AC-2 and NFR-001-AC-3 `untagged`, each with zero binders and no run evidence. NFR-001-AC-1 is tagged by `tests/it/conformance.rs:136` but also has no run evidence in this matrix output. Plan completion: not assessed. Optional repository-wide semantic review was not requested; this pass inspected the scoped AC/test/code chain.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | deferred | IR-1095 owns the genuine Linux/macOS/Windows CI capture and comparison job; NFR-001-AC-2 remains unbacked until that job yields qualifying evidence. |
+| FND-002 | deferred | IR-1095 owns genuine three-OS diagnostic comparison, while PLAT-1160 owns TC-019's qualified Analysis evidence channel; NFR-001-AC-3 and TC-019 remain unbacked. |

@@ -27,3 +27,10 @@ CONDITIONAL. The capture's OS provenance can be mislabeled; the new Rust file al
 - Examined `Cargo.toml` and all of `tests/tc019_determinism.rs`, with the corpus runner and NFR-001/TC-019 contracts as context.
 - The target is explicit and excluded from the ordinary Cargo test lane. The comparator refuses changed canonical bytes, ordered diagnostics, OS identities, provenance, and fixture inventories on the production path; `self_test` exercises six mutations through `compare_values`.
 - Focused test and aggregate gate execution were left to the author/code lead because the shared build lock was in use. No cross-platform run or Analysis evidence binding was observed on this PR.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | At e3593b4e, `capture` refuses `os != env::consts::OS` before running the corpus; a self-test supplies a different supported OS and checks that refusal. |
+| FND-002 | fixed | At e3593b4e, the file begins with the repository's SPDX and copyright header. |
