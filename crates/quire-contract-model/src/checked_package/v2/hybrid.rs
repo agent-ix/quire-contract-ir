@@ -428,7 +428,9 @@ fn reads_allowed(
             }
             Some(CheckedNodeKind::Expression(form)) => {
                 let operation = match decoded.term(position) {
-                    CheckedTerm::Application { operation, .. } => operation["identity"].as_str(),
+                    CheckedTerm::Application { operation, .. } => {
+                        operation.get("identity").and_then(Value::as_str)
+                    }
                     _ => None,
                 };
                 let admitted = matches!(
@@ -1132,7 +1134,7 @@ pub(super) fn validate_claims(
             let CheckedTerm::Application { operation, .. } = decoded.term(fair_position) else {
                 continue;
             };
-            let member = &operation["member"];
+            let member = &operation.record()["member"];
             let declaration: Option<CheckedNodeId> =
                 serde_json::from_value(member["declaration"].clone()).ok();
             let name = member["name"].as_str().unwrap_or_default();

@@ -391,7 +391,8 @@ fn direct_narrow_of(node: &CheckedSemanticNodeV2, expression: &CheckedNodeId) ->
     else {
         return false;
     };
-    let Ok(operation) = super::super::operations::OperationWire::deserialize(&operation) else {
+    let Ok(operation) = super::super::operations::OperationWire::deserialize(operation.record())
+    else {
         return false;
     };
     if super::super::operation_catalog::operation_catalog().known(&operation.identity)

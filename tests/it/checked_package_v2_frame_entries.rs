@@ -18,11 +18,13 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedComparisonPath, CheckedComparisonRefusal, CheckedMemberType,
-    CheckedNodeId, CheckedNodeTag, CheckedPackageIdentityPreimageRefV2, CheckedPackageLimit,
-    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    encode_checked_package_v2, CheckedApplicationOperation, CheckedComparisonPath,
+    CheckedComparisonRefusal, CheckedExecutionPoint, CheckedMemberType, CheckedNodeId,
+    CheckedNodeTag, CheckedOperationAnchorBody, CheckedPackageIdentityPreimageRefV2,
+    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef,
+    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2,
+    CompleteLoweringRecordV2, StateClauseKind,
 };
 use serde_json::{json, Value};
 use std::sync::LazyLock;
@@ -1182,7 +1184,7 @@ fn assert_pointed_writer_round_trip(package: &StatePackage, positions: &[usize])
     assert_eq!(read_back.graph(), admitted.graph());
 }
 
-#[trace("TC-056", "FR-040-AC-33", "FR-040-AC-34")]
+#[trace("TC-056", "FR-040-AC-33", "FR-040-AC-34", "FR-066-AC-4")]
 #[test]
 fn tc_056_model_clause_points_retain_name_and_change_application_identity() {
     let absent = StatePackage::new();
@@ -1313,7 +1315,45 @@ fn tc_056_model_clause_points_retain_name_and_change_application_identity() {
     }
 }
 
-#[trace("TC-056", "FR-040-AC-31", "FR-040-AC-33", "FR-040-AC-36")]
+#[trace("TC-056", "FR-066-AC-4")]
+#[test]
+fn tc_056_duplicate_clause_point_precedes_version_and_identity_checks() {
+    let mut package = pointed_invariant(json!({"kind": "handler", "name": "tick"}));
+    let clause = package.clause("invariant");
+    package.value["contract_version"] = json!("wrong-version");
+    let bytes = String::from_utf8(canonical(&package.value)).expect("canonical UTF-8");
+    let member = r#""execution_point":{"kind":"handler","name":"tick"}"#;
+    assert_eq!(
+        bytes.matches(member).count(),
+        1,
+        "one clause point to duplicate"
+    );
+    let duplicate = bytes.replacen(member, &format!("{member},{member}"), 1);
+    let refusal = match CheckedPackageV2::read(
+        duplicate.as_bytes(),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&package.value),
+    ) {
+        CheckedPackageV2ReadResult::Refused(refusal) => refusal,
+        other => panic!("duplicate point should refuse: {other:?}"),
+    };
+    assert_eq!(refusal.code, Code::DuplicateMember);
+    assert_eq!(refusal.cause, None);
+    let expected_path =
+        format!("/semantic_graph/nodes/{clause}/body/operation/member/execution_point");
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(expected_path.as_str())
+    );
+}
+
+#[trace(
+    "TC-056",
+    "FR-040-AC-31",
+    "FR-040-AC-33",
+    "FR-040-AC-36",
+    "FR-066-AC-3"
+)]
 #[test]
 fn tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects() {
     let absent = pointed_state_package(None, None);
@@ -1326,7 +1366,21 @@ fn tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects() {
         Some(json!({"kind": "post", "operation": "deposit"})),
         Some(json!({"kind": "post", "operation": "deposit"})),
     );
-    for package in [&absent, &pre, &post] {
+    for (package, expected_point) in [
+        (&absent, None),
+        (
+            &pre,
+            Some(CheckedExecutionPoint::Pre {
+                operation: "deposit".into(),
+            }),
+        ),
+        (
+            &post,
+            Some(CheckedExecutionPoint::Post {
+                operation: "deposit".into(),
+            }),
+        ),
+    ] {
         let admitted = match read(&package.value) {
             CheckedPackageV2ReadResult::Admitted(admitted) => admitted,
             other => panic!("pointed package refused: {other:?}"),
@@ -1341,7 +1395,33 @@ fn tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects() {
         else {
             panic!("admitted anchor must have one typed form");
         };
-        assert_eq!(typed_anchor.execution_point.is_some(), point.is_some());
+        assert_eq!(typed_anchor.execution_point, expected_point);
+        let constructed_anchor =
+            CheckedTerm::OperationAnchorBody(Box::new(CheckedOperationAnchorBody {
+                members: typed_anchor.members.clone(),
+                execution_point: expected_point.clone(),
+            }));
+        assert_eq!(constructed_anchor, admitted.graph().nodes[anchor].body);
+        let CheckedTerm::Application {
+            operator,
+            operation,
+            result_type,
+            arguments,
+        } = &admitted.graph().nodes[clause].body
+        else {
+            panic!("admitted clause must have a typed application");
+        };
+        assert_eq!(operation.execution_point(), expected_point.as_ref());
+        let constructed = CheckedTerm::Application {
+            operator: *operator,
+            operation: CheckedApplicationOperation::state_clause(
+                StateClauseKind::Precondition,
+                expected_point.clone(),
+            ),
+            result_type: result_type.clone(),
+            arguments: arguments.clone(),
+        };
+        assert_eq!(constructed, admitted.graph().nodes[clause].body);
         if let Some(point) = point {
             assert!(point.get("term").is_none(), "anchor point is not a term");
         }
@@ -1388,7 +1468,7 @@ fn tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects() {
     }
 }
 
-#[trace("TC-056", "FR-040-AC-32", "FR-040-AC-35")]
+#[trace("TC-056", "FR-040-AC-32", "FR-040-AC-35", "FR-066-AC-4")]
 #[test]
 fn tc_056_same_operation_admits_distinct_anchor_points() {
     let mut package = pointed_state_package(
@@ -1483,7 +1563,13 @@ fn tc_056_same_operation_admits_distinct_anchor_points() {
     );
 }
 
-#[trace("TC-056", "FR-040-AC-32", "FR-040-AC-34", "FR-040-AC-35")]
+#[trace(
+    "TC-056",
+    "FR-040-AC-32",
+    "FR-040-AC-34",
+    "FR-040-AC-35",
+    "FR-066-AC-4"
+)]
 #[test]
 fn tc_056_execution_point_shape_and_agreement_refuse_at_their_stage() {
     let anchor = StatePackage::new().at("state", "operation_anchor");
@@ -1661,7 +1747,7 @@ fn tc_056_execution_point_shape_and_agreement_refuse_at_their_stage() {
     );
 }
 
-#[trace("TC-056", "FR-040-AC-35")]
+#[trace("TC-056", "FR-040-AC-35", "FR-066-AC-4")]
 #[test]
 fn tc_056_point_checks_follow_anchor_joins_and_clause_signature() {
     let anchor = position(&ModelPackage::new().value, "state", "operation_anchor");

@@ -1356,7 +1356,7 @@ mod tests {
         let CheckedTerm::Application { operation, .. } = &mut package.terms[5] else {
             panic!("admitted composite application term");
         };
-        operation
+        operation.record_mut()
     }
 
     fn sync_term(package: &mut CheckedPackageV2, position: usize) {

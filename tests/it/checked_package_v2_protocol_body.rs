@@ -1930,10 +1930,7 @@ fn protocol_capture_initializer_refuses_its_own_forward_read() {
         if stage.as_ref() == "protocol-capture" && read.as_ref() == "forward"));
 }
 
-/// Trace: FR-038-AC-291
-#[trace("TC-048")]
-#[test]
-fn terminal_origin_reads_over_but_each_has_no_readable_binder() {
+fn terminal_condition_package() -> (Value, usize, usize) {
     let mut package = v2_all_families();
     let clause = clause_position(&package);
     let over = package["semantic_graph"]["nodes"][clause]["body"]["arguments"][0]["value"]
@@ -1956,6 +1953,10 @@ fn terminal_origin_reads_over_but_each_has_no_readable_binder() {
         &[],
     );
     let terminal_key = terminal["node_id"].clone();
+    let terminal_position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -1963,12 +1964,11 @@ fn terminal_origin_reads_over_but_each_has_no_readable_binder() {
     package["semantic_graph"]["nodes"][clause]["body"]["arguments"][9]["value"]["members"] =
         json!([{"term": "reference", "target": terminal_key}]);
     settle(&mut package);
-    assert!(matches!(
-        read(&package),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ));
+    (package, clause, terminal_position)
+}
 
-    let trigger = clause_parameter(&mut package, "opened", "1");
+fn activate_each(package: &mut Value, clause: usize, finish_level: usize) -> Value {
+    let trigger = clause_parameter(package, "opened", "1");
     package["semantic_graph"]["nodes"][clause]["body"]["arguments"][1]["value"]["members"] = json!([
         {"term": "binding", "name": "kind", "value": {
             "term": "literal", "type": node_id(&family_key("a1a1")),
@@ -1976,16 +1976,79 @@ fn terminal_origin_reads_over_but_each_has_no_readable_binder() {
         {"term": "binding", "name": "trigger", "value": {
             "term": "reference", "target": trigger}}
     ]);
+    relevel_finish_binder(package, finish_level);
+    settle(package);
+    trigger
+}
+
+/// Trace: FR-038-AC-326
+#[trace("TC-048")]
+#[test]
+fn terminal_reads_over_under_origin_and_each_activation() {
+    let (mut package, clause, _) = terminal_condition_package();
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    activate_each(&mut package, clause, 2);
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
+/// Trace: FR-038-AC-326
+#[trace("TC-048")]
+#[test]
+fn terminal_each_refuses_capture_and_activation_binder_but_origin_reads_capture() {
+    let (mut package, clause, terminal) = terminal_condition_package();
+    let capture = clause_parameter(&mut package, "captured", "1");
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][2]["value"]["members"] = json!([{"term": "aggregate", "members": [
+        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": capture}},
+        {"term": "binding", "name": "initializer", "value": {"term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}}
+    ]}]);
+    package["semantic_graph"]["nodes"][terminal]["body"]["arguments"][1]["value"]["members"][0] =
+        json!({"term": "reference", "target": capture});
     relevel_finish_binder(&mut package, 2);
     settle(&mut package);
-    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
-        panic!("terminal under each must not read over");
-    };
-    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
-    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
-    assert!(matches!(refusal.protocol_detail.as_deref(),
-        Some(CheckedProtocolRefusalDetail::BinderScope { stage, read, .. })
-        if stage.as_ref() == "terminal" && read.as_ref() == "stage"));
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    let trigger = activate_each(&mut package, clause, 3);
+    let each_capture = relevel_parameter(&mut package, &capture, 2);
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][2]["value"]["members"][0]
+        ["members"][0]["value"]["target"] = each_capture.clone();
+    for (name, target) in [("capture", each_capture), ("activation binder", trigger)] {
+        package["semantic_graph"]["nodes"][terminal]["body"]["arguments"][1]["value"]["members"]
+            [0] = json!({"term": "reference", "target": target});
+        settle(&mut package);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+            panic!("terminal under each must refuse {name}");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+        assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(format!("/semantic_graph/nodes/{terminal}").as_str())
+        );
+        assert_eq!(
+            refusal.locus,
+            Some(
+                serde_json::from_value(
+                    package["semantic_graph"]["nodes"][terminal]["node_id"].clone()
+                )
+                .expect("terminal key")
+            )
+        );
+        assert!(
+            matches!(refusal.protocol_detail.as_deref(),
+            Some(CheckedProtocolRefusalDetail::BinderScope { stage, read, .. })
+            if stage.as_ref() == "terminal" && read.as_ref() == "stage"),
+            "terminal under each reported wrong scope for {name}: {refusal:?}"
+        );
+    }
 }
 
 /// Trace: FR-038-AC-291

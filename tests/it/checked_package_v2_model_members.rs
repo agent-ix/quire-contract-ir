@@ -3446,7 +3446,7 @@ fn application_of(package: &CheckedPackageV2, operation: &str) -> CheckedNodeId 
         .iter()
         .find(|node| {
             matches!(&node.body, quire_contract_model::CheckedTerm::Application { operation: record, .. }
-                if record.get("identity").and_then(Value::as_str) == Some(operation))
+                if record.identity() == Some(operation))
         })
         .expect("an application of the operation")
         .node_id

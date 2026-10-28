@@ -4225,8 +4225,8 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             return Ok(());
         };
         let mut allowed = BTreeSet::new();
+        allowed.insert(self.c0[0]);
         if self.activation.is_none() {
-            allowed.insert(self.c0[0]);
             allowed.extend(self.captures.iter().copied());
         }
         self.slot(terminal, condition, &allowed, "terminal", None, None, meter)
