@@ -27,7 +27,6 @@ type: TestMatrix
 
 | FR-038 | FR-038-AC-308 | TC-050 | ✅ Implemented (IR-276): counted R+K admission body validations, zero additional lowering validations, shared-SCC closure reuse and unchanged per-request work/outcome/canonical bytes in `ceiling_tests.rs`. |
 | FR-038 | FR-038-AC-309 | TC-048, TC-050 | ✅ Independent records equal separate one-key lowering under a union-package byte-ceiling failure and share one SCC closure build with zero additional body validations in `ceiling_tests.rs`. |
-| FR-038 | FR-038-AC-343 | TC-048 | 🚧 IR-1059's public-reader NK-00 through NK-14 replay and compound-unit current-key versus retained-key control are under review. The criterion keeps every published first-refusal row and the exact stage order. |
 
 ## Test Case Summary
 
