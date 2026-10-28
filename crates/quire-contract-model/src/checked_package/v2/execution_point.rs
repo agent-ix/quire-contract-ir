@@ -5,7 +5,7 @@
 //! operation-anchor binding. It is not a semantic expression term.
 
 use super::typed_terms::TermConversionCause;
-use super::{CheckedExecutionPoint, CheckedOperationAnchorBody, CheckedTerm};
+use super::{CheckedOperationAnchorBody, CheckedTerm, ExecutionPoint};
 use crate::checked_package::common::{
     exact_members, validate_term, ReferenceVisitor, TermGrammar, Trail, ValidationFailure,
 };
@@ -67,7 +67,7 @@ pub(super) fn validate_anchor_body(
     if !value.is_some_and(|value| value.is_object() && value.get("term").is_none()) {
         return Err(body_refusal());
     }
-    if value.and_then(CheckedExecutionPoint::from_wire).is_none() {
+    if value.and_then(ExecutionPoint::from_wire).is_none() {
         return Err(ValidationFailure::refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             at.key("members").index(3).key("value").pointer(),
@@ -90,7 +90,7 @@ pub(super) fn decode_anchor_body(body: &Value) -> Result<CheckedTerm, TermConver
         [context, operation, frame, fourth] => {
             let point = fourth
                 .get("value")
-                .and_then(CheckedExecutionPoint::from_wire)
+                .and_then(ExecutionPoint::from_wire)
                 .ok_or(TermConversionCause::MalformedMember {
                     member: "execution_point",
                     category: serde_json::error::Category::Data,

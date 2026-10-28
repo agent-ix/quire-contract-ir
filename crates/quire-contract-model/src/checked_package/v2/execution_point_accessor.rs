@@ -4,8 +4,8 @@
 //! Public projection of an admitted state-clause execution point (FR-058).
 
 use super::{
-    CheckedExecutionPoint, CheckedNodeId, CheckedNodeKind, CheckedOccurrence,
-    CheckedOccurrenceRole, CheckedPackageV2, CheckedTerm, StateForm,
+    CheckedNodeId, CheckedNodeKind, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageV2,
+    CheckedTerm, ExecutionPoint, StateForm,
 };
 use thiserror::Error;
 
@@ -79,7 +79,7 @@ impl CheckedPackageV2 {
         &self,
         clause: &CheckedNodeId,
         claim: (&CheckedNodeId, &CheckedOccurrence),
-    ) -> Result<CheckedExecutionPoint, CheckedExecutionPointError> {
+    ) -> Result<ExecutionPoint, CheckedExecutionPointError> {
         use CheckedExecutionPointRefusal as Refusal;
 
         let error = |code| CheckedExecutionPointError {

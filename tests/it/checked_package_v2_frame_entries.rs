@@ -19,13 +19,13 @@ use ix_trace_rs::trace;
 use quire_canonical::Limits;
 use quire_contract_model::{
     encode_checked_package_v2, CheckedApplicationOperation, CheckedComparisonPath,
-    CheckedComparisonRefusal, CheckedExecutionPoint, CheckedExecutionPointRefusal,
-    CheckedMemberType, CheckedNodeId, CheckedNodeTag, CheckedOccurrence, CheckedOccurrenceRole,
-    CheckedOperationAnchorBody, CheckedPackageIdentityPreimageRefV2, CheckedPackageLimit,
-    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
-    StateClauseKind,
+    CheckedComparisonRefusal, CheckedExecutionPointRefusal, CheckedMemberType, CheckedNodeId,
+    CheckedNodeTag, CheckedOccurrence, CheckedOccurrenceRole, CheckedOperationAnchorBody,
+    CheckedPackageIdentityPreimageRefV2, CheckedPackageLimit, CheckedPackageReadLimits,
+    CheckedPackageRefusal, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+    CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2, ExecutionPoint,
+    ExecutionPointName, StateClauseKind,
 };
 use serde_json::{json, Value};
 use std::sync::LazyLock;
@@ -1371,14 +1371,14 @@ fn tc_056_execution_points_rekey_and_round_trip_as_bare_wire_objects() {
         (&absent, None),
         (
             &pre,
-            Some(CheckedExecutionPoint::Pre {
-                operation: "deposit".into(),
+            Some(ExecutionPoint::Pre {
+                operation: ExecutionPointName::new("deposit").unwrap(),
             }),
         ),
         (
             &post,
-            Some(CheckedExecutionPoint::Post {
-                operation: "deposit".into(),
+            Some(ExecutionPoint::Post {
+                operation: ExecutionPointName::new("deposit").unwrap(),
             }),
         ),
     ] {
@@ -3782,7 +3782,7 @@ fn tc_462_public_accessor_returns_exact_admitted_points_without_source_bytes() {
         package: &CheckedPackageV2,
         clause: &CheckedNodeId,
         claim: (&CheckedNodeId, &CheckedOccurrence),
-    ) -> Result<CheckedExecutionPoint, CheckedExecutionPointRefusal> {
+    ) -> Result<ExecutionPoint, CheckedExecutionPointRefusal> {
         package
             .clause_execution_point(clause, claim)
             .map_err(|error| match error.code {
@@ -3797,15 +3797,15 @@ fn tc_462_public_accessor_returns_exact_admitted_points_without_source_bytes() {
         (
             pointed_invariant(json!({"kind": "initialization", "name": "startup"})),
             "invariant",
-            CheckedExecutionPoint::Initialization {
-                name: "startup".into(),
+            ExecutionPoint::Initialization {
+                name: ExecutionPointName::new("startup").unwrap(),
             },
         ),
         (
             pointed_constraint(json!({"kind": "handler", "name": "tick now"})),
             "constraint",
-            CheckedExecutionPoint::Handler {
-                name: "tick now".into(),
+            ExecutionPoint::Handler {
+                name: ExecutionPointName::new("tick now").unwrap(),
             },
         ),
         (
@@ -3814,8 +3814,8 @@ fn tc_462_public_accessor_returns_exact_admitted_points_without_source_bytes() {
                 Some(json!({"kind": "pre", "operation": "deposit"})),
             ),
             "precondition",
-            CheckedExecutionPoint::Pre {
-                operation: "deposit".into(),
+            ExecutionPoint::Pre {
+                operation: ExecutionPointName::new("deposit").unwrap(),
             },
         ),
         (
@@ -3824,8 +3824,8 @@ fn tc_462_public_accessor_returns_exact_admitted_points_without_source_bytes() {
                 Some(json!({"kind": "post", "operation": "deposit"})),
             ),
             "precondition",
-            CheckedExecutionPoint::Post {
-                operation: "deposit".into(),
+            ExecutionPoint::Post {
+                operation: ExecutionPointName::new("deposit").unwrap(),
             },
         ),
     ];
@@ -3942,8 +3942,8 @@ fn tc_462_public_accessor_refuses_in_closed_precedence_order() {
     }
     assert_eq!(
         admitted.clause_execution_point(&clause, (&clause, &claim)),
-        Ok(CheckedExecutionPoint::Handler {
-            name: "tick".into()
+        Ok(ExecutionPoint::Handler {
+            name: ExecutionPointName::new("tick").unwrap()
         })
     );
     for &code in CheckedExecutionPointRefusal::all() {
@@ -3991,8 +3991,8 @@ fn tc_462_multiple_claims_of_one_node_share_the_admitted_point() {
     for claim in &clause.occurrences {
         assert_eq!(
             admitted.clause_execution_point(&clause.node_id, (&clause.node_id, claim)),
-            Ok(CheckedExecutionPoint::Handler {
-                name: "tick".into()
+            Ok(ExecutionPoint::Handler {
+                name: ExecutionPointName::new("tick").unwrap()
             })
         );
     }
@@ -4041,22 +4041,22 @@ fn tc_462_point_change_rekeys_node_and_package_without_losing_accessor_value() {
             (
                 &sources[0],
                 positions[0],
-                CheckedExecutionPoint::Initialization {
-                    name: "startup".into(),
+                ExecutionPoint::Initialization {
+                    name: ExecutionPointName::new("startup").unwrap(),
                 },
             ),
             (
                 &sources[1],
                 positions[1],
-                CheckedExecutionPoint::Handler {
-                    name: "tick".into(),
+                ExecutionPoint::Handler {
+                    name: ExecutionPointName::new("tick").unwrap(),
                 },
             ),
             (
                 &sources[2],
                 positions[2],
-                CheckedExecutionPoint::Handler {
-                    name: "tock".into(),
+                ExecutionPoint::Handler {
+                    name: ExecutionPointName::new("tock").unwrap(),
                 },
             ),
         ] {

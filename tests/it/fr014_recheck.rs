@@ -92,7 +92,7 @@ fn divide(divisor: Expression, at: u64) -> Expression {
 
 fn pre() -> ExecutionPoint {
     ExecutionPoint::Pre {
-        operation: AnchorName::new("update").unwrap(),
+        operation: AnchorName::new("update").unwrap().into(),
     }
 }
 
