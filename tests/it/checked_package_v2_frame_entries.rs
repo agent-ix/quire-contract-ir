@@ -3997,3 +3997,79 @@ fn tc_462_multiple_claims_of_one_node_share_the_admitted_point() {
         );
     }
 }
+
+/// A changed point changes the clause and package identity, and the accessor
+/// follows the rekeyed node rather than the clause kind or shared anchor.
+#[trace("TC-462", "FR-058-AC-9")]
+#[test]
+fn tc_462_point_change_rekeys_node_and_package_without_losing_accessor_value() {
+    for (kind, initialized, handled, renamed) in [
+        (
+            "invariant",
+            pointed_invariant(json!({"kind": "initialization", "name": "startup"})),
+            pointed_invariant(json!({"kind": "handler", "name": "tick"})),
+            pointed_invariant(json!({"kind": "handler", "name": "tock"})),
+        ),
+        (
+            "constraint",
+            pointed_constraint(json!({"kind": "initialization", "name": "startup"})),
+            pointed_constraint(json!({"kind": "handler", "name": "tick"})),
+            pointed_constraint(json!({"kind": "handler", "name": "tock"})),
+        ),
+    ] {
+        let sources = [initialized, handled, renamed];
+        let positions = sources.map(|source| source.clause(kind));
+        let bodies = std::array::from_fn::<_, 3, _>(|index| {
+            &sources[index].value["semantic_graph"]["nodes"][positions[index]]["body"]
+        });
+        assert_eq!(bodies[0]["arguments"], bodies[1]["arguments"]);
+        assert_eq!(bodies[1]["arguments"], bodies[2]["arguments"]);
+        let ids = std::array::from_fn::<_, 3, _>(|index| {
+            sources[index].value["semantic_graph"]["nodes"][positions[index]]["node_id"].clone()
+        });
+        assert_ne!(ids[0], ids[1]);
+        assert_ne!(ids[1], ids[2]);
+        assert_ne!(
+            sources[0].value["package_id"],
+            sources[1].value["package_id"]
+        );
+        assert_ne!(
+            sources[1].value["package_id"],
+            sources[2].value["package_id"]
+        );
+        for (source, position, expected) in [
+            (
+                &sources[0],
+                positions[0],
+                CheckedExecutionPoint::Initialization {
+                    name: "startup".into(),
+                },
+            ),
+            (
+                &sources[1],
+                positions[1],
+                CheckedExecutionPoint::Handler {
+                    name: "tick".into(),
+                },
+            ),
+            (
+                &sources[2],
+                positions[2],
+                CheckedExecutionPoint::Handler {
+                    name: "tock".into(),
+                },
+            ),
+        ] {
+            let admitted = match read(&source.value) {
+                CheckedPackageV2ReadResult::Admitted(package) => package,
+                other => panic!("pointed {kind} refused: {other:?}"),
+            };
+            let clause = &admitted.graph().nodes[position];
+            let claim = clause.occurrences.first().expect("claim");
+            assert_eq!(
+                admitted.clause_execution_point(&clause.node_id, (&clause.node_id, claim)),
+                Ok(expected)
+            );
+        }
+    }
+}
