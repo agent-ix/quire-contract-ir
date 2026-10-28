@@ -1335,6 +1335,25 @@ fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
     assert_eq!(producer.node_kind(&fairness), None);
     assert_eq!(producer.node_kind(&formula), None);
     assert!(producer.node_kind(&healthy).is_some());
+    let mut represented_request: Value = serde_json::from_slice(wire_bytes).expect("wire json");
+    let represented = serde_json::to_value(&healthy).expect("represented node id");
+    let healthy_sources =
+        represented_request["source_map"]["requested_items"][1]["occurrences"].clone();
+    represented_request["feature_accounting"][0]["node_id"] = represented.clone();
+    represented_request["source_map"]["requested_items"][0]["requested_item"] = represented.clone();
+    represented_request["source_map"]["requested_items"][0]["occurrences"] =
+        healthy_sources.clone();
+    represented_request["source_map"]["refusals"][0]["requested_item"] = represented;
+    represented_request["source_map"]["refusals"][0]["occurrences"] = healthy_sources;
+    let represented_request = rehashed(represented_request);
+    let ContractPackageReadResult::Admitted(represented_plain) = read(&represented_request) else {
+        panic!("canonical V1 with a represented unsupported request must admit");
+    };
+    assert!(represented_plain.node(&healthy).is_some());
+    assert_eq!(
+        represented_plain.unsupported_source_kind_at(0),
+        Err(ContractUnsupportedSourceKindError::NotAdmitted)
+    );
     let mut missing_root: Value = serde_json::from_slice(wire_bytes).expect("wire json");
     let absent = serde_json::to_value(missing()).expect("missing node id");
     missing_root["feature_accounting"][0]["node_id"] = absent.clone();
@@ -1366,6 +1385,56 @@ fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
         ),
         Err(ContractSourceHandoffError::SourceIdentity)
     );
+    let mut wrong_lock: Value = serde_json::from_slice(wire_bytes).expect("wire json");
+    let temporal_profile = wrong_lock["package"]["source"]["lock"]["profile_selections"]
+        .as_array_mut()
+        .expect("profile selections")
+        .iter_mut()
+        .find(|selection| selection["role"] == "temporal_profile")
+        .expect("temporal profile selection");
+    temporal_profile["definition"]["identity"] =
+        json!("quire.temporal.event-position.false-extension/v1");
+    let wrong_lock = rehashed(wrong_lock);
+    assert!(matches!(
+        read(&wrong_lock),
+        ContractPackageReadResult::Admitted(_)
+    ));
+    assert_eq!(
+        ContractPackageWireV1::read_with_source(
+            &wrong_lock,
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::new(),
+            &source,
+        ),
+        Err(ContractSourceHandoffError::SourceLock)
+    );
+    let short_limit = CheckedPackageReadLimits {
+        bytes: u64::try_from(wrong_lock.len()).expect("wire length") - 1,
+        ..CheckedPackageReadLimits::bounded()
+    };
+    let Ok(ContractPackageReadResult::Incomplete(incomplete)) =
+        ContractPackageWireV1::read_with_source(
+            &wrong_lock,
+            short_limit,
+            &ContractDependencies::new(),
+            &source,
+        )
+    else {
+        panic!("V1 byte limit must precede unsupported source handoff");
+    };
+    assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Bytes);
+    assert_eq!(incomplete.limit, short_limit.bytes);
+    let mut stale: Value = serde_json::from_slice(wire_bytes).expect("wire json");
+    stale["identity"]["digest"] = json!("0".repeat(64));
+    let Ok(ContractPackageReadResult::Refused(refusal)) = ContractPackageWireV1::read_with_source(
+        &canonical(&stale),
+        CheckedPackageReadLimits::bounded(),
+        &ContractDependencies::new(),
+        &admit(&mixed_fixture()),
+    ) else {
+        panic!("V1 identity refusal must precede unsupported source handoff");
+    };
+    assert_eq!(refusal.code, Code::StaleDependency);
 }
 
 #[trace("TC-047", "FR-035-AC-21")]
