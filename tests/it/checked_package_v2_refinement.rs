@@ -1752,7 +1752,7 @@ fn assert_step_refusal(
     assert_eq!(
         refusal.path.as_ref().map(|pointer| pointer.as_str()),
         Some(path),
-        "{refusal:?}"
+        "expected {path}: {refusal:?}"
     );
 }
 
@@ -1768,7 +1768,7 @@ fn assert_concrete_row_binding(
     assert_eq!(
         refusal.code,
         CheckedPackageRefusalCode::InvalidModelBinding,
-        "{refusal:?}"
+        "expected {path}: {refusal:?}"
     );
     assert_eq!(
         refusal.cause,
@@ -1837,7 +1837,9 @@ fn add_second_concrete_object(package: &mut Value) -> Value {
         .as_array_mut()
         .expect("source map")
         .push(json!({
-            "node_id":object["node_id"], "role":"type", "ordinal":0,
+            "node_id":object["node_id"],
+            "role":object["occurrences"][0]["role"],
+            "ordinal":object["occurrences"][0]["ordinal"],
             "regions":[{"source":source,"start":10,"end":11}]
         }));
     package["semantic_graph"]["nodes"]
@@ -2245,17 +2247,22 @@ fn history_update_and_assume_accept_declaring_type_anchor_and_refuse_foreign_roo
         {"role":"generated","ordinal":0}
     ]);
     let id = package["semantic_graph"]["nodes"][position]["node_id"].clone();
-    let regions = package["source_map"]
+    let declaration_position = package["source_map"]
         .as_array()
         .expect("source map")
         .iter()
-        .find(|entry| entry["node_id"] == id && entry["role"] == "declaration")
-        .expect("refinement declaration region")["regions"]
-        .clone();
+        .position(|entry| entry["node_id"] == id && entry["role"] == "declaration")
+        .expect("refinement declaration region");
+    let regions = package["source_map"][declaration_position]["regions"].clone();
     package["source_map"]
         .as_array_mut()
         .expect("source map")
-        .push(json!({"node_id":id,"role":"generated","ordinal":0,"regions":regions}));
+        .insert(
+            declaration_position + 1,
+            json!({
+                "node_id":id,"role":"generated","ordinal":0,"regions":regions
+            }),
+        );
     refresh_identity(&mut package);
     assert_concrete_row_binding(
         &package,
