@@ -19,18 +19,21 @@ relationships:
 When a consumer selects a clause node and owner-bound authentic `claim`
 occurrence from one admitted `CheckedPackageV2`, Contract IR SHALL expose
 the exact optional execution point admitted from that clause node's QSpec FR-341 application
-member as the public V2 `quire_contract_model::CheckedExecutionPoint` value. The node
+member as the public `quire_contract_model::ExecutionPoint` value. The node
 body is the carrier; its point is shared by all authentic claim occurrences of
 that node. Contract IR SHALL NOT infer the point from clause kind, an operation
-anchor, source text or a caller-supplied fallback. The accessor is **Planned**
-under IR-1013; IR-1040 defines and admits the wire carrier first.
+anchor, source text or a caller-supplied fallback. IR-1040 defines and admits
+the wire carrier; the accessor implements the public IR-1013 reader seam.
 
-The V2 point name is the exact nonempty string admitted by QSpec's
-`ExecutionPoint` wire shape, including strings that are not valid authored
-contract `AnchorName` identifiers. The older `ExecutionPoint` model and
-FR-011's `AnchorName` validation remain the authored-contract API; the V2
-accessor SHALL NOT convert a point name through `AnchorName` or reject an
-otherwise admitted package because that conversion would fail.
+`ExecutionPoint` is the sole public four-variant point type for authored IR,
+checked-package V2 and QSL callers. Its names are nonempty strings, including
+QSpec-admitted V2 names that are not valid authored `AnchorName` identifiers.
+Authored constructors and wire decoders SHALL retain FR-011's `AnchorName`
+validation and refusal before admitting an authored point. The V2 accessor SHALL
+NOT convert a point name through `AnchorName` or reject an otherwise
+admitted package because authored validation would fail. There SHALL be no
+public `CheckedExecutionPoint` type, conversion bridge or second binding
+authority.
 
 ## Inputs
 
@@ -50,7 +53,7 @@ otherwise admitted package because that conversion would fail.
 
 ## Outputs
 
-- On success, the owned public V2 `CheckedExecutionPoint` model value:
+- On success, the owned public `ExecutionPoint` model value:
   `Initialization { name }`, `Handler { name }`, `Pre { operation }`, or
   `Post { operation }`, retaining the exact nonempty name and variant.
 - On failure, `CheckedExecutionPointError` with a stable, closed
@@ -115,16 +118,17 @@ its first applicable body/schema, identity, state or operation refusal.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-058-AC-1 | For one QSL-produced, IR-admitted V2 package with accepted bindings at `Initialization { name: startup }`, `Handler { name: tick }`, `Pre { operation: adjust }`, and `Post { operation: adjust }`, the public accessor returns each exact `CheckedExecutionPoint` variant and nonempty QSpec point name for the selected clause id and authentic claim occurrence. A fresh producer result and the authoritative QSpec carrier are required; a synthetic package alone gives no producer-origin credit. | Test |
+| FR-058-AC-1 | For one QSL-produced, IR-admitted V2 package with accepted bindings at `Initialization { name: startup }`, `Handler { name: tick }`, `Pre { operation: adjust }`, and `Post { operation: adjust }`, the public accessor returns each exact `ExecutionPoint` variant and nonempty QSpec point name for the selected clause id and authentic claim occurrence. A fresh producer result and the authoritative QSpec carrier are required; a synthetic package alone gives no producer-origin credit. | Test |
 | FR-058-AC-2 | SUPERSEDED by FR-058-AC-9 under QSpec #449 / IR-1040. Original planned text: For each of an invariant and a constraint node, two authentic claim occurrences share one node and body anchor but bind respectively to initialization `startup` and handler `tick`; the accessor returns distinct exact points by claim. Replacing `tick` with another handler name changes only that claim's result. No clause-kind or anchor-derived default returns either value. The invariant and constraint have different node ids, as QSpec FR-341-AC-13 requires. The original same-node/different-point case is infeasible because the point now contributes to node identity; no implementation credit is claimed. | Test |
 | FR-058-AC-3 | An absent clause id returns `UnknownClause`; a present non-state-clause id returns `NotStateClause`; a wrong-role, wrong-ordinal or other-node claim returns `MissingClaimOccurrence`. The first applicable refusal is returned in that order, with the supplied clause id and occurrence and no point. | Test |
 | FR-058-AC-4 | A selected state clause with an authentic claim but no accepted producer point returns `MissingExecutionPoint` and no point. A point on another package or clause node cannot satisfy this lookup; the selected unpointed node returns `MissingExecutionPoint` for every authentic claim. A different occurrence of the same pointed node reads the same point. | Test |
-| FR-058-AC-5 | An external CG-style Rust consumer calls the public accessor using only `&CheckedPackageV2`, `&CheckedNodeId` and `&CheckedOccurrence`, exhaustively distinguishes the typed refusal codes and receives `quire_contract_model::CheckedExecutionPoint` without importing QSL internals, inspecting V2 body JSON, or calling `export_bindings`. Repeated calls and a clone return equal results without changing package equality or identity. | Test |
+| FR-058-AC-5 | An external CG-style Rust consumer calls the public accessor using only `&CheckedPackageV2`, `&CheckedNodeId` and `&CheckedOccurrence`, exhaustively distinguishes the typed refusal codes and receives `quire_contract_model::ExecutionPoint` without importing QSL internals, inspecting V2 body JSON, or calling `export_bindings`. Repeated calls and a clone return equal results without changing package equality or identity. | Test |
 | FR-058-AC-6 | A public-consumer compile control accepts only the admitted package, clause id and claim occurrence and cannot supply a caller point or QSL binding. An IR reader control consumes the authoritative QSpec node-body member from a fresh QSL package, retains the point after source bytes are dropped, and a source check finds no IR-owned QSL binding copy or alternate compatibility path. | Test |
 | FR-058-AC-7 | SUPERSEDED by FR-058-AC-10 under QSpec #449 / IR-1040. Original planned text: Two equal or conflicting point entries for one claim refuse reader admission with `InvalidExecutionPointCarrier`/`DuplicatePoint`; an entry for a non-claim or another node's claim refuses with `InvalidExecutionPointCarrier`/`NonClaimPoint`. Each result names the offending clause/occurrence locus, returns no admitted package and creates no first-wins point. QSpec #449 has no point-entry list or occurrence-keyed carrier, so these exact cases are infeasible; no implementation credit is claimed. | Test |
 | FR-058-AC-8 | For an invariant or constraint, a well-formed `Pre` or `Post` point refuses reader admission as `invalid_model_binding`/`malformed-declaration` at the clause node under FR-040. Valid `Initialization` and `Handler` points for both invariant and constraint admit. A precondition or postcondition admits either `Pre` or `Post` if the operation name and referenced anchor point agree, as QSpec FR-341-AC-14 requires; an `Initialization` or `Handler` point refuses `invalid_model_binding`/`malformed-declaration` at the clause node. An accessor returns the exact admitted variant without imposing a narrower consumer policy. | Test |
-| FR-058-AC-9 | PLANNED (QSpec #449 / IR-1040). Separate invariant or constraint clause nodes with equal condition and anchor but different accepted `initialization{name: "startup"}` and `handler{name: "tick"}` points have distinct node ids; otherwise identical packages containing one or the other have distinct package ids; authentic claims of each node return that node's exact point. Changing only `tick` changes only the pointed node's identity and accessor result after rekeying; no kind- or anchor-derived default returns either value. This preserves AC-2's discrimination assurance on the actual node carrier. A reader-admitted nonempty name outside FR-011's `AnchorName` identifier grammar likewise returns unchanged, with no extra accessor refusal. | Test |
+| FR-058-AC-9 | PLANNED (QSpec #449 / IR-1040). Separate invariant or constraint clause nodes with equal condition and anchor but different accepted `initialization{name: "startup"}` and `handler{name: "tick"}` points have distinct node ids; otherwise identical packages containing one or the other have distinct package ids; authentic claims of each node return that node's exact point. Changing only `tick` changes only the pointed node's identity and accessor result after rekeying; no kind- or anchor-derived default returns either value. This preserves AC-2's discrimination assurance on the actual node carrier. A reader-admitted nonempty name outside FR-011's `AnchorName` identifier grammar likewise returns unchanged as `ExecutionPoint`, with no extra accessor refusal. | Test |
 | FR-058-AC-10 | PLANNED (QSpec #449 / IR-1040). A duplicate `execution_point` JSON member refuses `duplicate_member` with no cause at the later member in strict wire admission; malformed or extra point members and a point on the wrong operation member fail the closed QSpec/FR-040 shape with no admitted package or first-wins value. A non-claim or other-node occurrence cannot retrieve a point and returns `MissingClaimOccurrence`; two authentic claims of one node return its one retained point. Exact wire and state refusal code/cause/locus follow FR-040, preserving AC-7's uniqueness and wrong-target assurances on the actual member carrier. | Test |
+| FR-058-AC-11 | The crate root exports exactly one public four-variant point type, `ExecutionPoint`. An authored clause rejects `tick now` and an empty point name with FR-011's `invalid_identifier`, including when the caller builds the canonical point directly; a V2 reader admits `tick now` and the accessor returns that exact variant and name to a CG-style external consumer without inspecting JSON. QSL authored construction uses the same validated name rule and migrates to the canonical type after taking the IR dependency; no public `CheckedExecutionPoint`, conversion bridge, fallback or copied QSL point type remains. | Test |
 
 ## Dependencies
 
@@ -136,8 +140,11 @@ and its producer conformance. Contract IR does not copy QSL bindings, add an
 occurrence-keyed sidecar, or reconstruct a point from source text. The driver
 alone invokes `export_bindings` under ADR-017 AR-4; CG receives no new point
 input. Existing authored-contract callers of `ExecutionPoint` and `AnchorName`
-keep their FR-011 validation; a CG V2 consumer reads `CheckedExecutionPoint`
-from this accessor without a conversion through that authored-contract model.
+keep their FR-011 validation; a CG V2 consumer reads the same canonical
+`ExecutionPoint` from this accessor without a conversion. QSL migrates its
+authored construction and checking call sites after taking the IR dependency,
+including the additional authored route introduced by QSL-1183; that
+producer-origin work remains necessary for AC-1 and AC-6.
 CG's V2 replay selection already carries node and occurrence separately;
 the CG consumer passes its selected clause id and the claim's owner-bound
 pair directly. QSL's V2 emitter already groups occurrences under their
