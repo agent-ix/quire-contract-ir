@@ -319,22 +319,33 @@ fn selected_form_owner_join_refuses_wrong_meaning_absence_and_missing_owner() {
             );
         }
     }
-    let (mut package, evidence) = selected_forms_package();
-    let position = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .position(|node| node["semantic_form"] == "process")
-        .expect("process");
-    package["semantic_graph"]["nodes"][position]
-        .as_object_mut()
-        .expect("object")
-        .remove("owner");
-    refresh_identity(&mut package);
-    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
-        panic!("missing required owner must refuse");
-    };
-    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+    for form in [
+        "process",
+        "state_machine",
+        "record_value_type",
+        "persistence_interface",
+    ] {
+        let (mut package, evidence) = selected_forms_package();
+        let position = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .position(|node| node["semantic_form"] == form)
+            .expect("form");
+        package["semantic_graph"]["nodes"][position]
+            .as_object_mut()
+            .expect("object")
+            .remove("owner");
+        refresh_identity(&mut package);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+            panic!("{form} missing required owner must refuse");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::MalformedWire,
+            "{form}"
+        );
+    }
 }
 
 /// Trace: FR-068-AC-5, FR-064-AC-4, QSpec FR-322-AC-72
