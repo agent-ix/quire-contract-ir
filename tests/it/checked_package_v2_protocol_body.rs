@@ -3470,6 +3470,33 @@ fn protocol_member_body_targets_require_exact_dependencies() {
     }
 }
 
+/// Trace: FR-038-AC-285, FR-038-AC-327
+#[trace("TC-048", "TC-946")]
+#[test]
+fn listed_protocol_body_target_missing_from_graph_reaches_body_join() {
+    let (mut package, role) = package_with_member_role();
+    let missing = node_id(&"f".repeat(64));
+    package["semantic_graph"]["nodes"][role]["body"]["arguments"][0]["value"]["target"] =
+        missing.clone();
+    settle(&mut package);
+    assert!(package["semantic_graph"]["nodes"][role]["dependencies"]
+        .as_array()
+        .expect("dependencies")
+        .contains(&missing));
+    let key = package["semantic_graph"]["nodes"][role]["node_id"]["digest"]
+        .as_str()
+        .expect("role key");
+    assert_eq!(
+        read(&package),
+        refusal_at(
+            CheckedPackageRefusalCode::MissingDeclaration,
+            &format!("/semantic_graph/nodes/{role}/body/arguments/0/value/target"),
+            Some(CheckedPackageRefusalCause::MissingName),
+            key,
+        )
+    );
+}
+
 #[trace("TC-048")]
 #[test]
 fn protocol_clause_requires_the_selected_profile_law_in_the_public_reader() {
