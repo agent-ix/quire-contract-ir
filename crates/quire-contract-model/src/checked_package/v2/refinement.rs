@@ -1477,7 +1477,12 @@ impl RefinementGraph<'_, '_> {
         // A malformed clause owner has its own earlier protocol-body refusal.
         // Only compare an otherwise valid concrete class against the selected
         // root here, so that this row check does not mask that owner defect.
-        let valid_clause_owner = clause.and_then(|id| self.local_node(id)?.owner_model.as_ref());
+        let Some(clause) = clause else {
+            return Err(wrong_binding(at, locus));
+        };
+        let valid_clause_owner = self
+            .local_node(clause)
+            .and_then(|node| node.owner_model.as_ref());
         if !valid_clause_owner.is_some_and(|id| {
             self.index.get(id).is_some_and(|&position| {
                 self.kinds[position] == K::Model(super::ModelForm::ObjectType)
@@ -1485,8 +1490,7 @@ impl RefinementGraph<'_, '_> {
         }) {
             return Ok(());
         }
-        let declared_identity =
-            clause.and_then(|id| self.key_owner_identity(&RefinementKey::Local(id.clone())));
+        let declared_identity = self.key_owner_identity(&RefinementKey::Local(clause.clone()));
         if selected_identity.is_some() && selected_identity == declared_identity {
             Ok(())
         } else {
