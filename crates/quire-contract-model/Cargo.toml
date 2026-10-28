@@ -27,6 +27,8 @@ test = false
 # package's dev-dependency so the integration tests can qualify
 # all-or-nothing behaviour.
 fault-injection = []
+# Typed operation inputs for downstream test consumers only.
+test-support = []
 
 [dependencies]
 ix-trace-rs = { version = "0.1", git = "https://github.com/agent-ix/ix-trace-rs", branch = "main" }

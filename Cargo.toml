@@ -31,6 +31,7 @@ required-features = ["conformance-cli"]
 [features]
 default = []
 conformance-cli = ["dep:ix-cli-kit"]
+test-support = ["quire-contract-model/test-support"]
 
 # FR-038-AC-107: reads QSpec's positive fixtures from a `quire-specification`
 # checkout, which `make test` has not got. `test = false` keeps it outside
