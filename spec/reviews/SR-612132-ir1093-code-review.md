@@ -32,3 +32,13 @@ FAIL: an admitted pair of protocol clauses with prefix-related qualified names c
 - QSpec FR-432 class spellings, context: source class uses the selected protocol path and authored node name.
 - Rust style, panic and wire boundary review: no new panic path or compatibility shim found in the changed code.
 - CI workflow diff: none. Aggregate gates belong to the code lead after findings are resolved.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Head 5dc02418 maps members only to the closest admitted clause path with the required fixed member-kind segment; the new prefix-related two-clause case admits the complete catalog and refuses an outer-derived spelling. |
+
+## Disposition verdict
+
+Round 1 at 5dc02418: the recorded finding is fixed. Aggregate gates remain with the code lead.

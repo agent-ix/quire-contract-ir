@@ -31,3 +31,13 @@ CONDITIONAL: the computed matrix tag for FR-038-AC-329 does not prove its contro
 - TC-048 item 16, examined: rekeyed adverse class spellings and exact refusal loci.
 - Changed production code is owned by FR-038-AC-329; no new unowned feature or source stub found.
 - Plan completion: not assessed.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Head 5dc02418 adds rekeyed Main-ancestor fork and join refusal cases with exact code/locus and a tagged prefix-related nested-clause admission and wrong-class refusal case. |
+
+## Disposition verdict
+
+Round 1 at 5dc02418: the recorded finding is fixed. Aggregate gates remain with the code lead.
