@@ -747,6 +747,7 @@ pub(super) fn validate_derived_keys(
 /// The optional maximum is an integer scalar bound, with no other members.
 /// This runs after key authentication so a changed body under a retained key
 /// still reports the stale key first.
+#[ix_trace_rs::string_edge]
 fn model_population_body_valid(
     term: Option<&CheckedTerm>,
     nodes: &[CheckedSemanticNodeV2],
