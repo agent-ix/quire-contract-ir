@@ -1026,9 +1026,10 @@ fn argument_family(
         | CheckedTerm::Literal { .. }
         | CheckedTerm::Application { .. } => {
             let type_node = operand_type_node_typed(argument, nodes, kinds, index)?;
-            owners
-                .and_then(|owners| owners.variant_family(&type_node))
-                .or_else(|| resolve_family(&type_node, nodes, kinds, index))
+            owners.map_or_else(
+                || resolve_family(&type_node, nodes, kinds, index),
+                |owners| resolve_family_from_selected(&type_node, nodes, kinds, index, owners),
+            )
         }
         CheckedTerm::Binding { .. } => Some("binder"),
         CheckedTerm::Aggregate { .. } => Some("aggregate"),
@@ -1398,9 +1399,33 @@ fn resolve_selected_family(
     graph: &Graph<'_>,
     owners: &ModelOwners<'_>,
 ) -> Option<&'static str> {
-    owners
-        .variant_family(type_id)
-        .or_else(|| resolve_family(type_id, graph.nodes, graph.kinds, graph.index))
+    resolve_family_from_selected(type_id, graph.nodes, graph.kinds, graph.index, owners)
+}
+
+fn resolve_family_from_selected(
+    type_id: &CheckedNodeId,
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    owners: &ModelOwners<'_>,
+) -> Option<&'static str> {
+    let result = resolve_family_with_selected(
+        type_id,
+        |visit| {
+            Ok::<_, std::convert::Infallible>(match visit {
+                FamilyVisit::Node(id) => index
+                    .get(id)
+                    .and_then(|position| Some((nodes.get(*position)?, *kinds.get(*position)?))),
+                FamilyVisit::Forward => None,
+            })
+        },
+        |id| owners.variant_family(id),
+    );
+    match result {
+        Ok(FamilyResolution::Family(family)) => Some(family),
+        Ok(FamilyResolution::NoFamily | FamilyResolution::Malformed(_)) => None,
+        Err(never) => match never {},
+    }
 }
 
 /// Logical operations in the reader-owned family walk. A caller may charge
@@ -1419,12 +1444,23 @@ pub(super) enum FamilyResolution {
 
 pub(super) fn resolve_family_with<'a, E, Body: 'a>(
     type_id: &CheckedNodeId,
+    visit: impl FnMut(
+        FamilyVisit<'_>,
+    )
+        -> Result<Option<(&'a super::CheckedSemanticNodeV2<Body>, CheckedNodeKind)>, E>,
+) -> Result<FamilyResolution, E> {
+    resolve_family_with_selected(type_id, visit, |_| None)
+}
+
+pub(super) fn resolve_family_with_selected<'a, E, Body: 'a>(
+    type_id: &CheckedNodeId,
     mut visit: impl FnMut(
         FamilyVisit<'_>,
     ) -> Result<
         Option<(&'a super::CheckedSemanticNodeV2<Body>, CheckedNodeKind)>,
         E,
     >,
+    mut selected_family: impl FnMut(&CheckedNodeId) -> Option<&'static str>,
 ) -> Result<FamilyResolution, E> {
     let mut seen = BTreeSet::new();
     let mut current = type_id;
@@ -1434,6 +1470,9 @@ pub(super) fn resolve_family_with<'a, E, Body: 'a>(
         };
         if !seen.insert(node.node_id.clone()) {
             return Ok(FamilyResolution::Malformed(node.node_id.clone()));
+        }
+        if let Some(family) = selected_family(&node.node_id) {
+            return Ok(FamilyResolution::Family(family));
         }
         if kind == CheckedNodeKind::Model(ModelForm::VariantType)
             && matches!(

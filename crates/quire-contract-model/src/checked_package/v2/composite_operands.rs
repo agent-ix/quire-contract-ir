@@ -463,8 +463,7 @@ impl CheckedPackageV2 {
                     CheckedUnsupportedCompositeOperand::ApplicationSubterm,
                 ));
             }
-            let selected_family = self.models.variant_family(&child.semantic_type);
-            let resolution = super::operations::resolve_family_with(
+            let resolution = super::operations::resolve_family_with_selected(
                 &child.semantic_type,
                 |visit| match visit {
                     super::operations::FamilyVisit::Node(id) => {
@@ -477,14 +476,15 @@ impl CheckedPackageV2 {
                         Ok(None)
                     }
                 },
+                |id| self.models.variant_family(id),
             )?;
-            let family = selected_family.or(match resolution {
+            let family = match resolution {
                 super::operations::FamilyResolution::Family(family) => Some(family),
                 super::operations::FamilyResolution::NoFamily => None,
                 super::operations::FamilyResolution::Malformed(type_node) => {
                     return Err(type_error(ordinal, Some(type_node)));
                 }
-            });
+            };
             if !family
                 .is_some_and(|family| operation_catalog().family_fits(family, "structural_kind"))
             {
