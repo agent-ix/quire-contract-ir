@@ -4,8 +4,8 @@
 //! Focused FR-061 refinement and selected state-machine owner vectors.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, rebuild_source_map, refresh_identity, rekey_application_node,
-    settle, sha256_hex, structural_key, v2_all_families, v2_nominal,
+    canonical, evidence_for, node_id, protocol_named_node, rebuild_source_map, refresh_identity,
+    rekey_application_node, settle, sha256_hex, structural_key, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -31,6 +31,23 @@ fn protocol_class_path(node: &Value) -> String {
         .map(|part| part.as_str().expect("name segment"))
         .collect::<Vec<_>>()
         .join("::")
+}
+
+fn assert_unique_node_ids(package: &Value) {
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    for (index, node) in nodes.iter().enumerate() {
+        if let Some(previous) = nodes[..index]
+            .iter()
+            .position(|other| other["node_id"] == node["node_id"])
+        {
+            panic!(
+                "duplicate node IDs at {previous}/{index}: {}",
+                node["node_id"]
+            );
+        }
+    }
 }
 
 fn model_document() -> Value {
@@ -2185,13 +2202,14 @@ fn concrete_protocol_refinement_with_model(
         .expect("nodes")
         .extend(extra_model_nodes);
     if matches!(clause_owner, ProtocolClauseOwner::SelectedModel) {
-        let clause = package["semantic_graph"]["nodes"]
+        for clause in package["semantic_graph"]["nodes"]
             .as_array_mut()
             .expect("nodes")
             .iter_mut()
-            .find(|node| node["semantic_form"] == "protocol_clause")
-            .expect("protocol clause");
-        clause["owner_model"] = model["node_id"].clone();
+            .filter(|node| node["semantic_form"] == "protocol_clause")
+        {
+            clause["owner_model"] = model["node_id"].clone();
+        }
     }
     settle(&mut package);
 
@@ -3480,41 +3498,42 @@ fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
 #[trace("TC-048", "FR-038-AC-330")]
 #[test]
 fn refinement_catalog_rejects_cend_associated_with_another_template() {
-    let (base, _, _) =
+    let (mut base, _, _) =
         crate::checked_package_v2_protocol_body::package_with_admitted_compensation();
-    let (mut package, evidence) = concrete_protocol_refinement_on(
-        base,
-        ProtocolStepRows::Empty,
-        ProtocolClauseOwner::SelectedModel,
-    );
-    let template_position = package["semantic_graph"]["nodes"]
+    let template_position = base["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .iter()
         .position(|node| node["semantic_form"] == "compensation")
         .expect("template");
-    let first_template = package["semantic_graph"]["nodes"][template_position]["node_id"].clone();
-    let mut renamed = package.clone();
-    renamed["semantic_graph"]["nodes"][template_position]["declaration"]["qualified_name"][3] =
-        json!("OtherUndo");
-    settle(&mut renamed);
-    let second_template = renamed["semantic_graph"]["nodes"][template_position].clone();
+    let first_template = base["semantic_graph"]["nodes"][template_position]["node_id"].clone();
+    let second_template = protocol_named_node(
+        "compensation",
+        &["Example", "OrderFlow", "compensate", "OtherUndo"],
+        base["semantic_graph"]["nodes"][template_position]["body"].clone(),
+        &[],
+    );
     let second_key = second_template["node_id"].clone();
-    package["semantic_graph"]["nodes"]
+    base["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
         .push(second_template);
-    let clause = package["semantic_graph"]["nodes"]
+    let clause = base["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .iter()
         .position(|node| node["semantic_form"] == "protocol_clause")
         .expect("clause");
-    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][8]["value"]["members"]
+    base["semantic_graph"]["nodes"][clause]["body"]["arguments"][8]["value"]["members"]
         .as_array_mut()
         .expect("compensations")
         .push(json!({"term":"reference", "target":second_key}));
-    settle(&mut package);
+    settle(&mut base);
+    let (mut package, evidence) = concrete_protocol_refinement_on(
+        base,
+        ProtocolStepRows::Empty,
+        ProtocolClauseOwner::SelectedModel,
+    );
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes");
@@ -3553,6 +3572,7 @@ fn refinement_catalog_rejects_cend_associated_with_another_template() {
         json!({"class":"cend OrderFlow::compensate::Undo", "node":first_template, "binder_types":[]}),
     ];
     let refinement = set_concrete_catalog(&mut package, entries.clone());
+    assert_unique_node_ids(&package);
     let admitted = read(&package, &evidence);
     assert!(
         matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
@@ -3634,7 +3654,7 @@ fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
         ),
         (
             "fork OrderFlow::run::Holder",
-            format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete"),
+            format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1"),
         ),
     ] {
         let mut wrong = package.clone();
@@ -3650,7 +3670,8 @@ fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
         );
         assert_eq!(
             refusal.path.as_ref().map(|path| path.as_str()),
-            Some(path.as_str())
+            Some(path.as_str()),
+            "{wrong_class}"
         );
     }
 
@@ -3742,7 +3763,11 @@ fn refinement_catalog_preserves_two_clause_paths_of_different_depths() {
         .as_array()
         .expect("nodes")
         .iter()
-        .filter(|node| node["node_tag"] == "protocol")
+        .filter(|node| {
+            node["node_tag"] == "protocol"
+                && node["declaration"]["qualified_name"][0] == "Example"
+                && node["declaration"]["qualified_name"][1] == "Nested"
+        })
         .cloned()
         .collect::<Vec<_>>();
     base["semantic_graph"]["nodes"]
@@ -3756,22 +3781,6 @@ fn refinement_catalog_preserves_two_clause_paths_of_different_depths() {
         ProtocolStepRows::Empty,
         ProtocolClauseOwner::SelectedModel,
     );
-    let refinement = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .position(|node| node["semantic_form"] == "refinement")
-        .expect("refinement");
-    let selected_model = package["semantic_graph"]["nodes"][refinement]["semantic_type"].clone();
-    for clause in package["semantic_graph"]["nodes"]
-        .as_array_mut()
-        .expect("nodes")
-        .iter_mut()
-        .filter(|node| node["semantic_form"] == "protocol_clause")
-    {
-        clause["owner_model"] = selected_model.clone();
-    }
-    settle(&mut package);
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes");
@@ -3814,6 +3823,7 @@ fn refinement_catalog_preserves_two_clause_paths_of_different_depths() {
         .iter()
         .any(|entry| entry["class"] == "fork Nested::OrderFlow::run::Main::Holder"));
     set_concrete_catalog(&mut package, entries);
+    assert_unique_node_ids(&package);
     let admitted = read(&package, &evidence);
     assert!(
         matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
@@ -4170,7 +4180,7 @@ fn refinement_catalog_joins_external_abstract_model_operations_without_protocol(
     node["body"]["abstract"] = external(abstract_model);
     node["body"]["class_catalog"]["abstract"] = json!([{
         "class":"Worker::run", "node":external(worker_key),
-        "binder_types":[external(receiver), external(integer), external(boolean)]
+        "binder_types":[external(receiver), external(integer), external(boolean.clone())]
     }]);
     node["dependencies"] = json!([concrete_finish, boolean]);
     node["dependencies"]
