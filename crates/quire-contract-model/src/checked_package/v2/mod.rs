@@ -1610,7 +1610,7 @@ fn checked_unit_refs(
     nodes: &[RawSemanticNodeV2],
     meter: &mut WorkMeter,
 ) -> Result<UnitRefs, ValidationFailure> {
-    let mut refs = BTreeMap::new();
+    let mut refs: BTreeMap<Box<str>, Box<str>> = BTreeMap::new();
     for node in nodes {
         if CheckedNodeTag::from_wire(&node.node_tag)
             .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))

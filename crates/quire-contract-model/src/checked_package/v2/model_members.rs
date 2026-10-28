@@ -512,6 +512,9 @@ pub(super) struct DomainModel {
     pub(super) collection_types: BTreeMap<Box<str>, SelectedCollectionDefinition>,
     /// Checked-package unit `typeRef` to the unit node digest.
     pub(super) unit_refs: UnitRefs,
+    /// Whether this selection declares its own `s`; such a declaration
+    /// prevents a Duration member from falling back to the source unit.
+    own_seconds_declared: bool,
     /// Relationship declarations, by IR node identity.
     pub(super) relationships: BTreeMap<Box<str>, RelationshipDecl>,
     /// Declared populations, by IR node identity in the selected document.
@@ -1411,7 +1414,7 @@ impl DomainModel {
                     NativeTypeRef::Clock => Some(MemberType::Clock),
                     NativeTypeRef::Duration => {
                         let selected = format!("ix://quire/unit/{}/s", self.identity);
-                        let owner_unit = if self.unit_refs.contains_key(selected.as_str()) {
+                        let owner_unit = if self.own_seconds_declared {
                             selected
                         } else {
                             "ix://quire/unit/s".to_owned()
@@ -3281,6 +3284,9 @@ pub(super) fn read_semantic_ir(
         variant_types: BTreeMap::new(),
         collection_types: BTreeMap::new(),
         unit_refs: unit_refs.clone(),
+        own_seconds_declared: list(document, "units")?
+            .iter()
+            .any(|unit| unit.get("name").and_then(Value::as_str) == Some("s")),
         relationships: BTreeMap::new(),
         populations: BTreeSet::new(),
         population_members: BTreeMap::new(),
