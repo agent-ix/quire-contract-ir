@@ -4314,7 +4314,7 @@ fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
         ),
         (
             "fork Example::OrderFlow::run::Holder",
-            format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1"),
+            format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete"),
         ),
     ] {
         let mut wrong = package.clone();
@@ -4526,9 +4526,13 @@ fn refinement_catalog_preserves_two_clause_paths_of_different_depths() {
         assert_eq!(
             refusal.path.as_ref().map(|path| path.as_str()),
             Some(
-                format!(
-                    "/semantic_graph/nodes/{position}/body/class_catalog/concrete/{changed_index}"
-                )
+                if substituted.starts_with("fork ") {
+                    format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete")
+                } else {
+                    format!(
+                        "/semantic_graph/nodes/{position}/body/class_catalog/concrete/{changed_index}"
+                    )
+                }
                 .as_str()
             ),
             "wrong refusal locus for {substituted}"
