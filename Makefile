@@ -24,6 +24,7 @@ help:
 	@echo "  make spec             - Validate and cover all Quire artifacts"
 	@echo "  make release-check    - Run every local release gate"
 	@echo "  make test             - Run cargo test"
+	@echo "  make conformance-qspec-compile - Compile the QSpec conformance target without fixtures (CI gate)"
 	@echo "  make conformance-qspec - QSpec's positive fixtures admit, adverse mutations refuse as recorded, selection identity derives (needs QUIRE_SPECIFICATION_DIR; not in ci)"
 	@echo "  make conformance-qsl-ir703 - Fresh ConfigVersion V2 producer/IR accessor check (needs QUIRE_SPEC_LANGUAGE_DIR and its current binaries)"
 	@echo "  make conformance-qsl-ir769 - Fresh QSL scalar result context through admitted IR (needs QUIRE_SPEC_LANGUAGE_DIR and its current binary)"
@@ -87,7 +88,12 @@ test:
 # declaration keys agree with the production reader and key derivation. Reads the
 # checkout named by QUIRE_SPECIFICATION_DIR and fails, never skips, when it is
 # unset, empty, or holds no proposals/checked-package-v2/fixtures/, or when a
-# fixture does not admit. Outside `test` and `ci`: they have no checkout.
+# fixture does not admit. Fixture execution stays outside `test` and `ci`:
+# they have no checkout.
+.PHONY: conformance-qspec-compile
+conformance-qspec-compile:
+	$(CARGO) test $(LOCKED) --workspace --no-run --test conformance_qspec
+
 .PHONY: conformance-qspec
 conformance-qspec:
 	$(CARGO) test $(LOCKED) --test conformance_qspec
@@ -233,7 +239,7 @@ use-remote:
 # =============================================================================
 
 .PHONY: ci
-ci: fmt-check lint test corpus spec deny cargo-audit
+ci: fmt-check lint test conformance-qspec-compile corpus spec deny cargo-audit
 
 .PHONY: release-check
 release-check: ci
