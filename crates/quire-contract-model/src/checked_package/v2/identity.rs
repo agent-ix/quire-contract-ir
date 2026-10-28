@@ -485,6 +485,7 @@ impl NominalKind {
                 | ModelForm::ObjectType
                 | ModelForm::ValueType
                 | ModelForm::VariantType
+                | ModelForm::TupleValueType
                 | ModelForm::RecordValueType
                 | ModelForm::EventType
                 | ModelForm::StateMachine
@@ -1108,7 +1109,10 @@ impl NominalGraph<'_> {
             .and_then(|node| node.nominal_identity_preimage.as_ref())
     }
 
-    fn model_variant_cases(&self, id: &CheckedNodeId) -> Option<&BTreeSet<Box<str>>> {
+    fn model_variant_cases(
+        &self,
+        id: &CheckedNodeId,
+    ) -> Option<&BTreeMap<Box<str>, Option<super::model_members::SelectedTypeRef>>> {
         let position = *self.index.get(id)?;
         if self.kinds.get(position) != Some(&CheckedNodeKind::Model(super::ModelForm::VariantType))
         {
@@ -1303,7 +1307,12 @@ fn validate_enum_member(
     if graph.is_model_variant(&member.declaration_node_id) {
         require(!member.case.is_empty(), || site.preimage(&["case"]))?;
         if let Some(cases) = graph.model_variant_cases(&member.declaration_node_id) {
-            require(cases.contains(&member.case), || site.preimage(&["case"]))?;
+            require(cases.values().all(Option::is_none), || {
+                site.preimage(&["declaration_node_id"])
+            })?;
+            require(cases.contains_key(&member.case), || {
+                site.preimage(&["case"])
+            })?;
         }
     } else {
         require(is_identifier(&member.case), || site.preimage(&["case"]))?;

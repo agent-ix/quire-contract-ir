@@ -458,6 +458,83 @@ const WIDGET: &str = "ix://acme/orders/Widget";
 const GADGET: &str = "ix://acme/orders/Gadget";
 const LINK: &str = "ix://acme/orders/relationship/Widget-links-Gadget";
 
+/// IR-1059 slice 1: local tuple order and variant payload retention.
+/// The published TC-940 vector and full FR-069 matrix remain open.
+#[test]
+fn selected_tuple_positions_and_variant_payloads_are_retained() {
+    const PAIR: &str = "ix://acme/orders/Pair";
+    const MAYBE: &str = "ix://acme/orders/Maybe";
+    let tuple = json!({
+        "identity": PAIR, "kind": {"module": "acme/orders", "name": "tuple"},
+        "positions": [
+            {"identity": format!("{PAIR}/p0"), "typeRef": "ix://quire/native/Boolean"},
+            {"identity": format!("{PAIR}/p1"), "typeRef": "ix://quire/native/Integer"},
+        ]
+    });
+    let variant = json!({
+        "identity": MAYBE, "kind": {"module": "acme/orders", "name": "variant"},
+        "variants": [
+            {"identity": format!("{MAYBE}/None"), "name": "None"},
+            {"identity": format!("{MAYBE}/Some"), "name": "Some", "payloadType": PAIR},
+        ]
+    });
+    let mut selected = document(vec![tuple.clone(), variant.clone()]);
+    selected["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .extend([
+            json!({"kind":{"module":"acme/orders","name":"tuple"},
+            "construct":{"meaning":"quire.meaning.model.tuple-value-type/v1"}}),
+            json!({"kind":{"module":"acme/orders","name":"variant"},
+            "construct":{"meaning":"quire.meaning.model.variant-type/v1"}}),
+        ]);
+    let model = read(&selected).expect("selected tuple and payload variant");
+    assert_eq!(
+        model.tuple_types.get(PAIR).map(Vec::as_slice),
+        Some(
+            &[
+                SelectedTypeRef::Native(NativeTypeRef::Boolean),
+                SelectedTypeRef::Native(NativeTypeRef::Integer),
+            ][..]
+        )
+    );
+    let cases = model.variant_types.get(MAYBE).expect("selected variant");
+    assert_eq!(cases.get("None"), Some(&None));
+    assert_eq!(
+        cases.get("Some"),
+        Some(&Some(SelectedTypeRef::Declared(PAIR.into())))
+    );
+
+    selected["types"][0]["positions"][1]["identity"] = json!(format!("{PAIR}/p0"));
+    assert_eq!(
+        read(&selected).map(|_| ()),
+        Err(ModelRefusal::new(
+            Code::InvalidModelBinding,
+            Cause::ConflictingBinding
+        ))
+    );
+    selected["types"][0] = tuple;
+    selected["types"][1]["variants"][1]["payloadType"] = json!("ix://acme/orders/Missing");
+    assert_eq!(
+        read(&selected).map(|_| ()),
+        Err(ModelRefusal::new(
+            Code::UnsupportedConstruct,
+            Cause::DeclarationForm
+        ))
+    );
+
+    selected["types"][1] = variant;
+    selected["types"][0]["fields"] = json!([]);
+    assert_eq!(read(&selected).map(|_| ()), Err(ModelRefusal::malformed()));
+    selected["types"][0]
+        .as_object_mut()
+        .expect("tuple")
+        .remove("fields");
+    selected["types"][0]["positions"][1]["identity"] = json!(format!("{PAIR}/p2"));
+    selected["types"][1]["variants"][1]["payloadType"] = json!("ix://acme/orders/Missing");
+    assert_eq!(read(&selected).map(|_| ()), Err(ModelRefusal::malformed()));
+}
+
 #[trace("TC-048", "FR-038-AC-103")]
 #[test]
 fn operation_redefinitions_select_the_most_derived_member() {

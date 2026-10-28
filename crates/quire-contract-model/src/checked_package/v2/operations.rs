@@ -331,7 +331,7 @@ pub(super) fn validate_operations(
             if let Some(term) = graph.terms.get(position).and_then(Option::as_ref) {
                 references.walk_admitted(Referrer { node, position }, term, meter)?;
             }
-            if let Some(failure) = literal_defect(node, position, &graph) {
+            if let Some(failure) = literal_defect(node, position, &graph, owners) {
                 return Err(failure);
             }
             if let Some(failure) = body_root_defect(position, &graph, owners, meter)? {
@@ -365,6 +365,7 @@ fn literal_defect(
     node: &CheckedSemanticNodeV2,
     position: usize,
     graph: &Graph<'_>,
+    owners: &ModelOwners<'_>,
 ) -> Option<ValidationFailure> {
     let root = graph.terms.get(position).and_then(Option::as_ref)?;
     let mut pending = vec![(root, node_pointer(position).key("body"))];
@@ -376,7 +377,7 @@ fn literal_defect(
             value,
         } = term
         {
-            let family = resolve_family(type_id, graph.nodes, graph.kinds, graph.index);
+            let family = resolve_selected_family(type_id, graph, owners);
             // IEEE bits require their own width and quantities require a unit
             // even when the declared node has no operand family. Other literal
             // kinds keep their existing familyless-type behavior.
@@ -610,6 +611,7 @@ fn check_type_argument_member_result(
     operation: &OperationWire,
     entry: &OperationCatalogEntry,
     graph: &Graph<'_>,
+    owners: &ModelOwners<'_>,
     catalog: &OperationCatalog,
 ) -> Option<ValidationFailure> {
     if entry.result != CatalogResult::Member
@@ -655,7 +657,7 @@ fn check_type_argument_member_result(
         ));
     if let Some(expected_family) = expected_family {
         if !population_result
-            && resolve_family(&member, graph.nodes, graph.kinds, graph.index)
+            && resolve_selected_family(&member, graph, owners)
                 .is_some_and(|family| !catalog.family_fits(family, expected_family))
         {
             return Some(refuse());
@@ -880,7 +882,7 @@ fn operation_defect(
         term,
         meter,
     )?;
-    if let Some(failure) = literal_defect(node, application.position, graph) {
+    if let Some(failure) = literal_defect(node, application.position, graph, owners) {
         return Ok(Some(failure));
     }
 
@@ -899,11 +901,11 @@ fn operation_defect(
         return Ok(Some(failure));
     }
     if let Some(failure) =
-        check_type_argument_member_result(application, &operation, entry, graph, catalog)
+        check_type_argument_member_result(application, &operation, entry, graph, owners, catalog)
     {
         return Ok(Some(failure));
     }
-    if let Some(failure) = check_inner_result(application, entry, graph) {
+    if let Some(failure) = check_inner_result(application, entry, graph, owners) {
         return Ok(Some(failure));
     }
     if let Some(failure) = check_state_result(application, entry, graph) {
@@ -976,7 +978,7 @@ fn operation_defect(
             return Ok(Some(failure));
         }
     }
-    if let Some(failure) = check_mode_type(application, entry, &operation, graph, catalog) {
+    if let Some(failure) = check_mode_type(application, entry, &operation, graph, owners, catalog) {
         return Ok(Some(failure));
     }
     check_leaf_count(
@@ -1014,6 +1016,7 @@ fn argument_family(
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
     catalog: &OperationCatalog,
+    owners: Option<&ModelOwners<'_>>,
 ) -> Option<&'static str> {
     match argument {
         CheckedTerm::Application { .. } if is_clause_application(argument, catalog) => {
@@ -1023,7 +1026,10 @@ fn argument_family(
         | CheckedTerm::Literal { .. }
         | CheckedTerm::Application { .. } => {
             let type_node = operand_type_node_typed(argument, nodes, kinds, index)?;
-            resolve_family(&type_node, nodes, kinds, index)
+            owners.map_or_else(
+                || resolve_family(&type_node, nodes, kinds, index),
+                |owners| resolve_family_from_selected(&type_node, nodes, kinds, index, owners),
+            )
         }
         CheckedTerm::Binding { .. } => Some("binder"),
         CheckedTerm::Aggregate { .. } => Some("aggregate"),
@@ -1153,6 +1159,7 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ModelForm::SystemsInterface,
         ) => Some("object"),
         K::Model(ModelForm::RecordValueType) => Some("record"),
+        K::Model(ModelForm::TupleValueType) => Some("tuple"),
         K::Model(
             ModelForm::ModelRoot
             | ModelForm::ModelImport
@@ -1293,6 +1300,7 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | ModelForm::ObjectType
             | ModelForm::ValueType
             | ModelForm::VariantType
+            | ModelForm::TupleValueType
             | ModelForm::RecordValueType
             | ModelForm::EventType
             | ModelForm::StateMachine
@@ -1384,6 +1392,42 @@ fn resolve_family(
     }
 }
 
+/// Resolve a selected model variant from its retained cases before the
+/// ordinary graph vocabulary, which has no selected payload information.
+fn resolve_selected_family(
+    type_id: &CheckedNodeId,
+    graph: &Graph<'_>,
+    owners: &ModelOwners<'_>,
+) -> Option<&'static str> {
+    resolve_family_from_selected(type_id, graph.nodes, graph.kinds, graph.index, owners)
+}
+
+fn resolve_family_from_selected(
+    type_id: &CheckedNodeId,
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    owners: &ModelOwners<'_>,
+) -> Option<&'static str> {
+    let result = resolve_family_with_selected(
+        type_id,
+        |visit| {
+            Ok::<_, std::convert::Infallible>(match visit {
+                FamilyVisit::Node(id) => index
+                    .get(id)
+                    .and_then(|position| Some((nodes.get(*position)?, *kinds.get(*position)?))),
+                FamilyVisit::Forward => None,
+            })
+        },
+        |id| owners.variant_family(id),
+    );
+    match result {
+        Ok(FamilyResolution::Family(family)) => Some(family),
+        Ok(FamilyResolution::NoFamily | FamilyResolution::Malformed(_)) => None,
+        Err(never) => match never {},
+    }
+}
+
 /// Logical operations in the reader-owned family walk. A caller may charge
 /// these operations without duplicating the catalog's family semantics.
 pub(super) enum FamilyVisit<'a> {
@@ -1400,12 +1444,23 @@ pub(super) enum FamilyResolution {
 
 pub(super) fn resolve_family_with<'a, E, Body: 'a>(
     type_id: &CheckedNodeId,
+    visit: impl FnMut(
+        FamilyVisit<'_>,
+    )
+        -> Result<Option<(&'a super::CheckedSemanticNodeV2<Body>, CheckedNodeKind)>, E>,
+) -> Result<FamilyResolution, E> {
+    resolve_family_with_selected(type_id, visit, |_| None)
+}
+
+pub(super) fn resolve_family_with_selected<'a, E, Body: 'a>(
+    type_id: &CheckedNodeId,
     mut visit: impl FnMut(
         FamilyVisit<'_>,
     ) -> Result<
         Option<(&'a super::CheckedSemanticNodeV2<Body>, CheckedNodeKind)>,
         E,
     >,
+    mut selected_family: impl FnMut(&CheckedNodeId) -> Option<&'static str>,
 ) -> Result<FamilyResolution, E> {
     let mut seen = BTreeSet::new();
     let mut current = type_id;
@@ -1415,6 +1470,9 @@ pub(super) fn resolve_family_with<'a, E, Body: 'a>(
         };
         if !seen.insert(node.node_id.clone()) {
             return Ok(FamilyResolution::Malformed(node.node_id.clone()));
+        }
+        if let Some(family) = selected_family(&node.node_id) {
+            return Ok(FamilyResolution::Family(family));
         }
         if kind == CheckedNodeKind::Model(ModelForm::VariantType)
             && matches!(
@@ -1526,10 +1584,9 @@ fn check_operands(
             }
             continue;
         }
-        if let Some(actual) = typed_arguments
-            .get(position)
-            .and_then(|argument| argument_family(argument, nodes, kinds, index, catalog))
-        {
+        if let Some(actual) = typed_arguments.get(position).and_then(|argument| {
+            argument_family(argument, nodes, kinds, index, catalog, Some(owners))
+        }) {
             if !catalog.family_fits(actual, expected) {
                 if entry.mode == Some(OperationModeKind::TextProfile)
                     && FamilyClass::from_wire(actual) == FamilyClass::String
@@ -1548,7 +1605,9 @@ fn check_operands(
             .iter()
             .enumerate()
         {
-            if let Some(actual) = argument_family(argument, nodes, kinds, index, catalog) {
+            if let Some(actual) =
+                argument_family(argument, nodes, kinds, index, catalog, Some(owners))
+            {
                 if !catalog.family_fits(actual, rest_family) {
                     if entry.mode == Some(OperationModeKind::TextProfile)
                         && FamilyClass::from_wire(actual) == FamilyClass::String
@@ -1589,7 +1648,7 @@ fn check_operands(
                     .iter()
                     .map(|position| {
                         typed_arguments.get(*position).and_then(|argument| {
-                            argument_family(argument, nodes, kinds, index, catalog)
+                            argument_family(argument, nodes, kinds, index, catalog, Some(owners))
                         })
                     })
                     .collect();
@@ -2632,6 +2691,7 @@ fn check_inner_result(
     application: Application<'_>,
     entry: &OperationCatalogEntry,
     graph: &Graph<'_>,
+    owners: &ModelOwners<'_>,
 ) -> Option<ValidationFailure> {
     let CatalogResult::Inner(operand) = &entry.result else {
         return None;
@@ -2652,8 +2712,8 @@ fn check_inner_result(
             CheckedTerm::Application { result_type, .. } => Some(result_type),
             _ => None,
         });
-    let typed = result_type == Some(&inner)
-        && resolve_family(&inner, graph.nodes, graph.kinds, graph.index).is_some();
+    let typed =
+        result_type == Some(&inner) && resolve_selected_family(&inner, graph, owners).is_some();
     (!typed).then(|| {
         application.refuse(
             CheckedPackageRefusalCode::IllTyped,
@@ -2937,6 +2997,7 @@ fn check_mode_type(
     entry: &OperationCatalogEntry,
     operation: &OperationWire,
     graph: &Graph<'_>,
+    owners: &ModelOwners<'_>,
     catalog: &super::operation_catalog::OperationCatalog,
 ) -> Option<ValidationFailure> {
     let Graph {
@@ -2969,7 +3030,7 @@ fn check_mode_type(
                 kinds,
                 index,
             )?;
-            let family = resolve_family(&type_id, nodes, kinds, index)?;
+            let family = resolve_selected_family(&type_id, graph, owners)?;
             catalog.family_fits(family, expected).then_some(type_id)
         });
     // A conversion is pinned by its result alone. Other operations compare
@@ -2981,7 +3042,7 @@ fn check_mode_type(
             .flatten(),
     );
     for type_id in types {
-        let Some(family) = resolve_family(&type_id, nodes, kinds, index) else {
+        let Some(family) = resolve_selected_family(&type_id, graph, owners) else {
             continue;
         };
         let pin = type_pin(&type_id, mode_kind, terms, index).or_else(|| {
@@ -9743,7 +9804,7 @@ mod tests {
         let catalog = operation_catalog();
         let reference = super::CheckedTerm::decode_admitted(&reference_to('4'))
             .expect("reference fixture admits");
-        let family = super::argument_family(&reference, &nodes, &kinds, &index, catalog);
+        let family = super::argument_family(&reference, &nodes, &kinds, &index, catalog, None);
         assert_eq!(family, Some("temporal"));
         assert!(catalog.family_fits("temporal", "temporal"));
         assert!(catalog.family_fits("temporal", "any_term"));

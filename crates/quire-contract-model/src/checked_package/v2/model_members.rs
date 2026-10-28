@@ -95,6 +95,7 @@ mod meaning {
         ObjectType,
         ValueType,
         RecordValueType,
+        TupleValueType,
         VariantType,
         EventType,
         StateMachine,
@@ -116,6 +117,7 @@ mod meaning {
                 "quire.meaning.model.object-type/v1" => Some(Self::ObjectType),
                 "quire.meaning.model.value-type/v1" => Some(Self::ValueType),
                 "quire.meaning.model.record-value-type/v1" => Some(Self::RecordValueType),
+                "quire.meaning.model.tuple-value-type/v1" => Some(Self::TupleValueType),
                 "quire.meaning.model.variant-type/v1" => Some(Self::VariantType),
                 "quire.meaning.model.event-type/v1" => Some(Self::EventType),
                 "quire.meaning.model.state-machine/v1" => Some(Self::StateMachine),
@@ -476,10 +478,12 @@ pub(super) struct DomainModel {
     pub(super) persistence_interfaces: BTreeSet<Box<str>>,
     /// Record value types, with their own and inherited fields.
     pub(super) record_types: BTreeMap<Box<str>, FieldBearingTypeDecl>,
+    /// Ordered positions of each selected tuple value type.
+    pub(super) tuple_types: BTreeMap<Box<str>, Vec<SelectedTypeRef>>,
     /// Value types, by IR node identity; `None` when not bound as `Int[lo, hi]`.
     pub(super) value_types: BTreeMap<Box<str>, Option<ValueBounds>>,
-    /// Exact semantic case names of selected variant types, by declaration identity.
-    pub(super) variant_types: BTreeMap<Box<str>, BTreeSet<Box<str>>>,
+    /// Exact semantic cases and optional payload types of selected variants.
+    pub(super) variant_types: BTreeMap<Box<str>, BTreeMap<Box<str>, Option<SelectedTypeRef>>>,
     /// Checked-package unit `typeRef` to the unit node digest.
     pub(super) unit_refs: UnitRefs,
     /// Relationship declarations, by IR node identity.
@@ -505,6 +509,7 @@ pub(super) enum DeclarationForm {
     Process,
     PersistenceInterface,
     RecordValueType,
+    TupleValueType,
     VariantType,
     SystemsInterface,
     Relationship,
@@ -519,6 +524,7 @@ impl DeclarationForm {
             | Self::Process
             | Self::PersistenceInterface
             | Self::RecordValueType
+            | Self::TupleValueType
             | Self::VariantType
             | Self::SystemsInterface => "model",
             Self::Relationship | Self::Population => "relation",
@@ -532,6 +538,7 @@ impl DeclarationForm {
             Self::Process => "process",
             Self::PersistenceInterface => "persistence_interface",
             Self::RecordValueType => "record_value_type",
+            Self::TupleValueType => "tuple_value_type",
             Self::VariantType => "variant_type",
             Self::SystemsInterface => "systems_interface",
             Self::Relationship => "relationship",
@@ -759,6 +766,8 @@ pub(super) enum MemberType {
     Reference(Box<str>),
     /// A value record, by its owner-bearing declaration node key.
     Record(Box<str>),
+    /// A selected, self-typed model tuple declaration.
+    Tuple(Box<str>),
     /// A selected, self-typed model variant declaration.
     Variant(Box<str>),
     /// `Quantity<u>`, by the checked unit's node digest.
@@ -841,7 +850,9 @@ impl MemberType {
                 StructuralBody::Over(target),
                 bytes,
             ),
-            Self::Record(target) | Self::Variant(target) => Ok(target.to_string()),
+            Self::Record(target) | Self::Tuple(target) | Self::Variant(target) => {
+                Ok(target.to_string())
+            }
             Self::Quantity(target) => Ok(target.to_string()),
             Self::Option(inner) => {
                 let inner = inner.node_key(bytes)?;
@@ -1295,7 +1306,7 @@ impl DomainModel {
     }
 
     /// FR-322 step 4's element type of a declared `typeRef`.
-    fn element_type(&self, type_ref: &SelectedTypeRef) -> Option<MemberType> {
+    pub(super) fn element_type(&self, type_ref: &SelectedTypeRef) -> Option<MemberType> {
         let type_ref = match type_ref {
             SelectedTypeRef::Map(_, _) => return None,
             SelectedTypeRef::Unit(name) => {
@@ -1333,6 +1344,16 @@ impl DomainModel {
             )
             .ok()
             .map(|key| MemberType::Record(key.into()));
+        }
+        if self.tuple_types.contains_key(type_ref) {
+            return declaration_key(
+                &self.identity,
+                DeclarationForm::TupleValueType,
+                type_ref,
+                self.bytes,
+            )
+            .ok()
+            .map(|key| MemberType::Tuple(key.into()));
         }
         if self.variant_types.contains_key(type_ref) {
             return declaration_key(
@@ -1534,6 +1555,20 @@ pub(super) struct ModelOwners<'m> {
 }
 
 impl<'m> ModelOwners<'m> {
+    /// The selected variant's family, determined by its retained payload types.
+    pub(super) fn variant_family(&self, key: &CheckedNodeId) -> Option<&'static str> {
+        let owner = self.owner_by_key(key)?;
+        if owner.form != DeclarationForm::VariantType {
+            return None;
+        }
+        let cases = owner.package.variant_types.get(owner.node)?;
+        Some(if cases.values().any(Option::is_some) {
+            "union"
+        } else {
+            "enum"
+        })
+    }
+
     pub(super) fn owner_by_key(&self, key: &CheckedNodeId) -> Option<Owner<'m>> {
         self.by_key.get(key.digest.as_ref()).copied()
     }
@@ -1619,6 +1654,10 @@ impl<'m> ModelOwners<'m> {
                 .record_types
                 .keys()
                 .map(|node| (node, DeclarationForm::RecordValueType));
+            let tuples = package
+                .tuple_types
+                .keys()
+                .map(|node| (node, DeclarationForm::TupleValueType));
             let variants = package
                 .variant_types
                 .keys()
@@ -1633,6 +1672,7 @@ impl<'m> ModelOwners<'m> {
                 .map(|node| (node, DeclarationForm::PersistenceInterface));
             for (node, form) in objects
                 .chain(records)
+                .chain(tuples)
                 .chain(variants)
                 .chain(relationships)
                 .chain(populations)
@@ -2912,6 +2952,7 @@ fn node_size(value: &Value) -> u64 {
         "persists",
         "supertypes",
         "relationships",
+        "positions",
         "variants",
     ] {
         total = total.saturating_add(len(value, member));
@@ -2943,8 +2984,9 @@ fn node_size(value: &Value) -> u64 {
 }
 
 /// Reads an admitted Semantic IR 2.0.0 document's declarations (FR-154),
-/// node by node in ascending IR node identity, returning the first refusal
-/// in that order; each node's own failures report in FR-154's table order.
+/// with tuple declarations in document order before variants, then the
+/// remaining nodes in ascending IR identity; each node's own failures report
+/// in FR-154's table order.
 /// Every node and every member read is charged to `budget`.
 pub(super) fn read_semantic_ir(
     document: &Value,
@@ -2964,7 +3006,8 @@ pub(super) fn read_semantic_ir(
     }
     let prefix = format!("ix://{identity}/");
     let mut types: BTreeMap<&str, Vec<&Value>> = BTreeMap::new();
-    for declared in list(document, "types")? {
+    let mut document_positions = BTreeMap::new();
+    for (position, declared) in list(document, "types")?.iter().enumerate() {
         // A node with no identity has none to share and is malformed on its
         // own; the empty identity orders before every other.
         let Some(node) = declared.get("identity").and_then(Value::as_str) else {
@@ -2973,14 +3016,24 @@ pub(super) fn read_semantic_ir(
             );
         };
         types.entry(node).or_default().push(declared);
+        document_positions.entry(node).or_insert(position);
     }
     // Each node's meaning, or the refusal its own identity, uniqueness or
     // kind draws; read before any body so a reference check sees every
     // declared node.
-    let classified: Vec<(&str, ClassifiedType)> = types
+    let mut classified: Vec<(&str, ClassifiedType)> = types
         .iter()
         .map(|(node, declared)| (*node, classify(&prefix, &meanings, declared, node)))
         .collect();
+    classified.sort_by_key(|(node, classified)| match classified {
+        Ok((_, meaning::Kind::TupleValueType)) => {
+            (0, document_positions.get(node).copied().unwrap_or(0))
+        }
+        Ok((_, meaning::Kind::VariantType)) => {
+            (1, document_positions.get(node).copied().unwrap_or(0))
+        }
+        _ => (2, 0),
+    });
     let mut model = DomainModel {
         identity: identity.into(),
         bytes: budget.bytes,
@@ -2989,6 +3042,7 @@ pub(super) fn read_semantic_ir(
         processes: BTreeSet::new(),
         persistence_interfaces: BTreeSet::new(),
         record_types: BTreeMap::new(),
+        tuple_types: BTreeMap::new(),
         value_types: BTreeMap::new(),
         variant_types: BTreeMap::new(),
         unit_refs: unit_refs.clone(),
@@ -3092,8 +3146,11 @@ pub(super) fn read_semantic_ir(
             meaning::Kind::ValueType => {
                 model.value_types.insert((*node).into(), None);
             }
+            meaning::Kind::TupleValueType => {
+                model.tuple_types.insert((*node).into(), Vec::new());
+            }
             meaning::Kind::VariantType => {
-                model.variant_types.insert((*node).into(), BTreeSet::new());
+                model.variant_types.insert((*node).into(), BTreeMap::new());
             }
             meaning::Kind::SystemsConnection => {
                 model.relation_nodes.insert((*node).into());
@@ -3196,6 +3253,109 @@ pub(super) fn read_semantic_ir(
                     .value_types
                     .insert(node.into(), semantic_ir_value_type(declared));
             }
+            meaning::Kind::TupleValueType => {
+                if [
+                    "fields",
+                    "identityFields",
+                    "operations",
+                    "supertypes",
+                    "clauses",
+                ]
+                .iter()
+                .any(|member| declared.get(*member).is_some())
+                {
+                    return Err(SelectionRefusal::located(
+                        ModelRefusal::malformed(),
+                        declared,
+                        budget,
+                    )?
+                    .into());
+                }
+                let positions = match list(declared, "positions") {
+                    Ok(positions) => positions,
+                    Err(refusal) => {
+                        return Err(SelectionRefusal::located(refusal, declared, budget)?.into())
+                    }
+                };
+                if positions.is_empty() {
+                    return Err(SelectionRefusal::located(
+                        ModelRefusal::malformed(),
+                        declared,
+                        budget,
+                    )?
+                    .into());
+                }
+                let mut types = Vec::with_capacity(positions.len());
+                let mut seen = BTreeSet::new();
+                for (ordinal, position) in positions.iter().enumerate() {
+                    let expected = format!("{node}/p{ordinal}");
+                    let identity = match text(position, "identity") {
+                        Ok(identity) => identity,
+                        Err(refusal) => {
+                            return Err(SelectionRefusal::located(refusal, position, budget)?.into())
+                        }
+                    };
+                    if !seen.insert(identity) {
+                        return Err(SelectionRefusal::located(
+                            ModelRefusal::new(
+                                CheckedPackageRefusalCode::InvalidModelBinding,
+                                CheckedPackageRefusalCause::ConflictingBinding,
+                            ),
+                            position,
+                            budget,
+                        )?
+                        .into());
+                    }
+                    if identity != expected {
+                        return Err(SelectionRefusal::located(
+                            ModelRefusal::malformed(),
+                            position,
+                            budget,
+                        )?
+                        .into());
+                    }
+                    let type_ref = match text(position, "typeRef") {
+                        Ok(type_ref) => type_ref,
+                        Err(refusal) => {
+                            return Err(SelectionRefusal::located(refusal, position, budget)?.into())
+                        }
+                    };
+                    let Some(admitted) = SelectedTypeRef::from_admitted_name(type_ref) else {
+                        return Err(SelectionRefusal::located(
+                            ModelRefusal::malformed(),
+                            position,
+                            budget,
+                        )?
+                        .into());
+                    };
+                    let valid = match &admitted {
+                        SelectedTypeRef::Native(NativeTypeRef::Clock)
+                        | SelectedTypeRef::Map(..) => Err(ModelRefusal::malformed()),
+                        SelectedTypeRef::Native(_) => Ok(()),
+                        SelectedTypeRef::Unit(name) if model.unit_refs.contains_key(name) => Ok(()),
+                        SelectedTypeRef::Unit(_) => Err(ModelRefusal::missing_name()),
+                        SelectedTypeRef::Declared(name)
+                            if model.value_types.contains_key(name)
+                                || scope.records.contains(name.as_ref())
+                                || model.tuple_types.contains_key(name)
+                                || model.variant_types.contains_key(name) =>
+                        {
+                            Ok(())
+                        }
+                        SelectedTypeRef::Declared(name)
+                            if scope.all_types.contains(name.as_ref()) =>
+                        {
+                            Err(ModelRefusal::malformed())
+                        }
+                        SelectedTypeRef::Declared(_) => Err(ModelRefusal::missing_name()),
+                    };
+                    if let Err(refusal) = valid {
+                        return Err(SelectionRefusal::located(refusal, position, budget)?.into());
+                    }
+                    types.push(admitted);
+                }
+                model.tuple_types.insert(node.into(), types);
+            }
             meaning::Kind::PersistenceInterface => {
                 let mut defects = Defects::new(declared);
                 check_selected_meaning(declared, meaning, &scope, &mut defects);
@@ -3226,7 +3386,7 @@ pub(super) fn read_semantic_ir(
                         return Err(SelectionRefusal::located(refusal, declared, budget)?.into());
                     }
                 };
-                let mut names = BTreeSet::new();
+                let mut names = BTreeMap::new();
                 for case in cases {
                     let name = match text(case, "name") {
                         Ok(name) => name,
@@ -3236,7 +3396,7 @@ pub(super) fn read_semantic_ir(
                             );
                         }
                     };
-                    if name.is_empty() || !names.insert(Box::<str>::from(name)) {
+                    if name.is_empty() || names.contains_key(name) {
                         return Err(SelectionRefusal::located(
                             ModelRefusal::malformed(),
                             declared,
@@ -3244,6 +3404,58 @@ pub(super) fn read_semantic_ir(
                         )?
                         .into());
                     }
+                    let payload = match case.get("payloadType") {
+                        None | Some(Value::Null) => None,
+                        Some(Value::String(reference)) => {
+                            let Some(resolved) = SelectedTypeRef::from_admitted_name(reference)
+                            else {
+                                return Err(SelectionRefusal::located(
+                                    ModelRefusal::new(
+                                        CheckedPackageRefusalCode::UnsupportedConstruct,
+                                        CheckedPackageRefusalCause::DeclarationForm,
+                                    ),
+                                    case,
+                                    budget,
+                                )?
+                                .into());
+                            };
+                            Some(resolved)
+                        }
+                        Some(_) => {
+                            return Err(SelectionRefusal::located(
+                                ModelRefusal::malformed(),
+                                case,
+                                budget,
+                            )?
+                            .into())
+                        }
+                    };
+                    if let Some(reference) = &payload {
+                        let valid = match reference {
+                            SelectedTypeRef::Native(NativeTypeRef::Clock)
+                            | SelectedTypeRef::Map(..) => false,
+                            SelectedTypeRef::Native(_) => true,
+                            SelectedTypeRef::Unit(name) => model.unit_refs.contains_key(name),
+                            SelectedTypeRef::Declared(name) => {
+                                model.value_types.contains_key(name)
+                                    || scope.records.contains(name.as_ref())
+                                    || model.tuple_types.contains_key(name)
+                                    || model.variant_types.contains_key(name)
+                            }
+                        };
+                        if !valid {
+                            return Err(SelectionRefusal::located(
+                                ModelRefusal::new(
+                                    CheckedPackageRefusalCode::UnsupportedConstruct,
+                                    CheckedPackageRefusalCause::DeclarationForm,
+                                ),
+                                case,
+                                budget,
+                            )?
+                            .into());
+                        }
+                    }
+                    names.insert(name.into(), payload);
                 }
                 if names.is_empty() {
                     return Err(SelectionRefusal::located(
@@ -3332,6 +3544,7 @@ impl References<'_> {
     fn declared_elsewhere(&self, node: &str) -> bool {
         self.model.value_types.contains_key(node)
             || self.model.variant_types.contains_key(node)
+            || self.model.tuple_types.contains_key(node)
             || self.model.record_types.contains_key(node)
             || self.scope.records.contains(node)
             || self.model.other_types.contains(node)
@@ -3359,6 +3572,7 @@ impl References<'_> {
                     || self.scope.records.contains(type_ref)
                     || self.model.value_types.contains_key(type_ref)
                     || self.model.variant_types.contains_key(type_ref)
+                    || self.model.tuple_types.contains_key(type_ref)
                     || self.model.other_types.contains(type_ref) => {}
             CheckedTypeRefInput::Declared if self.scope.refused.contains(type_ref) => {}
             CheckedTypeRefInput::Declared if self.scope.relationships.contains(type_ref) => {

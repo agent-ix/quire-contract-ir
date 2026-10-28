@@ -40,7 +40,7 @@ fn requirement(
         return OwnerRequirement::Source;
     }
     match (node_tag, semantic_form) {
-        ("model", "record_value_type" | "variant_type") => {
+        ("model", "record_value_type" | "tuple_value_type" | "variant_type") => {
             if self_typed || matches!(owner, Some(CheckedNodeOwner::Model { .. })) {
                 OwnerRequirement::Model
             } else {
@@ -216,6 +216,9 @@ fn model_kind_matches(
         }
         CheckedNodeKind::Model(super::ModelForm::RecordValueType) => {
             model.record_types.contains_key(declared)
+        }
+        CheckedNodeKind::Model(super::ModelForm::TupleValueType) => {
+            model.tuple_types.contains_key(declared)
         }
         CheckedNodeKind::Model(super::ModelForm::VariantType) => {
             model.variant_types.contains_key(declared)
