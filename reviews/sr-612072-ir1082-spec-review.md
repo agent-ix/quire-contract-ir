@@ -40,3 +40,9 @@ Ticket: IR-1082. Reviewed frozen PR #645 head 22858d99 against authoritative mai
 ## Assurance Context
 
 No applicable AssuranceProfile was identified for these three changed FR rows. Selected context unavailable: none. Active exceptions: none.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | At PR #645 head 4d7df561, the planned mode type names are plain text while existing exported items remain backticked. The TC-058 Public items parser therefore no longer expects the two absent planned exports; no other source-spec delta was introduced. |
