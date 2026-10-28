@@ -113,7 +113,11 @@ impl CheckedApplicationOperation {
 
 impl Serialize for CheckedApplicationOperation {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.with_point().serialize(serializer)
+        if self.execution_point.is_some() {
+            self.with_point().serialize(serializer)
+        } else {
+            self.record.serialize(serializer)
+        }
     }
 }
 
@@ -125,7 +129,11 @@ impl<'de> Deserialize<'de> for CheckedApplicationOperation {
 
 impl Encode for CheckedApplicationOperation {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
-        self.with_point().encode_into(writer)
+        if self.execution_point.is_some() {
+            self.with_point().encode_into(writer)
+        } else {
+            self.record.encode_into(writer)
+        }
     }
 }
 
