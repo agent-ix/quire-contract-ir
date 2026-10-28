@@ -687,12 +687,12 @@ fn compound_unit_defect(
         let Some(unit) = typed_compound_unit_term(term, graph) else {
             return Some(Defect::BodyMember(index));
         };
-        // Strictly ascending: canonical order and no repeated unit.
-        if units.last().is_some_and(|previous| *previous >= unit) {
-            return Some(Defect::BodyMember(index));
-        }
         units.push(unit);
     }
+    // Dependency membership is checked here; the order and uniqueness of
+    // body terms are semantic shape rules, after structural keys.
+    units.sort();
+    units.dedup();
     if node.dependencies != units {
         return Some(Defect::Dependencies);
     }
@@ -731,18 +731,27 @@ fn typed_compound_unit_term(term: &super::CheckedTerm, graph: &Graph<'_>) -> Opt
 
 /// The zero exponent is a well-formed integer term whose semantic shape is
 /// refused only after every structural key has been checked.
-pub(super) fn compound_unit_has_zero_exponent(term: Option<&super::CheckedTerm>) -> bool {
+pub(super) fn compound_unit_has_invalid_shape(term: Option<&super::CheckedTerm>) -> bool {
     term.and_then(typed_aggregate).is_some_and(|terms| {
-        terms.iter().any(|term| {
-            typed_aggregate(term).is_some_and(|members| {
-                members.get(1).is_some_and(|exponent| {
-                    typed_binding(exponent, "exponent").and_then(|value| match value {
-                        super::CheckedTerm::Literal { value, .. } => value.as_str(),
-                        _ => None,
-                    }) == Some("0")
-                })
-            })
-        })
+        let mut previous: Option<&CheckedNodeId> = None;
+        for term in terms {
+            let Some([unit, exponent]) = typed_aggregate(term) else {
+                continue;
+            };
+            let unit = typed_binding(unit, "unit").and_then(typed_reference);
+            if unit.is_some_and(|unit| previous.is_some_and(|previous| previous >= unit)) {
+                return true;
+            }
+            previous = unit;
+            if typed_binding(exponent, "exponent").and_then(|value| match value {
+                super::CheckedTerm::Literal { value, .. } => value.as_str(),
+                _ => None,
+            }) == Some("0")
+            {
+                return true;
+            }
+        }
+        false
     })
 }
 

@@ -76,7 +76,7 @@ fn append_rekeyed(package: &mut Value, mut node: Value) -> Value {
     append_node(package, node)
 }
 
-fn append_population(package: &mut Value, object: &Value, max: &str) -> Value {
+fn append_population(package: &mut Value, object: &Value, max: Option<&str>, extra: bool) -> Value {
     let integer = package["semantic_graph"]["nodes"][node_index(package, "scalar_type", "integer")]
         ["node_id"]
         .clone();
@@ -98,12 +98,22 @@ fn append_population(package: &mut Value, object: &Value, max: &str) -> Value {
     .clone();
     population["semantic_form"] = json!("model_population");
     population["semantic_type"] = set.clone();
-    population["body"] = json!({"term":"aggregate", "members":[{
-        "name":"max", "term":"binding", "value":{
+    let mut members = Vec::new();
+    if let Some(max) = max {
+        members.push(json!({"name":"max", "term":"binding", "value":{
             "term":"literal", "type":integer, "value_kind":"integer", "value":max
-        }
-    }]});
-    let mut dependencies = vec![integer, set];
+        }}));
+    }
+    if extra {
+        members.push(json!({"name":"other", "term":"binding", "value":{
+            "term":"literal", "type":integer, "value_kind":"integer", "value":"1"
+        }}));
+    }
+    population["body"] = json!({"term":"aggregate", "members": members});
+    let mut dependencies = vec![set];
+    if max.is_some() || extra {
+        dependencies.push(integer);
+    }
     dependencies.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
     population["dependencies"] = json!(dependencies);
     append_rekeyed(package, population)
@@ -143,7 +153,8 @@ fn candidate(base: &Value, case: &Value) -> Value {
         Some(append_population(
             &mut package,
             &object,
-            descriptor["max"].as_str().expect("max"),
+            descriptor["max"].as_str(),
+            descriptor["extra_member"] == true,
         ))
     } else {
         Some(
@@ -207,5 +218,62 @@ fn tc_048_qspec_reaches_population_cases_match_the_reader() {
             format!("refused:{}", text_of(row, "expected_code").expect("code"))
         };
         assert_eq!(got, expected, "{id}: {:?}", read_package(&package));
+    }
+}
+
+#[trace("TC-048", "FR-038-AC-343")]
+#[test]
+fn tc_048_qspec_unbounded_population_shapes_match_the_reader() {
+    let dir = fixtures_dir();
+    let adverse = read_json(&dir.join(ADVERSE)).expect("QSpec adverse fixture");
+    let rows = mutations(&adverse, "unbounded_population_cases").expect("published cases");
+    assert_eq!(rows.len(), 5);
+    let mut seen = std::collections::BTreeSet::new();
+    for row in rows {
+        let id = text_of(row, "id").expect("case id");
+        assert!(seen.insert(id), "duplicate case {id}");
+        let base = text_of(row, "base").expect("base");
+        let package = read_json(&dir.join(format!("{base}.json"))).expect("published base");
+        let descriptor = json!({
+            "model_population_over": "ix://acme/orders/Order",
+            "max": row["max"],
+            "extra_member": row["extra_member"] == true,
+        });
+        let case = json!({"population": descriptor});
+        let package = candidate(&package, &case);
+        let population_position = node_index(&package, "bounded_domain", "model_population");
+        let population_id =
+            package["semantic_graph"]["nodes"][population_position]["node_id"].clone();
+        let result = read_package(&package).unwrap_or_else(|why| panic!("{id}: {why}"));
+        if row["outcome"] == "admitted" {
+            assert!(
+                matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+                "{id}: {result:?}"
+            );
+        } else {
+            let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+                panic!("{id}: expected refusal, got {result:?}");
+            };
+            assert_eq!(
+                code_word(refusal.code),
+                text_of(row, "expected_code").expect("code"),
+                "{id}"
+            );
+            assert_eq!(
+                refusal.cause.map(cause_word),
+                row["expected_cause"].as_str(),
+                "{id}"
+            );
+            assert_eq!(
+                refusal.path.as_ref().map(ToString::to_string).as_deref(),
+                Some(format!("/semantic_graph/nodes/{population_position}/node_id").as_str()),
+                "{id}"
+            );
+            assert_eq!(
+                refusal.locus.as_ref().map(|locus| locus.digest.as_ref()),
+                population_id["digest"].as_str(),
+                "{id}"
+            );
+        }
     }
 }

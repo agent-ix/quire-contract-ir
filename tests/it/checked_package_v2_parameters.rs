@@ -335,6 +335,15 @@ fn invalid_at(package: &Value, position: usize, member: &str) -> ExpectedRefusal
     )
 }
 
+fn invalid_derived_shape_at(package: &Value, position: usize) -> ExpectedRefusal {
+    refusal_at(
+        CheckedPackageRefusalCode::InvalidPackage,
+        &format!("/semantic_graph/nodes/{position}/node_id"),
+        Some(CheckedPackageRefusalCause::InvalidDerivedShape),
+        &node_key(package, position),
+    )
+}
+
 /// A rekeyed target's old canonical key remains available to the shape
 /// stage, leaving the target's own key authentication to choose the refusal.
 /// Provenance: IR-1059, QSpec FR-322-AC-154; FR-069-AC-6 stays open.
@@ -559,7 +568,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     });
     assert_eq!(
         refused(&zero_exponent),
-        invalid_at(&zero_exponent, COMPOUND, FIRST_TERM)
+        invalid_derived_shape_at(&zero_exponent, COMPOUND)
     );
 
     // A term names a root unit, never a dimension.
@@ -581,7 +590,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     });
     assert_eq!(
         refused(&repeated_unit),
-        invalid_at(&repeated_unit, COMPOUND, SECOND_TERM)
+        invalid_derived_shape_at(&repeated_unit, COMPOUND)
     );
 
     let undeclared_dependency = mutated(COMPOUND, |node| node["dependencies"] = json!([]));
@@ -621,11 +630,11 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     ));
     let descending = mutated(COMPOUND, |node| {
         node["body"] = two_terms(&high, &low);
-        node["dependencies"] = json!([node_id(&high), node_id(&low)]);
+        node["dependencies"] = json!([node_id(&low), node_id(&high)]);
     });
     assert_eq!(
         refused(&descending),
-        invalid_at(&descending, COMPOUND, SECOND_TERM)
+        invalid_derived_shape_at(&descending, COMPOUND)
     );
 
     // A term names a root unit, never a unit with a target.

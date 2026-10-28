@@ -700,9 +700,16 @@ pub(super) fn validate_derived_keys(
             continue;
         };
         let invalid = if kind == CheckedNodeKind::ScalarType(super::ScalarTypeForm::CompoundUnit) {
-            super::structural::compound_unit_has_zero_exponent(
+            super::structural::compound_unit_has_invalid_shape(
                 terms.get(position).and_then(Option::as_ref),
             )
+        } else if kind == CheckedNodeKind::BoundedDomain(BoundedDomainForm::ModelPopulation) {
+            !model_population_body_valid(
+                terms.get(position).and_then(Option::as_ref),
+                nodes,
+                index,
+                bytes,
+            )?
         } else if kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) {
             let target = super::structural::reference_type_target(node)
                 .ok_or_else(|| encoder_failure(node_pointer(position).key("body")))?;
@@ -735,6 +742,48 @@ pub(super) fn validate_derived_keys(
         }
     }
     Ok(())
+}
+
+/// The optional maximum is an integer scalar bound, with no other members.
+/// This runs after key authentication so a changed body under a retained key
+/// still reports the stale key first.
+fn model_population_body_valid(
+    term: Option<&CheckedTerm>,
+    nodes: &[CheckedSemanticNodeV2],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    bytes: u64,
+) -> Result<bool, ValidationFailure> {
+    let Some(CheckedTerm::Aggregate { members }) = term else {
+        return Ok(false);
+    };
+    if members.is_empty() {
+        return Ok(true);
+    }
+    let [CheckedTerm::Binding { name, value }] = members.as_slice() else {
+        return Ok(false);
+    };
+    if name.as_ref() != "max" {
+        return Ok(false);
+    }
+    let CheckedTerm::Literal {
+        type_id,
+        value_kind,
+        value,
+    } = value.as_ref()
+    else {
+        return Ok(false);
+    };
+    let integer = MemberType::Integer
+        .node_key(bytes)
+        .map_err(|_| encoder_failure(JsonPointer::root()))?;
+    Ok(*value_kind == LiteralKind::Integer
+        && type_id.digest.as_ref() == integer
+        && index.get(type_id).is_some_and(|&position| {
+            nodes
+                .get(position)
+                .is_some_and(|node| node.node_id == *type_id)
+        })
+        && value.as_str().is_some_and(is_non_negative_integer))
 }
 
 fn validate_selected_model_declaration_key(
