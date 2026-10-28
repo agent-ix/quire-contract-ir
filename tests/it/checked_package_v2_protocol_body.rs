@@ -3224,8 +3224,8 @@ fn clause_capture_checks_binder_form_and_ordered_level() {
     );
 }
 
-/// Trace: FR-038-AC-284, FR-038-AC-291
-#[trace("TC-048")]
+/// Trace: FR-038-AC-283, FR-038-AC-284, FR-038-AC-291
+#[trace("TC-048", "FR-038-AC-283")]
 #[test]
 fn clause_capture_order_sets_each_binder_level() {
     let mut package = v2_all_families();
@@ -3246,11 +3246,18 @@ fn clause_capture_order_sets_each_binder_level() {
         read(&package),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
+    let original_clause_key = package["semantic_graph"]["nodes"][clause]["node_id"].clone();
+    let original_package_id = package["package_id"].clone();
     package["semantic_graph"]["nodes"][clause]["body"]["arguments"][2]["value"]["members"]
         .as_array_mut()
         .expect("captures")
         .swap(0, 1);
     settle(&mut package);
+    assert_ne!(
+        package["semantic_graph"]["nodes"][clause]["node_id"],
+        original_clause_key
+    );
+    assert_ne!(package["package_id"], original_package_id);
     let second_position = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -3499,7 +3506,8 @@ fn protocol_role_and_root_control_can_share_a_name() {
     ));
 }
 
-#[trace("TC-048")]
+/// Trace: FR-038-AC-283
+#[trace("TC-048", "FR-038-AC-283")]
 #[test]
 fn protocol_listed_role_must_use_its_clause_and_fixed_segment() {
     for declaration in [
@@ -3537,7 +3545,8 @@ fn protocol_listed_role_must_use_its_clause_and_fixed_segment() {
     }
 }
 
-#[trace("TC-048")]
+/// Trace: FR-038-AC-283
+#[trace("TC-048", "FR-038-AC-283")]
 #[test]
 fn nested_control_uses_its_holder_path() {
     let mut package = v2_all_families();
@@ -3901,8 +3910,8 @@ fn control_choice_guard_and_parallel_join_labels_refuse_at_the_member() {
     );
 }
 
-/// Trace: FR-038-AC-284, FR-038-AC-288
-#[trace("TC-048")]
+/// Trace: FR-038-AC-283, FR-038-AC-284, FR-038-AC-288
+#[trace("TC-048", "FR-038-AC-283")]
 #[test]
 fn sequence_admits_ordered_controls_and_refuses_role_child() {
     let (mut package, children) = protocol_holder_case("parallel");
@@ -3921,6 +3930,24 @@ fn sequence_admits_ordered_controls_and_refuses_role_child() {
     settle(&mut package);
     assert!(matches!(
         read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    let original_key = package["semantic_graph"]["nodes"][holder]["node_id"].clone();
+    let original_package_id = package["package_id"].clone();
+    let mut reversed = package.clone();
+    reversed["semantic_graph"]["nodes"][holder]["body"]["arguments"][0]["value"]["members"]
+        .as_array_mut()
+        .expect("sequence children")
+        .reverse();
+    settle(&mut reversed);
+    assert_ne!(
+        reversed["semantic_graph"]["nodes"][holder]["node_id"],
+        original_key
+    );
+    assert_ne!(reversed["package_id"], original_package_id);
+    assert!(matches!(
+        read(&reversed),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
 
@@ -4104,7 +4131,8 @@ fn parallel_memory_and_outstanding_reject_unknown_spelling_at_wire_boundary() {
     }
 }
 
-#[trace("TC-048")]
+/// Trace: FR-038-AC-283
+#[trace("TC-048", "FR-038-AC-283")]
 #[test]
 fn choice_parallel_repeat_and_await_hold_controls_at_their_own_paths() {
     for operator in ["choice", "parallel", "repeat", "await"] {
@@ -4760,7 +4788,8 @@ fn repeat_maximum_and_await_interval_reject_negative_bounds_at_wire() {
     );
 }
 
-#[trace("TC-048")]
+/// Trace: FR-038-AC-283
+#[trace("TC-048", "FR-038-AC-283")]
 #[test]
 fn protocol_declaration_occurrences_reject_generated_role() {
     let mut package = v2_all_families();
@@ -4777,7 +4806,222 @@ fn protocol_declaration_occurrences_reject_generated_role() {
     );
 }
 
-#[trace("TC-048")]
+/// Trace: FR-038-AC-283
+#[trace("TC-048", "FR-038-AC-283")]
+#[test]
+fn declared_role_source_occurrences_leave_node_and_package_id_stable() {
+    let (mut package, position) = package_with_member_role();
+    let original_key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+    let original_package_id = package["package_id"].clone();
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    let source_row = package["source_map"]
+        .as_array()
+        .expect("source map")
+        .iter()
+        .find(|row| row["node_id"] == original_key)
+        .expect("role source row")
+        .clone();
+    package["semantic_graph"]["nodes"][position]["occurrences"]
+        .as_array_mut()
+        .expect("role occurrences")
+        .push(json!({"role": "declaration", "ordinal": 1}));
+    let mut second_row = source_row.clone();
+    second_row["ordinal"] = json!(1);
+    second_row["regions"][0]["start"] = json!(1000);
+    second_row["regions"][0]["end"] = json!(1005);
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(second_row);
+    refresh_identity(&mut package);
+
+    assert_eq!(
+        package["semantic_graph"]["nodes"][position]["node_id"],
+        original_key
+    );
+    assert_eq!(package["package_id"], original_package_id);
+    let admitted = match read(&package) {
+        CheckedPackageV2ReadResult::Admitted(admitted) => admitted,
+        other => panic!("second declared role source must admit: {other:?}"),
+    };
+    assert_eq!(admitted.graph().nodes[position].occurrences.len(), 2);
+    assert_eq!(
+        admitted
+            .source_map()
+            .iter()
+            .filter(|row| row.node_id == admitted.graph().nodes[position].node_id)
+            .count(),
+        2
+    );
+
+    let second_region = &mut package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .iter_mut()
+        .find(|row| row["node_id"] == original_key && row["ordinal"] == json!(1))
+        .expect("second role source row")["regions"][0];
+    second_region["start"] = json!(2000);
+    second_region["end"] = json!(2005);
+    refresh_identity(&mut package);
+    assert_eq!(package["package_id"], original_package_id);
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
+/// Trace: FR-038-AC-283
+#[trace("TC-048", "FR-038-AC-283")]
+#[test]
+fn reordered_role_declaration_sources_preserve_set_backed_identities() {
+    let (mut package, first) = package_with_member_role();
+    let second_node = protocol_named_node(
+        "role",
+        &["Example", "OrderFlow", "role", "Other"],
+        protocol_role_node()["body"].clone(),
+        &[family_key("1616")],
+    );
+    let second_key = second_node["node_id"].clone();
+    let second = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(second_node);
+    let first_key = package["semantic_graph"]["nodes"][first]["node_id"].clone();
+    let mut role_keys = [first_key.clone(), second_key.clone()];
+    role_keys.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    let clause = clause_position(&package);
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][3]["value"]["members"] =
+        json!(role_keys
+            .iter()
+            .map(|key| json!({"term": "reference", "target": key}))
+            .collect::<Vec<_>>());
+    settle(&mut package);
+    let first_key = package["semantic_graph"]["nodes"][first]["node_id"].clone();
+    let second_key = package["semantic_graph"]["nodes"][second]["node_id"].clone();
+    let clause_key = package["semantic_graph"]["nodes"][clause]["node_id"].clone();
+    let package_id = package["package_id"].clone();
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    let rows = package["source_map"].as_array_mut().expect("source map");
+    let first_row = rows
+        .iter()
+        .position(|row| row["node_id"] == first_key)
+        .expect("first role source");
+    let second_row = rows
+        .iter()
+        .position(|row| row["node_id"] == second_key)
+        .expect("second role source");
+    let first_region = rows[first_row]["regions"].clone();
+    let second_region = rows[second_row]["regions"].clone();
+    let first_start = first_region[0]["start"].as_u64().expect("first start");
+    let second_start = second_region[0]["start"].as_u64().expect("second start");
+    assert!(first_start < second_start);
+    rows[first_row]["regions"] = second_region;
+    rows[second_row]["regions"] = first_region;
+    assert_eq!(rows[first_row]["regions"][0]["start"], json!(second_start));
+    assert_eq!(rows[second_row]["regions"][0]["start"], json!(first_start));
+    refresh_identity(&mut package);
+
+    assert_eq!(
+        package["semantic_graph"]["nodes"][first]["node_id"],
+        first_key
+    );
+    assert_eq!(
+        package["semantic_graph"]["nodes"][second]["node_id"],
+        second_key
+    );
+    assert_eq!(
+        package["semantic_graph"]["nodes"][clause]["node_id"],
+        clause_key
+    );
+    assert_eq!(package["package_id"], package_id);
+    let admitted = match read(&package) {
+        CheckedPackageV2ReadResult::Admitted(admitted) => admitted,
+        other => panic!("source-reordered role declarations must admit: {other:?}"),
+    };
+    assert_eq!(
+        admitted.graph().nodes[first].node_id,
+        admitted.source_map()[first_row].node_id
+    );
+    assert_eq!(
+        admitted.graph().nodes[second].node_id,
+        admitted.source_map()[second_row].node_id
+    );
+    assert_eq!(
+        admitted.source_map()[first_row].regions[0].start,
+        second_start
+    );
+    assert_eq!(
+        admitted.source_map()[second_row].regions[0].start,
+        first_start
+    );
+}
+
+/// Trace: FR-038-AC-283
+#[trace("TC-048", "FR-038-AC-283")]
+#[test]
+fn wrong_role_path_rekeys_but_refuses_at_declaration() {
+    let (mut package, position) = package_with_member_role();
+    let original_key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+    let original_package_id = package["package_id"].clone();
+    package["semantic_graph"]["nodes"][position]["declaration"]["qualified_name"][2] =
+        json!("channel");
+    settle(&mut package);
+    assert_ne!(
+        package["semantic_graph"]["nodes"][position]["node_id"],
+        original_key
+    );
+    assert_ne!(package["package_id"], original_package_id);
+    let key = package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
+        .as_str()
+        .expect("role key");
+    assert_eq!(
+        read(&package),
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            &format!("/semantic_graph/nodes/{position}"),
+            None,
+            key,
+        )
+    );
+}
+
+/// Trace: FR-038-AC-283
+#[trace("TC-048", "FR-038-AC-283")]
+#[test]
+fn changed_role_name_with_retained_key_refuses_as_stale() {
+    let (mut package, position) = package_with_member_role();
+    let retained_key = package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
+        .as_str()
+        .expect("role key")
+        .to_owned();
+    package["semantic_graph"]["nodes"][position]["declaration"]["qualified_name"][3] =
+        json!("Other");
+    refresh_identity(&mut package);
+    assert_eq!(
+        read(&package),
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidPackage,
+            &format!("/semantic_graph/nodes/{position}/node_id"),
+            Some(CheckedPackageRefusalCause::StaleNodeKey),
+            &retained_key,
+        )
+    );
+}
+
+/// Trace: FR-038-AC-283
+#[trace("TC-048", "FR-038-AC-283")]
 #[test]
 fn queue_requires_no_declaration_and_generated_occurrences() {
     for keep_declaration in [true, false] {
@@ -4839,6 +5083,49 @@ fn queue_requires_no_declaration_and_generated_occurrences() {
             )
         );
     }
+}
+
+/// Trace: FR-038-AC-283
+#[trace("TC-048", "FR-038-AC-283")]
+#[test]
+fn admitted_queue_has_only_generated_occurrences_and_no_declaration() {
+    let (package, position) = package_with_member_queue();
+    assert!(package["semantic_graph"]["nodes"][position]
+        .get("declaration")
+        .is_none());
+    assert_eq!(
+        package["semantic_graph"]["nodes"][position]["occurrences"],
+        json!([{"role": "generated", "ordinal": 0}])
+    );
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    let mut declaration_role = package.clone();
+    declaration_role["semantic_graph"]["nodes"][position]["occurrences"][0]["role"] =
+        json!("declaration");
+    rebuild_source_map(&mut declaration_role);
+    refresh_identity(&mut declaration_role);
+    assert_eq!(
+        read(&declaration_role),
+        refusal(
+            CheckedPackageRefusalCode::MalformedWire,
+            &format!("/semantic_graph/nodes/{position}"),
+        )
+    );
+
+    let mut named_queue = package;
+    named_queue["semantic_graph"]["nodes"][position]["declaration"] =
+        json!({"qualified_name": ["Example", "OrderFlow", "queue", "Work"]});
+    refresh_identity(&mut named_queue);
+    assert_eq!(
+        read(&named_queue),
+        refusal(
+            CheckedPackageRefusalCode::MalformedWire,
+            &format!("/semantic_graph/nodes/{position}"),
+        )
+    );
 }
 
 #[trace("TC-048")]
@@ -7365,8 +7652,8 @@ fn protocol_role_checks_model_form_at_target() {
     );
 }
 
-/// Trace: FR-038-AC-282, FR-038-AC-286
-#[trace("TC-947")]
+/// Trace: FR-038-AC-282, FR-038-AC-283, FR-038-AC-286
+#[trace("TC-947", "FR-038-AC-283")]
 #[test]
 fn protocol_whole_model_role_admits_selected_text_without_model_dependency() {
     let (mut package, role) = whole_model_role("test/families");
@@ -7388,6 +7675,12 @@ fn protocol_whole_model_role_admits_selected_text_without_model_dependency() {
             "identity": "test/other", "digest_domain": "sha256-jcs",
             "digest": domain_package_digest(&other),
         }));
+    refresh_identity(&mut package);
+    assert_eq!(
+        package["semantic_graph"]["nodes"][role]["node_id"],
+        first_key
+    );
+    let first_package_id = package["package_id"].clone();
     package["semantic_graph"]["nodes"][role]["body"]["arguments"][0]["value"]["value"] =
         json!("test/other");
     settle(&mut package);
@@ -7395,6 +7688,7 @@ fn protocol_whole_model_role_admits_selected_text_without_model_dependency() {
         package["semantic_graph"]["nodes"][role]["node_id"],
         first_key
     );
+    assert_ne!(package["package_id"], first_package_id);
     assert_eq!(
         package["semantic_graph"]["nodes"][role]["dependencies"],
         json!([])

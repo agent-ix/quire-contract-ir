@@ -82,7 +82,8 @@ fn role_target(package: &mut Value) -> Value {
     target
 }
 
-#[trace("FR-038-AC-239", "TC-048")]
+/// Trace: FR-038-AC-239, FR-038-AC-283
+#[trace("FR-038-AC-239", "FR-038-AC-283", "TC-048")]
 #[test]
 fn protocol_reference_reads_both_protocol_target_forms_and_rekeys_on_retarget() {
     let mut package = v2_all_families();
@@ -129,11 +130,30 @@ fn protocol_reference_reads_both_protocol_target_forms_and_rekeys_on_retarget() 
     );
 
     let role = role_target(&mut package);
+    let rekeyed_clause = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "protocol_clause")
+        .expect("clause")["node_id"]
+        .clone();
+    retarget(&mut package, position, &rekeyed_clause);
+    let before_retarget_key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+    let before_retarget_package_id = package["package_id"].clone();
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
     retarget(&mut package, position, &role);
+    assert_ne!(
+        package["semantic_graph"]["nodes"][position]["node_id"],
+        before_retarget_key
+    );
     assert_ne!(
         package["semantic_graph"]["nodes"][position]["node_id"],
         first_key
     );
+    assert_ne!(package["package_id"], before_retarget_package_id);
     match read(&package) {
         CheckedPackageV2ReadResult::Admitted(package) => {
             assert_eq!(
