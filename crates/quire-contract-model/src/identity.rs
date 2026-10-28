@@ -1789,7 +1789,7 @@ impl WireReferenceBody {
 
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-enum WireExecutionPoint {
+pub(crate) enum WireExecutionPoint {
     Initialization { name: String },
     Handler { name: String },
     Pre { operation: String },
@@ -1797,7 +1797,7 @@ enum WireExecutionPoint {
 }
 
 impl WireExecutionPoint {
-    fn validate(self) -> Result<ExecutionPoint, Diagnostic> {
+    pub(crate) fn validate(self) -> Result<ExecutionPoint, Diagnostic> {
         match self {
             Self::Initialization { name } => Ok(ExecutionPoint::Initialization {
                 name: AnchorName::new(name)?.into(),
