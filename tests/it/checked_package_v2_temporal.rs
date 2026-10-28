@@ -449,6 +449,11 @@ fn with_fairness(profile: &str, member: Value) -> (Value, usize) {
     (package, fair)
 }
 
+pub(crate) fn admitted_fairness_source_for_contract() -> CheckedPackageV2 {
+    let (package, _) = with_fairness(INFINITE, fairness_member(&model_key(ORDER_NODE), "scaled"));
+    admitted("contract source with fairness", &package)
+}
+
 fn profile_supporting(tags: &[CheckedNodeTag]) -> CompleteLoweringProfileV2 {
     CompleteLoweringProfileV2 {
         reference: quire_contract_model::LoweringProfileRef {

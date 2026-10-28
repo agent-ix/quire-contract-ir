@@ -28,8 +28,9 @@ use super::lower::{
     CONTRACT_PACKAGE_VERSION,
 };
 use super::{
-    CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedPackageV2, CheckedSelectionRole,
-    CheckedTerm, RawSemanticNodeV2 as CheckedSemanticNodeV2,
+    CheckedNodeKind, CheckedNodeTag, CheckedOperationViewError, CheckedPackageLockV2,
+    CheckedPackageV2, CheckedSelectionRole, CheckedTerm,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2,
 };
 use crate::checked_package::common::{
     read_typed_prefix, strict_parse, Step, Trail, ValidationFailure, NODE_DOMAIN,
@@ -364,6 +365,7 @@ pub struct ContractPackageV1 {
     node_index: BTreeMap<CheckedNodeId, usize>,
     source_index: BTreeMap<CheckedNodeId, usize>,
     unsupported_tags: Vec<Option<CheckedNodeTag>>,
+    unsupported_source_kinds: Option<Vec<Option<CheckedNodeKind>>>,
 }
 
 pub(super) struct GuardContextWork {
@@ -697,6 +699,22 @@ impl ContractPackageV1 {
             .flatten()
     }
 
+    /// The admitted V2 kind of an unsupported request's root at this accounting index.
+    /// Plain strict reads return `NotAdmitted` for unsupported records.
+    pub fn unsupported_source_kind_at(
+        &self,
+        accounting_index: usize,
+    ) -> Result<Option<CheckedNodeKind>, CheckedOperationViewError> {
+        if self.unsupported_tag_at(accounting_index).is_none() {
+            return Ok(None);
+        }
+        self.unsupported_source_kinds
+            .as_ref()
+            .and_then(|kinds| kinds.get(accounting_index))
+            .copied()
+            .ok_or(CheckedOperationViewError::NotAdmitted)
+    }
+
     /// Remove one admitted source-map node to exercise defensive query errors.
     /// This is available only to the root crate's test-only fault-injection
     /// feature; production callers cannot mutate an admitted package.
@@ -917,6 +935,13 @@ impl ContractPackageWireV1 {
                 _ => None,
             })
             .collect();
+        let unsupported_source_kinds = records
+            .iter()
+            .map(|record| match record {
+                CompleteLoweringRecordV2::Unsupported { node_id, .. } => source.node_kind(node_id),
+                _ => None,
+            })
+            .collect();
         let node_sources = nodes
             .iter()
             .map(|node_id| ContractNodeSourcesV1 {
@@ -1000,6 +1025,7 @@ impl ContractPackageWireV1 {
                 terms,
                 node_index,
                 unsupported_tags,
+                unsupported_source_kinds: Some(unsupported_source_kinds),
             },
             bytes,
         ))
@@ -1063,7 +1089,20 @@ impl ContractPackageWireV1 {
                 .ok_or_else(|| ContractSourceHandoffError::MissingNode(key.clone()))?;
             source_terms.push(Some(term.clone()));
         }
+        let unsupported_source_kinds = package
+            .wire
+            .feature_accounting
+            .iter()
+            .map(|record| match record {
+                ContractFeatureRecordV1::Unsupported { node_id, .. } => source
+                    .node_kind(node_id)
+                    .map(Some)
+                    .ok_or_else(|| ContractSourceHandoffError::MissingNode(node_id.clone())),
+                _ => Ok(None),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         package.terms = source_terms;
+        package.unsupported_source_kinds = Some(unsupported_source_kinds);
         Ok(ContractPackageReadResult::Admitted(package))
     }
 
@@ -1130,6 +1169,7 @@ impl ContractPackageWireV1 {
             terms,
             node_index,
             unsupported_tags,
+            unsupported_source_kinds: None,
         })
     }
 }

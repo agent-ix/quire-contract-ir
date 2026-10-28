@@ -14,7 +14,8 @@ use quire_contract_model::{
     CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm,
     CompleteLoweringProfileV2, CompleteLoweringRecordV2, ContractDependencies,
     ContractDispositionV1, ContractPackageReadResult, ContractPackageWireV1, ContractRootViewV1,
-    ContractSourceHandoffError, CONTRACT_IR_SEMANTIC_DOMAIN, CONTRACT_PACKAGE_VERSION,
+    ContractSourceHandoffError, TemporalForm, CONTRACT_IR_SEMANTIC_DOMAIN,
+    CONTRACT_PACKAGE_VERSION,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -1202,6 +1203,116 @@ fn retained_typed_views_match_source_and_strict_reader_without_changing_wire() {
         producer.node_kind(&id("dddd")),
         Some(CheckedNodeKind::Value(_))
     ));
+}
+
+#[trace(
+    "TC-047",
+    "FR-035-AC-27",
+    "FR-035-AC-28",
+    "FR-035-AC-29",
+    "FR-035-AC-30"
+)]
+#[test]
+fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
+    let source = crate::checked_package_v2_temporal::admitted_fairness_source_for_contract();
+    let by_kind = |kind| {
+        source
+            .graph()
+            .nodes
+            .iter()
+            .zip(source.node_kinds())
+            .find(|(_, candidate)| **candidate == kind)
+            .map(|(node, _)| node.node_id.clone())
+            .expect("admitted kind")
+    };
+    let clause = by_kind(CheckedNodeKind::Temporal(TemporalForm::TemporalClause));
+    let fairness = by_kind(CheckedNodeKind::Temporal(TemporalForm::Fairness));
+    let formula = by_kind(CheckedNodeKind::Temporal(TemporalForm::Formula));
+    let healthy = source
+        .graph()
+        .nodes
+        .iter()
+        .zip(source.node_kinds())
+        .find(|(_, kind)| kind.tag() == CheckedNodeTag::Value)
+        .map(|(node, _)| node.node_id.clone())
+        .expect("healthy value");
+    let requests = [
+        clause.clone(),
+        healthy.clone(),
+        fairness.clone(),
+        formula.clone(),
+    ];
+    let mut lowering_profile = profile();
+    lowering_profile
+        .supported_tags
+        .remove(&CheckedNodeTag::Temporal);
+    lowering_profile.require_bounds = false;
+    let result = source.lower(&requests, &lowering_profile);
+    let producer = result.package.wire().expect("producer package");
+    let wire_bytes = bytes(&result);
+    let ContractPackageReadResult::Admitted(plain) = read(wire_bytes) else {
+        panic!("canonical plain read");
+    };
+    let ContractPackageReadResult::Admitted(authenticated) =
+        ContractPackageWireV1::read_with_source(
+            wire_bytes,
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::new(),
+            &source,
+        )
+        .expect("source handoff")
+    else {
+        panic!("canonical authenticated read");
+    };
+    assert_eq!(producer.wire(), plain.wire());
+    assert_eq!(producer.wire(), authenticated.wire());
+    assert_eq!(producer.identity(), plain.identity());
+    assert_eq!(producer.identity(), authenticated.identity());
+    assert_eq!(
+        wire_bytes,
+        canonical(&serde_json::to_value(producer.wire()).expect("wire value"))
+    );
+    for (index, expected) in [
+        Some(CheckedNodeKind::Temporal(TemporalForm::TemporalClause)),
+        None,
+        Some(CheckedNodeKind::Temporal(TemporalForm::Fairness)),
+        Some(CheckedNodeKind::Temporal(TemporalForm::Formula)),
+        None,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert_eq!(producer.unsupported_source_kind_at(index), Ok(expected));
+        assert_eq!(
+            authenticated.unsupported_source_kind_at(index),
+            Ok(expected)
+        );
+        assert_eq!(
+            plain.unsupported_source_kind_at(index),
+            if expected.is_some() {
+                Err(CheckedOperationViewError::NotAdmitted)
+            } else {
+                Ok(None)
+            }
+        );
+    }
+    assert!(matches!(
+        result.records[1],
+        CompleteLoweringRecordV2::Lowered { .. }
+    ));
+    assert_eq!(producer.node_kind(&clause), None);
+    assert_eq!(producer.node_kind(&fairness), None);
+    assert_eq!(producer.node_kind(&formula), None);
+    assert!(producer.node_kind(&healthy).is_some());
+    assert_eq!(
+        ContractPackageWireV1::read_with_source(
+            wire_bytes,
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::new(),
+            &admit(&mixed_fixture()),
+        ),
+        Err(ContractSourceHandoffError::SourceIdentity)
+    );
 }
 
 #[trace("TC-047", "FR-035-AC-21")]
