@@ -23,6 +23,46 @@ pub struct CheckedApplicationOperation {
     record: Value,
     execution_point: Option<ExecutionPoint>,
     views: Option<CheckedOperationViews>,
+    #[cfg(feature = "test-support")]
+    test_fixture: bool,
+}
+
+/// Typed, validated input for a test-only application operation.
+#[cfg(feature = "test-support")]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct CheckedApplicationOperationFixture {
+    /// Optional operation identity, including intentional absence.
+    pub identity: Option<Box<str>>,
+    /// Optional closed mode kind and its value.
+    pub mode: Option<(OperationModeKind, Box<str>)>,
+    /// Ordered definitions with the fixed `integer_division` law role.
+    pub law_definitions: Vec<CheckedArtifactRef>,
+    /// Optional member declaration key.
+    pub member_declaration: Option<CheckedNodeId>,
+}
+
+/// A malformed typed test operation input.
+#[cfg(feature = "test-support")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum CheckedApplicationOperationFixtureError {
+    /// A present operation identity was empty.
+    #[error("operation identity is empty")]
+    EmptyIdentity,
+    /// A present mode value was empty.
+    #[error("operation mode value is empty")]
+    EmptyModeValue,
+    /// A law definition had an empty authority.
+    #[error("law definition authority is empty")]
+    EmptyLawAuthority,
+    /// A law definition had an empty identity.
+    #[error("law definition identity is empty")]
+    EmptyLawIdentity,
+    /// The member declaration key had an invalid domain.
+    #[error("member declaration domain is invalid")]
+    InvalidMemberDomain,
+    /// The member declaration key had an invalid digest.
+    #[error("member declaration digest is invalid")]
+    InvalidMemberDigest,
 }
 
 /// The admitted kind and value of an operation's mode.
@@ -71,7 +111,96 @@ impl CheckedApplicationOperation {
                 state_clause_kind: Some(clause),
                 ..CheckedOperationViews::default()
             }),
+            #[cfg(feature = "test-support")]
+            test_fixture: false,
         }
+    }
+
+    /// Construct a test operation without admitting a package or accepting a JSON view.
+    #[cfg(feature = "test-support")]
+    #[ix_trace_rs::string_edge]
+    pub fn from_test_fixture(
+        fixture: CheckedApplicationOperationFixture,
+    ) -> Result<Self, CheckedApplicationOperationFixtureError> {
+        use CheckedApplicationOperationFixtureError as FixtureError;
+
+        if fixture.identity.as_deref() == Some("") {
+            return Err(FixtureError::EmptyIdentity);
+        }
+        if fixture
+            .mode
+            .as_ref()
+            .is_some_and(|(_, value)| value.is_empty())
+        {
+            return Err(FixtureError::EmptyModeValue);
+        }
+        for definition in &fixture.law_definitions {
+            if definition.authority.is_empty() {
+                return Err(FixtureError::EmptyLawAuthority);
+            }
+            if definition.identity.is_empty() {
+                return Err(FixtureError::EmptyLawIdentity);
+            }
+        }
+        if let Some(key) = &fixture.member_declaration {
+            if key.domain.as_ref() != super::NODE_DOMAIN {
+                return Err(FixtureError::InvalidMemberDomain);
+            }
+            if !super::is_digest(&key.digest) {
+                return Err(FixtureError::InvalidMemberDigest);
+            }
+        }
+
+        let mut record = serde_json::Map::new();
+        if let Some(identity) = &fixture.identity {
+            record.insert("identity".into(), Value::String(identity.to_string()));
+        }
+        record.insert(
+            "laws".into(),
+            Value::Array(
+                fixture
+                    .law_definitions
+                    .iter()
+                    .map(|definition| {
+                        serde_json::json!({
+                            "role": "integer_division", "definition": definition
+                        })
+                    })
+                    .collect(),
+            ),
+        );
+        record.insert(
+            "mode".into(),
+            fixture.mode.as_ref().map_or(
+                Value::Null,
+                |(kind, value)| serde_json::json!({"kind": kind, "value": value}),
+            ),
+        );
+        record.insert(
+            "member".into(),
+            fixture.member_declaration.as_ref().map_or(Value::Null, |declaration| {
+                serde_json::json!({"kind": "type_argument", "declaration": declaration})
+            }),
+        );
+        record.insert("leaves".into(), Value::Array(Vec::new()));
+
+        Ok(Self {
+            record: Value::Object(record),
+            execution_point: None,
+            views: Some(CheckedOperationViews {
+                member_declaration: fixture.member_declaration,
+                mode: fixture.mode,
+                law_definitions: fixture.law_definitions,
+                ..CheckedOperationViews::default()
+            }),
+            test_fixture: true,
+        })
+    }
+
+    /// Whether this value came from the feature-gated fixture constructor.
+    #[cfg(feature = "test-support")]
+    pub fn is_test_fixture(&self) -> bool {
+        self.test_fixture
     }
 
     /// The retained point of a state-clause application, if present.
@@ -156,6 +285,8 @@ impl CheckedApplicationOperation {
             record,
             execution_point,
             views: None,
+            #[cfg(feature = "test-support")]
+            test_fixture: false,
         }
     }
 

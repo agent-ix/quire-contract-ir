@@ -20,6 +20,16 @@
 //! ```compile_fail,E0432
 //! use quire_contract_ir::derive_structural_candidates;
 //! ```
+//!
+//! Test operation fixtures also remain model-crate only (FR-019-AC-16, TC-058):
+//!
+//! ```compile_fail,E0432
+//! use quire_contract_ir::CheckedApplicationOperationFixture;
+//! ```
+//!
+//! ```compile_fail,E0432
+//! use quire_contract_ir::CheckedApplicationOperationFixtureError;
+//! ```
 
 #![forbid(unsafe_code)]
 

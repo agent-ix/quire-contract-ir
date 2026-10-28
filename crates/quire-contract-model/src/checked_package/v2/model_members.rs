@@ -729,7 +729,7 @@ pub(super) enum CollectionKind {
 }
 
 impl CollectionKind {
-    const fn of(ordered: bool, unique: bool) -> Self {
+    pub(super) const fn of(ordered: bool, unique: bool) -> Self {
         match (ordered, unique) {
             (false, true) => Self::Set,
             (false, false) => Self::Bag,

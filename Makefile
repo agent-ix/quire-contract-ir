@@ -96,6 +96,7 @@ conformance-qspec-compile:
 
 .PHONY: conformance-qspec
 conformance-qspec:
+	$(CARGO) test $(LOCKED) --workspace --lib ir1083_
 	$(CARGO) test $(LOCKED) --test conformance_qspec
 	@output=$$(QSPEC_CONFORMANCE=1 $(CARGO) test $(LOCKED) --workspace --lib checked_package::v2::model_members::tests::tc_048_qspec_model_declaration_keys_use_production_derivation -- --exact 2>&1); \
 	status=$$?; printf '%s\n' "$$output"; \

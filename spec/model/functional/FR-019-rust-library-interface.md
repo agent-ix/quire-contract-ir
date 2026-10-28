@@ -122,6 +122,32 @@ API; it returns the sorted published construct and boundary inventory as owned
 `String` values, is pure, allocates its own output and takes no host handle.
 Its name, signature and output spelling are stable.
 
+The separate, default-off `test-support` feature exposes a fixture input for
+`CheckedApplicationOperation` to external test consumers. Its fallible
+`from_test_fixture` constructor accepts an optional operation identity, an
+optional mode with the existing closed `OperationModeKind` and a value, ordered
+`CheckedArtifactRef` law definitions with the fixed `integer_division` role,
+and an optional member declaration key. It constructs the operation's typed
+read views from those inputs without accepting an arbitrary JSON value. A
+missing identity or mode, an empty law list, or missing member declaration remains a deliberate
+fixture input; a present identity or mode value and each present definition
+authority and identity must be nonempty. The constructor refuses malformed
+fixture shape with a typed error and yields no partial operation. Because
+`CheckedNodeId` has public fields, a present member declaration must have
+domain `quire.checked-semantic-node/v1` and exactly 64 lowercase hexadecimal
+digest characters. The feature-gated `is_test_fixture` query remains true when any optional input is
+absent, and false for a value obtained by direct serde deserialization or by
+the production checked-package reader. Thus a consumer can distinguish a
+validated fixture's intentional absence from a non-admitted operation whose
+read views are empty. This feature adds no package constructor, admission
+marker, or mutation path on `ContractPackageV1` or `CheckedPackageV2`;
+serialization of a fixture operation is still ordinary untrusted input to the
+production reader, with all normal admission checks. The fixture exists only
+to exercise typed graph-reader decisions on inputs strict package admission
+refuses, including CG scalar derivation's identity, mode, law, and member
+precedence controls. It is outside the default-feature stable API and cannot
+alter the production reader's typed non-admitted refusal.
+
 The model crate root exports `PUBLIC_CONSTRUCT_TAGS` and `CONFORMANCE_BOUNDARIES` as
 sorted fixed-width `&'static [&'static str]` registries and retains
 `DiagnosticCode::ALL` as its sorted fixed-width enum registry. Their ordering,
@@ -215,6 +241,12 @@ operation has its own owning requirement, as listed below.
 
 With the `fault-injection` feature the crate root also exports
 `MappingAllocationPoint`; that item is outside the stable surface.
+With the separate `test-support` feature the crate root also exports
+`CheckedApplicationOperationFixture` and
+`CheckedApplicationOperationFixtureError`; these items and
+`CheckedApplicationOperation::{from_test_fixture,is_test_fixture}` are outside
+the default-feature stable surface. Enabling both features adds the union of
+their independent exports.
 
 The public `CheckedPackageV2::lower_independent_records` method is defined on
 the `CheckedPackageV2` type listed above; it is not a separate crate-root export.
@@ -261,6 +293,9 @@ No compatibility field or old-wire admission path is exported.
 | FR-019-AC-11 | Each public canonicalization entrypoint requires an explicit `CanonicalProfile`, and the closed profile exposes only `quire.contract.canonical-json/v1`; omitting the profile does not compile. | Inspection (TC-018) |
 | FR-019-AC-12 | A default-feature external API test imports `MAX_SEMANTIC_NODES: u32 = 25000`, `MAX_SEMANTIC_DEPTH: u32 = 256`, `MAX_SEMANTIC_COLLECTION_ITEMS: u32 = 10000`, and `MAX_WIRE_JSON_DEPTH: u32 = 576` from `quire_contract_model` and checks their exact values. | Test (TC-018) |
 | FR-019-AC-13 | Public-source signature inspection finds no host handle, filesystem path, mutable cache, downstream engine type, or schema-library type in the default-feature semantic API subset defined in Behavior; it excludes the conformance runner and fixture APIs and runs on stable Rust without nightly rustdoc JSON. | Inspection (TC-018) |
+| FR-019-AC-14 | With `test-support`, an external consumer constructs typed fixture operations with absent identity, mode, law definitions or member declaration, and with the identity, exact/non-exact rounding modes, foreign and conflicting division definitions, and wrong-kind/wrong-value/matching mode inputs used by the four CG FR-014-AC-18/48/50 scalar derivation controls. Typed `identity`, `mode`, `law_definitions`, and `member_declaration` reads return the authored values in order, including intentional absence; `is_test_fixture` is true in every case. No direct JSON view injection is required. | Test (TC-058) |
+| FR-019-AC-15 | The test fixture constructor rejects an empty present identity, an empty present mode value, a law definition with empty authority or identity, and a present member key with a wrong domain, wrong digest length, uppercase or nonhexadecimal digest by typed error without yielding an operation. A fixture with intentionally absent optional fields remains constructible and distinguishable through `is_test_fixture` from direct-serde non-admitted operations. A fixture operation cannot be supplied as an already admitted `ContractPackageV1` or `CheckedPackageV2`, and serializing it into a package wire does not bypass strict production admission or its typed refusal. | Test (TC-058) |
+| FR-019-AC-16 | `test-support` is disabled by default; a default-feature external compile probe cannot import its fixture types or call its constructor or provenance query. A feature-enabled external probe can use exactly the documented fixture exports and methods; the existing default-feature inventory, the independent `fault-injection` delta, and the absence of a model API through `quire_contract_ir` remain enforced. | Test (TC-058) |
 
 ## Dependencies
 

@@ -1342,6 +1342,56 @@ impl RefinementGraph<'_, '_> {
         }
         Ok(operation)
     }
+
+    fn require_concrete_step_anchor(
+        &self,
+        source: &CheckedNodeId,
+        selected_root: &CheckedNodeId,
+        at: JsonPointer,
+        locus: &CheckedNodeId,
+    ) -> Result<Box<str>, ValidationFailure> {
+        use super::{CheckedNodeKind as K, CheckedNodeOwner, ModelForm};
+        self.require_local_kind(
+            source,
+            K::State(super::StateForm::OperationAnchor),
+            at.clone(),
+            locus,
+        )?;
+        let Some((context, operation)) = self.key_anchor(&RefinementKey::Local(source.clone()))
+        else {
+            return Err(wrong_binding(at, locus));
+        };
+        let declaring_kind = self
+            .index
+            .get(&context)
+            .and_then(|&index| self.kinds.get(index));
+        if !matches!(
+            declaring_kind,
+            Some(K::Model(
+                ModelForm::ObjectType | ModelForm::Process | ModelForm::StateMachine
+            ))
+        ) {
+            return Err(wrong_binding(at, locus));
+        }
+        let selected_identity = self.local_node(selected_root).and_then(|root| {
+            if let Some(CheckedNodeOwner::ModelRoot { identity, .. }) = &root.owner {
+                Some(identity.as_ref())
+            } else {
+                None
+            }
+        });
+        let declaring_identity = self.local_node(&context).and_then(|declaration| {
+            if let Some(CheckedNodeOwner::Model { identity, .. }) = &declaration.owner {
+                Some(identity.as_ref())
+            } else {
+                None
+            }
+        });
+        if selected_identity.is_none() || selected_identity != declaring_identity {
+            return Err(wrong_binding(at, locus));
+        }
+        Ok(operation)
+    }
 }
 
 fn wrong_binding(at: JsonPointer, locus: &CheckedNodeId) -> ValidationFailure {
@@ -1601,8 +1651,8 @@ fn validate_rows(
                 return Err(wrong_binding(at.clone().key("source_node"), locus));
             }
         } else if let Some(source) = &row.source_node {
-            let operation = graph.require_anchor_subject(
-                &RefinementKey::Local(source.clone()),
+            let operation = graph.require_concrete_step_anchor(
+                source,
                 &node.semantic_type,
                 at.clone().key("source_node"),
                 locus,

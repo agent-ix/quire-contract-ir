@@ -38,6 +38,30 @@
     not(feature = "fault-injection"),
     doc = "```compile_fail,E0599\nlet _ = quire_contract_model::MappingExecutionControl::fail_allocation_at;\n```"
 )]
+#![cfg_attr(
+    not(feature = "test-support"),
+    doc = "```compile_fail,E0432\nuse quire_contract_model::CheckedApplicationOperationFixture;\n```"
+)]
+#![cfg_attr(
+    not(feature = "test-support"),
+    doc = "```compile_fail,E0432\nuse quire_contract_model::CheckedApplicationOperationFixtureError;\n```"
+)]
+#![cfg_attr(
+    not(feature = "test-support"),
+    doc = "```compile_fail,E0599\nlet _ = quire_contract_model::CheckedApplicationOperation::from_test_fixture;\n```"
+)]
+#![cfg_attr(
+    not(feature = "test-support"),
+    doc = "```compile_fail,E0599\nlet _ = quire_contract_model::CheckedApplicationOperation::is_test_fixture;\n```"
+)]
+#![cfg_attr(
+    feature = "test-support",
+    doc = "```compile_fail,E0277\nuse quire_contract_model::{CheckedApplicationOperation, CheckedApplicationOperationFixture, CheckedPackageV2};\nlet operation = CheckedApplicationOperation::from_test_fixture(CheckedApplicationOperationFixture::default()).unwrap();\nlet _: CheckedPackageV2 = operation.into();\n```"
+)]
+#![cfg_attr(
+    feature = "test-support",
+    doc = "```compile_fail,E0277\nuse quire_contract_model::{CheckedApplicationOperation, CheckedApplicationOperationFixture, ContractPackageV1};\nlet operation = CheckedApplicationOperation::from_test_fixture(CheckedApplicationOperationFixture::default()).unwrap();\nlet _: ContractPackageV1 = operation.into();\n```"
+)]
 //! The artifact references have closed member sets (FR-019-AC-6, FR-038
 //! "Artifact references"): a definition reference is `{authority, identity}`, a
 //! source reference `{authority, identity, digest_domain, digest}` and a locator
@@ -193,6 +217,10 @@ pub use checked_package::{
     RefinementMemoryClass, RefinementMemoryModel, RefinementObject, RefinementOpen,
     RefinementPackageNodeKey, RefinementPopulation, RefinementStep, RefinementStepArgument,
     RefinementStepTarget, RefinementTsoModel, StateClauseKind,
+};
+#[cfg(feature = "test-support")]
+pub use checked_package::{
+    CheckedApplicationOperationFixture, CheckedApplicationOperationFixtureError,
 };
 pub use code::{Std001Code, Std001CodeError};
 pub use conformance::{

@@ -51,6 +51,19 @@ fn timed_model_published_tick_retains_typed_operation_anchor() {
     else {
         panic!("healthy published tick model must admit");
     };
+    let root = wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("tick nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "timed_model" && node["semantic_form"] == "timed_model")
+        .expect("tick root");
+    for member in &root["body"]["members"].as_array().expect("root members")[3..] {
+        assert_eq!(
+            member["value"]["members"],
+            json!([]),
+            "GD-01 empty aggregate"
+        );
+    }
     let anchor = package
         .graph()
         .nodes
@@ -620,6 +633,53 @@ fn timed_model_rebuilt_semantic_defects_keep_paired_causes() {
             "{change}"
         );
     }
+}
+
+/// A root that stops listing an existing guard still leaves a real guard node.
+/// STD-540 owns GD-03's exact locus; this control checks its published code
+/// and cause after authenticated package identities are rebuilt.
+/// Provenance: IR-1083, QSpec STD-526 GD-03.
+#[trace("TC-048")]
+#[test]
+fn timed_model_unlisted_guard_refuses_at_the_timed_join() {
+    let vectors = read_json(&fixtures_dir().join("../timed-slot-selector-vectors.json"))
+        .expect("published timed slot vectors");
+    let gd03 = vectors["guards"]
+        .as_array()
+        .expect("published guard cases")
+        .iter()
+        .find(|row| row["id"] == "GD-03")
+        .expect("GD-03 row");
+    assert_eq!(gd03["expected_code"], "invalid_package");
+    assert_eq!(gd03["expected_cause"], "timed-node-reference");
+    let mut wire = published();
+    let root = wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .iter_mut()
+        .find(|node| node["node_tag"] == "timed_model" && node["semantic_form"] == "timed_model")
+        .expect("timed root");
+    let guard = root["body"]["members"][5]["value"]["members"]
+        .as_array_mut()
+        .expect("root guards")
+        .pop()
+        .expect("published guard")["target"]
+        .clone();
+    root["dependencies"]
+        .as_array_mut()
+        .expect("root dependencies")
+        .retain(|dependency| *dependency != guard);
+    fixture_support::mint_ungrouped_structural_keys(&mut wire);
+    fixture_support::refresh_identity(&mut wire);
+    let result = read_package(&wire).expect("read unlisted guard package");
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("GD-03 must refuse, got {result:?}");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::TimedNodeReference)),
+        "{refusal:?}"
+    );
 }
 
 #[trace("TC-048")]
