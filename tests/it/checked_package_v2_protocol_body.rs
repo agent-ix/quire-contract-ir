@@ -2441,13 +2441,16 @@ fn protocol_owner_or_extra_dependency_precedes_stale_key() {
         .retain(|id| id != &body_target);
     refresh_identity(&mut package);
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
-        panic!("unlisted body reference must refuse at the reference");
+        panic!("unlisted body reference must refuse at the dependency join");
     };
-    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
-    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(refusal.cause, None);
     assert_eq!(
         refusal.path.as_ref().map(|path| path.as_str()),
-        Some(format!("/semantic_graph/nodes/{position}/body/arguments/0/value/target").as_str())
+        Some(format!("/semantic_graph/nodes/{position}/dependencies").as_str())
     );
 }
 
@@ -3205,7 +3208,7 @@ fn clause_each_trigger_admits_and_checks_parameter_level() {
     );
 }
 
-/// Trace: FR-038-AC-284, FR-038-AC-324
+/// Trace: FR-038-AC-284, FR-038-AC-324, FR-038-AC-327
 #[trace("TC-048")]
 #[test]
 fn clause_each_trigger_requires_declared_dependency() {
@@ -3228,11 +3231,9 @@ fn clause_each_trigger_requires_declared_dependency() {
     assert_eq!(
         read(&package),
         refusal_at(
-            CheckedPackageRefusalCode::MissingDeclaration,
-            &format!(
-                "/semantic_graph/nodes/{clause}/body/arguments/1/value/members/1/value/target"
-            ),
-            Some(CheckedPackageRefusalCause::MissingName),
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            &format!("/semantic_graph/nodes/{clause}/dependencies"),
+            None,
             key,
         )
     );
@@ -3394,10 +3395,10 @@ fn clause_rejects_second_capture_with_readable_name() {
     );
 }
 
-/// Trace: FR-038-AC-284, FR-038-AC-324
+/// Trace: FR-038-AC-284, FR-038-AC-324, FR-038-AC-327
 #[trace("TC-048")]
 #[test]
-fn clause_required_temporal_target_is_checked_after_membership() {
+fn clause_required_temporal_target_checks_membership_then_dependencies() {
     let mut package = v2_all_families();
     let temporal = package["semantic_graph"]["nodes"]
         .as_array()
@@ -3445,11 +3446,187 @@ fn clause_required_temporal_target_is_checked_after_membership() {
     assert_eq!(
         read(&package),
         refusal_at(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            &format!("/semantic_graph/nodes/{clause}/dependencies"),
+            None,
+            key,
+        )
+    );
+}
+
+/// Trace: FR-038-AC-285, FR-038-AC-327
+#[trace("TC-048", "TC-946")]
+#[test]
+fn protocol_member_body_targets_require_exact_dependencies() {
+    let cases = [
+        ("role", package_with_member_role().0),
+        ("channel", package_with_member_queue().0),
+        ("queue", package_with_member_queue().0),
+        ("obligation", admitted_protocol_families()),
+        ("compensation", package_with_admitted_compensation().0),
+        ("control", protocol_holder_case("parallel").0),
+    ];
+    for (form, mut package) in cases {
+        let admitted = read(&package);
+        assert!(
+            matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+            "{form} fixture must admit: {admitted:?}"
+        );
+        let position = if form == "control" {
+            holder_position(&package)
+        } else {
+            protocol_position(&package, form)
+        };
+        let mut extra_package = package.clone();
+        let extra = extra_package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .map(|node| &node["node_id"])
+            .find(|id| {
+                !extra_package["semantic_graph"]["nodes"][position]["dependencies"]
+                    .as_array()
+                    .expect("dependencies")
+                    .contains(id)
+            })
+            .expect("unreferenced node")
+            .clone();
+        let dependencies = extra_package["semantic_graph"]["nodes"][position]["dependencies"]
+            .as_array_mut()
+            .expect("dependencies");
+        dependencies.push(extra);
+        dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+        refresh_identity(&mut extra_package);
+        let key = extra_package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
+            .as_str()
+            .expect("node key");
+        assert_eq!(
+            read(&extra_package),
+            refusal_at(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                &format!("/semantic_graph/nodes/{position}/dependencies"),
+                None,
+                key,
+            ),
+            "extra dependency on {form}"
+        );
+
+        let omitted = package["semantic_graph"]["nodes"][position]["dependencies"]
+            .as_array()
+            .expect("dependencies")
+            .first()
+            .expect("protocol body target")
+            .clone();
+        package["semantic_graph"]["nodes"][position]["dependencies"]
+            .as_array_mut()
+            .expect("dependencies")
+            .retain(|dependency| dependency != &omitted);
+        refresh_identity(&mut package);
+        let key = package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
+            .as_str()
+            .expect("node key");
+        assert_eq!(
+            read(&package),
+            refusal_at(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                &format!("/semantic_graph/nodes/{position}/dependencies"),
+                None,
+                key,
+            ),
+            "{form}"
+        );
+    }
+}
+
+/// Trace: FR-038-AC-285, FR-038-AC-327
+#[trace("TC-048", "TC-946")]
+#[test]
+fn listed_protocol_body_target_missing_from_graph_reaches_body_join() {
+    let (mut package, role) = package_with_member_role();
+    let missing = node_id(&"f".repeat(64));
+    package["semantic_graph"]["nodes"][role]["body"]["arguments"][0]["value"]["target"] =
+        missing.clone();
+    settle(&mut package);
+    assert!(package["semantic_graph"]["nodes"][role]["dependencies"]
+        .as_array()
+        .expect("dependencies")
+        .contains(&missing));
+    let key = package["semantic_graph"]["nodes"][role]["node_id"]["digest"]
+        .as_str()
+        .expect("role key");
+    assert_eq!(
+        read(&package),
+        refusal_at(
             CheckedPackageRefusalCode::MissingDeclaration,
-            &format!("/semantic_graph/nodes/{clause}/body/arguments/7/value/members/0/target"),
+            &format!("/semantic_graph/nodes/{role}/body/arguments/0/value/target"),
             Some(CheckedPackageRefusalCause::MissingName),
             key,
         )
+    );
+}
+
+/// Trace: FR-038-AC-285, FR-038-AC-324, FR-038-AC-327
+#[trace("TC-048", "TC-946")]
+#[test]
+fn listed_clause_targets_missing_from_graph_reach_their_body_joins() {
+    let missing = node_id(&"f".repeat(64));
+    for (label, mut package, ordinal) in [
+        ("C13a compensation", v2_all_families(), 8),
+        ("A8a requirement", v2_all_families(), 7),
+    ] {
+        let clause = clause_position(&package);
+        package["semantic_graph"]["nodes"][clause]["body"]["arguments"][ordinal]["value"]
+            ["members"] = json!([{"term": "reference", "target": missing}]);
+        settle(&mut package);
+        assert!(package["semantic_graph"]["nodes"][clause]["dependencies"]
+            .as_array()
+            .expect("dependencies")
+            .contains(&missing));
+        let key = package["semantic_graph"]["nodes"][clause]["node_id"]["digest"]
+            .as_str()
+            .expect("clause key");
+        assert_eq!(
+            read(&package),
+            refusal_at(
+                CheckedPackageRefusalCode::MissingDeclaration,
+                &format!(
+                    "/semantic_graph/nodes/{clause}/body/arguments/{ordinal}/value/members/0/target"
+                ),
+                Some(CheckedPackageRefusalCause::MissingName),
+                key,
+            ),
+            "{label}"
+        );
+    }
+
+    let mut package = v2_all_families();
+    let clause = clause_position(&package);
+    package["semantic_graph"]["nodes"][clause]["body"]["arguments"][1]["value"]["members"] = json!([
+        {"term": "binding", "name": "kind", "value": {
+            "term": "literal", "type": node_id(&family_key("a1a1")),
+            "value_kind": "text", "value": "each"}},
+        {"term": "binding", "name": "trigger", "value": {
+            "term": "reference", "target": missing}},
+    ]);
+    settle(&mut package);
+    assert!(package["semantic_graph"]["nodes"][clause]["dependencies"]
+        .as_array()
+        .expect("dependencies")
+        .contains(&missing));
+    let key = package["semantic_graph"]["nodes"][clause]["node_id"]["digest"]
+        .as_str()
+        .expect("clause key");
+    assert_eq!(
+        read(&package),
+        refusal_at(
+            CheckedPackageRefusalCode::MissingDeclaration,
+            &format!(
+                "/semantic_graph/nodes/{clause}/body/arguments/1/value/members/1/value/target"
+            ),
+            Some(CheckedPackageRefusalCause::MissingName),
+            key,
+        ),
+        "A9a trigger"
     );
 }
 
@@ -7940,10 +8117,10 @@ fn protocol_role_model_rejects_non_reference_non_text_wire() {
     );
 }
 
-/// Trace: FR-038-AC-281, FR-038-AC-284
+/// Trace: FR-038-AC-281, FR-038-AC-284, FR-038-AC-327
 #[trace("TC-947")]
 #[test]
-fn protocol_role_dependency_precedes_wrong_model_form() {
+fn protocol_role_dependency_join_precedes_wrong_model_form() {
     let (mut package, position) = package_with_member_role();
     package["semantic_graph"]["nodes"][position]["body"]["arguments"][0]["value"]["target"] =
         node_id(&family_key("a4a4"));
@@ -7956,9 +8133,9 @@ fn protocol_role_dependency_precedes_wrong_model_form() {
     assert_eq!(
         read(&package),
         refusal_at(
-            CheckedPackageRefusalCode::MissingDeclaration,
-            &format!("/semantic_graph/nodes/{position}/body/arguments/0/value/target"),
-            Some(CheckedPackageRefusalCause::MissingName),
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            &format!("/semantic_graph/nodes/{position}/dependencies"),
+            None,
             key,
         )
     );
