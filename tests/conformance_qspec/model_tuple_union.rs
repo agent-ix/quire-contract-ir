@@ -570,7 +570,10 @@ fn duration_projection_control(selected_unit: bool) {
         let owner =
             json!({"kind":"model", "identity":"acme/shapes", "node":"ix://acme/shapes/Pair"});
         for index in [dimension, unit] {
-            timed["semantic_graph"]["nodes"][index]["owner"] = owner.clone();
+            timed["semantic_graph"]["nodes"][index]
+                .as_object_mut()
+                .expect("nominal node")
+                .remove("owner");
             timed["semantic_graph"]["nodes"][index]["nominal_identity_preimage"]["owner"] =
                 owner.clone();
         }
