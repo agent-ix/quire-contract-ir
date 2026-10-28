@@ -24,3 +24,7 @@ Plan completion: not assessed. The changed public exports have an owning require
 ## Verdict
 
 **FAIL.** FND-001 requires a same-PR spec update and a passing TC-058 before merge. The broader repository's existing unbacked criteria are outside this one-file PR's change; no coverage claim is inferred from them.
+
+## Dispositions
+
+- **FND-001 — fixed:** FR-019's Public items table now includes the fifteen exported refinement body types in this PR. The exact-inventory TC-058 result must be taken from the final head before merge.

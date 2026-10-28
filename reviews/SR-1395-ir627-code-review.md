@@ -24,3 +24,7 @@ PR agent-ix/quire-contract-ir#627 exports fifteen existing, documented refinemen
 ## Verdict
 
 **FAIL.** FND-001 blocks merge. The hosted test result is direct evidence; focused `cargo fmt --all --check` passes. The hosted test compilation also establishes that the crate compiles at this head. No additional Cargo build was run while the shared build lock is occupied.
+
+## Dispositions
+
+- **FND-001 — fixed:** The same PR now lists all fifteen refinement body exports in FR-019's `checked_package` Public items table. The original finding and gate result above describe the reviewed `796609b0` head; the final PR head requires a fresh TC-058 gate result.
