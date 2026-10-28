@@ -8689,6 +8689,69 @@ fn nested_repeat_guard_and_maximum_determine_outer_progress() {
     );
 }
 
+/// Trace: FR-038-AC-347
+#[trace("TC-048", "FR-038-AC-347")]
+#[test]
+fn nested_repeat_exhausted_step_cannot_supply_outer_progress() {
+    let (mut package, outer, nested) = nested_repeat_case();
+    let step = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    let exhausted_body = package["semantic_graph"]["nodes"][step]["body"].clone();
+    let exhausted = protocol_named_node(
+        "control",
+        &[
+            "Example",
+            "OrderFlow",
+            "run",
+            "Main",
+            "Holder",
+            "Left",
+            "Exhausted",
+        ],
+        exhausted_body,
+        &[],
+    );
+    let exhausted_key = exhausted["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(exhausted);
+    let body = &mut package["semantic_graph"]["nodes"][step]["body"];
+    body["operation"]["member"]["operator"] = json!("check");
+    body["arguments"] = json!([{
+        "term": "binding", "name": "condition", "value": {
+            "term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true
+        }
+    }]);
+    package["semantic_graph"]["nodes"][nested]["body"]["arguments"][2]["value"]["members"] = json!([{
+        "term": "literal", "type": node_id(&family_key("a3a3")), "value_kind": "integer", "value": "1"
+    }]);
+    package["semantic_graph"]["nodes"][nested]["body"]["arguments"][6]["value"]["members"] =
+        json!([{"term": "reference", "target": exhausted_key}]);
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!(
+            "nonstepping nested body must refuse outer repeat: {:?}",
+            read(&package)
+        );
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::UnsupportedConstruct
+    );
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::DeclarationForm)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{outer}"))
+    );
+}
+
 /// Trace: FR-038-AC-290
 #[trace("TC-048")]
 #[test]

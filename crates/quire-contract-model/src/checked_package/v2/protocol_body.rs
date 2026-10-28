@@ -4418,6 +4418,21 @@ enum GuardOp {
     Implies,
 }
 
+enum GuardAtom<'a> {
+    Node(&'a CheckedNodeId),
+    Inline(&'a CheckedTerm),
+}
+
+impl GuardAtom<'_> {
+    fn same_node(&self, id: &CheckedNodeId) -> bool {
+        matches!(self, Self::Node(candidate) if *candidate == id)
+    }
+
+    fn same_inline(&self, term: &CheckedTerm) -> bool {
+        matches!(self, Self::Inline(candidate) if *candidate == term)
+    }
+}
+
 fn guard_connective(identity: Option<&str>, arity: usize) -> Option<GuardOp> {
     match (identity, arity) {
         (Some("quire.op.boolean.not"), 1) => Some(GuardOp::Not),
@@ -4434,9 +4449,10 @@ fn guard_never_exits(
     position: usize,
     meter: &mut WorkMeter,
 ) -> Result<bool, ValidationFailure> {
-    let mut atoms: Vec<&CheckedNodeId> =
-        listed_targets(binding_value(args, "visible").expect("validated visible")).collect();
-    let mut inline_atoms: Vec<&CheckedTerm> = Vec::new();
+    let mut atoms: Vec<GuardAtom<'_>> =
+        listed_targets(binding_value(args, "visible").expect("validated visible"))
+            .map(GuardAtom::Node)
+            .collect();
     let mut program = Vec::new();
     let guard = binding_value(args, "guard").expect("validated guard");
     let mut pending = vec![(guard, None, false)];
@@ -4457,28 +4473,33 @@ fn guard_never_exits(
             continue;
         }
         if let Some(id) = key {
-            if let Some(index) = atoms.iter().position(|candidate| *candidate == id) {
+            if let Some(index) = atoms.iter().position(|candidate| candidate.same_node(id)) {
                 program.push(GuardOp::Atom(index));
                 continue;
             }
         }
         let (term, key) = match term {
             CheckedTerm::Reference { target } => {
-                if let Some(index) = atoms.iter().position(|candidate| *candidate == target) {
+                if let Some(index) = atoms
+                    .iter()
+                    .position(|candidate| candidate.same_node(target))
+                {
                     program.push(GuardOp::Atom(index));
                     continue;
                 }
                 let target_position = *check.index.get(target).expect("validated guard reference");
-                let referenced = &check.terms[target_position];
                 if !matches!(
                     check.kinds[target_position],
                     CheckedNodeKind::Value(ValueForm::Literal) | CheckedNodeKind::Expression(_)
                 ) {
                     let index = atoms.len();
-                    atoms.push(target);
+                    atoms.push(GuardAtom::Node(target));
                     program.push(GuardOp::Atom(index));
                     continue;
                 }
+                let referenced = check.terms[target_position]
+                    .as_ref()
+                    .expect("validated Boolean guard target body");
                 (referenced, Some(target))
             }
             _ => (term, key),
@@ -4506,22 +4527,23 @@ fn guard_never_exits(
             _ => {
                 let index = if let Some(id) = key {
                     let index = atoms.len();
-                    atoms.push(id);
+                    atoms.push(GuardAtom::Node(id));
                     index
-                } else if let Some(index) =
-                    inline_atoms.iter().position(|candidate| *candidate == term)
+                } else if let Some(index) = atoms
+                    .iter()
+                    .position(|candidate| candidate.same_inline(term))
                 {
-                    atoms.len() + index
+                    index
                 } else {
-                    let index = atoms.len() + inline_atoms.len();
-                    inline_atoms.push(term);
+                    let index = atoms.len();
+                    atoms.push(GuardAtom::Inline(term));
                     index
                 };
                 program.push(GuardOp::Atom(index));
             }
         }
     }
-    let mut valuation = vec![false; atoms.len() + inline_atoms.len()];
+    let mut valuation = vec![false; atoms.len()];
     let mut values = Vec::with_capacity(program.len());
     loop {
         meter.charge(1, || node_pointer(position))?;
@@ -4834,14 +4856,18 @@ fn check_clause_causality(
     }
 
     let mut nested = vec![false; check.nodes.len()];
-    let mut pending = vec![(root, false)];
-    while let Some((position, inside_body)) = pending.pop() {
-        nested[position] = inside_body;
+    let mut pending = vec![(root, false, false)];
+    while let Some((position, inside_body, in_exhausted)) = pending.pop() {
+        nested[position] = inside_body && !in_exhausted;
         let (operator, args) = validated[position].expect("validated control");
         let children = control_children(operator, args);
         for (ordinal, target) in children.into_iter().enumerate().rev() {
             let child = *check.index.get(target).expect("validated control child");
-            pending.push((child, inside_body || (operator == "repeat" && ordinal == 0)));
+            pending.push((
+                child,
+                inside_body || (operator == "repeat" && ordinal == 0),
+                in_exhausted || (operator == "repeat" && ordinal == 1),
+            ));
         }
     }
     let mut guard_never_exits_by_control = vec![false; check.nodes.len()];
