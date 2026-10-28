@@ -155,6 +155,11 @@ header joins.
 [FR-066](checked_package/functional/FR-066-retain-identity-bound-execution-points.md)
 defines the typed V2 body carriers for QSpec execution points and their
 reader, writer, preimage and published-vector obligations.
+[FR-068](checked_package/functional/FR-068-join-selected-process-and-persistence-declarations.md)
+defines selected process and persistence-interface owner joins, process
+member and reference resolution, and the selected wrong-kind clause control;
+[TC-463](checked_package/matrix/TC-463-selected-process-and-persistence-owners.md)
+defines its public-reader evidence.
 [FR-054](checked_package/functional/FR-054-admitted-scalar-operand-projection.md)
 defines the admitted V1 package's typed, ordered scalar operand view, with
 [TC-458](checked_package/matrix/TC-458-admitted-scalar-operands.md) covering
