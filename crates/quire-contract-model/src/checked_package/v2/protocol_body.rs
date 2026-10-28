@@ -4425,10 +4425,8 @@ fn guard_never_exits(
     position: usize,
     meter: &mut WorkMeter,
 ) -> Result<bool, ValidationFailure> {
-    let mut atoms: Vec<(&CheckedNodeId, Option<&CheckedTerm>)> =
-        listed_targets(binding_value(args, "visible").expect("validated visible"))
-            .map(|id| (id, None))
-            .collect();
+    let mut atoms: Vec<&CheckedNodeId> =
+        listed_targets(binding_value(args, "visible").expect("validated visible")).collect();
     let mut inline_atoms: Vec<&CheckedTerm> = Vec::new();
     let mut program = Vec::new();
     let guard = binding_value(args, "guard").expect("validated guard");
@@ -4448,13 +4446,17 @@ fn guard_never_exits(
             continue;
         }
         if let Some(id) = key {
-            if let Some(index) = atoms.iter().position(|(candidate, _)| *candidate == id) {
+            if let Some(index) = atoms.iter().position(|candidate| *candidate == id) {
                 program.push(GuardOp::Atom(index));
                 continue;
             }
         }
         let (term, key) = match term {
             CheckedTerm::Reference { target } => {
+                if let Some(index) = atoms.iter().position(|candidate| *candidate == target) {
+                    program.push(GuardOp::Atom(index));
+                    continue;
+                }
                 let referenced =
                     &check.terms[*check.index.get(target).expect("validated guard reference")];
                 (referenced, Some(target))
@@ -4493,7 +4495,7 @@ fn guard_never_exits(
             _ => {
                 let index = if let Some(id) = key {
                     let index = atoms.len();
-                    atoms.push((id, Some(term)));
+                    atoms.push(id);
                     index
                 } else if let Some(index) =
                     inline_atoms.iter().position(|candidate| *candidate == term)

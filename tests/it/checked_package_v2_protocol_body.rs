@@ -8560,6 +8560,126 @@ fn repeat_body_without_necessary_step_refuses_after_local_checks() {
     ));
 }
 
+fn nested_repeat_case() -> (Value, usize, usize) {
+    let (mut package, children) = protocol_holder_case("repeat");
+    let nested = children[0];
+    let body = package["semantic_graph"]["nodes"][nested]["body"].clone();
+    let step = protocol_named_node(
+        "control",
+        &[
+            "Example",
+            "OrderFlow",
+            "run",
+            "Main",
+            "Holder",
+            "Left",
+            "Body",
+        ],
+        body,
+        &[],
+    );
+    let step_target = step["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(step);
+    let outer = holder_position(&package);
+    let mut nested_body = package["semantic_graph"]["nodes"][outer]["body"].clone();
+    nested_body["arguments"][5]["value"]["target"] = step_target;
+    nested_body["arguments"][6]["value"]["members"] = json!([]);
+    nested_body["arguments"][2]["value"]["members"] = json!([]);
+    package["semantic_graph"]["nodes"][nested]["body"] = nested_body;
+    settle(&mut package);
+    (package, outer, nested)
+}
+
+/// Trace: FR-038-AC-344, FR-038-AC-345, FR-038-AC-346, FR-038-AC-351
+#[trace(
+    "TC-048",
+    "FR-038-AC-344",
+    "FR-038-AC-345",
+    "FR-038-AC-346",
+    "FR-038-AC-351"
+)]
+#[test]
+fn nested_repeat_guard_and_maximum_determine_outer_progress() {
+    let (package, outer, nested) = nested_repeat_case();
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "{:#?}",
+        read(&package)
+    );
+    let mut false_guard = package.clone();
+    false_guard["semantic_graph"]["nodes"][nested]["body"]["arguments"][4]["value"]["value"] =
+        json!(false);
+    settle(&mut false_guard);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&false_guard) else {
+        panic!("false nested guard must refuse outer repeat");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::UnsupportedConstruct
+    );
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::DeclarationForm)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{outer}"))
+    );
+    assert!(matches!(
+        refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::RepeatProgress { .. })
+    ));
+
+    let mut zero = package;
+    zero["semantic_graph"]["nodes"][nested]["body"]["arguments"][2]["value"]["members"] = json!([{
+        "term": "literal", "type": node_id(&family_key("a3a3")), "value_kind": "integer", "value": "0"
+    }]);
+    let exhausted_body = zero["semantic_graph"]["nodes"][outer]["body"].clone();
+    let mut exhausted_body = exhausted_body;
+    exhausted_body["operation"]["member"]["operator"] = json!("check");
+    exhausted_body["arguments"] = json!([{
+        "term": "binding", "name": "condition", "value": {
+            "term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true
+        }
+    }]);
+    let exhausted_node = protocol_named_node(
+        "control",
+        &[
+            "Example",
+            "OrderFlow",
+            "run",
+            "Main",
+            "Holder",
+            "Left",
+            "Exhausted",
+        ],
+        exhausted_body,
+        &[],
+    );
+    let exhausted = exhausted_node["node_id"].clone();
+    zero["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(exhausted_node);
+    zero["semantic_graph"]["nodes"][nested]["body"]["arguments"][6]["value"]["members"] =
+        json!([{"term": "reference", "target": exhausted}]);
+    settle(&mut zero);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&zero) else {
+        panic!("zero nested maximum must refuse outer repeat");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::UnsupportedConstruct
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{outer}"))
+    );
+}
+
 /// Trace: FR-038-AC-290
 #[trace("TC-048")]
 #[test]
