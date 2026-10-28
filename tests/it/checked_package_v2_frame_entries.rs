@@ -10,10 +10,10 @@
 //! vocabulary.
 
 use crate::support::checked_package::{
-    canonical, domain_package_digest, evidence_for, family_model_document, fixture_source,
-    mint_ungrouped_structural_keys, node_id, over_body, rebuild_source_map, refresh_identity,
-    rename_node, settle, sha256_hex, source_owner, structural_key, typed_node_id, v2_all_families,
-    BOOLEAN_KEY, INTEGER_KEY,
+    canonical, domain_package_digest, evidence_for, family_key, family_model_document,
+    fixture_source, mint_ungrouped_structural_keys, node_id, over_body, rebuild_source_map,
+    refresh_identity, rename_node, settle, sha256_hex, source_owner, structural_key, typed_node_id,
+    v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
@@ -443,8 +443,7 @@ fn object_key() -> &'static str {
 }
 
 fn process_key() -> &'static str {
-    static KEY: LazyLock<String> =
-        LazyLock::new(|| fixture_key("model", "process", Some(BOOLEAN_KEY), None));
+    static KEY: LazyLock<String> = LazyLock::new(|| family_key("1616"));
     &KEY
 }
 
