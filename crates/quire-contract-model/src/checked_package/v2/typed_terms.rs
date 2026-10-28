@@ -11,6 +11,7 @@ use super::{
     RefinementPopulation, RefinementStep,
 };
 use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedSemanticId};
+use crate::identity::ExecutionPoint;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
