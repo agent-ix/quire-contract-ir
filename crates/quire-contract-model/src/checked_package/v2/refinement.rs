@@ -1419,6 +1419,69 @@ impl RefinementGraph<'_, '_> {
             Err(wrong_binding(at, locus))
         }
     }
+
+    fn require_concrete_class_source(
+        &self,
+        source: &CheckedNodeId,
+        selected_root: &CheckedNodeId,
+        at: JsonPointer,
+        locus: &CheckedNodeId,
+        meter: &mut super::WorkMeter,
+    ) -> Result<(), ValidationFailure> {
+        use super::{CheckedNodeKind as K, CheckedNodeOwner};
+        let kind = self.local_kind(source, at.clone(), locus)?;
+        if kind == K::State(super::StateForm::OperationAnchor) {
+            self.require_concrete_step_anchor(source, selected_root, at, locus)?;
+            return Ok(());
+        }
+        if matches!(kind, K::Model(_)) {
+            return self.require_concrete_owner(source, selected_root, at, locus);
+        }
+        let selected_identity = self.local_node(selected_root).and_then(|root| {
+            if let Some(CheckedNodeOwner::ModelRoot { identity, .. }) = &root.owner {
+                Some(identity.as_ref())
+            } else {
+                None
+            }
+        });
+        let clause = if kind == K::Protocol(super::ProtocolForm::ProtocolClause) {
+            Some(source)
+        } else if matches!(kind, K::Protocol(_)) {
+            let name = self
+                .local_node(source)
+                .and_then(|node| node.declaration.as_ref());
+            let mut closest = None;
+            for &position in self.index.values() {
+                meter.charge(1, || at.clone())?;
+                let candidate = &self.nodes[position];
+                if self.kinds[position] != K::Protocol(super::ProtocolForm::ProtocolClause) {
+                    continue;
+                }
+                let Some(path) = candidate
+                    .declaration
+                    .as_ref()
+                    .map(|decl| &decl.qualified_name)
+                else {
+                    continue;
+                };
+                if name.is_some_and(|name| protocol_clause_prefix(&name.qualified_name, path))
+                    && closest.is_none_or(|(_, length)| path.len() >= length)
+                {
+                    closest = Some((&candidate.node_id, path.len()));
+                }
+            }
+            closest.map(|(id, _)| id)
+        } else {
+            None
+        };
+        let declared_identity =
+            clause.and_then(|id| self.key_owner_identity(&RefinementKey::Local(id.clone())));
+        if selected_identity.is_some() && selected_identity == declared_identity {
+            Ok(())
+        } else {
+            Err(wrong_binding(at, locus))
+        }
+    }
 }
 
 fn wrong_binding(at: JsonPointer, locus: &CheckedNodeId) -> ValidationFailure {
@@ -1690,16 +1753,13 @@ fn validate_rows(
                 return Err(wrong_binding(at.clone().key("source_node"), locus));
             }
             if let Some(source) = &row.source_node {
-                if graph.local_kind(source, at.clone().key("source_node"), locus)?
-                    == K::State(super::StateForm::OperationAnchor)
-                {
-                    graph.require_concrete_step_anchor(
-                        source,
-                        &node.semantic_type,
-                        at.clone().key("source_node"),
-                        locus,
-                    )?;
-                }
+                graph.require_concrete_class_source(
+                    source,
+                    &node.semantic_type,
+                    at.clone().key("source_node"),
+                    locus,
+                    meter,
+                )?;
             }
         } else if let Some(source) = &row.source_node {
             let operation = graph.require_concrete_step_anchor(
@@ -2515,6 +2575,17 @@ fn dependency_protocol_nodes(package: &super::CheckedPackageV2) -> Vec<ProtocolC
         .collect()
 }
 
+fn protocol_clause_prefix(member: &[Box<str>], path: &[Box<str>]) -> bool {
+    member.len() > path.len()
+        && member.starts_with(path)
+        && member.get(path.len()).is_some_and(|segment| {
+            matches!(
+                segment.as_ref(),
+                "role" | "channel" | "compensate" | "finish" | "terminal" | "run"
+            )
+        })
+}
+
 fn protocol_classes(
     nodes: &[ProtocolCatalogNode<'_>],
     model: &CheckedNodeId,
@@ -2559,21 +2630,7 @@ fn protocol_classes(
                 })?;
                 clause_paths
                     .iter()
-                    .filter(|(_, path)| {
-                        name.qualified_name.len() > path.len()
-                            && name.qualified_name.starts_with(path)
-                            && name.qualified_name.get(path.len()).is_some_and(|segment| {
-                                matches!(
-                                    segment.as_ref(),
-                                    "role"
-                                        | "channel"
-                                        | "compensate"
-                                        | "finish"
-                                        | "terminal"
-                                        | "run"
-                                )
-                            })
-                    })
+                    .filter(|(_, path)| protocol_clause_prefix(&name.qualified_name, path))
                     .max_by_key(|(_, path)| path.len())
                     .map(|(id, _)| *id)
             } else {
