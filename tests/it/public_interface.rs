@@ -1401,6 +1401,55 @@ fn tc_058_fixture_operation_does_not_bypass_strict_package_admission() {
     );
 }
 
+/// Trace: FR-019-AC-16, TC-058.
+#[cfg(feature = "test-support")]
+#[trace("TC-058", "FR-019-AC-16")]
+#[test]
+fn tc_058_both_test_features_export_their_independent_items() {
+    use quire_contract_model::{
+        CheckedApplicationOperation, CheckedApplicationOperationFixture,
+        CheckedApplicationOperationFixtureError, MappingAllocationPoint,
+    };
+
+    let _: Option<MappingAllocationPoint> = None;
+    let operation = CheckedApplicationOperation::from_test_fixture(
+        CheckedApplicationOperationFixture::default(),
+    )
+    .expect("empty optional fixture inputs are valid");
+    assert!(operation.is_test_fixture());
+    let _: Option<CheckedApplicationOperationFixtureError> = None;
+}
+
+/// Trace: FR-019-AC-15, TC-058.
+#[cfg(feature = "test-support")]
+#[trace("TC-058", "FR-019-AC-15")]
+#[test]
+fn tc_058_reader_admitted_operation_has_no_fixture_provenance() {
+    use crate::support::checked_package::{canonical, evidence_for, v2_all_families};
+    use quire_contract_model::{
+        CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm,
+    };
+
+    let package = v2_all_families();
+    let CheckedPackageV2ReadResult::Admitted(admitted) = CheckedPackageV2::read(
+        &canonical(&package),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&package),
+    ) else {
+        panic!("baseline all-families fixture must admit");
+    };
+    let operation = admitted
+        .graph()
+        .nodes
+        .iter()
+        .find_map(|node| match admitted.term(&node.node_id) {
+            Some(CheckedTerm::Application { operation, .. }) => Some(operation),
+            _ => None,
+        })
+        .expect("admitted fixture includes an application");
+    assert!(!operation.is_test_fixture());
+}
+
 /// Trace: FR-039-AC-1, FR-039-AC-2, FR-039-AC-3, FR-037-AC-6, TC-055.
 #[trace("TC-055", "FR-039-AC-1", "FR-039-AC-2", "FR-039-AC-3", "FR-037-AC-6")]
 #[test]
