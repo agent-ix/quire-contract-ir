@@ -3397,7 +3397,7 @@ fn clause_required_temporal_target_checks_membership_then_dependencies() {
 fn protocol_member_body_targets_require_exact_dependencies() {
     let cases = [
         ("role", package_with_member_role().0),
-        ("channel", package_with_member_channel().0),
+        ("channel", package_with_member_queue().0),
         ("queue", package_with_member_queue().0),
         ("obligation", admitted_protocol_families()),
         ("compensation", package_with_admitted_compensation().0),
