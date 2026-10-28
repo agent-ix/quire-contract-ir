@@ -798,6 +798,10 @@ pub enum CheckedMemberType {
     Boolean,
     /// `Integer`.
     Integer,
+    /// Native IEEE binary32 with exact rounding.
+    Float32,
+    /// Native IEEE binary64 with exact rounding.
+    Float64,
     /// Native String, distinct from profiled Text.
     String,
     /// Native UUID.
@@ -874,6 +878,8 @@ impl From<&MemberType> for CheckedMemberType {
         match member_type {
             MemberType::Boolean => Self::Boolean,
             MemberType::Integer => Self::Integer,
+            MemberType::Float32 => Self::Float32,
+            MemberType::Float64 => Self::Float64,
             MemberType::String => Self::String,
             MemberType::Uuid => Self::Uuid,
             MemberType::Timestamp => Self::Timestamp,
