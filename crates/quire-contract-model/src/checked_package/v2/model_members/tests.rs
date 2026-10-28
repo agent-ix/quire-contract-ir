@@ -126,18 +126,13 @@ fn tc_048_qspec_model_declaration_keys_use_production_derivation() {
         .unwrap_or_else(|error| panic!("{} cannot be read: {error}", population_path.display()));
     let population_vectors: serde_json::Value = serde_json::from_slice(&population_bytes)
         .unwrap_or_else(|error| panic!("{} is not JSON: {error}", population_path.display()));
-    let population_rows = population_vectors["model_declaration_nodes"]
+    let owner_rows = population_vectors["model_declaration_nodes"]
         .as_array()
         .expect("QSpec model declaration vectors");
-    let population_rows = population_rows
-        .iter()
-        .filter(|row| row["preimage"]["semantic_form"] == "population")
-        .collect::<Vec<_>>();
-    assert_eq!(population_rows.len(), 2, "QSpec P7/P8 population vectors");
-    for row in population_rows {
-        let name = row["name"].as_str().expect("population vector name");
+    assert!(owner_rows.len() >= 8, "QSpec P1-P8 owner vectors");
+    for row in owner_rows {
+        let name = row["name"].as_str().expect("owner vector name");
         let preimage = &row["preimage"];
-        assert_eq!(preimage["node_tag"], "relation", "{name}");
         assert_eq!(preimage["semantic_type"], serde_json::Value::Null, "{name}");
         assert_eq!(preimage["declaration"], serde_json::Value::Null, "{name}");
         assert_eq!(preimage["recursion"], serde_json::Value::Null, "{name}");
@@ -149,11 +144,23 @@ fn tc_048_qspec_model_declaration_keys_use_production_derivation() {
         assert_eq!(
             declaration_key(
                 preimage["owner"]["identity"].as_str().expect("identity"),
-                DeclarationForm::Population,
+                match (
+                    preimage["node_tag"].as_str(),
+                    preimage["semantic_form"].as_str()
+                ) {
+                    (Some("model"), Some("object_type")) => DeclarationForm::ObjectType,
+                    (Some("model"), Some("process")) => DeclarationForm::Process,
+                    (Some("model"), Some("state_machine")) => DeclarationForm::StateMachine,
+                    (Some("model"), Some("persistence_interface")) =>
+                        DeclarationForm::PersistenceInterface,
+                    (Some("model"), Some("systems_interface")) => DeclarationForm::SystemsInterface,
+                    (Some("relation"), Some("population")) => DeclarationForm::Population,
+                    other => panic!("{name}: unknown declaration form {other:?}"),
+                },
                 preimage["owner"]["node"].as_str().expect("population node"),
                 BYTES,
             )
-            .expect("production population key"),
+            .expect("production declaration key"),
             row["sha256"].as_str().expect("published SHA-256"),
             "{name}"
         );

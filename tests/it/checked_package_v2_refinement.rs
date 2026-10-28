@@ -4,8 +4,8 @@
 //! Focused FR-061 refinement and selected state-machine owner vectors.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, refresh_identity, rekey_application_node, settle, sha256_hex,
-    structural_key, v2_all_families, v2_nominal,
+    canonical, evidence_for, node_id, rebuild_source_map, refresh_identity, rekey_application_node,
+    settle, sha256_hex, structural_key, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -37,6 +37,376 @@ fn model_document() -> Value {
             "supertypes": [], "fields": [], "operations": []
         }]
     })
+}
+
+fn selected_form_node(form: &str, identity: &str) -> Value {
+    selected_form_node_owned(form, MODEL_IDENTITY, identity)
+}
+
+fn selected_form_node_owned(form: &str, owner_identity: &str, identity: &str) -> Value {
+    let owner = json!({"kind":"model", "identity":owner_identity, "node":identity});
+    let body = json!({"term":"aggregate", "members":[]});
+    let key = node_id(&sha256_hex(&canonical(&json!({
+        "version":"quire.structural-node/v1", "node_tag":"model",
+        "semantic_form":form, "semantic_type":null, "declaration":null,
+        "recursion":null, "owner":owner, "body":body
+    }))));
+    json!({
+        "node_id":key, "schema_version":"quire.checked-semantic-graph/v2",
+        "node_tag":"model", "semantic_form":form, "semantic_type":key,
+        "dependencies":[], "occurrences":[{"role":"type", "ordinal":0}],
+        "owner":owner, "body":body
+    })
+}
+
+fn selected_form_document() -> Value {
+    let mut document = model_document();
+    let constructs = document["constructs"].as_array_mut().expect("constructs");
+    for (name, meaning) in [
+        ("process", "quire.meaning.model.process/v1"),
+        ("record", "quire.meaning.model.record-value-type/v1"),
+        (
+            "persistence",
+            "quire.meaning.model.persistence-interface/v1",
+        ),
+        ("object", "quire.meaning.model.object-type/v1"),
+        ("value", "quire.meaning.model.value-type/v1"),
+    ] {
+        constructs.push(json!({"kind":{"module":MODEL_IDENTITY,"name":name},
+            "construct":{"meaning":meaning}}));
+    }
+    let types = document["types"].as_array_mut().expect("types");
+    let mut declared = types[0].clone();
+    declared["identity"] = json!(format!("ix://{MODEL_IDENTITY}/Flow"));
+    declared["displayName"] = json!("Flow");
+    declared["kind"]["name"] = json!("process");
+    declared["fields"] = json!([{
+        "identity":format!("ix://{MODEL_IDENTITY}/Flow/n"),
+        "name":"n", "typeRef":"ix://quire/native/Integer",
+        "presence":"required", "nullable":false, "defaultKind":"none",
+        "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}
+    }]);
+    declared["operations"] = json!([{
+        "identity":format!("ix://{MODEL_IDENTITY}/Flow/go"),
+        "params":[{"identity":format!("ix://{MODEL_IDENTITY}/Flow/go/step"),
+            "name":"step", "typeRef":"ix://quire/native/Integer",
+            "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}}],
+        "returns":{"typeRef":"ix://quire/native/Integer",
+            "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}}
+    }]);
+    types.push(declared.clone());
+    declared["identity"] = json!(format!("ix://{MODEL_IDENTITY}/Store"));
+    declared["displayName"] = json!("Store");
+    declared["kind"]["name"] = json!("persistence");
+    declared["fields"] = json!([]);
+    declared["operations"] = json!([]);
+    types.push(declared.clone());
+    declared["identity"] = json!(format!("ix://{MODEL_IDENTITY}/Address"));
+    declared["displayName"] = json!("Address");
+    declared["kind"]["name"] = json!("record");
+    declared["fields"] = json!([{
+        "identity":format!("ix://{MODEL_IDENTITY}/Address/street"),
+        "name":"street", "typeRef":format!("ix://{MODEL_IDENTITY}/Code"),
+        "presence":"required", "nullable":false, "defaultKind":"none",
+        "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}
+    }]);
+    types.push(declared.clone());
+    declared["identity"] = json!(format!("ix://{MODEL_IDENTITY}/Account"));
+    declared["displayName"] = json!("Account");
+    declared["kind"]["name"] = json!("object");
+    declared["fields"] = json!([{
+        "identity":format!("ix://{MODEL_IDENTITY}/Account/address"),
+        "name":"address", "typeRef":format!("ix://{MODEL_IDENTITY}/Address"),
+        "presence":"required", "nullable":false, "defaultKind":"none",
+        "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}
+    }]);
+    types.push(declared);
+    types.push(json!({
+        "identity":format!("ix://{MODEL_IDENTITY}/Code"), "displayName":"Code",
+        "kind":{"module":MODEL_IDENTITY,"name":"value"},
+        "roles":[], "extensions":[], "unknownPolicy":"reject", "scalar":"string",
+        "constraints":[
+            {"keyword":"minLength","operands":{"value":0}},
+            {"keyword":"maxLength","operands":{"value":64}},
+            {"keyword":"format","operands":{"name":"text-profile:nfc"}}
+        ]
+    }));
+    document
+}
+
+fn selected_forms_package() -> (Value, CheckedPackageEvidence) {
+    let document = selected_form_document();
+    let digest = sha256_hex(&canonical(&document));
+    let mut package = v2_nominal();
+    package["lock"]["model_selections"] = json!([{
+        "identity":MODEL_IDENTITY, "digest_domain":"sha256-jcs", "digest":digest
+    }]);
+    let source = package["lock"]["sources"][0].clone();
+    for (form, name) in [
+        ("state_machine", "Machine"),
+        ("process", "Flow"),
+        ("persistence_interface", "Store"),
+        ("record_value_type", "Address"),
+        ("object_type", "Account"),
+    ] {
+        let node = selected_form_node(form, &format!("ix://{MODEL_IDENTITY}/{name}"));
+        let id = node["node_id"].clone();
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(node);
+        package["source_map"]
+            .as_array_mut()
+            .expect("map")
+            .push(json!({
+                "node_id":id, "role":"type", "ordinal":0,
+                "regions":[{"source":source,"start":10,"end":11}]
+            }));
+    }
+    for form in ["process", "state_machine"] {
+        let target = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["semantic_form"] == form)
+            .expect("target")["node_id"]
+            .clone();
+        let body = json!({"term":"aggregate", "members":[{"term":"reference", "target":target}]});
+        let key = structural_key("composite_type", "reference", None, &body);
+        let id = node_id(&key);
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(json!({
+                "node_id":id, "schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"composite_type", "semantic_form":"reference",
+                "semantic_type":id, "dependencies":[target],
+                "occurrences":[{"role":"type", "ordinal":0}], "body":body
+            }));
+        package["source_map"]
+            .as_array_mut()
+            .expect("map")
+            .push(json!({
+                "node_id":id, "role":"type", "ordinal":0,
+                "regions":[{"source":source,"start":12,"end":13}]
+            }));
+    }
+    refresh_identity(&mut package);
+    let mut evidence = evidence_for(&package);
+    evidence
+        .insert_domain_package_document(digest, canonical(&document))
+        .expect("document");
+    (package, evidence)
+}
+
+/// Trace: FR-068-AC-1, FR-068-AC-2, QSpec FR-322-AC-63, FR-322-AC-72
+#[trace("TC-463")]
+#[test]
+fn selected_process_persistence_state_and_record_keep_owner_and_reference_identity() {
+    let (package, evidence) = selected_forms_package();
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
+        panic!("all selected forms must admit");
+    };
+    for form in [
+        "process",
+        "state_machine",
+        "record_value_type",
+        "persistence_interface",
+    ] {
+        let node = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["semantic_form"] == form)
+            .expect("selected form");
+        let id: quire_contract_model::CheckedNodeId =
+            serde_json::from_value(node["node_id"].clone()).expect("id");
+        assert!(
+            admitted.node(&id).is_some(),
+            "{form} must retain its selected key"
+        );
+    }
+    for form in ["process", "state_machine"] {
+        let target = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["semantic_form"] == form)
+            .expect("target")["node_id"]
+            .clone();
+        assert!(package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .any(|node| node["semantic_form"] == "reference"
+                && node["body"]["members"][0]["target"] == target));
+    }
+    let encoded = writer_bytes(&package);
+    assert_eq!(encoded, canonical(&package));
+    let CheckedPackageV2ReadResult::Admitted(again) =
+        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+    else {
+        panic!("first canonical reread must admit");
+    };
+    let second = writer_bytes(&serde_json::from_slice(&encoded).expect("canonical JSON"));
+    assert_eq!(second, encoded);
+    assert!(matches!(
+        CheckedPackageV2::read(&second, CheckedPackageReadLimits::bounded(), &evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    assert_eq!(admitted.package_id(), again.package_id());
+}
+
+/// Trace: FR-068-AC-3, QSpec FR-322-AC-65, FR-322-AC-72
+#[trace("TC-463")]
+#[test]
+fn selected_form_owner_join_refuses_wrong_meaning_absence_and_missing_owner() {
+    for (form, wrong) in [
+        ("process", "Account"),
+        ("state_machine", "Flow"),
+        ("record_value_type", "Account"),
+        ("persistence_interface", "Machine"),
+    ] {
+        for (label, owner_identity, node_identity) in [
+            (
+                "wrong meaning",
+                MODEL_IDENTITY,
+                format!("ix://{MODEL_IDENTITY}/{wrong}"),
+            ),
+            (
+                "missing declaration",
+                MODEL_IDENTITY,
+                format!("ix://{MODEL_IDENTITY}/Absent"),
+            ),
+            (
+                "unselected package",
+                "other/model",
+                format!("ix://{MODEL_IDENTITY}/{wrong}"),
+            ),
+        ] {
+            let (mut package, evidence) = selected_forms_package();
+            package["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("nodes")
+                .retain(|node| node["semantic_form"] != "reference");
+            let position = package["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .iter()
+                .position(|node| node["semantic_form"] == form)
+                .expect("form");
+            let replacement = selected_form_node_owned(form, owner_identity, &node_identity);
+            package["semantic_graph"]["nodes"][position] = replacement;
+            rebuild_source_map(&mut package);
+            refresh_identity(&mut package);
+            let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+                panic!("{form} {label} must refuse");
+            };
+            assert_eq!(
+                refusal.code,
+                CheckedPackageRefusalCode::MissingDeclaration,
+                "{form} {label}"
+            );
+            assert_eq!(
+                refusal.cause,
+                Some(CheckedPackageRefusalCause::MissingSelection),
+                "{form} {label}"
+            );
+            assert_eq!(
+                refusal.path.as_ref().map(|path| path.as_str()),
+                Some(format!("/semantic_graph/nodes/{position}/node_id").as_str()),
+                "{form} {label}"
+            );
+        }
+    }
+    let (mut package, evidence) = selected_forms_package();
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "process")
+        .expect("process");
+    package["semantic_graph"]["nodes"][position]
+        .as_object_mut()
+        .expect("object")
+        .remove("owner");
+    refresh_identity(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+        panic!("missing required owner must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+}
+
+/// Trace: FR-068-AC-5, FR-064-AC-4, QSpec FR-322-AC-72
+#[trace("TC-463", "TC-048")]
+#[test]
+fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
+    let mut document = selected_form_document();
+    let machine = document["types"][0].clone();
+    document["types"][0]["kind"]["name"] = json!("object");
+    document["types"][1]["operations"] = json!([]);
+    let mut gate = machine;
+    gate["identity"] = json!(format!("ix://{MODEL_IDENTITY}/Gate"));
+    gate["displayName"] = json!("Gate");
+    gate["kind"]["name"] = json!("gate");
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind":{"module":MODEL_IDENTITY,"name":"gate"},
+            "construct":{"meaning":"quire.meaning.model.state-machine/v1"}
+        }));
+    document["types"].as_array_mut().expect("types").push(gate);
+    let extra = [
+        ("process", "Flow"),
+        ("state_machine", "Gate"),
+        ("record_value_type", "Address"),
+    ]
+    .map(|(form, short)| selected_form_node(form, &format!("ix://{MODEL_IDENTITY}/{short}")));
+    let (base, evidence) = concrete_protocol_refinement_with_model(
+        v2_all_families(),
+        ProtocolStepRows::Empty,
+        ProtocolClauseOwner::SelectedModel,
+        document,
+        extra.to_vec(),
+    );
+    assert!(
+        matches!(
+            read(&base, &evidence),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "selected control must admit"
+    );
+    for selected in extra {
+        let form = selected["semantic_form"].as_str().expect("form");
+        let mut package = base.clone();
+        let clause = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .position(|node| node["semantic_form"] == "protocol_clause")
+            .expect("clause");
+        package["semantic_graph"]["nodes"][clause]["owner_model"] = selected["node_id"].clone();
+        settle(&mut package);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+            panic!("selected {form} clause edge must refuse");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            "{form}"
+        );
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            "{form}"
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(format!("/semantic_graph/nodes/{clause}/owner_model").as_str()),
+            "{form}"
+        );
+    }
 }
 
 pub(super) fn machine_package() -> (Value, CheckedPackageEvidence) {

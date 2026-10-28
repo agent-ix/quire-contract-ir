@@ -1151,12 +1151,12 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ModelForm::Process
             | ModelForm::SystemsInterface,
         ) => Some("object"),
+        K::Model(ModelForm::RecordValueType) => Some("record"),
         K::Model(
             ModelForm::ModelRoot
             | ModelForm::ModelImport
             | ModelForm::ValueType
             | ModelForm::VariantType
-            | ModelForm::RecordValueType
             | ModelForm::EventType
             | ModelForm::PersistenceInterface
             | ModelForm::Namespace

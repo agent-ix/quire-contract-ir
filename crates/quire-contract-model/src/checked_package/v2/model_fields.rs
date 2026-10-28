@@ -720,7 +720,10 @@ impl RetainedModels {
     ) -> Option<&OperationTypes> {
         let declared = self.index.0.get(context.node_id.digest.as_ref())?;
         check_declaration_node(declared.form, context, empty_declaration_term(term)).ok()?;
-        if declared.form != DeclarationForm::ObjectType {
+        if !matches!(
+            declared.form,
+            DeclarationForm::ObjectType | DeclarationForm::StateMachine | DeclarationForm::Process
+        ) {
             return None;
         }
         self.operation_types

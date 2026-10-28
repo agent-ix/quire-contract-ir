@@ -2552,8 +2552,10 @@ type ClassifiedType<'v> = Result<(&'v Value, meaning::Kind), ModelRefusal>;
 /// known before any node's body is read, so no reference outcome depends on
 /// the order the nodes are read in.
 struct Scope<'v> {
-    /// Object types and systems interfaces.
+    /// Object-identity forms accepted as declared field types.
     objects: BTreeSet<&'v str>,
+    /// Object and systems-interface supertypes, excluding process/state forms.
+    nominal_objects: BTreeSet<&'v str>,
     /// Process and state-machine supertypes must stay within their meanings.
     processes: BTreeSet<&'v str>,
     state_machines: BTreeSet<&'v str>,
@@ -2713,6 +2715,7 @@ pub(super) fn read_semantic_ir(
     }
     let mut scope = Scope {
         objects: BTreeSet::new(),
+        nominal_objects: BTreeSet::new(),
         processes: BTreeSet::new(),
         state_machines: BTreeSet::new(),
         records: BTreeSet::new(),
@@ -2743,6 +2746,8 @@ pub(super) fn read_semantic_ir(
                         scope.processes.insert(node);
                     } else if meaning == meaning::Kind::StateMachine {
                         scope.state_machines.insert(node);
+                    } else {
+                        scope.nominal_objects.insert(node);
                     }
                 }
                 if matches!(
@@ -3041,7 +3046,7 @@ impl References<'_> {
             meaning::Kind::RecordValueType => &self.scope.records,
             meaning::Kind::Process => &self.scope.processes,
             meaning::Kind::StateMachine => &self.scope.state_machines,
-            _ => &self.scope.objects,
+            _ => &self.scope.nominal_objects,
         };
         if eligible.contains(supertype) || self.scope.refused.contains(supertype) {
             return;

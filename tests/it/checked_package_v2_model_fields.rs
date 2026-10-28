@@ -115,6 +115,7 @@ enum Ty {
     Timestamp,
     Clock,
     Range(i128, i128),
+    TextBounds(u64, u64, String),
     /// `Reference<O>`, by the key of `O`'s model declaration node.
     Reference(String),
     Record(String),
@@ -152,6 +153,11 @@ fn ty_of(member: &CheckedMemberType) -> Ty {
         CheckedMemberType::Timestamp => Ty::Timestamp,
         CheckedMemberType::Clock => Ty::Clock,
         CheckedMemberType::IntRange { lower, upper } => Ty::Range(*lower, *upper),
+        CheckedMemberType::TextBounds {
+            lower,
+            upper,
+            profile,
+        } => Ty::TextBounds(*lower, *upper, profile.to_string()),
         CheckedMemberType::Reference(target) => Ty::Reference(target.digest.to_string()),
         CheckedMemberType::Record(target) => Ty::Record(target.digest.to_string()),
         CheckedMemberType::Variant(target) => Ty::Variant(target.digest.to_string()),
@@ -224,6 +230,31 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
                 body,
             );
             nodes.entry(key.clone()).or_insert(node);
+            key
+        }
+        Ty::TextBounds(lower, upper, profile) => {
+            let integer = type_nodes(&Ty::Integer, nodes);
+            let text = structural("scalar_type", "text", None, None, &empty());
+            nodes
+                .entry(text.clone())
+                .or_insert_with(|| wire_node(&text, "scalar_type", "text", &text, &[], empty()));
+            let binding = |name: &str, ty: &str, value: String, value_kind: &str| {
+                json!({
+                    "term":"binding", "name":name, "value":{
+                        "term":"literal", "type":node_id(ty), "value":value,
+                        "value_kind":value_kind
+                    }
+                })
+            };
+            let body = json!({"term":"aggregate", "members":[
+                binding("min", &integer, lower.to_string(), "integer"),
+                binding("max", &integer, upper.to_string(), "integer"),
+                binding("text_profile", &text, profile.clone(), "text")
+            ]});
+            let key = structural("bounded_domain", "text_bounds", Some(&text), None, &body);
+            nodes.entry(key.clone()).or_insert_with(|| {
+                wire_node(&key, "bounded_domain", "text_bounds", &text, &[&text], body)
+            });
             key
         }
         Ty::Reference(target) => {
@@ -436,7 +467,13 @@ fn package(
         let mut node = wire_node(&key, tag, form, &key, &[], empty());
         if matches!(
             *form,
-            OBJECT | INTERFACE | "relationship" | "record_value_type"
+            OBJECT
+                | INTERFACE
+                | "relationship"
+                | "record_value_type"
+                | "process"
+                | "state_machine"
+                | "persistence_interface"
         ) {
             node["owner"] = json!({
                 "kind": "model", "identity": IDENTITY, "node": orders(short),
@@ -1433,6 +1470,254 @@ fn tc_056_record_projection_unknown_field_remains_ineligible() {
         ),
         other => panic!("an unknown record projection must be ineligible: {other:?}"),
     }
+}
+
+/// Trace: FR-068-AC-2, FR-068-AC-4, QSpec FR-322-AC-63, FR-322-AC-65
+#[trace("TC-463")]
+#[test]
+fn selected_record_address_street_has_profiled_text_and_account_keeps_record_type() {
+    let mut code = value_type("Code", "string", None);
+    code["constraints"] = json!([
+        {"keyword":"minLength", "operands":{"value":0}},
+        {"keyword":"maxLength", "operands":{"value":64}},
+        {"keyword":"format", "operands":{"name":"text-profile:nfc"}}
+    ]);
+    let mut document = document(vec![
+        code,
+        typed_object(
+            "Address",
+            "record",
+            &[],
+            &[field("street", &orders("Code"))],
+        ),
+        object("Account", &[], &[field("address", &orders("Address"))]),
+    ]);
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind":{"module":IDENTITY,"name":"record"},
+            "construct":{"meaning":"quire.meaning.model.record-value-type/v1"}
+        }));
+    let address = declaration_key("Address", "record_value_type");
+    let reads = [Read {
+        owner: "Address",
+        field: "street",
+        ty: Ty::TextBounds(0, 64, "nfc".into()),
+    }];
+    let admitted = admit(
+        &document,
+        &[("Address", "record_value_type"), ("Account", OBJECT)],
+        &reads,
+    );
+    let fields = fields_of(&admitted, "Account");
+    assert_eq!(
+        fields
+            .field("address")
+            .and_then(|field| field.member_type()),
+        Some(&CheckedMemberType::Record(
+            serde_json::from_value(node_id(&address)).expect("id")
+        ))
+    );
+    let (unknown, evidence, positions) = package(
+        &document,
+        &[("Address", "record_value_type")],
+        &[Read {
+            owner: "Address",
+            field: "missing",
+            ty: Ty::TextBounds(0, 64, "nfc".into()),
+        }],
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with(&unknown, &evidence, CheckedPackageReadLimits::bounded())
+    else {
+        panic!("unknown record field must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::OperatorIneligible)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(
+            format!(
+                "/semantic_graph/nodes/{}/body/operation/member/name",
+                positions[0]
+            )
+            .as_str()
+        )
+    );
+}
+
+/// Trace: FR-068-AC-2, QSpec FR-322-AC-72
+#[trace("TC-463")]
+#[test]
+fn selected_process_field_n_resolves_through_the_model_member_step() {
+    let mut document = document(vec![typed_object(
+        "Flow",
+        "process",
+        &[],
+        &[field("n", "ix://quire/native/Integer")],
+    )]);
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind":{"module":IDENTITY,"name":"process"},
+            "construct":{"meaning":"quire.meaning.model.process/v1"}
+        }));
+    let (wire, evidence, positions) = package(
+        &document,
+        &[("Flow", "process")],
+        &[Read {
+            owner: "Flow",
+            field: "n",
+            ty: Ty::Integer,
+        }],
+    );
+    let CheckedPackageV2ReadResult::Admitted(admitted) =
+        read_with(&wire, &evidence, CheckedPackageReadLimits::bounded())
+    else {
+        panic!("Flow.n projection must admit");
+    };
+    assert_eq!(
+        admitted.graph().nodes[positions[0]].semantic_form.as_ref(),
+        "query"
+    );
+}
+
+/// Trace: FR-068-AC-2, QSpec FR-322-AC-72
+#[trace("TC-463")]
+#[test]
+fn selected_subprocess_inherits_only_process_members() {
+    let mut document = document(vec![
+        typed_object(
+            "Flow",
+            "process",
+            &[],
+            &[field("n", "ix://quire/native/Integer")],
+        ),
+        typed_object("SubFlow", "process", &["Flow"], &[]),
+    ]);
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind":{"module":IDENTITY,"name":"process"},
+            "construct":{"meaning":"quire.meaning.model.process/v1"}
+        }));
+    let reads = [Read {
+        owner: "SubFlow",
+        field: "n",
+        ty: Ty::Integer,
+    }];
+    admit(
+        &document,
+        &[("Flow", "process"), ("SubFlow", "process")],
+        &reads,
+    );
+    document["types"][0]["kind"]["name"] = json!("entity");
+    let (wire, evidence, _) = package(&document, &[("SubFlow", "process")], &[]);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with(&wire, &evidence, CheckedPackageReadLimits::bounded())
+    else {
+        panic!("process inheriting an object type must refuse at selected intake");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+}
+
+/// Trace: FR-068-AC-4, QSpec FR-322-AC-65
+#[trace("TC-463")]
+#[test]
+fn selected_record_field_refuses_each_non_value_object_meaning_at_intake() {
+    for (kind, meaning) in [
+        ("event", "quire.meaning.model.event-type/v1"),
+        ("process", "quire.meaning.model.process/v1"),
+        ("machine", "quire.meaning.model.state-machine/v1"),
+        (
+            "persistence",
+            "quire.meaning.model.persistence-interface/v1",
+        ),
+        ("namespace", "quire.meaning.model.namespace/v1"),
+    ] {
+        let mut document = document(vec![
+            typed_object(
+                "Address",
+                "record",
+                &[],
+                &[field("street", &orders("Other"))],
+            ),
+            typed_object("Other", kind, &[], &[]),
+        ]);
+        document["constructs"]
+            .as_array_mut()
+            .expect("constructs")
+            .extend([
+                json!({"kind":{"module":IDENTITY,"name":"record"},
+                "construct":{"meaning":"quire.meaning.model.record-value-type/v1"}}),
+                json!({"kind":{"module":IDENTITY,"name":kind},"construct":{"meaning":meaning}}),
+            ]);
+        let (wire, evidence, _) = package(&document, &[("Address", "record_value_type")], &[]);
+        let CheckedPackageV2ReadResult::Refused(refusal) =
+            read_with(&wire, &evidence, CheckedPackageReadLimits::bounded())
+        else {
+            panic!("record field of {kind} must refuse at selected intake");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            "{kind}"
+        );
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            "{kind}"
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some("/lock/model_selections/0"),
+            "{kind}"
+        );
+    }
+}
+
+/// Trace: FR-068-AC-4, QSpec FR-322-AC-65
+#[trace("TC-463")]
+#[test]
+fn selected_record_node_cannot_be_an_object_reference_target() {
+    let mut document = document(vec![typed_object("Address", "record", &[], &[])]);
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind":{"module":IDENTITY,"name":"record"},
+            "construct":{"meaning":"quire.meaning.model.record-value-type/v1"}
+        }));
+    let (mut wire, evidence, _) = package(&document, &[("Address", "record_value_type")], &[]);
+    let target = declaration_key("Address", "record_value_type");
+    let mut nodes = BTreeMap::new();
+    type_nodes(&Ty::Reference(target), &mut nodes);
+    wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .extend(nodes.into_values());
+    rebuild_source_map(&mut wire);
+    refresh_identity(&mut wire);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with(&wire, &evidence, CheckedPackageReadLimits::bounded())
+    else {
+        panic!("Reference<Address> must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::InvalidDerivedShape)
+    );
 }
 
 /// A chain with an inherited field, a field redefined by a subtype with a
