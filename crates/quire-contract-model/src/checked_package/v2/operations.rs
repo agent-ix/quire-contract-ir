@@ -5568,6 +5568,7 @@ mod tests {
                 ("function", "predicate", "function"),
                 ("function", "recursive_function", "function"),
                 ("model", "object_type", "object"),
+                ("model", "tuple_value_type", "tuple"),
                 ("model", "record_value_type", "record"),
                 ("model", "state_machine", "object"),
                 ("model", "process", "object"),
