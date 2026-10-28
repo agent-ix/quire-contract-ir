@@ -1,5 +1,5 @@
 ---
-id: SR-612089
+id: SR-612092
 title: "Code and Rust review of IR-1080 PR #644"
 type: SpecReview
 analysis: code-review
@@ -28,3 +28,7 @@ Examined FR-035-AC-9: "The typed profile exposes `required_source_selections: Ve
 Examined TC-044 typed source-selection adapter section against authoritative QSpec FR-330-AC-10/TC-935. Read all 19 changed files: crates/quire-contract-model/src/checked_package/v2/lower.rs, crates/quire-contract-model/src/checked_package/v2/lower/ceiling_tests.rs, tests/conformance_qsl_ir769/main.rs, tests/conformance_qsl_ir779/main.rs, tests/it/admitted_guard_context.rs, tests/it/admitted_result_context.rs, tests/it/checked_package_v2_abstraction_relation.rs, tests/it/checked_package_v2_dependency_reference.rs, tests/it/checked_package_v2_flat_wire.rs, tests/it/checked_package_v2_frame_entries.rs, tests/it/checked_package_v2_identity_digests.rs, tests/it/checked_package_v2_lowering.rs, tests/it/checked_package_v2_parameters.rs, tests/it/checked_package_v2_recursive_leaves.rs, tests/it/checked_package_v2_require_bounds.rs, tests/it/checked_package_v2_temporal.rs, tests/it/checked_package_v2_union.rs, tests/it/complete_v1_checked_package.rs, tests/it/complete_v1_contract_package.rs.
 
 Plan completion: not assessed. Optional repository-wide semantic review was not requested; this PR review nonetheless checked the changed test-to-AC intent. Full gate and final coverage are owned by the code lead.
+
+## Review ID correction
+
+This artifact replaces the same PR review artifact formerly identified as `SR-612089`. The old ID collided with another review on merged main and is superseded. Findings and disposition history above are unchanged.
