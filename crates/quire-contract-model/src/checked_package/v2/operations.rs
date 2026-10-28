@@ -2995,6 +2995,7 @@ fn check_state_result(
 
 /// The clock-place form of `present` uses the place's selector domains, not
 /// the catalog's ordinary one-option operand shape.
+#[ix_trace_rs::string_edge]
 fn check_place_presence(
     application: Application<'_>,
     operation: &OperationWire,

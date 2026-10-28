@@ -590,6 +590,7 @@ fn declared_field_type(field: &FieldDecl) -> Option<String> {
     })
 }
 
+#[ix_trace_rs::string_edge]
 fn terminal_clock(value: &str) -> bool {
     let inner = value
         .strip_prefix("Option<")
@@ -598,6 +599,7 @@ fn terminal_clock(value: &str) -> bool {
     inner == "ix://quire/native/Clock"
 }
 
+#[ix_trace_rs::string_edge]
 fn selector_fits(
     parent_type: &str,
     collection: &str,
