@@ -64,9 +64,31 @@ identities and assert admission and read/write/read retention. Mutate one
 control at a time: remove `source_node`, use an unresolved or wrong-kind
 source node, change `source_class` away from the anchor's operation name, and
 use an anchor whose context belongs to a foreign model or the wrong selected
-subject. Assert the exact FR-061-AC-15 code, cause and row pointer. Combine a
-step defect with one earlier-stage defect, then put defects in two ordered
-steps, and assert FR-061-AC-16 precedence. Finally use a separate valid
+subject. Assert the exact FR-061-AC-15 code, cause and row pointer. For
+FR-061-AC-16, keep an anchor name/`source_class` mismatch as the later row
+defect and make a separate combined control for **each** earlier stage:
+
+1. Add an unknown refinement-body member; assert the closed-body wire
+   refusal `invalid_semantic_graph` at the body before the row mismatch.
+2. Retain a stale refinement node id after a body mutation; assert
+   `invalid_package`/`stale-node-key` at `node_id` before the row mismatch.
+3. Reverse two otherwise valid step rows by their canonical keys while one
+   retains the name mismatch; after recomputing identities, assert
+   `invalid_semantic_graph` at the first out-of-order `steps` entry before
+   the row mismatch.
+4. Select a wrong profile in the refinement header; after recomputing
+   identities, assert `invalid_model_binding`/`malformed-declaration` at
+   `body/profile` before the row mismatch.
+5. Add a closed `class_catalog` with empty `concrete` and `abstract` arrays
+   to the model-only subject that requires no catalog; after recomputing
+   identities, assert `invalid_semantic_graph` at `body/class_catalog`
+   before the row mismatch. This control exercises the catalog-presence
+   stage while the step remains catalog-free in the valid baseline.
+
+For each control, assert the earlier stage, exact code, cause when defined,
+and RFC 6901 pointer; then repair only its earlier defect and assert the
+remaining row mismatch at `source_class`. Put defects in two ordered steps
+and assert the first row wins. Finally use a separate valid
 protocol refinement with a present catalog; change its row class to one
 absent from the concrete catalog, then restore the class and change its
 `source_node` away from the matching catalog entry. Confirm the existing
