@@ -14,6 +14,27 @@ fn published() -> Value {
         .expect("published timed model must be available")
 }
 
+/// The slot fixture selects the complete FCD document, including its named
+/// sequence and map definitions, rather than an isolated node projection.
+#[trace("TC-048", "FR-038-AC-335", "FR-038-AC-339", "FR-038-AC-340")]
+#[test]
+fn timed_slot_selected_package_admits_nested_and_optional_clock_places() {
+    let fixtures = fixtures_dir();
+    let wire = read_json(&fixtures.join("positive-timed-slot-nodes.json"))
+        .expect("published timed slot package");
+    let document = proposal_dir_of(&fixtures).join("domain-package-acme-timed-slots.json");
+    let result = read_package_with_document(&wire, "timed slot package", &document)
+        .expect("selected timed slot evidence");
+    let CheckedPackageV2ReadResult::Admitted(package) = result else {
+        panic!("selected timed slot package must admit: {result:?}");
+    };
+    assert_eq!(package.graph().nodes.len(), 72);
+    assert_eq!(
+        Some(package.package_id().digest.as_ref()),
+        wire["package_id"]["digest"].as_str()
+    );
+}
+
 fn encode_package(package: &CheckedPackageV2) -> Vec<u8> {
     let selected = package.identity_preimage();
     let preimage = CheckedPackageIdentityPreimageRefV2 {
