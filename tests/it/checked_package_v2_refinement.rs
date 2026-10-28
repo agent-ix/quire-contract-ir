@@ -888,26 +888,130 @@ fn catalog_free_operation_package_with_inheritance(
     form: &str,
     inherited: bool,
 ) -> (Value, CheckedPackageEvidence, usize) {
+    catalog_free_operation_package_config(form, inherited, false)
+}
+
+fn rewrite_identity_prefix(value: &mut Value, old: &str, new: &str) {
+    match value {
+        Value::String(text) if text.starts_with(old) => {
+            *text = format!("{new}{}", &text[old.len()..]);
+        }
+        Value::Array(items) => {
+            for item in items {
+                rewrite_identity_prefix(item, old, new);
+            }
+        }
+        Value::Object(members) => {
+            for member in members.values_mut() {
+                rewrite_identity_prefix(member, old, new);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn catalog_free_operation_package_config(
+    form: &str,
+    inherited: bool,
+    inherited_field: bool,
+) -> (Value, CheckedPackageEvidence, usize) {
     let mut document = selected_form_document();
+    document["types"][0]["fields"] = json!([{
+        "identity":format!("{MODEL_NODE}/openFlag"), "name":"openFlag",
+        "typeRef":"ix://quire/native/Integer", "presence":"required",
+        "nullable":false, "defaultKind":"none",
+        "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}
+    }]);
+    document["types"][0]["operations"][0]["params"] = json!([{
+        "identity":format!("{MODEL_NODE}/toggle/target"), "name":"target",
+        "typeRef":format!("ix://{MODEL_IDENTITY}/Account"),
+        "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}
+    }]);
+    document["types"][1]["operations"][0]["params"][0]["typeRef"] =
+        json!(format!("ix://{MODEL_IDENTITY}/Account"));
+    if inherited_field {
+        let (index, parent_name) = match form {
+            "process" => (1, "BaseFlow"),
+            "state_machine" => (0, "BaseMachine"),
+            _ => panic!("inherited field fixture requires a process or state machine"),
+        };
+        let parent_identity = format!("ix://{MODEL_IDENTITY}/{parent_name}");
+        let mut parent = document["types"][index].clone();
+        let original_identity = parent["identity"]
+            .as_str()
+            .expect("parent identity")
+            .to_owned();
+        rewrite_identity_prefix(&mut parent, &original_identity, &parent_identity);
+        parent["displayName"] = json!(parent_name);
+        parent["fields"] = json!([{
+            "identity":format!("{parent_identity}/inherited"), "name":"inherited",
+            "typeRef":"ix://quire/native/Integer", "presence":"required",
+            "nullable":false, "defaultKind":"none",
+            "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}
+        }]);
+        if form == "process" {
+            parent["identityFields"] = json!([format!("{parent_identity}/inherited")]);
+            parent["operations"][0]["identity"] = json!(format!("{parent_identity}/baseGo"));
+            parent["operations"][0]["name"] = json!("baseGo");
+            parent["operations"][0]["params"][0]["identity"] =
+                json!(format!("{parent_identity}/baseGo/step"));
+        } else {
+            parent
+                .as_object_mut()
+                .expect("parent")
+                .remove("identityFields");
+            parent["operations"][0]["identity"] = json!(format!("{parent_identity}/baseToggle"));
+            parent["operations"][0]["name"] = json!("baseToggle");
+            parent["operations"][0]["params"][0]["identity"] =
+                json!(format!("{parent_identity}/baseToggle/target"));
+            parent["transitions"][0]["trigger"] = json!(format!("{parent_identity}/baseToggle"));
+        }
+        document["types"][index]["supertypes"] = json!([parent_identity]);
+        document["types"]
+            .as_array_mut()
+            .expect("types")
+            .push(parent);
+    }
     document["types"][4]["operations"] = json!([{
         "identity": format!("ix://{MODEL_IDENTITY}/Account/save"),
         "name": "save", "params": []
     }]);
     let child = if inherited {
-        let mut child = document["types"][4].clone();
-        child["identity"] = json!(format!("ix://{MODEL_IDENTITY}/SubAccount"));
-        child["displayName"] = json!("SubAccount");
-        child["supertypes"] = json!([format!("ix://{MODEL_IDENTITY}/Account")]);
-        child["fields"] = json!([]);
-        child["operations"] = json!([]);
-        child
-            .as_object_mut()
-            .expect("subtype")
-            .remove("identityFields");
+        let (index, parent_name, child_name) = match form {
+            "object_type" => (4, "Account", "SubAccount"),
+            "process" => (1, "Flow", "SubFlow"),
+            "state_machine" => (0, "Machine", "SubMachine"),
+            _ => panic!("unsupported inherited model form"),
+        };
+        let mut child = document["types"][index].clone();
+        let parent_identity = format!("ix://{MODEL_IDENTITY}/{parent_name}");
+        let child_identity = format!("ix://{MODEL_IDENTITY}/{child_name}");
+        rewrite_identity_prefix(&mut child, &parent_identity, &child_identity);
+        child["displayName"] = json!(child_name);
+        child["supertypes"] = json!([parent_identity]);
+        if form == "process" {
+            child["operations"][0]["identity"] = json!(format!("{child_identity}/localGo"));
+            child["operations"][0]["name"] = json!("localGo");
+            child["operations"][0]["params"][0]["identity"] =
+                json!(format!("{child_identity}/localGo/step"));
+        } else if form == "state_machine" {
+            child["operations"][0]["identity"] = json!(format!("{child_identity}/localToggle"));
+            child["operations"][0]["name"] = json!("localToggle");
+            child["operations"][0]["params"][0]["identity"] =
+                json!(format!("{child_identity}/localToggle/target"));
+            child["transitions"][0]["trigger"] = json!(format!("{child_identity}/localToggle"));
+        } else {
+            child["fields"] = json!([]);
+            child["operations"] = json!([]);
+            child
+                .as_object_mut()
+                .expect("subtype")
+                .remove("identityFields");
+        }
         document["types"].as_array_mut().expect("types").push(child);
         Some(selected_form_node(
-            "object_type",
-            &format!("ix://{MODEL_IDENTITY}/SubAccount"),
+            form,
+            &format!("ix://{MODEL_IDENTITY}/{child_name}"),
         ))
     } else {
         None
@@ -1001,7 +1105,7 @@ fn catalog_free_operation_package_with_inheritance(
         .expect("nodes")
         .len()
         - 1;
-    if let Some(child) = child {
+    if let Some(child) = child.filter(|_| form == "object_type") {
         let child = child["node_id"].clone();
         let node = &mut package["semantic_graph"]["nodes"][position];
         node["body"]["objects"] = json!([{
@@ -1029,10 +1133,261 @@ fn catalog_free_operation_package_with_inheritance(
     (package, evidence, position)
 }
 
-#[trace("TC-062")]
+fn edit_catalog_free_frame(
+    package: &mut Value,
+    refinement: usize,
+    edit: impl FnOnce(&mut Value),
+) -> usize {
+    let frame = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "state" && node["semantic_form"] == "frame")
+        .expect("frame");
+    let old_frame = package["semantic_graph"]["nodes"][frame]["node_id"]["digest"]
+        .as_str()
+        .expect("frame digest")
+        .to_owned();
+    edit(&mut package["semantic_graph"]["nodes"][frame]);
+    let context = package["semantic_graph"]["nodes"][frame]["semantic_type"]["digest"]
+        .as_str()
+        .expect("context digest")
+        .to_owned();
+    let new_frame = structural_key(
+        "state",
+        "frame",
+        Some(&context),
+        &package["semantic_graph"]["nodes"][frame]["body"],
+    );
+    crate::support::checked_package::rename_node(package, &old_frame, &new_frame);
+    let anchor = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "state" && node["semantic_form"] == "operation_anchor")
+        .expect("anchor");
+    let old_anchor = package["semantic_graph"]["nodes"][anchor]["node_id"]["digest"]
+        .as_str()
+        .expect("anchor digest")
+        .to_owned();
+    let new_anchor = structural_key(
+        "state",
+        "operation_anchor",
+        Some(&context),
+        &package["semantic_graph"]["nodes"][anchor]["body"],
+    );
+    crate::support::checked_package::rename_node(package, &old_anchor, &new_anchor);
+    for node in package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+    {
+        node["dependencies"]
+            .as_array_mut()
+            .expect("dependencies")
+            .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    }
+    rekey_refinement(package, refinement);
+    frame
+}
+
+#[trace("TC-056", "TC-062", "FR-061-AC-14", "FR-040-AC-38", "FR-040-AC-39")]
+#[test]
+fn catalog_free_process_and_machine_frames_admit_declared_fields_and_scoped_parameters() {
+    for (form, field_name, parameter_name) in [
+        ("process", "n", "step"),
+        ("state_machine", "openFlag", "target"),
+    ] {
+        let (mut package, evidence, refinement) =
+            catalog_free_operation_package_config(form, false, true);
+        let declaring = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["node_tag"] == "model" && node["semantic_form"] == form)
+            .expect("declaring node")["node_id"]
+            .clone();
+        let frame = edit_catalog_free_frame(&mut package, refinement, |node| {
+            node["dependencies"] = json!([declaring]);
+            let mut fields = [field_name, "inherited"];
+            fields.sort();
+            node["body"]["modifies"] = json!(fields
+                .iter()
+                .map(|name| json!({
+                    "kind":"field", "declaration":declaring,
+                    "name":name, "scope":"every-object"
+                }))
+                .collect::<Vec<_>>());
+            node["body"]["deletes_scoped"] = json!([{
+                "kind":"parameter", "name":parameter_name
+            }]);
+            if form == "process" {
+                node["body"]["creates"] = json!([declaring]);
+                node["body"]["deletes"] = json!([declaring]);
+            }
+        });
+        let first = read(&package, &evidence);
+        let CheckedPackageV2ReadResult::Admitted(first) = first else {
+            panic!("{form} frame must admit: {first:?}");
+        };
+        let encoded = writer_bytes(&package);
+        let CheckedPackageV2ReadResult::Admitted(second) =
+            CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+        else {
+            panic!("{form} frame writer must read back");
+        };
+        assert_eq!(first.package_id(), second.package_id(), "{form}");
+        assert_eq!(
+            serde_json::to_value(&first.graph().nodes[frame].body).expect("frame body"),
+            serde_json::to_value(&second.graph().nodes[frame].body).expect("roundtrip frame"),
+            "{form}"
+        );
+    }
+}
+
+#[trace("TC-056", "TC-062", "FR-040-AC-38", "FR-040-AC-39")]
+#[test]
+fn process_and_machine_frames_refuse_receiver_scopes_and_invalid_members() {
+    for (form, field_name) in [("process", "n"), ("state_machine", "openFlag")] {
+        let (base, evidence, refinement) = catalog_free_operation_package(form);
+        let declaring = base["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["node_tag"] == "model" && node["semantic_form"] == form)
+            .expect("declaring node")["node_id"]
+            .clone();
+        let mut receiver_field = base.clone();
+        let frame = edit_catalog_free_frame(&mut receiver_field, refinement, |node| {
+            node["dependencies"] = json!([declaring]);
+            node["body"]["modifies"] = json!([{
+                "kind":"field", "declaration":declaring,
+                "name":field_name, "scope":"receiver"
+            }]);
+        });
+        assert_step_refusal(
+            read(&receiver_field, &evidence),
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            &format!("/semantic_graph/nodes/{frame}/body/modifies/0"),
+        );
+
+        let mut receiver_delete = base.clone();
+        let frame = edit_catalog_free_frame(&mut receiver_delete, refinement, |node| {
+            node["body"]["deletes_scoped"] = json!([{"kind":"receiver"}]);
+        });
+        assert_step_refusal(
+            read(&receiver_delete, &evidence),
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            &format!("/semantic_graph/nodes/{frame}"),
+        );
+
+        let mut unordered_delete = base.clone();
+        let frame = edit_catalog_free_frame(&mut unordered_delete, refinement, |node| {
+            node["body"]["deletes_scoped"] = json!([
+                {"kind":"parameter", "name":"unknown"},
+                {"kind":"receiver"}
+            ]);
+        });
+        assert_step_refusal(
+            read(&unordered_delete, &evidence),
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            &format!("/semantic_graph/nodes/{frame}"),
+        );
+
+        let mut ghost_field = base.clone();
+        let frame = edit_catalog_free_frame(&mut ghost_field, refinement, |node| {
+            node["dependencies"] = json!([declaring]);
+            node["body"]["modifies"] = json!([{
+                "kind":"field", "declaration":declaring,
+                "name":"ghost", "scope":"every-object"
+            }]);
+        });
+        assert_step_refusal(
+            read(&ghost_field, &evidence),
+            CheckedPackageRefusalCode::MissingDeclaration,
+            Some(CheckedPackageRefusalCause::MissingName),
+            &format!("/semantic_graph/nodes/{frame}/body/modifies/0"),
+        );
+
+        if form == "state_machine" {
+            for member in ["creates", "deletes"] {
+                let mut package = base.clone();
+                let frame = edit_catalog_free_frame(&mut package, refinement, |node| {
+                    node["dependencies"] = json!([declaring]);
+                    node["body"][member] = json!([declaring]);
+                });
+                assert_step_refusal(
+                    read(&package, &evidence),
+                    CheckedPackageRefusalCode::InvalidModelBinding,
+                    Some(CheckedPackageRefusalCause::MalformedDeclaration),
+                    &format!("/semantic_graph/nodes/{frame}/body/{member}/0"),
+                );
+            }
+        }
+    }
+}
+
+#[trace("TC-056", "TC-062", "FR-040-AC-38", "FR-040-AC-39")]
+#[test]
+fn object_frame_retains_receiver_scoped_grants() {
+    let (mut package, evidence, refinement) = catalog_free_operation_package("object_type");
+    let model_nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let declaring = |form| {
+        model_nodes
+            .iter()
+            .find(|node| node["node_tag"] == "model" && node["semantic_form"] == form)
+            .expect("declaring node")["node_id"]
+            .clone()
+    };
+    let object = declaring("object_type");
+    let process = declaring("process");
+    let machine = declaring("state_machine");
+    edit_catalog_free_frame(&mut package, refinement, |node| {
+        let mut declarations = vec![object.clone(), process.clone(), machine.clone()];
+        declarations.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+        let mut fields = [
+            (object, "address", "receiver"),
+            (process, "n", "every-object"),
+            (machine, "openFlag", "every-object"),
+        ];
+        fields.sort_by(|left, right| {
+            left.0["digest"]
+                .as_str()
+                .cmp(&right.0["digest"].as_str())
+                .then(left.1.cmp(right.1))
+        });
+        node["dependencies"] = json!(declarations);
+        node["body"]["modifies"] = json!(fields
+            .iter()
+            .map(|(declaration, name, scope)| json!({
+                "kind":"field", "declaration":declaration,
+                "name":name, "scope":scope
+            }))
+            .collect::<Vec<_>>());
+        node["body"]["deletes_scoped"] = json!([{"kind":"receiver"}]);
+    });
+    let result = read(&package, &evidence);
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+        "{result:?}"
+    );
+}
+
+#[trace("TC-062", "FR-061-AC-14")]
 #[test]
 fn catalog_free_operation_step_joins_selected_object_type() {
-    for (form, inherited) in [("object_type", false), ("object_type", true)] {
+    for (form, inherited) in [
+        ("object_type", false),
+        ("object_type", true),
+        ("process", false),
+        ("process", true),
+        ("state_machine", false),
+        ("state_machine", true),
+    ] {
         let (package, evidence, position) =
             catalog_free_operation_package_with_inheritance(form, inherited);
         let CheckedPackageV2ReadResult::Admitted(first) = read(&package, &evidence) else {
@@ -1041,6 +1396,29 @@ fn catalog_free_operation_step_joins_selected_object_type() {
                 read(&package, &evidence)
             );
         };
+        if inherited {
+            let child = package["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .iter()
+                .find(|node| {
+                    node["semantic_form"] == form
+                        && node["owner"]["node"]
+                            .as_str()
+                            .is_some_and(|name| name.contains("/Sub"))
+                })
+                .expect("selected subtype");
+            let anchor = package["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .iter()
+                .find(|node| node["semantic_form"] == "operation_anchor")
+                .expect("source anchor");
+            assert_ne!(
+                anchor["body"]["members"][0]["value"]["target"], child["node_id"],
+                "inherited {form} operation stays anchored at its declaring type"
+            );
+        }
         let encoded = writer_bytes(&package);
         let CheckedPackageV2ReadResult::Admitted(second) =
             CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
@@ -3339,6 +3717,39 @@ fn refinement_catalog_present_step_refuses_wrong_row_source_node() {
         CheckedPackageRefusalCode::InvalidModelBinding,
         Some(CheckedPackageRefusalCause::MalformedDeclaration),
         &format!("/semantic_graph/nodes/{position}/body/steps/0/source_node"),
+    );
+}
+
+#[trace("TC-062", "FR-061-AC-16")]
+#[test]
+fn refinement_catalog_present_step_requires_a_concrete_class() {
+    let (mut package, evidence) = concrete_protocol_refinement(
+        ProtocolStepRows::Declared,
+        ProtocolClauseOwner::SelectedModel,
+    );
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let finish = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "protocol" && node["semantic_form"] == "obligation")
+        .expect("finish obligation")["node_id"]
+        .clone();
+    let binder = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let position = set_concrete_catalog(
+        &mut package,
+        vec![json!({
+            "class":"Example::OrderFlow::Closed", "node":finish, "binder_types":[binder]
+        })],
+    );
+    package["semantic_graph"]["nodes"][position]["body"]["steps"][0]["source_class"] =
+        json!("Other::Missing");
+    rekey_refinement(&mut package, position);
+    assert_step_refusal(
+        read(&package, &evidence),
+        CheckedPackageRefusalCode::MissingDeclaration,
+        Some(CheckedPackageRefusalCause::MissingName),
+        &format!("/semantic_graph/nodes/{position}/body/steps/0/source_class"),
     );
 }
 

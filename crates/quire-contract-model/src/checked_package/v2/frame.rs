@@ -16,7 +16,8 @@
 //! ascending node-id digest order, it collects every meaning-join defect:
 //!
 //! - the frame's `semantic_type` names no node (`missing-name`) or a node
-//!   that is not `model`/`object_type` (`malformed-declaration`);
+//!   that is not an operation-bearing object type, process or state machine
+//!   (`malformed-declaration`);
 //! - an entry whose node key is not among the frame's `dependencies` or
 //!   names no node (`missing-name`), or names a node its kind or member
 //!   cannot carry (`malformed-declaration`);
@@ -24,6 +25,8 @@
 //!   declaring node (FR-322 "Model-owned members" steps 2 and 3): the owner
 //!   refusal, `missing-name` for no field of that name, `ambiguous-name` for
 //!   two.
+//! - a receiver-scoped field or deletion on a process or state-machine frame
+//!   (`malformed-declaration`), after member joins and before order checks.
 //!
 //! A field entry's name resolves through the selected domain package only
 //! when its declaring node is a model declaration node (the scope FR-038's
@@ -317,6 +320,7 @@ enum Position {
     Modifies,
     Creates,
     Deletes,
+    DeletesScoped,
 }
 
 impl Position {
@@ -326,6 +330,7 @@ impl Position {
             Self::Modifies => "modifies",
             Self::Creates => "creates",
             Self::Deletes => "deletes",
+            Self::DeletesScoped => "deletes_scoped",
         }
     }
 }
@@ -416,7 +421,10 @@ fn field_entry(kind: CheckedNodeKind) -> bool {
     matches!(
         kind,
         CheckedNodeKind::Model(
-            ModelForm::ObjectType | ModelForm::RecordValueType | ModelForm::StateMachine
+            ModelForm::ObjectType
+                | ModelForm::RecordValueType
+                | ModelForm::Process
+                | ModelForm::StateMachine
         )
     )
 }
@@ -460,8 +468,20 @@ fn frame_defect(
     meter: &mut WorkMeter,
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
     let mut defects = Vec::new();
+    let receiver_scoped = matches!(
+        graph.node(&frame.semantic_type),
+        Some((
+            _,
+            CheckedNodeKind::Model(ModelForm::Process | ModelForm::StateMachine)
+        ))
+    );
     match graph.node(&frame.semantic_type) {
-        Some((_, CheckedNodeKind::Model(ModelForm::ObjectType))) => {}
+        Some((
+            _,
+            CheckedNodeKind::Model(
+                ModelForm::ObjectType | ModelForm::Process | ModelForm::StateMachine,
+            ),
+        )) => {}
         found => defects.push(MeaningDefect {
             position: Position::SemanticType,
             digest: frame.semantic_type.digest.clone(),
@@ -483,7 +503,15 @@ fn frame_defect(
             Err(refusal) => Some(refusal),
             Ok((node, kind)) => match entry {
                 ModifiesEntry::Relationship { .. } => None,
-                ModifiesEntry::Field { name, .. } => resolve_field(node, kind, name, graph, meter)?,
+                ModifiesEntry::Field { name, scope, .. } => {
+                    match resolve_field(node, kind, name, graph, meter)? {
+                        Some(refusal) => Some(refusal),
+                        None if receiver_scoped && *scope == FieldScope::Receiver => {
+                            Some(ModelRefusal::malformed())
+                        }
+                        None => None,
+                    }
+                }
             },
         };
         if let Some(refusal) = refusal {
@@ -512,9 +540,19 @@ fn frame_defect(
             }
         }
     }
+    if receiver_scoped && body.deletes_scoped.contains(&DeletesScopedEntry::Receiver) {
+        defects.push(MeaningDefect {
+            position: Position::DeletesScoped,
+            digest: frame_id.digest.clone(),
+            name: "".into(),
+            entry: None,
+            refusal: ModelRefusal::malformed(),
+        });
+    }
     if let Some(defect) = defects.into_iter().min_by(|a, b| a.rank().cmp(&b.rank())) {
         let at = node_pointer(frame_position);
         let path = match defect.entry {
+            _ if defect.position == Position::DeletesScoped => at,
             None => at.key(defect.position.wire_key()),
             Some(entry) => at.key("body").key(defect.position.wire_key()).index(entry),
         };
@@ -658,8 +696,8 @@ mod tests {
     }
 
     /// A relationship entry names exactly a `relation`/`relationship` node
-    /// and a field entry exactly a `model`/`object_type` or
-    /// `model`/`record_value_type` node; no systems form is a declaring node.
+    /// and a field entry exactly a field-bearing model declaration; no
+    /// systems form is a declaring node.
     #[trace("TC-056", "FR-040-AC-2")]
     #[test]
     fn tc_056_modifies_entries_admit_exactly_their_declaring_kinds() {
@@ -673,6 +711,7 @@ mod tests {
                 CheckedNodeKind::Model(ModelForm::ObjectType),
                 CheckedNodeKind::Model(ModelForm::RecordValueType),
                 CheckedNodeKind::Model(ModelForm::StateMachine),
+                CheckedNodeKind::Model(ModelForm::Process),
             ]
         );
     }
