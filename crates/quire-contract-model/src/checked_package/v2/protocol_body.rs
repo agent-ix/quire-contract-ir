@@ -4497,9 +4497,12 @@ fn guard_never_exits(
                     program.push(GuardOp::Atom(index));
                     continue;
                 }
-                let referenced = check.terms[target_position]
-                    .as_ref()
-                    .expect("validated Boolean guard target body");
+                let Some(referenced) = check.terms[target_position].as_ref() else {
+                    let index = atoms.len();
+                    atoms.push(GuardAtom::Node(target));
+                    program.push(GuardOp::Atom(index));
+                    continue;
+                };
                 (referenced, Some(target))
             }
             _ => (term, key),
