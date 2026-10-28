@@ -1,5 +1,5 @@
 ---
-id: SR-612070
+id: SR-612072
 title: "PR 627 FR-019 public inventory final-hunk spec review"
 type: SpecReview
 analysis: base
@@ -9,7 +9,7 @@ relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-019
     type: reviews
 ---
-# SR-612070: PR 627 FR-019 public inventory final-hunk spec review
+# SR-612072: PR 627 FR-019 public inventory final-hunk spec review
 
 ## Summary
 
