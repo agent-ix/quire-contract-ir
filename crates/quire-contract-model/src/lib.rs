@@ -180,6 +180,8 @@ pub use checked_package::{
     DOMAIN_PACKAGE_DIGEST, PACKAGE_DOMAIN_V2,
 };
 
+pub use checked_package::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
+
 pub use checked_package::{
     ApplicationOperator, CheckedAbstractionField, CheckedAbstractionFrame,
     CheckedAbstractionObject, CheckedAbstractionParameter, CheckedAbstractionPopulation,
