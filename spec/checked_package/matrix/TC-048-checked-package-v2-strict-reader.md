@@ -2882,6 +2882,64 @@ rows to the selected declaration's member type and optional presence. Assert
 that Option adds no path step, the terminal inner Clock is accepted, and a
 missing or mismatched selected member is refused at the place join.
 
+## Timed aggregate source order (FR-038-AC-342)
+
+Status: PLANNED/UNRUN (IR-1096). Read the `aggregate_order` section of QSpec's
+published `proposals/checked-package-v2/timed-slot-selector-vectors.json`
+from the selected QSpec checkout. Apply `AO-01` through `AO-07` to the public
+V2 reader without copying the selected package or patches into IR. Assert
+`AO-01` and `AO-05` admit; assert `AO-02`, `AO-03`, `AO-04`, `AO-06` and
+`AO-07` refuse with the vector's exact code, null cause and RFC 6901 locus.
+Inspect the root's six reference aggregates and each place's `guards`: their
+member order uses the minimum (`source.identity`, `start`, `end`) across every
+region of every source-map entry of the referenced node. Compare source
+identity as UTF-8 bytes, then numeric start and end; `AO-06` discriminates
+the equal-start case and `AO-07` discriminates a later source-map entry with
+an earlier region. Assert `AO-03` refuses even though its references are in
+node-id digest order.
+
+Build an identity-current two-reference control for a root aggregate and a
+place `guards` aggregate with equal minimum keys, and assert the second
+reference's exact `invalid_semantic_graph`/null-cause locus in each. Keep an
+ordered duplicate-place control and an ordered unlisted-guard control to
+show their existing refusal codes and loci still apply after order checking.
+For each remaining aggregate branch—root `resets` (binding 4), `guards` (5),
+`invariants` (6), `constraints` (8), and each place's `guards` (binding 3)—
+build an admissible two-reference control with distinct member nodes and
+strictly increasing source-region keys. For each control, swap the two
+references, rebuild the containing node key, its source-map entry and the
+package identity, and require `invalid_semantic_graph` with null cause at
+`/semantic_graph/nodes/{i}/body/members/{b}/value/members/1`, using that
+control's actual graph index `i` and binding index `b`. Retain the admitted
+original of each pair, and check its exact dependency, declaration and
+source-map joins, so an unrelated defect cannot pass the negative control.
+AO-02/03 cover root `clock_places`, and AO-04 covers root `urgencies`.
+
+For **each** of the five out-of-order AO patches (`AO-02`, `AO-03`, `AO-04`,
+`AO-06`, `AO-07`), make three independent mutations without removing its
+order defect. First replace the timed root's required `occurrences` array
+with a text value and require `malformed_wire` at
+`/semantic_graph/nodes/{i}/occurrences`, before any identity or order check.
+Second remove one still-referenced root dependency and, with the rest of the
+package kept identity-current, require `invalid_semantic_graph` with null
+cause at `/semantic_graph/nodes/{i}/dependencies`, before the key or timed
+step. Third create a stale root key while leaving the AO order defect in
+place: for `AO-02`, `AO-03` and `AO-04`, retain their changed root bodies but
+restore the root's pre-patch `node_id` and self `semantic_type`; for `AO-06`
+and `AO-07`, whose patches change only `source_map` and therefore do not
+stale a structural key, append one more reference to the last clock place
+at the end of the root's `clock_places` aggregate, retaining its existing
+first out-of-order pair and its original `node_id` and self `semantic_type`.
+The appended reference names a node already in the root's dependencies, so
+this extra body change leaves graph-shape validation satisfied while making
+the root's retained key stale. In all five cases retain the corresponding
+root source-map reference, recompute the package identity, and require
+`invalid_package`/`stale-node-key` at `/semantic_graph/nodes/{i}/node_id`
+before the timed step. Verify that each unmodified AO patch still reaches
+its published order refusal, so none of these earlier-stage controls
+substitutes for the AO result. Rebuild all affected keys and package
+identity except the intentionally stale root key in the third mutation.
+
 ## Admitted operation-view provenance (FR-038-AC-341)
 
 Read V2 operations with populated field projection, member declaration, mode,
