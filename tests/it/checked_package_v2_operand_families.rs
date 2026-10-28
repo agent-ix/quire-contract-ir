@@ -1377,7 +1377,7 @@ fn quantity_convert_admits_equal_compound_unit_result() {
 #[trace("TC-048", "FR-038-AC-247", "FR-038-AC-248")]
 #[test]
 fn collection_size_admits_equal_model_population_result() {
-    let (mut package, unit, _, integer, _, _) = fixture();
+    let (mut package, _, _, integer, _, _) = fixture();
     let target = add_family_reference_target(&mut package);
     let reference_body = json!({"term":"aggregate","members":[reference(&target)]});
     let reference_type = structural_key("composite_type", "reference", None, &reference_body);
