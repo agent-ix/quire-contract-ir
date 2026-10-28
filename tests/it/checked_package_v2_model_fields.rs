@@ -1966,7 +1966,7 @@ fn expected_kinds() -> Vec<(&'static str, Option<Ty>)> {
         ("text", None),
         ("rational", None),
         ("decimal", None),
-        ("float", None),
+        ("float", Some(Ty::Float32)),
         ("pump", None),
         ("alarm", None),
         ("label", None),
@@ -2093,7 +2093,7 @@ fn tc_227_the_returned_type_is_the_type_admission_compares() {
         assert_eq!((refused.0, refused.1), INELIGIBLE, "{name}: {perturbed:?}");
         checked += 1;
     }
-    assert_eq!(checked, 14, "every field with a derived type was exercised");
+    assert_eq!(checked, 15, "every field with a derived type was exercised");
 }
 
 // --- AC-139 ----------------------------------------------------------------------
