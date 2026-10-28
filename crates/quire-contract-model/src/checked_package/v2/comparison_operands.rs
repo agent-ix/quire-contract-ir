@@ -860,7 +860,7 @@ mod tests {
         let CheckedTerm::Application { operation, .. } = &mut package.terms[4] else {
             panic!("fixture clause term");
         };
-        operation["member"]["clause"] = json!("later_clause_kind");
+        operation.record_mut()["member"]["clause"] = json!("later_clause_kind");
         let failure = package
             .direct_integer_comparison(&clause, &claim)
             .expect_err("unsupported clause kind");
@@ -871,7 +871,7 @@ mod tests {
         let CheckedTerm::Application { operation, .. } = &mut package.terms[4] else {
             panic!("fixture clause term");
         };
-        operation["member"]["clause"] = json!("invariant");
+        operation.record_mut()["member"]["clause"] = json!("invariant");
 
         let CheckedTerm::Application { arguments, .. } = &mut package.terms[4] else {
             panic!("fixture clause term");
