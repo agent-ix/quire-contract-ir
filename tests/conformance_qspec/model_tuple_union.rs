@@ -531,6 +531,113 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
     }
 }
 
+/// Trace: FR-069-AC-6. An admitted Duration position is usable as the
+/// Quantity<s> result of a tuple projection when source s is one second of
+/// source Time. The upstream fixtures are read at test time.
+#[test]
+fn duration_tuple_position_projects_to_resolved_second_unit() {
+    let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let mut selected =
+        read_json(&proposal.join("domain-package-acme-shapes.json")).expect("selected Semantic IR");
+    selected["types"][1]["positions"][1]["typeRef"] = json!("ix://quire/native/Duration");
+    let digest = canonical_digest(&selected);
+
+    let mut package = read_json(&fixtures.join("positive-model-tuple-union.json"))
+        .expect("published positive package");
+    let mut timed =
+        read_json(&fixtures.join("positive-timed-model-nodes.json")).expect("published time units");
+    let dimension = 42;
+    let unit = 43;
+    timed["semantic_graph"]["nodes"][dimension]["nominal_identity_preimage"]
+        ["qualified_declaration"] = json!(["Time"]);
+    timed["semantic_graph"]["nodes"][dimension]["declaration"]["qualified_name"] = json!(["Time"]);
+    let old_dimension = timed["semantic_graph"]["nodes"][dimension]["node_id"]["digest"]
+        .as_str()
+        .expect("dimension digest")
+        .to_owned();
+    let new_dimension = super::fixture_support::sha256_hex(&super::fixture_support::canonical(
+        &timed["semantic_graph"]["nodes"][dimension]["nominal_identity_preimage"],
+    ));
+    super::fixture_support::rename_node(&mut timed, &old_dimension, &new_dimension);
+    timed["semantic_graph"]["nodes"][unit]["nominal_identity_preimage"]["qualified_declaration"] =
+        json!(["s"]);
+    timed["semantic_graph"]["nodes"][unit]["declaration"]["qualified_name"] = json!(["s"]);
+    let old_unit = timed["semantic_graph"]["nodes"][unit]["node_id"]["digest"]
+        .as_str()
+        .expect("unit digest")
+        .to_owned();
+    let new_unit = super::fixture_support::sha256_hex(&super::fixture_support::canonical(
+        &timed["semantic_graph"]["nodes"][unit]["nominal_identity_preimage"],
+    ));
+    super::fixture_support::rename_node(&mut timed, &old_unit, &new_unit);
+
+    let retained = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 32, 37];
+    let mut nodes: Vec<Value> = retained
+        .iter()
+        .map(|index| package["semantic_graph"]["nodes"][*index].clone())
+        .collect();
+    nodes.push(timed["semantic_graph"]["nodes"][dimension].clone());
+    nodes.push(timed["semantic_graph"]["nodes"][unit].clone());
+    package["semantic_graph"]["nodes"] = Value::Array(nodes);
+    let ids: BTreeSet<_> = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .map(|node| {
+            node["node_id"]["digest"]
+                .as_str()
+                .expect("digest")
+                .to_owned()
+        })
+        .collect();
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .retain(|entry| {
+            entry["node_id"]["digest"]
+                .as_str()
+                .is_some_and(|digest| ids.contains(digest))
+        });
+    for index in [dimension, unit] {
+        let id = &timed["semantic_graph"]["nodes"][index]["node_id"];
+        let entry = timed["source_map"]
+            .as_array()
+            .expect("timed source map")
+            .iter()
+            .find(|entry| entry["node_id"] == *id)
+            .expect("unit source map")
+            .clone();
+        package["source_map"]
+            .as_array_mut()
+            .expect("source map")
+            .push(entry);
+    }
+    let result = package["semantic_graph"]["nodes"][11]["body"]["operation"]["result_type"].clone();
+    assert_eq!(result, package["semantic_graph"]["nodes"][8]["node_id"]);
+    let unit_id = timed["semantic_graph"]["nodes"][unit]["node_id"].clone();
+    package["semantic_graph"]["nodes"][11]["body"]["operation"]["result_type"] = unit_id.clone();
+    package["semantic_graph"]["nodes"][11]["semantic_type"] = unit_id;
+    package["lock"]["model_selections"][0]["digest"] = json!(digest);
+    package["identity_preimage"]["model_selections"][0]["digest"] = json!(digest);
+    super::fixture_support::rekey_application_node(&mut package, 11);
+    super::fixture_support::refresh_identity(&mut package);
+    let mut evidence = CheckedPackageEvidence::new();
+    evidence
+        .insert_domain_package_document(digest, super::fixture_support::canonical(&selected))
+        .expect("selected evidence");
+    evidence.support_feature("quire.value.complete/v1");
+    let read = CheckedPackageV2::read(
+        &super::fixture_support::canonical(&package),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    );
+    assert!(
+        matches!(read, CheckedPackageV2ReadResult::Admitted(_)),
+        "{read:?}"
+    );
+}
+
 /// QSpec FR-322 reads duplicate tuple ordinals before the resulting gap and
 /// checks all tuples before any variant payload in one selected document.
 /// Provenance: IR-1059 partial AC-6 combined-defect order; full AC-6 remains open.

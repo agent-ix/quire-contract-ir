@@ -79,6 +79,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 pub(super) type UnitRefs = Arc<BTreeMap<Box<str>, Box<str>>>;
+pub(super) const DURATION_RESOLVED_PREFIX: &str = "ix://quire/resolved-duration/";
 
 mod intake_origin;
 use intake_origin::{retained_origin, IntakeDeclarationOrigin, OriginView};
@@ -1408,10 +1409,19 @@ impl DomainModel {
                     NativeTypeRef::Bytes => Some(MemberType::Bytes),
                     NativeTypeRef::JsonObject => Some(MemberType::JsonObject),
                     NativeTypeRef::Clock => Some(MemberType::Clock),
-                    NativeTypeRef::Rational
-                    | NativeTypeRef::Decimal
-                    | NativeTypeRef::Text
-                    | NativeTypeRef::Duration => None,
+                    NativeTypeRef::Duration => {
+                        let selected = format!("ix://quire/unit/{}/s", self.identity);
+                        let owner_unit = if self.unit_refs.contains_key(selected.as_str()) {
+                            selected
+                        } else {
+                            "ix://quire/unit/s".to_owned()
+                        };
+                        self.unit_refs
+                            .get(format!("{DURATION_RESOLVED_PREFIX}{owner_unit}").as_str())
+                            .cloned()
+                            .map(MemberType::Quantity)
+                    }
+                    NativeTypeRef::Rational | NativeTypeRef::Decimal | NativeTypeRef::Text => None,
                 };
             }
             SelectedTypeRef::Declared(name) => name.as_ref(),
