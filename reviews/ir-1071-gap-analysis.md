@@ -1,5 +1,5 @@
 ---
-id: SR-612070
+id: SR-612073
 title: "IR-1071 PR 639 scoped gap analysis"
 type: SpecReview
 analysis: gap-analysis
@@ -30,3 +30,7 @@ Examined IR-1071 AC-2: "The check fails if a future `CheckedPackageRefusalCause`
 Examined IR-1071 AC-3: "QSpec fixture execution remains in the existing named `make conformance-qspec` lane, which reads the authoritative QSpec checkout; no fixtures are copied into IR."
 
 Read FR-038-AC-107 as context only: it owns the external positive fixture behavior, keeps the target outside `make test`, and names `make conformance-qspec` as its executing lane. The code change adds a build check and changes no production reader behavior or requirement text. No new test-to-spec binding was introduced. The source match and Cargo target show the compile gate covers the intended regression. Plan completion: not assessed. The optional repository-wide semantic review was not requested and was skipped.
+
+## Rebase review
+
+At rebased PR head `8118692e8d8bb9a8ff0e582e7322984f3424521f`, the PR implementation diff remains the same three files. Main adds a new fixture test module to the conformance target, so the named compile lane now covers that module too; no fixture execution moved into CI. The original scoped PASS verdict holds. The review id changed to SR-612073 because main introduced an unrelated SR-612070 artifact during the rebase.

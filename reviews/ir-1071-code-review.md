@@ -30,3 +30,7 @@ Examined IR-1071 AC-2: "The check fails if a future `CheckedPackageRefusalCause`
 Examined IR-1071 AC-3: "QSpec fixture execution remains in the existing named `make conformance-qspec` lane, which reads the authoritative QSpec checkout; no fixtures are copied into IR."
 
 Read repository `AGENTS.md` and `CLAUDE.md`, the Rust review and style rules, the changed manifest/Makefile/test comment, `cause_word`, `fixtures_dir`, and the existing named fixture target. `make -n ci` includes `cargo test --locked --workspace --no-run --test conformance_qspec`. The coder's focused compilation without `QUIRE_SPECIFICATION_DIR`, negative E0004 probe, formatting and Clippy results are reported in the PR; this review did not repeat a heavyweight build or execute fixtures. No applicable AssuranceProfile was found under `spec/`.
+
+## Rebase review
+
+At rebased PR head `8118692e8d8bb9a8ff0e582e7322984f3424521f` over main `976e25eb`, the Cargo.toml, Makefile and conformance main diff is unchanged. Main adds `model_tuple_union` to the same integration target and extends model member code; its QSpec checkout reads remain inside test functions. `--no-run` still builds the target without executing those functions. The original scoped PASS verdict holds.
