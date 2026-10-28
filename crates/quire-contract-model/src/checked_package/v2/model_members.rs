@@ -1394,6 +1394,31 @@ impl DomainModel {
         Some(element)
     }
 
+    /// A Duration member has no type when its chosen owner declares no `s`
+    /// node. Distinguish that missing name from a present but invalid `s`.
+    pub(super) fn duration_unit_absent(&self, type_ref: &SelectedTypeRef) -> bool {
+        let mut current = type_ref;
+        let mut seen = BTreeSet::new();
+        while let SelectedTypeRef::Declared(name) = current {
+            if !seen.insert(name) {
+                return false;
+            }
+            match self.collection_types.get(name) {
+                Some(SelectedCollectionDefinition::Sequence(items)) => current = items,
+                _ => break,
+            }
+        }
+        if !matches!(current, SelectedTypeRef::Native(NativeTypeRef::Duration)) {
+            return false;
+        }
+        let unit_name = if self.own_seconds_declared {
+            format!("ix://quire/unit/{}/s", self.identity)
+        } else {
+            "ix://quire/unit/s".to_owned()
+        };
+        !self.unit_refs.contains_key(unit_name.as_str())
+    }
+
     fn element_type_leaf(&self, type_ref: &SelectedTypeRef) -> Option<MemberType> {
         let type_ref = match type_ref {
             SelectedTypeRef::Map(_, _) => return None,
