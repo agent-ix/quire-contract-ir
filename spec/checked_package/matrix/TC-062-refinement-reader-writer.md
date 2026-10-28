@@ -55,6 +55,26 @@ entry-member order where FR-375 fixes no further tie-break. Rebuild
 identities after every body mutation except the stale-key control; keep
 the same selected packages in the identity comparisons.
 
+For FR-061-AC-3 and AC-7, construct IR-owned wire packages with two selected
+concrete models, each with its own canonical `model_root`, while retaining one
+abstract root and profile. Recompute the refinement and package identities
+after replacing only `semantic_type`. Admit the row-empty model-subject swap
+as a distinct node, and admit the protocol-subject swap only when it has no
+concrete key and the new identity derives the same class set, including two
+empty sets. Separately refuse an absent protocol catalog at
+`/body/class_catalog`; a foreign `populations[0].concrete` before foreign
+object and step keys as `invalid_model_binding`/`malformed-declaration` at
+`/body/populations/0/concrete`; a foreign object key before a foreign step key
+at the object key; and a foreign catalog-present step anchor before a later
+catalog discrepancy at the step's `source_node`. Check a foreign history
+concrete type, history update anchor and `assume` anchor at their own row keys
+against valid declaring-type controls. For row-empty protocol subjects,
+compare the concrete catalog with the new model's classes in catalog-key order: an extra earlier
+class refuses at its entry, while an omitted earlier class refuses at the
+`concrete` array. Keep the abstract root and optional protocol clause joins
+and exact local dependencies in each control. QSpec TC-310's SR-01 through
+SR-13 are graph-case oracles, not published two-selection wire packages.
+
 For FR-061-AC-14 through AC-16, construct catalog-free model-only refinements
 with operation steps anchored at declaring object-type, process and state-
 machine nodes of the selected concrete model. Include an operation inherited
