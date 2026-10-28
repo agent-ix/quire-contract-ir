@@ -449,6 +449,39 @@ fn with_fairness(profile: &str, member: Value) -> (Value, usize) {
     (package, fair)
 }
 
+pub(crate) fn admitted_fairness_source_for_contract() -> CheckedPackageV2 {
+    // Lowering chooses the first unsupported key. Keep the fairness child
+    // before both the clause root and its formula child in this source.
+    for (declaration, name) in [
+        (ORDER_NODE, "scaled"),
+        (ORDER_NODE, "reset"),
+        (LEFT_NODE, "act"),
+        (RIGHT_NODE, "act"),
+    ] {
+        let (mut package, fair) =
+            with_fairness(INFINITE, fairness_member(&model_key(declaration), name));
+        let fair_key = digest(&package, fair);
+        let earliest_formula = nodes(&package)
+            .iter()
+            .filter(|node| node["semantic_form"] == "formula")
+            .filter_map(|node| node["node_id"]["digest"].as_str())
+            .min()
+            .expect("formula node");
+        if fair_key.as_str() < earliest_formula {
+            for suffix in 0..64 {
+                let clause_at = clause(&package);
+                package["semantic_graph"]["nodes"][clause_at]["body"]["arguments"][1]["value"] =
+                    json!(format!("clause-{suffix}"));
+                settle(&mut package);
+                if fair_key < digest(&package, clause(&package)) {
+                    return admitted("contract source with fairness", &package);
+                }
+            }
+        }
+    }
+    panic!("no fairness key sorts before the formula keys")
+}
+
 fn profile_supporting(tags: &[CheckedNodeTag]) -> CompleteLoweringProfileV2 {
     CompleteLoweringProfileV2 {
         reference: quire_contract_model::LoweringProfileRef {

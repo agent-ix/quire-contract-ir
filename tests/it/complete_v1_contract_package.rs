@@ -14,7 +14,8 @@ use quire_contract_model::{
     CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm,
     CompleteLoweringProfileV2, CompleteLoweringRecordV2, ContractDependencies,
     ContractDispositionV1, ContractPackageReadResult, ContractPackageWireV1, ContractRootViewV1,
-    ContractSourceHandoffError, CONTRACT_IR_SEMANTIC_DOMAIN, CONTRACT_PACKAGE_VERSION,
+    ContractSourceHandoffError, ContractUnsupportedSourceKindError, TemporalForm,
+    CONTRACT_IR_SEMANTIC_DOMAIN, CONTRACT_PACKAGE_VERSION,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -1202,6 +1203,245 @@ fn retained_typed_views_match_source_and_strict_reader_without_changing_wire() {
         producer.node_kind(&id("dddd")),
         Some(CheckedNodeKind::Value(_))
     ));
+}
+
+#[trace(
+    "TC-047",
+    "FR-035-AC-27",
+    "FR-035-AC-28",
+    "FR-035-AC-29",
+    "FR-035-AC-30"
+)]
+#[test]
+fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
+    let source = crate::checked_package_v2_temporal::admitted_fairness_source_for_contract();
+    let by_kind = |kind| {
+        source
+            .graph()
+            .nodes
+            .iter()
+            .zip(source.node_kinds())
+            .find(|(_, candidate)| **candidate == kind)
+            .map(|(node, _)| node.node_id.clone())
+            .expect("admitted kind")
+    };
+    let clause = by_kind(CheckedNodeKind::Temporal(TemporalForm::TemporalClause));
+    let fairness = by_kind(CheckedNodeKind::Temporal(TemporalForm::Fairness));
+    let formula = by_kind(CheckedNodeKind::Temporal(TemporalForm::Formula));
+    let healthy = source
+        .graph()
+        .nodes
+        .iter()
+        .zip(source.node_kinds())
+        .find(|(_, kind)| kind.tag() == CheckedNodeTag::Value)
+        .map(|(node, _)| node.node_id.clone())
+        .expect("healthy value");
+    let requests = [
+        clause.clone(),
+        healthy.clone(),
+        fairness.clone(),
+        formula.clone(),
+    ];
+    let mut lowering_profile = profile();
+    lowering_profile
+        .supported_tags
+        .remove(&CheckedNodeTag::Temporal);
+    lowering_profile.require_bounds = false;
+    let result = source.lower(&requests, &lowering_profile);
+    let without_sibling = source.lower(
+        &[clause.clone(), fairness.clone(), formula.clone()],
+        &lowering_profile,
+    );
+    let without_sibling_package = without_sibling.package.wire().expect("comparison package");
+    for (original_index, comparison_index) in [(0, 0), (2, 1), (3, 2)] {
+        assert_eq!(
+            result.records[original_index],
+            without_sibling.records[comparison_index]
+        );
+        assert_eq!(
+            result
+                .package
+                .wire()
+                .expect("producer package")
+                .unsupported_source_kind_at(original_index),
+            without_sibling_package.unsupported_source_kind_at(comparison_index)
+        );
+    }
+    let CompleteLoweringRecordV2::Unsupported {
+        node_id,
+        unsupported_node_id,
+        node_tag,
+    } = &result.records[0]
+    else {
+        panic!("clause request is unsupported");
+    };
+    assert_eq!(node_id, &clause);
+    assert_eq!(unsupported_node_id, &fairness);
+    assert_eq!(*node_tag, CheckedNodeTag::Temporal);
+    assert_ne!(node_id, unsupported_node_id);
+    let producer = result.package.wire().expect("producer package");
+    let wire_bytes = bytes(&result);
+    let ContractPackageReadResult::Admitted(plain) = read(wire_bytes) else {
+        panic!("canonical plain read");
+    };
+    let ContractPackageReadResult::Admitted(authenticated) =
+        ContractPackageWireV1::read_with_source(
+            wire_bytes,
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::new(),
+            &source,
+        )
+        .expect("source handoff")
+    else {
+        panic!("canonical authenticated read");
+    };
+    assert_eq!(producer.wire(), plain.wire());
+    assert_eq!(producer.wire(), authenticated.wire());
+    assert_eq!(producer.identity(), plain.identity());
+    assert_eq!(producer.identity(), authenticated.identity());
+    assert_eq!(
+        wire_bytes,
+        canonical(&serde_json::to_value(producer.wire()).expect("wire value"))
+    );
+    for (index, expected) in [
+        Some(CheckedNodeKind::Temporal(TemporalForm::TemporalClause)),
+        None,
+        Some(CheckedNodeKind::Temporal(TemporalForm::Fairness)),
+        Some(CheckedNodeKind::Temporal(TemporalForm::Formula)),
+        None,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert_eq!(producer.unsupported_source_kind_at(index), Ok(expected));
+        assert_eq!(
+            authenticated.unsupported_source_kind_at(index),
+            Ok(expected)
+        );
+        assert_eq!(
+            plain.unsupported_source_kind_at(index),
+            if expected.is_some() {
+                Err(ContractUnsupportedSourceKindError::NotAdmitted)
+            } else {
+                Ok(None)
+            }
+        );
+    }
+    assert!(matches!(
+        result.records[1],
+        CompleteLoweringRecordV2::Lowered { .. }
+    ));
+    assert_eq!(producer.node_kind(&clause), None);
+    assert_eq!(producer.node_kind(&fairness), None);
+    assert_eq!(producer.node_kind(&formula), None);
+    assert!(producer.node_kind(&healthy).is_some());
+    let mut represented_request: Value = serde_json::from_slice(wire_bytes).expect("wire json");
+    let represented = serde_json::to_value(&healthy).expect("represented node id");
+    let healthy_sources =
+        represented_request["source_map"]["requested_items"][1]["occurrences"].clone();
+    represented_request["feature_accounting"][0]["node_id"] = represented.clone();
+    represented_request["source_map"]["requested_items"][0]["requested_item"] = represented.clone();
+    represented_request["source_map"]["requested_items"][0]["occurrences"] =
+        healthy_sources.clone();
+    represented_request["source_map"]["refusals"][0]["requested_item"] = represented;
+    represented_request["source_map"]["refusals"][0]["occurrences"] = healthy_sources;
+    let represented_request = rehashed(represented_request);
+    let ContractPackageReadResult::Admitted(represented_plain) = read(&represented_request) else {
+        panic!("canonical V1 with a represented unsupported request must admit");
+    };
+    assert!(represented_plain.node(&healthy).is_some());
+    assert_eq!(
+        represented_plain.unsupported_source_kind_at(0),
+        Err(ContractUnsupportedSourceKindError::NotAdmitted)
+    );
+    let mut missing_root: Value = serde_json::from_slice(wire_bytes).expect("wire json");
+    let absent = serde_json::to_value(missing()).expect("missing node id");
+    missing_root["feature_accounting"][0]["node_id"] = absent.clone();
+    missing_root["source_map"]["requested_items"][0]["requested_item"] = absent.clone();
+    missing_root["source_map"]["requested_items"][0]["occurrences"] = json!([]);
+    missing_root["source_map"]["refusals"][0]["requested_item"] = absent;
+    missing_root["source_map"]["refusals"][0]["occurrences"] = json!([]);
+    let missing_root = rehashed(missing_root);
+    let missing_root_read = read(&missing_root);
+    assert!(
+        matches!(missing_root_read, ContractPackageReadResult::Admitted(_)),
+        "{missing_root_read:?}"
+    );
+    assert_eq!(
+        ContractPackageWireV1::read_with_source(
+            &missing_root,
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::new(),
+            &source,
+        ),
+        Err(ContractSourceHandoffError::MissingNode(missing()))
+    );
+    assert_eq!(
+        ContractPackageWireV1::read_with_source(
+            wire_bytes,
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::new(),
+            &admit(&mixed_fixture()),
+        ),
+        Err(ContractSourceHandoffError::SourceIdentity)
+    );
+    let mut wrong_lock: Value = serde_json::from_slice(wire_bytes).expect("wire json");
+    let temporal_profile = wrong_lock["package"]["source"]["lock"]["profile_selections"]
+        .as_array_mut()
+        .expect("profile selections")
+        .iter_mut()
+        .find(|selection| selection["role"] == "temporal_profile")
+        .expect("temporal profile selection");
+    temporal_profile["definition"]["identity"] =
+        json!("quire.temporal.event-position.false-extension/v1");
+    let wrong_lock = rehashed(wrong_lock);
+    assert!(matches!(
+        read(&wrong_lock),
+        ContractPackageReadResult::Admitted(_)
+    ));
+    assert_eq!(
+        ContractPackageWireV1::read_with_source(
+            &wrong_lock,
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::new(),
+            &source,
+        ),
+        Err(ContractSourceHandoffError::SourceLock)
+    );
+    let short_limit = CheckedPackageReadLimits {
+        bytes: u64::try_from(wrong_lock.len()).expect("wire length") - 1,
+        ..CheckedPackageReadLimits::bounded()
+    };
+    let Ok(ContractPackageReadResult::Incomplete(incomplete)) =
+        ContractPackageWireV1::read_with_source(
+            &wrong_lock,
+            short_limit,
+            &ContractDependencies::new(),
+            &source,
+        )
+    else {
+        panic!("V1 byte limit must precede unsupported source handoff");
+    };
+    assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Bytes);
+    assert_eq!(incomplete.limit, short_limit.bytes);
+    let mut stale: Value = serde_json::from_slice(wire_bytes).expect("wire json");
+    stale["identity"]["digest"] = json!("0".repeat(64));
+    let Ok(ContractPackageReadResult::Refused(refusal)) = ContractPackageWireV1::read_with_source(
+        &canonical(&stale),
+        CheckedPackageReadLimits::bounded(),
+        &ContractDependencies::new(),
+        &admit(&mixed_fixture()),
+    ) else {
+        panic!("V1 identity refusal must precede unsupported source handoff");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::InvalidValue))
+    );
+    assert_eq!(
+        refusal.path.expect("identity path").as_str(),
+        "/identity/digest"
+    );
 }
 
 #[trace("TC-047", "FR-035-AC-21")]
