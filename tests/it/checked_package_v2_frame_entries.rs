@@ -3821,6 +3821,146 @@ fn tc_050_admitted_frame_and_state_clause_nodes_lower_under_a_state_profile() {
     }
 }
 
+/// Every applicable clause kind and point pair admits and the public accessor
+/// returns the retained variant, including Post on a precondition and Pre on
+/// a postcondition.
+#[trace("TC-462", "FR-058-AC-8")]
+#[test]
+fn tc_462_clause_point_applicability_admits_all_eight_pairs() {
+    let initialization = json!({"kind": "initialization", "name": "startup"});
+    let handler = json!({"kind": "handler", "name": "tick"});
+    let pre = json!({"kind": "pre", "operation": "deposit"});
+    let post = json!({"kind": "post", "operation": "deposit"});
+    let cases = [
+        (
+            pointed_invariant(initialization.clone()),
+            "invariant",
+            ExecutionPoint::Initialization {
+                name: ExecutionPointName::new("startup").unwrap(),
+            },
+        ),
+        (
+            pointed_invariant(handler.clone()),
+            "invariant",
+            ExecutionPoint::Handler {
+                name: ExecutionPointName::new("tick").unwrap(),
+            },
+        ),
+        (
+            pointed_constraint(initialization),
+            "constraint",
+            ExecutionPoint::Initialization {
+                name: ExecutionPointName::new("startup").unwrap(),
+            },
+        ),
+        (
+            pointed_constraint(handler),
+            "constraint",
+            ExecutionPoint::Handler {
+                name: ExecutionPointName::new("tick").unwrap(),
+            },
+        ),
+        (
+            pointed_state_package(Some(pre.clone()), Some(pre.clone())),
+            "precondition",
+            ExecutionPoint::Pre {
+                operation: ExecutionPointName::new("deposit").unwrap(),
+            },
+        ),
+        (
+            pointed_state_package(Some(post.clone()), Some(post.clone())),
+            "precondition",
+            ExecutionPoint::Post {
+                operation: ExecutionPointName::new("deposit").unwrap(),
+            },
+        ),
+        (
+            with_postcondition(
+                pointed_state_package(Some(pre.clone()), Some(pre.clone())),
+                Some(pre),
+            ),
+            "postcondition",
+            ExecutionPoint::Pre {
+                operation: ExecutionPointName::new("deposit").unwrap(),
+            },
+        ),
+        (
+            with_postcondition(
+                pointed_state_package(Some(post.clone()), Some(post.clone())),
+                Some(post),
+            ),
+            "postcondition",
+            ExecutionPoint::Post {
+                operation: ExecutionPointName::new("deposit").unwrap(),
+            },
+        ),
+    ];
+    for (source, kind, expected) in cases {
+        let position = source.clause(kind);
+        let admitted = match read(&source.value) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("{kind} point refused: {other:?}"),
+        };
+        let clause = &admitted.graph().nodes[position];
+        let claim = clause.occurrences.first().expect("clause claim");
+        assert_eq!(
+            admitted.clause_execution_point(&clause.node_id, (&clause.node_id, claim)),
+            Ok(expected),
+            "{kind} point must retain its exact variant"
+        );
+    }
+}
+
+/// Well-formed inapplicable points refuse at the clause, with no admitted
+/// package. Operation anchors remain valid so the clause check is reached.
+#[trace("TC-462", "FR-058-AC-8")]
+#[test]
+fn tc_462_clause_point_applicability_refuses_all_eight_wrong_pairs() {
+    let pre = json!({"kind": "pre", "operation": "deposit"});
+    let post = json!({"kind": "post", "operation": "deposit"});
+    let initialization = json!({"kind": "initialization", "name": "startup"});
+    let handler = json!({"kind": "handler", "name": "tick"});
+    let cases = [
+        (pointed_invariant(pre.clone()), "invariant"),
+        (pointed_invariant(post.clone()), "invariant"),
+        (pointed_constraint(pre.clone()), "constraint"),
+        (pointed_constraint(post.clone()), "constraint"),
+        (
+            pointed_state_package(Some(pre.clone()), Some(initialization.clone())),
+            "precondition",
+        ),
+        (
+            pointed_state_package(Some(pre.clone()), Some(handler.clone())),
+            "precondition",
+        ),
+        (
+            with_postcondition(
+                pointed_state_package(Some(pre.clone()), Some(pre.clone())),
+                Some(initialization),
+            ),
+            "postcondition",
+        ),
+        (
+            with_postcondition(
+                pointed_state_package(Some(post.clone()), Some(post)),
+                Some(handler),
+            ),
+            "postcondition",
+        ),
+    ];
+    for (source, kind) in cases {
+        let clause = source.clause(kind);
+        expect(
+            kind,
+            &source.value,
+            Code::InvalidModelBinding,
+            Some(Cause::MalformedDeclaration),
+            &format!("/semantic_graph/nodes/{clause}"),
+            Some(&source.digest(clause)),
+        );
+    }
+}
+
 /// The V2 point is returned from the admitted typed clause, including a name
 /// that the authored-contract AnchorName grammar does not admit.
 #[trace("TC-462", "FR-058-AC-5", "FR-058-AC-9")]
