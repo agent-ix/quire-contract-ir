@@ -1621,7 +1621,7 @@ node, and `enum.lt` and `structural.eq` over the variant refuse
 `ill_typed`/`operator-ineligible` at the first argument. Those two are extra
 test controls and are not required by the criterion text.
 
-## Protocol node forms (FR-038-AC-281 through FR-038-AC-292; FR-038-AC-324 through FR-038-AC-327)
+## Protocol node forms (FR-038-AC-281 through FR-038-AC-292; FR-038-AC-324 through FR-038-AC-330)
 
 Use QSpec FR-464, FR-465 and FR-466 and the authored tables in TC-946, TC-947
 and TC-948 as the current independent expected outcomes. Build each case into
@@ -1839,6 +1839,35 @@ vector or schema is copied into this repository.
     `invalid_model_binding`/`malformed-declaration` at that entry
     (FR-038-AC-325; QSpec FR-208-AC-18, FR-154-AC-32,
     FR-432-AC-16 through FR-432-AC-19).
+15. With a selected abstract model that has an operation but no protocol
+    clause, build a protocol refinement whose complete abstract catalog
+    contains that operation class although no step row names it. Require
+    admission; omit the class and require `invalid_semantic_graph` at the
+    abstract catalog array. Add a class from another selected model and
+    require `invalid_semantic_graph` at the extra entry. Keep the concrete
+    protocol body valid so the catalog join is reached (FR-038-AC-328;
+    QSpec FR-375 checked class catalog).
+16. Build two admitted protocol clauses with different package-local
+    declaration paths, including a clause path longer than one segment.
+    Include a role and a nested control whose declaration path contains
+    `run` and two ancestor control names. Require the complete alias-free
+    FR-432 class spellings for each clause and member and admission with
+    the corresponding node associations. Rekey separate packages with a
+    class spelling that drops a clause-path segment, uses the other clause's
+    name, or drops an ancestor control name; require
+    `invalid_semantic_graph` at the missing class's array or the extra
+    entry as applicable (FR-038-AC-329; QSpec FR-322 declaration paths,
+    FR-464 qualified names, FR-432 class spellings).
+17. Build an admitted compensation template with its FR-432 `cend` class
+    and no step row naming that class. Require its template-node association
+    in the complete concrete catalog and admission. Rekey separate packages
+    omitting `cend`, adding it under another template node, or adding it to
+    a subject with no such template; require respectively
+    `invalid_semantic_graph` at the concrete catalog array,
+    `invalid_model_binding`/`malformed-declaration` at the changed entry,
+    and `invalid_semantic_graph` at the extra entry. Also exercise the
+    selected abstract protocol's `cend` class in its abstract catalog
+    (FR-038-AC-330; QSpec FR-432 `cend`).
 
 Expected: the positive packages admit with their authored keys, every adverse
 vector refuses with the QSpec code, cause and locus, and no runtime workflow
