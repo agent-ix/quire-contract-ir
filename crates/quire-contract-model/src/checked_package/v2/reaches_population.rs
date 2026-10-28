@@ -118,7 +118,7 @@ mod tests {
         else {
             panic!("admitted reaches application term");
         };
-        operation["member"]["population"] = json!(id);
+        operation.record_mut()["member"]["population"] = json!(id);
         (package, ids, id)
     }
 
@@ -198,6 +198,6 @@ mod tests {
         else {
             panic!("admitted reaches application term");
         };
-        operation["member"]["population"] = value;
+        operation.record_mut()["member"]["population"] = value;
     }
 }
