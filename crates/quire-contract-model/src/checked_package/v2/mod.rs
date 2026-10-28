@@ -105,7 +105,7 @@ pub use vocabulary::*;
 use crate::identity::ExecutionPoint;
 use closure_index::ClosureIndex;
 use dependency_references::{admit_dependencies, check_derived_closure, SuppliedDependencies};
-use derived_keys::{stale_selected_declaration_targets, validate_derived_keys};
+use derived_keys::{stale_type_key_targets, validate_derived_keys};
 use ix_trace_rs::string_edge;
 use operations::{validate_application_keys, validate_operations};
 use owner::{validate_owner_joins, validate_owner_schema};
@@ -2711,15 +2711,8 @@ fn validate_graph(
     // so an entry, anchor or clause reference naming no node is the step's
     // own `missing_declaration` refusal rather than the generic
     // unresolved-reference `invalid_semantic_graph`.
-    let stale_selected_targets =
-        stale_selected_declaration_targets(&graph.nodes, &kinds, limits.bytes);
-    validate_structural_nodes(
-        &graph.nodes,
-        &kinds,
-        &terms,
-        &index,
-        &stale_selected_targets,
-    )?;
+    let stale_type_targets = stale_type_key_targets(&graph.nodes, &kinds, limits.bytes);
+    validate_structural_nodes(&graph.nodes, &kinds, &terms, &index, &stale_type_targets)?;
     for &position in index.values() {
         if !matches!(
             kinds.get(position),

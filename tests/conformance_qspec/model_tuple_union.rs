@@ -193,6 +193,66 @@ fn selected_declaration_rekey_preserves_independent_refusal_order() {
     );
 }
 
+/// A parameter's old scalar type key is dependent on a rekeyed structural
+/// type, just as TW-05's old selected-model key is dependent on Pair's rekey.
+/// Provenance: IR-1059, QSpec FR-322-AC-154.
+#[test]
+fn rekeyed_scalar_type_precedes_its_dependent_parameter_reference() {
+    let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let vectors = read_json(&proposal.join("model-tuple-union-vectors.json"))
+        .expect("published tuple/union vectors");
+    let selected = read_json(
+        &proposal.join(
+            vectors["selected_document"]
+                .as_str()
+                .expect("selected document path"),
+        ),
+    )
+    .expect("selected document");
+    let digest = canonical_digest(&selected);
+    let mut evidence = CheckedPackageEvidence::new();
+    evidence
+        .insert_domain_package_document(digest, super::fixture_support::canonical(&selected))
+        .expect("selected document evidence");
+    evidence.support_feature("quire.value.complete/v1");
+    let mut package = read_json(&fixtures.join("positive-model-tuple-union.json"))
+        .expect("published positive package");
+    let scalar = &package["semantic_graph"]["nodes"][7];
+    assert_eq!(scalar["node_tag"], "scalar_type");
+    assert_eq!(scalar["semantic_form"], "boolean");
+    let old_type = scalar["node_id"].clone();
+    assert_eq!(scalar["semantic_type"], old_type);
+    let rekeyed = json!({
+        "domain": "quire.checked-semantic-node/v1",
+        "digest": "0000000000000000000000000000000000000000000000000000000000000001"
+    });
+    package["semantic_graph"]["nodes"][7]["node_id"] = rekeyed.clone();
+    package["semantic_graph"]["nodes"][7]["semantic_type"] = rekeyed.clone();
+    package["semantic_graph"]["nodes"][14]["semantic_type"] = old_type.clone();
+    let source_map = package["source_map"].as_array_mut().expect("source map");
+    let scalar_source = source_map
+        .iter_mut()
+        .find(|row| row["node_id"] == old_type)
+        .expect("published scalar source");
+    scalar_source["node_id"] = rekeyed;
+    super::fixture_support::refresh_identity(&mut package);
+    let result = CheckedPackageV2::read(
+        &super::fixture_support::canonical(&package),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("rekeyed scalar type must refuse before dependent parameter: {result:?}");
+    };
+    assert_eq!(refusal.code, Code::InvalidPackage);
+    assert_eq!(refusal.cause, Some(Cause::StaleNodeKey));
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        Some("/semantic_graph/nodes/7/node_id")
+    );
+}
+
 /// Translate the published projection mutation to the corresponding member of
 /// QSpec's full Semantic IR document. The projection ordinals are represented
 /// by position identities in that document.

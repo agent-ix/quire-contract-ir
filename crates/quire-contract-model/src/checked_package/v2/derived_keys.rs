@@ -24,10 +24,9 @@ use quire_canonical::{Encode, Error, Sink, Writer};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
-/// A rekeyed selected declaration can leave a parameter pointing at its old,
-/// correctly derived key. That dependent reference is resolved after the key
-/// stage; it must not turn TW-05 into a graph-shape refusal.
-pub(super) fn stale_selected_declaration_targets(
+/// A rekeyed type can leave a parameter pointing at its old, correctly
+/// derived key. Only that dependent reference waits for key authentication.
+pub(super) fn stale_type_key_targets(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     bytes: u64,
@@ -35,25 +34,40 @@ pub(super) fn stale_selected_declaration_targets(
     nodes
         .iter()
         .zip(kinds)
-        .filter(|(node, kind)| selected_model_tuple_or_variant(node, **kind))
         .filter_map(|(node, kind)| {
-            let super::CheckedNodeOwner::Model {
-                identity,
-                node: owner_node,
-            } = node.owner.as_ref()?
-            else {
-                return None;
-            };
-            let form = match kind {
-                CheckedNodeKind::Model(super::ModelForm::TupleValueType) => {
-                    DeclarationForm::TupleValueType
+            let derived = match (kind, node.owner.as_ref()) {
+                (
+                    CheckedNodeKind::Model(form),
+                    Some(super::CheckedNodeOwner::Model {
+                        identity,
+                        node: owner_node,
+                    }),
+                ) => {
+                    let declaration = match form {
+                        super::ModelForm::RecordValueType => DeclarationForm::RecordValueType,
+                        super::ModelForm::TupleValueType => DeclarationForm::TupleValueType,
+                        super::ModelForm::VariantType => DeclarationForm::VariantType,
+                        _ => return None,
+                    };
+                    declaration_key(identity, declaration, owner_node, bytes).ok()?
                 }
-                CheckedNodeKind::Model(super::ModelForm::VariantType) => {
-                    DeclarationForm::VariantType
+                (
+                    CheckedNodeKind::ScalarType(_)
+                    | CheckedNodeKind::CompositeType(_)
+                    | CheckedNodeKind::BoundedDomain(_)
+                    | CheckedNodeKind::Hybrid(super::HybridForm::Model),
+                    _,
+                ) => {
+                    if let Some(preimage) = node.nominal_identity_preimage.as_ref() {
+                        preimage.digest(bytes).ok()?
+                    } else if node.recursion_group.is_none() {
+                        structural_key(&node_preimage(node, None, None), bytes).ok()?
+                    } else {
+                        return None;
+                    }
                 }
                 _ => return None,
             };
-            let derived = declaration_key(identity, form, owner_node, bytes).ok()?;
             (derived != node.node_id.digest.as_ref()).then_some(CheckedNodeId {
                 domain: NODE_DOMAIN.into(),
                 digest: derived.into(),

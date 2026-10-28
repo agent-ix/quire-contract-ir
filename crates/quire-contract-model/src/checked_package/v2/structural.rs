@@ -334,7 +334,7 @@ pub(super) fn validate_structural_nodes(
     kinds: &[CheckedNodeKind],
     terms: &[Option<super::CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
-    stale_selected_targets: &BTreeSet<CheckedNodeId>,
+    stale_type_targets: &BTreeSet<CheckedNodeId>,
 ) -> Result<(), ValidationFailure> {
     let graph = Graph {
         nodes,
@@ -427,7 +427,7 @@ pub(super) fn validate_structural_nodes(
                 }
             }
             Some(StructuralForm::Parameter) => {
-                parameter_defect(node, term, &graph, stale_selected_targets)
+                parameter_defect(node, term, &graph, stale_type_targets)
             }
             Some(StructuralForm::CompoundUnit) => compound_unit_defect(node, term, &graph),
             Some(StructuralForm::OperationAnchor) => term
@@ -524,11 +524,11 @@ fn parameter_defect(
     node: &CheckedSemanticNodeV2,
     term: Option<&super::CheckedTerm>,
     graph: &Graph<'_>,
-    stale_selected_targets: &BTreeSet<CheckedNodeId>,
+    stale_type_targets: &BTreeSet<CheckedNodeId>,
 ) -> Option<Defect> {
     let is_binder_type = node.semantic_type != node.node_id
         && ((graph.node(&node.semantic_type).is_none()
-            && stale_selected_targets.contains(&node.semantic_type))
+            && stale_type_targets.contains(&node.semantic_type))
             || graph
                 .node(&node.semantic_type)
                 .is_some_and(|(type_node, kind)| {

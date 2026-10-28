@@ -2402,7 +2402,7 @@ impl ContractPackageWireV1 {
                 }
             }
         }
-        let stale_selected_targets = super::derived_keys::stale_selected_declaration_targets(
+        let stale_type_targets = super::derived_keys::stale_type_key_targets(
             &self.semantic_graph.nodes,
             &kinds,
             limits.bytes,
@@ -2412,7 +2412,7 @@ impl ContractPackageWireV1 {
             &kinds,
             &terms,
             &positions,
-            &stale_selected_targets,
+            &stale_type_targets,
         )?;
         super::operations::validate_application_keys(
             &self.semantic_graph.nodes,
