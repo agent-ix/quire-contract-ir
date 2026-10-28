@@ -10239,7 +10239,7 @@ mod tests {
         assert!(!catalog.family_fits("temporal", "any_value"));
     }
 
-    /// Provenance: IR-1083, QSpec STD-526 PR-01..06 node records.
+    /// Provenance: IR-1083, QSpec STD-526 PR-01 and PR-03..06 node records.
     #[test]
     fn ir1083_published_place_presence_nodes_check_owner_slots_and_refusal_loci() {
         let Ok(root) = std::env::var("QUIRE_SPECIFICATION_DIR") else {
@@ -10275,7 +10275,13 @@ mod tests {
             .expect("support node")
         };
         let cases = presence["cases"].as_array().expect("presence cases");
-        assert_eq!(cases.len(), 6);
+        assert_eq!(
+            cases
+                .iter()
+                .map(|case| case["id"].as_str().expect("published case id"))
+                .collect::<Vec<_>>(),
+            ["PR-01", "PR-03", "PR-04", "PR-05", "PR-06"]
+        );
         for case in cases {
             let id = case["id"].as_str().expect("case id");
             let app: CheckedSemanticNodeV2 =
@@ -10311,11 +10317,8 @@ mod tests {
                 boolean.clone(),
                 json!({"term":"aggregate","members":[]}),
             ));
-            let owner_ids = [
-                cases[0]["node"]["body"]["arguments"][1]["target"].clone(),
-                cases[1]["node"]["body"]["arguments"][1]["target"].clone(),
-            ];
-            for owner_id in owner_ids {
+            for name in ["other", "self"] {
+                let owner_id = presence["parameters"][name]["node_id"].clone();
                 nodes.push(support(
                     owner_id,
                     "value",
@@ -10324,10 +10327,8 @@ mod tests {
                     json!({"term":"aggregate","members":[]}),
                 ));
             }
-            for index_id in [
-                cases[1]["node"]["body"]["arguments"][2]["target"].clone(),
-                cases[2]["node"]["body"]["arguments"][2]["target"].clone(),
-            ] {
+            for name in ["i", "e"] {
+                let index_id = presence["parameters"][name]["node_id"].clone();
                 nodes.push(support(
                     index_id,
                     "value",
