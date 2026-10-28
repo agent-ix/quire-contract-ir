@@ -1305,14 +1305,10 @@ fn validate_enum_member(
 ) -> Result<(), ValidationFailure> {
     let node = site.node;
     if graph.is_model_variant(&member.declaration_node_id) {
-        require(!member.case.is_empty(), || site.preimage(&["case"]))?;
+        require(!member.case.is_empty(), || site.pointer())?;
         if let Some(cases) = graph.model_variant_cases(&member.declaration_node_id) {
-            require(cases.values().all(Option::is_none), || {
-                site.preimage(&["declaration_node_id"])
-            })?;
-            require(cases.contains_key(&member.case), || {
-                site.preimage(&["case"])
-            })?;
+            require(cases.values().all(Option::is_none), || site.pointer())?;
+            require(cases.contains_key(&member.case), || site.pointer())?;
         }
     } else {
         require(is_identifier(&member.case), || site.preimage(&["case"]))?;

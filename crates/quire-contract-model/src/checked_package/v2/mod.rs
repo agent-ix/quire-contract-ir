@@ -105,7 +105,7 @@ pub use vocabulary::*;
 use crate::identity::ExecutionPoint;
 use closure_index::ClosureIndex;
 use dependency_references::{admit_dependencies, check_derived_closure, SuppliedDependencies};
-use derived_keys::validate_derived_keys;
+use derived_keys::{validate_derived_keys, validate_selected_model_declaration_keys};
 use ix_trace_rs::string_edge;
 use operations::{validate_application_keys, validate_operations};
 use owner::{validate_owner_joins, validate_owner_schema};
@@ -2703,8 +2703,17 @@ fn validate_graph(
     }
     model_root::validate_shape(&graph.nodes, &kinds, &terms)?;
     validate_owner_joins(wire, &kinds, &terms, models, meter)?;
-    // Graph-shape body and dependency rules FR-322 orders before the
-    // stale-key stage: the structural forms' bodies and occurrence roles and
+    validate_selected_model_declaration_keys(
+        &graph.nodes,
+        &kinds,
+        &terms,
+        &index,
+        meter,
+        limits.bytes,
+    )?;
+    // Graph-shape body and dependency rules FR-322 orders before the general
+    // stale-key stage, after the selected model declaration keys above: the
+    // structural forms' bodies and occurrence roles and
     // the application-node dependency join. Then, in reader order, the
     // stale-key, declaration, frame, state and operation steps. All of them
     // run before the dependency and body-reference edges below are resolved,

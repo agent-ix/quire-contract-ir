@@ -49,7 +49,8 @@
 //! `operation` are checked here; `operation.mode` is checked for kind and
 //! type pins, but its value is not checked against the catalog's closed
 //! `modes` vocabulary. The catalog's `member` result form is checked for
-//! type-argument members; other result forms remain unenforced.
+//! type-argument and selected-model tuple-position members; other result
+//! forms remain unenforced.
 
 use super::application_identity::{application_digest_admitted, ApplicationGroup};
 use super::dependency_references::{DependencyReferences, Referrer, SuppliedDependencies};
@@ -886,6 +887,30 @@ fn operation_defect(
         return Ok(Some(failure));
     }
 
+    // QSpec's model variant equality rows locate a family mismatch at the
+    // whole application node. Inspect the selected document's case payloads;
+    // the wire node alone cannot distinguish an enum from a union.
+    let selected_variant_family = admitted_arguments(application, graph)
+        .and_then(|arguments| arguments.first())
+        .and_then(|argument| {
+            operand_type_node_typed(argument, graph.nodes, graph.kinds, graph.index)
+        })
+        .and_then(|type_id| owners.variant_family(&type_id));
+    if matches!(
+        (operation.identity.as_ref(), selected_variant_family),
+        ("quire.op.enum.eq" | "quire.op.enum.ne", Some("union"))
+            | (
+                "quire.op.structural.eq" | "quire.op.structural.ne",
+                Some("enum")
+            )
+    ) {
+        return Ok(Some(application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            node_pointer(application.position),
+            CheckedPackageRefusalCause::OperatorIneligible,
+        )));
+    }
+
     if let Some(failure) = check_operands(
         application,
         &operation,
@@ -910,6 +935,12 @@ fn operation_defect(
     }
     if let Some(failure) = check_state_result(application, entry, graph) {
         return Ok(Some(failure));
+    }
+    if entry.member == Some(OperationMemberKind::Position) {
+        if let Some(failure) = check_tuple_position(application, &operation, graph, owners, meter)?
+        {
+            return Ok(Some(failure));
+        }
     }
     // A reference-edge operation's `field` member is resolved by
     // `check_reference_edge`, over a `Reference` operand, not as a field read.
@@ -981,7 +1012,7 @@ fn operation_defect(
     if let Some(failure) = check_mode_type(application, entry, &operation, graph, owners, catalog) {
         return Ok(Some(failure));
     }
-    check_leaf_count(
+    let leaf_defect = check_leaf_count(
         application,
         entry,
         &operation,
@@ -992,7 +1023,26 @@ fn operation_defect(
             meter,
             structural: &mut structural,
         },
-    )
+    )?;
+    if selected_variant_family == Some("union")
+        && matches!(
+            operation.identity.as_ref(),
+            "quire.op.structural.eq" | "quire.op.structural.ne"
+        )
+        && matches!(
+            &leaf_defect,
+            Some(ValidationFailure::Refused(refusal))
+                if refusal.code == CheckedPackageRefusalCode::InvalidPackage
+                    && refusal.cause == Some(CheckedPackageRefusalCause::OperationLawMismatch)
+        )
+    {
+        return Ok(Some(application.refuse(
+            CheckedPackageRefusalCode::InvalidPackage,
+            node_pointer(application.position),
+            CheckedPackageRefusalCause::OperationLawMismatch,
+        )));
+    }
+    Ok(leaf_defect)
 }
 
 /// Resolves an argument term's family: `reference` resolves its target node
@@ -2453,6 +2503,97 @@ fn check_reference_edge(
 /// The `operation.member.declaration` an application names.
 fn member_declaration(operation: &OperationWire) -> Option<CheckedNodeId> {
     serde_json::from_value(operation.member.as_ref()?.get("declaration")?.clone()).ok()
+}
+
+/// A selected tuple's positions live in its document, not in the declaration
+/// node body. Validate the named tuple and ordinal against that document before
+/// accepting the application result type.
+fn check_tuple_position(
+    application: Application<'_>,
+    operation: &OperationWire,
+    graph: &Graph<'_>,
+    owners: &ModelOwners<'_>,
+    meter: &mut WorkMeter,
+) -> Result<Option<ValidationFailure>, ValidationFailure> {
+    // The published TW-18..20 wire cases locate tuple-project failures at
+    // the application node as a whole.
+    let member_at = node_pointer(application.position);
+    let ineligible = || {
+        Ok(Some(application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            member_at.clone(),
+            CheckedPackageRefusalCause::OperatorIneligible,
+        )))
+    };
+    let Some(member) = operation.member.as_ref() else {
+        return ineligible();
+    };
+    let Some(arguments) = admitted_arguments(application, graph) else {
+        return ineligible();
+    };
+    let operand_type = arguments.first().and_then(|argument| {
+        operand_type_node_typed(argument, graph.nodes, graph.kinds, graph.index)
+    });
+    let declaring = member_declaration(operation).and_then(|id| graph.index.get(&id).copied());
+    let is_selected_tuple = |position: usize| {
+        graph.kinds[position] == CheckedNodeKind::Model(ModelForm::TupleValueType)
+    };
+    let selected_operand = operand_type
+        .as_ref()
+        .and_then(|id| graph.index.get(id).copied())
+        .is_some_and(is_selected_tuple);
+    let selected_declaration = declaring.is_some_and(is_selected_tuple);
+    if !selected_operand && !selected_declaration {
+        return Ok(None);
+    }
+    let Some(declaring) = declaring.filter(|position| is_selected_tuple(*position)) else {
+        return ineligible();
+    };
+    let declaration = &graph.nodes[declaring];
+    let owner = match owners.recover(declaration) {
+        Ok(owner) => owner,
+        Err(_) => return ineligible(),
+    };
+    let Some(positions) = owner.package.tuple_types.get(owner.node) else {
+        return ineligible();
+    };
+    let Some(ordinal) = member.get("position").and_then(|position| {
+        position
+            .as_u64()
+            .or_else(|| position.as_str()?.parse::<u64>().ok())
+    }) else {
+        return ineligible();
+    };
+    let Some(position_type) = usize::try_from(ordinal)
+        .ok()
+        .and_then(|ordinal| positions.get(ordinal))
+        .and_then(|type_ref| owner.package.element_type(type_ref))
+    else {
+        return ineligible();
+    };
+    if operand_type.as_ref() != Some(&declaration.node_id) {
+        return ineligible();
+    }
+    let mut budget = Budget::new(meter, owner.selection, owner.package.bytes);
+    budget.charge(1)?;
+    let Ok(expected_type) = position_type.node_key(owner.package.bytes) else {
+        return Ok(Some(ValidationFailure::refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            application.node_id(),
+        )));
+    };
+    let result_type = graph
+        .terms
+        .get(application.position)
+        .and_then(Option::as_ref)
+        .and_then(|term| match term {
+            CheckedTerm::Application { result_type, .. } => Some(result_type.digest.as_ref()),
+            _ => None,
+        });
+    if result_type != Some(expected_type.as_str()) {
+        return ineligible();
+    }
+    Ok(None)
 }
 
 /// The selected relationship end of a `navigate` or `reaches` application.

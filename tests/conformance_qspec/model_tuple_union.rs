@@ -8,7 +8,121 @@ use quire_contract_model::{
     CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
     CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
 };
-use serde_json::json;
+use serde_json::{json, Value};
+use std::collections::BTreeSet;
+
+/// Apply one published RFC 6902 operation. The vector's patch is the source of
+/// both the mutation and its expected package identity.
+fn apply_wire_patch(package: &mut Value, patch: &Value) {
+    let path = patch["path"].as_str().expect("published patch path");
+    let (parent, member) = path.rsplit_once('/').expect("patch member");
+    let target = package.pointer_mut(parent).expect("published patch parent");
+    let operation = patch["op"].as_str().expect("published patch operation");
+    match (operation, target) {
+        ("replace", Value::Object(map)) => {
+            *map.get_mut(member).expect("published replacement target") = patch["value"].clone();
+        }
+        ("replace", Value::Array(items)) => {
+            let index = member.parse::<usize>().expect("published array index");
+            *items.get_mut(index).expect("published replacement target") = patch["value"].clone();
+        }
+        ("add", Value::Object(map)) => {
+            assert!(map
+                .insert(member.to_owned(), patch["value"].clone())
+                .is_none());
+        }
+        ("remove", Value::Object(map)) => {
+            assert!(map.remove(member).is_some(), "published removal target");
+        }
+        ("remove", Value::Array(items)) => {
+            let index = member.parse::<usize>().expect("published array index");
+            assert!(index < items.len(), "published removal target");
+            items.remove(index);
+        }
+        _ => panic!("unsupported published patch {operation} at {path}"),
+    }
+}
+
+/// The published wire cases exercise the production reader's closed schema,
+/// declaration join, typed operation and key-validation stages. FR-069-AC-6
+/// remains open until QSpec's pending wire cause and locus correction lands.
+/// Provenance: IR-1059, QSpec TW-00 through TW-26.
+#[test]
+fn published_model_tuple_union_wire_cases_match_reader_refusals() {
+    let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let vectors = read_json(&proposal.join("model-tuple-union-vectors.json"))
+        .expect("published tuple/union vectors");
+    assert_eq!(vectors["base"], "fixtures/positive-model-tuple-union.json");
+    let selected_path = vectors["selected_document"]
+        .as_str()
+        .expect("selected Semantic IR document path");
+    let selected = read_json(&proposal.join(selected_path)).expect("selected document");
+    let digest = canonical_digest(&selected);
+    assert_eq!(vectors["selection_digest"], digest);
+    let base = read_json(&fixtures.join("positive-model-tuple-union.json"))
+        .expect("published positive package");
+    let mut evidence = CheckedPackageEvidence::new();
+    evidence
+        .insert_domain_package_document(digest, super::fixture_support::canonical(&selected))
+        .expect("selected document evidence");
+    evidence.support_feature("quire.value.complete/v1");
+    let rows = vectors["wire_cases"]
+        .as_array()
+        .expect("published wire cases");
+    assert_eq!(rows.len(), 27, "published wire inventory");
+    let mut seen = BTreeSet::new();
+    let mut mismatches = Vec::new();
+    for row in rows {
+        let id = row["id"].as_str().expect("published wire case id");
+        assert!(seen.insert(id), "duplicate published wire case {id}");
+        let mut package = base.clone();
+        for patch in row["patch"].as_array().expect("published patch list") {
+            apply_wire_patch(&mut package, patch);
+        }
+        let result = CheckedPackageV2::read(
+            &super::fixture_support::canonical(&package),
+            CheckedPackageReadLimits::bounded(),
+            &evidence,
+        );
+        let expected = row["outcome"].as_str().expect("published outcome");
+        match (expected, result) {
+            ("admitted", CheckedPackageV2ReadResult::Admitted(_)) => {}
+            (expected, CheckedPackageV2ReadResult::Refused(refusal))
+                if expected.strip_prefix("refused:") == Some(super::code_word(refusal.code)) =>
+            {
+                if refusal.cause.map(super::cause_word) != row["cause"].as_str() {
+                    mismatches.push(format!("{id}: wrong refusal cause {refusal:?}"));
+                }
+                let actual_path = refusal.path.as_ref().map(ToString::to_string);
+                if actual_path.as_deref() != row["locus"].as_str() {
+                    mismatches.push(format!(
+                        "{id}: expected locus {}, got {refusal:?}",
+                        row["locus"]
+                    ));
+                }
+            }
+            (expected, CheckedPackageV2ReadResult::Admitted(_)) => {
+                mismatches.push(format!("{id}: expected {expected}, got admitted"));
+            }
+            (expected, CheckedPackageV2ReadResult::Refused(refusal)) => {
+                mismatches.push(format!("{id}: expected {expected}, got {refusal:?}"));
+            }
+            (expected, actual) => {
+                mismatches.push(format!("{id}: expected {expected}, got {actual:?}"))
+            }
+        }
+    }
+    assert_eq!(seen.len(), 27, "published wire case IDs");
+    for ordinal in 0..=26 {
+        let id = format!("TW-{ordinal:02}");
+        assert!(
+            seen.contains(id.as_str()),
+            "missing published wire case {id}"
+        );
+    }
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+}
 
 /// Translate the published projection mutation to the corresponding member of
 /// QSpec's full Semantic IR document. The projection ordinals are represented
@@ -144,6 +258,75 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
                 .as_deref(),
             Some(document_pointer.as_str()),
             "{name}"
+        );
+    }
+}
+
+/// QSpec FR-322 reads duplicate tuple ordinals before the resulting gap and
+/// checks all tuples before any variant payload in one selected document.
+/// Provenance: IR-1059 partial AC-6 combined-defect order; full AC-6 remains open.
+#[test]
+fn combined_tuple_and_variant_defects_keep_published_intake_order() {
+    let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let vectors = read_json(&proposal.join("model-tuple-union-vectors.json"))
+        .expect("published tuple/union vectors");
+    let selected_path = vectors["selected_document"]
+        .as_str()
+        .expect("selected document path");
+    let selected = read_json(&proposal.join(selected_path)).expect("selected document");
+    let base = read_json(&fixtures.join("positive-model-tuple-union.json"))
+        .expect("published positive package");
+    let rows = vectors["intake_cases"].as_array().expect("intake cases");
+    for (first, expected_cause) in [
+        ("TK-06", "conflicting-binding"),
+        ("TK-02", "malformed-declaration"),
+    ] {
+        let mut document = selected.clone();
+        let mut package = base.clone();
+        for name in [first, "TK-07"] {
+            let row = rows
+                .iter()
+                .find(|row| row["name"] == name)
+                .expect("published intake row");
+            apply_published_intake_patch(&mut document, row);
+        }
+        let digest = canonical_digest(&document);
+        package["lock"]["model_selections"][0]["digest"] = json!(digest);
+        package["identity_preimage"]["model_selections"][0]["digest"] = json!(digest);
+        super::fixture_support::refresh_identity(&mut package);
+        let mut evidence = CheckedPackageEvidence::new();
+        evidence
+            .insert_domain_package_document(digest, super::fixture_support::canonical(&document))
+            .expect("selected document evidence");
+        evidence.support_feature("quire.value.complete/v1");
+        let result = CheckedPackageV2::read(
+            &super::fixture_support::canonical(&package),
+            CheckedPackageReadLimits::bounded(),
+            &evidence,
+        );
+        let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+            panic!("{first}: expected tuple defect before variant defect: {result:?}");
+        };
+        assert_eq!(refusal.code, Code::InvalidModelBinding, "{first}");
+        assert_eq!(
+            refusal.cause.map(super::cause_word),
+            Some(expected_cause),
+            "{first}"
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            Some("/lock/model_selections/0"),
+            "{first}"
+        );
+        assert_eq!(
+            refusal
+                .document_pointer
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
+            Some("/types/1/positions/1"),
+            "{first}"
         );
     }
 }
