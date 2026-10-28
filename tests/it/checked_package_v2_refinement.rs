@@ -533,12 +533,10 @@ fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
         document,
         extra.to_vec(),
     );
+    let control = read(&base, &evidence);
     assert!(
-        matches!(
-            read(&base, &evidence),
-            CheckedPackageV2ReadResult::Admitted(_)
-        ),
-        "selected control must admit"
+        matches!(control, CheckedPackageV2ReadResult::Admitted(_)),
+        "selected control must admit: {control:?}"
     );
     for selected in extra {
         let form = selected["semantic_form"].as_str().expect("form");
