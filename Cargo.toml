@@ -70,6 +70,14 @@ name = "ir575_reader_memory"
 path = "tests/ir575_reader_memory.rs"
 test = false
 
+# TC-019: CI invokes capture once per supported OS and compares the three
+# resulting artifacts in a named job outside the ordinary local test lane.
+[[test]]
+name = "tc019_determinism"
+path = "tests/tc019_determinism.rs"
+test = false
+harness = false
+
 [dependencies]
 ix-cli-kit = { version = "0.1", git = "https://github.com/agent-ix/ix-cli-kit", branch = "main", default-features = false, optional = true }
 ix-trace-rs = { version = "0.1", git = "https://github.com/agent-ix/ix-trace-rs", branch = "main" }
