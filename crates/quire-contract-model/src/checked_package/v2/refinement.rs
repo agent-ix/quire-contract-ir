@@ -2473,6 +2473,51 @@ fn protocol_classes(
         }),
         None => RefinementKey::Local(id.clone()),
     };
+    meter.charge(super::model_members::units(nodes.len()), || at.clone())?;
+    let clause_paths: Vec<_> = nodes
+        .iter()
+        .filter(|node| {
+            node.kind == super::CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolClause)
+        })
+        .filter_map(|node| {
+            node.name
+                .map(|name| (node.id, name.qualified_name.as_slice()))
+        })
+        .collect();
+    let mut closest_clauses = Vec::with_capacity(nodes.len());
+    for member in nodes {
+        let closest = if matches!(member.kind, super::CheckedNodeKind::Protocol(_)) {
+            if let Some(name) = member.name {
+                meter.charge(super::model_members::units(clause_paths.len()), || {
+                    at.clone()
+                })?;
+                clause_paths
+                    .iter()
+                    .filter(|(_, path)| {
+                        name.qualified_name.len() > path.len()
+                            && name.qualified_name.starts_with(path)
+                            && name.qualified_name.get(path.len()).is_some_and(|segment| {
+                                matches!(
+                                    segment.as_ref(),
+                                    "role"
+                                        | "channel"
+                                        | "compensate"
+                                        | "finish"
+                                        | "terminal"
+                                        | "run"
+                                )
+                            })
+                    })
+                    .max_by_key(|(_, path)| path.len())
+                    .map(|(id, _)| *id)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        closest_clauses.push(closest);
+    }
     for clause in nodes {
         let clause_identity = clause
             .owner_model
@@ -2509,7 +2554,7 @@ fn protocol_classes(
                         .and_then(|trigger| nodes.iter().find(|node| node.id == trigger))
                         .map(|trigger| trigger.semantic_type);
                     if let (Some(name), Some(trigger_type)) = (
-                        alias_free_protocol_path(&clause_name.qualified_name),
+                        protocol_clause_path(&clause_name.qualified_name),
                         trigger_type,
                     ) {
                         classes.push(DeclaredGraphClass {
@@ -2522,12 +2567,13 @@ fn protocol_classes(
                 }
             }
         }
-        for member in nodes {
+        for (member, closest_clause) in nodes.iter().zip(&closest_clauses) {
             meter.charge(1, || at.clone())?;
             let Some(name) = member.name else {
                 continue;
             };
-            if !matches!(member.kind, super::CheckedNodeKind::Protocol(_))
+            if *closest_clause != Some(clause.id)
+                || !matches!(member.kind, super::CheckedNodeKind::Protocol(_))
                 || name.qualified_name.len() <= clause_name.qualified_name.len()
                 || !name.qualified_name.starts_with(&clause_name.qualified_name)
             {
@@ -2551,9 +2597,12 @@ fn protocol_classes(
             let Some(operator) = catalog_operator(member.kind, operator) else {
                 continue;
             };
-            let Some(classes_for_node) =
-                protocol_member_classes(operator, arguments, &name.qualified_name)
-            else {
+            let Some(classes_for_node) = protocol_member_classes(
+                operator,
+                arguments,
+                &clause_name.qualified_name,
+                &name.qualified_name,
+            ) else {
                 continue;
             };
             let binder_types = if matches!(operator, CatalogOperator::Role) {
@@ -2912,9 +2961,10 @@ struct ProtocolMemberClass {
 fn protocol_member_classes(
     operator: CatalogOperator,
     arguments: &[CheckedTerm],
+    clause_name: &[Box<str>],
     name: &[Box<str>],
 ) -> Option<Vec<ProtocolMemberClass>> {
-    let path = alias_free_protocol_path(name)?;
+    let path = format!("{}::{}", protocol_clause_path(clause_name)?, name.last()?);
     let inherited = |name| ProtocolMemberClass {
         name,
         empty_binders: false,
@@ -2969,11 +3019,10 @@ fn protocol_member_classes(
     Some(classes.into_iter().map(inherited).collect())
 }
 
-/// Drop only the package-local namespace, retaining the complete declaration path.
-fn alias_free_protocol_path(name: &[Box<str>]) -> Option<String> {
-    (name.len() >= 2).then(|| {
-        name[1..]
-            .iter()
+/// Preserve every authored clause segment in the class identity.
+fn protocol_clause_path(name: &[Box<str>]) -> Option<String> {
+    (!name.is_empty()).then(|| {
+        name.iter()
             .map(AsRef::as_ref)
             .collect::<Vec<&str>>()
             .join("::")

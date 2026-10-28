@@ -23,11 +23,21 @@ const MODEL_IDENTITY: &str = "test/refinement";
 const MODEL_NODE: &str = "ix://test/refinement/Machine";
 
 fn protocol_class_path(node: &Value) -> String {
-    node["declaration"]["qualified_name"]
+    let path = node["declaration"]["qualified_name"]
         .as_array()
-        .expect("protocol declaration")
+        .expect("protocol declaration");
+    let kind = path
         .iter()
-        .skip(1)
+        .position(|part| {
+            matches!(
+                part.as_str(),
+                Some("finish" | "run" | "channel" | "role" | "compensate")
+            )
+        })
+        .expect("fixed protocol segment");
+    path[..kind]
+        .iter()
+        .chain(path.last())
         .map(|part| part.as_str().expect("name segment"))
         .collect::<Vec<_>>()
         .join("::")
@@ -589,8 +599,8 @@ fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
     set_concrete_catalog(
         &mut base,
         vec![
+            json!({"class":"Example::OrderFlow::Closed", "node":finish, "binder_types":[boolean]}),
             json!({"class":"Gate::toggle", "node":extra[1]["node_id"], "binder_types":[gate_reference]}),
-            json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[boolean]}),
         ],
     );
     let refinement = base["semantic_graph"]["nodes"]
@@ -1590,8 +1600,8 @@ fn record_activation_case(
     let position = set_concrete_catalog(
         &mut package,
         vec![
-            json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[boolean]}),
-            json!({"class":"activate OrderFlow", "node":clause, "binder_types":binders}),
+            json!({"class":"Example::OrderFlow::Closed", "node":finish, "binder_types":[boolean]}),
+            json!({"class":"activate Example::OrderFlow", "node":clause, "binder_types":binders}),
         ],
     );
     (package, evidence, position)
@@ -1624,9 +1634,9 @@ fn refinement_catalog_activate_each_uses_clause_and_trigger_signature() {
         .expect("finish")["node_id"]
         .clone();
     let finish_entry =
-        json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[boolean]});
+        json!({"class":"Example::OrderFlow::Closed", "node":finish, "binder_types":[boolean]});
     let activate = json!({
-        "class":"activate OrderFlow", "node":clause, "binder_types":[boolean]
+        "class":"activate Example::OrderFlow", "node":clause, "binder_types":[boolean]
     });
     let position = set_concrete_catalog(&mut package, vec![finish_entry.clone(), activate.clone()]);
     let bytes = writer_bytes(&package);
@@ -1733,8 +1743,8 @@ fn refinement_catalog_activate_each_uses_clause_and_trigger_signature() {
     let origin_position = set_concrete_catalog(
         &mut origin,
         vec![
-            json!({"class":"OrderFlow::finish::Closed", "node":origin_finish, "binder_types":[boolean]}),
-            json!({"class":"activate OrderFlow", "node":origin_clause, "binder_types":[boolean]}),
+            json!({"class":"Example::OrderFlow::Closed", "node":origin_finish, "binder_types":[boolean]}),
+            json!({"class":"activate Example::OrderFlow", "node":origin_clause, "binder_types":[boolean]}),
         ],
     );
     let CheckedPackageV2ReadResult::Refused(refusal) = read(&origin, &origin_evidence) else {
@@ -2085,7 +2095,7 @@ fn memory_catalog_package() -> (Value, CheckedPackageEvidence, usize) {
         .clone();
     let binder = node_id(&crate::support::checked_package::family_key("aaaa"));
     let mut entries =
-        vec![json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[binder]})];
+        vec![json!({"class":"Example::OrderFlow::Closed", "node":finish, "binder_types":[binder]})];
     for suffix in ["", "Ra", "ScAgain", "Tso"] {
         let name = format!("Holder{suffix}");
         let parallel = nodes
@@ -2097,7 +2107,7 @@ fn memory_catalog_package() -> (Value, CheckedPackageEvidence, usize) {
             .expect("parallel")["node_id"]
             .clone();
         entries.push(
-            json!({"class":format!("fork OrderFlow::run::Main::{name}"), "node":parallel, "binder_types":[]}),
+            json!({"class":format!("fork Example::OrderFlow::{name}"), "node":parallel, "binder_types":[]}),
         );
     }
     for suffix in ["", "Ra", "ScAgain", "Tso"] {
@@ -2111,7 +2121,7 @@ fn memory_catalog_package() -> (Value, CheckedPackageEvidence, usize) {
             .expect("parallel")["node_id"]
             .clone();
         entries.push(
-            json!({"class":format!("join OrderFlow::run::Main::{name}"), "node":parallel, "binder_types":[]}),
+            json!({"class":format!("join Example::OrderFlow::{name}"), "node":parallel, "binder_types":[]}),
         );
     }
     let mut concrete: Vec<RefinementConcreteClass> = entries
@@ -2265,9 +2275,9 @@ fn abstract_protocol_memory_default_is_catalogued_from_its_own_clause() {
     let position = nodes.len() - 1;
     let abstract_key = nodes[position]["body"]["abstract"].clone();
     let entries = json!([
-        {"class":"OrderFlow::finish::Closed", "node":finish.clone(), "binder_types":[binder.clone()]},
-        {"class":"fork OrderFlow::run::Main::Holder", "node":parallel.clone(), "binder_types":[]},
-        {"class":"join OrderFlow::run::Main::Holder", "node":parallel.clone(), "binder_types":[]},
+        {"class":"Example::OrderFlow::Closed", "node":finish.clone(), "binder_types":[binder.clone()]},
+        {"class":"fork Example::OrderFlow::Holder", "node":parallel.clone(), "binder_types":[]},
+        {"class":"join Example::OrderFlow::Holder", "node":parallel.clone(), "binder_types":[]},
         {"class":"memory drain", "memory_model":"sc", "drain":"store-buffer-flush"},
     ]);
     let mut dependencies = vec![abstract_key, clause.clone(), finish, parallel, binder];
@@ -3309,11 +3319,11 @@ fn refinement_catalog_present_step_refuses_wrong_row_source_node() {
     let position = set_concrete_catalog(
         &mut package,
         vec![json!({
-            "class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[binder]
+            "class":"Example::OrderFlow::Closed", "node":finish, "binder_types":[binder]
         })],
     );
     package["semantic_graph"]["nodes"][position]["body"]["steps"][0]["source_class"] =
-        json!("OrderFlow::finish::Closed");
+        json!("Example::OrderFlow::Closed");
     rekey_refinement(&mut package, position);
     let baseline = read(&package, &evidence);
     assert!(
@@ -3352,12 +3362,12 @@ fn refinement_step_defect_precedes_wrong_protocol_clause_owner() {
     let refinement = set_concrete_catalog(
         &mut package,
         vec![json!({
-            "class": "OrderFlow::finish::Closed", "node": finish,
+            "class": "Example::OrderFlow::Closed", "node": finish,
             "binder_types": [binder_type]
         })],
     );
     package["semantic_graph"]["nodes"][refinement]["body"]["steps"][0]["source_class"] =
-        json!("OrderFlow::finish::Closed");
+        json!("Example::OrderFlow::Closed");
     rekey_refinement(&mut package, refinement);
     let baseline = read(&package, &evidence);
     assert!(
@@ -3542,7 +3552,7 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
     let position = set_concrete_catalog(
         &mut package,
         vec![
-            json!({"class": "OrderFlow::finish::Closed", "node": finish, "binder_types": [binder_type]}),
+            json!({"class": "Example::OrderFlow::Closed", "node": finish, "binder_types": [binder_type]}),
         ],
     );
     assert_eq!(
@@ -3698,7 +3708,7 @@ fn refinement_catalog_joins_concrete_operation_and_abstract_protocol_without_ste
     let finish_binder = node_id(&crate::support::checked_package::family_key("aaaa"));
     let integer_binder = node_id(&crate::support::checked_package::family_key("a3a3"));
     let entries = vec![
-        json!({"class": "OrderFlow::finish::Closed", "node": finish, "binder_types": [finish_binder]}),
+        json!({"class": "Example::OrderFlow::Closed", "node": finish, "binder_types": [finish_binder]}),
         json!({"class": "Worker::run", "node": worker_key, "binder_types": [receiver_type, integer_binder, finish_binder]}),
     ];
     let position = set_concrete_catalog(&mut package, entries.clone());
@@ -3849,7 +3859,7 @@ fn refinement_catalog_reconstructs_abstract_model_operations_without_protocol() 
     let refinement = set_concrete_catalog(
         &mut package,
         vec![
-            json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[finish_binder]}),
+            json!({"class":"Example::OrderFlow::Closed", "node":finish, "binder_types":[finish_binder]}),
             operation.clone(),
         ],
     );
@@ -3940,15 +3950,16 @@ fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
         })
         .expect("receiver type")["node_id"]
         .clone();
-    let entries = vec![
-        json!({"class":"OrderFlow::compensate::Undo", "node":template, "binder_types":[receiver]}),
-        json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[boolean]}),
-        json!({"class":"OrderFlow::run::Main::Commit", "node":commit, "binder_types":[boolean]}),
-        json!({"class":"OrderFlow::run::Main::Event", "node":event, "binder_types":[boolean]}),
-        json!({"class":"OrderFlow::run::Main::ForwardAttempt", "node":attempt, "binder_types":[receiver]}),
-        json!({"class":"OrderFlow::run::Main::ForwardEffect", "node":effect, "binder_types":[boolean]}),
-        json!({"class":"cend OrderFlow::compensate::Undo", "node":template, "binder_types":[]}),
+    let mut entries = vec![
+        json!({"class":"Example::OrderFlow::Undo", "node":template, "binder_types":[receiver]}),
+        json!({"class":"Example::OrderFlow::Closed", "node":finish, "binder_types":[boolean]}),
+        json!({"class":"Example::OrderFlow::Commit", "node":commit, "binder_types":[boolean]}),
+        json!({"class":"Example::OrderFlow::Event", "node":event, "binder_types":[boolean]}),
+        json!({"class":"Example::OrderFlow::ForwardAttempt", "node":attempt, "binder_types":[receiver]}),
+        json!({"class":"Example::OrderFlow::ForwardEffect", "node":effect, "binder_types":[boolean]}),
+        json!({"class":"cend Example::OrderFlow::Undo", "node":template, "binder_types":[]}),
     ];
+    entries.sort_by(|left, right| left["class"].as_str().cmp(&right["class"].as_str()));
     let refinement = set_concrete_catalog(&mut package, entries.clone());
     let admitted = read(&package, &evidence);
     assert!(
@@ -3957,8 +3968,8 @@ fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
     );
 
     for (class_name, class_index, other_node) in [
-        ("Commit", 2, effect.clone()),
-        ("ForwardEffect", 5, commit.clone()),
+        ("Commit", 1, effect.clone()),
+        ("ForwardEffect", 4, commit.clone()),
     ] {
         let mut missing = package.clone();
         let mut changed = entries.clone();
@@ -4119,9 +4130,9 @@ fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
     let no_template_position = set_concrete_catalog(
         &mut no_template,
         vec![
-            json!({"class":"OrderFlow::finish::Closed", "node":no_template_finish,
+            json!({"class":"Example::OrderFlow::Closed", "node":no_template_finish,
                 "binder_types":[boolean]}),
-            json!({"class":"cend OrderFlow::compensate::Undo", "node":no_template_finish,
+            json!({"class":"cend Example::OrderFlow::Undo", "node":no_template_finish,
                 "binder_types":[]}),
         ],
     );
@@ -4210,15 +4221,16 @@ fn refinement_catalog_rejects_cend_associated_with_another_template() {
         .clone();
     let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
     let mut entries = vec![
-        json!({"class":"OrderFlow::compensate::OtherUndo", "node":second_key, "binder_types":[receiver]}),
-        json!({"class":"OrderFlow::compensate::Undo", "node":first_template, "binder_types":[receiver]}),
-        json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[boolean]}),
-        json!({"class":"OrderFlow::run::Main::Event", "node":event, "binder_types":[boolean]}),
-        json!({"class":"OrderFlow::run::Main::ForwardAttempt", "node":attempt, "binder_types":[receiver]}),
-        json!({"class":"OrderFlow::run::Main::ForwardEffect", "node":effect, "binder_types":[boolean]}),
-        json!({"class":"cend OrderFlow::compensate::OtherUndo", "node":second_key, "binder_types":[]}),
-        json!({"class":"cend OrderFlow::compensate::Undo", "node":first_template, "binder_types":[]}),
+        json!({"class":"Example::OrderFlow::OtherUndo", "node":second_key, "binder_types":[receiver]}),
+        json!({"class":"Example::OrderFlow::Undo", "node":first_template, "binder_types":[receiver]}),
+        json!({"class":"Example::OrderFlow::Closed", "node":finish, "binder_types":[boolean]}),
+        json!({"class":"Example::OrderFlow::Event", "node":event, "binder_types":[boolean]}),
+        json!({"class":"Example::OrderFlow::ForwardAttempt", "node":attempt, "binder_types":[receiver]}),
+        json!({"class":"Example::OrderFlow::ForwardEffect", "node":effect, "binder_types":[boolean]}),
+        json!({"class":"cend Example::OrderFlow::OtherUndo", "node":second_key, "binder_types":[]}),
+        json!({"class":"cend Example::OrderFlow::Undo", "node":first_template, "binder_types":[]}),
     ];
+    entries.sort_by(|left, right| left["class"].as_str().cmp(&right["class"].as_str()));
     let refinement = set_concrete_catalog(&mut package, entries.clone());
     assert_unique_node_ids(&package);
     let admitted = read(&package, &evidence);
@@ -4271,11 +4283,11 @@ fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
         .clone();
     let binder_type = node_id(&crate::support::checked_package::family_key("aaaa"));
     let finish_entry =
-        json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[binder_type]});
+        json!({"class":"Example::OrderFlow::Closed", "node":finish, "binder_types":[binder_type]});
     let fork_entry =
-        json!({"class":"fork OrderFlow::run::Main::Holder", "node":parallel, "binder_types":[]});
+        json!({"class":"fork Example::OrderFlow::Holder", "node":parallel, "binder_types":[]});
     let join_entry =
-        json!({"class":"join OrderFlow::run::Main::Holder", "node":parallel, "binder_types":[]});
+        json!({"class":"join Example::OrderFlow::Holder", "node":parallel, "binder_types":[]});
     let position = set_concrete_catalog(
         &mut package,
         vec![
@@ -4291,23 +4303,36 @@ fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
         "{admitted:?}"
     );
 
-    for (wrong_class, path) in [
+    for (class_index, wrong_class, path) in [
         (
+            1,
             "fork OrderFlow::Holder",
-            format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1"),
-        ),
-        (
-            "fork OtherFlow::run::Main::Holder",
             format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete"),
         ),
         (
-            "fork OrderFlow::run::Holder",
-            format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1"),
+            1,
+            "fork OtherFlow::Holder",
+            format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete"),
+        ),
+        (
+            1,
+            "fork Example::OrderFlow::run::Holder",
+            format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete"),
+        ),
+        (
+            1,
+            "fork Example::OrderFlow::Main::Holder",
+            format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete"),
+        ),
+        (
+            2,
+            "join Example::OrderFlow::Main::Holder",
+            format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete"),
         ),
     ] {
         let mut wrong = package.clone();
-        wrong["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"][1]
-            ["class"] = json!(wrong_class);
+        wrong["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"]
+            [class_index]["class"] = json!(wrong_class);
         rekey_refinement(&mut wrong, position);
         let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong, &evidence) else {
             panic!("truncated or substituted declaration path admitted: {wrong_class}");
@@ -4442,11 +4467,13 @@ fn refinement_catalog_preserves_two_clause_paths_of_different_depths() {
         let Some(operator) = node["body"]["operation"]["member"]["operator"].as_str() else {
             continue;
         };
-        let path = protocol_class_path(node);
         match operator {
-            "finish" => entries.push(json!({"class":path, "node":node["node_id"],
-                "binder_types":[boolean]})),
+            "finish" => entries.push(
+                json!({"class":protocol_class_path(node), "node":node["node_id"],
+                "binder_types":[boolean]}),
+            ),
             "parallel" => {
+                let path = protocol_class_path(node);
                 entries.push(
                     json!({"class":format!("fork {path}"), "node":node["node_id"],
                     "binder_types":[]}),
@@ -4464,13 +4491,13 @@ fn refinement_catalog_preserves_two_clause_paths_of_different_depths() {
     entries.sort_by(|left, right| left["class"].as_str().cmp(&right["class"].as_str()));
     assert!(entries
         .iter()
-        .any(|entry| entry["class"] == "OrderFlow::finish::Closed"));
+        .any(|entry| entry["class"] == "Example::OrderFlow::Closed"));
     assert!(entries
         .iter()
-        .any(|entry| entry["class"] == "Nested::OtherFlow::finish::Closed"));
+        .any(|entry| entry["class"] == "Example::Nested::OtherFlow::Closed"));
     assert!(entries
         .iter()
-        .any(|entry| entry["class"] == "fork Nested::OtherFlow::run::Main::Holder"));
+        .any(|entry| entry["class"] == "fork Example::Nested::OtherFlow::Holder"));
     set_concrete_catalog(&mut package, entries.clone());
     assert_unique_node_ids(&package);
     let admitted = read(&package, &evidence);
@@ -4481,11 +4508,11 @@ fn refinement_catalog_preserves_two_clause_paths_of_different_depths() {
 
     for (original, substituted) in [
         (
-            "Nested::OtherFlow::finish::Closed",
-            "Nested::OrderFlow::finish::Closed",
+            "Example::Nested::OtherFlow::Closed",
+            "Example::Nested::OrderFlow::Closed",
         ),
         (
-            "fork Nested::OtherFlow::run::Main::Holder",
+            "fork Example::Nested::OtherFlow::Holder",
             "fork Nested::OtherFlow::Holder",
         ),
     ] {
@@ -4512,14 +4539,191 @@ fn refinement_catalog_preserves_two_clause_paths_of_different_depths() {
         assert_eq!(
             refusal.path.as_ref().map(|path| path.as_str()),
             Some(
-                format!(
-                    "/semantic_graph/nodes/{position}/body/class_catalog/concrete/{changed_index}"
-                )
+                if substituted.starts_with("fork ") {
+                    format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete")
+                } else {
+                    format!(
+                        "/semantic_graph/nodes/{position}/body/class_catalog/concrete/{changed_index}"
+                    )
+                }
                 .as_str()
             ),
             "wrong refusal locus for {substituted}"
         );
     }
+}
+
+/// Trace: FR-038-AC-329
+#[trace("TC-048", "FR-038-AC-329")]
+#[test]
+fn refinement_catalog_assigns_nested_members_only_to_inner_clause() {
+    let (mut base, _) = crate::checked_package_v2_protocol_body::protocol_holder_case_on(
+        v2_all_families(),
+        "parallel",
+    );
+    let mut nested = base.clone();
+    for node in nested["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+    {
+        if node["node_tag"] != "protocol" {
+            continue;
+        }
+        let Some(path) = node["declaration"]["qualified_name"].as_array_mut() else {
+            continue;
+        };
+        if path.len() >= 2 && path[0] == "Example" && path[1] == "OrderFlow" {
+            path.insert(2, json!("Inner"));
+            for segment in path.iter_mut() {
+                if *segment == "Closed" {
+                    *segment = json!("InnerClosed");
+                } else if *segment == "Holder" {
+                    *segment = json!("InnerHolder");
+                }
+            }
+        }
+    }
+    settle(&mut nested);
+    let nested_nodes = nested["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .filter(|node| {
+            node["node_tag"] == "protocol"
+                && node["declaration"]["qualified_name"][0] == "Example"
+                && node["declaration"]["qualified_name"][1] == "OrderFlow"
+                && node["declaration"]["qualified_name"][2] == "Inner"
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    base["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .extend(nested_nodes);
+    rebuild_source_map(&mut base);
+    settle(&mut base);
+    let (mut package, evidence) = concrete_protocol_refinement_on(
+        base,
+        ProtocolStepRows::Empty,
+        ProtocolClauseOwner::SelectedModel,
+    );
+    let mut entries = Vec::new();
+    let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
+    for node in package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+    {
+        let Some(operator) = node["body"]["operation"]["member"]["operator"].as_str() else {
+            continue;
+        };
+        match operator {
+            "finish" => entries.push(json!({"class":protocol_class_path(node),
+                "node":node["node_id"], "binder_types":[boolean]})),
+            "parallel" => {
+                let path = protocol_class_path(node);
+                for kind in ["fork", "join"] {
+                    entries.push(json!({"class":format!("{kind} {path}"),
+                        "node":node["node_id"], "binder_types":[]}));
+                }
+            }
+            _ => {}
+        }
+    }
+    entries.push(json!({"class":"memory drain", "memory_model":"sc",
+        "drain":"store-buffer-flush"}));
+    entries.sort_by(|left, right| left["class"].as_str().cmp(&right["class"].as_str()));
+    assert!(entries
+        .iter()
+        .any(|entry| entry["class"] == "Example::OrderFlow::Inner::InnerClosed"));
+    assert!(entries
+        .iter()
+        .any(|entry| entry["class"] == "fork Example::OrderFlow::Inner::InnerHolder"));
+    set_concrete_catalog(&mut package, entries.clone());
+    assert_unique_node_ids(&package);
+    let admitted = read(&package, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "nested clause catalog must admit: {admitted:?}"
+    );
+
+    let mut wrong = package.clone();
+    let inner_finish = entries
+        .iter_mut()
+        .find(|entry| entry["class"] == "Example::OrderFlow::Inner::InnerClosed")
+        .expect("inner finish");
+    inner_finish["class"] = json!("Example::OrderFlow::InnerClosed");
+    entries.sort_by(|left, right| left["class"].as_str().cmp(&right["class"].as_str()));
+    let position = set_concrete_catalog(&mut wrong, entries);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong, &evidence) else {
+        panic!("outer-derived class for inner finish admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete").as_str())
+    );
+}
+
+/// Trace: FR-038-AC-329
+#[trace("TC-048", "FR-038-AC-329")]
+#[test]
+fn refinement_catalog_reads_single_segment_protocol_clause() {
+    let (mut base, _) = crate::checked_package_v2_protocol_body::protocol_holder_case_on(
+        v2_all_families(),
+        "parallel",
+    );
+    for node in base["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+    {
+        if node["node_tag"] != "protocol" {
+            continue;
+        }
+        let Some(path) = node["declaration"]["qualified_name"].as_array_mut() else {
+            continue;
+        };
+        if path.len() >= 2 && path[0] == "Example" && path[1] == "OrderFlow" {
+            path.drain(..2);
+            path.insert(0, json!("Impl"));
+        }
+    }
+    settle(&mut base);
+    let (mut package, evidence) = concrete_protocol_refinement_on(
+        base,
+        ProtocolStepRows::Empty,
+        ProtocolClauseOwner::SelectedModel,
+    );
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let by_operator = |operator: &str| {
+        nodes
+            .iter()
+            .find(|node| node["body"]["operation"]["member"]["operator"] == operator)
+            .expect("protocol operator")["node_id"]
+            .clone()
+    };
+    let finish = by_operator("finish");
+    let parallel = by_operator("parallel");
+    let binder = node_id(&crate::support::checked_package::family_key("aaaa"));
+    set_concrete_catalog(
+        &mut package,
+        vec![
+            json!({"class":"Impl::Closed", "node":finish, "binder_types":[binder]}),
+            json!({"class":"fork Impl::Holder", "node":parallel, "binder_types":[]}),
+            json!({"class":"join Impl::Holder", "node":parallel, "binder_types":[]}),
+            json!({"class":"memory drain", "memory_model":"sc",
+                "drain":"store-buffer-flush"}),
+        ],
+    );
+    let admitted = read(&package, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "{admitted:?}"
+    );
 }
 
 /// Provenance: IR-874 timeout class on an admitted await node.
@@ -4600,7 +4804,7 @@ fn refinement_catalog_uses_channel_carries_for_send_binder() {
         .clone();
     let binder = node_id(&crate::support::checked_package::family_key("aaaa"));
     let mut entries = vec![
-        json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[binder]}),
+        json!({"class":"Example::OrderFlow::Closed", "node":finish, "binder_types":[binder]}),
         json!({"class":send_name, "node":send,
             "binder_types":[binder]}),
         json!({"class":format!("duplicate {channel_name}"),
@@ -4666,13 +4870,13 @@ fn refinement_catalog_joins_selected_abstract_clause_and_binder() {
     let binder = node_id(&crate::support::checked_package::family_key("aaaa"));
     let position = set_concrete_catalog(
         &mut package,
-        vec![json!({"class":"OrderFlow::finish::Closed", "node":finish,
+        vec![json!({"class":"Example::OrderFlow::Closed", "node":finish,
             "binder_types":[binder]})],
     );
     let node = &mut package["semantic_graph"]["nodes"][position];
     node["body"]["protocol"] = clause.clone();
     node["body"]["class_catalog"]["abstract"] = json!([{
-        "class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[binder]
+        "class":"Example::OrderFlow::Closed", "node":finish, "binder_types":[binder]
     }]);
     let mut dependencies = node["dependencies"]
         .as_array()
@@ -4732,7 +4936,7 @@ fn refinement_catalog_joins_abstract_class_from_direct_dependency() {
     set_concrete_catalog(
         &mut dependency_wire,
         vec![
-            json!({"class":"OrderFlow::finish::Closed", "node":abstract_finish,
+            json!({"class":"Example::OrderFlow::Closed", "node":abstract_finish,
             "binder_types":[binder]}),
         ],
     );
@@ -4756,7 +4960,7 @@ fn refinement_catalog_joins_abstract_class_from_direct_dependency() {
     let position = set_concrete_catalog(
         &mut package,
         vec![
-            json!({"class":"OrderFlow::finish::Closed", "node":concrete_finish,
+            json!({"class":"Example::OrderFlow::Closed", "node":concrete_finish,
             "binder_types":[binder]}),
         ],
     );
@@ -4764,7 +4968,7 @@ fn refinement_catalog_joins_abstract_class_from_direct_dependency() {
     node["body"]["abstract"] = external(abstract_model);
     node["body"]["protocol"] = external(abstract_clause);
     node["body"]["class_catalog"]["abstract"] = json!([{
-        "class":"OrderFlow::finish::Closed", "node":external(abstract_finish),
+        "class":"Example::OrderFlow::Closed", "node":external(abstract_finish),
         "binder_types":[external(binder.clone())]
     }]);
     node["dependencies"] = json!([concrete_finish, binder]);
@@ -4835,7 +5039,7 @@ fn refinement_catalog_joins_external_abstract_model_operations_without_protocol(
     let dep_refinement = set_concrete_catalog(
         &mut dependency_wire,
         vec![
-            json!({"class":"OrderFlow::finish::Closed", "node":finish,
+            json!({"class":"Example::OrderFlow::Closed", "node":finish,
             "binder_types":[boolean]}),
             operation.clone(),
         ],
@@ -4863,7 +5067,7 @@ fn refinement_catalog_joins_external_abstract_model_operations_without_protocol(
     let position = set_concrete_catalog(
         &mut package,
         vec![
-            json!({"class":"OrderFlow::finish::Closed", "node":concrete_finish,
+            json!({"class":"Example::OrderFlow::Closed", "node":concrete_finish,
             "binder_types":[boolean]}),
         ],
     );
