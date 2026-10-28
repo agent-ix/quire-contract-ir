@@ -4326,13 +4326,15 @@ fn await_checks_anchor_form_and_event_eligibility() {
     let mut wrong_event = package;
     let role_position = protocol_position(&wrong_event, "role");
     let channel_position = add_member_channel(&mut wrong_event, role_position);
-    let role = wrong_event["semantic_graph"]["nodes"][role_position]["node_id"].clone();
     let channel = wrong_event["semantic_graph"]["nodes"][channel_position]["node_id"].clone();
+    let binder = wrong_event["semantic_graph"]["nodes"][children[0]]["body"]["arguments"][2]
+        ["value"]["target"]
+        .clone();
     wrong_event["semantic_graph"]["nodes"][children[0]]["body"]["operation"]["member"]
         ["operator"] = json!("send");
     wrong_event["semantic_graph"]["nodes"][children[0]]["body"]["arguments"] = json!([
         {"term": "binding", "name": "channel", "value": {"term": "reference", "target": channel}},
-        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": role}},
+        {"term": "binding", "name": "binder", "value": {"term": "reference", "target": binder}},
         {"term": "binding", "name": "related", "value": {"term": "aggregate", "members": []}},
         {"term": "binding", "name": "constraint", "value": {"term": "literal", "type": node_id(&family_key("aaaa")), "value_kind": "boolean", "value": true}}
     ]);

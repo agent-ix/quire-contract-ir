@@ -685,8 +685,9 @@ fn tc_048_every_catalogue_entry_retains_its_constructible_admission() {
         let position = package["semantic_graph"]["nodes"]
             .as_array()
             .expect("nodes")
-            .len()
-            - 1;
+            .iter()
+            .position(|node| node["body"]["operation"]["identity"] == identity)
+            .expect("catalogued application");
         let other = match identity {
             "quire.op.ieee.to_float32" => "float64",
             "quire.op.ieee.to_float64" | "quire.op.ieee.to_rational" => "float32",

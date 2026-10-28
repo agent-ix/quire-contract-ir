@@ -526,12 +526,28 @@ fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
         ("record_value_type", "Address"),
     ]
     .map(|(form, short)| selected_form_node(form, &format!("ix://{MODEL_IDENTITY}/{short}")));
+    let gate = extra[1]["node_id"].clone();
+    let gate_reference_body =
+        json!({"term":"aggregate", "members":[{"term":"reference", "target":gate}]});
+    let gate_reference = node_id(&structural_key(
+        "composite_type",
+        "reference",
+        None,
+        &gate_reference_body,
+    ));
+    let mut selected_nodes = extra.to_vec();
+    selected_nodes.push(json!({
+        "node_id":gate_reference, "schema_version":"quire.checked-semantic-graph/v2",
+        "node_tag":"composite_type", "semantic_form":"reference",
+        "semantic_type":gate_reference, "dependencies":[gate],
+        "occurrences":[{"role":"type", "ordinal":0}], "body":gate_reference_body
+    }));
     let (mut base, evidence) = concrete_protocol_refinement_with_model(
         v2_all_families(),
         ProtocolStepRows::Empty,
         ProtocolClauseOwner::SelectedModel,
         document,
-        extra.to_vec(),
+        selected_nodes,
     );
     let finish = base["semantic_graph"]["nodes"]
         .as_array()
@@ -544,7 +560,7 @@ fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
     set_concrete_catalog(
         &mut base,
         vec![
-            json!({"class":"Gate::toggle", "node":extra[1]["node_id"], "binder_types":[]}),
+            json!({"class":"Gate::toggle", "node":extra[1]["node_id"], "binder_types":[gate_reference]}),
             json!({"class":"OrderFlow::Closed", "node":finish, "binder_types":[boolean]}),
         ],
     );

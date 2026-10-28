@@ -2217,12 +2217,12 @@ fn tc_226_tree_whole_read_work_boundary() {
     // fixture, including the List group and three protocol nodes. Protocol
     // membership charges five. Binder scope adds 47: 36 measured on the
     // admitted-result fixture, plus one for each of the 11 graph nodes this
-    // recursive fixture has beyond it. The two selected roots add seven
-    // charges before Tree's dependency, now at 544/545. Five later charges
-    // put the last body target at the whole-read 549/550 boundary.
+    // recursive fixture has beyond it. Selected owner joins add thirteen
+    // charges before Tree's dependency, now at 550/551. Five later charges
+    // put the last body target at the whole-read 555/556 boundary.
     // These constants are authored here, not obtained from the reader at runtime.
     const TREE_GROUP_WORK: u64 = 3 + (5 + 4 + 8 + 3) + (4 + 3 + 6 + 1);
-    const OTHER_READ_WORK: u64 = 454 + 47 + 7;
+    const OTHER_READ_WORK: u64 = 454 + 47 + 13;
     const TREE_DEPENDENCY_CHARGE: u64 = OTHER_READ_WORK + TREE_GROUP_WORK;
     const REMAINING_WORK: u64 = 5;
     const M: u64 = TREE_DEPENDENCY_CHARGE + REMAINING_WORK;
