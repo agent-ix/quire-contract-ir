@@ -30,6 +30,7 @@ use std::collections::BTreeMap;
 
 /// QSpec's KeyOrdinal admits a JSON integer through 2^53-1, or a canonical
 /// decimal string strictly above that bound.
+#[ix_trace_rs::string_edge]
 fn key_ordinal(value: &Value) -> bool {
     const MAX_SAFE: &str = "9007199254740991";
     if let Some(number) = value.as_u64() {
