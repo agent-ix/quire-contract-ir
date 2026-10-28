@@ -450,13 +450,15 @@ fn with_fairness(profile: &str, member: Value) -> (Value, usize) {
 }
 
 pub(crate) fn admitted_fairness_source_for_contract() -> CheckedPackageV2 {
+    // Lowering chooses the first unsupported key. Keep the fairness child
+    // before both the clause root and its formula child in this source.
     for (declaration, name) in [
         (ORDER_NODE, "scaled"),
         (ORDER_NODE, "reset"),
         (LEFT_NODE, "act"),
         (RIGHT_NODE, "act"),
     ] {
-        let (package, fair) =
+        let (mut package, fair) =
             with_fairness(INFINITE, fairness_member(&model_key(declaration), name));
         let fair_key = digest(&package, fair);
         let earliest_formula = nodes(&package)
@@ -466,7 +468,15 @@ pub(crate) fn admitted_fairness_source_for_contract() -> CheckedPackageV2 {
             .min()
             .expect("formula node");
         if fair_key.as_str() < earliest_formula {
-            return admitted("contract source with fairness", &package);
+            for suffix in 0..64 {
+                let clause_at = clause(&package);
+                package["semantic_graph"]["nodes"][clause_at]["body"]["arguments"][1]["value"] =
+                    json!(format!("clause-{suffix}"));
+                settle(&mut package);
+                if fair_key < digest(&package, clause(&package)) {
+                    return admitted("contract source with fairness", &package);
+                }
+            }
         }
     }
     panic!("no fairness key sorts before the formula keys")
