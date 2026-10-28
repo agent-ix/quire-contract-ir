@@ -1248,6 +1248,18 @@ fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
         .remove(&CheckedNodeTag::Temporal);
     lowering_profile.require_bounds = false;
     let result = source.lower(&requests, &lowering_profile);
+    let CompleteLoweringRecordV2::Unsupported {
+        node_id,
+        unsupported_node_id,
+        node_tag,
+    } = &result.records[0]
+    else {
+        panic!("clause request is unsupported");
+    };
+    assert_eq!(node_id, &clause);
+    assert_eq!(unsupported_node_id, &fairness);
+    assert_eq!(*node_tag, CheckedNodeTag::Temporal);
+    assert_ne!(node_id, unsupported_node_id);
     let producer = result.package.wire().expect("producer package");
     let wire_bytes = bytes(&result);
     let ContractPackageReadResult::Admitted(plain) = read(wire_bytes) else {
@@ -1304,6 +1316,25 @@ fn unsupported_source_kind_tracks_requested_root_across_mixed_accounting() {
     assert_eq!(producer.node_kind(&fairness), None);
     assert_eq!(producer.node_kind(&formula), None);
     assert!(producer.node_kind(&healthy).is_some());
+    let mut missing_root: Value = serde_json::from_slice(wire_bytes).expect("wire json");
+    let absent = serde_json::to_value(missing()).expect("missing node id");
+    missing_root["feature_accounting"][0]["node_id"] = absent.clone();
+    missing_root["source_map"]["requested_items"][0]["requested_item"] = absent.clone();
+    missing_root["source_map"]["refusals"][0]["requested_item"] = absent;
+    let missing_root = rehashed(missing_root);
+    assert!(matches!(
+        read(&missing_root),
+        ContractPackageReadResult::Admitted(_)
+    ));
+    assert_eq!(
+        ContractPackageWireV1::read_with_source(
+            &missing_root,
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::new(),
+            &source,
+        ),
+        Err(ContractSourceHandoffError::MissingNode(missing()))
+    );
     assert_eq!(
         ContractPackageWireV1::read_with_source(
             wire_bytes,
