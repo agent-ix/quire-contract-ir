@@ -16,10 +16,11 @@
 
 use crate::support::checked_package::{
     application_node_key, bounds_body, canonical, evidence_for, family_key, grouped_local_key,
-    integer_range_key, mint_grouped_structural_keys, model_owner, node_id, nominal_package,
-    over_body, owned_structural_node, rebuild_source_map, refresh_identity, refusal_at,
-    rename_node, settle, sha256_hex, source_owner, structural_key, typed_node_id, v2_all_families,
-    v2_nominal, ExpectedNodeId, ExpectedRefusal, BOOLEAN_KEY, INTEGER_KEY,
+    integer_range_key, mint_grouped_structural_keys, mint_ungrouped_structural_keys, model_owner,
+    node_id, nominal_package, over_body, owned_structural_node, rebuild_source_map,
+    refresh_identity, refusal_at, rename_node, settle, sha256_hex, source_owner, structural_key,
+    typed_node_id, v2_all_families, v2_nominal, ExpectedNodeId, ExpectedRefusal, BOOLEAN_KEY,
+    INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -2546,6 +2547,219 @@ fn dependent_reference_target_waits_for_model_key() {
     assert_eq!(
         refusal_of("dependent reference target", &package, &evidence),
         stale_at(&package, &retained),
+    );
+}
+
+/// Change only the target's retained key: its dependants still name the old
+/// canonical key, so any early target lookup must defer to key authentication.
+fn rekey_dependent_target(package: &mut Value, old: &str, retained: &str) {
+    let position = at(package, old);
+    package["semantic_graph"]["nodes"][position]["node_id"] = node_id(retained);
+    if package["semantic_graph"]["nodes"][position]["semantic_type"] == node_id(old) {
+        package["semantic_graph"]["nodes"][position]["semantic_type"] = node_id(retained);
+    }
+    rebuild_source_map(package);
+    refresh_identity(package);
+}
+
+/// Provenance: IR-1059, QSpec FR-322-AC-154; FR-069-AC-6 stays open.
+#[test]
+fn dependent_source_owned_value_types_wait_for_target_key() {
+    for form in ["record_value_type", "tuple_value_type"] {
+        let base = base();
+        let owner = source_owner(&base.package["lock"]["sources"][0]);
+        let draft = sha256_hex(format!("source value {form}").as_bytes());
+        let mut target = owned_structural_node(
+            node(
+                &draft,
+                "model",
+                form,
+                &draft,
+                &[],
+                json!({"term": "aggregate", "members": []}),
+            ),
+            owner,
+        );
+        target["declaration"] = json!({"qualified_name": ["Example", form]});
+        target["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
+        let (_, binder) = parameter(form, "1", &draft);
+        let mut package = with_nodes(base.package, vec![target, binder]);
+        mint_ungrouped_structural_keys(&mut package);
+        settle(&mut package);
+        admitted(form, &package);
+        let target_position = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .len()
+            - 2;
+        let target_key = package["semantic_graph"]["nodes"][target_position]["node_id"]["digest"]
+            .as_str()
+            .expect("key")
+            .to_owned();
+        let retained = "0".repeat(63) + "1";
+        rekey_dependent_target(&mut package, &target_key, &retained);
+        assert_stale(form, &package, &retained);
+    }
+}
+
+/// Provenance: IR-1059, QSpec FR-322-AC-154; FR-069-AC-6 stays open.
+#[test]
+fn dependent_source_owned_reference_targets_wait_for_target_key() {
+    for (tag, form) in [
+        ("model", "object_type"),
+        ("model", "process"),
+        ("model", "state_machine"),
+        ("model", "systems_interface"),
+    ] {
+        let base = base();
+        let owner = source_owner(&base.package["lock"]["sources"][0]);
+        let draft = sha256_hex(format!("source reference {form}").as_bytes());
+        let mut target = owned_structural_node(
+            node(
+                &draft,
+                tag,
+                form,
+                &draft,
+                &[],
+                json!({"term": "aggregate", "members": []}),
+            ),
+            owner,
+        );
+        target["declaration"] = json!({"qualified_name": ["Example", form]});
+        target["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
+        let (_, reference) = collection("reference", &draft);
+        let mut package = with_nodes(base.package, vec![target, reference]);
+        mint_ungrouped_structural_keys(&mut package);
+        settle(&mut package);
+        admitted(form, &package);
+        let target_position = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .len()
+            - 2;
+        let target_key = package["semantic_graph"]["nodes"][target_position]["node_id"]["digest"]
+            .as_str()
+            .expect("key")
+            .to_owned();
+        let retained = "0".repeat(63) + "2";
+        rekey_dependent_target(&mut package, &target_key, &retained);
+        assert_stale(form, &package, &retained);
+    }
+}
+
+/// Provenance: IR-1059, QSpec FR-322-AC-154; FR-069-AC-6 stays open.
+#[test]
+fn dependent_grouped_targets_wait_for_target_key() {
+    let recursive = recursive();
+    let option = recursive.package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| {
+            node["node_tag"] == "composite_type"
+                && node["semantic_form"] == "option"
+                && node.get("recursion_group").is_some()
+        })
+        .expect("grouped Option")["node_id"]["digest"]
+        .as_str()
+        .expect("key")
+        .to_owned();
+    for target in [&option, &recursive.sequence, &recursive.bounds] {
+        let (_, binder) = parameter("grouped", "1", target);
+        let mut package = with_nodes(recursive.package.clone(), vec![binder]);
+        admitted("grouped binder", &package);
+        let retained = "0".repeat(63) + "3";
+        rekey_dependent_target(&mut package, target, &retained);
+        assert_stale("grouped binder target", &package, &retained);
+    }
+
+    // The collection-bounds key stage also resolves the grouped Sequence as
+    // its semantic type before authenticating that Sequence's own key.
+    let mut package = recursive.package;
+    let retained = "0".repeat(63) + "4";
+    rekey_dependent_target(&mut package, &recursive.sequence, &retained);
+    assert_stale("grouped bounds semantic type", &package, &retained);
+}
+
+/// Provenance: IR-1059, QSpec FR-322-AC-154; FR-069-AC-6 stays open.
+#[test]
+fn dependent_grouped_scalar_and_declared_model_types_wait_for_target_key() {
+    for (tag, form) in [("scalar_type", "integer"), ("model", "record_value_type")] {
+        let base = base();
+        let draft = sha256_hex(format!("grouped {form}").as_bytes());
+        let mut target = node(
+            &draft,
+            tag,
+            form,
+            &draft,
+            &[],
+            json!({"term": "aggregate", "members": []}),
+        );
+        if tag == "model" {
+            target =
+                owned_structural_node(target, source_owner(&base.package["lock"]["sources"][0]));
+            target["declaration"] = json!({"qualified_name": ["Example", form]});
+            target["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
+        }
+        target["recursion_group"] = json!("draft-group");
+        let mut package = with_nodes(base.package, vec![target]);
+        mint_grouped_structural_keys(&mut package);
+        settle(&mut package);
+        let target_position = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .len()
+            - 1;
+        let target_key = package["semantic_graph"]["nodes"][target_position]["node_id"]["digest"]
+            .as_str()
+            .expect("grouped key")
+            .to_owned();
+        let (_, binder) = parameter(form, "1", &target_key);
+        let mut package = with_nodes(package, vec![binder]);
+        admitted(form, &package);
+        let retained = "0".repeat(63) + "5";
+        rekey_dependent_target(&mut package, &target_key, &retained);
+        assert_stale(form, &package, &retained);
+    }
+}
+
+/// Provenance: IR-1059, QSpec FR-322-AC-154. Collision outcome is pending
+/// STD-536; this checks that no arbitrary stale target wins before key order.
+#[test]
+fn dependent_ambiguous_old_key_waits_for_digest_ordered_stale_key() {
+    let base = base();
+    let mut package = base.package;
+    let original_position = at(&package, INTEGER_KEY);
+    let mut twin = package["semantic_graph"]["nodes"][original_position].clone();
+    let first = "0".repeat(63) + "6";
+    let second = "0".repeat(63) + "7";
+    package["semantic_graph"]["nodes"][original_position]["node_id"] = node_id(&first);
+    package["semantic_graph"]["nodes"][original_position]["semantic_type"] = node_id(&first);
+    twin["node_id"] = node_id(&second);
+    twin["semantic_type"] = node_id(&second);
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(twin);
+    rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
+    assert_stale("ambiguous old integer key", &package, &first);
+
+    let mut independent = package;
+    let binder_position = at(&independent, &base.parameter);
+    independent["semantic_graph"]["nodes"][binder_position]["body"]["members"][1]["value"]
+        ["value"] = json!("-1");
+    refresh_identity(&mut independent);
+    let refusal = refusal_of(
+        "independent malformed parameter",
+        &independent,
+        &evidence_for(&independent),
+    );
+    assert_eq!(refusal.code, Code::InvalidSemanticGraph);
+    assert_eq!(refusal.cause, None);
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{binder_position}/body"))
     );
 }
 

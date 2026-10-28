@@ -40,6 +40,17 @@ impl DeferredKeyTargets {
             .copied()
             .or_else(|| self.0.get(id).copied().flatten())
     }
+
+    /// A retained miss names more than one stale node's canonical key. The
+    /// structural stage cannot choose a target; its dependent type check
+    /// waits for the digest-ordered key stage to refuse a stale node.
+    pub(super) fn ambiguous(
+        &self,
+        id: &CheckedNodeId,
+        index: &BTreeMap<&CheckedNodeId, usize>,
+    ) -> bool {
+        !index.contains_key(id) && self.0.get(id).is_some_and(Option::is_none)
+    }
 }
 
 /// Compute the old canonical keys of stale nodes before resolving dependent
@@ -50,76 +61,38 @@ pub(super) fn deferred_key_targets(
     bytes: u64,
 ) -> DeferredKeyTargets {
     let mut targets = BTreeMap::new();
+    let groups = group_contexts(nodes);
     for (position, (node, kind)) in nodes.iter().zip(kinds).enumerate() {
-        let derived = match (kind, node.owner.as_ref()) {
+        if !pre_key_reference_target(node, *kind) {
+            continue;
+        }
+        // Use the same preimage authority as the key stage, including group
+        // ordinals. Computation here never refuses or charges work: an invalid
+        // preimage is left for the ordinary graph/key stage to diagnose.
+        let derived = match (declaration_form(*kind), node.owner.as_ref()) {
             (
-                CheckedNodeKind::Model(form),
+                Some(form),
                 Some(super::CheckedNodeOwner::Model {
                     identity,
                     node: owner_node,
                 }),
-            ) => {
-                let declaration = match form {
-                    super::ModelForm::ObjectType => DeclarationForm::ObjectType,
-                    super::ModelForm::StateMachine => DeclarationForm::StateMachine,
-                    super::ModelForm::Process => DeclarationForm::Process,
-                    super::ModelForm::PersistenceInterface => DeclarationForm::PersistenceInterface,
-                    super::ModelForm::RecordValueType => DeclarationForm::RecordValueType,
-                    super::ModelForm::TupleValueType => DeclarationForm::TupleValueType,
-                    super::ModelForm::VariantType => DeclarationForm::VariantType,
-                    super::ModelForm::SystemsInterface => DeclarationForm::SystemsInterface,
-                    super::ModelForm::ModelRoot
-                    | super::ModelForm::ModelImport
-                    | super::ModelForm::ValueType
-                    | super::ModelForm::EventType
-                    | super::ModelForm::Namespace
-                    | super::ModelForm::SystemsPart
-                    | super::ModelForm::SystemsPort
-                    | super::ModelForm::SystemsConnection
-                    | super::ModelForm::SystemsAllocation => continue,
-                };
-                let Ok(derived) = declaration_key(identity, declaration, owner_node, bytes) else {
-                    continue;
-                };
-                derived
-            }
-            (
-                CheckedNodeKind::Relation(super::RelationForm::Relationship),
-                Some(super::CheckedNodeOwner::Model {
-                    identity,
-                    node: owner_node,
-                }),
-            ) => {
-                let Ok(derived) =
-                    declaration_key(identity, DeclarationForm::Relationship, owner_node, bytes)
-                else {
-                    continue;
-                };
-                derived
-            }
-            (
-                CheckedNodeKind::ScalarType(_)
-                | CheckedNodeKind::CompositeType(_)
-                | CheckedNodeKind::BoundedDomain(_)
-                | CheckedNodeKind::Hybrid(super::HybridForm::Model),
-                _,
-            ) => {
-                if let Some(preimage) = node.nominal_identity_preimage.as_ref() {
-                    let Ok(derived) = preimage.digest(bytes) else {
-                        continue;
-                    };
-                    derived
-                } else if node.recursion_group.is_none() {
-                    let Ok(derived) = structural_key(&node_preimage(node, None, None), bytes)
-                    else {
-                        continue;
-                    };
-                    derived
-                } else {
-                    continue;
+            ) if node.declaration.is_none() => declaration_key(identity, form, owner_node, bytes),
+            _ => match node.nominal_identity_preimage.as_ref() {
+                Some(preimage) => preimage.digest(bytes),
+                None => {
+                    let group = node
+                        .recursion_group
+                        .as_deref()
+                        .and_then(|label| groups.get(label));
+                    structural_key(
+                        &node_preimage(node, group, node.recursion_group.as_deref()),
+                        bytes,
+                    )
                 }
-            }
-            _ => continue,
+            },
+        };
+        let Ok(derived) = derived else {
+            continue;
         };
         if derived == node.node_id.digest.as_ref() {
             continue;
@@ -134,6 +107,78 @@ pub(super) fn deferred_key_targets(
             .or_insert(Some(position));
     }
     DeferredKeyTargets(targets)
+}
+
+/// All target kinds accepted by a pre-key lookup in structural or key-shape
+/// validation. A new family or form must be classified here explicitly.
+fn pre_key_reference_target(node: &CheckedSemanticNodeV2, kind: CheckedNodeKind) -> bool {
+    use super::{HybridForm, ModelForm, RelationForm};
+    match kind {
+        CheckedNodeKind::ScalarType(_)
+        | CheckedNodeKind::CompositeType(_)
+        | CheckedNodeKind::BoundedDomain(_) => true,
+        CheckedNodeKind::Hybrid(form) => matches!(form, HybridForm::Model),
+        CheckedNodeKind::Model(form) => match form {
+            ModelForm::RecordValueType
+            | ModelForm::TupleValueType
+            | ModelForm::ObjectType
+            | ModelForm::Process
+            | ModelForm::StateMachine
+            | ModelForm::SystemsInterface => true,
+            ModelForm::VariantType => {
+                matches!(
+                    node.owner.as_ref(),
+                    Some(super::CheckedNodeOwner::Model { .. })
+                )
+            }
+            ModelForm::ModelRoot
+            | ModelForm::ModelImport
+            | ModelForm::ValueType
+            | ModelForm::EventType
+            | ModelForm::PersistenceInterface
+            | ModelForm::Namespace
+            | ModelForm::SystemsPart
+            | ModelForm::SystemsPort
+            | ModelForm::SystemsConnection
+            | ModelForm::SystemsAllocation => false,
+        },
+        CheckedNodeKind::Relation(form) => match form {
+            RelationForm::Relationship => true,
+            RelationForm::Population
+            | RelationForm::Membership
+            | RelationForm::CausalRelation
+            | RelationForm::Refinement => false,
+        },
+        CheckedNodeKind::Extension(_)
+        | CheckedNodeKind::TimedModel(_)
+        | CheckedNodeKind::Value(_)
+        | CheckedNodeKind::Expression(_)
+        | CheckedNodeKind::Function(_)
+        | CheckedNodeKind::State(_)
+        | CheckedNodeKind::Temporal(_)
+        | CheckedNodeKind::Protocol(_)
+        | CheckedNodeKind::Claim(_)
+        | CheckedNodeKind::Correspondence(_) => false,
+    }
+}
+
+fn declaration_form(kind: CheckedNodeKind) -> Option<DeclarationForm> {
+    match kind {
+        CheckedNodeKind::Model(form) => match form {
+            super::ModelForm::ObjectType => Some(DeclarationForm::ObjectType),
+            super::ModelForm::StateMachine => Some(DeclarationForm::StateMachine),
+            super::ModelForm::Process => Some(DeclarationForm::Process),
+            super::ModelForm::RecordValueType => Some(DeclarationForm::RecordValueType),
+            super::ModelForm::TupleValueType => Some(DeclarationForm::TupleValueType),
+            super::ModelForm::VariantType => Some(DeclarationForm::VariantType),
+            super::ModelForm::SystemsInterface => Some(DeclarationForm::SystemsInterface),
+            _ => None,
+        },
+        CheckedNodeKind::Relation(super::RelationForm::Relationship) => {
+            Some(DeclarationForm::Relationship)
+        }
+        _ => None,
+    }
 }
 
 /// One of the ten shapes whose key the reader derives.
@@ -279,10 +324,12 @@ pub(super) fn valid_derived_shape(
     kind: CheckedNodeKind,
     integer: &str,
     semantic_type_kind: Option<CheckedNodeKind>,
+    semantic_type_deferred: bool,
     reference: fn(&Value) -> Option<CheckedNodeId>,
 ) -> bool {
     if let Some(shape) = Shape::of(kind) {
         let bounded_type_matches = shape != Shape::CollectionBounds
+            || semantic_type_deferred
             || semantic_type_kind.is_some_and(|kind| {
                 matches!(
                     kind,
@@ -378,6 +425,42 @@ pub(super) struct Group<'a> {
     pub(super) members: Vec<usize>,
     pub(super) ordinals: BTreeMap<&'a CheckedNodeId, usize>,
     pub(super) least: usize,
+}
+
+/// Shared wire-order group context for both dependent-target resolution and
+/// the authenticated key stage. This only builds ordinals; key and label
+/// errors remain at their original validation stage.
+fn group_contexts(nodes: &[CheckedSemanticNodeV2]) -> BTreeMap<&str, Group<'_>> {
+    let mut groups = BTreeMap::new();
+    for (position, node) in nodes.iter().enumerate() {
+        if let Some(label) = node.recursion_group.as_deref() {
+            add_group_member(&mut groups, nodes, label, position, node);
+        }
+    }
+    groups
+}
+
+fn add_group_member<'a>(
+    groups: &mut BTreeMap<&'a str, Group<'a>>,
+    nodes: &[CheckedSemanticNodeV2],
+    label: &'a str,
+    position: usize,
+    node: &'a CheckedSemanticNodeV2,
+) {
+    let group = groups.entry(label).or_insert_with(|| Group {
+        members: Vec::new(),
+        ordinals: BTreeMap::new(),
+        least: position,
+    });
+    let ordinal = group.members.len();
+    group.members.push(position);
+    group.ordinals.insert(&node.node_id, ordinal);
+    if nodes
+        .get(group.least)
+        .is_some_and(|least| node.node_id < least.node_id)
+    {
+        group.least = position;
+    }
 }
 
 pub(super) fn node_preimage<'a>(
@@ -493,20 +576,7 @@ pub(super) fn validate_derived_keys(
     for (position, node) in nodes.iter().enumerate() {
         if let Some(label) = node.recursion_group.as_deref() {
             meter.charge(1, || node_pointer(position).key("recursion_group"))?;
-            let group = groups.entry(label).or_insert_with(|| Group {
-                members: Vec::new(),
-                ordinals: BTreeMap::new(),
-                least: position,
-            });
-            let ordinal = group.members.len();
-            group.members.push(position);
-            group.ordinals.insert(&node.node_id, ordinal);
-            if nodes
-                .get(group.least)
-                .is_some_and(|least| node.node_id < least.node_id)
-            {
-                group.least = position;
-            }
+            add_group_member(&mut groups, nodes, label, position, node);
         }
     }
     for (&node_id, &position) in index {
@@ -550,7 +620,14 @@ pub(super) fn validate_derived_keys(
             .position(&node.semantic_type, index)
             .and_then(|target| kinds.get(target))
             .copied();
-        if !valid_derived_shape(node, kind, &integer, semantic_type_kind, reference_target) {
+        if !valid_derived_shape(
+            node,
+            kind,
+            &integer,
+            semantic_type_kind,
+            deferred.ambiguous(&node.semantic_type, index),
+            reference_target,
+        ) {
             return Err(stale(at(), node_id, None));
         }
         let group = node
@@ -577,17 +654,19 @@ pub(super) fn validate_derived_keys(
                 .position(&target, index)
                 .and_then(|target_position| kinds.get(target_position))
                 .copied();
-            if !matches!(
-                target_kind,
-                Some(
-                    CheckedNodeKind::Model(
-                        super::ModelForm::ObjectType
-                            | super::ModelForm::Process
-                            | super::ModelForm::StateMachine
-                            | super::ModelForm::SystemsInterface
-                    ) | CheckedNodeKind::Relation(super::RelationForm::Relationship)
+            if !deferred.ambiguous(&target, index)
+                && !matches!(
+                    target_kind,
+                    Some(
+                        CheckedNodeKind::Model(
+                            super::ModelForm::ObjectType
+                                | super::ModelForm::Process
+                                | super::ModelForm::StateMachine
+                                | super::ModelForm::SystemsInterface
+                        ) | CheckedNodeKind::Relation(super::RelationForm::Relationship)
+                    )
                 )
-            ) {
+            {
                 return Err(ValidationFailure::refused_at(
                     CheckedPackageRefusalCode::InvalidPackage,
                     at(),
@@ -654,7 +733,7 @@ fn validate_selected_model_declaration_key(
 ) -> Result<(), ValidationFailure> {
     let at = || node_pointer(position).key("node_id");
     meter.charge(1, at)?;
-    if !valid_derived_shape(node, kind, "", None, reference_target) {
+    if !valid_derived_shape(node, kind, "", None, false, reference_target) {
         return Err(stale(at(), &node.node_id, None));
     }
     let Some(term) = terms.get(position).and_then(Option::as_ref) else {
