@@ -709,7 +709,7 @@ pub(super) fn validate_derived_keys(
                 nodes,
                 index,
                 bytes,
-            )?
+            )? || !model_population_type_valid(node, nodes, kinds, index, deferred)
         } else if kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) {
             let target = super::structural::reference_type_target(node)
                 .ok_or_else(|| encoder_failure(node_pointer(position).key("body")))?;
@@ -784,6 +784,35 @@ fn model_population_body_valid(
                 .is_some_and(|node| node.node_id == *type_id)
         })
         && value.as_str().is_some_and(is_non_negative_integer))
+}
+
+/// A population bounds a set of references. Missing targets remain for the
+/// later semantic-edge stage; present non-reference elements are shape errors.
+fn model_population_type_valid(
+    population: &CheckedSemanticNodeV2,
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    deferred: &DeferredKeyTargets,
+) -> bool {
+    let Some(set_position) = deferred.position(&population.semantic_type, index) else {
+        return true;
+    };
+    if kinds.get(set_position) != Some(&CheckedNodeKind::CompositeType(CompositeTypeForm::Set)) {
+        return false;
+    }
+    let Some(element) = nodes
+        .get(set_position)
+        .and_then(super::structural::reference_type_target)
+    else {
+        return false;
+    };
+    deferred.position(&element, index).is_none_or(|position| {
+        kinds.get(position)
+            == Some(&CheckedNodeKind::CompositeType(
+                CompositeTypeForm::Reference,
+            ))
+    })
 }
 
 fn validate_selected_model_declaration_key(
