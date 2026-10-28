@@ -47,7 +47,14 @@ fn requirement(
                 OwnerRequirement::None
             }
         }
-        ("model", "object_type" | "state_machine" | "systems_interface")
+        (
+            "model",
+            "object_type"
+            | "state_machine"
+            | "process"
+            | "persistence_interface"
+            | "systems_interface",
+        )
         | ("relation", "relationship" | "population")
         | ("function", _) => OwnerRequirement::Model,
         _ => OwnerRequirement::None,
@@ -193,12 +200,19 @@ fn model_kind_matches(
     operations: &BTreeSet<&str>,
 ) -> bool {
     match kind {
-        CheckedNodeKind::Model(super::ModelForm::ObjectType) => model
-            .object_types
-            .get(declared)
-            .is_some_and(|object| !object.interface && !model.state_machines.contains(declared)),
+        CheckedNodeKind::Model(super::ModelForm::ObjectType) => {
+            model.object_types.get(declared).is_some_and(|object| {
+                !object.interface
+                    && !model.state_machines.contains(declared)
+                    && !model.processes.contains(declared)
+            })
+        }
         CheckedNodeKind::Model(super::ModelForm::StateMachine) => {
             model.state_machines.contains(declared)
+        }
+        CheckedNodeKind::Model(super::ModelForm::Process) => model.processes.contains(declared),
+        CheckedNodeKind::Model(super::ModelForm::PersistenceInterface) => {
+            model.persistence_interfaces.contains(declared)
         }
         CheckedNodeKind::Model(super::ModelForm::RecordValueType) => {
             model.record_types.contains_key(declared)

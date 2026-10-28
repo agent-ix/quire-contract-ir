@@ -322,8 +322,9 @@ fn selected_process_machine_and_persistence_require_complete_meaning_declaration
 #[test]
 fn selected_process_persistence_state_and_record_keep_owner_and_reference_identity() {
     let (package, evidence) = selected_forms_package();
-    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
-        panic!("all selected forms must admit");
+    let result = read(&package, &evidence);
+    let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
+        panic!("all selected forms must admit: {result:?}");
     };
     for form in [
         "process",
@@ -503,6 +504,14 @@ fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
     gate["identity"] = json!(format!("ix://{MODEL_IDENTITY}/Gate"));
     gate["displayName"] = json!("Gate");
     gate["kind"]["name"] = json!("gate");
+    let gate_id = format!("ix://{MODEL_IDENTITY}/Gate");
+    gate["operations"][0]["identity"] = json!(format!("{gate_id}/toggle"));
+    gate["states"][0]["identity"] = json!(format!("{gate_id}/closed"));
+    gate["states"][1]["identity"] = json!(format!("{gate_id}/open"));
+    gate["transitions"][0]["identity"] = json!(format!("{gate_id}/open-transition"));
+    gate["transitions"][0]["from"] = json!(format!("{gate_id}/closed"));
+    gate["transitions"][0]["to"] = json!(format!("{gate_id}/open"));
+    gate["transitions"][0]["trigger"] = json!(format!("{gate_id}/toggle"));
     document["constructs"]
         .as_array_mut()
         .expect("constructs")
@@ -2075,6 +2084,17 @@ fn concrete_protocol_refinement_with_model(
         .expect("state machine")
         .clone();
     document["constructs"][0]["construct"]["meaning"] = json!("quire.meaning.model.object-type/v1");
+    // The concrete refinement's selected root is an object with no operation
+    // classes. The complete state-machine members belong to machine_package.
+    document["types"][0]["operations"] = json!([]);
+    document["types"][0]
+        .as_object_mut()
+        .expect("model type")
+        .remove("states");
+    document["types"][0]
+        .as_object_mut()
+        .expect("model type")
+        .remove("transitions");
     model["semantic_form"] = json!("object_type");
     let model_key = node_id(&sha256_hex(&canonical(&json!({
         "version": "quire.structural-node/v1", "node_tag": "model",

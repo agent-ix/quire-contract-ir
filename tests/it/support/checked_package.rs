@@ -36,6 +36,7 @@ pub const COMPLETE_VALUE_FEATURE: &str = "quire.value.complete/v1";
 pub const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
 const FAMILY_MODEL_IDENTITY: &str = "test/families";
 const FAMILY_OBJECT: &str = "ix://test/families/Account";
+const FAMILY_PROCESS: &str = "ix://test/families/Flow";
 const FAMILY_INTERFACE: &str = "ix://test/families/Interface";
 const FAMILY_RELATIONSHIP: &str = "ix://test/families/relationship/Account-balance-Account";
 
@@ -64,6 +65,9 @@ pub fn family_model_document() -> Value {
         }, {
             "kind": {"module": FAMILY_MODEL_IDENTITY, "name": "interface"},
             "construct": {"meaning": "quire.meaning.systems.interface/v1"},
+        }, {
+            "kind": {"module": FAMILY_MODEL_IDENTITY, "name": "process"},
+            "construct": {"meaning": "quire.meaning.model.process/v1"},
         }],
         "types": [{
             "identity": FAMILY_OBJECT, "displayName": "Account",
@@ -87,6 +91,23 @@ pub fn family_model_document() -> Value {
             "kind": {"module": FAMILY_MODEL_IDENTITY, "name": "interface"},
             "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
             "supertypes": [], "fields": [], "operations": [],
+        }, {
+            "identity": FAMILY_PROCESS, "displayName": "Flow",
+            "kind": {"module": FAMILY_MODEL_IDENTITY, "name": "process"},
+            "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
+            "supertypes": [],
+            "fields": [{
+                "identity": format!("{FAMILY_PROCESS}/balance"), "name": "balance",
+                "typeRef": "ix://quire/native/Integer",
+                "presence": "required", "nullable": false, "defaultKind": "none",
+                "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true}
+            }],
+            "operations": [],
+            "identityFields": [format!("{FAMILY_PROCESS}/balance")],
+            "steps": [{
+                "identity": format!("{FAMILY_PROCESS}/advance"), "name": "advance",
+                "stepKind": "command", "consumes": [], "emits": []
+            }],
         }],
     })
 }
@@ -1386,7 +1407,13 @@ pub fn family_key(prefix: &str) -> String {
             Some(&boolean_key()),
             &empty_aggregate(),
         ),
-        "1616" => structural_key("model", "process", Some(&boolean_key()), &empty_aggregate()),
+        "1616" => owned_structural_key(
+            "model",
+            "process",
+            None,
+            model_owner(FAMILY_MODEL_IDENTITY, FAMILY_PROCESS),
+            Value::Null,
+        ),
         "2020" => owned_structural_key(
             "relation",
             "relationship",
@@ -2429,13 +2456,9 @@ fn build_v2_all_families() -> Value {
             ),
             model_owner(FAMILY_MODEL_IDENTITY, FAMILY_OBJECT),
         ),
-        plain_node(
-            &f1616,
-            "model",
-            "process",
-            &aaaa,
-            &[aaaa.as_str()],
-            empty_aggregate(),
+        owned_structural_node(
+            plain_node(&f1616, "model", "process", &f1616, &[], empty_aggregate()),
+            model_owner(FAMILY_MODEL_IDENTITY, FAMILY_PROCESS),
         ),
         plain_node(
             &frame_key,
