@@ -445,6 +445,32 @@ pub(super) fn validate_derived_keys(
         if derived != node_id.digest.as_ref() {
             return Err(stale(at(), node_id, Some(derived)));
         }
+        if kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) {
+            let target = super::structural::reference_type_target(node)
+                .ok_or_else(|| encoder_failure(node_pointer(position).key("body")))?;
+            let target_kind = index
+                .get(&target)
+                .and_then(|&target_position| kinds.get(target_position))
+                .copied();
+            if !matches!(
+                target_kind,
+                Some(
+                    CheckedNodeKind::Model(
+                        super::ModelForm::ObjectType
+                            | super::ModelForm::Process
+                            | super::ModelForm::StateMachine
+                            | super::ModelForm::SystemsInterface
+                    ) | CheckedNodeKind::Relation(super::RelationForm::Relationship)
+                )
+            ) {
+                return Err(ValidationFailure::refused_at(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    at(),
+                    Some(CheckedPackageRefusalCause::InvalidDerivedShape),
+                    node.node_id.clone(),
+                ));
+            }
+        }
     }
     // Sorting by retained member identity is independent of retained labels.
     let mut ordered: Vec<_> = groups.iter().collect();
@@ -602,7 +628,7 @@ mod tests {
                 .expect("text key");
                 let bound = |name, ty: &str, value: String, value_kind| {
                     json!({"term":"binding", "name":name, "value":{
-                        "term":"literal", "type":node_id(ty), "value":value,
+                        "term":"literal", "type":id(ty), "value":value,
                         "value_kind":value_kind
                     }})
                 };

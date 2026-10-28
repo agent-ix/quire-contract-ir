@@ -397,12 +397,13 @@ fn process(short: &str, supertypes: &[&str], fields: &[Field]) -> Value {
     } else {
         fields[0].name
     };
+    let default_fields = [field("run", "ix://quire/native/UUID")];
     let mut declared = typed_object(
         short,
         "process",
         supertypes,
         if fields.is_empty() {
-            &[field("run", "ix://quire/native/UUID")]
+            &default_fields
         } else {
             fields
         },
@@ -2006,6 +2007,13 @@ fn perturbed(ty: &Ty, other: &str) -> Ty {
         Ty::Range(lower, upper) if upper > lower => Ty::Range(*lower, upper - 1),
         Ty::Range(lower, upper) if *lower < i128::MAX => Ty::Range(*lower, upper + 1),
         Ty::Range(lower, upper) => Ty::Range(lower - 1, *upper),
+        Ty::TextBounds(lower, upper, profile) if upper > lower => {
+            Ty::TextBounds(*lower, upper - 1, profile.clone())
+        }
+        Ty::TextBounds(lower, upper, profile) if *upper < u64::MAX => {
+            Ty::TextBounds(*lower, upper + 1, profile.clone())
+        }
+        Ty::TextBounds(lower, upper, profile) => Ty::TextBounds(lower - 1, *upper, profile.clone()),
         Ty::Reference(_) => Ty::Reference(other.to_owned()),
         Ty::Record(_) => Ty::Record(other.to_owned()),
         Ty::Variant(_) => Ty::Variant(other.to_owned()),

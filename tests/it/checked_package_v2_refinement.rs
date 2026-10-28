@@ -340,7 +340,7 @@ fn selected_process_persistence_state_and_record_keep_owner_and_reference_identi
         let id: quire_contract_model::CheckedNodeId =
             serde_json::from_value(node["node_id"].clone()).expect("id");
         assert!(
-            admitted.node(&id).is_some(),
+            admitted.graph().nodes.iter().any(|node| node.node_id == id),
             "{form} must retain its selected key"
         );
     }
@@ -389,8 +389,14 @@ fn selected_process_persistence_state_and_record_keep_owner_and_reference_identi
             .expect("form");
         let id: quire_contract_model::CheckedNodeId =
             serde_json::from_value(node["node_id"].clone()).expect("id");
-        assert!(again.node(&id).is_some(), "{form}: first reread identity");
-        assert!(third.node(&id).is_some(), "{form}: second reread identity");
+        assert!(
+            again.graph().nodes.iter().any(|node| node.node_id == id),
+            "{form}: first reread identity"
+        );
+        assert!(
+            third.graph().nodes.iter().any(|node| node.node_id == id),
+            "{form}: second reread identity"
+        );
     }
 }
 
