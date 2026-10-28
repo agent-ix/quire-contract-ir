@@ -593,6 +593,24 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
         invalid_derived_shape_at(&repeated_unit, COMPOUND)
     );
 
+    // The same body under its retained key refuses at key authentication
+    // before the semantic order/uniqueness rule is reached.
+    let mut repeated_with_old_key = parameters_package();
+    let term =
+        repeated_with_old_key["semantic_graph"]["nodes"][COMPOUND]["body"]["members"][0].clone();
+    repeated_with_old_key["semantic_graph"]["nodes"][COMPOUND]["body"]["members"]
+        .as_array_mut()
+        .expect("members")
+        .push(term);
+    refresh_identity(&mut repeated_with_old_key);
+    let stale = refused(&repeated_with_old_key);
+    assert_eq!(stale.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(stale.cause, Some(CheckedPackageRefusalCause::StaleNodeKey));
+    assert_eq!(
+        stale.path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{COMPOUND}/node_id"))
+    );
+
     let undeclared_dependency = mutated(COMPOUND, |node| node["dependencies"] = json!([]));
     assert_eq!(
         refused(&undeclared_dependency),
