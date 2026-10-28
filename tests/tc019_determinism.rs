@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Agent-IX
+
 //! Cross-platform corpus capture and direct comparison for the named TC-019 CI lane.
 
 use std::{collections::BTreeMap, env, fs, path::Path, process::ExitCode};
@@ -120,6 +123,12 @@ fn capture(
 ) -> Result<Capture, String> {
     if !SYSTEMS.contains(&os) || run_id == 0 || attempt == 0 {
         return Err("invalid OS, run ID, or attempt".to_owned());
+    }
+    if os != env::consts::OS {
+        return Err(format!(
+            "capture OS {os} differs from executing host {}",
+            env::consts::OS
+        ));
     }
     let first = run_corpus(corpus, schemas).map_err(|error| format!("corpus run: {error:?}"))?;
     let second = run_corpus(corpus, schemas).map_err(|error| format!("repeat run: {error:?}"))?;
@@ -370,6 +379,21 @@ fn main() -> ExitCode {
 }
 
 fn self_test() -> Result<(), String> {
+    let other_os = SYSTEMS
+        .into_iter()
+        .find(|os| *os != env::consts::OS)
+        .ok_or_else(|| "no alternate OS in supported systems".to_owned())?;
+    let wrong_host = capture(
+        Path::new("missing-corpus"),
+        Path::new("missing-schemas"),
+        42,
+        2,
+        other_os,
+    );
+    match wrong_host {
+        Err(error) if error.contains("differs from executing host") => {}
+        other => return Err(format!("mislabeled host capture accepted: {other:?}")),
+    }
     let baseline = FixtureEntry {
         id: "fixture".to_owned(),
         valid: Some(true),
