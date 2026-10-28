@@ -543,7 +543,10 @@ fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
     let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
     set_concrete_catalog(
         &mut base,
-        vec![json!({"class":"OrderFlow::Closed", "node":finish, "binder_types":[boolean]})],
+        vec![
+            json!({"class":"Gate::toggle", "node":extra[1]["node_id"], "binder_types":[]}),
+            json!({"class":"OrderFlow::Closed", "node":finish, "binder_types":[boolean]}),
+        ],
     );
     let control = read(&base, &evidence);
     assert!(

@@ -4324,12 +4324,10 @@ fn await_checks_anchor_form_and_event_eligibility() {
     );
 
     let mut wrong_event = package;
-    let role = wrong_event["semantic_graph"]["nodes"][protocol_position(&wrong_event, "role")]
-        ["node_id"]
-        .clone();
-    let channel = wrong_event["semantic_graph"]["nodes"]
-        [protocol_position(&wrong_event, "channel")]["node_id"]
-        .clone();
+    let role_position = protocol_position(&wrong_event, "role");
+    let channel_position = add_member_channel(&mut wrong_event, role_position);
+    let role = wrong_event["semantic_graph"]["nodes"][role_position]["node_id"].clone();
+    let channel = wrong_event["semantic_graph"]["nodes"][channel_position]["node_id"].clone();
     wrong_event["semantic_graph"]["nodes"][children[0]]["body"]["operation"]["member"]
         ["operator"] = json!("send");
     wrong_event["semantic_graph"]["nodes"][children[0]]["body"]["arguments"] = json!([
