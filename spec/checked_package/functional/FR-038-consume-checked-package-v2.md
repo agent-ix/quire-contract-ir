@@ -23,6 +23,8 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-122
     type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-260
+    type: references
   - target: ix://agent-ix/quire-specification/FR-330-AC-4
     type: references
   - target: ix://agent-ix/quire-specification/FR-152
@@ -1724,6 +1726,24 @@ The reader SHALL admit an empty `guards` aggregate on a place or timed root
 when the model has no guard; an unlisted guard SHALL refuse as a timed-node
 reference, and two places with the same path and different guards SHALL refuse
 as a duplicate clock place.
+
+For each of the timed root's `clock_places`, `resets`, `guards`, `invariants`,
+`urgencies` and `constraints` reference aggregates, and for each
+`clock_place`'s `guards` reference aggregate, the reader SHALL require the
+members in strictly ascending order of their referenced node's source-region
+key. That key is the minimum (`source.identity`, `start`, `end`) triple across
+every region of every `source_map` entry for that node; identities compare as
+UTF-8 bytes and positions as integers. Equal keys or a later member whose
+key is below its predecessor SHALL refuse `invalid_semantic_graph` with no
+cause at `/semantic_graph/nodes/{i}/body/members/{b}/value/members/{j}`,
+where `j` is the first offending reference, `b` is the root aggregate's
+binding index or `3` for a place's `guards`, and `i` is the containing node's
+graph index. An empty or one-member aggregate is in order. This check SHALL
+run after strict wire, graph-shape and structural-key checks, but before a
+duplicate-clock-place or unlisted-guard refusal on the same timed node. The
+reader SHALL use no node-id digest to order these aggregates; a repeated
+clock path in two distinct nodes remains subject to the source-region order
+before its duplicate-path check.
 
 The existing one-operand `quire.op.option.present` application over an
 Option-typed term SHALL retain its meaning and key. The reader SHALL also
@@ -5417,6 +5437,7 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-338 | PLANNED/UNRUN (IR-1083). A place-form `presence_read` over `q` lacking its slot term refuses `ill_typed`/`operator-ineligible` at the application's `/body/arguments`; a first argument that is not a `clock_place` refuses that pair at `/body/arguments/0`; an Integer-typed owner instead of the place's object owner and a wrong-typed slot term each refuse `ill_typed`/`type-mismatch` at the offending argument. No refusal returns an admitted package. | Test |
 | FR-038-AC-339 | PLANNED/UNRUN (IR-1083). For `v: Option<Clock>`, the place has only `field(v)` and one resolved-path row retaining `Option<Clock>`; the reader joins that row to the selected owner's declared `v`, optional presence and `Clock` inner type, then accepts terminal Clock after unwrapping Option without adding a path step. For `q: Sequence<Option<Clock>>`, it admits `field(q)` and a symbolically selected `slot` whose row retains Option type. A missing selected member, wrong declared presence or wrong inner type refuses the existing malformed-clock-place path join; the owner object-type key is unchanged by the field set. | Test |
 | FR-038-AC-340 | PLANNED/UNRUN (IR-1083). TC-048 reads QSpec's published `timed-slot-selector-vectors.json` through the selected checkout, with no copy in IR, and checks SL-01 through SL-08, SR-01 through SR-04, GD-01 through GD-03 and PR-01 through PR-06 against exact admission or each vector's expected code and cause. For SR-01..04 and PR-04..06, it also checks the vector's RFC 6901 locus suffix. For GD-02, it checks the later root `clock_places` reference locus fixed by QSpec FR-322-AC-120. GD-03 has no vector locus or exact locus in FR-322-AC-150: its exact refusal locus remains PLANNED pending STD-540, and the eventual conformance test checks the QSpec-defined locus rather than accepting a fabricated location as evidence. The test checks reader stage against FR-322's stated order, separately from the vector data. Rebuilt node and package keys are checked before timed-body or operation refusals, and the existing Option-operand form remains an admitted control. | Test |
+| FR-038-AC-342 | PLANNED/UNRUN (IR-1096). The public V2 reader admits QSpec's selected `AO-01` timed-slot package and `AO-05` tie-on-start package, including six root reference aggregates and a place's `guards` in strictly increasing minimum source-region order. It refuses each identity-current `AO-02`, `AO-03`, `AO-04`, `AO-06` and `AO-07` patch as `invalid_semantic_graph` with no cause at the vector's exact first out-of-order member locus; `AO-03` does not admit merely because references are in node-id digest order, `AO-06` compares ends when starts tie, and `AO-07` considers the earlier region in an additional source-map entry. A root or place aggregate with two references to distinct nodes whose minimum keys are equal refuses at the second member. A repeated place path in two distinct, correctly ordered nodes reaches the existing `duplicate-clock-place` refusal; an ordered root with an omitted guard reaches the existing unlisted-guard refusal. In each case strict-wire, graph-shape and stale-key defects still refuse at their earlier stages, with no timed-order verdict substituting for them. | Test (TC-048; QSpec FR-322-AC-260, AO-01..AO-07) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be

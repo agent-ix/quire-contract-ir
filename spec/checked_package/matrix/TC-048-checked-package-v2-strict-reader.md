@@ -2882,6 +2882,31 @@ rows to the selected declaration's member type and optional presence. Assert
 that Option adds no path step, the terminal inner Clock is accepted, and a
 missing or mismatched selected member is refused at the place join.
 
+## Timed aggregate source order (FR-038-AC-342)
+
+Status: PLANNED/UNRUN (IR-1096). Read the `aggregate_order` section of QSpec's
+published `proposals/checked-package-v2/timed-slot-selector-vectors.json`
+from the selected QSpec checkout. Apply `AO-01` through `AO-07` to the public
+V2 reader without copying the selected package or patches into IR. Assert
+`AO-01` and `AO-05` admit; assert `AO-02`, `AO-03`, `AO-04`, `AO-06` and
+`AO-07` refuse with the vector's exact code, null cause and RFC 6901 locus.
+Inspect the root's six reference aggregates and each place's `guards`: their
+member order uses the minimum (`source.identity`, `start`, `end`) across every
+region of every source-map entry of the referenced node. Compare source
+identity as UTF-8 bytes, then numeric start and end; `AO-06` discriminates
+the equal-start case and `AO-07` discriminates a later source-map entry with
+an earlier region. Assert `AO-03` refuses even though its references are in
+node-id digest order.
+
+Build an identity-current two-reference control for a root aggregate and a
+place `guards` aggregate with equal minimum keys, and assert the second
+reference's exact `invalid_semantic_graph`/null-cause locus in each. Keep an
+ordered duplicate-place control and an ordered unlisted-guard control to
+show their existing refusal codes and loci still apply after order checking.
+For a wire-shape, dependency or stale-key mutation of an order case, assert
+the earlier refusal stage rather than treating it as order evidence. Rebuild
+all affected keys and the package identity for semantic mutations.
+
 ## Admitted operation-view provenance (FR-038-AC-341)
 
 Read V2 operations with populated field projection, member declaration, mode,
