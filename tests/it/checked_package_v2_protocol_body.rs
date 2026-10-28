@@ -6096,7 +6096,7 @@ fn event_compensation_requires_a_template_target() {
     );
 }
 
-fn package_with_admitted_compensation() -> (Value, usize, usize) {
+pub(crate) fn package_with_admitted_compensation() -> (Value, usize, usize) {
     let (state, _) = crate::checked_package_v2_frame_entries::state_operand_fixture();
     let (mut package, root) = package_with_step_control_on(state, "event");
     let local = compensation_template(
@@ -6457,7 +6457,7 @@ fn compensation_requires_forward_and_retry_binder_types() {
     }
 }
 
-fn package_with_present_commit() -> (Value, usize, usize) {
+pub(crate) fn package_with_present_commit() -> (Value, usize, usize) {
     let (mut package, _, compensation) = package_with_admitted_compensation();
     let role =
         package["semantic_graph"]["nodes"][protocol_position(&package, "role")]["node_id"].clone();

@@ -4,8 +4,8 @@
 //! Focused FR-061 refinement and selected state-machine owner vectors.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, rebuild_source_map, refresh_identity, rekey_application_node,
-    settle, sha256_hex, structural_key, v2_all_families, v2_nominal,
+    canonical, evidence_for, node_id, protocol_named_node, rebuild_source_map, refresh_identity,
+    rekey_application_node, settle, sha256_hex, structural_key, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -21,6 +21,34 @@ use serde_json::{json, Value};
 
 const MODEL_IDENTITY: &str = "test/refinement";
 const MODEL_NODE: &str = "ix://test/refinement/Machine";
+
+fn protocol_class_path(node: &Value) -> String {
+    node["declaration"]["qualified_name"]
+        .as_array()
+        .expect("protocol declaration")
+        .iter()
+        .skip(1)
+        .map(|part| part.as_str().expect("name segment"))
+        .collect::<Vec<_>>()
+        .join("::")
+}
+
+fn assert_unique_node_ids(package: &Value) {
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    for (index, node) in nodes.iter().enumerate() {
+        if let Some(previous) = nodes[..index]
+            .iter()
+            .position(|other| other["node_id"] == node["node_id"])
+        {
+            panic!(
+                "duplicate node IDs at {previous}/{index}: {}",
+                node["node_id"]
+            );
+        }
+    }
+}
 
 fn model_document() -> Value {
     json!({
@@ -562,9 +590,18 @@ fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
         &mut base,
         vec![
             json!({"class":"Gate::toggle", "node":extra[1]["node_id"], "binder_types":[gate_reference]}),
-            json!({"class":"OrderFlow::Closed", "node":finish, "binder_types":[boolean]}),
+            json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[boolean]}),
         ],
     );
+    let refinement = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "refinement")
+        .expect("refinement");
+    base["semantic_graph"]["nodes"][refinement]["body"]["class_catalog"]["abstract"] = json!([{"class":"Gate::toggle", "node":extra[1]["node_id"],
+            "binder_types":[gate_reference]}]);
+    rekey_refinement(&mut base, refinement);
     let control = read(&base, &evidence);
     assert!(
         matches!(control, CheckedPackageV2ReadResult::Admitted(_)),
@@ -1045,7 +1082,7 @@ fn record_activation_case(
     let position = set_concrete_catalog(
         &mut package,
         vec![
-            json!({"class":"OrderFlow::Closed", "node":finish, "binder_types":[boolean]}),
+            json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[boolean]}),
             json!({"class":"activate OrderFlow", "node":clause, "binder_types":binders}),
         ],
     );
@@ -1079,7 +1116,7 @@ fn refinement_catalog_activate_each_uses_clause_and_trigger_signature() {
         .expect("finish")["node_id"]
         .clone();
     let finish_entry =
-        json!({"class":"OrderFlow::Closed", "node":finish, "binder_types":[boolean]});
+        json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[boolean]});
     let activate = json!({
         "class":"activate OrderFlow", "node":clause, "binder_types":[boolean]
     });
@@ -1188,7 +1225,7 @@ fn refinement_catalog_activate_each_uses_clause_and_trigger_signature() {
     let origin_position = set_concrete_catalog(
         &mut origin,
         vec![
-            json!({"class":"OrderFlow::Closed", "node":origin_finish, "binder_types":[boolean]}),
+            json!({"class":"OrderFlow::finish::Closed", "node":origin_finish, "binder_types":[boolean]}),
             json!({"class":"activate OrderFlow", "node":origin_clause, "binder_types":[boolean]}),
         ],
     );
@@ -1540,7 +1577,7 @@ fn memory_catalog_package() -> (Value, CheckedPackageEvidence, usize) {
         .clone();
     let binder = node_id(&crate::support::checked_package::family_key("aaaa"));
     let mut entries =
-        vec![json!({"class":"OrderFlow::Closed", "node":finish, "binder_types":[binder]})];
+        vec![json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[binder]})];
     for suffix in ["", "Ra", "ScAgain", "Tso"] {
         let name = format!("Holder{suffix}");
         let parallel = nodes
@@ -1552,7 +1589,7 @@ fn memory_catalog_package() -> (Value, CheckedPackageEvidence, usize) {
             .expect("parallel")["node_id"]
             .clone();
         entries.push(
-            json!({"class":format!("fork OrderFlow::{name}"), "node":parallel, "binder_types":[]}),
+            json!({"class":format!("fork OrderFlow::run::Main::{name}"), "node":parallel, "binder_types":[]}),
         );
     }
     for suffix in ["", "Ra", "ScAgain", "Tso"] {
@@ -1566,7 +1603,7 @@ fn memory_catalog_package() -> (Value, CheckedPackageEvidence, usize) {
             .expect("parallel")["node_id"]
             .clone();
         entries.push(
-            json!({"class":format!("join OrderFlow::{name}"), "node":parallel, "binder_types":[]}),
+            json!({"class":format!("join OrderFlow::run::Main::{name}"), "node":parallel, "binder_types":[]}),
         );
     }
     let mut concrete: Vec<RefinementConcreteClass> = entries
@@ -1600,7 +1637,14 @@ fn memory_catalog_package() -> (Value, CheckedPackageEvidence, usize) {
     (package, evidence, position)
 }
 
-#[trace("FR-061-AC-10", "FR-061-AC-12", "FR-061-AC-13")]
+/// Trace: FR-038-AC-325
+#[trace(
+    "TC-048",
+    "FR-038-AC-325",
+    "FR-061-AC-10",
+    "FR-061-AC-12",
+    "FR-061-AC-13"
+)]
 #[test]
 fn memory_drain_catalog_roundtrips_and_joins_source_defaults() {
     let (package, evidence, position) = memory_catalog_package();
@@ -1713,9 +1757,9 @@ fn abstract_protocol_memory_default_is_catalogued_from_its_own_clause() {
     let position = nodes.len() - 1;
     let abstract_key = nodes[position]["body"]["abstract"].clone();
     let entries = json!([
-        {"class":"OrderFlow::Closed", "node":finish.clone(), "binder_types":[binder.clone()]},
-        {"class":"fork OrderFlow::Holder", "node":parallel.clone(), "binder_types":[]},
-        {"class":"join OrderFlow::Holder", "node":parallel.clone(), "binder_types":[]},
+        {"class":"OrderFlow::finish::Closed", "node":finish.clone(), "binder_types":[binder.clone()]},
+        {"class":"fork OrderFlow::run::Main::Holder", "node":parallel.clone(), "binder_types":[]},
+        {"class":"join OrderFlow::run::Main::Holder", "node":parallel.clone(), "binder_types":[]},
         {"class":"memory drain", "memory_model":"sc", "drain":"store-buffer-flush"},
     ]);
     let mut dependencies = vec![abstract_key, clause.clone(), finish, parallel, binder];
@@ -1771,7 +1815,8 @@ fn abstract_protocol_memory_default_is_catalogued_from_its_own_clause() {
     );
 }
 
-#[trace("FR-061-AC-11")]
+/// Trace: FR-038-AC-325
+#[trace("TC-048", "FR-038-AC-325", "FR-061-AC-11")]
 #[test]
 fn memory_drain_wire_and_catalog_order_refuse_at_their_stage() {
     let (base, evidence, position) = memory_catalog_package();
@@ -1897,7 +1942,8 @@ fn memory_drain_wire_and_catalog_order_refuse_at_their_stage() {
     }
 }
 
-#[trace("FR-061-AC-12", "FR-061-AC-13")]
+/// Trace: FR-038-AC-325
+#[trace("TC-048", "FR-038-AC-325", "FR-061-AC-12", "FR-061-AC-13")]
 #[test]
 fn memory_catalog_completeness_identity_and_dependency_precedence() {
     let (base, evidence, position) = memory_catalog_package();
@@ -2165,13 +2211,14 @@ fn concrete_protocol_refinement_with_model(
         .expect("nodes")
         .extend(extra_model_nodes);
     if matches!(clause_owner, ProtocolClauseOwner::SelectedModel) {
-        let clause = package["semantic_graph"]["nodes"]
+        for clause in package["semantic_graph"]["nodes"]
             .as_array_mut()
             .expect("nodes")
             .iter_mut()
-            .find(|node| node["semantic_form"] == "protocol_clause")
-            .expect("protocol clause");
-        clause["owner_model"] = model["node_id"].clone();
+            .filter(|node| node["semantic_form"] == "protocol_clause")
+        {
+            clause["owner_model"] = model["node_id"].clone();
+        }
     }
     settle(&mut package);
 
@@ -2755,12 +2802,12 @@ fn refinement_step_defect_precedes_wrong_protocol_clause_owner() {
     let refinement = set_concrete_catalog(
         &mut package,
         vec![json!({
-            "class": "OrderFlow::Closed", "node": finish,
+            "class": "OrderFlow::finish::Closed", "node": finish,
             "binder_types": [binder_type]
         })],
     );
     package["semantic_graph"]["nodes"][refinement]["body"]["steps"][0]["source_class"] =
-        json!("OrderFlow::Closed");
+        json!("OrderFlow::finish::Closed");
     rekey_refinement(&mut package, refinement);
     let baseline = read(&package, &evidence);
     assert!(
@@ -2944,7 +2991,9 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
         .clone();
     let position = set_concrete_catalog(
         &mut package,
-        vec![json!({"class": "OrderFlow::Closed", "node": finish, "binder_types": [binder_type]})],
+        vec![
+            json!({"class": "OrderFlow::finish::Closed", "node": finish, "binder_types": [binder_type]}),
+        ],
     );
     assert_eq!(
         package["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"]
@@ -3099,10 +3148,13 @@ fn refinement_catalog_joins_concrete_operation_and_abstract_protocol_without_ste
     let finish_binder = node_id(&crate::support::checked_package::family_key("aaaa"));
     let integer_binder = node_id(&crate::support::checked_package::family_key("a3a3"));
     let entries = vec![
-        json!({"class": "OrderFlow::Closed", "node": finish, "binder_types": [finish_binder]}),
+        json!({"class": "OrderFlow::finish::Closed", "node": finish, "binder_types": [finish_binder]}),
         json!({"class": "Worker::run", "node": worker_key, "binder_types": [receiver_type, integer_binder, finish_binder]}),
     ];
     let position = set_concrete_catalog(&mut package, entries.clone());
+    package["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["abstract"] =
+        json!([entries[1].clone()]);
+    rekey_refinement(&mut package, position);
     let admitted = read(&package, &evidence);
     assert!(
         matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
@@ -3218,7 +3270,431 @@ fn refinement_catalog_joins_concrete_operation_and_abstract_protocol_without_ste
     );
 }
 
+/// Trace: FR-038-AC-328
+#[trace("TC-048", "FR-038-AC-328")]
+#[test]
+fn refinement_catalog_reconstructs_abstract_model_operations_without_protocol() {
+    let (document, worker, reference, receiver_type) = operation_model_nodes();
+    let worker_key = worker["node_id"].clone();
+    let (mut package, evidence) = concrete_protocol_refinement_with_model(
+        v2_all_families(),
+        ProtocolStepRows::Empty,
+        ProtocolClauseOwner::SelectedModel,
+        document,
+        vec![worker, reference],
+    );
+    let finish = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["body"]["operation"]["member"]["operator"] == "finish")
+        .expect("finish")["node_id"]
+        .clone();
+    let finish_binder = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let integer_binder = node_id(&crate::support::checked_package::family_key("a3a3"));
+    let operation = json!({
+        "class":"Worker::run", "node":worker_key,
+        "binder_types":[receiver_type, integer_binder, finish_binder]
+    });
+    let refinement = set_concrete_catalog(
+        &mut package,
+        vec![
+            json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[finish_binder]}),
+            operation.clone(),
+        ],
+    );
+    let abstract_model = package["semantic_graph"]["nodes"][refinement]["semantic_type"].clone();
+    package["semantic_graph"]["nodes"][refinement]["body"]["abstract"] = abstract_model;
+    package["semantic_graph"]["nodes"][refinement]["body"]["class_catalog"]["abstract"] =
+        json!([operation]);
+    rekey_refinement(&mut package, refinement);
+    let admitted = read(&package, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "{admitted:?}"
+    );
+
+    let mut missing = package.clone();
+    missing["semantic_graph"]["nodes"][refinement]["body"]["class_catalog"]["abstract"] = json!([]);
+    rekey_refinement(&mut missing, refinement);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&missing, &evidence) else {
+        panic!("omitted abstract operation admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{refinement}/body/class_catalog/abstract").as_str())
+    );
+
+    let mut extra = package;
+    let foreign = json!({"class":"Worker::other", "node":worker_key,
+        "binder_types":[receiver_type, integer_binder, finish_binder]});
+    extra["semantic_graph"]["nodes"][refinement]["body"]["class_catalog"]["abstract"] = json!([
+        foreign,
+        extra["semantic_graph"]["nodes"][refinement]["body"]["class_catalog"]["abstract"][0]
+            .clone()
+    ]);
+    rekey_refinement(&mut extra, refinement);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&extra, &evidence) else {
+        panic!("extra abstract operation admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{refinement}/body/class_catalog/abstract/0").as_str())
+    );
+}
+
+/// Trace: FR-038-AC-325, FR-038-AC-330
+#[trace("TC-048", "FR-038-AC-325", "FR-038-AC-330")]
+#[test]
+fn refinement_catalog_includes_compensation_template_end_without_a_step_row() {
+    let (base, _, _) = crate::checked_package_v2_protocol_body::package_with_present_commit();
+    let (mut package, evidence) = concrete_protocol_refinement_on(
+        base,
+        ProtocolStepRows::Empty,
+        ProtocolClauseOwner::SelectedModel,
+    );
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let by_operator = |operator: &str| {
+        nodes
+            .iter()
+            .find(|node| node["body"]["operation"]["member"]["operator"] == operator)
+            .expect("protocol operator")["node_id"]
+            .clone()
+    };
+    let template = by_operator("compensate");
+    let finish = by_operator("finish");
+    let commit = by_operator("commit");
+    let event = by_operator("event");
+    let attempt = by_operator("attempt");
+    let effect = by_operator("effect");
+    let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let anchor = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "operation_anchor")
+        .expect("operation anchor");
+    let context = &anchor["body"]["members"][0]["value"]["target"];
+    let receiver = nodes
+        .iter()
+        .find(|node| {
+            node["semantic_form"] == "reference" && node["body"]["members"][0]["target"] == *context
+        })
+        .expect("receiver type")["node_id"]
+        .clone();
+    let entries = vec![
+        json!({"class":"OrderFlow::compensate::Undo", "node":template, "binder_types":[receiver]}),
+        json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[boolean]}),
+        json!({"class":"OrderFlow::run::Main::Commit", "node":commit, "binder_types":[boolean]}),
+        json!({"class":"OrderFlow::run::Main::Event", "node":event, "binder_types":[boolean]}),
+        json!({"class":"OrderFlow::run::Main::ForwardAttempt", "node":attempt, "binder_types":[receiver]}),
+        json!({"class":"OrderFlow::run::Main::ForwardEffect", "node":effect, "binder_types":[boolean]}),
+        json!({"class":"cend OrderFlow::compensate::Undo", "node":template, "binder_types":[]}),
+    ];
+    let refinement = set_concrete_catalog(&mut package, entries.clone());
+    let admitted = read(&package, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "{admitted:?}"
+    );
+
+    for (class_name, class_index, other_node) in [
+        ("Commit", 2, effect.clone()),
+        ("ForwardEffect", 5, commit.clone()),
+    ] {
+        let mut missing = package.clone();
+        let mut changed = entries.clone();
+        changed.remove(class_index);
+        set_concrete_catalog(&mut missing, changed);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&missing, &evidence) else {
+            panic!("omitted {class_name} admitted");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(
+                format!("/semantic_graph/nodes/{refinement}/body/class_catalog/concrete").as_str()
+            )
+        );
+
+        let mut duplicate = package.clone();
+        let mut changed = entries.clone();
+        changed.insert(class_index + 1, changed[class_index].clone());
+        set_concrete_catalog(&mut duplicate, changed);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&duplicate, &evidence) else {
+            panic!("duplicate {class_name} admitted");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(
+                format!(
+                    "/semantic_graph/nodes/{refinement}/body/class_catalog/concrete/{}",
+                    class_index + 1
+                )
+                .as_str()
+            )
+        );
+
+        let mut wrong_node = package.clone();
+        let mut changed = entries.clone();
+        changed[class_index]["node"] = other_node;
+        set_concrete_catalog(&mut wrong_node, changed);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_node, &evidence) else {
+            panic!("{class_name} associated with another node admitted");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration)
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(
+                format!(
+                    "/semantic_graph/nodes/{refinement}/body/class_catalog/concrete/{class_index}"
+                )
+                .as_str()
+            )
+        );
+
+        let mut wrong_binder = package.clone();
+        let mut changed = entries.clone();
+        changed[class_index]["binder_types"] = json!([receiver.clone()]);
+        set_concrete_catalog(&mut wrong_binder, changed);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_binder, &evidence) else {
+            panic!("{class_name} with wrong binder admitted");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration)
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(
+                format!(
+                    "/semantic_graph/nodes/{refinement}/body/class_catalog/concrete/{class_index}"
+                )
+                .as_str()
+            )
+        );
+    }
+
+    let mut abstract_package = package.clone();
+    let clause = abstract_package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "protocol_clause")
+        .expect("clause")["node_id"]
+        .clone();
+    let owner = &mut abstract_package["semantic_graph"]["nodes"][refinement];
+    owner["body"]["protocol"] = clause.clone();
+    owner["body"]["class_catalog"]["abstract"] = json!(entries.clone());
+    owner["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .push(clause);
+    owner["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    rekey_refinement(&mut abstract_package, refinement);
+    let admitted = read(&abstract_package, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "abstract template catalog must also admit: {admitted:?}"
+    );
+
+    let mut missing = package.clone();
+    set_concrete_catalog(&mut missing, entries[..6].to_vec());
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&missing, &evidence) else {
+        panic!("omitted cend admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{refinement}/body/class_catalog/concrete").as_str())
+    );
+
+    let mut wrong_node = package.clone();
+    let wrong = wrong_node["semantic_graph"]["nodes"][refinement]["body"]["class_catalog"]
+        ["concrete"]
+        .as_array()
+        .expect("catalog")
+        .clone();
+    let mut wrong = wrong;
+    wrong[6]["node"] = finish;
+    set_concrete_catalog(&mut wrong_node, wrong);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong_node, &evidence) else {
+        panic!("cend on another node admitted");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{refinement}/body/class_catalog/concrete/6").as_str())
+    );
+
+    let (mut no_template, no_template_evidence) =
+        concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::SelectedModel);
+    let no_template_finish = no_template["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["body"]["operation"]["member"]["operator"] == "finish")
+        .expect("finish")["node_id"]
+        .clone();
+    let no_template_position = set_concrete_catalog(
+        &mut no_template,
+        vec![
+            json!({"class":"OrderFlow::finish::Closed", "node":no_template_finish,
+                "binder_types":[boolean]}),
+            json!({"class":"cend OrderFlow::compensate::Undo", "node":no_template_finish,
+                "binder_types":[]}),
+        ],
+    );
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&no_template, &no_template_evidence)
+    else {
+        panic!("cend without a selected template admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(
+            format!("/semantic_graph/nodes/{no_template_position}/body/class_catalog/concrete/1")
+                .as_str()
+        )
+    );
+}
+
+/// Trace: FR-038-AC-330
+#[trace("TC-048", "FR-038-AC-330")]
+#[test]
+fn refinement_catalog_rejects_cend_associated_with_another_template() {
+    let (mut base, _, _) =
+        crate::checked_package_v2_protocol_body::package_with_admitted_compensation();
+    let template_position = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "compensation")
+        .expect("template");
+    let first_template = base["semantic_graph"]["nodes"][template_position]["node_id"].clone();
+    let second_template = protocol_named_node(
+        "compensation",
+        &["Example", "OrderFlow", "compensate", "OtherUndo"],
+        base["semantic_graph"]["nodes"][template_position]["body"].clone(),
+        &[],
+    );
+    let second_key = second_template["node_id"].clone();
+    base["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(second_template);
+    let clause = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == "protocol_clause")
+        .expect("clause");
+    base["semantic_graph"]["nodes"][clause]["body"]["arguments"][8]["value"]["members"]
+        .as_array_mut()
+        .expect("compensations")
+        .push(json!({"term":"reference", "target":second_key}));
+    settle(&mut base);
+    let (mut package, evidence) = concrete_protocol_refinement_on(
+        base,
+        ProtocolStepRows::Empty,
+        ProtocolClauseOwner::SelectedModel,
+    );
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let by_operator = |operator: &str| {
+        nodes
+            .iter()
+            .find(|node| node["body"]["operation"]["member"]["operator"] == operator)
+            .expect("operator")["node_id"]
+            .clone()
+    };
+    let finish = by_operator("finish");
+    let event = by_operator("event");
+    let attempt = by_operator("attempt");
+    let effect = by_operator("effect");
+    let anchor = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "operation_anchor")
+        .expect("anchor");
+    let context = &anchor["body"]["members"][0]["value"]["target"];
+    let receiver = nodes
+        .iter()
+        .find(|node| {
+            node["semantic_form"] == "reference" && node["body"]["members"][0]["target"] == *context
+        })
+        .expect("receiver")["node_id"]
+        .clone();
+    let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let mut entries = vec![
+        json!({"class":"OrderFlow::compensate::OtherUndo", "node":second_key, "binder_types":[receiver]}),
+        json!({"class":"OrderFlow::compensate::Undo", "node":first_template, "binder_types":[receiver]}),
+        json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[boolean]}),
+        json!({"class":"OrderFlow::run::Main::Event", "node":event, "binder_types":[boolean]}),
+        json!({"class":"OrderFlow::run::Main::ForwardAttempt", "node":attempt, "binder_types":[receiver]}),
+        json!({"class":"OrderFlow::run::Main::ForwardEffect", "node":effect, "binder_types":[boolean]}),
+        json!({"class":"cend OrderFlow::compensate::OtherUndo", "node":second_key, "binder_types":[]}),
+        json!({"class":"cend OrderFlow::compensate::Undo", "node":first_template, "binder_types":[]}),
+    ];
+    let refinement = set_concrete_catalog(&mut package, entries.clone());
+    assert_unique_node_ids(&package);
+    let admitted = read(&package, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "{admitted:?}"
+    );
+    entries[7]["node"] = second_key;
+    set_concrete_catalog(&mut package, entries);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package, &evidence) else {
+        panic!("cend associated with another template admitted");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MalformedDeclaration)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{refinement}/body/class_catalog/concrete/7").as_str())
+    );
+}
+
 /// Provenance: IR-874 catalog graph join.
+/// Trace: FR-038-AC-329
+#[trace("TC-048", "FR-038-AC-329")]
 #[test]
 fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
     let (base, _) = crate::checked_package_v2_protocol_body::protocol_holder_case_on(
@@ -3245,9 +3721,11 @@ fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
         .clone();
     let binder_type = node_id(&crate::support::checked_package::family_key("aaaa"));
     let finish_entry =
-        json!({"class":"OrderFlow::Closed", "node":finish, "binder_types":[binder_type]});
-    let fork_entry = json!({"class":"fork OrderFlow::Holder", "node":parallel, "binder_types":[]});
-    let join_entry = json!({"class":"join OrderFlow::Holder", "node":parallel, "binder_types":[]});
+        json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[binder_type]});
+    let fork_entry =
+        json!({"class":"fork OrderFlow::run::Main::Holder", "node":parallel, "binder_types":[]});
+    let join_entry =
+        json!({"class":"join OrderFlow::run::Main::Holder", "node":parallel, "binder_types":[]});
     let position = set_concrete_catalog(
         &mut package,
         vec![
@@ -3262,6 +3740,38 @@ fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
         matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
         "{admitted:?}"
     );
+
+    for (wrong_class, path) in [
+        (
+            "fork OrderFlow::Holder",
+            format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1"),
+        ),
+        (
+            "fork OtherFlow::run::Main::Holder",
+            format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete"),
+        ),
+        (
+            "fork OrderFlow::run::Holder",
+            format!("/semantic_graph/nodes/{position}/body/class_catalog/concrete/1"),
+        ),
+    ] {
+        let mut wrong = package.clone();
+        wrong["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"][1]
+            ["class"] = json!(wrong_class);
+        rekey_refinement(&mut wrong, position);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong, &evidence) else {
+            panic!("truncated or substituted declaration path admitted: {wrong_class}");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(path.as_str()),
+            "{wrong_class}"
+        );
+    }
 
     let mut omitted = package.clone();
     set_concrete_catalog(&mut omitted, vec![finish_entry, fork_entry]);
@@ -3323,7 +3833,148 @@ fn refinement_catalog_distinguishes_fork_and_join_on_one_parallel_node() {
     );
 }
 
+/// Trace: FR-038-AC-329
+#[trace("TC-048", "FR-038-AC-329")]
+#[test]
+fn refinement_catalog_preserves_two_clause_paths_of_different_depths() {
+    let (mut base, _) = crate::checked_package_v2_protocol_body::protocol_holder_case_on(
+        v2_all_families(),
+        "parallel",
+    );
+    let mut nested = base.clone();
+    for node in nested["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+    {
+        if node["node_tag"] != "protocol" {
+            continue;
+        }
+        let Some(path) = node["declaration"]["qualified_name"].as_array_mut() else {
+            continue;
+        };
+        if path.len() >= 2 && path[0] == "Example" && path[1] == "OrderFlow" {
+            path.insert(1, json!("Nested"));
+            path[2] = json!("OtherFlow");
+        }
+    }
+    settle(&mut nested);
+    let second = nested["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .filter(|node| {
+            node["node_tag"] == "protocol"
+                && node["declaration"]["qualified_name"][0] == "Example"
+                && node["declaration"]["qualified_name"][1] == "Nested"
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    base["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .extend(second);
+    rebuild_source_map(&mut base);
+    settle(&mut base);
+    let (mut package, evidence) = concrete_protocol_refinement_on(
+        base,
+        ProtocolStepRows::Empty,
+        ProtocolClauseOwner::SelectedModel,
+    );
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let mut entries = Vec::new();
+    let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
+    for node in nodes {
+        if node["node_tag"] != "protocol" {
+            continue;
+        }
+        let Some(operator) = node["body"]["operation"]["member"]["operator"].as_str() else {
+            continue;
+        };
+        let path = protocol_class_path(node);
+        match operator {
+            "finish" => entries.push(json!({"class":path, "node":node["node_id"],
+                "binder_types":[boolean]})),
+            "parallel" => {
+                entries.push(
+                    json!({"class":format!("fork {path}"), "node":node["node_id"],
+                    "binder_types":[]}),
+                );
+                entries.push(
+                    json!({"class":format!("join {path}"), "node":node["node_id"],
+                    "binder_types":[]}),
+                );
+            }
+            _ => {}
+        }
+    }
+    entries.push(json!({"class":"memory drain", "memory_model":"sc",
+        "drain":"store-buffer-flush"}));
+    entries.sort_by(|left, right| left["class"].as_str().cmp(&right["class"].as_str()));
+    assert!(entries
+        .iter()
+        .any(|entry| entry["class"] == "OrderFlow::finish::Closed"));
+    assert!(entries
+        .iter()
+        .any(|entry| entry["class"] == "Nested::OtherFlow::finish::Closed"));
+    assert!(entries
+        .iter()
+        .any(|entry| entry["class"] == "fork Nested::OtherFlow::run::Main::Holder"));
+    set_concrete_catalog(&mut package, entries.clone());
+    assert_unique_node_ids(&package);
+    let admitted = read(&package, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "{admitted:?}"
+    );
+
+    for (original, substituted) in [
+        (
+            "Nested::OtherFlow::finish::Closed",
+            "Nested::OrderFlow::finish::Closed",
+        ),
+        (
+            "fork Nested::OtherFlow::run::Main::Holder",
+            "fork Nested::OtherFlow::Holder",
+        ),
+    ] {
+        let mut wrong = package.clone();
+        let mut changed = entries.clone();
+        let entry = changed
+            .iter_mut()
+            .find(|entry| entry["class"] == original)
+            .expect("class in positive catalog");
+        entry["class"] = json!(substituted);
+        changed.sort_by(|left, right| left["class"].as_str().cmp(&right["class"].as_str()));
+        let changed_index = changed
+            .iter()
+            .position(|entry| entry["class"] == substituted)
+            .expect("substituted class in catalog");
+        let position = set_concrete_catalog(&mut wrong, changed);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&wrong, &evidence) else {
+            panic!("substituted class {substituted} admitted");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(
+                format!(
+                    "/semantic_graph/nodes/{position}/body/class_catalog/concrete/{changed_index}"
+                )
+                .as_str()
+            ),
+            "wrong refusal locus for {substituted}"
+        );
+    }
+}
+
 /// Provenance: IR-874 timeout class on an admitted await node.
+/// Trace: FR-038-AC-325
+#[trace("TC-048", "FR-038-AC-325")]
 #[test]
 fn refinement_catalog_joins_timeout_on_await_node() {
     let (base, _) = crate::checked_package_v2_protocol_body::protocol_holder_case_on(
@@ -3344,20 +3995,16 @@ fn refinement_catalog_joins_timeout_on_await_node() {
         let Some(operator) = node["body"]["operation"]["member"]["operator"].as_str() else {
             continue;
         };
-        let Some(name) = node["declaration"]["qualified_name"]
-            .as_array()
-            .and_then(|name| name.last())
-            .and_then(Value::as_str)
-        else {
+        if node["declaration"].is_null() {
             continue;
-        };
+        }
         let binder_types = match operator {
             "await" => json!([]),
             "event" | "finish" => json!([binder]),
             _ => continue,
         };
         entries.push(json!({
-            "class": format!("OrderFlow::{name}"),
+            "class": protocol_class_path(node),
             "node": node["node_id"],
             "binder_types": binder_types
         }));
@@ -3389,22 +4036,13 @@ fn refinement_catalog_uses_channel_carries_for_send_binder() {
         .find(|node| node["body"]["operation"]["member"]["operator"] == "send")
         .expect("send");
     let send = send_node["node_id"].clone();
-    let send_name = send_node["declaration"]["qualified_name"]
-        .as_array()
-        .and_then(|name| name.last())
-        .and_then(Value::as_str)
-        .expect("send name")
-        .to_owned();
+    let send_name = protocol_class_path(send_node);
     let channel_node = nodes
         .iter()
         .find(|node| node["semantic_form"] == "channel")
         .expect("channel");
     let channel = channel_node["node_id"].clone();
-    let channel_name = channel_node["declaration"]["qualified_name"]
-        .as_array()
-        .and_then(|name| name.last())
-        .and_then(Value::as_str)
-        .expect("channel name");
+    let channel_name = protocol_class_path(channel_node);
     let finish = nodes
         .iter()
         .find(|node| node["node_tag"] == "protocol" && node["semantic_form"] == "obligation")
@@ -3412,12 +4050,12 @@ fn refinement_catalog_uses_channel_carries_for_send_binder() {
         .clone();
     let binder = node_id(&crate::support::checked_package::family_key("aaaa"));
     let mut entries = vec![
-        json!({"class":"OrderFlow::Closed", "node":finish, "binder_types":[binder]}),
-        json!({"class":format!("OrderFlow::{send_name}"), "node":send,
+        json!({"class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[binder]}),
+        json!({"class":send_name, "node":send,
             "binder_types":[binder]}),
-        json!({"class":format!("duplicate OrderFlow::{channel_name}"),
+        json!({"class":format!("duplicate {channel_name}"),
             "node":channel, "binder_types":[]}),
-        json!({"class":format!("lose OrderFlow::{channel_name}"),
+        json!({"class":format!("lose {channel_name}"),
             "node":channel, "binder_types":[]}),
     ];
     entries.sort_by(|left, right| left["class"].as_str().cmp(&right["class"].as_str()));
@@ -3434,7 +4072,7 @@ fn refinement_catalog_uses_channel_carries_for_send_binder() {
         .as_array()
         .expect("catalog")
         .iter()
-        .position(|entry| entry["class"] == format!("OrderFlow::{send_name}"))
+        .position(|entry| entry["class"] == send_name)
         .expect("send entry");
     wrong["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["concrete"][send_index]
         ["binder_types"] = json!([]);
@@ -3478,13 +4116,13 @@ fn refinement_catalog_joins_selected_abstract_clause_and_binder() {
     let binder = node_id(&crate::support::checked_package::family_key("aaaa"));
     let position = set_concrete_catalog(
         &mut package,
-        vec![json!({"class":"OrderFlow::Closed", "node":finish,
+        vec![json!({"class":"OrderFlow::finish::Closed", "node":finish,
             "binder_types":[binder]})],
     );
     let node = &mut package["semantic_graph"]["nodes"][position];
     node["body"]["protocol"] = clause.clone();
     node["body"]["class_catalog"]["abstract"] = json!([{
-        "class":"OrderFlow::Closed", "node":finish, "binder_types":[binder]
+        "class":"OrderFlow::finish::Closed", "node":finish, "binder_types":[binder]
     }]);
     let mut dependencies = node["dependencies"]
         .as_array()
@@ -3543,8 +4181,10 @@ fn refinement_catalog_joins_abstract_class_from_direct_dependency() {
     let binder = node_id(&crate::support::checked_package::family_key("aaaa"));
     set_concrete_catalog(
         &mut dependency_wire,
-        vec![json!({"class":"OrderFlow::Closed", "node":abstract_finish,
-            "binder_types":[binder]})],
+        vec![
+            json!({"class":"OrderFlow::finish::Closed", "node":abstract_finish,
+            "binder_types":[binder]}),
+        ],
     );
     let CheckedPackageV2ReadResult::Admitted(dependency) =
         read(&dependency_wire, &dependency_evidence)
@@ -3565,14 +4205,16 @@ fn refinement_catalog_joins_abstract_class_from_direct_dependency() {
         .clone();
     let position = set_concrete_catalog(
         &mut package,
-        vec![json!({"class":"OrderFlow::Closed", "node":concrete_finish,
-            "binder_types":[binder]})],
+        vec![
+            json!({"class":"OrderFlow::finish::Closed", "node":concrete_finish,
+            "binder_types":[binder]}),
+        ],
     );
     let node = &mut package["semantic_graph"]["nodes"][position];
     node["body"]["abstract"] = external(abstract_model);
     node["body"]["protocol"] = external(abstract_clause);
     node["body"]["class_catalog"]["abstract"] = json!([{
-        "class":"OrderFlow::Closed", "node":external(abstract_finish),
+        "class":"OrderFlow::finish::Closed", "node":external(abstract_finish),
         "binder_types":[external(binder.clone())]
     }]);
     node["dependencies"] = json!([concrete_finish, binder]);
@@ -3605,6 +4247,114 @@ fn refinement_catalog_joins_abstract_class_from_direct_dependency() {
     assert_eq!(
         refusal.path.as_ref().map(|path| path.as_str()),
         Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/abstract/0").as_str())
+    );
+}
+
+/// Trace: FR-038-AC-328
+#[trace("TC-048", "FR-038-AC-328")]
+#[test]
+fn refinement_catalog_joins_external_abstract_model_operations_without_protocol() {
+    let (document, worker, reference, receiver) = operation_model_nodes();
+    let worker_key = worker["node_id"].clone();
+    let (mut dependency_wire, dependency_evidence) = concrete_protocol_refinement_with_model(
+        v2_all_families(),
+        ProtocolStepRows::Empty,
+        ProtocolClauseOwner::SelectedModel,
+        document,
+        vec![worker, reference],
+    );
+    let dependency_nodes = dependency_wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let abstract_model = dependency_nodes
+        .iter()
+        .find(|node| {
+            node["semantic_form"] == "model_root" && node["owner"]["identity"] == MODEL_IDENTITY
+        })
+        .expect("abstract model")["node_id"]
+        .clone();
+    let finish = dependency_nodes
+        .iter()
+        .find(|node| node["body"]["operation"]["member"]["operator"] == "finish")
+        .expect("finish")["node_id"]
+        .clone();
+    let boolean = node_id(&crate::support::checked_package::family_key("aaaa"));
+    let integer = node_id(&crate::support::checked_package::family_key("a3a3"));
+    let operation = json!({"class":"Worker::run", "node":worker_key,
+        "binder_types":[receiver, integer, boolean]});
+    let dep_refinement = set_concrete_catalog(
+        &mut dependency_wire,
+        vec![
+            json!({"class":"OrderFlow::finish::Closed", "node":finish,
+            "binder_types":[boolean]}),
+            operation.clone(),
+        ],
+    );
+    dependency_wire["semantic_graph"]["nodes"][dep_refinement]["body"]["class_catalog"]
+        ["abstract"] = json!([operation]);
+    rekey_refinement(&mut dependency_wire, dep_refinement);
+    let CheckedPackageV2ReadResult::Admitted(dependency) =
+        read(&dependency_wire, &dependency_evidence)
+    else {
+        panic!("selected dependency must admit");
+    };
+    let dependency_id = dependency_wire["package_id"].clone();
+    let external = |node: Value| json!({"package":dependency_id, "node":node});
+
+    let (mut package, mut evidence) =
+        concrete_protocol_refinement(ProtocolStepRows::Empty, ProtocolClauseOwner::SelectedModel);
+    let concrete_finish = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["body"]["operation"]["member"]["operator"] == "finish")
+        .expect("concrete finish")["node_id"]
+        .clone();
+    let position = set_concrete_catalog(
+        &mut package,
+        vec![
+            json!({"class":"OrderFlow::finish::Closed", "node":concrete_finish,
+            "binder_types":[boolean]}),
+        ],
+    );
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["body"]["abstract"] = external(abstract_model);
+    node["body"]["class_catalog"]["abstract"] = json!([{
+        "class":"Worker::run", "node":external(worker_key),
+        "binder_types":[external(receiver), external(integer), external(boolean.clone())]
+    }]);
+    node["dependencies"] = json!([concrete_finish, boolean]);
+    node["dependencies"]
+        .as_array_mut()
+        .expect("dependencies")
+        .sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    rekey_refinement(&mut package, position);
+    package["lock"]["dependency_selections"] = json!([{
+        "identity":"test/abstract-model", "package_id":dependency_id
+    }]);
+    refresh_identity(&mut package);
+    evidence
+        .insert_dependency_package("test/abstract-model", *dependency)
+        .expect("selected dependency");
+    let admitted = read(&package, &evidence);
+    assert!(
+        matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
+        "{admitted:?}"
+    );
+
+    let mut missing = package;
+    missing["semantic_graph"]["nodes"][position]["body"]["class_catalog"]["abstract"] = json!([]);
+    rekey_refinement(&mut missing, position);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&missing, &evidence) else {
+        panic!("external abstract operation omitted from catalog admitted");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/body/class_catalog/abstract").as_str())
     );
 }
 

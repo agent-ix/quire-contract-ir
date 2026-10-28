@@ -18,7 +18,8 @@
 
 use super::model_members::{
     check_declaration_node, member_name, units, Budget, CollectionKind, DeclarationForm,
-    DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType, RelationshipDecl,
+    DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType, ModelOperationClass,
+    RelationshipDecl,
 };
 use super::{CheckedNodeId, CheckedPackageV2, CheckedTerm, WorkMeter};
 use crate::checked_package::common::{ValidationFailure, NODE_DOMAIN};
@@ -571,6 +572,46 @@ pub(super) struct OperationTypes {
 }
 
 impl RetainedModels {
+    /// Effective operation classes of the selected model document named by its identity.
+    pub(super) fn operation_classes(
+        &self,
+        identity: &str,
+        meter: &mut WorkMeter,
+    ) -> Result<Vec<ModelOperationClass>, ValidationFailure> {
+        let mut classes = Vec::new();
+        for (digest, declared) in &self.index.0 {
+            let Some(model) = self.models.get(declared.selection) else {
+                continue;
+            };
+            if model.identity.as_ref() != identity
+                || !matches!(
+                    declared.form,
+                    DeclarationForm::ObjectType
+                        | DeclarationForm::StateMachine
+                        | DeclarationForm::Process
+                        | DeclarationForm::SystemsInterface
+                )
+            {
+                continue;
+            }
+            let mut budget = Budget::new(meter, declared.selection, model.bytes);
+            for operation in model.effective_operation_names(&declared.node, &mut budget)? {
+                let binder_types =
+                    model.model_operation_binder_types(&declared.node, &operation, &mut budget)?;
+                classes.push(ModelOperationClass {
+                    object: member_name(&declared.node).into(),
+                    operation,
+                    node: CheckedNodeId {
+                        domain: NODE_DOMAIN.into(),
+                        digest: digest.clone().into(),
+                    },
+                    binder_types,
+                });
+            }
+        }
+        Ok(classes)
+    }
+
     /// The selected variant's family, for checked projections after admission.
     pub(super) fn variant_family(&self, key: &CheckedNodeId) -> Option<&'static str> {
         let declared = self.index.0.get(key.digest.as_ref())?;
