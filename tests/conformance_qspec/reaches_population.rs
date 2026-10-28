@@ -236,7 +236,19 @@ fn tc_048_qspec_unbounded_population_shapes_match_the_reader() {
         });
         let case = json!({"population": descriptor});
         let package = candidate(&package, &case);
-        let population_position = node_index(&package, "bounded_domain", "model_population");
+        let application = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["body"]["operation"]["identity"] == "quire.op.model.reaches")
+            .expect("reaches application");
+        let linked_id = &application["body"]["operation"]["member"]["population"];
+        let population_position = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .position(|node| node["node_id"] == *linked_id)
+            .expect("linked population node");
         let population_id =
             package["semantic_graph"]["nodes"][population_position]["node_id"].clone();
         let result = read_package(&package).unwrap_or_else(|why| panic!("{id}: {why}"));
