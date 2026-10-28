@@ -2673,6 +2673,353 @@ fn history_and_assume_operation_package() -> (Value, CheckedPackageEvidence, usi
     (package, evidence, position)
 }
 
+fn ac5_history_package() -> (Value, CheckedPackageEvidence, usize, Value, Value, Value) {
+    let (package, evidence, position) = history_and_assume_operation_package();
+    let row = &package["semantic_graph"]["nodes"][position]["body"]["histories"][0];
+    let concrete_type = row["concrete_type"].clone();
+    let type_id = row["type"].clone();
+    let operation = row["updates"][0]["operation"].clone();
+    (
+        package,
+        evidence,
+        position,
+        concrete_type,
+        type_id,
+        operation,
+    )
+}
+
+fn ac5_refusal(
+    package: &Value,
+    evidence: &CheckedPackageEvidence,
+    code: CheckedPackageRefusalCode,
+    path: &str,
+) {
+    assert_step_refusal(read(package, evidence), code, None, path);
+}
+
+fn ac5_refusal_preserved_by_writer(
+    package: &Value,
+    evidence: &CheckedPackageEvidence,
+    code: CheckedPackageRefusalCode,
+    path: &str,
+) {
+    ac5_refusal(package, evidence, code, path);
+    let encoded = writer_bytes(package);
+    assert_eq!(
+        encoded,
+        canonical(package),
+        "public writer changed adverse input"
+    );
+    assert_step_refusal(
+        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), evidence),
+        code,
+        None,
+        path,
+    );
+}
+
+#[trace("TC-062", "FR-061-AC-5")]
+#[test]
+fn history_initial_literal_and_local_literal_reference_roundtrip() {
+    let (mut package, evidence, position, _, type_id, _) = ac5_history_package();
+    let initial =
+        package["semantic_graph"]["nodes"][position]["body"]["histories"][0]["initial"].clone();
+    let CheckedPackageV2ReadResult::Admitted(first) = read(&package, &evidence) else {
+        panic!("literal initial refused: {:?}", read(&package, &evidence));
+    };
+    assert_eq!(
+        serde_json::to_value(&first.graph().nodes[position].body).expect("typed body")["histories"]
+            [0]["initial"],
+        initial
+    );
+    let literal_bytes = writer_bytes(&package);
+    let CheckedPackageV2ReadResult::Admitted(literal_reread) = CheckedPackageV2::read(
+        &literal_bytes,
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    ) else {
+        panic!("literal writer output refused");
+    };
+    assert_eq!(first.package_id(), literal_reread.package_id());
+    assert_eq!(
+        serde_json::to_value(&literal_reread.graph().nodes[position].body)
+            .expect("reread literal body")["histories"][0]["initial"],
+        initial
+    );
+    let literal = json!({
+        "node_id":node_id(&structural_key(
+            "value", "literal", type_id["digest"].as_str(), &initial
+        )),
+        "schema_version":"quire.checked-semantic-graph/v2", "node_tag":"value",
+        "semantic_form":"literal", "semantic_type":type_id,
+        "dependencies":[type_id], "occurrences":[{"role":"generated","ordinal":0}],
+        "body":initial
+    });
+    let literal_id = literal["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(literal);
+    rebuild_source_map(&mut package);
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["body"]["histories"][0]["initial"] = json!({"term":"reference","target":literal_id});
+    let dependencies = node["dependencies"].as_array_mut().expect("dependencies");
+    dependencies.push(literal_id.clone());
+    dependencies.sort_by(|left, right| left["digest"].as_str().cmp(&right["digest"].as_str()));
+    rekey_refinement(&mut package, position);
+    let CheckedPackageV2ReadResult::Admitted(first) = read(&package, &evidence) else {
+        panic!(
+            "local literal reference refused: {:?}",
+            read(&package, &evidence)
+        );
+    };
+    let encoded = writer_bytes(&package);
+    let CheckedPackageV2ReadResult::Admitted(second) =
+        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+    else {
+        panic!("writer output refused");
+    };
+    assert_eq!(first.package_id(), second.package_id());
+    assert_eq!(
+        serde_json::to_value(&second.graph().nodes[position].body).expect("reread body")
+            ["histories"][0]["initial"],
+        json!({"term":"reference","target":literal_id})
+    );
+}
+
+#[trace("TC-062", "FR-061-AC-5")]
+#[test]
+fn history_and_fairness_reject_closed_shape_and_canonical_order_defects() {
+    let (base, evidence, position, object, type_id, anchor) = ac5_history_package();
+    let root = format!("/semantic_graph/nodes/{position}/body");
+    let history = base["semantic_graph"]["nodes"][position]["body"]["histories"][0].clone();
+    let literal = history["initial"].clone();
+    let mut package = base.clone();
+    package["semantic_graph"]["nodes"][position]["body"]["histories"][0]["initial"] = json!({"term":"application","operator":"state_clause",
+            "operation":{"identity":"quire.op.state.clause","laws":[],"mode":null,
+                "member":{"kind":"state_clause","clause":anchor},"leaves":[]},
+            "result_type":type_id,"arguments":[]});
+    rekey_refinement(&mut package, position);
+    ac5_refusal_preserved_by_writer(
+        &package,
+        &evidence,
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        &format!("{root}/histories/0/initial"),
+    );
+    assert!(
+        serde_json::from_value::<CheckedSemanticGraphV2<CheckedTerm>>(
+            base["semantic_graph"].clone()
+        )
+        .is_ok(),
+        "valid fairness baseline must be representable by the public writer"
+    );
+    for side in ["assume", "ensure"] {
+        for (member, value) in [("kind", "eventual"), ("granularity", "global")] {
+            let mut package = base.clone();
+            if side == "ensure" {
+                package["semantic_graph"]["nodes"][position]["body"]["ensure"] =
+                    json!([{"operation":anchor,"kind":"strong","granularity":"each"}]);
+            }
+            package["semantic_graph"]["nodes"][position]["body"][side][0][member] = json!(value);
+            rekey_refinement(&mut package, position);
+            ac5_refusal(
+                &package,
+                &evidence,
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                &root,
+            );
+            assert!(
+                serde_json::from_value::<CheckedSemanticGraphV2<CheckedTerm>>(
+                    package["semantic_graph"].clone()
+                )
+                .is_err(),
+                "invalid {side} {member} must have no public writer input"
+            );
+        }
+    }
+    let mut package = base.clone();
+    let update = history["updates"][0].clone();
+    package["semantic_graph"]["nodes"][position]["body"]["histories"][0]["updates"] =
+        json!([update.clone(), update]);
+    rekey_refinement(&mut package, position);
+    ac5_refusal_preserved_by_writer(
+        &package,
+        &evidence,
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        &format!("{root}/histories/0/updates/1"),
+    );
+    let mut package = base.clone();
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["body"]["objects"] = json!([{"abstract_type":object,"concrete_type":object,"fields":[
+        {"name":"past","expression":literal}, {"name":"past","expression":literal}
+    ]}]);
+    rekey_refinement(&mut package, position);
+    ac5_refusal_preserved_by_writer(
+        &package,
+        &evidence,
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        &format!("{root}/objects/0/fields/1"),
+    );
+
+    let mut package = base.clone();
+    package["semantic_graph"]["nodes"][position]["body"]["objects"] = json!([{"abstract_type":object,"concrete_type":object,"fields":[
+        {"name":"zeta","expression":literal},
+        {"name":"alpha","expression":literal}
+    ]}]);
+    rekey_refinement(&mut package, position);
+    assert_eq!(
+        writer_bytes(&package),
+        canonical(&package),
+        "writer must preserve field order"
+    );
+    ac5_refusal(
+        &package,
+        &evidence,
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        &format!("{root}/objects/0/fields/1"),
+    );
+
+    let mut package = base.clone();
+    let first = history.clone();
+    let mut second = history;
+    second["name"] = json!("aardvark");
+    package["semantic_graph"]["nodes"][position]["body"]["histories"] = json!([first, second]);
+    rekey_refinement(&mut package, position);
+    assert_eq!(
+        writer_bytes(&package),
+        canonical(&package),
+        "writer must preserve row order"
+    );
+    ac5_refusal(
+        &package,
+        &evidence,
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        &format!("{root}/histories/1"),
+    );
+
+    let mut package = base.clone();
+    let row = &mut package["semantic_graph"]["nodes"][position]["body"]["histories"][0];
+    let mut later = row["updates"][0].clone();
+    later["operation"] = type_id.clone();
+    let mut updates = vec![row["updates"][0].clone(), later];
+    updates.sort_by(|left, right| {
+        right["operation"]["digest"]
+            .as_str()
+            .cmp(&left["operation"]["digest"].as_str())
+    });
+    row["updates"] = json!(updates);
+    rekey_refinement(&mut package, position);
+    assert_eq!(
+        writer_bytes(&package),
+        canonical(&package),
+        "writer must preserve update order"
+    );
+    ac5_refusal(
+        &package,
+        &evidence,
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        &format!("{root}/histories/0/updates/1"),
+    );
+}
+
+#[trace("TC-062", "FR-061-AC-5")]
+#[test]
+fn refinement_rejects_each_unsorted_row_array_without_reordering() {
+    let (base, evidence, position, object, type_id, anchor) = ac5_history_package();
+    let mut cases: Vec<(&str, Vec<Value>)> = vec![
+        (
+            "populations",
+            vec![
+                json!({"abstract":object,"concrete":object}),
+                json!({"abstract":type_id,"concrete":object}),
+            ],
+        ),
+        (
+            "objects",
+            vec![
+                json!({"abstract_type":object,"concrete_type":object,"fields":[]}),
+                json!({"abstract_type":type_id,"concrete_type":object,"fields":[]}),
+            ],
+        ),
+        (
+            "assume",
+            vec![
+                json!({"operation":anchor,"kind":"weak","granularity":"whole"}),
+                json!({"operation":type_id,"kind":"weak","granularity":"whole"}),
+            ],
+        ),
+        (
+            "ensure",
+            vec![
+                json!({"operation":anchor,"kind":"weak","granularity":"whole"}),
+                json!({"operation":object,"kind":"weak","granularity":"whole"}),
+            ],
+        ),
+    ];
+    for (array, rows) in &mut cases {
+        let mut package = base.clone();
+        rows.sort_by(|left, right| {
+            let member = match *array {
+                "populations" => "abstract",
+                "objects" => "abstract_type",
+                "assume" | "ensure" => "operation",
+                _ => unreachable!(),
+            };
+            right[member]["digest"]
+                .as_str()
+                .cmp(&left[member]["digest"].as_str())
+        });
+        package["semantic_graph"]["nodes"][position]["body"][*array] = json!(rows);
+        rekey_refinement(&mut package, position);
+        assert_eq!(
+            writer_bytes(&package),
+            canonical(&package),
+            "{array} writer order"
+        );
+        ac5_refusal(
+            &package,
+            &evidence,
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            &format!("/semantic_graph/nodes/{position}/body/{array}/1"),
+        );
+    }
+}
+
+#[trace("TC-062", "FR-061-AC-5")]
+#[test]
+fn history_initial_rejects_selected_dependency_literal_reference() {
+    let dependency_wire = v2_all_families();
+    let CheckedPackageV2ReadResult::Admitted(dependency) =
+        read(&dependency_wire, &evidence_for(&dependency_wire))
+    else {
+        panic!("dependency fixture refused");
+    };
+    let literal = dependency_wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "literal")
+        .expect("dependency literal")["node_id"]
+        .clone();
+    let (mut package, mut evidence, position, _, _, _) = ac5_history_package();
+    package["lock"]["dependency_selections"] = json!([{
+        "identity":"test/history-literal", "package_id":dependency_wire["package_id"]
+    }]);
+    evidence
+        .insert_dependency_package("test/history-literal", *dependency)
+        .expect("selected dependency");
+    package["semantic_graph"]["nodes"][position]["body"]["histories"][0]["initial"] = json!({"term":"dependency_reference","package":dependency_wire["package_id"],
+            "node":literal});
+    rekey_refinement(&mut package, position);
+    ac5_refusal_preserved_by_writer(
+        &package,
+        &evidence,
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        &format!("/semantic_graph/nodes/{position}/body/histories/0/initial"),
+    );
+}
+
 #[trace("TC-062", "FR-061-AC-3")]
 #[test]
 fn history_update_and_assume_accept_declaring_type_anchor_and_refuse_foreign_root() {
@@ -3200,7 +3547,7 @@ fn append_catalog_free_step(package: &mut Value, position: usize, class: &str) {
     refresh_identity(package);
 }
 
-#[trace("TC-062", "FR-061-AC-16")]
+#[trace("TC-062", "FR-061-AC-5", "FR-061-AC-16")]
 #[test]
 fn catalog_free_operation_step_order_precedes_first_row_join() {
     let (mut package, evidence, position) = catalog_free_operation_package("object_type");
@@ -3212,8 +3559,20 @@ fn catalog_free_operation_step_order_precedes_first_row_join() {
     assert_eq!(rows[1]["source_class"], "other");
     assert_eq!(rows[0]["source_node"], rows[1]["source_node"]);
     let at = format!("/semantic_graph/nodes/{position}/body/steps");
+    let encoded = writer_bytes(&package);
+    assert_eq!(
+        encoded,
+        canonical(&package),
+        "writer must preserve step order"
+    );
     assert_step_refusal(
         read(&package, &evidence),
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        None,
+        &format!("{at}/1"),
+    );
+    assert_step_refusal(
+        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence),
         CheckedPackageRefusalCode::InvalidSemanticGraph,
         None,
         &format!("{at}/1"),
