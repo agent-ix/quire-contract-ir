@@ -57,7 +57,7 @@ SR-1135 for the matrix finding that does.
 
 ## Dispositions
 
-Round 1 (one fix commit on top of; main
+Round 1 (one fix commit on top of the reviewed base; main
 has not moved since the reviewed base, and GitHub reports MERGEABLE). The full `origin/main...HEAD` diff
 of `operations.rs` still changes only `///` and `#[trace(` lines, so no test body changed.
 66 tests and 66 trace attributes. The 66 `operations.rs` tests pass, and fmt-check is clean.

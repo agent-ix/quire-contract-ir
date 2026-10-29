@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-358. This PR aligns the use-local/use-remote block and the one-copy awk gate with agent-ix/quire-contract-codegen main . One change is IR-only: the Cargo.lock snapshot is taken after LOCAL_PATCHES validation. The diff touches no Rust source, so the rust-review lane does not apply.
+Ticket: IR-358. This PR aligns the use-local/use-remote block and the one-copy awk gate with agent-ix/quire-contract-codegen main. One change is IR-only: the Cargo.lock snapshot is taken after LOCAL_PATCHES validation. The diff touches no Rust source, so the rust-review lane does not apply.
 
 Diffed against CG main, the block is identical apart from LOCAL_PATCHES and the snapshot line moving from before the validation loop to after it. `scripts/check_one_copy.awk` is byte-identical to CG's, and the `.gitignore` line matches CG's.
 

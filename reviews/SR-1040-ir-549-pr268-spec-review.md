@@ -277,7 +277,7 @@ Reviewed.
 
 ## New findings (disposition pass 8)
 
-Reviewed (PR delta; read against merged QSpec.
+Reviewed the PR delta against merged QSpec.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |

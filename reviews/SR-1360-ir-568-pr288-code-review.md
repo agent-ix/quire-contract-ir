@@ -16,7 +16,7 @@ relationships:
 ## Summary
 
 Ticket: IR-568. PR agent-ix/quire-contract-ir#288. This is a code review with the
-rust-review lane folded in. It covers `git diff origin/main...HEAD` at: one commit, five files. The only Rust is
+rust-review lane folded in. It covers `git diff origin/main...HEAD`: one commit, five files. The only Rust is
 `tc_018_the_recorded_canonical_files_spell_the_eight_members_as_strings` in
 `tests/it/conformance.rs`.
 
@@ -79,7 +79,7 @@ Verdict: mergeable. The two low findings can be fixed in this PR or accepted.
 
 ## Dispositions
 
-Round 1. Only the fix-round delta. was reviewed:
+Round 1. Only the fix-round delta was reviewed:
 
 - Fix: `tests/it/conformance.rs`, 4 insertions and 3 deletions.
 - Trailing: adds SR-1360, SR-1361 and SR-1362 under `reviews/`.

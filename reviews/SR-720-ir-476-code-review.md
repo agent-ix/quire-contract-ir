@@ -39,9 +39,7 @@ mergeable as is because of FND-001: the operations.rs half adds inert tags.
 
 ## Dispositions
 
-Round 1, reviewed agent-ix/quire-contract-ir (delta
-from; merge base is current origin/main
-). The four application-key tests are renamed with the
+Round 1 reviewed the agent-ix/quire-contract-ir PR delta against current origin/main. The four application-key tests are renamed with the
 `tc_048_` prefix and their bare `Tracing: TC-048` lines removed; `quire coverage --json` at
 head binds all four (bound 239 -> 243) and reports no unmatched TC-048 or FR-038 tag in
 operations.rs. The delta also adds `#[trace(...)]` to 24 tests and `ix-trace-rs` as a

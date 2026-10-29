@@ -87,11 +87,9 @@ it.
 
 ## Dispositions
 
-Round 1 was reviewed. The delta
-The follow-up touches only `model_members.rs` (one hunk), the new test, the
+Round 1 reviewed the follow-up delta. It touches only `model_members.rs` (one hunk), the new test, the
 FR-038 note, TC-048, the FR-038 matrix row and `spec/tests.md`. `Cargo.lock`
-and the manifests are recorded in the PR. I ran `make fmt-check lint test` on
- and they pass. `quire coverage --strict` reports 23 unbacked rows, and
+and the manifests are recorded in the PR. I ran `make fmt-check lint test` on the reviewed PR head; the commands passed. `quire coverage --strict` reports 23 unbacked rows, and
 validate reports 1 grammar finding (FR-014).
 
 | FND | outcome | reason |

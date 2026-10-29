@@ -89,7 +89,7 @@ Round 3 (final), reviewed. Its base is feat/artifact-ref-authority-identity, whi
 - make ci passed fmt, clippy, test (it 268, model 111, doc 7) and corpus 99/99. It stopped at make spec on the baseline: validate passes, 344/345 grammar-clean (1 finding), strict 23 unbacked, 0 contradicted.
 - deny, cargo-audit and audit-unsafe pass.
 - conformance-qspec admits all three fixtures and against a detached QSpec worktree, and fails when QUIRE_SPECIFICATION_DIR is unset.
-- 's new adverse mutation negative-temporal-interval-bound refuses invalid_package/invalid-value at node 29's interval/lower, with the formula node's key as locus. All 5 structural mutations refuse as QSpec expects.
+- The new adverse mutation negative-temporal-interval-bound refuses invalid_package/invalid-value at node 29's interval/lower, with the formula node's key as locus. All 5 structural mutations refuse as QSpec expects.
 - git diff --check is clean, there are no conflict markers or EOF artifacts, and every file ends with one newline. The PR's spec diff is only TC-048, the matrix row and spec/tests.md, so `-X ours` overwrote no base text. No AC-66 trace remains.
 - The record/tuple recursion tests (checked_package_v2_recursive_leaves.rs) are untouched and pass.
 - Every edited pre-existing test file follows a spec change: artifact_refs, catalog_words, lowering, reader, complete_v1, support, and the operations.rs unit tests (the AC-67 node operator moves from case to unary because the case form contradiction now comes first).

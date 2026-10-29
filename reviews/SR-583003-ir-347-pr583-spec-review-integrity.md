@@ -44,8 +44,8 @@ at the artifact level what the matrix now (correctly) claims. No acceptance crit
 
 ## Dispositions
 
-Round 1. Checked at (equal to
-`origin/spec/ir-status-closeout`) against the fix delta. The fix diff touches four
+Round 1. Checked at the PR head, equal to
+`origin/spec/ir-status-closeout`, against the fix delta. The fix diff touches four
 Markdown files: `spec/kani/matrix/TC-443-kani-outcome-typed-code.md`,
 `spec/kani/functional/FR-030-bounded-kani-domain-and-outcomes.md`, `spec/core/matrix/tests.md` and
 `spec/tests.md`. It changes no code, no AC text and no TC trace tag. The checks were static only:

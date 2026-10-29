@@ -20,7 +20,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-210 (slice C), PR quire-contract-ir#431, over merge. origin/main has since moved to (slice D, #429), which touches no file in this diff. The PR changes 28 unit tests in 10 files of `crates/quire-contract-model/src`. Each test gets `use ix_trace_rs::trace;` in its module (or reuses the import already there in `v2/mod.rs` and `output_mapping.rs`), a `#[trace(...)]` attribute, and its `/// Tracing:` doc line becomes `/// Trace:`. No test body, assertion or name changed. Ten tests changed their ids: some ids were retargeted, some dropped and one added. The rust-review lane is folded into this file. Every added, kept, retargeted and dropped id was read against its criterion text in `spec/` and against the test body. Coverage accounting is in the gap-analysis artifact (SR-12071).
+Ticket: IR-210 (slice C), PR quire-contract-ir#431, over the merge base. origin/main has since moved through slice D (#429), which touches no file in this diff. The PR changes 28 unit tests in 10 files of `crates/quire-contract-model/src`. Each test gets `use ix_trace_rs::trace;` in its module (or reuses the import already there in `v2/mod.rs` and `output_mapping.rs`), a `#[trace(...)]` attribute, and its `/// Tracing:` doc line becomes `/// Trace:`. No test body, assertion or name changed. Ten tests changed their ids: some ids were retargeted, some dropped and one added. The rust-review lane is folded into this file. Every added, kept, retargeted and dropped id was read against its criterion text in `spec/` and against the test body. Coverage accounting is in the gap-analysis artifact (SR-12071).
 
 ## Reviewed scope
 

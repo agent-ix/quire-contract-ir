@@ -52,8 +52,7 @@ Criterion by criterion:
   five Path rows and the AC-119..122 rows; TC-048 intro and section; the FR-038 and TC-048
   matrix rows; and `spec/tests.md`. A repo-wide grep for "IR-551" planned wording,
   "until that code", `NullOnly` and `IntervalFit::Any` finds nothing.
-  `quire coverage --scope . --strict` gives 23 unbacked rows at both the and
-  the head. FR-038 goes from 115/119 to 119/119, so AC-119 to AC-122 are now backed; they
+  `quire coverage --scope . --strict` gives 23 unbacked rows at both the base and the head. FR-038 goes from 115/119 to 119/119, so AC-119 to AC-122 are now backed; they
   were never in the unbacked list because they were planned rows. Total coverage moves
   from 260/285 to 264/285. `quire validate` passes with one grammar finding (FR-014,
   `ac:vague-response`), which predates this PR.

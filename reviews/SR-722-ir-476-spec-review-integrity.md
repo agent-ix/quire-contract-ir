@@ -49,11 +49,10 @@ existed and were already cited, so nothing was invented.
 | --- | --- | --- |
 | FND-001 | still-open | The misstatement is corrected in the PR body, but the body still cites the short SHA "" in "Main ". Replace it with the full or drop it. |
 
-Round 2, reviewed agent-ix/quire-contract-ir. The delta
-from only adds the three SR files under `reviews/`
+Round 2, reviewed agent-ix/quire-contract-ir. The PR delta adds only the three SR files under `reviews/`
 (byte-identical to the round-1 reviewer files, and `quire validate` on `reviews/**` passes).
 The merge base is still origin/main. All three
-fixes are edits to the PR body, which has no commit, so the sha recorded is the head at
+fixes are edits to the PR body, which has no commit, so the recorded PR head was the one reviewed at
 which the body was verified.
 
 | FND | outcome | reason |

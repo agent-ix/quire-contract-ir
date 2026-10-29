@@ -23,4 +23,4 @@ The edited requirement wording is concrete and testable; no EARS grammar issue w
 
 ## Coverage
 
-Exact review scope: IR hotfix .., changed FR-038 owner-join prose and AC-304, with merged QSpec FR-322-AC-82 and its published population cases at QSpec main. This reviewer did not edit the author branch or run heavy gates.
+Exact review scope: IR hotfix, changed FR-038 owner-join prose and AC-304, with merged QSpec FR-322-AC-82 and its published population cases at QSpec main. This reviewer did not edit the author branch or run heavy gates.

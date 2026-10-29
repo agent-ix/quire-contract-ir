@@ -119,8 +119,7 @@ untested.
 
 ### Round 3
 
-Round 3, reviewed (one commit on
-). These are measured in a detached worktree outside the repository,
+Round 3, reviewed after one follow-up commit. These are measured in a detached worktree outside the repository,
 since removed. All gates exit 0 (`make spec` 2 at the baseline: 1 grammar
 finding, 23 unbacked, 0 contradicted). The `reviews/` copies are
 byte-identical to the round-2 SR files.
@@ -142,8 +141,7 @@ and M9b (`lower_one` records `ceiling + 1`) still passes the whole suite.
 
 ### Round 4
 
-Round 4, reviewed (one commit on
-). These are measured in a detached worktree outside the repository,
+Round 4, reviewed after one follow-up commit. These are measured in a detached worktree outside the repository,
 since removed. All gates exit 0 (`make spec` 2 at the baseline: 1 grammar
 finding, 23 unbacked, 0 contradicted). The `reviews/` copies are
 byte-identical to the round-3 SR files.

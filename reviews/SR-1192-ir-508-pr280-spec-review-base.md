@@ -18,7 +18,7 @@ Measured at the reviewed sha:
 
 - `quire validate` over spec, plan and reviews passes. It reports one grammar
   finding (FR-014, the baseline). `quire coverage --strict` reports 34 unbacked
-  rows, against 23 at (measured on both). The 11 extra rows are
+  rows, against 23 at the base (measured on both). The 11 extra rows are
   FR-345, TC-224 and FR-345-AC-1..9, all planned. No CLAUDE.md, AGENTS.md or
   Makefile text requires the strict count to stay at 23. The FR-344 spec-first
   PR (#173) added planned unbacked rows the same way. The rise is acceptable,

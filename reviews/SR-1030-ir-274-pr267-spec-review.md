@@ -27,8 +27,7 @@ What I measured:
   FR-034 do not give their field shape. AD-004 only lists the record kinds. So
   no schema or corpus file needs the same change. This is a Rust model change,
   not a wire change.
-- quire-canonical #7 is MERGED as,
-  which is origin/main's head. `LimitExceeded.required` exists and is
+- quire-canonical #7 is merged into origin/main. `LimitExceeded.required` exists and is
   documented "Always greater than `bound`". `Writer::count` enforces that for
   `CanonicalBytes`.
 - The FR-038 matrix row in `tests.md` still says "(quire-canonical #7) is open

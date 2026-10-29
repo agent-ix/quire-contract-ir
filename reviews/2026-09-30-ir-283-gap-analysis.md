@@ -21,8 +21,8 @@ TC-050 tests and the changed TC-047 test. Also examined: the tickets'
 acceptance statements (untrusted ticket text, re-measured here) against QSL
 TC-440 run with this PR patched in.
 
-Matrix: `quire coverage --scope . --strict` and at merge-base
- both report 22 unbacked rows, the same rows (pre-existing, IR-448).
+Matrix: `quire coverage --scope . --strict` at the PR head and merge base
+both report 22 unbacked rows, the same rows (pre-existing, IR-448).
 Bound evidence goes from 202 to 206 symbols. The PR adds no unbacked row.
 
 ## Verdict

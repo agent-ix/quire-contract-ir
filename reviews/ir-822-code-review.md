@@ -29,7 +29,7 @@ PASS with one low finding on PR metadata. The code hunk is correct, convention-c
 
 ## Dispositions
 
-Round 1, verified against the PR #424 body as returned by `gh pr view 424` at.
+Round 1, verified against the PR #424 body as returned by `gh pr view 424`.
 
 | FND | outcome | reason |
 | --- | --- | --- |

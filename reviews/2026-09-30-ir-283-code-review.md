@@ -77,12 +77,11 @@ application fixture shows it.
 
 ## Dispositions
 
-Round 1, reviewed ( is
- rebased onto origin/main; is the fix round).
+Round 1 reviewed the fix round after the PR was rebased onto origin/main.
 
 What the reviewer measured, on a clean tree:
 
-- **QSL TC-440** (quire-spec-language origin/main, IR patched to
+- **QSL TC-440** (quire-spec-language origin/main, with the IR review run using
 `--include-ignored`). These pass, including the ignored ones:
   - `tc_440_an_unbounded_application_record_requires_a_bound_in_ir_pending_ir_283`,
     so `(x + 1) + n` now refuses;

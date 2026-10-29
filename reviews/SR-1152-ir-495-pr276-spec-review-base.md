@@ -96,7 +96,7 @@ AC-coverage changes with no code impact.
 
 ## New findings (disposition pass 1)
 
-Reviewed at agent-ix/quire-contract-ir. It is one commit on with the same base, which is still main, and it changes four spec files. `make spec`: validate passes, 1 grammar finding (FR-014, baseline), strict coverage 23 unbacked rows (baseline). The delta names no crate and adds no dependency edge. "Arena order" is gone from the spec tree.
+Reviewed at agent-ix/quire-contract-ir. It is one follow-up commit on the same base, which is still main, and it changes four spec files. `make spec`: validate passes, 1 grammar finding (FR-014, baseline), strict coverage 23 unbacked rows (baseline). The delta names no crate and adds no dependency edge. "Arena order" is gone from the spec tree.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |

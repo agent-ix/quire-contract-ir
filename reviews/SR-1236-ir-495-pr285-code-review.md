@@ -11,8 +11,7 @@ review_set: subset
 ## Summary
 
 Ticket: IR-495. Code review with the rust-review lane folded in, over
-`git diff origin/main...HEAD` (current merge base, two commits). Main has since moved to
-and the PR is CONFLICTING (one adjacent-line conflict in `spec/tests.md`).
+`git diff origin/main...HEAD` (current merge base, two commits). Main has since moved, and the PR is CONFLICTING (one adjacent-line conflict in `spec/tests.md`).
 
 What was checked, and what holds:
 

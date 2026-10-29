@@ -90,14 +90,14 @@ Round 3 (final), reviewed. Its base is feat/artifact-ref-authority-identity, whi
 - make ci passed fmt, clippy, test (it 268, model 111, doc 7) and corpus 99/99. It stopped at make spec on the baseline: validate passes, 344/345 grammar-clean (1 finding), strict 23 unbacked, 0 contradicted.
 - deny, cargo-audit and audit-unsafe pass.
 - conformance-qspec admits all three fixtures and against a detached QSpec worktree, and fails when QUIRE_SPECIFICATION_DIR is unset.
-- 's new adverse mutation negative-temporal-interval-bound refuses invalid_package/invalid-value at node 29's interval/lower, with the formula node's key as locus. All 5 structural mutations refuse as QSpec expects.
+- The new adverse mutation negative-temporal-interval-bound refuses invalid_package/invalid-value at node 29's interval/lower, with the formula node's key as locus. All 5 structural mutations refuse as QSpec expects.
 - git diff --check is clean, there are no conflict markers or EOF artifacts, and every file ends with one newline. The PR's spec diff is only TC-048, the matrix row and spec/tests.md, so `-X ours` overwrote no base text. No AC-66 trace remains.
 - The record/tuple recursion tests (checked_package_v2_recursive_leaves.rs) are untouched and pass.
 - Every edited pre-existing test file follows a spec change: artifact_refs, catalog_words, lowering, reader, complete_v1, support, and the operations.rs unit tests (the AC-67 node operator moves from case to unary because the case form contradiction now comes first).
 - Mutants R01 to R15: 14 killed, R14 survived (FND-005). The killed ones cover the bound pattern and its order, upper null, case placement and the form contradiction, the nested-case path and locus, the null member at the application, the fairness no-node rule, the details reference rules, timed null-only and union recursion.
 Latest outcomes: every SR-1050 FND-001 to 004 is fixed; SR-1051 FND-001 is deferred (QSL) and FND-002 to 010 are fixed. No row needs a new outcome.
 
-Round 4, reviewed, on the same. `git diff --stat ` touches one file, temporal.rs (+5 -6): the dead arm is removed from misplaced_in_details and the doc comment is updated, nothing else. The new code is exactly mutant R14 from round 3, which compiled and passed the full workspace suite, so behaviour is unchanged and no gates were rerun.
+Round 4 reviewed the follow-up on the same PR. `git diff --stat` touches one file, temporal.rs (+5 -6): the dead arm is removed from misplaced_in_details and the doc comment is updated, nothing else. The new code is exactly mutant R14 from round 3, which compiled and passed the full workspace suite, so behaviour is unchanged and no gates were rerun.
 
 | FND | outcome | reason |
 | --- | --- | --- |

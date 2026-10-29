@@ -40,8 +40,7 @@ dependency.
 
 ## Dispositions
 
-Round 1, verified against fix (after merge of
-origin/main) with `git diff origin/main...HEAD`.
+Round 1, verified against the fix after updating from origin/main with `git diff origin/main...HEAD`.
 
 | FND | Outcome | Reason |
 | --- | --- | --- |

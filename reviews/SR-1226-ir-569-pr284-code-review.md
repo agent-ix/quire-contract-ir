@@ -92,7 +92,7 @@ Verdict (code-review lane): approve with low findings. Merge depends on SR-1227.
 
 ## Dispositions
 
-Round 1, after the fix commit. I reviewed only the delta (`git diff.`). It touches tests and matrix rows only, with no production-code change:
+Round 1, after the fix commit. I reviewed only the PR delta. It touches tests and matrix rows only, with no production-code change:
 `crates/quire-contract-model/src/wire.rs` (tests module), `tests/it/executable_binding.rs`,
 `spec/core/matrix/tests.md` and `spec/tests.md`.
 

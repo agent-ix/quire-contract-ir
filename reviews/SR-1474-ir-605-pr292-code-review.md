@@ -96,7 +96,7 @@ Verdict: changes requested.
 
 ## Dispositions
 
-Round 1, one fix commit on top of.
+Round 1 reviewed one fix commit on top of the original PR.
 Main has not moved. Only the delta was reviewed: the reviewed PR delta.
 
 Gates I ran on the reviewed PR head, all passing:
@@ -124,9 +124,9 @@ FND-005: a `const _` block asserts that every `DiagnosticCode::ALL` spelling is 
 | FND-004 | fixed | Fixed in the reviewed PR. |
 | FND-005 | fixed | Fixed in the reviewed PR. |
 
-Round 2, one fix commit on top of. Main has not moved.
+Round 2, one fix commit on top of the reviewed PR. Main has not moved.
 
-Scope of the commit: `git diff --stat ` touches only the seven files under `src/kani/`. No spec, test or Makefile file changed.
+Scope of the commit: `git diff --stat` touches only the seven files under `src/kani/`. No spec, test or Makefile file changed.
 
 FND-006:
 

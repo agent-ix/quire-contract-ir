@@ -65,7 +65,7 @@ It also leaves a test oracle that cannot fail for the reason it states.
 
 ## New findings (disposition pass 1)
 
-Reviewed at agent-ix/quire-contract-ir. The branch was rebased onto main. The range-diff shows =, so the patch is unchanged. is the fix commit. FND-002 is in text that was already present, and the review pass missed it.
+Reviewed at agent-ix/quire-contract-ir. The branch was rebased onto main. The range-diff shows the original patch is unchanged; the follow-up commit is the fix. FND-002 is in text that was already present, and the review pass missed it.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |

@@ -83,7 +83,7 @@ planned "today" statement are all correct.
 
 ## New findings (disposition pass 1)
 
-Re-reviewed at agent-ix/quire-contract-ir, which is fix on top of. AC-119 is now split into AC-119 to AC-122.
+Re-reviewed at agent-ix/quire-contract-ir, with a follow-up fix commit. AC-119 is now split into AC-119 to AC-122.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
@@ -94,7 +94,7 @@ Re-reviewed at agent-ix/quire-contract-ir, which is fix on top of. AC-119 is now
 
 ## New findings (disposition pass 2)
 
-Re-reviewed at agent-ix/quire-contract-ir, which is fix on top of. Only FR-038 and TC-048 changed.
+Re-reviewed at agent-ix/quire-contract-ir, with a follow-up fix commit. Only FR-038 and TC-048 changed.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
