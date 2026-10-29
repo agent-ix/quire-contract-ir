@@ -11,8 +11,8 @@ relationships:
 ## Description
 
 The repository shall publish a Draft 7 JSON schema, representative valid
-packages, targeted invalid packages, expected diagnostics, canonical encodings
-and their canonical digests, dependency sets, and a reusable conformance runner.
+packages, targeted invalid packages, expected diagnostics, canonical encodings,
+dependency sets, and a reusable conformance runner.
 
 ## Inputs
 
@@ -138,8 +138,8 @@ observable even though both deliberately shape-invalid probe documents share the
 Expectations contain only fields meaningful for their operation. Valid results
 carry no diagnostics; invalid results carry the exact authored-order diagnostic
 code, semantic path, optional span, related identities, and optional obligation
-kind. Successful canonical results carry exact UTF-8 bytes as a fixture path and
-lowercase digest. A package result carries the package output plus separately
+kind. Successful canonical results carry exact UTF-8 bytes as a fixture path.
+A package result carries the package output plus separately
 sorted requirement and clause outputs; an expression result carries the
 declaration environment and typed expression outputs separately. Dependency
 identities and coverage rows use their normative structural order. The runner
@@ -147,18 +147,19 @@ compares values structurally and bytes exactly; it never parses diagnostic
 messages.
 
 Downstream tools can execute the process runner without linking the Rust
-library. The checked-in generator is owned by this requirement, rejects a
-declared token the runner does not observe, and has a scratch-directory
-byte-for-byte regeneration gate. Frozen outputs establish regression stability and
-determinism for this implementation, not independent semantic correctness.
+library. The runner rejects a declared token that no fixture observes.
+Published fixture expectations are checked against the actual semantic result;
+the exact canonical-byte comparison checks the representation. A generator may
+help author corpus fixtures, but reproduction of a checked-in file by a
+generator is not a conformance condition.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 |---|---|---|
 | FR-018-AC-1 | Running the corpus directory yields one matching row per input with non-empty trace targets, and the union of observed tokens equals the published inventory, so every registered public construct, STD-001 diagnostic, operation, and boundary token is covered; a corpus missing a token's only fixture, a fixture with an unknown operation prefix or a missing expectation, and oversize, over-count and over-budget corpora fail before any row is written. | Test (TC-018) |
-| FR-018-AC-2 | Mutation fixtures independently alter schema validity, diagnostic code/path/order/span/obligation, canonical byte, digest, dependency, and coverage row/reason; each produces the exact mismatch result without message parsing. | Test (TC-018) |
-| FR-018-AC-3 | Raw package probes pin exact and one-past wire depth, and quoted delimiters do not count toward depth. | Test (TC-018) |
+| FR-018-AC-2 | Mutation fixtures independently alter schema validity, diagnostic code/path/order/span/obligation, canonical byte, dependency, and coverage row/reason; each produces the exact mismatch result without message parsing. Canonical-byte mutations are compared with independently authored expected bytes, including an encoding-order or escaping mutation that leaves the semantic value unchanged. | Test (TC-018) |
+| FR-018-AC-3 | Raw package probes exercise exact and one-past wire depth, and quoted delimiters do not count toward depth. | Test (TC-018) |
 
 ## Dependencies
 
