@@ -72,6 +72,54 @@ fn timed_clause_admission_retains_one_anchor_occurrence_and_operation_urgency() 
     else {
         panic!("published timed clause package must admit")
     };
+    let encoded: Value =
+        serde_json::from_slice(&encode_package(&package)).expect("typed clause writer JSON");
+    assert_eq!(
+        encoded, wire,
+        "all admitted clause bodies retain their exact wire form"
+    );
+    for (form, kind) in [
+        ("clock_constraint", "place"),
+        ("clock_constraint", "parameter"),
+        ("clock_reset", "place"),
+        ("clock_reset", "parameter"),
+    ] {
+        assert!(
+            package.graph().nodes.iter().any(|node| {
+                node.semantic_form.as_ref() == form
+                    && matches!(
+                        member(&node.body, "kind"),
+                        CheckedTerm::Literal { value, .. } if value == kind
+                    )
+            }),
+            "admitted clause fixture lacks {form}/{kind}"
+        );
+    }
+    for form in ["clock_guard", "time_invariant", "clock_place"] {
+        assert!(
+            package
+                .graph()
+                .nodes
+                .iter()
+                .any(|node| node.semantic_form.as_ref() == form),
+            "admitted clause fixture lacks {form}"
+        );
+    }
+    for place in package
+        .graph()
+        .nodes
+        .iter()
+        .filter(|node| node.semantic_form.as_ref() == "clock_place")
+    {
+        let CheckedTerm::Aggregate { members } = &place.body else {
+            panic!("admitted clock place must retain an aggregate body")
+        };
+        assert_eq!(
+            members.len(),
+            3,
+            "clock place retains model, path and resolved_path"
+        );
+    }
     let model_id = id_at(&wire, 53);
     for (clause_position, anchor_position) in [(47, 75), (82, 75), (79, 73), (85, 73)] {
         let clause_id = id_at(&wire, clause_position);
