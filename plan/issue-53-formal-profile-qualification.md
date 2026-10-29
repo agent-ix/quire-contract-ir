@@ -42,10 +42,10 @@ language decision and makes compiled domain packages from filament-core-data
 #36 the type-environment source. The actual FR-006 source, revision, digest,
 and limits of the three synthetic probes are recorded in ADR-0053.
 
-Upstream documentation and pinned license/README/CLI materials were inspected
-on 2026-09-06 using read-only requests. Some browser fetches of pinned GitHub
+Upstream documentation and license/README/CLI materials were inspected
+on 2026-09-06 using read-only requests. Some browser fetches of GitHub
 files failed; successful GitHub content API reads supplied their actual bytes.
-The pinned SysML license correction is a concrete finding: stable 2025-09 is
+The SysML license correction is a concrete finding: stable 2025-09 is
 LGPL-3.0-or-later per its README, not the unqualified EPL-2.0 assumption.
 
 ## Preserved mapping discriminators
@@ -94,9 +94,8 @@ claiming support.
 2. ADR-0054 remains accepted and #54 remains closed. A later reference/graph
    implementation uses a separately versioned identity-preserving contract;
    no UUID cast or recursive-record substitution is permitted.
-3. #55–#57 specify and implement Rust output mappings. They retain the useful
-   candidate pins as research provenance but do not execute foreign runtimes for
-   first-party qualification without a new owner decision.
+3. #55–#57 specify and implement Rust output mappings. First-party
+   qualification does not execute foreign runtimes without a new owner decision.
 4. Independent mapping corpora compare native source meaning with the emitted
    artifact and its loss report. Parser acceptance is never the oracle.
 5. #58 reports every criterion's formalization disposition and exact clause

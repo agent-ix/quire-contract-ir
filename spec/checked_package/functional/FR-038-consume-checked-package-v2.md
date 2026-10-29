@@ -500,8 +500,7 @@ admitted package's `body` and `details` nest to a depth the body grammar fixes).
 `Encode` for `serde_json::Value`, behind a `serde_json` feature, as the one
 owner for this repository, `quire-contract-codegen` and `quire-spec-language`,
 and that this repository's `Encode` types delegate their `Value` members to it.
-That upstream change is quire-canonical #7, merged as
-b4bb97a5fe0a946e9d980e6466c7ecf95c6e62f1. The same change adds a
+That upstream change is quire-canonical #7. The same change adds a
 public non-recursive drop helper for a deep `serde_json::Value`, because
 `serde_json`'s own drop recurses and an in-memory `Value` is built at any depth;
 the reader drops a deep `Value` through that helper and writes no drop of its own.
@@ -551,7 +550,7 @@ types that hold them. A type that has an `Encode` implementation of its own
 writes its members as `Writer` events in its own field order, delegating a
 fixed-depth member to `Writer::serialize` and a `Value` member to the encode of
 a `Value` (`quire-canonical`'s `Encode` for `serde_json::Value`, quire-canonical
-#7, merged as b4bb97a5fe0a946e9d980e6466c7ecf95c6e62f1).
+#7).
 
 This repository holds no walker over a
 `Value`: the iterative encode of a `Value`, its number rule (an integer past
@@ -912,8 +911,7 @@ canonical bytes of the value read, and carries neither cause nor pointer
 never emits such a number, so this change has no lockstep with QSL. The text a
 number is compared with is the one `quire-canonical` writes for it, whose
 tie-breaking is the even last digit, as QSL's merged intake rule (FR-056-AC-13
-and FR-056-AC-14, quire-spec-language #617, merged as
-8244dd2b4a63b312ca36a8f254cdc096590eb9b9) takes it, so the two readers agree on
+and FR-056-AC-14, quire-spec-language #617) takes it, so the two readers agree on
 every number with a finite IEEE 754 double. For a number with no finite double,
 such as `1e400` and `-1e400`, QSL's merged FR-056 (AC-2 and TC-145) says it
 refuses `noncanonical_wire`/`inexact-integer` (`1e-400`: `inexact-number`) with the
@@ -3135,8 +3133,7 @@ new controls are run, those old admission paths remain an implementation gap.
 The owner join remains ahead of both key passes, including when an owner
 defect is on a higher-key node than a stale structural key.
 
-**Fixtures carry derived keys.** Measured against QSpec's `origin/main`
-(2b2dd28; a stale local checkout differs): the fixtures FR-038-AC-107 reads
+**Fixtures carry derived keys.** The fixtures FR-038-AC-107 reads
 live in QSpec's checkout (`proposals/checked-package-v2/fixtures/`), not in this
 repository. The undeclared nodes of a derived shape, each under a placeholder
 key, are: in `positive-all-families.json`, node 24 (`scalar_type`/`integer`,

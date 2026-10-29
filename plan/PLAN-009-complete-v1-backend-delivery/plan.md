@@ -50,7 +50,7 @@ it introduces a new representation, correspondence, or compatibility promise.
 | V1-BACK-010 | QSpec FR-125, I12/I16 | #55/#56/#57 | #58/#101 | output only; target parser acceptance is not equivalence |
 | V1-BACK-011 | QSpec FR-121, I12/I16 | #55/#56/#57 | #58/#101 | explicit source-bound loss accounting |
 | V1-BACK-012 | QSpec FR-019, I12/I16 | #55/#56/#57 | #58/#101 | deterministic derived package; never source authority |
-| V1-BACK-013 | QSpec FR-052, I12/I16 | #55/#56/#57 | #58/#101 | exact pins and output-map qualification |
+| V1-BACK-013 | QSpec FR-052, I12/I16 | #55/#56/#57 | #58/#101 | output-map qualification |
 | V1-BACK-014 | QSpec FR-019, I12/I13/I19 | Contract IR #100 | runtime #16, codegen #48–#50 | identity-preserving cross-backend contract |
 
 `planned` records incomplete delivery, never implementation support. At runtime
@@ -66,9 +66,9 @@ terminal disposition named by FR-035 or FR-036 and no artifact.
 | E01b | Contract IR issue #106 (PR #107/#108) | quire-contract-ir | FR-038 and TC-048/TC-050: strict CheckedPackage V2 reader with nominal identity re-derivation, typed version refusal and per-item V2 lowering against the QSpec I04 contract |
 | E02 | runtime #16 | quire-contract-runtime | exact oracle outcomes over the merged ContractPackage |
 | E03 | codegen #48 | quire-contract-codegen | deterministic oracle artifacts and accounting |
-| E04 | codegen #49 | quire-contract-codegen | exact bounded Kani harnesses and pins |
+| E04 | codegen #49 | quire-contract-codegen | exact bounded Kani harnesses |
 | E05 | codegen #50 | quire-contract-codegen | canonical replay/parity evidence |
-| E06 | #55/#56/#57/#58/#40 -> #101 | Contract IR plus consumers | output records, coverage, exact pins, cross-backend qualification |
+| E06 | #55/#56/#57/#58/#40 -> #101 | Contract IR plus consumers | output records, coverage, cross-backend qualification |
 
 ## Exit Criteria
 
