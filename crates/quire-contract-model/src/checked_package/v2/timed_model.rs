@@ -1113,7 +1113,7 @@ impl Graph<'_> {
             |kind| {
                 matches!(
                     kind,
-                    CheckedNodeKind::Value(ValueForm::Parameter) | CheckedNodeKind::Expression(_)
+                    CheckedNodeKind::Value(_) | CheckedNodeKind::Expression(_)
                 )
             },
         )?;
@@ -1154,7 +1154,7 @@ impl Graph<'_> {
             let target = self.target(position, Some(slot), at.clone(), |kind| {
                 matches!(
                     kind,
-                    CheckedNodeKind::Value(ValueForm::Parameter) | CheckedNodeKind::Expression(_)
+                    CheckedNodeKind::Value(_) | CheckedNodeKind::Expression(_)
                 )
             })?;
             if &self.nodes[target].semantic_type != selector {
@@ -1861,6 +1861,16 @@ pub(super) fn validate_models<'a>(
                     let place_index = if form == Form::Reset { 2 } else { 1 };
                     let (owner_index, slots_index) =
                         if form == Form::Reset { (3, 4) } else { (2, 3) };
+                    let anchor = if form == Form::Reset {
+                        Some(graph.anchor(
+                            position,
+                            bound(body, 1),
+                            binding_at(position, 1).key("target"),
+                            root_model,
+                        )?)
+                    } else {
+                        None
+                    };
                     let place_position = graph.place_terms(
                         position,
                         body,
@@ -1869,13 +1879,7 @@ pub(super) fn validate_models<'a>(
                         slots_index,
                         root_model,
                     )?;
-                    if form == Form::Reset {
-                        let anchor = graph.anchor(
-                            position,
-                            bound(body, 1),
-                            binding_at(position, 1).key("target"),
-                            root_model,
-                        )?;
+                    if let Some(anchor) = anchor {
                         if !graph.frame_writes_place(anchor, place_position, root_model) {
                             return Err(graph.issue(
                                 position,
