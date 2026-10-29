@@ -82,7 +82,7 @@ Rust lane: `cargo fmt --all --check` passes. There is no `unwrap` or `expect` in
 
 ## Dispositions
 
-Round 1, against (fix;  merges origin/main and touches no reviewed code). I re-ran the mutants against the new test in a throwaway worktree with its own target dir (since removed).
+Round 1 reviewed the fix after origin/main was merged into the PR; the merge touches no reviewed code. I re-ran the mutants against the new test in a throwaway worktree with its own target dir (since removed).
 
 | FND | outcome | reason |
 | --- | --- | --- |

@@ -36,4 +36,4 @@ Reviewed exact IR against QSpec #425. Spec-only review; no Cargo or Kani gate ru
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | At PR #530, the only delta from reviewed  replaces `QSPEC_DIR` with `QUIRE_SPECIFICATION_DIR` in the timed-vector instruction. This matches `tests/conformance_qspec/main.rs:48`, the Make target, and FR-038-AC-107. |
+| FND-001 | fixed | At PR #530, the only delta since the preceding review replaces `QSPEC_DIR` with `QUIRE_SPECIFICATION_DIR` in the timed-vector instruction. This matches `tests/conformance_qspec/main.rs:48`, the Make target, and FR-038-AC-107. |

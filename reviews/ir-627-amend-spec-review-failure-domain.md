@@ -10,8 +10,8 @@ review_set: subset
 ## Summary
 
 Ticket: IR-627. Failure-domain lens over `git diff origin/main...HEAD` of PR #298,
-re-measured against fresh `origin/main` of quire-spec-language  and
-quire-specification  and against reader code at the PR head. The key
+re-measured against fresh `origin/main` of quire-spec-language and
+quire-specification and against reader code at the PR head. The key
 soundness question was whether a tamperer can set `recursion_group` on a node to
 escape re-derivation. They can: admission constrains only "every cyclic SCC
 shares one label" (`validate_recursion`, `crates/quire-contract-model/src/checked_package/v2/mod.rs:1847-1960`)

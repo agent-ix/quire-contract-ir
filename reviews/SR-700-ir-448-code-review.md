@@ -46,5 +46,5 @@ Round 1, reviewed (fix round).
 
 | FND | Outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |  |
-| FND-002 | fixed |  |
+| FND-001 | fixed | The fix round uses QSpec FR-154 as the source attribution in the three doc comments. |
+| FND-002 | fixed | The three comment paragraphs were reflowed in the fix round. |

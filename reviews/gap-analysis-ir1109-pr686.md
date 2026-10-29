@@ -59,4 +59,4 @@ At frozen, AC-357..362 remain verbatim after their status/evidence prefixes. The
 
 ## Final trace disposition
 
-At, Quire resolves AC-357 with both named tests, AC-358 with all four named tests and AC-359 with all three named tests. AC-360..362 named tests were already bound. AC-343 is minted and untagged, so it remains honestly unbacked. The code/test behavior is unchanged by these final three trace edits.
+At the reviewed PR head, Quire resolves AC-357 with both named tests, AC-358 with all four named tests and AC-359 with all three named tests. AC-360..362 named tests were already bound. AC-343 is minted and untagged, so it remains honestly unbacked. The code/test behavior is unchanged by these final three trace edits.

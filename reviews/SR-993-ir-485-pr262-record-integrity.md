@@ -50,8 +50,7 @@ so a reader who starts from a stale marker reaches the right file.
 PR body: "Closes IR-485" is justified. #248 cleared the 7 marker-free groups,
 and this PR clears the last 8. The ticket's "make the validator or a lint catch
 it" was set aside by the planner's "no new tracking machinery" (SR-726 FND-002,
-accepted-no-change). The title carries no bare ticket id. The body carries no
-short SHA.
+accepted-no-change). The title carries no bare ticket id.
 
 ## Findings
 

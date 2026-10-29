@@ -16,7 +16,7 @@ assessed") with test-oracle strength folded in. PR: none yet. Computed matrix:
 and 454/515; FR-038 224/236 to 226/236; `--strict` 49 unbacked rows
 at both. `quire matrix` lists FR-038-AC-222 as tagged by
 tests/it/checked_package_v2_ieee_admission.rs:89 and :177, and FR-038-AC-223 by
-:284 (both untagged at base). No new production code lacks an owning
+the same file at line 284 (both untagged at base). No new production code lacks an owning
 requirement: `check_ieee_member_result` traces to FR-038-AC-223 and the FR-038
 normative IEEE bullet.
 

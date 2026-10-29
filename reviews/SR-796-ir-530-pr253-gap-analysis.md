@@ -30,8 +30,7 @@ already states the `{authority, identity}` shape.
 
 There is no compatibility layer, no new pin or SHA beyond the one lock entry, no vendored
 catalog and no QSL dependency. Cargo.toml is unchanged. The PR title has no bare ticket id,
-the body opens "Part of IR-530 and IR-503", the PR is draft and held, and the body uses
-full SHAs only.
+the body opens "Part of IR-530 and IR-503", and the PR is draft and held.
 
 ## Findings
 
@@ -57,7 +56,7 @@ and can be fixed in the PR.
 ## Dispositions
 
 Round 1, reviewed (fix PR delta; the
-rebase onto is excluded). `quire coverage --strict`: 185/213 backed, 23 unbacked, with
+rebase onto origin/main is excluded). `quire coverage --strict`: 185/213 backed, 23 unbacked, with
 FR-019-AC-5 and TC-058 back on the unbacked list. FR-019 is 4/6 with AC-6 backed. FR-038 is
 63/70. The grammar baseline is 1 (FR-014, pre-existing). `make test` passes: it 199, model 96,
 doctests 7. The coder's log ends `exit=2`, and only `spec` fails.
@@ -68,8 +67,8 @@ doctests 7. The coder's log ends `exit=2`, and only `spec` fails.
 | FND-002 | fixed | the row now lists "FR-038-AC-35 through FR-038-AC-72" and "(63 of 70 FR-038 rows)", which matches quire's 63/70 |
 | FND-003 | fixed | the AC-66 unit test's contradicting case now sets `leaves`, and the TC-048 procedure states the two levels (all 17 at the operation step, one per class through a package read) |
 
-Round 2, reviewed. The delta from is one
-commit that changes one comment line, with no rebase. origin/main is still, and the
+Round 2, reviewed. The follow-up delta is one
+commit that changes one comment line, with no rebase. origin/main has not moved, and the
 merge is clean. `quire coverage --strict`: 185/213 backed, 23 unbacked, which is the
 baseline. fmt-check passes. No remaining text credits member-set probes to TC-058.
 

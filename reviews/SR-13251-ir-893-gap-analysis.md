@@ -50,7 +50,7 @@ The PR conflicts with origin/main. PR #480 (IR-889, merged) changed the same TC-
 
 ## Dispositions
 
-Disposition pass 1, against (origin/main merged in).
+Disposition pass 1 reviewed the PR after origin/main was merged in.
 
 | FND | outcome | reason |
 | --- | --- | --- |

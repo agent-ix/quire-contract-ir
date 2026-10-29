@@ -49,7 +49,7 @@ Round 1, reviewed (fix round).
 
 | FND | Outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |  |
-| FND-002 | fixed |  |
-| FND-003 | fixed |  |
-| FND-004 | fixed |  |
+| FND-001 | fixed | The measurement procedures for corpus bytes, cross-platform comparison and ordered diagnostics were restored alongside the catalogue methods. |
+| FND-002 | fixed | M-3 uses the golden-approval method for ordered diagnostic expectations. |
+| FND-003 | fixed | M-1 names the metamorphic cross-run relation alongside its golden comparison. |
+| FND-004 | fixed | The planned cross-platform status was moved out of the metric name into the matrix status. |

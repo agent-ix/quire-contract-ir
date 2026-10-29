@@ -127,7 +127,7 @@ Round 2, reviewed.
 
 ## Dispositions (round 3)
 
-Round 3, reviewed. QSpec PR #268 and QSL PR #923  are both still OPEN. The PR #439 title now reads AC-269..280. The body no longer carries the IR-841 text: it says "Refs IR-852", has a "Do not merge until" section naming both upstream PRs, and lists six open cross-repo points, each matching the spec text.
+Round 3, reviewed. QSpec PR #268 and QSL PR #923 are both still OPEN. The PR #439 title now reads AC-269..280. The body no longer carries the IR-841 text: it says "Refs IR-852", has a "Do not merge until" section naming both upstream PRs, and lists six open cross-repo points, each matching the spec text.
 
 | FND | outcome | reason |
 | --- | --- | --- |

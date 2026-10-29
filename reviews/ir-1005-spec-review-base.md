@@ -34,4 +34,4 @@ Independent review of draft PR #643 against main. Ticket: IR-1005. The record ve
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At, `observation.origin` is `"origin-1"` for `anchor.kind="origin"`; the capture length was adjusted to preserve 1429 bytes and all four SHA-256 values were recomputed. |
+| FND-001 | fixed | In the reviewed fix, `observation.origin` is `"origin-1"` for `anchor.kind="origin"`; the capture length was adjusted to preserve 1429 bytes and all four SHA-256 values were recomputed. |

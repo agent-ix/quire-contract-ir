@@ -66,7 +66,7 @@ and integer conversions are checked (`i128::try_from` for counts,
 `exceeds_2_pow_53` is correct for every case I traced: integer, fraction,
 exponent, saturating exponent and leading or trailing zeros
 (`9007199254740992.5` refuses, `9007199254740992.0` admits). The history
-carries a WIP commit  and a merge commit  that holds the
+contains a WIP commit and a merge commit that holds the
 substantive change. That is acceptable only for a squash merge. The net diff
 has no formatting churn beyond import reflow forced by the deletions, and no
 artifacts.

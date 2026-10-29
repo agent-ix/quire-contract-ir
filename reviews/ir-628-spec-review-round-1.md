@@ -10,7 +10,7 @@ review_set: subset
 ## Summary
 
 Ticket: IR-628. This covers the new findings of disposition pass 1 over the fix round
-(.., one commit). The defect classes of round 0 were re-checked against the new and
+(one follow-up commit). The defect classes of round 0 were re-checked against the new and
 changed text, which is items 1-26, AC-136..144 and TC-227.
 
 What I re-measured:

@@ -56,8 +56,7 @@ Requirement-to-code-to-test, per unit:
   - TC-048 🚧 to ✅: backed (AC-5's model-owner clause through
     `tc_048_model_owners_join_sha256_jcs_domain_package_selections`, and AC-45 above).
   - FR-038 stays 🚧: see FND-002.
-- **PR hygiene.** The title carries no ticket id. The body has no short SHAs; the only
-  SHA is the full head. For "Closes IR-505", see FND-003.
+- **PR hygiene.** The title carries no ticket id. For "Closes IR-505", see FND-003.
 
 ## Findings
 

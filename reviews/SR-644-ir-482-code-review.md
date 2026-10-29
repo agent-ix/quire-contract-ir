@@ -17,7 +17,7 @@ Every family decision goes through `resolve_family`. `operand_family` is called 
 Over-admission: `NominalKind::required_by` makes an `EnumDeclaration` preimage mandatory on every enum `scalar_type` node. `ordered` is part of the re-derived node key, so it cannot be flipped without changing the key. A missing or other preimage falls back to `enum`, the conservative choice. A dependency or foreign type id is not in the local index and resolves to `None`, the same as on main.
 
 Probes and mutations, all run at head with `CARGO_TARGET_DIR` set to the worktree:
-- Real QSL output  read through the head reader in a scratch harness: `ordered_enum_lt_literals.json` and `ordered_enum_lt_params_located.json` now both read Admitted; on main both were IllTyped/OperatorIneligible at arguments/0. `int_record_eq.json` is still refused at `/operation/leaves`; that is IR-483.
+- Real QSL output read through the head reader in a scratch harness: `ordered_enum_lt_literals.json` and `ordered_enum_lt_params_located.json` now both read Admitted; on main both were IllTyped/OperatorIneligible at arguments/0. `int_record_eq.json` is still refused at `/operation/leaves`; that is IR-483.
 - Always `ordered_enum`: `tc_048_ordering_over_an_unordered_enum_refuses` fails. Never `ordered_enum`: the admit test and the cross-enum test fail. Inverted flag: three tests fail. `None`: the unordered test fails.
 - Inferring "ordered" from member order (members not sorted): every test passes (FND-001).
 

@@ -36,4 +36,4 @@ Approve with one low status-prose fix. Requirement statements and ACs are unchan
 
 | FND | Outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed |  |
+| FND-001 | fixed | The FR-039 matrix status now names the QSL-owned Kani provider exports as remaining work. |

@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-534. I compared each amended criterion with its text on origin/main  for
+Ticket: IR-534. I compared each amended criterion with its text on origin/main for
 silent weakening, and checked that each new criterion can fail.
 
 - AC-2: gains `version`.

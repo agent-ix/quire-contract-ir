@@ -11,7 +11,7 @@ review_set: subset
 ## Summary
 
 Ticket: IR-533. Plan completion: not assessed. This review checks the merged spec (#258,
-squash ) against the code and tests at the reviewed PR head. It covers FR-038 "Canonical encoding of the
+squash merge) against the code and tests at the reviewed PR head. It covers FR-038 "Canonical encoding of the
 wire types" with its per-type table, "Canonical bytes are quire-canonical's bytes", the
 FR-019 paragraph, FR-038-AC-74 through FR-038-AC-80, and TC-048 "Canonical encoding".
 

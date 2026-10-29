@@ -75,7 +75,7 @@ Reviewed. Delta checked:...
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-005 | low | The exception's stated reason is wrong. FR-035 Behavior says the package "has no siblings", and FR-038 says "a package that could not be produced has no siblings". The records are still siblings. What the exception does is override their dispositions, because no package exists to carry any `lowered` node. Reword both, for example: "every requested record is `failed`, because no package exists to carry a lowered node". | spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:66-69; spec/checked_package/functional/FR-038-consume-checked-package-v2.md:484-485 |
-| FND-006 | low | FR prose now carries matrix status: "FR-038-AC-95 is planned and has no test yet". PR 266  adds the AC-95 tests and updates only the matrix, so this sentence goes stale as soon as PR 266 merges. Status belongs in `tests.md`. Drop the sentence. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:492 |
+| FND-006 | low | FR prose now carries matrix status: "FR-038-AC-95 is planned and has no test yet". PR 266 adds the AC-95 tests and updates only the matrix, so this sentence goes stale as soon as PR 266 merges. Status belongs in `tests.md`. Drop the sentence. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:492 |
 
 ## Dispositions
 

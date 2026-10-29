@@ -15,7 +15,7 @@ prose sections, eight planned ACs (AC-81 to AC-88), a TC-048 procedure section a
 the matching tests.md rows. The aim is to give owning ACs to the untraced
 operation-law unit tests in `operations.rs`.
 
-Enumeration, measured at origin/main (; main has since moved to,
+Enumeration, measured against origin/main (main has since gained
 a reviews-only commit, and the PR merges clean onto it):
 
 - `operations.rs` has 61 `#[test]`. 37 carry `#[trace]` (AC-43, AC-44, AC-70,

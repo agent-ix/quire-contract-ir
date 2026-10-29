@@ -67,9 +67,9 @@ The mapping is correct for a document whose first inexact number is the
 out-of-range one. That covers every case the new tests build. It runs before
 the digest comparison, and the pointer is right, nesting and escaping included.
 The lock change is minimal and `make deny` (one-copy) passes. `make fmt-check`,
-`make lint`, `make test`, `make deny` and `make conformance-qspec` all pass on
- (conformance was run against a throwaway quire-specification origin/main
-worktree ).
+`make lint`, `make test`, `make deny` and `make conformance-qspec` all pass on the reviewed PR head
+(conformance was run against a throwaway quire-specification origin/main
+worktree).
 
 The author's own report is confirmed (FND-001). Because `read` aborts at the
 first out-of-range number, an earlier inexact number is never named. This is a
@@ -94,7 +94,7 @@ validate reports 1 grammar finding (FR-014).
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | deferred | IR-573. The behaviour is upstream (`quire-canonical` `read` aborts at the first out-of-range number) and cannot be fixed in IR without the forbidden pre-scan. keeps AC-110 partial and names the unmet "first in document order" clause in the FR-038 matrix row, TC-048 and `spec/tests.md`, with IR-573 in the matrix notes. The FR-038 note also records it as today's behaviour. |
+| FND-001 | deferred | IR-573. The behaviour is upstream (`quire-canonical` `read` aborts at the first out-of-range number) and cannot be fixed in IR without the forbidden pre-scan. The reviewed PR keeps AC-110 partial and names the unmet "first in document order" clause in the FR-038 matrix row, TC-048 and `spec/tests.md`, with IR-573 in the matrix notes. The FR-038 note also records it as today's behaviour. |
 | FND-002 | fixed | `tc_048_a_non_whole_number_past_the_double_range_refuses_inexact_number` reads 400 nines then `.5`, and its negative, at `/package/ratio` and expects a hand-written `inexact-number` refusal. I hard-coded `Cause::InexactInteger` in a throwaway copy: this test fails and the other two pass, so it is a real oracle for that arm. |
 | FND-003 | fixed | `let document_pointer = JsonPointer::from_escaped(pointer);`. quire-canonical's `pointer` already escapes `~` as `~0` and `/` as `~1` and writes decimal indices (round 0 probe: `/a/0/x~1y~0z/1/q/2`), and `from_escaped` wraps the text without re-escaping. There is no double-escape, no panic path and no false `byte-digest-mismatch` cause. |
 | FND-004 | fixed | The FR-038 note now states that a document malformed after an out-of-range number refuses as that number does, while one malformed before it refuses `byte-digest-mismatch`, as today's behaviour and not a requirement. That resolves "unspecified"; no test pins it, which is acceptable for a stated non-requirement. |

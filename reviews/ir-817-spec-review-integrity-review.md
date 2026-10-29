@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-817. Diffed the compound FR-020-AC-3 on origin/main  against the ten new rows. Every obligation is kept: fixture-schema IntegerString spellings (AC-3), package-schema 2^53 bound (AC-4), probe/coverage refusal above 2^53 (AC-5), exact-bound pass (AC-6), decoder fixture result (AC-7), its expectation code (AC-8), schema-level refusal of a number in a valid-operation input (AC-9), canonical bytes (AC-10), strings-only spelling (AC-11), and corpus exit 0 with every fixture a match (AC-12). The "Landed with code change B (IR-274)" prefix was provenance, not an obligation; it moved to the conformance matrix status cell, which is correct. Cross-references FR-012-AC-6, FR-023 and the core matrix FR-011 row now cite FR-020-AC-5, which is the right criterion.
+Ticket: IR-817. Diffed the compound FR-020-AC-3 on origin/main against the ten new rows. Every obligation is kept: fixture-schema IntegerString spellings (AC-3), package-schema 2^53 bound (AC-4), probe/coverage refusal above 2^53 (AC-5), exact-bound pass (AC-6), decoder fixture result (AC-7), its expectation code (AC-8), schema-level refusal of a number in a valid-operation input (AC-9), canonical bytes (AC-10), strings-only spelling (AC-11), and corpus exit 0 with every fixture a match (AC-12). The "Landed with code change B (IR-274)" prefix was provenance, not an obligation; it moved to the conformance matrix status cell, which is correct. Cross-references FR-012-AC-6, FR-023 and the core matrix FR-011 row now cite FR-020-AC-5, which is the right criterion.
 
 ## Verdict
 

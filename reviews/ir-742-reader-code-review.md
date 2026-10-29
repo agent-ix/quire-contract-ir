@@ -11,7 +11,7 @@ review_set: subset
 ## Summary
 
 Ticket: IR-742. Method: code-review with the rust-review lane folded in. PR: none yet.
-Authority: spec PR #341  FR-038 normative bullet "IEEE literal type and
+Authority: spec PR #341, the FR-038 normative bullet "IEEE literal type and
 catalog result", FR-038-AC-222 and FR-038-AC-223, the published
 `quire.checked-operation-catalog/v1` entries for `quire.op.ieee.to_float32` and
 `quire.op.ieee.to_float64` (result `member`, member `type_argument`, constraint

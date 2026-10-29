@@ -57,7 +57,7 @@ Reviewed at agent-ix/quire-contract-ir.
 | --- | --- | --- | --- |
 | FND-011 | medium | AD-005 still orders IR first. Decision B says "A seam item is changed in IR first; QSL follows", and the no-compatibility-layer line says a type moved or removed in IR "is moved in QSL in the same step". AD-006 Decision D now says the consumer first gains what it needs and IR removes the old item afterwards. The two sibling ADs give opposite orders for a removal, and "same step" across two repos is the wording FND-001 flagged | spec/assurance/AD-005-qsl-consumption-seam.md:116-117,128-129 |
 | FND-012 | low | AD-006 "Open questions" is now a table with a header and no rows. Write "None." or drop the section | spec/assurance/AD-006-codegen-consumption-seam.md:183-186 |
-| FND-013 | low | AD-006 quotes codegen AD-004 (PR 215) as saying the corpus files "forward to IR lowerings" and says codegen's ADs "are being updated". At PR 215's current head  that phrase is gone: codegen AD-004:244 now says the lowerings move into codegen under IR-347. The quote is stale | spec/assurance/AD-006-codegen-consumption-seam.md:124-126,197 |
+| FND-013 | low | AD-006 quotes codegen AD-004 (PR 215) as saying the corpus files "forward to IR lowerings" and says codegen's ADs "are being updated". At PR 215's current head, that phrase is gone: codegen AD-004:244 now says the lowerings move into codegen under IR-347. The quote is stale | spec/assurance/AD-006-codegen-consumption-seam.md:124-126,197 |
 
 ## Dispositions
 

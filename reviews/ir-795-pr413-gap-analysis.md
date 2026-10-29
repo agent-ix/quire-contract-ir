@@ -41,7 +41,7 @@ The AC-15 prose is truthful, since census refusals stay Planned. However, the tr
 
 ## Coverage
 
-Before (origin/main): 49 unbacked, 0 contradicted. After : 47 unbacked, 0 contradicted. FR-052 is backed for 6 of 16 criteria. AC-14 is genuinely backed. AC-15 is tagged, but see FND-001.
+Before (origin/main): 49 unbacked, 0 contradicted. After the PR: 47 unbacked, 0 contradicted. FR-052 is backed for 6 of 16 criteria. AC-14 is genuinely backed. AC-15 is tagged, but see FND-001.
 
 ## Dispositions
 

@@ -86,7 +86,7 @@ Round 1, reviewed (fix round).
 | FND | Outcome | reason |
 | --- | --- | --- |
 | FND-001 | still-open | The `#[trace("TC-223")]` attribute and `Tracing:` line are gone, but the function is still named `tc_223_every_kani_outcome_kind_maps_to_its_one_fr331_result`, and quire's `rust-test-name-id` form binds that name to TC-223., `quire coverage --json` still reports TC-223 `backed: true`, and FR-030-AC-4/5 (`backed: false`) are still absent from the strict list. A scratch probe that renamed only the function (no `tc_223_` prefix) made TC-223, FR-030-AC-4 and FR-030-AC-5 unbacked, 23 rows in all. Rename the function |
-| FND-002 | fixed |  |
+| FND-002 | fixed | The fix round removed the stale TC-019 claim from tc_018 and traced its two-corpus assertion to NFR-001-AC-1. |
 | FND-003 | still-open | New this round; no fix yet |
 
 Round 2, reviewed (fix round).

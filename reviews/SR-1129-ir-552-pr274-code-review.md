@@ -46,7 +46,7 @@ Out of diff scope, for information only: the Makefile help line for `conformance
 
 ## Dispositions
 
-Round 1 reviewed one fix commit on the PR. I measured it in throwaway worktrees, since removed. `make conformance-qspec` against quire-specification origin/main  passes all 6 tests, including the new `tc_048_a_recorded_outcome_without_a_cause_is_met_by_its_code`. I deleted each guard in turn in a throwaway copy, never on the PR branch, and every mutant fails a test:
+Round 1 reviewed one fix commit on the PR. I measured it in throwaway worktrees, since removed. `make conformance-qspec` against quire-specification origin/main passes all 6 tests, including the new `tc_048_a_recorded_outcome_without_a_cause_is_met_by_its_code`. I deleted each guard in turn in a throwaway copy, never on the PR branch, and every mutant fails a test:
 
 - The cause compared always: the new unit test and the adverse result test fail.
 - The non-empty list guard deleted, both halves: `tc_048_qspec_adverse_run_fails_closed` fails.

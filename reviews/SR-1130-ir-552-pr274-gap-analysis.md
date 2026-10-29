@@ -32,7 +32,7 @@ AC-113 is implemented and verified, with one low gap against its 'own package_id
 
 ## Dispositions
 
-Round 1 was reviewed. `make conformance-qspec` against quire-specification origin/main  passes all 6 tests. The AC-112 matrix flip is now backed by a passing run. Guard-deletion mutants for the own-package_id check and the selections non-empty guard each fail `tc_048_qspec_selection_run_fails_closed` (see SR-1129 Dispositions). `make spec` is at the baseline.
+Round 1 was reviewed. `make conformance-qspec` against quire-specification origin/main passes all 6 tests. The AC-112 matrix flip is now backed by a passing run. Guard-deletion mutants for the own-package_id check and the selections non-empty guard each fail `tc_048_qspec_selection_run_fails_closed` (see SR-1129 Dispositions). `make spec` is at the baseline.
 
 | FND | outcome | reason |
 | --- | --- | --- |

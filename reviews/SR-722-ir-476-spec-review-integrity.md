@@ -22,7 +22,7 @@ are unchanged and agree with the FR-023 matrix rows.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | The PR body misstates the measurement. It says "The bare doc lines are not read as tags (binding came from the tc_035_ test names)". The module declares `rust-doc-comment-id` (`^\s*///\s*<id>` with a trailing delimiter), a legacy form that matches `/// TC-035` and `/// FR-023-AC-1`. The real justification for the rewrite is that the form is legacy with `rewrite_to: rust-trace-attribute`, not that it was unread. The body also cites short SHAs (), which the brief excludes | PR #247 body |
+| FND-001 | low | The PR body misstates the measurement. It says "The bare doc lines are not read as tags (binding came from the tc_035_ test names)". The module declares `rust-doc-comment-id` (`^\s*///\s*<id>` with a trailing delimiter), a legacy form that matches `/// TC-035` and `/// FR-023-AC-1`. The real justification for the rewrite is that the form is legacy with `rewrite_to: rust-trace-attribute`, not that it was unread. The body also included abbreviated revision references, which the brief excluded | PR #247 body |
 
 ## Verdict
 
@@ -33,7 +33,7 @@ annotation (SR-720 FND-001). Correct the body before merge.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-002 | low | The PR body's Gate section describes the superseded run: "The run shared its log file with an earlier orphaned run, so the log footer was appended by hand." The current gate evidence is a clean, single re-run. Its footer was written by the run (`head=<full sha> exit=2`), with only `spec` failing. The body should describe that run, not the interleaved one | PR #247 body |
+| FND-002 | low | The PR body's Gate section describes the superseded run: "The run shared its log file with an earlier orphaned run, so the log footer was appended by hand." The current gate evidence is a clean, single re-run. Its footer was written by the run (exit 2), with only `spec` failing. The body should describe that run, not the interleaved one | PR #247 body |
 | FND-003 | low | The body's strict-count sentence ("the AC-43 and AC-44 rows were backed on the AC side by this PR, and the strict count line did not move") does not say why. The strict `unbacked_rows` list (23, identical at base and head) never contained AC-43/44. The coverage denominator went from 23 to 21 unbacked of 184. Both counts were 23 at base. The body should say these are two different lists, so a reader does not take the unchanged 23 as unbacked AC rows | PR #247 body |
 
 ## Dispositions
@@ -41,22 +41,21 @@ annotation (SR-720 FND-001). Correct the body before merge.
 Round 1, reviewed agent-ix/quire-contract-ir. The
 body now gives the right reason for the executable_binding.rs rewrite ("already read as
 tags by the legacy `rust-doc-comment-id` form ... canonical-form hygiene with unchanged
-bindings"), and the head short SHA is gone. One short SHA remains: "Main ". No
+bindings"), and the abbreviated head reference is gone. An incomplete "Main" fragment remained in the PR body. No
 spec file changes in the delta. The 24 new `#[trace]` bindings carry only AC ids that already
 existed and were already cited, so nothing was invented.
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | still-open | The misstatement is corrected in the PR body, but the body still cites the short SHA "" in "Main ". Replace it with the full or drop it. |
+| FND-001 | still-open | The PR body corrected the misstatement, but its remaining bare "Main" provenance was incomplete. Drop that fragment and identify the compared branch in words. |
 
 Round 2, reviewed agent-ix/quire-contract-ir. The PR delta adds only the three SR files under `reviews/`
 (byte-identical to the round-1 reviewer files, and `quire validate` on `reviews/**` passes).
 The merge base is still origin/main. All three
-fixes are edits to the PR body, which has no commit, so the recorded PR head was the one reviewed at
-which the body was verified.
+fixes are edits to the PR body, which has no commit, so the body was verified against the reviewed PR head.
 
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | (PR body edit: "Main:" with no SHA; no short hex SHA remains in the body) |
-| FND-002 | fixed | (PR body edit: Gate section describes only the clean re-run at the full SHA, exit=2, only spec failing) |
+| FND-002 | fixed | (PR body edit: Gate section describes only the clean re-run, exit 2, with only spec failing) |
 | FND-003 | fixed | (PR body edit: the body names the coverage list, 23 -> 21 of 184, and the separate strict list, unchanged) |

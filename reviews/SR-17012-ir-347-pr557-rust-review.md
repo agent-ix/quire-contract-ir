@@ -52,7 +52,7 @@ Both new tests carry `#[trace]` tags.
 
 ## New findings (disposition pass 2)
 
-Found by the code lead's final `make ci` at custodial, in its `make spec` step. `quire coverage --scope . --strict` reported a diff-owned suspicion. The reviewer reproduced it  by running the same command in a temporary detached worktree, which has since been removed.
+Found by the code lead's final custodial `make ci`, in its `make spec` step. `quire coverage --scope . --strict` reported a diff-owned suspicion. The reviewer reproduced it by running the same command in a temporary detached worktree, which has since been removed.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |

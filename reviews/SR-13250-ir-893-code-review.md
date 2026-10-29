@@ -48,7 +48,7 @@ The removed cases are all subsumed. The deleted `wrong_request` case put `missin
 
 ## Dispositions
 
-Disposition pass 1, against (origin/main merged in).
+Disposition pass 1 reviewed the PR after origin/main was merged in.
 
 | FND | outcome | reason |
 | --- | --- | --- |

@@ -19,7 +19,7 @@ claim in the PR text and in the coder's report.
 
 What was verified, and how:
 
-- **History order.** (10:07) is the parent of (10:27). adds only
+- **History order.** The 10:07 commit is the parent of the 10:27 follow-up. The follow-up adds only
   the differential test and its 26 recorded lines to `model_members/tests.rs`. The test
   passes, where `DomainModel::resolve` still has the pre-change walk, so those
   lines are what the old `resolve` answers. moves the lines into the const

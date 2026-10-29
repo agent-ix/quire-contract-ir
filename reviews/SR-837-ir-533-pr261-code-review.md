@@ -97,7 +97,7 @@ What was checked, and what holds:
   - Recursion over `Value`: the 100,000-deep encode on a 256 KiB thread.
 - **No compatibility layer, no vendoring.** There is no copy of quire-canonical code or
   vectors, no wrapper, and no QSL dependency.
-- **PR text.** The title carries no bare ticket id, and no short SHAs appear.
+- **PR text.** The title carries no bare ticket id.
 
 ## Findings
 
