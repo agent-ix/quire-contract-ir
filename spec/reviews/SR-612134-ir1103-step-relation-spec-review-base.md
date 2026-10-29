@@ -6,13 +6,18 @@ analysis: base
 scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-350-admit-step-relation-claim-body.md; PR #680"
 review_set: base
 relationships:
-  - target: ix://agent-ix/quire-contract-ir/FR-350
+  - target: ix://agent-ix/quire-contract-ir/FR-351
     type: reviews
 ---
 
 ## Summary
 
 Ticket: IR-1103. Reviewed frozen PR #680 against QSpec origin/main FR-477 and TC-962, with FR-322, FR-341 and FR-402 as controlling context. The review covered every FR-477 acceptance criterion, the IR reader's stage and refusal order, typed retention, selected-model joins, binder identity, writer roundtrip and external QSL readback.
+
+Historical review provenance: PR #680 reviewed the step-relation requirement as FR-350.
+The requirement was later renamed FR-351 to resolve an identifier collision; the
+relationship above follows its current identity. The reviewed scope, verdict
+and examined criterion IDs below retain their original spelling.
 
 ## Verdict
 
