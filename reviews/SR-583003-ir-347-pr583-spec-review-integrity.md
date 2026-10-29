@@ -62,7 +62,7 @@ still untagged and still marked partial.
 | FND-003 | fixed | The STD-001 row is now ✅, and the Core index says "STD-001 is implemented" instead of listing it as partial. The Core row stays 🚧 for FR-045/TC-446, TC-019 and the other named gaps. The upgrade was re-measured, not taken on trust. STD-001 has no AC rows. TC-017 and TC-018, which the row cites, are still 🚧, but their open items are FR-016-AC-1/AC-3, FR-017-AC-2 and FR-019 boundary obligations, not registry obligations. The registry's own conditions have evidence: TC-454 (`tests/it/nfr003_invalid_input.rs:339-354`) ties STD-001's semantic code tables to `DiagnosticCode::ALL` and drives every class through the corpus. TC-456 reconciles all seven registry tables. The over-limit coverage code `semantic_input_too_large` is asserted at `tests/it/canonicalization.rs:1031-1041`. The Kani codes are covered by TC-442, TC-223 and TC-443. No overclaim was found. |
 
 Earlier clean results were re-checked at this head. SR-583001 (code-review) and SR-583002 (base
-checklist) stay clean. AD-001 and AD-006 are unchanged since. No requirement or AC text
+checklist) stay clean. AD-001 and AD-006 are unchanged since the preceding review. No requirement or AC text
 changed across `origin/main...HEAD`. FR-030-AC-7, TC-449, FR-029-AC-2 and FR-036 stay partial or
 planned, and nothing calls IR-347 complete. No hash, pin, shim or cross-repo copy is added. No new
 findings.

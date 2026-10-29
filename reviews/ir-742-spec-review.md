@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-742. Method: spec-review limited to the changed status lines of. PR: none yet. Each AC row differs from origin/main only in its
+Ticket: IR-742. Method: spec-review limited to the changed status lines of FR-038 and TC-048. PR: none yet. Each AC row differs from origin/main only in its
 status prefix (`PLANNED/UNRUN (IR-742).` to `IMPLEMENTED (IR-742; tagged reader
 tests passed).`); the criterion text after the prefix is byte-identical. The
 TC-048 paragraph and section status, and the tests.md row status and heading,
