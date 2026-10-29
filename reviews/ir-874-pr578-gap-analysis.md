@@ -40,4 +40,4 @@ Plan completion: not assessed. `quire matrix --scope . --format json` completed:
 
 ## Disposition verdict
 
-**PASS ** — the focused finding is fixed on the original PR. Full FR-038-AC-282/286 remain Planned.
+**PASS** — the focused finding is fixed on the original PR. Full FR-038-AC-282/286 remain Planned.

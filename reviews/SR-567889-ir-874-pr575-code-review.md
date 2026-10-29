@@ -39,4 +39,4 @@ Rust style, bounded traversal, reader order, refusal types, and scoped public-re
 
 ## Disposition verdict
 
-**PASS ** — FND-001 fixed; full FR-038-AC-282/284/285 remain Planned.
+**PASS** — FND-001 fixed; full FR-038-AC-282/284/285 remain Planned.

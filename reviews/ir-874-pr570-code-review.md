@@ -48,4 +48,4 @@ Rust style and repository conventions inspected; no CI workflow changes. Focused
 
 ## Disposition verdict
 
-**PASS ** — All original findings in this method are fixed. Remaining protocol stages and the full FR-038 acceptance criteria remain Planned.
+**PASS** — All original findings in this method are fixed. Remaining protocol stages and the full FR-038 acceptance criteria remain Planned.

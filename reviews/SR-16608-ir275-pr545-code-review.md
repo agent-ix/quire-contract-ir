@@ -23,7 +23,7 @@ Independent diff-scoped code and Rust review of the protocol body term migration
 - `members`, `shape_fits`, and `validate_protocol_body` now use closed typed variants for term, operator, binding, literal kind, result type, and ordered arguments. `operation` and `selected_profile` remain `Value` because they are not term arms in this slice.
 - The existing `CheckedTerm::decode_admitted` boundary and the test adapter were inspected. The adapter decodes only valid term fixtures, while mutated protocol envelope/member/law fields continue to reach the validator and retain their `ProtocolBodyDefect` assertions.
 - All six existing protocol tests still run through the typed validator; positive catalog/layout and negative form, member, law, binding, and profile assertions remain. No changed public wire schema, unsafe code, dependency, lockfile, vendored content, or gate configuration.
-- `git diff --check...` passed. The author reported focused 6/6, scoped Clippy, and fmt; those claims were not rerun in this review. Final aggregate gate is pending with the author.
+- The reviewed PR delta passed the whitespace check. The author reported focused 6/6, scoped Clippy, and fmt; those claims were not rerun in this review. Final aggregate gate is pending with the author.
 
 ## Verdict
 

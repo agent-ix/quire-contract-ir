@@ -13,7 +13,7 @@ The new FR-038 reader and FR-051 writer statements match published QSpec FR-322,
 
 ## Verdict
 
-**PASS ** — AC-112, AC-123 and AC-133 now match the single-body wire; the adjacent AC-113 type mismatch found in the first fix round is also corrected.
+**PASS** — AC-112, AC-123 and AC-133 now match the single-body wire; the adjacent AC-113 type mismatch found in the first fix round is also corrected.
 
 ## Findings
 

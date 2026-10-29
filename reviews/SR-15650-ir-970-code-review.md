@@ -23,7 +23,7 @@ Reviewed the seven changed Rust files against FR-349-AC-1 through AC-4, FR-038-A
 
 ## Rust review
 
-Inspected typed/raw identity preimage equivalence, graph-order application selection, iterative dependency-reference and literal walks, work charges, null or absent terms after the abstraction body scan, refusal order, panic and overflow surfaces, and test fixture boundaries. The raw candidate pre-read API remains separate from admitted typed selection because it accepts provisional draft bodies. No new unsafe, unchecked boundary cast, unbounded recursion, or production test seam was found. `git diff --check...` passed. No aggregate gate was run in the reviewer lane.
+Inspected typed/raw identity preimage equivalence, graph-order application selection, iterative dependency-reference and literal walks, work charges, null or absent terms after the abstraction body scan, refusal order, panic and overflow surfaces, and test fixture boundaries. The raw candidate pre-read API remains separate from admitted typed selection because it accepts provisional draft bodies. No new unsafe, unchecked boundary cast, unbounded recursion, or production test seam was found. The reviewed PR delta passed the whitespace check. No aggregate gate was run in the reviewer lane.
 
 ## Scope
 

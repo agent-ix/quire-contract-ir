@@ -25,7 +25,7 @@ Independent diff-scoped review of the direct neutral `string_edge` import and ar
 - FR-056-AC-3: `decode_node_kind` checks the raw schema version, converts `node_tag` through `CheckedNodeTag::from_wire`, and converts the form through `CheckedNodeKind::decode`. Each failure returns `ValidationFailure` with the respective member pointer. The attribute has no arguments and names the neutral macro directly.
 - FR-056-AC-6: `quire-contract-model` already depends directly on `ix-trace-rs`. This PR changes neither its manifest nor the root lock, and adds no QSL dependency.
 - FR-056-AC-7: all four inspected callers use the returned closed kind or propagate its typed refusal. The adjacent `flat_wire::check` raw spelling branches and other post-intake decisions are not marked by this diff. No rules, gate, test, public API, or wire behavior changes were made.
-- Rust review: no altered control flow, unsafe code, allocation, panic path, or duplicate vocabulary. `git diff --check..` passed. Aggregate gates belong to the final PR head and were not run for this review.
+- Rust review: no altered control flow, unsafe code, allocation, panic path, or duplicate vocabulary. The reviewed PR delta passed the whitespace check. Aggregate gates belong to the final PR head and were not run for this review.
 
 ## Verdict
 

@@ -42,12 +42,12 @@ Plan completion: not assessed. Public-reader tests tagged FR-061-AC-10..13 were 
 
 ## Disposition verdict
 
-**PASS ** — every recorded finding is fixed in the original PR.
+**PASS** — every recorded finding is fixed in the original PR.
 
 ## Rebase verification
 
-**PASS ** — range-diff against the reviewed head keeps the refinement implementation and tests patch-equivalent. The only conflict resolution combines additive crate-root exports and FR-019 inventory rows from IR-1040 and IR-1034; both are retained. All earlier findings remain fixed.
+**PASS** — range-diff against the reviewed head keeps the refinement implementation and tests patch-equivalent. The only conflict resolution combines additive crate-root exports and FR-019 inventory rows from IR-1040 and IR-1034; both are retained. All earlier findings remain fixed.
 
 ## Fixture correction verification
 
-**PASS ** — compared with, the sole change makes the typed-term roundtrip fixture use `memory_model: tso` for `memory flush`, the only admitted model of `RefinementTsoModel`. No production code, FR-061 acceptance test, public export or FR-019 inventory row changed; the prior dispositions remain fixed.
+**PASS** — compared with the preceding review, the sole change makes the typed-term roundtrip fixture use `memory_model: tso` for `memory flush`, the only admitted model of `RefinementTsoModel`. No production code, FR-061 acceptance test, public export or FR-019 inventory row changed; the prior dispositions remain fixed.

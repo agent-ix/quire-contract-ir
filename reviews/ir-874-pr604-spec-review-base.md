@@ -111,4 +111,4 @@ QSpec origin/main was read directly. This is spec-only: no Cargo, Make or build 
 
 ## Disposition verdict
 
-**PASS ** — The original finding is fixed. The full FR-038-AC-325 remains unclaimed pending code and upstream dependencies.
+**PASS** — The original finding is fixed. The full FR-038-AC-325 remains unclaimed pending code and upstream dependencies.

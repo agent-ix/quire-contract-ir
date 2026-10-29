@@ -33,4 +33,4 @@ No actionable findings. The single numbered row below is a Quire schema placehol
 
 ## Review evidence
 
-The review covered all thirteen changed files in `...`. It checked the repository Rust conventions, the owner join before nominal case checks, selected document lookup, public type representation, enum family resolution, and traced integration assertions. No Cargo gate was run by this reviewer.
+The review covered all thirteen changed files in the PR delta. It checked the repository Rust conventions, the owner join before nominal case checks, selected document lookup, public type representation, enum family resolution, and traced integration assertions. No Cargo gate was run by this reviewer.

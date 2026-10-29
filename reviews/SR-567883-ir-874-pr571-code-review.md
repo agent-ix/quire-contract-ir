@@ -51,4 +51,4 @@ The diff changes no CI workflow or dependency declarations. Rust style and repos
 
 ## Disposition verdict
 
-**PASS ** — The newly discovered hosted gate failure was fixed in the same PR. Its final full hosted run remains the code lead's gate.
+**PASS** — The newly discovered hosted gate failure was fixed in the same PR. Its final full hosted run remains the code lead's gate.

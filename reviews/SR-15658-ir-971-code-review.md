@@ -23,7 +23,7 @@ Reviewed the ten changed Rust files and their focused tests against retained typ
 
 ## Rust review
 
-Inspected retained application and nested term selection, scalar V1 on-demand decoding and range classification, comparison refusal order, composite work charges, selected population identity and maximum, relationship-end and reaches population selection, and synthetic fixture mutations. No new unsafe, panic, unchecked conversion, unbounded walk, or test-only production seam was found. The raw population helper remains at the reader admission edge. `git diff --check...` passed. Aggregate gates were not run in this reviewer lane.
+Inspected retained application and nested term selection, scalar V1 on-demand decoding and range classification, comparison refusal order, composite work charges, selected population identity and maximum, relationship-end and reaches population selection, and synthetic fixture mutations. No new unsafe, panic, unchecked conversion, unbounded walk, or test-only production seam was found. The raw population helper remains at the reader admission edge. The reviewed PR delta passed the whitespace check. Aggregate gates were not run in this reviewer lane.
 
 ## Scope
 

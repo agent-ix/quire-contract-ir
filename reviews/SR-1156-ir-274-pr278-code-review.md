@@ -107,8 +107,7 @@ follow-up.
 
 ## Dispositions
 
-Round 1, reviewed (fix commits
- and ). Re-measured in a fresh worktree: `make test`
+Round 1 reviewed the follow-up fix commits. Re-measured in a fresh worktree: `make test`
 308 integration, 135 model unit and 7 doc tests pass; `make fmt-check` and
 `make lint` clean; `make corpus` exit 0 with 107 `match` and no mismatch;
 `make spec` at the baseline (grammar 1, strict 23).

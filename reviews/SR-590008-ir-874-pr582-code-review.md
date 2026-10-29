@@ -42,7 +42,7 @@ The graph has a port per control entry and exit; sequencing, choice, parallel jo
 
 ## Disposition verdict
 
-**PASS ** for the recorded code-review finding. Host backoff left runtime gates to the final exact-head CI run.
+**PASS** for the recorded code-review finding. Host backoff left runtime gates to the final exact-head CI run.
 
 ## Later test-only check
 

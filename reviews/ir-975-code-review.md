@@ -13,7 +13,7 @@ The reader uses the seven selection fields from the wire and derives the package
 
 ## Verdict
 
-**PASS ** — the stale coverage description is corrected; no code or test behavior changed in the fix rounds.
+**PASS** — the stale coverage description is corrected; no code or test behavior changed in the fix rounds.
 
 ## Findings
 

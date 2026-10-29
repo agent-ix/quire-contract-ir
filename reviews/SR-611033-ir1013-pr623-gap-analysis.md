@@ -44,7 +44,7 @@ The test tagged FR-058-AC-9 constructs four independent packages and compares re
 
 ## Disposition verdict
 
-**PASS ** for the recorded finding. This is a focused disposition on the test fix, not a repeat review or aggregate gate result. Fresh QSL producer AC-1/6 evidence remains with QSL-1183.
+**PASS** for the recorded finding. This is a focused disposition on the test fix, not a repeat review or aggregate gate result. Fresh QSL producer AC-1/6 evidence remains with QSL-1183.
 
 ## Post-disposition compile correction
 

@@ -30,4 +30,4 @@ Reviewed only the 140 added lines in PR #657 against FR-058-AC-8 and TC-462. The
 
 ## Checks
 
-`git diff --check...HEAD` and `cargo fmt --all -- --check` passed. Focused `cargo test --locked --test it tc_462_clause_point_applicability -- --nocapture` passed both tests, with 1008 others filtered out. Aggregate gates are reserved for the code lead's final reviewed head.
+The reviewed PR delta passed the whitespace check, and `cargo fmt --all -- --check` passed. Focused `cargo test --locked --test it tc_462_clause_point_applicability -- --nocapture` passed both tests, with 1008 others filtered out. Aggregate gates are reserved for the code lead's final reviewed head.

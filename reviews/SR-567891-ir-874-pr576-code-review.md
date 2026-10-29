@@ -39,4 +39,4 @@ The diff changes Rust model code and public-reader tests only; no CI, dependency
 
 ## Disposition verdict
 
-**PASS ** — FND-001 is fixed in PR #576. No new finding in the fix diff; full FR-038-AC-284/289 remain Planned.
+**PASS** — FND-001 is fixed in PR #576. No new finding in the fix diff; full FR-038-AC-284/289 remain Planned.

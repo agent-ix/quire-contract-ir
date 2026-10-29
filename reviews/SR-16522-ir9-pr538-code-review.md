@@ -25,7 +25,7 @@ Independent review of the two producer files changed by PR 538. The review compa
 - `ExpressionMutation` has one variant for each of the ten prior malformed expression cases. Its mutation and optional boundary-label mapping preserve the previous values and labels.
 - `CaseCoverage` preserves the prior `construct:` and `boundary:` labels. The Boolean-literal declaration metadata and non-Boolean-root clause flag remain attached to the same cases. Case creation order and fixture IDs remain unchanged.
 - The existing TC-018 controls at `tests/it/conformance.rs:57` and `:88` compare a regenerated corpus byte for byte and assert a failed regeneration leaves the checked-in corpus intact. The author posted focused 3/3, formatting and scoped Clippy results; this review did not rerun an aggregate gate.
-- The diff contains no new public API, unsafe operation, dependency, lockfile, rule, marker, test registration or gate change. `git diff --check...HEAD` passed.
+- The diff contains no new public API, unsafe operation, dependency, lockfile, rule, marker, test registration or gate change. The reviewed PR delta passed the whitespace check.
 
 ## Verdict
 

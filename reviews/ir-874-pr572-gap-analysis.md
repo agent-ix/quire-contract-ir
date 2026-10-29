@@ -44,4 +44,4 @@ Plan completion: not assessed. Quoin matrix reports FR-038-AC-282/284/288 tagged
 
 ## Disposition verdict
 
-**PASS ** — All original findings were fixed on this PR; the complete FR-038-AC-282/284/288 criteria remain Planned.
+**PASS** — All original findings were fixed on this PR; the complete FR-038-AC-282/284/288 criteria remain Planned.

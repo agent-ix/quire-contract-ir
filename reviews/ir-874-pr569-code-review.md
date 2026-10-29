@@ -43,4 +43,4 @@ Rust style and repository conventions reviewed; no CI workflow changed. Focused 
 
 ## Disposition verdict
 
-**PASS ** — FND-001 is fixed. The unimplemented FR-466 operators and protocol stages remain Planned.
+**PASS** — FND-001 is fixed. The unimplemented FR-466 operators and protocol stages remain Planned.

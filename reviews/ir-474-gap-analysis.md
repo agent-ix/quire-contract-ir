@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-474. Diff-scoped trace and evidence review of `...`. The changed `unknown field` role mutation reaches the public V2 reader, asserts `MalformedWire` at the exact role pointer, and sits beside genuine unknown-member and wrong-kind controls in the same traced test.
+Ticket: IR-474. Diff-scoped trace and evidence review of the PR delta. The changed `unknown field` role mutation reaches the public V2 reader, asserts `MalformedWire` at the exact role pointer, and sits beside genuine unknown-member and wrong-kind controls in the same traced test.
 
 ## Verdict
 

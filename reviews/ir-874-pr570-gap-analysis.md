@@ -46,4 +46,4 @@ Plan completion: not assessed. Quoin matrix reports FR-038-AC-282/284/288 tagged
 
 ## Disposition verdict
 
-**PASS ** — All original findings in this method are fixed. Remaining protocol stages and the full FR-038 acceptance criteria remain Planned.
+**PASS** — All original findings in this method are fixed. Remaining protocol stages and the full FR-038 acceptance criteria remain Planned.

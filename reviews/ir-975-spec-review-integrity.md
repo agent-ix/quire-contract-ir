@@ -13,7 +13,7 @@ The seven-member wire description and canonical hash view have distinct, inspect
 
 ## Verdict
 
-**PASS ** — AC-123 and AC-133 reconcile with AC-310. The adjacent AC-113 type mismatch recorded in base review SR-15723 was fixed in the second documentation commit.
+**PASS** — AC-123 and AC-133 reconcile with AC-310. The adjacent AC-113 type mismatch recorded in base review SR-15723 was fixed in the second documentation commit.
 
 ## Findings
 

@@ -44,4 +44,4 @@ The three changed files were inspected; no CI, dependency, spec, or plan file ch
 
 ## Disposition verdict
 
-**PASS ** — the recorded code finding is fixed. This disposition covers only the frozen #580 review scope.
+**PASS** — the recorded code finding is fixed. This disposition covers only the frozen #580 review scope.

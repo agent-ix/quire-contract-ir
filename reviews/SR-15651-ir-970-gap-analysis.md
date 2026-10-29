@@ -33,4 +33,4 @@ Plan completion: not assessed. Examined FR-349-AC-1/2/3/4 and FR-038-AC-35/88. T
 
 ## Current verdict
 
-**PASS** at exact. The parent is the reviewed head and the delta is one trace line, with no code or assertion change. `git diff --check` passed. SR-15650's code/Rust PASS carries unchanged; no aggregate gate was run in this reviewer lane.
+**PASS** on the reviewed PR delta. The parent is the reviewed head and the delta is one trace line, with no code or assertion change. `git diff --check` passed. SR-15650's code/Rust PASS carries unchanged; no aggregate gate was run in this reviewer lane.

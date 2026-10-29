@@ -29,4 +29,4 @@ Ticket: IR-648. Reviewed PR #303. Examined FR-038-AC-159 through FR-038-AC-164 a
 
 ## Disposition Verdict
 
-**PASS ** — FND-001 is fixed; no new defect found in the changed obligations.
+**PASS** — FND-001 is fixed; no new defect found in the changed obligations.

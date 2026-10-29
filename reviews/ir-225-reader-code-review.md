@@ -153,7 +153,7 @@ QUIRE_SPEC_LANGUAGE_DIR set to a QSL main checkout:
 ## Dispositions
 
 Round 1. Verified by reviewing
-`git diff origin/main...HEAD` () in a throwaway
+`git diff origin/main...HEAD` in a throwaway
 worktree.
 
 Public-reader probe table, rerun with the same scratch packages. At main,

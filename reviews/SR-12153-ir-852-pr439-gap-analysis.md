@@ -146,7 +146,7 @@ Reviewed, against quire-specification origin/main (PR #268 merged) and quire-spe
 
 ## Dispositions (round 4)
 
-Round 4, reviewed. QSpec PR #268 is MERGED ( on quire-specification origin/main). QSL PR #923 is MERGED ( on quire-spec-language origin/main).
+Round 4, reviewed. QSpec PR #268 is merged into quire-specification origin/main. QSL PR #923 is merged into quire-spec-language origin/main.
 
 | FND | outcome | reason |
 | --- | --- | --- |

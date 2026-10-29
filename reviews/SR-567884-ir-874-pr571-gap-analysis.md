@@ -43,4 +43,4 @@ Plan completion: not assessed. The computed Quoin matrix has tagged FR-038-AC-28
 
 ## Disposition verdict
 
-**PASS ** — Both test evidence gaps were closed in the same PR. Remaining protocol stages and the full FR-038 criteria remain Planned.
+**PASS** — Both test evidence gaps were closed in the same PR. Remaining protocol stages and the full FR-038 criteria remain Planned.

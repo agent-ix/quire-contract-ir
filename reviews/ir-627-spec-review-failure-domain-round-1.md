@@ -19,7 +19,7 @@ replaced the arithmetic body check with re-derivation, at admission, of the ten 
   `validate_application_keys`, then `validate_nominal_nodes`, then the declaration, frame, state,
   temporal, abstraction and operation steps (mod.rs:1726-1760).
 - **The stage visits every node of the decided shapes,** whether or not anything references it.
-- **QSL's preimage reproduces.** I recomputed QSL FR-092's Integer vector (...) with an
+- **QSL's preimage reproduces.** I recomputed QSL FR-092's Integer vector with an
   independent JCS hash.
 
 The same hash shows that QSpec's own positive fixtures carry placeholder keys on derived-shape nodes,

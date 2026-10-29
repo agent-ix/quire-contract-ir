@@ -43,4 +43,4 @@ The change touches Rust model code and public-reader tests only; no CI workflow,
 
 ## Disposition verdict
 
-**PASS ** — All original findings were fixed on this PR; the complete FR-038-AC-282/284/288 criteria remain Planned.
+**PASS** — All original findings were fixed on this PR; the complete FR-038-AC-282/284/288 criteria remain Planned.

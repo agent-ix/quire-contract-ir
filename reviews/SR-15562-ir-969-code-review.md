@@ -23,7 +23,7 @@ Reviewed the diff for decoder placement, V1 structural reuse, and changed typed 
 
 ## Rust review
 
-Inspected ownership and borrowing of typed terms, fallible decoding and refusal mapping, bounded term depth after flat validation, iterative application-dependency traversal, integer conversion and panic surfaces, source duplication, and repository conventions. No new `unsafe`, unchecked cast, panic on untrusted input, or unbounded recursive preadmission traversal was identified in the changed lines. The structural-shape duplication is the finding above. `git diff --check..` passed. Final aggregate gates remain with the author after custody commit.
+Inspected ownership and borrowing of typed terms, fallible decoding and refusal mapping, bounded term depth after flat validation, iterative application-dependency traversal, integer conversion and panic surfaces, source duplication, and repository conventions. No new `unsafe`, unchecked cast, panic on untrusted input, or unbounded recursive preadmission traversal was identified in the changed lines. The structural-shape duplication is the finding above. The reviewed PR delta passed the whitespace check. Final aggregate gates remain with the author after custody commit.
 
 ## Finding detail
 
@@ -60,4 +60,4 @@ Reviewed `git diff origin/main...HEAD` (five files); diff check passed. The chan
 
 ## Current verdict
 
-**PASS** at exact — both findings are fixed; no new finding in the two-file fix diff. `git diff --check..` passed. The author owns the final-head aggregate gate.
+**PASS** on the reviewed fix delta — both findings are fixed; no new finding in the two-file fix diff. The reviewed PR delta passed the whitespace check. The author owns the final-head aggregate gate.

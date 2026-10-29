@@ -63,4 +63,4 @@ QSpec FR-466-AC-14/16 and TC-948 DF7g/DF7h require a bare read of **any** record
 
 ## Final disposition
 
-**PASS** for all recorded code-review findings on the expanded PR head. FND-001 remains fixed; FND-002 is fixed by removing the capture exclusion and adding the four-slot adverse case with paired admission controls. `git diff --check..` passes. Hosted and aggregate gates remain the code lead's final-head checks.
+**PASS** for all recorded code-review findings on the expanded PR head. FND-001 remains fixed; FND-002 is fixed by removing the capture exclusion and adding the four-slot adverse case with paired admission controls. The reviewed PR delta passes the whitespace check. Hosted and aggregate gates remain the code lead's final-head checks.

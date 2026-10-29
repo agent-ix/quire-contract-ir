@@ -44,4 +44,4 @@ Plan completion: not assessed. `quoin matrix --repo . --json` completed: FR-038-
 
 ## Disposition verdict
 
-**PASS ** — both recorded test-evidence defects are fixed; AC-324's relation work remains Planned.
+**PASS** — both recorded test-evidence defects are fixed; AC-324's relation work remains Planned.

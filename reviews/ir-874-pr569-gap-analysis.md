@@ -43,4 +43,4 @@ Plan completion: not assessed. Quoin matrix reports all three FR-038 criteria ta
 
 ## Disposition verdict
 
-**PASS ** — FND-001 is fixed. The unimplemented FR-466 operators and protocol stages remain Planned.
+**PASS** — FND-001 is fixed. The unimplemented FR-466 operators and protocol stages remain Planned.

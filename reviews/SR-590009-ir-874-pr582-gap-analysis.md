@@ -48,11 +48,11 @@ Plan completion: not assessed. `quire matrix --scope . --format tsv` completed: 
 
 ## Disposition verdict
 
-**PASS ** for the recorded gap-analysis finding. Test execution remains pending hosted Rust Checks because host backoff barred new local jobs.
+**PASS** for the recorded gap-analysis finding. Test execution remains pending hosted Rust Checks because host backoff barred new local jobs.
 
 **CONDITIONAL ** — FND-001 remains fixed. New FND-002 is open on the TC-226 exact-boundary pointer assertion.
 
-**PASS ** — FND-001 remains fixed and FND-002 is fixed. Runtime execution remains with hosted Rust Checks under host backoff.
+**PASS** — FND-001 remains fixed and FND-002 is fixed. Runtime execution remains with hosted Rust Checks under host backoff.
 
 ## Later measured pointer check
 

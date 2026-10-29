@@ -31,4 +31,4 @@ Ticket: IR-646. Reviewed PR #302; examined FR-038-AC-153 through AC-155, TC-228 
 
 ## Disposition Verdict
 
-**PASS ** — the sole finding is fixed, and the focused spec validation and diff check pass.
+**PASS** — the sole finding is fixed, and the focused spec validation and diff check pass.

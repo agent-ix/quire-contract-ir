@@ -40,4 +40,4 @@ The changed Rust model and public-reader tests were reviewed; no CI, dependency,
 
 ## Disposition verdict
 
-**PASS ** — the focused finding is fixed on the original PR. Full FR-038-AC-282/286 remain Planned.
+**PASS** — the focused finding is fixed on the original PR. Full FR-038-AC-282/286 remain Planned.

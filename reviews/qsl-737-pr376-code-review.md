@@ -58,7 +58,7 @@ Checked:
   "Result positions" requires. Before relying on that, every
   function/expression root in the nine QSpec positive fixtures
   (`proposals/checked-package-v2/fixtures/positive-*.json` at
-  quire-specification main ) was read statically: 26 roots checked,
+  quire-specification main was read statically: 26 roots checked,
   0 mismatches. Their only `function.call` callee has no `parameters`
   binding, so `check_function_call` does not apply to it.
   `make conformance-qspec` is outside `make ci` and was not run by the coder.
