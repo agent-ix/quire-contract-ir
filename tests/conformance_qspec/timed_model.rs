@@ -332,6 +332,7 @@ fn timed_clause_published_vectors_match_reader() {
                     );
                 } else {
                     assert_eq!(refusal.code, Code::MalformedWire, "{id}: schema refusal");
+                    assert_eq!(refusal.cause, None, "{id}: schema refusal cause");
                     assert_eq!(
                         refusal.path.as_ref().map(ToString::to_string).as_deref(),
                         case["locus"].as_str(),
