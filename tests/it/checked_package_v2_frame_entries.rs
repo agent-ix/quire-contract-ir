@@ -4320,7 +4320,7 @@ fn step_relation_package() -> Value {
     let post = clause_id("postcondition");
     let equality_body = json!({
         "term": "application", "operator": "binary",
-        "operation": {"identity": "quire.op.structural.eq", "laws": [],
+        "operation": {"identity": "quire.op.reference.eq", "laws": [],
             "mode": null, "member": null, "leaves": []},
         "result_type": node_id(&boolean()),
         "arguments": [
@@ -4347,7 +4347,7 @@ fn step_relation_package() -> Value {
         .find(|node| {
             node["node_tag"] == "expression"
                 && node["semantic_form"] == "binary"
-                && node["body"]["operation"]["identity"] == "quire.op.structural.eq"
+                && node["body"]["operation"]["identity"] == "quire.op.reference.eq"
         })
         .expect("relation equality")["node_id"]
         .clone();
