@@ -4265,6 +4265,25 @@ fn tc_462_point_change_rekeys_node_and_package_without_losing_accessor_value() {
     }
 }
 
+/// Settle a relation fixture and map its second occurrence to the same source.
+fn settle_step_relation(package: &mut Value) {
+    settle(package);
+    let relation = position(package, "claim", "step_relation");
+    let mut claim = package["source_map"]
+        .as_array()
+        .expect("source map")
+        .iter()
+        .find(|entry| entry["node_id"] == package["semantic_graph"]["nodes"][relation]["node_id"])
+        .expect("declaration source entry")
+        .clone();
+    claim["role"] = json!("claim");
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(claim);
+    refresh_identity(package);
+}
+
 /// A source-declared relation over two executions of the selected Account operation.
 fn step_relation_package() -> Value {
     let mut package = with_postcondition(StatePackage::new(), None).value;
@@ -4407,7 +4426,7 @@ fn step_relation_package() -> Value {
             "body": body,
         }));
     mint_ungrouped_structural_keys(&mut package);
-    settle(&mut package);
+    settle_step_relation(&mut package);
     package
 }
 
@@ -4521,7 +4540,7 @@ fn rekey_step_relation(mut package: Value, edit: impl FnOnce(&mut Value)) -> Val
         .map(|digest| node_id(&digest))
         .collect::<Vec<_>>());
     mint_ungrouped_structural_keys(&mut package);
-    settle(&mut package);
+    settle_step_relation(&mut package);
     package
 }
 
@@ -4612,7 +4631,7 @@ fn step_relation_reader_refuses_layout_alias_targets_and_premises() {
         .expect("nodes")
         .push(integer_literal);
     mint_ungrouped_structural_keys(&mut integer_package);
-    settle(&mut integer_package);
+    settle_step_relation(&mut integer_package);
     let integer_literal = nodes(&integer_package)
         .iter()
         .find(|node| {
@@ -4636,7 +4655,7 @@ fn step_relation_reader_refuses_layout_alias_targets_and_premises() {
         .expect("nodes")
         .push(integer_expression);
     mint_ungrouped_structural_keys(&mut integer_package);
-    settle(&mut integer_package);
+    settle_step_relation(&mut integer_package);
     let integer_expression = nodes(&integer_package)
         .iter()
         .find(|node| {
@@ -4713,7 +4732,7 @@ fn bound_step_relation_package() -> Value {
             "semantic_type": node_id(&key), "dependencies": [object],
             "occurrences": [{"role": "declaration", "ordinal": 0}], "body": body,
         }));
-    settle(&mut package);
+    settle_step_relation(&mut package);
     rekey_step_relation(package, |node| {
         for entry in node["body"]["members"][1]["value"]["members"]
             .as_array_mut()
@@ -4764,7 +4783,7 @@ fn step_relation_bound_implementation_requests_code_claim_and_checks_frame() {
     );
     unbound["semantic_graph"]["nodes"][abstraction]["dependencies"] = json!([]);
     mint_ungrouped_structural_keys(&mut unbound);
-    settle(&mut unbound);
+    settle_step_relation(&mut unbound);
     expect("frame missing", &unbound, Code::InvalidModelBinding, Some(Cause::MalformedDeclaration),
         &format!("/semantic_graph/nodes/{relation}/body/members/1/value/members/0/value/members/5/value/target"), None);
 }
