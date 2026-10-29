@@ -4936,8 +4936,7 @@ fn step_relation_bound_implementation_requests_code_claim_and_checks_frame() {
             .expect("key"),
         &new_key,
     );
-    mint_ungrouped_structural_keys(&mut unbound);
-    settle_step_relation(&mut unbound);
+    let unbound = rekey_step_relation(unbound, |_| {});
     expect("frame missing", &unbound, Code::InvalidModelBinding, Some(Cause::MalformedDeclaration),
         &format!("/semantic_graph/nodes/{relation}/body/members/1/value/members/0/value/members/5/value/target"), None);
 }
