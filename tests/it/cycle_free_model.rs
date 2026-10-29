@@ -392,10 +392,7 @@ fn model_and_root_runner_agree_on_schema_canonical_identity_diagnostic_and_corpu
         .collect();
     assert_eq!(rows, root_rows);
     // Each named result category participates in the byte comparison.
-    for pointer in [
-        "/actual/canonical/0/bytes",
-        "/actual/canonical/0/identity",
-    ] {
+    for pointer in ["/actual/canonical/0/bytes", "/actual/canonical/0/identity"] {
         let mut changed = rows.clone();
         let row = changed
             .iter_mut()
