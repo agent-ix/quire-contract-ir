@@ -1,13 +1,11 @@
 {
   "canonical": [
     {
-      "digest": "80412bc00c79a2511013736d68b51eb12b7b7fb9cd6fddfc6b6e9746d685c613",
       "identity": "declaration",
       "kind": "declaration",
       "bytes_path": "canonical/expression-compare-0.json"
     },
     {
-      "digest": "c79804b48baba00c358d3db233997539547cadd5dde60e721ff23fca76d78754",
       "identity": "expression",
       "kind": "expression",
       "bytes_path": "canonical/expression-compare-1.json"

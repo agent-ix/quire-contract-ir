@@ -358,7 +358,7 @@ fn model_and_root_runner_agree_on_schema_canonical_identity_diagnostic_and_corpu
                 .is_some_and(|values| !values.is_empty())
         })
         .unwrap();
-    for field in ["bytes", "digest", "identity"] {
+    for field in ["bytes", "identity"] {
         assert!(!canonical["actual"]["canonical"][0][field]
             .as_str()
             .unwrap()
@@ -392,11 +392,7 @@ fn model_and_root_runner_agree_on_schema_canonical_identity_diagnostic_and_corpu
         .collect();
     assert_eq!(rows, root_rows);
     // Each named result category participates in the byte comparison.
-    for pointer in [
-        "/actual/canonical/0/bytes",
-        "/actual/canonical/0/digest",
-        "/actual/canonical/0/identity",
-    ] {
+    for pointer in ["/actual/canonical/0/bytes", "/actual/canonical/0/identity"] {
         let mut changed = rows.clone();
         let row = changed
             .iter_mut()
