@@ -62,7 +62,8 @@ impl CheckedStepRelationBody {
 }
 
 impl CheckedSemanticNodeV2 {
-    /// The typed relation body, only for an admitted step-relation claim.
+    /// Parse this node's step-relation body into its closed typed production.
+    /// Reader admission additionally checks the referenced graph joins.
     #[ix_trace_rs::string_edge]
     pub fn step_relation_body(&self) -> Option<CheckedStepRelationBody> {
         (self.node_tag.as_ref() == "claim" && self.semantic_form.as_ref() == "step_relation")
@@ -423,7 +424,19 @@ pub(super) fn validate_step_relations(
             let Some(anchor_body) = anchor_body else {
                 return Err(malformed(operation_at, &entry.operation));
             };
-            let model = subject_models[entry.alias.as_ref()];
+            let Some(&model) = subject_models.get(entry.alias.as_ref()) else {
+                return Err(refuse(
+                    Code::MissingDeclaration,
+                    Some(Cause::MissingName),
+                    execution_at
+                        .clone()
+                        .index(i)
+                        .key("value")
+                        .key("members")
+                        .index(0),
+                    &node.node_id,
+                ));
+            };
             let context_ok = graph
                 .node(&anchor_body.context)
                 .is_some_and(|(context, _)| same_model(context, model, &graph));
@@ -558,6 +571,7 @@ pub(super) fn validate_step_relations(
                 for (clause_pos, clause) in
                     graph.each(CheckedNodeKind::State(StateForm::StateClause))
                 {
+                    meter.charge(1, || execution_at.clone().index(i))?;
                     let parsed = terms
                         .get(clause_pos)
                         .and_then(Option::as_ref)
@@ -592,9 +606,12 @@ pub(super) fn validate_step_relations(
             if alias != found {
                 return Err(malformed(path, model_id));
             }
-            let model = subject_models[alias.as_ref()];
+            let Some(&model) = subject_models.get(alias.as_ref()) else {
+                return Err(malformed(path, model_id));
+            };
             let mut expected = Vec::new();
             for (clause_pos, clause) in graph.each(CheckedNodeKind::State(StateForm::StateClause)) {
+                meter.charge(1, || path.clone())?;
                 let parsed = terms
                     .get(clause_pos)
                     .and_then(Option::as_ref)
