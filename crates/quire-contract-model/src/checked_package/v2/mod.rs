@@ -3212,15 +3212,16 @@ fn validate_recursion(
                 // member when it has no group, else the first member whose
                 // group differs — its `recursion_group` when it carries one,
                 // else the node object that lacks the member.
-                component.sort_unstable();
-                let first = component.first().and_then(|member| group_of(*member));
+                let first_member = component.iter().copied().min();
+                let first = first_member.and_then(group_of);
                 let offender = if first.is_none() {
-                    component.first().copied()
+                    first_member
                 } else {
                     component
                         .iter()
                         .copied()
-                        .find(|member| group_of(*member) != first)
+                        .filter(|member| group_of(*member) != first)
+                        .min()
                 };
                 if let Some(member) = offender {
                     let path = if group_of(member).is_some() {
@@ -3233,6 +3234,15 @@ fn validate_recursion(
                         path,
                     ));
                 }
+            } else if nodes.get(vertex).is_some_and(|node| {
+                node.recursion_group.is_some()
+                    && node.node_tag.as_ref() == "protocol"
+                    && node.semantic_form.as_ref() == "protocol_reference"
+            }) {
+                return Err(refuse(
+                    CheckedPackageRefusalCode::MalformedWire,
+                    node_pointer(vertex).key("recursion_group"),
+                ));
             }
         }
     }
@@ -3397,6 +3407,77 @@ mod tests {
     };
     use ix_trace_rs::trace;
     use serde_json::json;
+
+    fn recursion_test_node(digit: char, group: Option<&str>) -> super::RawSemanticNodeV2 {
+        serde_json::from_value(json!({
+            "node_id": super::test_support::id(digit),
+            "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "protocol",
+            "semantic_form": "protocol_reference",
+            "semantic_type": super::test_support::id('f'),
+            "dependencies": [],
+            "occurrences": [{"role": "expression", "ordinal": 0}],
+            "recursion_group": group,
+            "body": {"term": "reference", "target": super::test_support::id('e')},
+        }))
+        .expect("recursion-test node")
+    }
+
+    fn assert_recursion_refusal(
+        result: Result<(), ValidationFailure>,
+        code: CheckedPackageRefusalCode,
+        path: String,
+    ) {
+        let Err(ValidationFailure::Refused(refusal)) = result else {
+            panic!("expected recursion refusal, got {result:?}");
+        };
+        assert_eq!(refusal.code, code);
+        assert_eq!(refusal.path.as_ref().map(ToString::to_string), Some(path));
+    }
+
+    #[trace("FR-038-AC-241", "TC-048", "TC-946")]
+    #[test]
+    fn tc_946_recursion_groups_must_cover_exactly_a_cycle_component() {
+        let mismatch = [
+            recursion_test_node('a', Some("first")),
+            recursion_test_node('b', Some("second")),
+        ];
+        let cycle = vec![
+            vec![(1, EdgeSite::Reference(0))],
+            vec![(0, EdgeSite::Reference(0))],
+        ];
+        let mut meter = WorkMeter::new(u64::MAX);
+        assert_recursion_refusal(
+            validate_recursion(&mismatch, &cycle, &mut meter, &|_, _| {
+                node_pointer(1).key("recursion_group")
+            }),
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            node_pointer(1).key("recursion_group").to_string(),
+        );
+
+        let missing = [
+            recursion_test_node('a', Some("shared")),
+            recursion_test_node('b', None),
+        ];
+        let mut meter = WorkMeter::new(u64::MAX);
+        assert_recursion_refusal(
+            validate_recursion(&missing, &cycle, &mut meter, &|_, _| {
+                node_pointer(1).key("recursion_group")
+            }),
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            node_pointer(1).to_string(),
+        );
+
+        let orphan = [recursion_test_node('c', Some("orphan"))];
+        let mut meter = WorkMeter::new(u64::MAX);
+        assert_recursion_refusal(
+            validate_recursion(&orphan, &[vec![]], &mut meter, &|_, _| {
+                node_pointer(0).key("recursion_group")
+            }),
+            CheckedPackageRefusalCode::MalformedWire,
+            node_pointer(0).key("recursion_group").to_string(),
+        );
+    }
 
     fn tc_451_private_owned_wire() -> super::CheckedPackageWireV2 {
         let edition =

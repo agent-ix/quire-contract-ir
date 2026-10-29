@@ -5,10 +5,9 @@
 
 use crate::support::checked_package::{
     admitted_dependency, canonical, evidence_for, family_key, fixture_source, grouped_local_key,
-    mint_grouped_structural_keys, mint_ungrouped_structural_keys, node_id, protocol_role_node,
-    read_with_dependencies, rebuild_source_map, refresh_identity, refusal_at,
-    rekey_application_node, settle, sha256_hex, source_owner, structural_key, v2_all_families,
-    v2_nominal,
+    mint_grouped_structural_keys, node_id, protocol_role_node, read_with_dependencies,
+    rebuild_source_map, refresh_identity, refusal_at, rekey_application_node, settle, sha256_hex,
+    source_owner, structural_key, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -17,6 +16,7 @@ use quire_contract_model::{
 };
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::time::Instant;
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
     CheckedPackageV2::read(
@@ -426,26 +426,54 @@ fn protocol_reference_refuses_forbidden_carrier_members_before_target_join() {
     );
 }
 
-#[trace("FR-038-AC-241", "TC-048")]
+fn grouped_protocol_reference_package(member_count: usize) -> (Value, Vec<usize>) {
+    let mut package = v2_all_families();
+    settle(&mut package);
+    let semantic_type = node_id(&family_key("aaaa"));
+    let start = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    let ids = (0..member_count)
+        .map(|ordinal| {
+            node_id(&sha256_hex(
+                format!("IR-1025 protocol cycle member {ordinal}").as_bytes(),
+            ))
+        })
+        .collect::<Vec<_>>();
+    let positions = (start..start + member_count).collect::<Vec<_>>();
+    for ordinal in 0..member_count {
+        let target = &ids[(ordinal + 1) % member_count];
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(json!({
+                "node_id": ids[ordinal],
+                "schema_version": "quire.checked-semantic-graph/v2",
+                "node_tag": "protocol",
+                "semantic_form": "protocol_reference",
+                "semantic_type": semantic_type,
+                "dependencies": [target],
+                "occurrences": [{"role": "expression", "ordinal": 0}],
+                "recursion_group": "protocol-cycle",
+                "body": {"term": "reference", "target": target},
+            }));
+    }
+    mint_grouped_structural_keys(&mut package);
+    rebuild_source_map(&mut package);
+    settle(&mut package);
+    (package, positions)
+}
+
+fn two_member_grouped_protocol_reference_package() -> (Value, usize, usize) {
+    let (package, positions) = grouped_protocol_reference_package(2);
+    (package, positions[0], positions[1])
+}
+
+#[trace("FR-038-AC-241", "TC-048", "TC-946")]
 #[test]
 fn grouped_protocol_reference_is_admitted_with_its_group_key() {
-    let mut package = v2_all_families();
-    let semantic_type = node_id(&family_key("aaaa"));
-    let first_target = node_id(&family_key("5050"));
-    let second_target = role_target(&mut package);
-    let first = add_carrier(&mut package, &first_target, &semantic_type);
-    let second = add_carrier(&mut package, &second_target, &semantic_type);
-    let first_id = package["semantic_graph"]["nodes"][first]["node_id"].clone();
-    let second_id = package["semantic_graph"]["nodes"][second]["node_id"].clone();
-    for (position, destination) in [(first, second_id), (second, first_id)] {
-        package["semantic_graph"]["nodes"][position]["body"] =
-            json!({"term": "reference", "target": destination});
-        package["semantic_graph"]["nodes"][position]["dependencies"] = json!([destination]);
-        package["semantic_graph"]["nodes"][position]["recursion_group"] = json!("protocol-cycle");
-    }
-    mint_ungrouped_structural_keys(&mut package);
-    mint_grouped_structural_keys(&mut package);
-    settle(&mut package);
+    let (package, first, second) = two_member_grouped_protocol_reference_package();
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes");
@@ -489,6 +517,128 @@ fn grouped_protocol_reference_is_admitted_with_its_group_key() {
             &nodes[position].body,
             quire_contract_model::CheckedTerm::Reference { target: actual } if actual == target
         ));
+    }
+}
+
+#[trace("FR-038-AC-241", "TC-048", "TC-946")]
+#[test]
+fn stale_grouped_protocol_reference_key_is_rejected_as_stale_node_key() {
+    let (mut package, first, second) = two_member_grouped_protocol_reference_package();
+    package["semantic_graph"]["nodes"][first]["recursion_group"] = json!("tampered-group");
+    refresh_identity(&mut package);
+    let actual = match read(&package) {
+        CheckedPackageV2ReadResult::Refused(value) => value,
+        other => panic!("expected a stale grouped-key refusal: {other:?}"),
+    };
+    assert_eq!(actual.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(actual.cause, Some(CheckedPackageRefusalCause::StaleNodeKey));
+    let expected_position = [first, second]
+        .into_iter()
+        .min_by_key(|&position| {
+            package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
+                .as_str()
+                .expect("digest")
+        })
+        .expect("group member");
+    assert_eq!(
+        actual.path.as_ref().expect("path").to_string(),
+        format!("/semantic_graph/nodes/{expected_position}/node_id")
+    );
+}
+
+#[trace("FR-038-AC-241", "TC-048", "TC-946")]
+#[test]
+fn acyclic_protocol_reference_with_group_matches_qspec_k10() {
+    let mut package = v2_all_families();
+    let target = node_id(&family_key("5050"));
+    let position = add_carrier(&mut package, &target, &node_id(&family_key("aaaa")));
+    package["semantic_graph"]["nodes"][position]["recursion_group"] = json!("orphan-group");
+    mint_grouped_structural_keys(&mut package);
+    rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
+    let actual = match read(&package) {
+        CheckedPackageV2ReadResult::Refused(value) => value,
+        other => panic!("an acyclic protocol group must refuse: {other:?}"),
+    };
+    assert_eq!(actual.code, CheckedPackageRefusalCode::MalformedWire);
+    assert_eq!(
+        actual.path.as_ref().expect("path").to_string(),
+        format!("/semantic_graph/nodes/{position}/recursion_group")
+    );
+}
+
+#[trace("FR-038-AC-241", "TC-048", "TC-946")]
+#[test]
+fn qspec_k14_plain_protocol_stays_outside_the_cyclic_group() {
+    let mut package = v2_all_families();
+    for node in package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+    {
+        let qualified = node["declaration"]["qualified_name"].as_array();
+        if qualified.is_some_and(|name| {
+            name.first().and_then(Value::as_str) == Some("Example")
+                && name.get(1).and_then(Value::as_str) == Some("OrderFlow")
+        }) {
+            node["declaration"]["qualified_name"][1] = json!("Plain");
+        }
+    }
+    settle(&mut package);
+    let plain = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| {
+            node["node_tag"] == "protocol"
+                && node["semantic_form"] == "protocol_clause"
+                && node["declaration"]["qualified_name"] == json!(["Example", "Plain"])
+        })
+        .expect("Plain protocol clause");
+    assert!(package["semantic_graph"]["nodes"][plain]
+        .get("recursion_group")
+        .is_none());
+    assert!(package["semantic_graph"]["nodes"][plain]
+        .get("recursion")
+        .is_none_or(Value::is_null));
+    assert!(matches!(
+        read(&package),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
+#[trace("FR-038-AC-241", "TC-048", "TC-946")]
+#[test]
+fn hundred_thousand_protocol_reference_cycle_is_admitted_iteratively() {
+    for member_count in [10_000, 50_000, 100_000] {
+        let (package, positions) = grouped_protocol_reference_package(member_count);
+        let bytes = canonical(&package);
+        let evidence = evidence_for(&package);
+        let limits = CheckedPackageReadLimits {
+            bytes: u64::MAX,
+            nodes: u64::MAX,
+            edges: u64::MAX,
+            occurrences: u64::MAX,
+            diagnostics: u64::MAX,
+            work: u64::MAX,
+        };
+        let started = Instant::now();
+        let actual = CheckedPackageV2::read(&bytes, limits, &evidence);
+        let elapsed = started.elapsed();
+        let CheckedPackageV2ReadResult::Admitted(admitted) = actual else {
+            panic!("{member_count}-node protocol cycle did not admit: {actual:?}");
+        };
+        assert_eq!(
+            admitted.graph().nodes.len(),
+            package["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .len()
+        );
+        assert_eq!(positions.len(), member_count);
+        eprintln!(
+            "IR-1025 protocol-reference cycle read: {member_count} members in {} ms",
+            elapsed.as_millis()
+        );
     }
 }
 
