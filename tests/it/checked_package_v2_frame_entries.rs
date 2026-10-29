@@ -21,11 +21,11 @@ use quire_contract_model::{
     encode_checked_package_v2, CheckedApplicationOperation, CheckedComparisonPath,
     CheckedComparisonRefusal, CheckedExecutionPointRefusal, CheckedMemberType, CheckedNodeId,
     CheckedNodeTag, CheckedOccurrence, CheckedOccurrenceRole, CheckedOperationAnchorBody,
-    CheckedPackageIdentityPreimageRefV2, CheckedPackageLimit, CheckedPackageReadLimits,
-    CheckedPackageRefusal, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2, ExecutionPoint,
-    ExecutionPointName, StateClauseKind,
+    CheckedPackageEvidence, CheckedPackageIdentityPreimageRefV2, CheckedPackageLimit,
+    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    ExecutionPoint, ExecutionPointName, StateClauseKind,
 };
 use serde_json::{json, Value};
 use std::sync::LazyLock;
@@ -37,8 +37,32 @@ fn read(value: &Value) -> CheckedPackageV2ReadResult {
     CheckedPackageV2::read(
         &canonical(value),
         CheckedPackageReadLimits::bounded(),
-        &evidence_for(value),
+        &step_relation_evidence(value),
     )
+}
+
+fn step_model_document() -> Value {
+    let mut document = family_model_document();
+    document["types"][0]["operations"][0]["params"] = json!([{
+        "name": "i", "typeRef": "ix://quire/native/Integer",
+        "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true},
+    }]);
+    document
+}
+
+fn step_relation_evidence(package: &Value) -> CheckedPackageEvidence {
+    let mut evidence = evidence_for(package);
+    let document = step_model_document();
+    let digest = domain_package_digest(&document);
+    if package["lock"]["model_selections"]
+        .as_array()
+        .is_some_and(|models| models.iter().any(|model| model["digest"] == digest))
+    {
+        evidence
+            .insert_domain_package_document(digest, canonical(&document))
+            .expect("step model evidence");
+    }
+    evidence
 }
 
 fn admits(value: &Value) {
@@ -4287,6 +4311,10 @@ fn settle_step_relation(package: &mut Value) {
 /// A source-declared relation over two executions of the selected Account operation.
 fn step_relation_package() -> Value {
     let mut package = with_postcondition(StatePackage::new(), None).value;
+    let model_digest = domain_package_digest(&step_model_document());
+    package["lock"]["model_selections"][0]["digest"] = json!(model_digest.clone());
+    let root = position(&package, "model", "model_root");
+    package["semantic_graph"]["nodes"][root]["owner"]["digest"] = json!(model_digest);
     let self_position = nodes(&package)
         .iter()
         .position(|node| {
@@ -4295,14 +4323,50 @@ fn step_relation_package() -> Value {
                 && node["body"]["members"][0]["value"]["value"] == "self"
         })
         .expect("self binder");
-    let mut second_self = package["semantic_graph"]["nodes"][self_position].clone();
+    let first_self_node = package["semantic_graph"]["nodes"][self_position].clone();
+    let mut second_self = first_self_node.clone();
     second_self["node_id"] = node_id(&"ef".repeat(32));
-    second_self["body"]["members"][1]["value"]["value"] = json!("1");
+    second_self["body"]["members"][1]["value"]["value"] = json!("2");
+    let mut first_i = first_self_node.clone();
+    first_i["node_id"] = node_id(&"ed".repeat(32));
+    first_i["semantic_type"] = node_id(INTEGER);
+    first_i["body"]["members"][0]["value"]["value"] = json!("i");
+    first_i["body"]["members"][1]["value"]["value"] = json!("1");
+    let mut second_i = first_i.clone();
+    second_i["node_id"] = node_id(&"ee".repeat(32));
+    second_i["body"]["members"][1]["value"]["value"] = json!("3");
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
-        .push(second_self);
+        .extend([first_i, second_self, second_i]);
     mint_ungrouped_structural_keys(&mut package);
+    settle(&mut package);
+    let binder = |package: &Value, name: &str, level: &str| {
+        nodes(package)
+            .iter()
+            .find(|node| {
+                node["node_tag"] == "value"
+                    && node["semantic_form"] == "parameter"
+                    && node["body"]["members"][0]["value"]["value"] == name
+                    && node["body"]["members"][1]["value"]["value"] == level
+            })
+            .expect("execution binder")["node_id"]
+            .clone()
+    };
+    let first_i = binder(&package, "i", "1");
+    for clause in ["precondition", "postcondition"] {
+        let at = nodes(&package)
+            .iter()
+            .position(|node| {
+                node["semantic_form"] == "state_clause"
+                    && node["body"]["operation"]["member"]["clause"] == clause
+            })
+            .expect("operation clause");
+        package["semantic_graph"]["nodes"][at]["body"]["arguments"][0]["members"]
+            .as_array_mut()
+            .expect("clause parameters")
+            .push(json!({"term": "reference", "target": first_i.clone()}));
+    }
     settle(&mut package);
     let model = nodes(&package)
         .iter()
@@ -4313,17 +4377,10 @@ fn step_relation_package() -> Value {
         &package,
         position(&package, "state", "operation_anchor"),
     ));
-    let first_self = nodes(&package)[self_position]["node_id"].clone();
-    let second_self = nodes(&package)
-        .iter()
-        .find(|node| {
-            node["node_tag"] == "value"
-                && node["semantic_form"] == "parameter"
-                && node["body"]["members"][0]["value"]["value"] == "self"
-                && node["body"]["members"][1]["value"]["value"] == "1"
-        })
-        .expect("second binder")["node_id"]
-        .clone();
+    let first_self = binder(&package, "self", "0");
+    let first_i = binder(&package, "i", "1");
+    let second_self = binder(&package, "self", "2");
+    let second_i = binder(&package, "i", "3");
     let clause_id = |kind: &str| {
         nodes(&package)
             .iter()
@@ -4372,13 +4429,13 @@ fn step_relation_package() -> Value {
         .clone();
     let ref_id = |id: Value| json!({"term": "reference", "target": id});
     let agg = |members: Vec<Value>| json!({"term": "aggregate", "members": members});
-    let execution = |variable: &str, self_id: Value| {
+    let execution = |variable: &str, self_id: Value, i_id: Value| {
         binding(
             variable,
             agg(vec![
                 binding("alias", text("V")),
                 binding("operation", ref_id(anchor.clone())),
-                binding("parameters", agg(vec![ref_id(self_id)])),
+                binding("parameters", agg(vec![ref_id(self_id), ref_id(i_id)])),
                 binding("preconditions", agg(vec![ref_id(pre.clone())])),
                 binding("postconditions", agg(vec![ref_id(post.clone())])),
                 binding("implementation", agg(vec![])),
@@ -4390,8 +4447,8 @@ fn step_relation_package() -> Value {
         binding(
             "executions",
             agg(vec![
-                execution("x", first_self.clone()),
-                execution("y", second_self.clone()),
+                execution("x", first_self.clone(), first_i.clone()),
+                execution("y", second_self.clone(), second_i.clone()),
             ]),
         ),
         binding(
@@ -4404,7 +4461,9 @@ fn step_relation_package() -> Value {
         model,
         anchor,
         first_self,
+        first_i,
         second_self,
+        second_i,
         pre,
         post,
         invariant,
@@ -4463,7 +4522,28 @@ fn step_relation_reader_retains_two_executions_and_roundtrips() {
     assert_eq!(body.executions.len(), 2);
     assert_eq!(body.executions[0].variable.as_ref(), "x");
     assert_eq!(body.executions[1].variable.as_ref(), "y");
-    assert_ne!(body.executions[0].parameters, body.executions[1].parameters);
+    for (execution, levels) in body.executions.iter().zip([["0", "1"], ["2", "3"]]) {
+        assert_eq!(execution.parameters.len(), 2);
+        for (id, (name, level)) in execution
+            .parameters
+            .iter()
+            .zip(["self", "i"].into_iter().zip(levels))
+        {
+            let binder = admitted
+                .parameter_declaration(id)
+                .expect("execution binder");
+            assert_eq!(binder.name.as_ref(), name);
+            assert_eq!(binder.level.as_ref(), level);
+        }
+    }
+    assert_ne!(
+        body.executions[0].parameters[0],
+        body.executions[1].parameters[0]
+    );
+    assert_ne!(
+        body.executions[0].parameters[1],
+        body.executions[1].parameters[1]
+    );
     assert!(!body.requests_code_claim());
     let preimage = admitted.identity_preimage();
     let borrowed = CheckedPackageIdentityPreimageRefV2 {
@@ -4493,7 +4573,7 @@ fn step_relation_reader_retains_two_executions_and_roundtrips() {
     match CheckedPackageV2::read(
         &bytes,
         CheckedPackageReadLimits::bounded(),
-        &evidence_for(&package),
+        &step_relation_evidence(&package),
     ) {
         CheckedPackageV2ReadResult::Admitted(reloaded) => {
             let again = reloaded
@@ -4676,12 +4756,23 @@ fn step_relation_reader_refuses_layout_alias_targets_and_premises() {
         &format!("{prefix}/3/value/target"),
         None,
     );
-    let first = base["semantic_graph"]["nodes"][pos]["body"]["members"][1]["value"]["members"][0]
-        ["value"]["members"][2]["value"]["members"][0]["target"]
-        .clone();
+    let first: Vec<Value> = base["semantic_graph"]["nodes"][pos]["body"]["members"][1]["value"]
+        ["members"][0]["value"]["members"][2]["value"]["members"]
+        .as_array()
+        .expect("first binders")
+        .iter()
+        .map(|binder| binder["target"].clone())
+        .collect();
     let reused = rekey_step_relation(base.clone(), |node| {
-        node["body"]["members"][1]["value"]["members"][1]["value"]["members"][2]["value"]
-            ["members"][0]["target"] = first;
+        for (binder, target) in node["body"]["members"][1]["value"]["members"][1]["value"]
+            ["members"][2]["value"]["members"]
+            .as_array_mut()
+            .expect("second binders")
+            .iter_mut()
+            .zip(&first)
+        {
+            binder["target"] = target.clone();
+        }
     });
     expect(
         "reused binder",
@@ -4718,7 +4809,8 @@ fn bound_step_relation_package() -> Value {
             "fields": [{"name": "balance", "rust_field": "balance"}]}],
         "populations": [],
         "frames": [{"context": object, "operation": "deposit",
-            "function": ["domain", "deposit"], "receiver": "self", "parameters": []}],
+            "function": ["domain", "deposit"], "receiver": "self",
+            "parameters": [{"name": "i", "rust_parameter": "i"}]}],
     });
     let key = sha256_hex(&canonical(&json!({
         "version": "quire.abstraction-relation-node/v1", "body": body,
