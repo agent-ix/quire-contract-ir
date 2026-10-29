@@ -13,8 +13,8 @@
 
 use crate::support::checked_package::{
     application_node_key, bounds_body, canonical, evidence_for, node_id, nominal_fixture_members,
-    nominal_package, over_body, pointer, rebuild_source_map, refresh_identity,
-    refresh_identity_projection, refusal_bytes, refusal_cause, settle, sha256_hex, ExpectedRefusal,
+    nominal_package, over_body, pointer, rebuild_source_map, refresh_identity, refusal_bytes,
+    refusal_cause, settle, sha256_hex, ExpectedRefusal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
