@@ -24,8 +24,8 @@ relationships:
 
 When every requested obligation has one valid mapping record, the Contract IR
 assembler shall expose one immutable generated-output package only after target
-bytes, absolute regions, raw digest, generator identity, limits, record order,
-and the complete `sha256-jcs` package identity preimage have been verified.
+bytes, absolute regions, generator owner name, limits, record order,
+and one-record-per-obligation completeness have been verified.
 
 ## Inputs
 
@@ -37,9 +37,9 @@ and the complete `sha256-jcs` package identity preimage have been verified.
 
 ## Outputs
 
-- One immutable package containing deterministic target bytes, raw target digest,
-  ordered records with absolute regions, exact limits, and derived package identity.
-- One typed failure with no partial package, bytes, record population, or identity.
+- One immutable package containing deterministic target bytes, ordered records
+  with absolute regions, exact limits, and the generator owner name.
+- One typed failure with no partial package, bytes, or record population.
 
 ## Behavior
 
@@ -49,63 +49,59 @@ and the complete `sha256-jcs` package identity preimage have been verified.
   and final target bytes, and aligned to UTF-8 boundaries when the selected
   profile requires UTF-8.
 - The assembler shall verify exact one-record-per-requested-obligation
-  completeness, record order, target-profile equality, raw target digest,
-  generator identity, and admitted limits before constructing package identity.
-- The assembler shall include the identity version, source-package reference,
-  target profile, generator owner, target raw digest,
-  ordered record identities, and
-  limits in the package identity preimage.
-- Every canonical identity this pipeline computes (the request's, each
-  record's and the package's) shall be encoded by `quire-canonical` under the
+  completeness, record order, target-profile equality, generator owner name,
+  and admitted limits before exposing the package.
+- The package shall retain the source-package name and schema version, target
+  profile, generator owner name, ordered records, limits and exact target
+  bytes. It carries no content digest or derived package identity.
+- Request, record and package material used for byte-budget checks shall be
+  encoded by `quire-canonical` under the
   request's own byte limit, `maximum_request_bytes`.
-- The admission step shall encode the request identity material only to meter
-  it, keep its length as `request_bytes`, and retain neither the bytes nor a
-  digest of them.
-- The assembler shall derive each record identity and the package identity as
-  the SHA-256 digest of its canonical bytes.
-- Identity material whose canonical bytes exceed that ceiling shall refuse
-  `request_limit_exceeded` at `request`, `record.identity` or `package.identity`
-  and yield no record, identity or package; material of exactly the ceiling
+- The admission step shall encode the request material only to meter
+  it and keep its length as `request_bytes`, without retaining those bytes.
+- Material whose canonical bytes exceed that ceiling shall refuse
+  `request_limit_exceeded` at `request`, `record` or `package`
+  and yield no record or package; material of exactly the ceiling
   encodes. An allocation failure stays `allocation_failed` at the same paths.
 - `maximum_request_bytes` therefore bounds more than the request: it also bounds
   the canonical material of every record, which is built from mapper-supplied
-  candidate material, and of the package, so no identity step runs without a
+  candidate material, and of the package, so no bounded encoding step runs without a
   ceiling (FR-033 states the record rule).
-- The identity material shall spell every `u64` as a decimal string of its
+- The canonical material shall spell every `u64` as a decimal string of its
   minimal base-ten digits (QSpec `IntegerString`, as FR-016 does for the model's
   integers): the members of `MappingLimits` and the `start` and `end` of an
   `OutputByteRegion`. A `MappingLimits` member is never zero (FR-032-AC-2
   refuses it), so only a nonzero limit reaches the material; a region `start`
   of zero is admitted and is spelled `"0"`.
-- Every other integer of the identity material (a requirement revision, a source
+- Every other integer of the canonical material (a requirement revision, a source
   revision, a byte offset, a line, a column, a schema version) shall be a JSON
   number, which FR-011 and FR-012 hold at or below 2^53, so no encode of
-  identity material refuses for an integer. RFC 8785 spells no integer past 2^53
+  canonical material refuses for an integer. RFC 8785 spells no integer past 2^53
   exactly, so a number for a `u64` limit or region would refuse a legitimate
   value as an artificial cap.
 - The assembler shall exclude paths, timestamps, locale, display diagnostics,
   allocation layout, and structural-observer output from target bytes and
-  semantic identity.
+  deterministic target bytes or record content.
 - The assembler shall expose no package after cancellation, mapping failure,
   arithmetic overflow, allocation failure, resource exhaustion, or malformed
   region/record input.
 - A structural observation reference shall name only an already immutable
   package, the observer owner, and the accepted or refused outcome, and shall
-  not mutate package bytes, records, dispositions, or identities.
+  not mutate package bytes, records, or dispositions.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-034-AC-1 | Equal admitted requests, mapper candidates, and generator identities produce byte-identical target output, records, raw digests, and package identities. | Test (TC-043) |
-| FR-034-AC-2 | Missing, duplicate, foreign, stale, reordered, cross-profile, malformed-region, digest-mismatched, or over-limit inputs refuse atomically with no package. | Test (TC-043) |
+| FR-034-AC-1 | Equal admitted requests, mapper candidates, and generator owner names produce byte-identical target output and equal ordered typed records, with no target, record or package digest. | Test (TC-043) |
+| FR-034-AC-2 | Missing, duplicate, foreign, stale, reordered, cross-profile, malformed-region or over-limit inputs refuse atomically with no package; the assembler does not add a digest-mismatch refusal. | Test (TC-043) |
 | FR-034-AC-3 | Every zero, exact, just-over, and overflowing aggregate limit is classified without partial output or a smaller successful package. | Test (TC-043) |
-| FR-034-AC-4 | Mutating source/profile/generator owner/record/limit/target-byte identity inputs changes or invalidates package identity, while path/time/locale/display/observer changes do not. | Test (TC-043) |
+| FR-034-AC-4 | Mutating a source name or version, target profile, generator owner name, record, limit or target byte changes the corresponding exposed typed value or output byte, or refuses admission; path, time, locale, display and observer changes do not alter the package content. | Test (TC-043) |
 | FR-034-AC-5 | Structural observer acceptance, refusal, absence, and observer owner remain downstream references and cannot establish native truth or mapping preservation. | Test (TC-043) |
-| FR-034-AC-6 | Identity material is canonicalized under `maximum_request_bytes` and never without a ceiling: through the public admission and mapping calls, request material whose canonical length equals the limit admits and one byte over refuses `request_limit_exceeded` at `request`, and a record whose material is one byte over refuses at `record.identity`, each with no record, identity or package and not `allocation_failed`; and the package identity step, called with a ceiling equal to the measured length of its material, encodes, and with a ceiling one byte lower refuses `request_limit_exceeded` at `package.identity` with no package. | Test (TC-043) |
-| FR-034-AC-7 | The record identity and the package identity are the SHA-256 digests of the canonical byte strings written out in the test for a fixed record and a fixed package; the request identity material, built at the request identity step, equals the canonical byte string written out in the test for a fixed request, and the length admission keeps as `request_bytes` for a request whose `MappingLimits` members each have a value of a different digit count (so a member copied from another member or from the request byte limit changes the length; a swap of two members' values keeps the length and is caught only at the encoding step, by the byte-equality unit tests whose values 40, 1100, 130, 4200 and 36 are pairwise distinct) equals the byte length of the request text written out in the test (members in UTF-16 order); none of these strings is computed by a call into the code under test. | Test (TC-043) |
-| FR-034-AC-8 | In the written-out material each `MappingLimits` member and each `OutputByteRegion` bound is the decimal string of its value, under its own member name. Request material with `maximum_obligations` 40, `maximum_expression_nodes` 1100, `maximum_nesting_depth` 130, `maximum_mapping_work` 4200, `maximum_records` 36 and `maximum_emitted_bytes` 18446744073709551615 carries `"40"`, `"1100"`, `"130"`, `"4200"`, `"36"` and `"18446744073709551615"` respectively. Package material with `maximum_emitted_bytes` 9007199254740993, the same other six values and the ceiling it was encoded under as `maximum_request_bytes` carries `"9007199254740993"`, `"40"`, `"1100"`, `"130"`, `"4200"`, `"36"` and that ceiling as a string respectively. Record material carries a region of `start` 0 and `end` 1 as `"0"` and `"1"`, and a region of `start` 9007199254740993 and `end` 18446744073709551615 as `"9007199254740993"` and `"18446744073709551615"`. | Test (TC-043) |
-| FR-034-AC-9 | A request whose `maximum_emitted_bytes` is `18446744073709551615` and one whose is `18446744073709551614` both admit, and their request identity material differs. | Test (TC-043) |
+| FR-034-AC-6 | Request, record and package material is canonicalized under `maximum_request_bytes` solely for byte-budget enforcement. Material whose length equals the ceiling admits, and one byte over refuses `request_limit_exceeded` at `request`, `record` or `package` respectively, with no partial record or package and not `allocation_failed`; the bounded encoder receives the caller ceiling and never `u64::MAX`. No encoded material is used as a content identity. | Test (TC-043) |
+| FR-034-AC-7 | The request, record and package canonical material each equals an expected byte string written out in the test from its members, without a call into the code under test; the request length retained as `request_bytes` equals the written request text length. Distinct `MappingLimits` members use values 40, 1100, 130, 4200 and 36 so a copied or swapped member is caught by exact byte equality. No digest or content-identity field is generated. | Test (TC-043) |
+| FR-034-AC-8 | In the written-out request, record and package material each `MappingLimits` member and each `OutputByteRegion` bound is the decimal string of its value under its own member name. The request control uses `maximum_obligations` 40, `maximum_expression_nodes` 1100, `maximum_nesting_depth` 130, `maximum_mapping_work` 4200, `maximum_records` 36 and `maximum_emitted_bytes` 18446744073709551615. The package control uses `maximum_emitted_bytes` 9007199254740993 and the same other limits; the record controls use region bounds 0/1 and 9007199254740993/18446744073709551615. Each spelling matches its decimal string exactly, with no numeric coercion or member swap. | Test (TC-043) |
+| FR-034-AC-9 | Requests whose `maximum_emitted_bytes` are `18446744073709551615` and `18446744073709551614` both admit; their canonical request material differs in exactly that member while all other members stay equal. | Test (TC-043) |
 
 ## Dependencies
 
@@ -115,4 +111,6 @@ and the complete `sha256-jcs` package identity preimage have been verified.
   disposition invariants.
 - `ix://agent-ix/quire-specification/FR-125`, `FR-299`, `NFR-060`, and `NFR-061`
   own deterministic package assembly, aggregate bounds, dependency containment,
-  and observer separation.
+  and observer separation. Their current record/package content-identity clauses
+  require a QSpec revision before this digest-free package contract can be
+  implemented.
