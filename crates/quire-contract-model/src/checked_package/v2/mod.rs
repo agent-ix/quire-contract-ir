@@ -3236,8 +3236,9 @@ fn validate_recursion(
                 }
             } else if nodes.get(vertex).is_some_and(|node| {
                 node.recursion_group.is_some()
-                    && node.node_tag.as_ref() == "protocol"
-                    && node.semantic_form.as_ref() == "protocol_reference"
+                    && CheckedNodeTag::from_wire(&node.node_tag)
+                        .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
+                        == Some(CheckedNodeKind::Protocol(ProtocolForm::ProtocolReference))
             }) {
                 return Err(refuse(
                     CheckedPackageRefusalCode::MalformedWire,
