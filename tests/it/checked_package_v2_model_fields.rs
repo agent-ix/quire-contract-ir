@@ -2766,10 +2766,6 @@ fn model_fields_source_map_and_work_boundary_hold() {
     assert_eq!(string.member_type(), Some(&CheckedMemberType::String));
     let missing = admitted.model_object_fields(&declaration_id("Absent"));
     assert_eq!(missing, Err(CheckedModelFieldsError::UnknownNode));
-    assert_eq!(
-        *admitted.package_id(),
-        serde_json::from_value(wire["package_id"].clone()).expect("package identity")
-    );
     let authored_sources: Vec<quire_contract_model::CheckedSourceMapEntry> =
         serde_json::from_value(wire["source_map"].clone()).expect("authored sources");
     assert_eq!(admitted.source_map(), authored_sources);

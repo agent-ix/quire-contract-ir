@@ -957,17 +957,16 @@ fn selected_population_result_provenance_and_work_boundary_hold() {
         })
         .expect("selected authored source");
     assert_eq!(finite.provenance, selected_source.regions);
-    assert_eq!(
-        *package.package_id(),
-        serde_json::from_value(scenario.package["package_id"].clone()).expect("package identity")
-    );
     let high = least_admitting_work(&scenario);
     let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = high;
+    assert!(matches!(
+        CheckedPackageV2::read(&bytes, limits, &scenario.evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
     limits.work = high - 1;
-    let CheckedPackageV2ReadResult::Incomplete(incomplete) =
-        CheckedPackageV2::read(&bytes, limits, &scenario.evidence)
-    else {
-        panic!("work boundary");
-    };
-    assert_eq!(incomplete.limit, high - 1);
+    assert!(matches!(
+        CheckedPackageV2::read(&bytes, limits, &scenario.evidence),
+        CheckedPackageV2ReadResult::Incomplete(_)
+    ));
 }

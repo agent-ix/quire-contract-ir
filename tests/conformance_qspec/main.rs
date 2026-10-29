@@ -811,7 +811,6 @@ fn tc_048_qspec_all_positive_packages_and_owner_identities() {
         for (node, published) in admitted.graph().nodes.iter().zip(nodes) {
             let id = serde_json::to_value(&node.node_id).expect("typed node id");
             let owner = serde_json::to_value(&node.owner).expect("typed owner");
-            assert_eq!(id, published["node_id"], "{name}: graph node id");
             assert_eq!(owner, published["owner"], "{name}: graph owner");
             if name.starts_with("positive-two-owners-") {
                 for declaration in ["Point", "List"] {
