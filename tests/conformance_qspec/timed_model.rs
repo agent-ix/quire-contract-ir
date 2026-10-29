@@ -963,7 +963,7 @@ fn timed_aggregate_each_root_branch_enforces_source_order() {
     }
 }
 
-/// Trace: TC-048.
+/// Trace: FR-038-AC-359, TC-048.
 #[test]
 fn timed_clause_equal_regions_use_structural_order_before_refusing_repetition() {
     let fixtures = fixtures_dir();
@@ -1788,7 +1788,7 @@ fn timed_model_rebuilt_semantic_defects_keep_paired_causes() {
 /// This control checks GD-03's published code, cause and locus after
 /// authenticated package identities are rebuilt.
 /// Provenance: IR-1083, QSpec STD-526 GD-03.
-#[trace("TC-048")]
+#[trace("TC-048", "FR-038-AC-358")]
 #[test]
 fn timed_model_unlisted_guard_refuses_at_the_timed_join() {
     let vectors = read_json(&fixtures_dir().join("../timed-slot-selector-vectors.json"))
