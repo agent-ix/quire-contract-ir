@@ -3,7 +3,7 @@ id: SR-629
 title: "PR #231 FR-038 spec integrity review"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@a567ba99e8601849c77984f19c723a000e664fca; spec/contract/FR-038-consume-checked-package-v2.md (requires_bound prose, lines 541-600, AC-8, AC-39)"
+scope: "agent-ix/quire-contract-ir; spec/contract/FR-038-consume-checked-package-v2.md (requires_bound prose, lines 541-600, AC-8, AC-39)"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
@@ -27,8 +27,8 @@ Examined:
 - FR-038-AC-8 and FR-038-AC-39.
 
 Also checked against upstream: QSpec FR-322 (`recursion_group`), QSpec
-FR-143, QSL ADR-014 §4 (quire-specification origin/main 4634f5f,
-quire-spec-language origin/main a2837b6f). `quire validate` on FR-038 is
+FR-143, QSL ADR-014 §4 (quire-specification origin/main,
+quire-spec-language origin/main ). `quire validate` on FR-038 is
 clean.
 
 ## Verdict
@@ -53,15 +53,15 @@ FND-001 reports.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-005 | low | The fallback rule says a type "typed at by the requested node, a `literal` value or an `expression` but ... named at no position" is bounded by any reachable domain over it. The code applies that fallback to every non-position typed use: a function's result type, a `bounded_domain`'s base, a claim, other `value` forms, and a type named through `dependencies`. The sentence leaves those uses without a stated rule. Replacing the list with "any other reachable node" would match the code. | spec/contract/FR-038-consume-checked-package-v2.md:597-601 |
+| FND-005 | low | The fallback rule says a type "typed at by the requested node, a `literal` value or an `expression` but... named at no position" is bounded by any reachable domain over it. The code applies that fallback to every non-position typed use: a function's result type, a `bounded_domain`'s base, a claim, other `value` forms, and a type named through `dependencies`. The sentence leaves those uses without a stated rule. Replacing the list with "any other reachable node" would match the code. | spec/contract/FR-038-consume-checked-package-v2.md:597-601 |
 
 ## Dispositions
 
-Round 1, reviewed at edb862819349fae5ba5bf2a19ea565ab1a3f96dd.
+Round 1, reviewed.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | edb8628 |
-| FND-002 | fixed | edb8628 |
-| FND-003 | fixed | edb8628 |
-| FND-004 | fixed | edb8628 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |
+| FND-004 | fixed | Fixed in the reviewed PR. |

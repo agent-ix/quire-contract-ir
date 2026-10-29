@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #642 at 8b0e53957778f2dd1da5ad2d98207bf28acdf060 against main 66eb6b7f and QSpec 48373530. The operation join is consistent with FR-061 and QSpec; the catalog-present rule remains distinct and the three new criteria have separate outcomes. No applicable AssuranceProfile or enforced review policy was found in the changed module.
+Reviewed PR #642 against main and QSpec . The operation join is consistent with FR-061 and QSpec; the catalog-present rule remains distinct and the three new criteria have separate outcomes. No applicable AssuranceProfile or enforced review policy was found in the changed module.
 
 ## Verdict
 

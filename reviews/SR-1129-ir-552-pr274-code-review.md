@@ -3,7 +3,7 @@ id: SR-1129
 title: "code review of PR 274: QSpec conformance harness for FR-038-AC-112 and AC-113, prose cleanup, recursion tests (IR-552)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@cb0a8bf46b879a39de3c27682c208cb879299a7d; git diff origin/main...cb0a8bf (base 90ad41d, 10 files: tests/conformance_qspec/main.rs, tests/it/checked_package_v2_{reader,recursive_leaves,temporal,union}.rs, crates/quire-contract-model/src/checked_package/{common.rs,v2/operations.rs,v2/temporal.rs}, spec/checked_package/matrix/tests.md, spec/tests.md)"
+scope: "agent-ix/quire-contract-ir; git diff origin/main... (, 10 files: tests/conformance_qspec/main.rs, tests/it/checked_package_v2_{reader,recursive_leaves,temporal,union}.rs, crates/quire-contract-model/src/checked_package/{common.rs,v2/operations.rs,v2/temporal.rs}, spec/checked_package/matrix/tests.md, spec/tests.md)"
 review_set: subset
 ---
 # SR-1129: code review of PR 274: QSpec conformance harness for FR-038-AC-112 and AC-113, prose cleanup, recursion tests (IR-552)
@@ -12,11 +12,11 @@ review_set: subset
 
 Ticket: IR-552. This file holds the code-review method with its rust-review lane. The PR body and the coder's claims were treated as data and measured.
 
-What I measured, in a detached throwaway worktree at cb0a8bf with its own target directory, against a throwaway worktree of quire-specification origin/main at 396493c (both since removed):
+What I measured, in a detached throwaway worktree with its own target directory, against a throwaway worktree of quire-specification origin/main (both since removed):
 
-- `QUIRE_SPECIFICATION_DIR=<qspec origin/main> make conformance-qspec` FAILS. Four of five tests pass. `tc_048_qspec_adverse_mutations_refuse_as_recorded` fails with one problem: `negative-temporal-interval-bound: read as refused:invalid_package/invalid-value, not the recorded refused:invalid_package`. That mutation was added to `adverse.json` by QSpec #181 (f39c93f). The stale local checkout at b1da9c8 does not hold it, which is why the run passed for the author. See FND-001.
+- `QUIRE_SPECIFICATION_DIR=<qspec origin/main> make conformance-qspec` FAILS. Four of five tests pass. `tc_048_qspec_adverse_mutations_refuse_as_recorded` fails with one problem: `negative-temporal-interval-bound: read as refused:invalid_package/invalid-value, not the recorded refused:invalid_package`. That mutation was added to `adverse.json` by QSpec #181 . The stale local checkout does not hold it, which is why the run passed for the author. See FND-001.
 - The five `body_grammar_mutations` produce exactly the listed refusals on origin/main (no problem is reported for any of them, and the run collects every problem). Each `flattened` control is not refused `malformed_wire`.
-- AC-113 passes: the version-free selections derive the recorded `0606043a...abf2` through `CheckedPackageIdentityPreimageV2` and `quire_canonical::sha256`, the same call the reader makes in `validate` (mod.rs:772). The harness does not hash raw JSON.
+- AC-113 passes: the version-free selections derive the recorded `...abf2` through `CheckedPackageIdentityPreimageV2` and `quire_canonical::sha256`, the same call the reader makes in `validate` (mod.rs:772). The harness does not hash raw JSON.
 - No QSpec file is copied into the repo: no `adverse*.json`, `dependency-selection-vectors*` or `positive-*` file exists in the tree, and no file was added. `.github` is untouched.
 - The touched it modules pass (recursive_leaves, union, temporal: 49 tests). `make fmt-check` and `make lint` (workspace and model-only clippy) pass. `make spec` stops at the known baseline: validate passes, grammar 1 (FR-014), 23 unbacked under strict, 0 contradicted.
 - Recursion leaves checked against merged QSpec FR-322 "Structural leaf walk" (lines 632-692), which gives both examples verbatim: `record Cell { item: (Text, Option<Cell>) }` lists `["field:item", "position:1", "inner", "recursion:0"]`, and `Option<Chain>` lists `["inner", "member:Link", "position:1", "recursion:1"]`. The new tests assert exactly these, and refuse the wrong depth.
@@ -28,7 +28,7 @@ Fail-closed cases of AC-112, each checked for whether it would still pass with i
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | high | The harness compares the whole outcome string, so a recorded outcome that names a code but no cause fails whenever the reader also gives a cause. AC-112 says each mutation refuses with 'exactly the code its outcome names (refused:<code>, and the cause after a / where it gives one)': the cause is compared only where the outcome gives one. On quire-specification origin/main (396493c) `negative-temporal-interval-bound` records `refused:invalid_package`, the reader gives `refused:invalid_package/invalid-value`, and `make conformance-qspec` fails. The author's pass came from a checkout older than QSpec #181. Fix: compare the code, and the cause only when the recorded outcome has a `/<cause>`; apply the same rule to the listed-refusal and stale-entry comparisons; add a fail-closed case for a cause-less outcome. Do not list this id as an expected failure: the reader refuses it with the recorded code. | tests/conformance_qspec/main.rs:289-307 |
+| FND-001 | high | The harness compares the whole outcome string, so a recorded outcome that names a code but no cause fails whenever the reader also gives a cause. AC-112 says each mutation refuses with 'exactly the code its outcome names (refused:<code>, and the cause after a / where it gives one)': the cause is compared only where the outcome gives one. On quire-specification origin/main  `negative-temporal-interval-bound` records `refused:invalid_package`, the reader gives `refused:invalid_package/invalid-value`, and `make conformance-qspec` fails. The author's pass came from a checkout older than QSpec #181. Fix: compare the code, and the cause only when the recorded outcome has a `/<cause>`; apply the same rule to the listed-refusal and stale-entry comparisons; add a fail-closed case for a cause-less outcome. Do not list this id as an expected failure: the reader refuses it with the recorded code. | tests/conformance_qspec/main.rs:289-307 |
 | FND-002 | medium | The 'list absent' and 'list empty' fail-closed assertions are vacuous. Both pass `body_grammar_mutations[0]` with an empty expected-failure list. The reader gives that entry `refused:invalid_package/stale-node-key`, not its recorded `refused:malformed_wire`, so `adverse_problems` returns a problem whether or not the absent/empty-list guard exists. Deleting the `mutations` non-empty check leaves both assertions green. Assert the specific message (`has no non-empty structural_mutations list`), or pair the list under test with entries that pass on their own. | tests/conformance_qspec/main.rs:474-482 |
 | FND-003 | low | `assert!(listed.ticket.starts_with("IR-"))` iterates a `const` whose every entry is the literal `"IR-495"`, so it cannot fail. Its comment says 'A listed id is a mutation of the file', which this loop does not check (the absent-id check is in `adverse_problems`). Drop the loop or replace it with a check that can fail. | tests/conformance_qspec/main.rs:436-439 |
 | FND-004 | low | The `moved` case's comment says it shows 'the harness derives through the reader's own derivation'. A harness that hashed the raw JSON would also fail it, since any changed digest moves any hash. The assertion is fine as a regression check. The claim is not what it proves; the typed-preimage call itself is what satisfies AC-113's 'cannot pass' clause. Reword the comment. | tests/conformance_qspec/main.rs:599-603 |
@@ -46,7 +46,7 @@ Out of diff scope, for information only: the Makefile help line for `conformance
 
 ## Dispositions
 
-Round 1 was reviewed at 05465f3f419fe4d49aa6c8a598bbac730cd40fc8, one fix commit on cb0a8bf. I measured it in throwaway worktrees, since removed. `make conformance-qspec` against quire-specification origin/main (396493c) passes all 6 tests, including the new `tc_048_a_recorded_outcome_without_a_cause_is_met_by_its_code`. I deleted each guard in turn in a throwaway copy, never on the PR branch, and every mutant fails a test:
+Round 1 was reviewed, one fix commit on. I measured it in throwaway worktrees, since removed. `make conformance-qspec` against quire-specification origin/main  passes all 6 tests, including the new `tc_048_a_recorded_outcome_without_a_cause_is_met_by_its_code`. I deleted each guard in turn in a throwaway copy, never on the PR branch, and every mutant fails a test:
 
 - The cause compared always: the new unit test and the adverse result test fail.
 - The non-empty list guard deleted, both halves: `tc_048_qspec_adverse_run_fails_closed` fails.
@@ -58,10 +58,10 @@ Round 1 was reviewed at 05465f3f419fe4d49aa6c8a598bbac730cd40fc8, one fix commit
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed 05465f3 | `refuses_as` compares the cause only when the recorded outcome has one. The unlisted and stale-entry checks both use it, and a unit test pins it. The run passes on QSpec main, and a mutant with the whole-string compare fails. |
-| FND-002 | fixed 05465f3 | The body-list cases assert exactly one problem, the list's own. The structural-list cases assert that list's specific message. Deleting the guard fails the test. |
-| FND-003 | fixed 05465f3 | The tautological ticket loop and its comment are removed. |
-| FND-004 | fixed 05465f3 | The comment no longer claims the case proves the reader's derivation, and the assertion now names its problem. |
-| FND-005 | fixed 05465f3 | Now cited as 'merged QSpec FR-370: strict wire validation, before the temporal step'. |
-| FND-006 | fixed 05465f3 | The comment now says merged FR-322 refuses every other nested application `malformed_wire`, that this reader refuses only `case` here today, and that IR-495 owns the rest. |
-| FND-007 | fixed 05465f3 | The doc now lists the two cases: the recursion leaf missing (the text leaf alone) and `recursion:0`. |
+| FND-001 | fixed | `refuses_as` compares the cause only when the recorded outcome has one. The unlisted and stale-entry checks both use it, and a unit test pins it. The run passes on QSpec main, and a mutant with the whole-string compare fails. |
+| FND-002 | fixed | The body-list cases assert exactly one problem, the list's own. The structural-list cases assert that list's specific message. Deleting the guard fails the test. |
+| FND-003 | fixed | The tautological ticket loop and its comment are removed. |
+| FND-004 | fixed | The comment no longer claims the case proves the reader's derivation, and the assertion now names its problem. |
+| FND-005 | fixed | Now cited as 'merged QSpec FR-370: strict wire validation, before the temporal step'. |
+| FND-006 | fixed | The comment now says merged FR-322 refuses every other nested application `malformed_wire`, that this reader refuses only `case` here today, and that IR-495 owns the rest. |
+| FND-007 | fixed | The doc now lists the two cases: the recursion leaf missing (the text leaf alone) and `recursion:0`. |

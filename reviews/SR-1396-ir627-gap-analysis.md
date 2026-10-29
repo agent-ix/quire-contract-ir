@@ -3,7 +3,7 @@ id: SR-1396
 title: "PR 627 refinement export gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@796609b0ce70e2c2a9367d3df8d4e20e43166ba6; FR-019-AC-5, TC-058, crates/quire-contract-model/src/lib.rs, tests/it/public_interface.rs"
+scope: "agent-ix/quire-contract-ir; FR-019-AC-5, TC-058, crates/quire-contract-model/src/lib.rs, tests/it/public_interface.rs"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-019

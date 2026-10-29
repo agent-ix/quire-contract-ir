@@ -3,7 +3,7 @@ id: SR-1921
 title: IR-646 PR 304 gap-analysis review
 type: SpecReview
 analysis: gap-analysis
-scope: agent-ix/quire-contract-ir@770969577284fc1b2b063805f1d20cf51e751125; crates/quire-contract-model/src/checked_package/v2/encode.rs,
+scope: agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/encode.rs,
   crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/checked_package/v2/owner.rs,
   spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md,
   spec/checked_package/matrix/TC-228-checked-package-v2-wire-owner-and-lock-joins.md,
@@ -65,4 +65,4 @@ Plan completion: not assessed. Quoin matrix: 310 criteria; 259 tagged, 49 untagg
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed db4487f514562739017f8914b03c14d76d0d698c | The TC-228 clause table now includes an absent operation member, keeps the clause node unreachable, and asserts missing_declaration/missing-selection at its node_id. |
+| FND-001 | fixed | The TC-228 clause table now includes an absent operation member, keeps the clause node unreachable, and asserts missing_declaration/missing-selection at its node_id. |

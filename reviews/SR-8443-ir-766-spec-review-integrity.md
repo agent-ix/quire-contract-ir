@@ -3,7 +3,7 @@ id: SR-8443
 title: "IR-766 spec-review/integrity review"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@bd897ccb4791da8e392a87919c8e1694c7e70304; spec/model/functional/FR-019-rust-library-interface.md"
+scope: "agent-ix/quire-contract-ir; spec/model/functional/FR-019-rust-library-interface.md"
 review_set: subset
 ---
 

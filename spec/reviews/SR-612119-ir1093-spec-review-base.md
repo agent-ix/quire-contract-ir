@@ -3,7 +3,7 @@ id: SR-612119
 title: "IR-1093 protocol class catalog path specification review"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; FR-038-AC-329 and TC-048 item 16 at 29ebb37a"
+scope: "agent-ix/quire-contract-ir; FR-038-AC-329 and TC-048 item 16 "
 review_set: base
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038

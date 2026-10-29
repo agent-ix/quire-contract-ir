@@ -3,18 +3,18 @@ id: SR-11813
 title: "IR-759 Slice C EARS conformance review of FR-052 census construction rules and AC-17..19"
 type: SpecReview
 analysis: ears-conformance
-scope: "agent-ix/quire-contract-ir@794d6e2 (PR 417, diff vs origin/main 6b80801); spec/model/functional/FR-052-source-obligation-correspondence.md, spec/model/matrix/TC-452-source-obligation-correspondence.md, spec/model/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir (PR 417, diff vs origin/main ); spec/model/functional/FR-052-source-obligation-correspondence.md, spec/model/matrix/TC-452-source-obligation-correspondence.md, spec/model/matrix/tests.md"
 review_set: subset
 date: '2026-10-16'
 ---
 
 ## Summary
 
-Ticket: IR-759. EARS conformance of the new Behavior statements and the singular-ness of FR-052-AC-17..19 at 794d6e2. The FR-052 requirement statement itself is unchanged.
+Ticket: IR-759. EARS conformance of the new Behavior statements and the singular-ness of FR-052-AC-17..19. The FR-052 requirement statement itself is unchanged.
 
 ## Verdict
 
-One low finding. The new Behavior statements are ubiquitous EARS ('X shall ...'); the numbered pipeline uses indicative 'is rejected' under a 'shall process ... in these steps' lead-in, which is acceptable. FR-052's acceptance criteria are written as Given/observation tests, not EARS, throughout; the new ACs follow that local convention.
+One low finding. The new Behavior statements are ubiquitous EARS ('X shall...'); the numbered pipeline uses indicative 'is rejected' under a 'shall process... in these steps' lead-in, which is acceptable. FR-052's acceptance criteria are written as Given/observation tests, not EARS, throughout; the new ACs follow that local convention.
 
 ## Findings
 
@@ -41,16 +41,16 @@ scope:
 - id: FR-052#census-construction-rules
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
-  excerpt: '### Census construction rules: `SourceObligationInput::new` shall take, in order, the selected `SourceIdentity`, an `Option<SourceCriterionSourceBinding>`, one `Option<SourceInventoryOutcome>` for each of the Quire, IR V2, QSL and `quire-code-rs` positions, and a `Vec<SourceCorrespondenceAssertion>`. ... A binding conflicts when a `Criterion` row of the Quire outcome has an `obligation_declaration()` different from the binding''s `obligation_scope()`. ... This definition of a conflicting binding is an IR reading pending owner confirmation (see Open questions).'
+  excerpt: '### Census construction rules: `SourceObligationInput::new` shall take, in order, the selected `SourceIdentity`, an `Option<SourceCriterionSourceBinding>`, one `Option<SourceInventoryOutcome>` for each of the Quire, IR V2, QSL and `quire-code-rs` positions, and a `Vec<SourceCorrespondenceAssertion>`.... A binding conflicts when a `Criterion` row of the Quire outcome has an `obligation_declaration` different from the binding''s `obligation_scope`.... This definition of a conflicting binding is an IR reading pending owner confirmation (see Open questions).'
 - id: FR-052#assertion-pipeline
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
-  excerpt: 1. Exact duplicate assertions, equal in every field, collapse to one. 2. Assertions sharing one `SourceAssertionId` form a group. ... `ConflictingRelation` ... Otherwise ... `ConflictingProvenance`. 3. ... `ForeignSource` when its source or its provenance source differs from the selected source, then `DanglingCriterion`, `DanglingOccurrence` and `DanglingProductionSymbol`. 4. Remaining assertions with one criterion, occurrence and production function form one relation. When a relation holds more than one distinct provenance, every member is rejected with `ConflictingProvenance`. Otherwise the relation yields exactly one `SourceObligationRow`, whatever the number of assertion IDs that state it.
+  excerpt: 1. Exact duplicate assertions, equal in every field, collapse to one. 2. Assertions sharing one `SourceAssertionId` form a group.... `ConflictingRelation`... Otherwise... `ConflictingProvenance`. 3.... `ForeignSource` when its source or its provenance source differs from the selected source, then `DanglingCriterion`, `DanglingOccurrence` and `DanglingProductionSymbol`. 4. Remaining assertions with one criterion, occurrence and production function form one relation. When a relation holds more than one distinct provenance, every member is rejected with `ConflictingProvenance`. Otherwise the relation yields exactly one `SourceObligationRow`, whatever the number of assertion IDs that state it.
 ```
 
 ## Dispositions
 
-Round 1, against fix commit 8119d05.
+Round 1, against fix.
 
 | FND | outcome | reason |
 | --- | --- | --- |

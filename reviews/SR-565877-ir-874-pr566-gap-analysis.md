@@ -6,7 +6,7 @@ analysis: gap-analysis
 scope: 'agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/flat_wire.rs,
   crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, crates/quire-contract-model/src/checked_package/v2/mod.rs,
   tests/it/checked_package_v2_protocol_body.rs, tests/it/support/checked_package.rs;
-  IR-874 PR #566 head 30ac95e4'
+  IR-874 PR #566 '
 review_set: subset
 ---
 
@@ -41,9 +41,9 @@ Plan completion: not assessed. Full matrix was unavailable during this review; a
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Verified at PR #566 head 156e59c0; see new term-pointer logic or narrowed trace tag. |
-| FND-002 | fixed | Verified at PR #566 head 156e59c0; see new term-pointer logic or narrowed trace tag. |
+| FND-001 | fixed | Verified at PR #566; see new term-pointer logic or narrowed trace tag. |
+| FND-002 | fixed | Verified at PR #566; see new term-pointer logic or narrowed trace tag. |
 
-## Supplemental review at 39996a46
+## Supplemental review
 
 The hosted-CI repair diff changes no criterion trace tags or acceptance wording. The claim-terminal and resource-boundary assertions still exercise their original IR criteria. No new traceability finding.

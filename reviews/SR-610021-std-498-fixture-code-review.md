@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket STD-498. Reviewed quire-contract-ir PR #601 at 2914c347141dadc7f8d87b9a14561b30b38d4f2c against the authoritative QSpec #456 merge 46c7a46582f86c177d339f7934db9919bc042cae. The test-only diff updates the timed fixture count from 56 to 57, which is the exact published node count; it leaves admission, read/write/read, typed body retention, and package identity assertions intact.
+Ticket STD-498. Reviewed quire-contract-ir PR #601 against the authoritative QSpec #456 merge. The test-only diff updates the timed fixture count from 56 to 57, which is the exact published node count; it leaves admission, read/write/read, typed body retention, and package identity assertions intact.
 
 ## Examined units
 
@@ -25,4 +25,4 @@ Ticket STD-498. Reviewed quire-contract-ir PR #601 at 2914c347141dadc7f8d87b9a14
 
 ## Verdict
 
-**PASS** — the one-line test adjustment is faithful to QSpec #456, does not weaken the existing assertions, and adds no copied fixture. QSpec's published fixture has 57 nodes at 46c7a465; its parent has 56. `cargo fmt --all -- --check` passed. A focused Cargo run was not started while the shared heavy-build lock was occupied; the final head still needs its applicable gate before merge.
+**PASS** — the one-line test adjustment is faithful to QSpec #456, does not weaken the existing assertions, and adds no copied fixture. QSpec's published fixture has 57 nodes; its parent has 56. `cargo fmt --all -- --check` passed. A focused Cargo run was not started while the shared heavy-build lock was occupied; the final head still needs its applicable gate before merge.

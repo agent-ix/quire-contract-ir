@@ -3,7 +3,7 @@ id: SR-764
 title: "evidence review of PR 252 (IR-534)"
 type: SpecReview
 analysis: evidence
-scope: "agent-ix/quire-contract-ir@31d2f9654bd4136ae64c1500074ce01793382af8; spec/checked_package/functional/FR-038-consume-checked-package-v2.md AC-2/10/19/20/27/31/32/45/62/63/64 verification column; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; spec/checked_package/matrix/tests.md; make spec coverage before/after; tests/it tags for the amended ACs"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md AC-2/10/19/20/27/31/32/45/62/63/64 verification column; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; spec/checked_package/matrix/tests.md; make spec coverage before/after; tests/it tags for the amended ACs"
 review_set: subset
 ---
 # SR-764: evidence review of PR 252 (IR-534)
@@ -41,8 +41,8 @@ Adequate. One low finding: amended criteria still count as backed by tests that 
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir@a1f44f02c78fa786dc3e5582a45f46a069d74bd5 (delta from 31d2f9654bd4136ae64c1500074ce01793382af8; base origin/main eedc378d7fe879e0d107e04318773528f9595422 unchanged; merge clean). `make spec` at round 1: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/204 rows backed, FR-038 42/62. No new finding.
+Round 1, reviewed at agent-ix/quire-contract-ir (delta from; base origin/main unchanged; merge clean). `make spec` at round 1: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/204 rows backed, FR-038 42/62. No new finding.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | a1f44f02c78fa786dc3e5582a45f46a069d74bd5 |
+| FND-001 | fixed | Fixed in the reviewed PR. |

@@ -33,4 +33,4 @@ FR-030-AC-4 and AC-5 (examined), FR-030 Status (examined), TC-223 Status (examin
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At aa3cdd1, the paragraph now states that AC-4/AC-5 rules make invalid broad non-success cause requests refuse, matching the amended Status and implementation. |
+| FND-001 | fixed |, the paragraph now states that AC-4/AC-5 rules make invalid broad non-success cause requests refuse, matching the amended Status and implementation. |

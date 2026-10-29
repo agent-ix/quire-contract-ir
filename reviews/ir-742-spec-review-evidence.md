@@ -3,7 +3,7 @@ id: SR-7006
 title: evidence review of IR-742 IEEE admission spec
 type: SpecReview
 analysis: evidence
-scope: agent-ix/quire-contract-ir@31a1c95c1e0df6d6b19aa15cf732778d00cb5a11; spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
   spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md
 review_set: subset
 ---
@@ -30,7 +30,7 @@ Examined the frozen FR-038, TC-048 and TestMatrix delta against QSpec FR-322-AC-
 - id: FR-038/IEEE-literal-type-and-catalog-result
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
-  excerpt: "- **IEEE literal type and catalog result.** Independently of an enclosing\n  operand position, a `float32_bits` literal requires a declared `type` in the\n  `float32` family, and a `float64_bits` literal requires one in the `float64`\n  family. A mismatch refuses `ill_typed`/`operator-ineligible` at that\n  literal's `type`. The result form of each catalogued application is checked\n  against its `result_type`. In particular, the catalog's `member` result form\n  for `quire.op.ieee.to_float32` and `quire.op.ieee.to_float64` requires the\n  `result_type` to name the same type node as `operation.member"
+  excerpt: "- **IEEE literal type and catalog result.** Independently of an enclosing\n operand position, a `float32_bits` literal requires a declared `type` in the\n `float32` family, and a `float64_bits` literal requires one in the `float64`\n family. A mismatch refuses `ill_typed`/`operator-ineligible` at that\n literal's `type`. The result form of each catalogued application is checked\n against its `result_type`. In particular, the catalog's `member` result form\n for `quire.op.ieee.to_float32` and `quire.op.ieee.to_float64` requires the\n `result_type` to name the same type node as `operation.member"
 - id: TC-048/IEEE-literal-and-catalog-result-admission
   path: spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md
   role: examined
@@ -72,4 +72,4 @@ The installed `quoin advise --json` reports `authored: Test`, `mismatch: false` 
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | e69446fd1a7dbfdbaf76e16c899c29755fffc70d — AC-223 and TC-048 now co-vary the containing root semantic_type with each mutated result_type, require equality at the root, and independently rederive affected node, reference, identity-projection and package identities. The separate root mismatch can no longer satisfy either adverse case. |
+| FND-001 | fixed | — AC-223 and TC-048 now co-vary the containing root semantic_type with each mutated result_type, require equality at the root, and independently rederive affected node, reference, identity-projection and package identities. The separate root mismatch can no longer satisfy either adverse case. |

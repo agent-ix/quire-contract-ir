@@ -3,7 +3,7 @@ id: SR-5052
 title: spec-review/base review of IR-347 PR 332
 type: SpecReview
 analysis: base
-scope: agent-ix/quire-contract-ir@5649b86f446d44fc54c558d7333bee32b0944eb9; spec/assurance/AD-004-checked-package-seam.md,
+scope: agent-ix/quire-contract-ir; spec/assurance/AD-004-checked-package-seam.md,
   spec/assurance/AD-005-qsl-consumption-seam.md, spec/assurance/AD-006-codegen-consumption-seam.md,
   spec/assurance/AD-007-cross-repo-dependency-graph.md, spec/core/functional/FR-044-typed-std001-code.md,
   spec/kani/functional/FR-031-bounded-kani-dispatch-and-terminal-map.md, spec/kani/matrix/TC-223-kani-outcome-fr331-result-map.md,
@@ -14,7 +14,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-347. Reviewed exact PR head `5649b86f446d44fc54c558d7333bee32b0944eb9` against base `efa4e37babce07afbf4829df0e641e2b124348e0`. Diff-scoped review.
+Ticket: IR-347. Reviewed exact PR against. Diff-scoped review.
 
 ## Findings
 

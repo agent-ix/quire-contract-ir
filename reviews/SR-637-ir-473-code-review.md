@@ -3,18 +3,18 @@ id: SR-637
 title: "code review of PR 234 (merge and cap range sets in the expression checker)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@d8b1f16c424733c9e4d807e11ecc02ff52f6c6e0; crates/quire-contract-model/src/expression.rs, tests/it/expression.rs"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/expression.rs, tests/it/expression.rs"
 review_set: base
 ---
 # SR-637: code review of PR 234
 
 ## Summary
 
-Ticket: IR-473. Code review with the rust-review lane folded in, scoped to `git diff origin/main...HEAD` (origin/main 8371caa is the merge base; main has not moved). The PR sorts and merges integer and rational-numerator range sets after every binary operator (`canonical_ranges`, `bounded_ranges`), refuses an operand or result of more than 64 disjoint intervals (`MAX_RANGE_SET_SIZE`) with `potentially_undefined` / `checked_range`, splits the failure cause into `RangeFailure::{Intermediates, SetTooLarge}`, and canonicalizes after the `!= 0` guard split.
+Ticket: IR-473. Code review with the rust-review lane folded in, scoped to `git diff origin/main...HEAD` (origin/main is the merge base; main has not moved). The PR sorts and merges integer and rational-numerator range sets after every binary operator (`canonical_ranges`, `bounded_ranges`), refuses an operand or result of more than 64 disjoint intervals (`MAX_RANGE_SET_SIZE`) with `potentially_undefined` / `checked_range`, splits the failure cause into `RangeFailure::{Intermediates, SetTooLarge}`, and canonicalizes after the `!= 0` guard split.
 
 Measured by the reviewer, all memory experiments under `ulimit -v 3000000`:
 
-- Old behaviour reproduced: a scratch harness against origin/main 8371caa, `x>=-1 && x<=1 && x!=0 && (x*...*x)>0` with 32 leaves, printed `memory allocation of 2147483648 bytes failed` and aborted (exit 134). 20 leaves took 632 ms.
+- Old behaviour reproduced: a scratch harness against origin/main, `x>=-1 && x<=1 && x!=0 && (x*...*x)>0` with 32 leaves, printed `memory allocation of 2147483648 bytes failed` and aborted (exit 134). 20 leaves took 632 ms.
 - At head: 32 leaves pass in 1.3 ms, 120 leaves in 23 ms; 2000 leaves stop at preflight (`expression_too_large`).
 - Random expression trees (add, subtract, multiply, divide, remainder, negate over three guarded integer inputs and two guarded rational inputs, Reject and Saturate types, guard widths 1 to 3 and point guards `|x| = 1`): 3000 trees of up to 400 leaves and 3000 trees of up to 2500 leaves. No abort, worst check 209 ms, 276 refusals by the new limit.
 - Gates at head with CARGO_TARGET_DIR in the review worktree: `make fmt-check lint test corpus` exit 0 (235 tests passed, conformance corpus all match), `make deny` exit 0, `make spec` 17 unbacked rows, the same count as origin/main.
@@ -37,16 +37,16 @@ Approve the safety fix. Medium FND-001 should be fixed in this PR; it is a small
 
 - Merge semantics: `canonical_ranges` sorts by `(min, max)` and merges when `next.min <= last.max + 1` with a saturating add. Over integers, that produces exactly the same set, neither wider nor narrower. At `last.max == i128::MAX` every later interval is contained, so the saturating comparison is correct. Rational numerator ranges are integer numerator sets: `contains_zero`, the bound checks, the `exact` filter in `refine_range` and the `!= 0` split all treat them as integers. Adjacent-merging them therefore changes no represented value.
 - Operator coverage: Add, Subtract, Multiply, Divide and Remainder all go through `integer_pair_range` / `rational_worst_case`, and the result is merged once. Divide only runs after `contains_zero(right)` has refused a zero-spanning divisor. Negate maps intervals one to one, so the count never grows. Its output is not re-sorted, and Saturate clamping can produce duplicate intervals, but the next binary operator canonicalizes it. Comparisons produce no range. Lower and upper guards only trim.
-- Overflow: endpoints are `i128`, and every stored range is bounded by an `i64` type range: Reject refuses a range outside it, and Saturate widens to it. Products of two endpoints therefore fit in i128, and any deeper overflow uses checked operations and becomes `RangeFailure::Intermediates`. Remainder's `abs()` gets `i64`-bounded inputs.
+- Overflow: endpoints are `i128`, and every stored range is bounded by an `i64` type range: Reject refuses a range outside it, and Saturate widens to it. Products of two endpoints therefore fit in i128, and any deeper overflow uses checked operations and becomes `RangeFailure::Intermediates`. Remainder's `abs` gets `i64`-bounded inputs.
 - Boundedness: every growth path goes through a binary operator, leaves carry at most 2 intervals and negate preserves the count. Each operator therefore allocates at most 64 x 64 = 4096 pairs plus a sort. Repeated operators cost at most about 4096 log 4096 steps per node within the 10000-node preflight, and the fuzz worst case was 209 ms. No other range-set representation exists in the file: `NumericRange` is the only one, and it never reaches `TypedExpression` output.
 - Oracle strength (mutations run in the throwaway worktree and reverted): merge only on overlap (`+0`) turns the unit test red; over-merge (`+2`) turns unit and integration tests red; cap 65 turns both red; integer guard split `min <= -1` to `< -1` turns the integration tests red. Survivors: the rational result merge and cap (SR-638 FND-001), the refine canonicalization (FND-002 above), the operand-size pre-check (redundant, because the result cap catches the same input and operands never exceed 64 through the public API), and the rational guard split (pre-existing, SR-638 FND-002).
-- Rust idioms: `RangeFailure` is a small typed `Copy` enum with static messages, and no new panic, unsafe or blocking surface is added. Messages are distinct per family. The existing `unreachable!()` and `extrema` unwrap are unchanged.
+- Rust idioms: `RangeFailure` is a small typed `Copy` enum with static messages, and no new panic, unsafe or blocking surface is added. Messages are distinct per family. The existing `unreachable!` and `extrema` unwrap are unchanged.
 
 ## New findings (disposition pass 1)
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-003 | medium | The capped child-process test is not portable. It runs `sh -c "ulimit -v 3000000 && exec ..."` with no platform gate. On macOS, `ulimit -v` either fails, which turns `make test` red, or is accepted but not enforced, so a merge regression would run uncapped and exhaust host memory. On Windows there is no `sh`, so `.output().unwrap()` panics | tests/it/expression.rs:1751-1765 |
+| FND-003 | medium | The capped child-process test is not portable. It runs `sh -c "ulimit -v 3000000 && exec..."` with no platform gate. On macOS, `ulimit -v` either fails, which turns `make test` red, or is accepted but not enforced, so a merge regression would run uncapped and exhaust host memory. On Windows there is no `sh`, so `.output.unwrap` panics | tests/it/expression.rs:1751-1765 |
 | FND-004 | low | The widening tie-break closes the leftmost gaps first, so a symmetric set loses its hole at zero even when 64 other gaps could close instead. In the targeted differential, 323 of 4000 trees with point guards checked under exact ranges and reported `non_zero_divisor` after widening. This is sound but avoidably imprecise | crates/quire-contract-model/src/expression.rs:2496-2505 |
 
 ### Detail (disposition pass 1)
@@ -69,24 +69,24 @@ Every endpoint of a widened interval is an endpoint of an original interval. The
 | Comparisons, "always true/false" folding | not a consumer | `check_compare` and `guard_facts` are syntactic and read no range set | grep: no `NumericRange` use outside the rows above |
 | Rational `exact` filter (`refine_range`) | not affected | `exact` is `None` on every range-computed result, and the filter runs only on refined leaf ranges | inspection |
 
-Probe: exact-range build (MAX_RANGE_SET_SIZE set to 1000000 in a scratch copy) against the head build. Both ran under `ulimit -v 3000000` with types of +/-300, over 12000 targeted trees: wide guarded sums used as divisor, dividend, remainder divisor and multiplicand, under Reject and Saturate, guard widths 1, 2 and random. The only difference was 332 trees that checked under exact ranges and reported `non_zero_divisor` after widening. No tree that the exact build refused was admitted by the widened build. No consumer admits or proves more. No HIGH.
+Probe: exact-range build (MAX_RANGE_SET_SIZE set to in a scratch copy) against the head build. Both ran under `ulimit -v 3000000` with types of +/-300, over 12000 targeted trees: wide guarded sums used as divisor, dividend, remainder divisor and multiplicand, under Reject and Saturate, guard widths 1, 2 and random. The only difference was 332 trees that checked under exact ranges and reported `non_zero_divisor` after widening. No tree that the exact build refused was admitted by the widened build. No consumer admits or proves more. No HIGH.
 
 ## New findings (disposition pass 2)
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-005 | medium | The FND-003 fix leaves the module-level constants `RANGE_SET_CHILD` and `PRODUCT_TEST` used only inside the `#[cfg(target_os = "linux")]` block. On macOS they are dead code, so `make lint` (`clippy --all-targets -- -D warnings`) fails with "constant ... is never used" | tests/it/expression.rs:1726-1728 |
+| FND-005 | medium | The FND-003 fix leaves the module-level constants `RANGE_SET_CHILD` and `PRODUCT_TEST` used only inside the `#[cfg(target_os = "linux")]` block. On macOS they are dead code, so `make lint` (`clippy --all-targets -- -D warnings`) fails with "constant... is never used" | tests/it/expression.rs:1726-1728 |
 
 ### Detail (disposition pass 2)
 
 - FND-005: reproduced with a minimal crate of the same shape, run with `cargo clippy --all-targets --target aarch64-apple-darwin -- -D warnings`: `error: constant RANGE_SET_CHILD is never used` and the same for `PRODUCT_TEST`. A full-workspace macOS clippy could not run here, because `psm` needs a C cross-compiler. Fix: put `#[cfg(target_os = "linux")]` on both constants, or move them inside the Linux block. The non-Linux runtime path itself is correct: it runs 16 leaves in-process with no `sh` or `ulimit`.
-- Round-2 soundness: zero ranking only changes which gaps close. Closing any set of gaps adds values between existing intervals and leaves the first and last endpoints unchanged, so the result is still a superset with the same min and max. The exact-vs-widened differential at 53c8d06 (12000 targeted trees, `ulimit -v 3000000`) again showed only exact ok -> widened `non_zero_divisor`, 332 trees, and never the reverse. The count is the same as round 1: a later `+-1` operator re-covers zero, as the coder noted. The ranking helps the direct case only.
+- Round-2 soundness: zero ranking only changes which gaps close. Closing any set of gaps adds values between existing intervals and leaves the first and last endpoints unchanged, so the result is still a superset with the same min and max. The exact-vs-widened differential (12000 targeted trees, `ulimit -v 3000000`) again showed only exact ok -> widened `non_zero_divisor`, 332 trees, and never the reverse. The count is the same as round 1: a later `+-1` operator re-covers zero, as the coder noted. The ranking helps the direct case only.
 
 ## Dispositions
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 4b79f5f |
-| FND-002 | fixed | 4b79f5f |
-| FND-003 | fixed | 53c8d06 |
-| FND-004 | fixed | 53c8d06 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |
+| FND-004 | fixed | Fixed in the reviewed PR. |

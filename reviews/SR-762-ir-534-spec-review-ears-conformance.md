@@ -3,7 +3,7 @@ id: SR-762
 title: "EARS and AC-shape conformance review of PR 252 (IR-534)"
 type: SpecReview
 analysis: ears-conformance
-scope: "agent-ix/quire-contract-ir@31d2f9654bd4136ae64c1500074ce01793382af8; spec/checked_package/functional/FR-038-consume-checked-package-v2.md AC-2/10/19/20/27/31/32/45/62/63/64 and amended FR prose; make spec grammar before/after"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md AC-2/10/19/20/27/31/32/45/62/63/64 and amended FR prose; make spec grammar before/after"
 review_set: subset
 ---
 # SR-762: EARS and AC-shape conformance review of PR 252 (IR-534)

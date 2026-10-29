@@ -3,7 +3,7 @@ id: SR-801
 title: "gap analysis of PR 256 (IR-486 recursive equality and the recursion leaf)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@c832ea54d6528369ac8de8f554d8b0d0bcd5d51b; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md, crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it/checked_package_v2_recursive_leaves.rs"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md, crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it/checked_package_v2_recursive_leaves.rs"
 review_set: subset
 ---
 # SR-801: gap analysis of PR 256
@@ -69,8 +69,8 @@ blockers.
 
 ## Dispositions
 
-Round 1 at e44305c9dd30c38062d7bac75af5c2a7e2c223c0. FR-038's cost paragraph now names the one-unit-per-reachable-type-node component-search charge on the same meter. That is a spec clarification found in review. It is consistent with AC-72: the 12-ring exact-work bound is relative to the work a read used, and the ten-records case is still incomplete/work. The new test tc_048_the_component_search_costs_one_unit_per_reachable_type_node (TC-048, FR-038-AC-72) is pinned. Mutation probe, removing the charge in discover: that test fails (left 2, right 3), and the probe was reverted. No new findings.
+Round 1. FR-038's cost paragraph now names the one-unit-per-reachable-type-node component-search charge on the same meter. That is a spec clarification found in review. It is consistent with AC-72: the 12-ring exact-work bound is relative to the work a read used, and the ten-records case is still incomplete/work. The new test tc_048_the_component_search_costs_one_unit_per_reachable_type_node (TC-048, FR-038-AC-72) is pinned. Mutation probe, removing the charge in discover: that test fails (left 2, right 3), and the probe was reverted. No new findings.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | fixed e44305c9dd30c38062d7bac75af5c2a7e2c223c0 |
+| FND-001 | fixed | fixed |

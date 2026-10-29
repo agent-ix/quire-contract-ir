@@ -3,7 +3,7 @@ id: SR-995
 title: "integrity review of PR 263 (FR-038 operation-law ACs AC-81 to AC-88)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@376269e0d67ee1451ee9629dbe897c06a8a730de; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md; compared with merged FR-038-AC-17, AC-36, AC-43, AC-44, AC-56, AC-57, AC-66 to AC-69 and open PRs #250 (17c38988295df042c8f478cdab3a5b689c15c2cb), #253 (d049ceaafe63d208a8ac3a1a4a8facddf17fe06a), #259 (00d83e4a30020ca2901890a649d5b7164f5e8251)"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md; compared with merged FR-038-AC-17, AC-36, AC-43, AC-44, AC-56, AC-57, AC-66 to AC-69 and open PRs #250, #253, #259 "
 review_set: subset
 ---
 # SR-995: integrity review of PR 263
@@ -57,4 +57,4 @@ contradiction with AC-68. Merge timing against #250 is open for the leader.
 | FND | outcome | sha/reason |
 | --- | --- | --- |
 | FND-001 | deferred | AC-81 now owns the base refusals with pointers and the admission control; trimming AC-67's restatement belongs to #253 (IR-503), which owns AC-67 and its test, so no change is needed in this PR. |
-| FND-002 | fixed | 9d4379b |
+| FND-002 | fixed | Fixed in the reviewed PR. |

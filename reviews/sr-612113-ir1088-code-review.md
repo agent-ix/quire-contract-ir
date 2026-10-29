@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #654 at d70e576d as a spec-only diff. FR-019-AC-14 through AC-16 and TC-058 plan a default-off typed operation fixture with shape refusal and a production-admission boundary. Compared the four affected CG scalar controls in `src/oracle/scalar/mod.rs` and IR's current `CheckedApplicationOperation` readers. No code or copied repository file is changed. No applicable AssuranceProfile was found in the model spec tree.
+Reviewed PR #654 as a spec-only diff. FR-019-AC-14 through AC-16 and TC-058 plan a default-off typed operation fixture with shape refusal and a production-admission boundary. Compared the four affected CG scalar controls in `src/oracle/scalar/mod.rs` and IR's current `CheckedApplicationOperation` readers. No code or copied repository file is changed. No applicable AssuranceProfile was found in the model spec tree.
 
 ## Verdict
 

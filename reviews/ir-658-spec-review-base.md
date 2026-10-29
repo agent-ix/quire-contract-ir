@@ -3,7 +3,7 @@ id: SR-2061
 title: "Base specification review of IR-658 projection-owner refusal"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@6b234ec0a471280d88e2d5cac8b5e5bb0b1aab61; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-228-checked-package-v2-wire-owner-and-lock-joins.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-228-checked-package-v2-wire-owner-and-lock-joins.md"
 review_set: subset
 ---
 

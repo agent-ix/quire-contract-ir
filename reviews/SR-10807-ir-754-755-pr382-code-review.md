@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-754 and IR-755. Reviewed frozen source head 91af8a42fa1078dd194fb474aeef7f8f26f98f13 against 815ed48. The changed Rust is test/control code; the real model and runner paths are exercised, but three controls have false negative cases.
+Ticket: IR-754 and IR-755. Reviewed frozen source. The changed Rust is test/control code; the real model and runner paths are exercised, but three controls have false negative cases.
 
 ## Verdict
 
@@ -42,9 +42,9 @@ Plan completion: not assessed.
 | FND | Outcome | Reason |
 | --- | --- | --- |
 | FND-002 | rejected | The stated `quire-exact` scenario is wrong: direct inspection of the current QSL workspace manifest shows `quire-exact` is a separate repository, and current QSL workspace crates have `qsl-*` or `quire-spec-language` package names. This finding must not be used as a blocker. |
-| FND-001 | fixed | Head e66c9d3 removes host filtering from Cargo metadata and adds a target-gated owner edge adverse control at tests/it/cycle_free_model.rs:224-230. |
-| FND-003 | fixed | Head e66c9d3 visits public type aliases for callback/trait-object types and adds `dyn Fn` and bare-function alias adverse controls at tests/it/cycle_free_model.rs:504-514, 657-664. |
+| FND-001 | fixed | removes host filtering from Cargo metadata and adds a target-gated owner edge adverse control at tests/it/cycle_free_model.rs:224-230. |
+| FND-003 | fixed | visits public type aliases for callback/trait-object types and adds `dyn Fn` and bare-function alias adverse controls at tests/it/cycle_free_model.rs:504-514, 657-664. |
 
 ## Disposition verdict
 
-Round 1 at e66c9d3: all valid code-review findings fixed. FND-002 remains rejected as an erroneous original finding. No new defect found in the two-fix diff.
+Round 1: all valid code-review findings fixed. FND-002 remains rejected as an erroneous original finding. No new defect found in the two-fix diff.

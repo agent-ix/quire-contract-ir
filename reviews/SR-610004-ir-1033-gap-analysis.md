@@ -13,7 +13,7 @@ relationships:
 
 ## Summary
 
-IR-1033 PR #592 at 6e61f87c; examined FR-064-AC-1..6 and FR-038 owner/catalog context.
+IR-1033 PR #592; examined FR-064-AC-1..6 and FR-038 owner/catalog context.
 
 ## Verdict
 

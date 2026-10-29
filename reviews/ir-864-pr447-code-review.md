@@ -3,7 +3,7 @@ id: SR-12390
 title: "IR-864 code-review of IR PR #447"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@b5282e850fbb56c6f3e8d218068ecbc41553cb8d; crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/checked_package/v2/model_members/tests/intake_retention.rs, crates/quire-contract-model/src/checked_package/v2/relationship_end.rs, crates/quire-contract-model/src/checked_package/v2/structural.rs, tests/it/checked_package_v2_model_members.rs"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/checked_package/v2/model_members/tests/intake_retention.rs, crates/quire-contract-model/src/checked_package/v2/relationship_end.rs, crates/quire-contract-model/src/checked_package/v2/structural.rs, tests/it/checked_package_v2_model_members.rs"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038

@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Replacement spec consistency review of PR #389 at frozen head `f6abcf0f1a95cae9c87e18f547b307c8d8f5d9ea`. One material inconsistency remains against current main: FR-051 and TC-451 describe the API as implemented and require checking the default-feature export inventory, while FR-019 still calls the API future and omits the now-exported function from its inventory. The earlier clean conclusion does not hold against new main.
+Replacement spec consistency review of PR #389 at frozen. One material inconsistency remains against current main: FR-051 and TC-451 describe the API as implemented and require checking the default-feature export inventory, while FR-019 still calls the API future and omits the now-exported function from its inventory. The earlier clean conclusion does not hold against new main.
 
 ## Verdict
 

@@ -3,7 +3,7 @@ id: SR-649
 title: "gap analysis of PR 238 (IR-483 operation leaves)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@b696d0e8363f01fa63de82f4cd6cd521c8d97943; crates/quire-contract-model/src/checked_package/v2/operations.rs, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/operations.rs, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/tests.md"
 review_set: base
 ---
 # SR-649: gap analysis of PR 238
@@ -40,4 +40,4 @@ AC-43 is honestly backed for what it states. Its scope is narrower than the code
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 7e10a1e: `tc_048_leaf_walk_reaches_text_through_every_type_form` and `tc_048_result_inner_counts_leaves_only_for_set_like_results` added. Mutants are all killed: bounded-domain-only, option-only, set-only, text-0, result-inner-to-sequence, memo-off, cycle-off and `>=` to `>` |
+| FND-001 | fixed |: `tc_048_leaf_walk_reaches_text_through_every_type_form` and `tc_048_result_inner_counts_leaves_only_for_set_like_results` added. Mutants are all killed: bounded-domain-only, option-only, set-only, text-0, result-inner-to-sequence, memo-off, cycle-off and `>=` to `>` |

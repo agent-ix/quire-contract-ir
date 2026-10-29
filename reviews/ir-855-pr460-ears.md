@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR 460 at b9ee487399b6e177f1604ae2972ee1f7938c1267. The old AC-1 clauses map to narrowed AC-1 and new AC-8 through AC-13: registries, wire/validated boundary, unknown-member refusal, fallible signatures, explicit profile, four public limits, and forbidden signature vocabulary. The six new criteria are planned, with no test tags in this branch. No issue found in this analysis.
+Reviewed PR 460. The old AC-1 clauses map to narrowed AC-1 and new AC-8 through AC-13: registries, wire/validated boundary, unknown-member refusal, fallible signatures, explicit profile, four public limits, and forbidden signature vocabulary. The six new criteria are planned, with no test tags in this branch. No issue found in this analysis.
 
 ## Examined units
 

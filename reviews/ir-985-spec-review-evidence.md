@@ -3,14 +3,14 @@ id: SR-16270
 title: "Evidence review of IR-985 PR 527"
 type: SpecReview
 analysis: evidence
-scope: "agent-ix/quire-contract-ir@6def8a01a612f586b0a226c606610923f1f1347d; FR-038-AC-311..317, TC-048 hybrid procedure, FR-019 HybridForm inventory; QSpec FR-481/TC-966@26582406e4d339916ef56f7562ffb5918c2d838c"
+scope: "agent-ix/quire-contract-ir; FR-038-AC-311..317, TC-048 hybrid procedure, FR-019 HybridForm inventory; QSpec FR-481/TC-966"
 review_set: subset
 ---
 # SR-16270: Evidence review of IR-985 PR 527
 
 ## Summary
 
-Ticket: IR-985. Exact IR head 6def8a01a612f586b0a226c606610923f1f1347d; QSpec #415 head 26582406e4d339916ef56f7562ffb5918c2d838c. All seven new criteria name TC-048; the procedure selects published QSpec fixtures and separates IR reader checks from QSpec provider and host trace evidence.
+Ticket: IR-985. Exact IR; QSpec #415. All seven new criteria name TC-048; the procedure selects published QSpec fixtures and separates IR reader checks from QSpec provider and host trace evidence.
 
 ## Findings
 

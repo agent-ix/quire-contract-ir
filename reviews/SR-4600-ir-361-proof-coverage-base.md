@@ -3,7 +3,7 @@ id: SR-4600
 title: "Base requirements review of IR-361 proof coverage"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@0eca02b43bd14db1411abff447a45eacced9752f; seven changed spec Markdown files"
+scope: "agent-ix/quire-contract-ir; seven changed spec Markdown files"
 review_set: subset
 ---
 

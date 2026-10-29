@@ -3,7 +3,7 @@ id: SR-15711
 title: "Gap analysis — IR-275 selected model type references"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir PR #520 at 0547dfca1f69d4e7caad2ded39ff0a3cd470fd35; selected member type source and tagged model tests"
+scope: "agent-ix/quire-contract-ir PR #520; selected member type source and tagged model tests"
 review_set: subset
 ---
 

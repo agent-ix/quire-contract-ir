@@ -3,7 +3,7 @@ id: SR-1226
 title: "code review of PR 284 (IR-569 registered revision and span codes through the expression decoder)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@8afbebdb0b7f6e3ad8aedc0715808e6e737feec5; crates/quire-contract-model/src/identity.rs, crates/quire-contract-model/src/wire.rs, tests/it/executable_binding.rs, spec/core/matrix/tests.md, spec/tests.md"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/identity.rs, crates/quire-contract-model/src/wire.rs, tests/it/executable_binding.rs, spec/core/matrix/tests.md, spec/tests.md"
 review_set: subset
 ---
 # SR-1226: code review of PR 284
@@ -11,13 +11,13 @@ review_set: subset
 ## Summary
 
 Ticket: IR-569. This is a code review with the rust-review lane folded in. It covers
-`git diff origin/main...HEAD` at 8afbebdb0b7f6e3ad8aedc0715808e6e737feec5, base main
-543cd8a8b6a5fe2a1974617869824a75f6c38629 (the merge base; one commit on the branch).
+`git diff origin/main...HEAD`, base main
+ (the merge base; one commit on the branch).
 
 What was checked, and what holds:
 
 - **One mapping, not two.** `WireSourceSpan` and `WireRequirementRef` (the package
-  decoder's wire types) become `pub(crate)` with their `validate()`, and the expression
+  decoder's wire types) become `pub(crate)` with their `validate`, and the expression
   decoder uses them. No second mapping table, no new path strings: the codes and paths come
   from the constructors (`RequirementRef::parse` gives `reference.revision`;
   `SourceRevision::new` gives `source.revision`; `SourceLocation::new` and
@@ -30,7 +30,7 @@ What was checked, and what holds:
   `WireRecordField.source`, `WireValueDeclaration.source`, `WireFunctionParameter.source`,
   `WireFunctionDeclaration.source`, quantifier `local_source` and `WireExpression.source`.
   A grep of `wire.rs` finds no remaining serde-derived `SourceSpan`, `RequirementRef` or
-  revision field, and every one is `.validate()`d in its builder.
+  revision field, and every one is `.validate`d in its builder.
 - **Order.** The owner is validated after `preflight` and before the binding's owner and
   anchor comparison, so a bad owner revision reports its own code, not
   `malformed_reference`. An expression's own span is validated after its children. That
@@ -46,8 +46,8 @@ What was checked, and what holds:
   One change the PR body does not list: a malformed owner `package` or `requirement` now
   reports `invalid_package_namespace` or `invalid_identifier` at `reference.package` or
   `reference.requirement` (was `invalid_wire_format`). That is also what FR-011-AC-3 asks.
-- **Producers.** Nothing that produces these inputs breaks. QSL (origin/main 3f69fc62)
-  and CG (origin/main 1c817d8) reach IR expression inputs only through
+- **Producers.** Nothing that produces these inputs breaks. QSL (origin/main )
+  and CG (origin/main ) reach IR expression inputs only through
   `BoundPackage::from_json_bytes`. That decoder checks the projection schema first, and the
   schema already refuses extra members in owner and span objects. QSL also serialises IR's
   own typed `SourceSpan`, which has no extra members. The conformance runner checks corpus
@@ -74,7 +74,7 @@ What was checked, and what holds:
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | The TC-015 expression-decoder tests reach only the owner, the root expression's `source` and one value declaration's `source`. A type declaration's `source`, an enum variant, a record field, a function, a function parameter and a quantifier's `local_source` are never driven above 2^53. Reverting any one of those fields to a serde `SourceSpan` would pass every test. The test's comment says "Every span member of the request goes through the same mapping". Drive one offset above 2^53 through each span-bearing member in a loop of pointers, as the TC-016 `members()` table already does | crates/quire-contract-model/src/wire.rs:1022-1030 |
+| FND-001 | low | The TC-015 expression-decoder tests reach only the owner, the root expression's `source` and one value declaration's `source`. A type declaration's `source`, an enum variant, a record field, a function, a function parameter and a quantifier's `local_source` are never driven above 2^53. Reverting any one of those fields to a serde `SourceSpan` would pass every test. The test's comment says "Every span member of the request goes through the same mapping". Drive one offset above 2^53 through each span-bearing member in a loop of pointers, as the TC-016 `members` table already does | crates/quire-contract-model/src/wire.rs:1022-1030 |
 | FND-002 | low | None of the behaviour changes this PR makes is tested through the expression operation. These are: a zero line or column, reversed endpoints and cross-source endpoints now `invalid_source_span`; a zero source revision in a span now `invalid_source_revision`; unknown members in `owner` and a span now refused; and the unlisted change that a malformed owner package or requirement id now reports `invalid_package_namespace`/`invalid_identifier` at `reference.*`. Each is a new observable code. Add one assertion per change, so a later edit cannot silently move them back to `invalid_wire_format`. Also list the owner-identifier change in the PR body | crates/quire-contract-model/src/wire.rs:974-1035 |
 
 ## Verdict
@@ -92,9 +92,9 @@ Verdict (code-review lane): approve with low findings. Merge depends on SR-1227.
 
 ## Dispositions
 
-Round 1 at 3c0d4f2460dbda2cb87e34fc8e768fda23ef29e4, the fix commit on top of
-8afbebdb0b7f6e3ad8aedc0715808e6e737feec5. I reviewed only the delta (`git diff
-8afbebd..3c0d4f2`). It touches tests and matrix rows only, with no production-code change:
+Round 1, the fix commit on top of
+. I reviewed only the delta (`git diff
+..`). It touches tests and matrix rows only, with no production-code change:
 `crates/quire-contract-model/src/wire.rs` (tests module), `tests/it/executable_binding.rs`,
 `spec/core/matrix/tests.md` and `spec/tests.md`.
 
@@ -130,7 +130,7 @@ the same one the TC-016 tests assert). The package decoder reports its unknown m
 own document root, so the two are consistent. The PR body now lists the owner-identifier
 change.
 
-Gates at 3c0d4f2, run by me:
+Gates, run by me:
 
 - `make fmt-check`, `make lint`, `make test`, `make corpus` and `make deny` all pass.
   `make test` ran 333 + 142 + 7 tests plus doctests; `make corpus` matched 107/107.
@@ -141,5 +141,5 @@ No new findings in this lane.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 3c0d4f2460dbda2cb87e34fc8e768fda23ef29e4 |
-| FND-002 | fixed | 3c0d4f2460dbda2cb87e34fc8e768fda23ef29e4 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |

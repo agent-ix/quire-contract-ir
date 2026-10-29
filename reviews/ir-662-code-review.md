@@ -3,7 +3,7 @@ id: SR-2190
 title: "Code and Rust review of IR-662 numeric width change"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@a352c4509f155c6de1b430501a3e9b211283a2d2; Cargo.lock; crates/quire-contract-model/Cargo.toml; crates/quire-contract-model/src/{canonical,decimal,expression,wire}.rs; scripts/generate_conformance_corpus.py; corpus/contract-v0.1/inputs/expression-invalid-numeric-range.json; tests/it/{canonical_v1_quire_canonical,expression}.rs"
+scope: "agent-ix/quire-contract-ir; Cargo.lock; crates/quire-contract-model/Cargo.toml; crates/quire-contract-model/src/{canonical,decimal,expression,wire}.rs; scripts/generate_conformance_corpus.py; corpus/contract-v0.1/inputs/expression-invalid-numeric-range.json; tests/it/{canonical_v1_quire_canonical,expression}.rs"
 review_set: subset
 ---
 

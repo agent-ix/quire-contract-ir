@@ -3,7 +3,7 @@ id: SR-1362
 title: "PR #288 FR-020-AC-3 status spec review"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@9adfb5a0259d84da4fc68471f886b56f7e4a73f6; spec/conformance/functional/FR-020-json-conformance-interface.md, spec/conformance/matrix/tests.md, spec/core/matrix/tests.md, spec/tests.md (git diff origin/main...HEAD)"
+scope: "agent-ix/quire-contract-ir; spec/conformance/functional/FR-020-json-conformance-interface.md, spec/conformance/matrix/tests.md, spec/core/matrix/tests.md, spec/tests.md (git diff origin/main...HEAD)"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-020

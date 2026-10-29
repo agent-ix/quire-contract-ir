@@ -3,7 +3,7 @@ id: SR-17013
 title: "IR-347 PR 557 gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir#557@59d855c0418db8f707c2084d5644dad2b8427b86 vs origin/main 7075edc; spec/kani/matrix/tests.md, spec/kani/matrix/TC-055-root-crate-public-interface.md, spec/kani/functional/FR-039-root-crate-public-interface.md, spec/kani/functional/FR-031-bounded-kani-dispatch-and-terminal-map.md, src/kani/, tests/it/"
+scope: "agent-ix/quire-contract-ir#557 vs origin/main; spec/kani/matrix/tests.md, spec/kani/matrix/TC-055-root-crate-public-interface.md, spec/kani/functional/FR-039-root-crate-public-interface.md, spec/kani/functional/FR-031-bounded-kani-dispatch-and-terminal-map.md, src/kani/, tests/it/"
 review_set: subset
 ---
 # SR-17013: IR-347 PR 557 gap analysis
@@ -11,7 +11,7 @@ review_set: subset
 ## Summary
 
 Ticket: IR-347. Plan completion: not assessed. The reviewer ran `make spec` (quire validate plus
-`quire coverage --scope . --strict`) at the frozen head.
+`quire coverage --scope. --strict`) at the frozen head.
 
 - Validation reports no error.
 - Coverage fails strict on 60 unbacked rows. All of them are outside this diff: FR-052, FR-350,
@@ -49,8 +49,8 @@ corpora the bound test does not run.
 
 ## Dispositions
 
-Round 1. Checked against fix commit `c28a120bb41f1dea550006fc55b79dd692419bc7`. `make spec` validation is clean. Strict coverage still lists the same 60 unbacked rows, all outside the diff, and 0 contradicted statuses. FR-039 is 4/4.
+Round 1. Checked against fix. `make spec` validation is clean. Strict coverage still lists the same 60 unbacked rows, all outside the diff, and 0 contradicted statuses. FR-039 is 4/4.
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | The FR-039 and TC-055 matrix rows and TC-055 Status now read 🚧 partial. AC-1 through AC-3 are backed. AC-4 has the TC-042 no-panic negatives bound to it, and the unresolved TC-041 reference is named. No overclaim remains (spec/kani/matrix/tests.md:17, :28; spec/kani/matrix/TC-055-root-crate-public-interface.md:46) |
+| FND-001 | fixed | The FR-039 and TC-055 matrix rows and TC-055 Status now read 🚧 partial. AC-1 through AC-3 are backed. AC-4 has the TC-042 no-panic negatives bound to it, and the unresolved TC-041 reference is named. No overclaim remains (spec/kani/matrix/tests.md:17,:28; spec/kani/matrix/TC-055-root-crate-public-interface.md:46) |

@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #642 at 8b0e53957778f2dd1da5ad2d98207bf28acdf060 against main 66eb6b7f and QSpec 48373530. The diff is spec-only. No code, vendored artifact, fallback, or gate change is introduced. No applicable AssuranceProfile or enforced review policy was found in the changed module.
+Reviewed PR #642 against main and QSpec . The diff is spec-only. No code, vendored artifact, fallback, or gate change is introduced. No applicable AssuranceProfile or enforced review policy was found in the changed module.
 
 ## Verdict
 

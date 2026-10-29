@@ -3,7 +3,7 @@ id: SR-1473
 title: "EARS and criterion review of PR 291 (typed STD-001 code, FR-044)"
 type: SpecReview
 analysis: ears-conformance
-scope: "agent-ix/quire-contract-ir@c109f7eaba2d15f2d8d526f0b0f9dfdfc240a0dd; git diff origin/main...HEAD (base 6fb6e974efd6b9a9c74515ee7e07df250fa4aacf): FR-044 Description and AC-1 to AC-3, FR-030 new paragraph and AC-6"
+scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD : FR-044 Description and AC-1 to AC-3, FR-030 new paragraph and AC-6"
 review_set: subset
 ---
 # SR-1473: EARS and criterion review of PR 291
@@ -35,8 +35,8 @@ Conformant; one low precision finding.
 
 ## Dispositions
 
-Round 1, reviewed at cace2678410ee69ae71e656e26f80541ba2e31e4.
+Round 1, reviewed.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | cace267 |
+| FND-001 | fixed | Fixed in the reviewed PR. |

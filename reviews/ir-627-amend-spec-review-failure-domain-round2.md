@@ -3,13 +3,13 @@ id: SR-1588
 title: "failure-domain review, disposition round 2, of quire-contract-ir PR #298 (IR-627 final skip predicate)"
 type: SpecReview
 analysis: failure-domain
-scope: "agent-ix/quire-contract-ir@4f953d9434d0eae651de39a2934543c9e16b34cd; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (Decided: skip; Stated soundness limit; Consumer consequence; FR-038-AC-145 to AC-149)"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (Decided: skip; Stated soundness limit; Consumer consequence; FR-038-AC-145 to AC-149)"
 review_set: subset
 ---
 
 ## Summary
 
-Ticket: IR-627. Re-attack of the final predicate at 4f953d9. The predicate skips
+Ticket: IR-627. Re-attack of the final predicate. The predicate skips
 a node only when all of these hold:
 - its wire form is one of the six skippable forms;
 - it carries a label;
@@ -39,14 +39,14 @@ under SR-1587 FND-002.
 
 ## Findings
 
-| ID      | Severity | Summary | Refs | Escape Cause |
+| ID | Severity | Summary | Refs | Escape Cause |
 | ------- | -------- | ------- | ---- | ------------ |
 | FND-001 | low | The "Consumer consequence" paragraph names only a `collection_bounds` count as reaching a consumer through a forged group. A skipped collection's body is not checked for closedness (item 3 is part of the skipped stage), so a tamperer can also add a body `reference` to another, genuinely keyed `integer_range` node. An element range then reaches a consumer that reads the element through the graph. The limit paragraph covers this as "the element type of an `option` or a collection", but the consumer paragraph should say it too. Note that under a bounds-required profile both routes hit FR-038-AC-41, because the forged group labels a `composite_type`. | FR-038 Consumer consequence, FR-038 Stated soundness limit | wrong-requirement |
 
 ## Dispositions
 
-Round 3, reviewed at 861f997a66b00602a662925bb2be68f63f8da17e.
+Round 3, reviewed.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 861f997: the Consumer consequence now names the element-range route (a skipped collection's body re-pointed, or given a second reference, at another genuinely keyed range) and says FR-038-AC-41 catches both routes under a bounds-required profile and neither under any other. |
+| FND-001 | fixed |: the Consumer consequence now names the element-range route (a skipped collection's body re-pointed, or given a second reference, at another genuinely keyed range) and says FR-038-AC-41 catches both routes under a bounds-required profile and neither under any other. |

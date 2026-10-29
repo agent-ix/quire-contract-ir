@@ -3,7 +3,7 @@ id: SR-1012
 title: "spec review of PR 265 (inexact-integer and inexact-number causes for a selected model document)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@8edd1e5e1f660fe5e493c909a9a2113d09b33a6e; git diff origin/main...HEAD (base ebea678): FR-038 (step prose, the new canonical-encoding paragraph, FR-038-AC-96 to AC-98, Dependencies), TC-048, spec/checked_package/matrix/tests.md, spec/tests.md; cross-checked against quire-specification FR-271 and FR-272 at origin/main (merged b1da9c8 is an ancestor)"
+scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD : FR-038 (step prose, the new canonical-encoding paragraph, FR-038-AC-96 to AC-98, Dependencies), TC-048, spec/checked_package/matrix/tests.md, spec/tests.md; cross-checked against quire-specification FR-271 and FR-272 at origin/main (merged is an ancestor)"
 review_set: subset
 ---
 # SR-1012: spec review of PR 265
@@ -58,10 +58,10 @@ FND-003 are one-line fixes.
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir@2f80c1ecb15272f49513f6db26a4632d9629b194, the delta 8edd1e5..2f80c1e only. `make spec` was run in a detached throwaway worktree: validate passes, 1 grammar finding (FR-014, the baseline), strict coverage 23 unbacked and 0 contradicted. `git diff --check` is clean.
+Round 1, reviewed at agent-ix/quire-contract-ir, the delta.. only. `make spec` was run in a detached throwaway worktree: validate passes, 1 grammar finding (FR-014, the baseline), strict coverage 23 unbacked and 0 contradicted. `git diff --check` is clean.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 2f80c1e: "a number whose exact value its RFC 8785 encoding loses", in FR-038 l.233, the paragraph, TC-048 and the matrix row; the PR title is patched to match; no "cannot hold exactly" is left in spec/ |
-| FND-002 | fixed | 2f80c1e: AC-97 now reads "…unchanged and admitted, while `9007199254740992.5` … refuses `inexact-number`" |
-| FND-003 | fixed | 2f80c1e: `references` edges to ix://agent-ix/quire-specification/FR-271 and FR-272 added to the frontmatter |
+| FND-001 | fixed |: "a number whose exact value its RFC 8785 encoding loses", in FR-038 l.233, the paragraph, TC-048 and the matrix row; the PR title is patched to match; no "cannot hold exactly" is left in spec/ |
+| FND-002 | fixed |: AC-97 now reads "…unchanged and admitted, while `9007199254740992.5` … refuses `inexact-number`" |
+| FND-003 | fixed |: `references` edges to ix://agent-ix/quire-specification/FR-271 and FR-272 added to the frontmatter |

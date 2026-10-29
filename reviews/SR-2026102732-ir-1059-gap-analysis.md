@@ -31,7 +31,7 @@ The test loops over every published `intake_cases` row and asserts all numbered 
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At 9816a2d8, `duration_tuple_position_projects_to_resolved_second_unit` uses the public reader and checks admitted `tuple.project` with source fallback and selected package `s`. |
+| FND-001 | fixed |, `duration_tuple_position_projects_to_resolved_second_unit` uses the public reader and checks admitted `tuple.project` with source fallback and selected package `s`. |
 | FND-002 | still-open | The new control omits missing `s`, invalid selected `s` and both-units-present cases. |
 
 ## New findings (disposition pass 1)

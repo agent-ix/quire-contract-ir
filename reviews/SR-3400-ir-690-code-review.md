@@ -3,7 +3,7 @@ id: SR-3400
 title: Code and Rust review of IR-690 structural inequality accessor
 type: SpecReview
 analysis: code-review
-scope: agent-ix/quire-contract-ir@71abb07c7bb23785edfccb0c2ac75ef3a64a32ad; crates/quire-contract-model/src/checked_package/v2/composite_operands.rs,
+scope: agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/composite_operands.rs,
   spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md,
   spec/checked_package/matrix/tests.md, tests/it/checked_package_v2_composite_operands.rs
 review_set: subset
@@ -16,7 +16,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-690. Exact frozen candidate 71abb07c7bb23785edfccb0c2ac75ef3a64a32ad. The diff adds Ne to the existing catalog-checked accessor eligibility. The retained index, shared family resolver, domain projection and meter remain the sole path. Reader-admitted tests cover positional outputs, authentic domains, refusal payloads and exact work. Rust idioms, panic and conversion boundaries, test oracles and repository conventions show no new defect.
+Ticket: IR-690. Exact frozen candidate. The diff adds Ne to the existing catalog-checked accessor eligibility. The retained index, shared family resolver, domain projection and meter remain the sole path. Reader-admitted tests cover positional outputs, authentic domains, refusal payloads and exact work. Rust idioms, panic and conversion boundaries, test oracles and repository conventions show no new defect.
 
 ## Examined units
 

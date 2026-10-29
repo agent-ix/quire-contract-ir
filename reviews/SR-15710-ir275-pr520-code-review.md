@@ -3,7 +3,7 @@ id: SR-15710
 title: "Code and Rust review — IR-275 selected model type references"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir PR #520 at 0547dfca1f69d4e7caad2ded39ff0a3cd470fd35; model_members.rs and model_members/tests.rs"
+scope: "agent-ix/quire-contract-ir PR #520; model_members.rs and model_members/tests.rs"
 review_set: subset
 ---
 

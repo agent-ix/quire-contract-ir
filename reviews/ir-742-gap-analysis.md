@@ -3,7 +3,7 @@ id: SR-11631
 title: gap-analysis and test-oracle strength of IR-742 IEEE reader admission
 type: SpecReview
 analysis: gap-analysis
-scope: agent-ix/quire-contract-ir@737c11411c8009dd1bf33e6de12f91e5f93563cf; branch code/ir742-reader-admission; diff origin/main...737c114;
+scope: agent-ix/quire-contract-ir; branch code/ir742-reader-admission; diff origin/main...;
   crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it/checked_package_v2_ieee_admission.rs, spec/checked_package
 review_set: subset
 ---
@@ -12,10 +12,10 @@ review_set: subset
 
 Ticket: IR-742. Method: quoin gap-analysis (planless; "Plan completion: not
 assessed") with test-oracle strength folded in. PR: none yet. Computed matrix:
-`quire coverage --scope .` reports 452/515 rows backed at origin/main f16d0fd
-and 454/515 at 737c114; FR-038 224/236 to 226/236; `--strict` 49 unbacked rows
+`quire coverage --scope.` reports 452/515 rows backed at origin/main
+and 454/515; FR-038 224/236 to 226/236; `--strict` 49 unbacked rows
 at both. `quire matrix` lists FR-038-AC-222 as tagged by
-tests/it/checked_package_v2_ieee_admission.rs:89 and :177, and FR-038-AC-223 by
+tests/it/checked_package_v2_ieee_admission.rs:89 and:177, and FR-038-AC-223 by
 :284 (both untagged at base). No new production code lacks an owning
 requirement: `check_ieee_member_result` traces to FR-038-AC-223 and the FR-038
 normative IEEE bullet.
@@ -56,7 +56,7 @@ another literal in one body.
 - id: FR-038-AC-223
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
-  excerpt: For each identity, changing `result_type` and the enclosing application's root-node `semantic_type` together to the source-width node while retaining the valid destination `type_argument` ... refuses `ill_typed`/`operator-ineligible` at the application's `result_type` by the `member` result form; changing `type_argument`, `result_type` and that root-node `semantic_type` together to the source-width node likewise refuses there by the catalogued `member_family` constraint.
+  excerpt: For each identity, changing `result_type` and the enclosing application's root-node `semantic_type` together to the source-width node while retaining the valid destination `type_argument`... refuses `ill_typed`/`operator-ineligible` at the application's `result_type` by the `member` result form; changing `type_argument`, `result_type` and that root-node `semantic_type` together to the source-width node likewise refuses there by the catalogued `member_family` constraint.
 - id: FR-038/IEEE-literal-type-and-catalog-result
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
@@ -76,9 +76,9 @@ another literal in one body.
 
 ## Dispositions
 
-Round 1, verified at 1164072dd746d32129b42bd2adb0ad5bd1d9244a (`git diff 737c114..1164072`).
+Round 1, verified (`git diff..`).
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
 | FND-001 | fixed | New `tc_048_ieee_bits_reject_every_familyless_declared_type` (tagged TC-048, FR-038-AC-222) covers 66 cases (11 familyless node kinds x two IEEE kinds x standalone and both argument positions) with exact code, cause, pointer and node locus; it fails against the old `continue` (mutant killed). |
-| FND-002 | fixed | New `tc_048_ieee_literal_width_checks_both_arguments` puts the mismatched literal at arguments/1 after a valid one, and both-wrong at arguments/0; the "check only the first of two nested literals" mutant is now killed. Full re-run of 14 mutants: 13 killed; 1 survivor (fail open on catalog-shape drift) is equivalent under the compiled-in catalog. Coverage 454/515, strict unbacked 49 (== main), AC-222 tagged at :90, :218, :284, :320 and AC-223 at :407. |
+| FND-002 | fixed | New `tc_048_ieee_literal_width_checks_both_arguments` puts the mismatched literal at arguments/1 after a valid one, and both-wrong at arguments/0; the "check only the first of two nested literals" mutant is now killed. Full re-run of 14 mutants: 13 killed; 1 survivor (fail open on catalog-shape drift) is equivalent under the compiled-in catalog. Coverage 454/515, strict unbacked 49 (== main), AC-222 tagged at:90,:218,:284,:320 and AC-223 at:407. |

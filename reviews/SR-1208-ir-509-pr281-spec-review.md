@@ -3,7 +3,7 @@ id: SR-1208
 title: "PR #281 FR-346 spec text review"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@98ed90df11a41f8c76aa1b4146b31916d56b4bf7; spec/checked_package/functional/FR-346-admit-abstraction-relation-body.md, spec/checked_package/matrix/TC-225-checked-package-v2-abstraction-relation-body.md, spec/checked_package/matrix/tests.md, spec/tests.md (git diff origin/main...HEAD)"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-346-admit-abstraction-relation-body.md, spec/checked_package/matrix/TC-225-checked-package-v2-abstraction-relation-body.md, spec/checked_package/matrix/tests.md, spec/tests.md (git diff origin/main...HEAD)"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-346
@@ -55,9 +55,9 @@ grammar is 1 finding (FR-014), as at base.
 
 ## Dispositions
 
-Round 1 was reviewed at 0768afb609da09d3a82043b1fd63a1780b0a6afa.
+Round 1 was reviewed.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 0768afb. The PR body now has a "Spec corrections in this PR" section that lists four FR-346 text changes for review: the AC-2 state-step `/body`, `digest_domain_mismatch` at the key, the member-step locus, and the declared-parameter-name source. The FR-346 diff from origin/main matches that list plus the 🚧 status glyph removals. There is no unlisted text change. All four are reviewed here and hold. |
-| FND-002 | fixed | 0768afb. Step 4 now says: "its path is that entry's. IR reading: its locus is the node key of the entry's `type`, `population` or `context` target, as the target and uniqueness steps have it." |
+| FND-001 | fixed |. The PR body now has a "Spec corrections in this PR" section that lists four FR-346 text changes for review: the AC-2 state-step `/body`, `digest_domain_mismatch` at the key, the member-step locus, and the declared-parameter-name source. The FR-346 diff from origin/main matches that list plus the 🚧 status glyph removals. There is no unlisted text change. All four are reviewed here and hold. |
+| FND-002 | fixed |. Step 4 now says: "its path is that entry's. IR reading: its locus is the node key of the entry's `type`, `population` or `context` target, as the target and uniqueness steps have it." |

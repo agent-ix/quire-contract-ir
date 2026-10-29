@@ -3,7 +3,7 @@ id: SR-16272
 title: "IR-984 PR 528 hybrid reader gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@b56d43e6c3dbefc6d6433ced2a7e94a64f607a7a; FR-038-AC-311..317; tests/conformance_qspec/hybrid.rs; crates/quire-contract-model/src/checked_package/v2/hybrid.rs; QSpec FR-481/TC-966@da44f70b1fb93eebd3e0fddd92efecf1b477643d"
+scope: "agent-ix/quire-contract-ir; FR-038-AC-311..317; tests/conformance_qspec/hybrid.rs; crates/quire-contract-model/src/checked_package/v2/hybrid.rs; QSpec FR-481/TC-966"
 review_set: subset
 relationships:
   - { target: "ix://agent-ix/quire-contract-ir/FR-038", type: references }
@@ -36,14 +36,14 @@ FAIL: FR-038-AC-317's exact-locus obligation is not backed by its tagged tests; 
 
 ## Coverage
 
-- Reconciliation: `quire matrix --scope . --format tsv` at exact PR head; seven of seven new criteria compute `tagged`. No run-evidence store assessed.
+- Reconciliation: `quire matrix --scope. --format tsv` at exact PR head; seven of seven new criteria compute `tagged`. No run-evidence store assessed.
 - Plan completion: not assessed
 - Focused execution: `QUIRE_SPECIFICATION_DIR=/home/peter/dev/worktrees/ir984-qspec414 cargo test --locked --test conformance_qspec qspec_hybrid -- --nocapture`: 16 passed, 0 failed.
 - Reverse gap: no new hybrid source behavior lacks an owning FR-038-AC-311..317 criterion; the defects above concern incomplete verification of named behavior.
 
 ## Dispositions
 
-At PR #528 head `48fb6f96e1b776f7a72835e498a6efc3f2665aea`, same-reviewer round 1 inspected the test diff and reran the focused QSpec hybrid tests: 20 passed, 0 failed.
+At PR #528, same-reviewer round 1 inspected the test diff and reran the focused QSpec hybrid tests: 20 passed, 0 failed.
 
 | FND | outcome | reason |
 | --- | --- | --- |
@@ -54,8 +54,8 @@ At PR #528 head `48fb6f96e1b776f7a72835e498a6efc3f2665aea`, same-reviewer round 
 
 ## Final head confirmation
 
-PR #528 head `d6292182a9a00f2f5a5c55fe26378fcb66f90b6b` adds a combined capture type and fairness defect case. The capture refusal wins with exact code, cause, and locus, as FR-038-AC-316 requires. All 20 focused QSpec hybrid tests pass. The round-1 dispositions remain fixed; no new gap finding in this delta. Gap analysis: PASS at this head. The author retains the final aggregate gate.
+PR #528 adds a combined capture type and fairness defect case. The capture refusal wins with exact code, cause, and locus, as FR-038-AC-316 requires. All 20 focused QSpec hybrid tests pass. The round-1 dispositions remain fixed; no new gap finding in this delta. Gap analysis: PASS at this head. The author retains the final aggregate gate.
 
 ## Gate-fix head confirmation
 
-At PR #528 head `a3522ad7528d64f7f4d0c4f41331be462c463165`, TC-226's exact work-boundary test, TC-048's nonhybrid timed-bound refusal, TC-058's public-item inventory test and the 21 QSpec hybrid tests pass. The new mixed-package test checks the nonhybrid timed-null refusal with exact code, cause and locus. FR-019-AC-5 is tagged in the computed matrix. No new gap finding in the six-file delta; PASS at this head. The final aggregate gate remains author-owned.
+At PR #528, TC-226's exact work-boundary test, TC-048's nonhybrid timed-bound refusal, TC-058's public-item inventory test and the 21 QSpec hybrid tests pass. The new mixed-package test checks the nonhybrid timed-null refusal with exact code, cause and locus. FR-019-AC-5 is tagged in the computed matrix. No new gap finding in the six-file delta; PASS at this head. The final aggregate gate remains author-owned.

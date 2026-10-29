@@ -3,7 +3,7 @@ id: SR-761
 title: "integrity review of PR 252 (IR-534 selections bind by identity)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@31d2f9654bd4136ae64c1500074ce01793382af8; whole spec/ tree grep for version wording on selections (FR-038, FR-040, FR-019, FR-035, FR-344, AD-004, AD-001, TC-044, TC-048, TC-056, tests.md); stale class-number and AC references; overlap with PR 250 (IR-505) and merged PR 251"
+scope: "agent-ix/quire-contract-ir; whole spec/ tree grep for version wording on selections (FR-038, FR-040, FR-019, FR-035, FR-344, AD-004, AD-001, TC-044, TC-048, TC-056, tests.md); stale class-number and AC references; overlap with PR 250 (IR-505) and merged PR 251"
 review_set: subset
 ---
 # SR-761: integrity review of PR 252 (IR-534 selections bind by identity)
@@ -20,7 +20,7 @@ dependencies or domain packages, and for stale class numbers. These are clean:
 - #251: AC-62..64 are the next free ids after #251's AC-46..61, and #251's rows and planned
   markers are kept.
 
-Overlap with PR 250 (IR-505, head f7ca22c193e71cf2e6a0e2fceaf60ef7c03b32ac, based on e80ea70):
+Overlap with PR 250 (IR-505,, based on ):
 #250 does not touch FR-038 or TC-048. It edits only `tests.md` (the FR-040, FR-038, TC-048 and
 TC-056 status cells). `git merge-tree` shows #250 already conflicts with main (#251) in `tests.md`,
 and it conflicts with #252's head the same way. Whichever merges second hand-resolves the FR-038
@@ -48,10 +48,10 @@ TC-048 procedure (FND-001) and two matrix wording problems.
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir@a1f44f02c78fa786dc3e5582a45f46a069d74bd5 (delta from 31d2f9654bd4136ae64c1500074ce01793382af8; base origin/main eedc378d7fe879e0d107e04318773528f9595422 unchanged; merge clean). `make spec` at round 1: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/204 rows backed, FR-038 42/62. No new finding.
+Round 1, reviewed at agent-ix/quire-contract-ir (delta from; base origin/main unchanged; merge clean). `make spec` at round 1: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/204 rows backed, FR-038 42/62. No new finding.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | a1f44f02c78fa786dc3e5582a45f46a069d74bd5 |
-| FND-002 | fixed | a1f44f02c78fa786dc3e5582a45f46a069d74bd5 |
-| FND-003 | fixed | a1f44f02c78fa786dc3e5582a45f46a069d74bd5 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |

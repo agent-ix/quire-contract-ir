@@ -3,7 +3,7 @@ id: SR-11846
 title: "IR-825 PR 423 gap-analysis review"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@5e0eb9beb287d977dba918b81a12413374ec84ee; git diff origin/main...HEAD: FR-052-AC-1, AC-2, AC-3, AC-5, AC-6 and AC-24, FR-019 source_obligation row, TC-452, spec/model/matrix/tests.md TC-058 and TC-452 rows, and the tests that carry the new tags"
+scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD: FR-052-AC-1, AC-2, AC-3, AC-5, AC-6 and AC-24, FR-019 source_obligation row, TC-452, spec/model/matrix/tests.md TC-058 and TC-452 rows, and the tests that carry the new tags"
 review_set: subset
 ---
 
@@ -24,7 +24,7 @@ criteria as `tagged`:
 | FR-052-AC-6 | `every_owner_position_refuses_missing_and_typed_incomplete_outcomes` |
 
 FR-052-AC-24 is `untagged` and stays Planned until IR-820 is decided, as
-FR-052, TC-452 and tests.md all state. `quire coverage --scope . --strict`
+FR-052, TC-452 and tests.md all state. `quire coverage --scope. --strict`
 reports 43 unbacked rows and 0 contradicted statuses at HEAD, against 48 on
 origin/main. The drop of five matches the five newly backed criteria. The
 command still exits non-zero, because the other unbacked rows already exist
@@ -65,8 +65,8 @@ instructions to a record of what exists.
 
 ## Dispositions
 
-Round 1. Checked against fix commit 9b67792179fb9f697cb821dfe466cc0c73d9b653
-with `git diff 5e0eb9b..9b67792`. `quire coverage --strict` still reports 43
+Round 1. Checked against fix
+with `git diff..`. `quire coverage --strict` still reports 43
 unbacked rows and 0 contradicted. In `quire matrix`, FR-052-AC-1, 2, 3, 5 and
 6 are tagged and AC-24 is untagged. `quire validate` over spec/** and
 reviews/** reports 899/899 docs clean.

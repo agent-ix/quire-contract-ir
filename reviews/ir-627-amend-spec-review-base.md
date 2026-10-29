@@ -3,7 +3,7 @@ id: SR-1582
 title: "base review of quire-contract-ir PR #298 (IR-627 recursion-group amendment)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@a5e2e32ea87a3c649a827caf296ef294d243a583; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-226-checked-package-v2-anonymous-structural-node-bodies.md, spec/checked_package/matrix/tests.md, spec/tests.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-226-checked-package-v2-anonymous-structural-node-bodies.md, spec/checked_package/matrix/tests.md, spec/tests.md"
 review_set: subset
 ---
 
@@ -28,14 +28,14 @@ SR-1586 FND-001, and the ID collision is SR-1583 FND-001.
 
 ## Findings
 
-| ID      | Severity | Summary | Refs | Escape Cause |
+| ID | Severity | Summary | Refs | Escape Cause |
 | ------- | -------- | ------- | ---- | ------------ |
 | FND-001 | low | AC-136 ends with "The rustdoc of the stage names the skip and its consumer consequence", but its verification method is "Test (TC-226)". No test in TC-226's procedure can fail on rustdoc wording. Move that clause to an Inspection criterion, or name the source-scan test that checks it. | FR-038-AC-136 | correct-requirement-no-evidence |
 
 ## Dispositions
 
-Round 1, reviewed at 49b85f5d96d54b655660117c5fff54ba4973eade.
+Round 1, reviewed.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 7f70b5c: The rustdoc clause is gone: AC-145, which replaces AC-136, has no rustdoc clause. |
+| FND-001 | fixed |: The rustdoc clause is gone: AC-145, which replaces AC-136, has no rustdoc clause. |

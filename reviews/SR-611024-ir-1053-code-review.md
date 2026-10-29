@@ -3,7 +3,7 @@ id: SR-611024
 title: "IR-1053 PR #628 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; tests/it/checked_package_v2_refinement.rs; PR #628 at 173f1202b31a56160da8366e3710cc116242cda3"
+scope: "agent-ix/quire-contract-ir; tests/it/checked_package_v2_refinement.rs; PR #628 "
 review_set: subset
 ---
 

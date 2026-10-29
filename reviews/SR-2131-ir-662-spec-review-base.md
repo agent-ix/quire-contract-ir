@@ -3,13 +3,13 @@ id: SR-2131
 title: "IR-662 spec-review/base of i128 model requirements"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@c5d7cca9fa3ed577c3578af2ea5d9a7c99ae4b75; spec/model/functional/FR-013-type-system.md, spec/model/functional/FR-014-expression-semantics.md, spec/model/functional/FR-015-definedness.md, spec/model/functional/FR-016-canonicalization-digests.md, spec/model/functional/FR-019-rust-library-interface.md; ticket IR-662"
+scope: "agent-ix/quire-contract-ir; spec/model/functional/FR-013-type-system.md, spec/model/functional/FR-014-expression-semantics.md, spec/model/functional/FR-015-definedness.md, spec/model/functional/FR-016-canonicalization-digests.md, spec/model/functional/FR-019-rust-library-interface.md; ticket IR-662"
 review_set: subset
 ---
 
 ## Summary
 
-Ticket IR-662, frozen PR #310 at c5d7cca9fa3ed577c3578af2ea5d9a7c99ae4b75. The new and edited ACs use valid IDs and concrete boundary cases. The FR-016 table has one ordering defect.
+Ticket IR-662, frozen PR #310. The new and edited ACs use valid IDs and concrete boundary cases. The FR-016 table has one ordering defect.
 
 ## Verdict
 
@@ -39,8 +39,8 @@ Ticket IR-662, frozen PR #310 at c5d7cca9fa3ed577c3578af2ea5d9a7c99ae4b75. The n
 
 | FND | Outcome | SHA / reason |
 | --- | --- | --- |
-| FND-001 | fixed | b9b3fb2d6ce19167ec0813ab46262d1e19e57b51 — FR-016-AC-9 is now after AC-8 at line 148; existing AC-7 and AC-8 remain in order. |
+| FND-001 | fixed | — FR-016-AC-9 is now after AC-8 at line 148; existing AC-7 and AC-8 remain in order. |
 
 ## Disposition Verdict
 
-**PASS at b9b3fb2d6ce19167ec0813ab46262d1e19e57b51.** FR-016-AC-9 is now after AC-8 at line 148; existing AC-7 and AC-8 remain in order. The frozen original finding row is retained above.
+**PASS.** FR-016-AC-9 is now after AC-8 at line 148; existing AC-7 and AC-8 remain in order. The frozen original finding row is retained above.

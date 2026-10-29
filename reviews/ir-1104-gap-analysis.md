@@ -3,7 +3,7 @@ id: SR-2026102737
 title: "IR-1104 PR 676 gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; PR #676 head 31bdc5099b27d87592b3f86af3905f1788d82de0; crates/quire-contract-model/src/checked_package/v2/contract_package.rs, crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/lib.rs, tests/it/checked_package_v2_temporal.rs, tests/it/complete_v1_contract_package.rs"
+scope: "agent-ix/quire-contract-ir; PR #676; crates/quire-contract-model/src/checked_package/v2/contract_package.rs, crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/lib.rs, tests/it/checked_package_v2_temporal.rs, tests/it/complete_v1_contract_package.rs"
 review_set: subset
 ---
 
@@ -38,9 +38,9 @@ The computed trace binding is present for FR-035-AC-27 through AC-30 in the new 
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At ebd596ad3c2cb8c1d39bb546434b77696f3091f7, the test constructs an admitted canonical V1 package whose unsupported request key is the separately lowered, represented healthy node; it verifies node presence and plain-read typed NotAdmitted. |
+| FND-001 | fixed |, the test constructs an admitted canonical V1 package whose unsupported request key is the separately lowered, represented healthy node; it verifies node presence and plain-read typed NotAdmitted. |
 | FND-002 | fixed | The same unsupported-record test now verifies a rehashed wrong source lock returns SourceLock, a one-below byte limit returns Incomplete before handoff, and a stale V1 identity returns Refused before source identity matching. |
 
 ## Disposition verdict
 
-**PASS at ebd596ad3c2cb8c1d39bb546434b77696f3091f7.** Both review findings are fixed in the original PR.
+**PASS.** Both review findings are fixed in the original PR.

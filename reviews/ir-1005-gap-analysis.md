@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Independent review of draft PR #643 at 6a43e12d419c8c7f8f6551c8b8aa397c2fe7ee5e against main 6e07ee81. Ticket: IR-1005. TC-461 calls for distinct profile/request corruption, multi-match row precedence, and exact/one-over controls for every limit; no additional verification gap was found beyond the invalid base vector.
+Independent review of draft PR #643 against main. Ticket: IR-1005. TC-461 calls for distinct profile/request corruption, multi-match row precedence, and exact/one-over controls for every limit; no additional verification gap was found beyond the invalid base vector.
 
 ## Verdict
 

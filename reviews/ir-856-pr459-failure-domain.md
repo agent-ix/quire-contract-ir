@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-856. Diff-scoped review of PR 459 at b644efed1d4b648a74e4897fbbc7fa78be4c6480. The new failure-domain sentence omits a real public extension point: caller-defined canonical bodies.
+Ticket: IR-856. Diff-scoped review of PR 459. The new failure-domain sentence omits a real public extension point: caller-defined canonical bodies.
 
 ## Examined units
 

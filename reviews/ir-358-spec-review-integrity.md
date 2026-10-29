@@ -3,7 +3,7 @@ id: SR-617
 title: "spec review of PR 225 (FR-028, FR-039, AD-001 after IR drops QSL)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@dbc07f9fe556f25fec0e3b3851628dd8ca459385; spec/contract/FR-028, spec/interface/FR-039, spec/assurance/AD-001, spec/contract-test-matrix.md, with FR-031, FR-037, TC-055, TC-223, AD-002 as context"
+scope: "agent-ix/quire-contract-ir; spec/contract/FR-028, spec/interface/FR-039, spec/assurance/AD-001, spec/contract-test-matrix.md, with FR-031, FR-037, TC-055, TC-223, AD-002 as context"
 review_set: subset
 ---
 # SR-617: spec review of PR 225

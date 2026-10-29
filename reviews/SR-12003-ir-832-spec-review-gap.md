@@ -3,7 +3,7 @@ id: SR-12003
 title: "IR-832 spec gap and falsifiability review"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@654f29c0352fbff5dbf852ba260fb7d53d34a0f4 (PR #425); spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md"
+scope: "agent-ix/quire-contract-ir (PR #425); spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md"
 review_set: subset
 ---
 
@@ -17,11 +17,11 @@ Checked: `scalar_application_operands` (`v2/scalar_operands.rs`) computes a `Gra
 
 | Unit | Role | Path | Excerpt |
 | --- | --- | --- | --- |
-| FR-038-AC-258 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | For an admitted `value`/`parameter` node, `parameter_declaration` returns `Ok` whose `node` equals the supplied id ... a level of `10` is returned as `"10"` and not read as an integer. |
-| FR-038-AC-259 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | `parameter_declaration` over an id absent from the graph refuses `UnknownNode`; over an existing `value`/`literal`, an `application` node and a `function` node it refuses `NotParameter` for each; ... `MalformedBody` for each. |
-| FR-038-AC-260 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | Two functions in one admitted package whose parameters share a name, level and type reference one `value`/`parameter` node, and `parameter_declaration` over it returns the same `name` and `level` regardless of which function was used to reach it ... |
-| FR-038-AC-261 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | For an admitted `quire.op.integer.add` application whose two operands reference parameters `a` and `b`, calling `parameter_declaration` on each `GraphChild` id returned by `scalar_application_operands` yields `a` then `b` ... An `InlineLiteral` operand has no node id to supply, so the caller's join sees no declaration for it. |
-| TC-048 "Typed parameter declaration" | examined | spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md | ... add applications over parameters `a` and `b` in both argument orders (separately admitted packages). ... Do not construct the expected name or level from the accessor under test. |
+| FR-038-AC-258 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | For an admitted `value`/`parameter` node, `parameter_declaration` returns `Ok` whose `node` equals the supplied id... a level of `10` is returned as `"10"` and not read as an integer. |
+| FR-038-AC-259 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | `parameter_declaration` over an id absent from the graph refuses `UnknownNode`; over an existing `value`/`literal`, an `application` node and a `function` node it refuses `NotParameter` for each;... `MalformedBody` for each. |
+| FR-038-AC-260 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | Two functions in one admitted package whose parameters share a name, level and type reference one `value`/`parameter` node, and `parameter_declaration` over it returns the same `name` and `level` regardless of which function was used to reach it... |
+| FR-038-AC-261 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | For an admitted `quire.op.integer.add` application whose two operands reference parameters `a` and `b`, calling `parameter_declaration` on each `GraphChild` id returned by `scalar_application_operands` yields `a` then `b`... An `InlineLiteral` operand has no node id to supply, so the caller's join sees no declaration for it. |
+| TC-048 "Typed parameter declaration" | examined | spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md |... add applications over parameters `a` and `b` in both argument orders (separately admitted packages).... Do not construct the expected name or level from the accessor under test. |
 | scalar_operands.rs type_range | context_only | crates/quire-contract-model/src/checked_package/v2/scalar_operands.rs | if node.node_tag == "scalar_type" && node.semantic_form == "integer" { return Err(Error::UnboundedRange); } |
 
 ## Findings
@@ -40,6 +40,6 @@ PASS WITH FINDINGS. AC-258 and AC-259 are falsifiable and reachable, including t
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Round 1 (5ba32fd): AC-261 and TC-048 now type `a` and `b` at `Int[0, 9]` (a finite `bounded_domain`/`integer_range`) and say why: an unbounded Integer refuses `UnboundedRange`. |
-| FND-002 | fixed | Round 1 (5ba32fd): the tautological shared-node clause is gone from AC-260 and from TC-048. AC-260 now asserts distinct ids and levels for same-name parameters, plus a compiled field-by-field construction showing that the result has no function, owner or declaration member. |
-| FND-003 | fixed | Round 1 (5ba32fd): AC-261's last sentence is now a type fact: `CheckedScalarOperandChild::InlineLiteral` carries no `CheckedNodeId` to pass to the accessor. |
+| FND-001 | fixed | Round 1 : AC-261 and TC-048 now type `a` and `b` at `Int[0, 9]` (a finite `bounded_domain`/`integer_range`) and say why: an unbounded Integer refuses `UnboundedRange`. |
+| FND-002 | fixed | Round 1 : the tautological shared-node clause is gone from AC-260 and from TC-048. AC-260 now asserts distinct ids and levels for same-name parameters, plus a compiled field-by-field construction showing that the result has no function, owner or declaration member. |
+| FND-003 | fixed | Round 1 : AC-261's last sentence is now a type fact: `CheckedScalarOperandChild::InlineLiteral` carries no `CheckedNodeId` to pass to the accessor. |

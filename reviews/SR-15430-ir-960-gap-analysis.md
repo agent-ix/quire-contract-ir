@@ -3,7 +3,7 @@ id: SR-15430
 title: 'Gap analysis of IR-960 PR #508'
 type: SpecReview
 analysis: gap-analysis
-scope: agent-ix/quire-contract-ir@f85a1b91c2b83c1f171a04215900f5831c17f0a2; IR-960 PR #508; crates/quire-contract-model/src/checked_package/, tests/conformance_qspec/extension.rs, spec/checked_package/functional/FR-348-admit-extension-form-nodes.md
+scope: agent-ix/quire-contract-ir; IR-960 PR #508; crates/quire-contract-model/src/checked_package/, tests/conformance_qspec/extension.rs, spec/checked_package/functional/FR-348-admit-extension-form-nodes.md
 review_set: subset
 relationships:
 - target: ix://agent-ix/quire-contract-ir/FR-348
@@ -13,7 +13,7 @@ relationships:
 
 ## Summary
 
-Independent review of PR #508 at `f85a1b91c2b83c1f171a04215900f5831c17f0a2` against merged FR-348/TC-459 and QSpec FR-469/FR-322 at fixture checkout `053b59869f5bc767ae1f35b30c7d00afbe63fda3`. The PR changes Rust reader code and tests; spec artifacts are unchanged in this diff.
+Independent review of PR #508 against merged FR-348/TC-459 and QSpec FR-469/FR-322 at fixture checkout. The PR changes Rust reader code and tests; spec artifacts are unchanged in this diff.
 
 ## Verdict
 
@@ -47,4 +47,4 @@ Plan completion: not assessed (planless review). FR-348-AC-1 through AC-8 have `
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | The new TC-459 controls exercise direct selected-model Base and Child admission, unrelated and reverse-ancestor refusal, and composite same-name refusal through the public reader. The two new targeted tests passed independently on the fix head. Exact reviewed head: `8826263`. |
+| FND-001 | fixed | The new TC-459 controls exercise direct selected-model Base and Child admission, unrelated and reverse-ancestor refusal, and composite same-name refusal through the public reader. The two new targeted tests passed independently on the fix head. Exact reviewed head: . |

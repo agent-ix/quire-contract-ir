@@ -3,7 +3,7 @@ id: SR-1176
 title: "spec review of PR 279 (timed interval form, FR-038-AC-119)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@48f27d676fad56fa5f7e7d69fefb39c254e21880; git diff origin/main...HEAD (base 1117eba64f329fad9f7324b0ec9d2149be66f07f): spec/checked_package/functional/FR-038-consume-checked-package-v2.md (integer-form member rule, new timed-form member rule, interval-bounds stage, timed/v1 profile-fit bullet, Path and locus rows, AC-104, AC-119), spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md (Description, Timed interval form section), spec/checked_package/matrix/tests.md (FR-038 and TC-048 rows), spec/tests.md (Checked package row); checked against crates/quire-contract-model/src/checked_package at the same sha and quire-specification origin/main 2f846f8 (FR-370, FR-322, FR-255, TC-303, proposals/checked-package-v2/schema.json)"
+scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD : spec/checked_package/functional/FR-038-consume-checked-package-v2.md (integer-form member rule, new timed-form member rule, interval-bounds stage, timed/v1 profile-fit bullet, Path and locus rows, AC-104, AC-119), spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md (Description, Timed interval form section), spec/checked_package/matrix/tests.md (FR-038 and TC-048 rows), spec/tests.md (Checked package row); checked against crates/quire-contract-model/src/checked_package at the same sha and quire-specification origin/main (FR-370, FR-322, FR-255, TC-303, proposals/checked-package-v2/schema.json)"
 review_set: base
 ---
 # SR-1176: spec review of PR 279
@@ -22,7 +22,7 @@ What I measured at the reviewed sha:
 - `quire validate` gives 376/377 docs grammar-clean, with the one finding in
   FR-014 line 137, which is already on main. `quire coverage --strict` gives 23
   unbacked rows. Both match the baselines.
-- The published schema (QSpec 2f846f8, `schema.json:84,121`) defines the
+- The published schema (QSpec, `schema.json:84,121`) defines the
   `interval` as a `oneOf` of three branches: `null`, `{lower, upper}`, and
   `{lower, upper, lower_end, upper_end}`. Every branch has
   `additionalProperties: false`. The timed branch's bounds are
@@ -64,7 +64,7 @@ What I measured at the reviewed sha:
 | FND-004 | medium | AC-119 states several IR readings as fact and attributes them to merged text. (a) It locates numerator and denominator pattern failures at `.../interval/lower` and `.../interval/upper`. The member rule marks this as "an IR reading of 'that bound's pointer'", but AC-119 and Path-table row 1459 do not. A schema validator reports `.../lower/numerator`, and the crate's own `validate_rational` reports `.../numerator` and `.../denominator` (`identity.rs:611-620`). (b) It cites "(merged FR-370-AC-9)" for the denominator `"0"` and null-upper cases, but AC-9 states only negative bounds. The null-upper outcome rests on IR's member-set discrimination, which is an IR reading. Mark each in the AC row as AC-97 and AC-103 do | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1144-1150, 1459, 2295 |
 | FND-005 | medium | AC-119 claims that "the comparison is exact and neither a float nor a fixed-width comparison", but its only instances (1/2 against 2/3, and 5/2 over 2/1) cannot fail an f64 or a u64 cross-multiplication. "Orders as less" is also not an observable outcome. AC-97 carries a beyond-2^64 pair for the integer form; AC-119 has none. The TC-048 section has a beyond-2^64 pair, but the AC it traces to does not require it. Fix: state that `[1/2, 2/3]` admits and `[2/3, 1/2]` refuses, and add a pair whose order a 64-bit or f64 comparison gets wrong | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2295; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md:800-802 |
 | FND-006 | medium | AC-119 is compound. One row holds about 20 outcomes across five stages: admission and the end variants; pattern failures; lowest terms and its precedence; the bounds comparison; and profile fit and shape. A failing test cannot point to one clause. The row also repeats AC-104's integer `{0,3}` and `{0,null}` refusals under timed/v1. It says "under that profile" and "under every profile" in one clause. It leaves "read back unequal" undefined: it could mean member equality, body bytes or node keys. Split it into about four ACs, one per stage, and drop the repeated AC-104 clause | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2280, 2295 |
-| FND-007 | low | The integer-form paragraph still says, without qualification, "an `interval` with another member set refuses ... `operation-member-mismatch` at `operation.member`". To the integer rule, a four-member timed form is "another member set". The paragraph now conflicts with the timed rule, and with the new rule's `invalid-value` for an interval whose bounds are objects. Scope the sentence to the integer form | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1109-1112 |
+| FND-007 | low | The integer-form paragraph still says, without qualification, "an `interval` with another member set refuses... `operation-member-mismatch` at `operation.member`". To the integer rule, a four-member timed form is "another member set". The paragraph now conflicts with the timed rule, and with the new rule's `invalid-value` for an interval whose bounds are objects. Scope the sentence to the integer form | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1109-1112 |
 | FND-008 | low | The rule's list "So a timed-form interval is read, in this order" puts Shape at step 2, ahead of profile fit and bounds. Shape defects are refused at the operation step, which runs after the temporal step. So another interval's profile-fit or bounds defect, in the same clause or a later one, is reported before this interval's shape defect. The list is right for one member only. Say so, or move Shape after step 4 | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1139-1166 |
 | FND-009 | low | The Path and locus table has no row for the member-set defects (a missing end, a third member or a fifth member), which AC-119 pins at `operation.member` | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1459-1462 |
 | FND-010 | low | The new rule adds GCD and unbounded cross-multiplication over digit strings the caller supplies. It does not say this work is charged to the work limit. The crate's existing rational check meters its GCD (`natural.rs:118-143`). No AC or TC case covers a one-over work limit on a timed bound | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1140-1153, 1164-1173 |
@@ -83,18 +83,18 @@ planned "today" statement are all correct.
 
 ## New findings (disposition pass 1)
 
-Re-reviewed at agent-ix/quire-contract-ir@9d1879016a15023a9f55fa8185950066e705b4b7, which is fix commit 9d18790 on top of 48f27d6. AC-119 is now split into AC-119 to AC-122.
+Re-reviewed at agent-ix/quire-contract-ir, which is fix on top of. AC-119 is now split into AC-119 to AC-122.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-014 | low | The rule places the lowest-terms check "after the term walk of every node and after the `package_id` and node-key recomputation, as the graph checks do, and before the temporal step". It does not place the check among the other graph checks, such as the application dependency join and the nominal-preimage and other `invalid_semantic_graph` checks. So a package with a non-reduced timed bound in one node and another graph-check defect in another node has no decided first refusal. Name the check's position in the graph-check sequence, for example "first among the graph checks" or "after the dependency join" | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1153-1166 |
-| FND-015 | low | AC-121's beyond-2^64 pair does not state its ends. In f64 both numerators round to 2^64, so a float comparison sees equal bounds. With both ends `closed`, the float outcome is wrong for the refusing order but right for the swap, which admits either way. With an open end it is wrong for the swap only. So "the two swapped admit, outcomes that a float ... gets wrong" holds for neither choice of ends on its own. Pin both ends `closed`, and say that the refusing order is the one a float gets wrong. The swap still defeats a 64-bit parse | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2306 |
+| FND-015 | low | AC-121's beyond-2^64 pair does not state its ends. In f64 both numerators round to 2^64, so a float comparison sees equal bounds. With both ends `closed`, the float outcome is wrong for the refusing order but right for the swap, which admits either way. With an open end it is wrong for the swap only. So "the two swapped admit, outcomes that a float... gets wrong" holds for neither choice of ends on its own. Pin both ends `closed`, and say that the refusing order is the one a float gets wrong. The swap still defeats a 64-bit parse | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2306 |
 | FND-016 | low | AC-120 requires the same refusal under timed/v1, infinite-trace and "each of the three bounded profiles". TC-048's procedure reads the pattern refusals under timed/v1, infinite-trace and "one bounded profile" | spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md:800-803; spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2305 |
 | FND-017 | low | AC-121's work-limit clause says "the same package read with a work limit", but AC-121 names about a dozen packages, so "the same package" has no single referent. TC-048 places the clause after the beyond-2^64 pair. Name that package in the AC | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2306 |
 
 ## New findings (disposition pass 2)
 
-Re-reviewed at agent-ix/quire-contract-ir@a03203ee8626f2a8acebce0de7310d8eec08db98, which is fix commit a03203e on top of 9d18790. Only FR-038 and TC-048 changed.
+Re-reviewed at agent-ix/quire-contract-ir, which is fix on top of. Only FR-038 and TC-048 changed.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
@@ -104,24 +104,24 @@ Re-reviewed at agent-ix/quire-contract-ir@a03203ee8626f2a8acebce0de7310d8eec08db
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 9d18790 |
-| FND-002 | fixed | 9d18790 |
-| FND-003 | fixed | 9d18790 |
-| FND-004 | fixed | 9d18790 |
-| FND-005 | fixed | 9d18790 |
-| FND-006 | fixed | 9d18790 |
-| FND-007 | fixed | 9d18790 |
-| FND-008 | fixed | 9d18790 |
-| FND-009 | fixed | 9d18790 |
-| FND-010 | fixed | 9d18790 |
-| FND-011 | fixed | 9d18790 |
-| FND-012 | fixed | 9d18790 |
-| FND-013 | fixed | 9d18790 (PR body refreshed; it now lists the six IR readings) |
-| FND-014 | fixed | a03203e |
-| FND-015 | fixed | a03203e |
-| FND-016 | fixed | a03203e |
-| FND-017 | fixed | a03203e |
-| FND-018 | fixed | 008eb31 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |
+| FND-004 | fixed | Fixed in the reviewed PR. |
+| FND-005 | fixed | Fixed in the reviewed PR. |
+| FND-006 | fixed | Fixed in the reviewed PR. |
+| FND-007 | fixed | Fixed in the reviewed PR. |
+| FND-008 | fixed | Fixed in the reviewed PR. |
+| FND-009 | fixed | Fixed in the reviewed PR. |
+| FND-010 | fixed | Fixed in the reviewed PR. |
+| FND-011 | fixed | Fixed in the reviewed PR. |
+| FND-012 | fixed | Fixed in the reviewed PR. |
+| FND-013 | fixed | (PR body refreshed; it now lists the six IR readings) |
+| FND-014 | fixed | Fixed in the reviewed PR. |
+| FND-015 | fixed | Fixed in the reviewed PR. |
+| FND-016 | fixed | Fixed in the reviewed PR. |
+| FND-017 | fixed | Fixed in the reviewed PR. |
+| FND-018 | fixed | Fixed in the reviewed PR. |
 
 Disposition pass 1 verdict:
 
@@ -185,7 +185,7 @@ Disposition pass 2 verdict:
 - **Gates.** Grammar is 376/377 (FR-014 only) and strict coverage is 23
   unbacked, both unchanged.
 
-Disposition pass 3 verdict (agent-ix/quire-contract-ir@008eb31d68447d0b648b2ff151e49ab7854c5f7f):
+Disposition pass 3 verdict (agent-ix/quire-contract-ir):
 
 - **FND-018 is fixed.** Lowest terms is now the last of the graph checks that
   run before the frame step. The frame step's own `invalid_semantic_graph`

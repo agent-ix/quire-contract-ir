@@ -10,11 +10,11 @@ review_set: base
 
 ## Summary
 
-Reviewed frozen IR #581 head 87c528731b0f0c362c081a0e4445500f0c5cae25 against QSpec FR-464-AC-13, the current IR public API and FR-019-AC-5 inventory test. The relation semantics, admitted-only exposure, field shapes, sorting and edge cases agree with QSpec. The FR-019 inventory changes prematurely classify two unimplemented types as exported, so the review is conditional.
+Reviewed frozen IR #581 against QSpec FR-464-AC-13, the current IR public API and FR-019-AC-5 inventory test. The relation semantics, admitted-only exposure, field shapes, sorting and edge cases agree with QSpec. The FR-019 inventory changes prematurely classify two unimplemented types as exported, so the review is conditional.
 
 Base checklist review used the one-pass spec diff. No active `AssuranceProfile` is present under the IR repository's `spec/assurance/`, so no enforced profile applies to this review. QSpec's node-id digest is its canonical semantic identity and the diff introduces no tracking digest, pin or manifest.
 
-Disposition at frozen fix head 4703633e5165ccd0030fe8fe6c7e9193e915ba0e: FND-001 fixed. FR-019 now names both types and the method as planned in prose outside the parsed table, retains FR-038-AC-324 as the full owning obligation, and defers adding the two types to the implemented inventory until the code exports them. The FR-038 API contract and acceptance criterion are unchanged. Review verdict: PASS.
+Disposition at frozen fix: FND-001 fixed. FR-019 now names both types and the method as planned in prose outside the parsed table, retains FR-038-AC-324 as the full owning obligation, and defers adding the two types to the implemented inventory until the code exports them. The FR-038 API contract and acceptance criterion are unchanged. Review verdict: PASS.
 
 ## Findings
 

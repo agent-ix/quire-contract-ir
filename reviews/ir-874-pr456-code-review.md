@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-874. Diff-scoped code and Rust review of frozen head d1ec73c2802101d7694046fc79f56e3fa391a14e. The staged outer-body validator has no reader call yet, as documented in the module. Its twenty operator/form entries and the named outer bindings were checked against QSpec FR-464, FR-465 and FR-466. Focused tests passed (5/5). The five local TC-048 trace attributes resolve; no triple-slash Trace or Tracing lines were added.
+Ticket: IR-874. Diff-scoped code and Rust review of frozen. The staged outer-body validator has no reader call yet, as documented in the module. Its twenty operator/form entries and the named outer bindings were checked against QSpec FR-464, FR-465 and FR-466. Focused tests passed (5/5). The five local TC-048 trace attributes resolve; no triple-slash Trace or Tracing lines were added.
 
 ## Examined units
 
@@ -31,4 +31,4 @@ CONDITIONAL. The validator's current table agrees with the authored QSpec tables
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At a5988f0f520d62673e7e8c09f30f9e9d2ee650a2, the new TC-048 test supplies fixed QSpec binding names and shapes independently of `layout` for eight operators across all seven forms, overwrites the helper's arguments, admits each frame, and refuses a mutated binding. The reviewer reran the focused protocol-body tests: 6 passed. |
+| FND-001 | fixed |, the new TC-048 test supplies fixed QSpec binding names and shapes independently of `layout` for eight operators across all seven forms, overwrites the helper's arguments, admits each frame, and refuses a mutated binding. The reviewer reran the focused protocol-body tests: 6 passed. |

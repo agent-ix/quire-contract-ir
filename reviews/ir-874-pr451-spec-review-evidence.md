@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Checked whether the specified independent oracle and test inputs exist. The machine vectors and regenerated protocol fixtures are not yet published. Ticket: IR-874. Frozen head: e3c91ccff561f7a80402c07d79c594e16957b978.
+Checked whether the specified independent oracle and test inputs exist. The machine vectors and regenerated protocol fixtures are not yet published. Ticket: IR-874. Frozen head:.
 
 ## Examined units
 
@@ -21,7 +21,7 @@ Checked whether the specified independent oracle and test inputs exist. The mach
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | high | TC-048 requires protocol machine vectors and regenerated fixtures that are absent from QSpec main. Measured QSpec origin/main fd7a16b: proposals/checked-package-v2 contains schemas and older fixtures but no protocol machine-vector file. FR-464 calls implementation and qualification separately tracked. The step is not executable as written. State that TC-946..948 textual tables are the current oracle and make machine-vector execution conditional on producer publication; keep fixtures in QSpec. | spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md:1503-1507 |
+| FND-001 | high | TC-048 requires protocol machine vectors and regenerated fixtures that are absent from QSpec main. Measured QSpec origin/main: proposals/checked-package-v2 contains schemas and older fixtures but no protocol machine-vector file. FR-464 calls implementation and qualification separately tracked. The step is not executable as written. State that TC-946..948 textual tables are the current oracle and make machine-vector execution conditional on producer publication; keep fixtures in QSpec. | spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md:1503-1507 |
 
 ## Verdict
 
@@ -31,4 +31,4 @@ Checked whether the specified independent oracle and test inputs exist. The mach
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Verified at PR #451 head bd0f2fdef5793d005952505b0e456a629eb76f70 against QSpec FR-464/466 and TC-946/948; the corresponding TC-048 control was updated. |
+| FND-001 | fixed | Verified at PR #451 against QSpec FR-464/466 and TC-946/948; the corresponding TC-048 control was updated. |

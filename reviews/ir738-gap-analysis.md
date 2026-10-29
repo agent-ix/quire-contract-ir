@@ -3,7 +3,7 @@ id: SR-7101
 title: IR-738 gap-analysis of candidate application identity
 type: SpecReview
 analysis: gap-analysis
-scope: agent-ix/quire-contract-ir@5c89ebe8414a29d9e540ec8ac8d83cfe925f45cb; crates/quire-contract-model/src/checked_package/v2/application_identity.rs,
+scope: agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/application_identity.rs,
   crates/quire-contract-model/src/checked_package/v2/encode.rs, crates/quire-contract-model/src/checked_package/v2/mod.rs,
   crates/quire-contract-model/src/checked_package/v2/operations.rs, crates/quire-contract-model/src/lib.rs,
   spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/model/functional/FR-019-rust-library-interface.md,
@@ -30,7 +30,7 @@ Ticket: IR-738. Scoped PR gap PASS only; no whole-repository assurance PASS.
 
 Scoped PR gap PASS only; no whole-repository assurance PASS. Plan completion: not assessed. quoin matrix exit0 reports398criteria:334tagged,6method-without-symbol,58untagged; all398 no run evidence in the evidence store. Six FR046 criteria tagged, all bindings inspected and correct. Outside-scope58untagged criteria are disclosed rather than claimed closed. quire coverage exit0 reports364/424backed and42unbacked, with no new candidate unbacked rows versus measured own-base; diagnostics include inline-data-schema guidance and duplicate ADR archetype first-wins warning. No fallback used. Public changed behavior inventory: draft constructor, context constructor, derivation and candidate accessor plus seven error variants, all owned by FR046; zero untraced changed behaviors, source stubs, test stubs or hollow oracles. Test-oracle strength evaluated as part of requested code/test checks; no broad optional semantic sweep.
 
-Review-only: no source edits, builds, tests, lock acquisition, push or merge. Exact frozen HEAD and clean status verified before/after. Local main is stale; explicit dc6e083...HEAD has ten owned paths and merge-base057d157. No applicable AssuranceProfile found. Installed catalog template/schema read. Exact configured model ID unavailable; host identifies GPT-6 based Codex. Runtime receipts are evidence inspected, not independently executed reviewer tests. Full make ci exit2 at strictcoverage; baseline48unbacked to candidate42, zero new unbacked and zero status contradictions. Native459integration/197model/18modeldoc/7rootdoc, fmt, both clippy lanes, corpus,632document validation and separately run policy/unsafe tail pass. Kani/replay not rerun; no aggregate-green or merge authorization claim.
+Review-only: no source edits, builds, tests, lock acquisition, push or merge. Exact frozen HEAD and clean status verified before/after. Local main is stale; explicit...HEAD has ten owned paths and merge-bas. No applicable AssuranceProfile found. Installed catalog template/schema read. Exact configured model ID unavailable; host identifies GPT-6 based Codex. Runtime receipts are evidence inspected, not independently executed reviewer tests. Full make ci exit2 at strictcoverage; baseline48unbacked to candidate42, zero new unbacked and zero status contradictions. Native459integration/197model/18modeldoc/7rootdoc, fmt, both clippy lanes, corpus,632document validation and separately run policy/unsafe tail pass. Kani/replay not rerun; no aggregate-green or merge authorization claim.
 
 ## Examined units
 

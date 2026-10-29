@@ -3,7 +3,7 @@ id: SR-16304
 title: "IR-987 PR 529 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@fd8d746e456f6b1aa7afaafae3a501ebec04a382; 17 changed Rust files under crates/quire-contract-model/src and tests/it; IR-987 AC-1..4; FR-019, FR-023, FR-038, FR-049, FR-053"
+scope: "agent-ix/quire-contract-ir; 17 changed Rust files under crates/quire-contract-model/src and tests/it; IR-987 AC-1..4; FR-019, FR-023, FR-038, FR-049, FR-053"
 review_set: subset
 ---
 # SR-16304: IR-987 PR 529 code and Rust review

@@ -3,7 +3,7 @@ id: SR-680
 title: "spec review of PR 242 (AD-005 restores R3-Q1)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@5e34517a8fe9c80711ff4a65f2a6ae6aeeaa49e9; spec/assurance/AD-005-qsl-consumption-seam.md"
+scope: "agent-ix/quire-contract-ir; spec/assurance/AD-005-qsl-consumption-seam.md"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/AD-005
@@ -13,13 +13,13 @@ relationships:
 
 ## Summary
 
-Ticket: IR-323. Reviewed head 5e34517 against origin/main 40ce5b5. The diff is one file, AD-005,
+Ticket: IR-323. Reviewed against origin/main. The diff is one file, AD-005,
 5 insertions and 3 deletions. It changes three places. The identity paragraph now says the
 dependency alias should be the crate's real name. The "QSL to the IR root crate" Gap cell is
 reworded. Row R3-Q1 is back in the "To QSL" routed table. The "Answered, no longer routed"
 sentence no longer says R3-Q1 is not a requirement.
 
-Measured at QSL origin/main 8337d52a. Two manifests name the dependency, the workspace
+Measured at QSL origin/main. Two manifests name the dependency, the workspace
 `Cargo.toml:73` and `qsl-package/Cargo.toml:36`. Both use the key `quire-contract-ir` with
 `package = "quire-contract-model"`. The rename has not landed in QSL. 101 QSL `.rs` files use
 the `quire_contract_ir` crate path.

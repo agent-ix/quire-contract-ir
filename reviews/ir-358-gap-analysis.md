@@ -3,7 +3,7 @@ id: SR-616
 title: "gap analysis of PR 225 (IR drops QSL)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@dbc07f9fe556f25fec0e3b3851628dd8ca459385; spec/contract/FR-028, spec/interface/FR-039, spec/contract-test-matrix.md against Cargo.toml, tests/it/cycle_free_model.rs, tests/it/kani_replay.rs"
+scope: "agent-ix/quire-contract-ir; spec/contract/FR-028, spec/interface/FR-039, spec/contract-test-matrix.md against Cargo.toml, tests/it/cycle_free_model.rs, tests/it/kani_replay.rs"
 review_set: subset
 ---
 # SR-616: gap analysis of PR 225

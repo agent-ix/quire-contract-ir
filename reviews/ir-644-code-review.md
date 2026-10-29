@@ -3,7 +3,7 @@ id: SR-1740
 title: "Code review of IR-644 wrapped optional leaf walk"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@66c362435cd627f5d72718f8f34b065ee97713dd; crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it/checked_package_v2_recursive_leaves.rs, spec/checked_package/functional/FR-038-consume-checked-package-v2.md"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it/checked_package_v2_recursive_leaves.rs, spec/checked_package/functional/FR-038-consume-checked-package-v2.md"
 review_set: subset
 ---
 

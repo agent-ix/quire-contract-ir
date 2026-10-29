@@ -3,7 +3,7 @@ id: SR-988
 title: "spec integrity review of PR 229 (FR-040 reaches_field statement)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@65d29c5a3bf803c340987fb21eaadb6bd173013b; spec/contract/FR-040-admit-frame-entries-and-state-clauses.md"
+scope: "agent-ix/quire-contract-ir; spec/contract/FR-040-admit-frame-entries-and-state-clauses.md"
 review_set: subset
 ---
 # SR-988: spec integrity review of PR 229
@@ -41,4 +41,4 @@ One low wording defect. Otherwise the statement is consistent with FR-322.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 467ac07: FR-040 now reads "at the operand, the member declaration or the member name at fault", and names missing-selection at the member declaration and ambiguous-name at the member name. |
+| FND-001 | fixed |: FR-040 now reads "at the operand, the member declaration or the member name at fault", and names missing-selection at the member declaration and ambiguous-name at the member name. |

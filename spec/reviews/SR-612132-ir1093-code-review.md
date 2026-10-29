@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1093. Reviewed PR #659 at 9c75a5ba against QSpec FR-432 and FR-464 and IR FR-038-AC-325/329. The corrected class spelling admits the four measured QSL read-backs, but catalog reconstruction still assigns a nested clause's member to its prefix clause.
+Ticket: IR-1093. Reviewed PR #659 against QSpec FR-432 and FR-464 and IR FR-038-AC-325/329. The corrected class spelling admits the four measured QSL read-backs, but catalog reconstruction still assigns a nested clause's member to its prefix clause.
 
 ## Verdict
 
@@ -37,8 +37,8 @@ FAIL: an admitted pair of protocol clauses with prefix-related qualified names c
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Head 5dc02418 maps members only to the closest admitted clause path with the required fixed member-kind segment; the new prefix-related two-clause case admits the complete catalog and refuses an outer-derived spelling. |
+| FND-001 | fixed | maps members only to the closest admitted clause path with the required fixed member-kind segment; the new prefix-related two-clause case admits the complete catalog and refuses an outer-derived spelling. |
 
 ## Disposition verdict
 
-Round 1 at 5dc02418: the recorded finding is fixed. Aggregate gates remain with the code lead.
+Round 1: the recorded finding is fixed. Aggregate gates remain with the code lead.

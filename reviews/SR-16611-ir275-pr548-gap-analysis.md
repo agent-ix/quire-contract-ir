@@ -3,7 +3,7 @@ id: SR-16611
 title: "IR-275 PR 548 incremental gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@797923c6d3f3d4a2b483363c3ca94b7959167134; PR #548 FR-349 AC-1 through AC-5; IR-275 AC-2 and AC-5"
+scope: "agent-ix/quire-contract-ir; PR #548 FR-349 AC-1 through AC-5; IR-275 AC-2 and AC-5"
 review_set: subset
 relationships:
   - { target: "ix://agent-ix/quire-contract-ir/FR-349", type: references }
@@ -34,4 +34,4 @@ PASS for incremental trace/test coverage, subject to SR-16610's code findings.
 
 ## Narrow carry after final-gate fixture repair
 
-Same-reviewer diff-scoped inspection of `5131cf5c..879d5b149c85694d5d9a052f23fe90d5a38825a4`: two TC-451 encoder fixtures now deliberately deserialize malformed bodies as raw `Value`, preserving their original byte/refusal assertions; the typed producer test still checks ordered reference targets and substitution through the new public `reference_targets` API. The TC-048 static source guard accounts for exactly one added pre-read candidate projection and retains its existing no-local-encoder checks. No new trace or acceptance gap in the changed tests. Incremental gap verdict remains PASS; plan completion remains not assessed.
+Same-reviewer diff-scoped inspection of `..`: two TC-451 encoder fixtures now deliberately deserialize malformed bodies as raw `Value`, preserving their original byte/refusal assertions; the typed producer test still checks ordered reference targets and substitution through the new public `reference_targets` API. The TC-048 static source guard accounts for exactly one added pre-read candidate projection and retains its existing no-local-encoder checks. No new trace or acceptance gap in the changed tests. Incremental gap verdict remains PASS; plan completion remains not assessed.

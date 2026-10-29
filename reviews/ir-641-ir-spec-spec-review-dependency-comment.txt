@@ -1,4 +1,4 @@
-<!-- reviewer repo=agent-ix/quire-contract-ir visibility=public quoin=0.28.4 module=spec-artifacts-process@b82e42e893612b4b4ee94127714b4577ee893502 id=SR-15316 method=spec-review/dependency lang=spec pr=quire-contract-ir#499 model=gpt-6.1-sol run=be712d1b-4313-4600-bcdd-879623058932 -->
+<!-- reviewer repo=agent-ix/quire-contract-ir visibility=public quoin=0.28.4 module=spec-artifacts-process id=SR-15316 method=spec-review/dependency lang=spec pr=quire-contract-ir#499 model=gpt-6.1-sol run=be712d1b-4313-4600-bcdd-879623058932 -->
 
 PASS: Dependency order: CLI FR-027 released owner (enablement) → IR FR-055 Make consumer gate (developer feature). AD-007 is an explanatory reference, not a reverse prerequisite or runtime edge. CG FR-043 and RT FR-275 are sibling consumer contracts, not IR product dependencies. Driver scope is evaluation only. No new dependency cycle or unauthorized driver implementation is specified.
 

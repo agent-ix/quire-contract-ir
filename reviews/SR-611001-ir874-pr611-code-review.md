@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-874. Diff-scoped code and Rust review of PR #611 at 76228ae301cca6da01f8c625a5b4699b96d3a7ac. Examined FR-038-AC-325 and TC-048. The activation catalog joins and normal inherited order are implemented, but a diamond with the redefining branch second has the wrong binder order.
+Ticket: IR-874. Diff-scoped code and Rust review of PR #611. Examined FR-038-AC-325 and TC-048. The activation catalog joins and normal inherited order are implemented, but a diamond with the redefining branch second has the wrong binder order.
 
 ## Examined units
 
@@ -34,12 +34,12 @@ FAIL. FND-001 produces a wrong checked binder signature for a valid source-order
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At PR head 065dc191a7dafdf265103079e2e82b5737d8e810, each effective field carries origin identities. `build_component` sorts exposed slots by the first position of any origin, so Left/t_prime takes Top/t's slot even when Right is the first listed supertype. The new public-reader reverse-diamond test passed 1/1; the model-field unit test asserts the identities directly. |
+| FND-001 | fixed | At PR, each effective field carries origin identities. `build_component` sorts exposed slots by the first position of any origin, so Left/t_prime takes Top/t's slot even when Right is the first listed supertype. The new public-reader reverse-diamond test passed 1/1; the model-field unit test asserts the identities directly. |
 
 ## Current verdict
 
-PASS for the reviewed fix at 065dc191a7dafdf265103079e2e82b5737d8e810. The previous finding is fixed. `git diff --check 76228ae3..HEAD` passed. The separate operation-parameter reorder assertion remains for the final aggregate gate.
+PASS for the reviewed fix. The previous finding is fixed. `git diff --check..HEAD` passed. The separate operation-parameter reorder assertion remains for the final aggregate gate.
 
 ## Integration check
 
-PASS at PR #611 merge head 46a1bcb88a4d0087a10ebd73e084af1ffa143a4a. The merge with IR #603 changes only the shared test import in its conflict resolution; `structural_key` and `rekey_application_node` are both retained. The #603 owner-kind guards in `validate_catalog` and `protocol_classes` remain intact and precede activation class reconstruction. Its `refinement_step_defect_precedes_wrong_protocol_clause_owner` and `refinement_catalog_joins_owned_finish_without_a_step_row` public-reader tests remain present and unchanged; the activation and reversed-diamond tests remain present. `git diff --check 065dc191..HEAD` passed. No new finding from this integration delta. The final aggregate gate remains pending.
+PASS at PR #611 merge. The merge with IR #603 changes only the shared test import in its conflict resolution; `structural_key` and `rekey_application_node` are both retained. The #603 owner-kind guards in `validate_catalog` and `protocol_classes` remain intact and precede activation class reconstruction. Its `refinement_step_defect_precedes_wrong_protocol_clause_owner` and `refinement_catalog_joins_owned_finish_without_a_step_row` public-reader tests remain present and unchanged; the activation and reversed-diamond tests remain present. `git diff --check..HEAD` passed. No new finding from this integration delta. The final aggregate gate remains pending.

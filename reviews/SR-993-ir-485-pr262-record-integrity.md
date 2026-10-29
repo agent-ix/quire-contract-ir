@@ -3,7 +3,7 @@ id: SR-993
 title: "record-integrity review of PR 262 (keeper choice and former-id bridges)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@b86735023d5fc3e5704bc5c090e90e20da3bb6e6; the 15 renumbered reviews/ files and their Former id lines; Linear reviewer and reviewer-dispositions markers carrying id=SR-591..593 and SR-624..628; PR 262 title and body"
+scope: "agent-ix/quire-contract-ir; the 15 renumbered reviews/ files and their Former id lines; Linear reviewer and reviewer-dispositions markers carrying id=SR-591..593 and SR-624..628; PR 262 title and body"
 review_set: subset
 ---
 # SR-993: record-integrity review of PR 262
@@ -14,7 +14,7 @@ Ticket: IR-485. This review checks three things. First, the file each Linear
 marker names. Second, the keeper rule. Third, the bridge line in each
 renumbered file.
 
-Marker ownership (`<!-- reviewer ... id=SR-NNN method=... pr=... -->` on
+Marker ownership (`<!-- reviewer... id=SR-NNN method=... pr=... -->` on
 Linear, repo=agent-ix/quire-contract-ir):
 
 - SR-591: IR-89 code-review #205 (keeps); IR-313 spec-integrity-analysis #204 to SR-977; IR-314 base #203 to SR-978.
@@ -68,4 +68,4 @@ justified. FND-001 is a wording nit in the PR body and does not block the merge.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | PR body edit, head unchanged b86735023d5fc3e5704bc5c090e90e20da3bb6e6; the body now reads "The later, narrower ticket in each group is renumbered." and states the 23-file count (15 renumbered, 8 keep) |
+| FND-001 | fixed | PR body edit, head unchanged; the body now reads "The later, narrower ticket in each group is renumbered." and states the 23-file count (15 renumbered, 8 keep) |

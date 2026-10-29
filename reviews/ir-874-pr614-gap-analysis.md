@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-874. Planless, diff-scoped trace and test-intent audit of test-only PR #614 at df7e4ee68987856433aaef7baa9c1463392fded3. The four new tests carry the FR-038-AC-291/292 and TC-048 tags appropriate to their behavior. No new production code needs an owner; the location and owner assertion deficit is recorded in the code-review artifact SR-610062.
+Ticket: IR-874. Planless, diff-scoped trace and test-intent audit of test-only PR #614. The four new tests carry the FR-038-AC-291/292 and TC-048 tags appropriate to their behavior. No new production code needs an owner; the location and owner assertion deficit is recorded in the code-review artifact SR-610062.
 
 ## Examined units
 
@@ -37,7 +37,7 @@ Ticket: IR-874. Planless, diff-scoped trace and test-intent audit of test-only P
 
 **PASS** for trace ownership and the diff's evidence shape. This does not discharge the code-review finding or the repository-wide strict-coverage backlog.
 
-## Expanded STD-515 coverage at b201f727
+## Expanded STD-515 coverage
 
 The new `FR-038-AC-292` text and TC-048 procedure own the production pass in `protocol_body.rs`; the existing `ModelStateRead` variant remains its typed detail. `bare_activation_record_read_refuses_in_each_decision_slot`, `bare_receive_record_read_refuses_in_each_decision_slot` and `bare_activation_precedes_sent_field_in_either_guard_operand_order` have FR-038-AC-292 and TC-048 tags and assert the public reader's typed refusal, path, locus and slot. The preserved receive-field and activation-field tests cover admitted and ineligible projected facts. Plan completion: not assessed. No new production source lacks a stated owner; repository-wide strict coverage is not claimed.
 
@@ -55,8 +55,8 @@ The new `FR-038-AC-292` text and TC-048 procedure own the production pass in `pr
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-002 | fixed | At 9e7ab6fe20a0ef5177206536ca7506d42e60e262, the new tagged public-reader test covers a record-typed protocol capture bare in all four decision slots, with exact typed refusal/path/locus/slot and field-projection plus scalar-capture admission controls. The implementation now checks captures too. |
+| FND-002 | fixed |, the new tagged public-reader test covers a record-typed protocol capture bare in all four decision slots, with exact typed refusal/path/locus/slot and field-projection plus scalar-capture admission controls. The implementation now checks captures too. |
 
-## Final disposition at 9e7ab6fe
+## Final disposition
 
 **PASS** for the expanded diff's FR-038-AC-292 trace and evidence. Plan completion: not assessed. The repository-wide strict-coverage backlog remains outside this diff's claim.

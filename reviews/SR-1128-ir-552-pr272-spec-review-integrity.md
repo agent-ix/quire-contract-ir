@@ -3,7 +3,7 @@ id: SR-1128
 title: "integrity and matrix review of PR 272 (FR-038-AC-112 and AC-113 trace)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@29cdb1495b4a623e25df532705553da1e03d6112; spec/checked_package/matrix/tests.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/tests.md; make spec at the reviewed sha"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/matrix/tests.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/tests.md; make spec at the reviewed sha"
 review_set: subset
 ---
 # SR-1128: integrity and matrix review of PR 272
@@ -41,8 +41,8 @@ amendments that SR-1127 asks for.
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir@cbcdd758c34ce335b39f4684cf20dff9ca32cd38. `make spec`: validate passes, 1 grammar finding (FR-014 baseline), strict 23 unbacked (baseline).
+Round 1, reviewed at agent-ix/quire-contract-ir. `make spec`: validate passes, 1 grammar finding (FR-014 baseline), strict 23 unbacked (baseline).
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | cbcdd75 |
+| FND-001 | fixed | Fixed in the reviewed PR. |

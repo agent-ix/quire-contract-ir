@@ -3,7 +3,7 @@ id: SR-3401
 title: Gap analysis of IR-690 structural inequality accessor
 type: SpecReview
 analysis: gap-analysis
-scope: agent-ix/quire-contract-ir@71abb07c7bb23785edfccb0c2ac75ef3a64a32ad; crates/quire-contract-model/src/checked_package/v2/composite_operands.rs,
+scope: agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/composite_operands.rs,
   spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md,
   spec/checked_package/matrix/tests.md, tests/it/checked_package_v2_composite_operands.rs
 review_set: subset
@@ -16,7 +16,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-690. Exact frozen candidate 71abb07c7bb23785edfccb0c2ac75ef3a64a32ad. Plan completion: not assessed. Computed matrix tags AC-197 through AC-200 to the changed integration/unit tests; AC-201 is Inspection and has no executable symbol. The reader-admitted Ne tests and defensive mutated fixtures are clearly distinguished. The 31 to 27 strict-coverage improvement removes exactly AC-197 through AC-200, with zero added deficits; the AC-201 Inspection diagnostic is unchanged.
+Ticket: IR-690. Exact frozen candidate. Plan completion: not assessed. Computed matrix tags AC-197 through AC-200 to the changed integration/unit tests; AC-201 is Inspection and has no executable symbol. The reader-admitted Ne tests and defensive mutated fixtures are clearly distinguished. The 31 to 27 strict-coverage improvement removes exactly AC-197 through AC-200, with zero added deficits; the AC-201 Inspection diagnostic is unchanged.
 
 ## Examined units
 

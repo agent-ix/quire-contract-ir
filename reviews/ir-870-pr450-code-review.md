@@ -3,7 +3,7 @@ id: SR-12430
 title: "IR-870 code and Rust review of IR PR 450"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir PR 450, 1f176aec..37e23c3; five changed Rust test files"
+scope: "agent-ix/quire-contract-ir PR 450..; five changed Rust test files"
 review_set: subset
 ---
 
@@ -31,7 +31,7 @@ I reviewed `tests/conformance_qsl_ir769/main.rs`, `tests/conformance_qspec/main.
 
 - A function-level script found exactly 30 removed Trace/Tracing doc lines: 7 conversions and 23 redundant removals. For every removed line, its ID set is a subset of the resulting same-function `#[trace]` ID set; no ID is lost.
 - `git diff --check` and `cargo fmt --all -- --check` pass. No new `/// Trace:` or `/// Tracing:` line appears.
-- Independent `quire coverage --scope . --format json` runs at exact base `1f176aec` and head `37e23c3` both report 527/584 backed, 40 unbacked and 0 status lies. All 550 obligations match exactly. The computed matrix and unmatched tags match after line and column locations are removed.
+- Independent `quire coverage --scope. --format json` runs at exact and both report 527/584 backed, 40 unbacked and 0 status lies. All 550 obligations match exactly. The computed matrix and unmatched tags match after line and column locations are removed.
 - The six empty doc lines are at `tests/ir575_reader_memory.rs:35,63,127,153` and `tests/conformance_qspec/main.rs:1043,1085`. Each sits directly above a migrated or retained trace attribute.
 - The author reports the pre-PR gates; this read-only review ran focused checks and independent Quire measurements without repeating the full Cargo suite.
 
@@ -39,4 +39,4 @@ I reviewed `tests/conformance_qsl_ir769/main.rs`, `tests/conformance_qspec/main.
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Head `18c5ab5` deletes exactly the six cited empty `///` lines. The remaining substantive prose and trace attributes are unchanged; a scan of both files finds no empty `///` directly above `#[trace]`. |
+| FND-001 | fixed | deletes exactly the six cited empty `///` lines. The remaining substantive prose and trace attributes are unchanged; a scan of both files finds no empty `///` directly above `#[trace]`. |

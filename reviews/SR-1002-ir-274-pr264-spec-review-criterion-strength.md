@@ -3,7 +3,7 @@ id: SR-1002
 title: "criterion strength review of PR 264 (16 new acceptance criteria)"
 type: SpecReview
 analysis: criterion-strength
-scope: "agent-ix/quire-contract-ir@184e6668bb8722f03c68a6b9924586593233118d; FR-013-AC-5, FR-016-AC-5 to AC-8, FR-020-AC-3, FR-032-AC-6, FR-033-AC-6, FR-034-AC-6, FR-034-AC-7, FR-038-AC-89 to AC-94 (git diff origin/main...HEAD)"
+scope: "agent-ix/quire-contract-ir; FR-013-AC-5, FR-016-AC-5 to AC-8, FR-020-AC-3, FR-032-AC-6, FR-033-AC-6, FR-034-AC-6, FR-034-AC-7, FR-038-AC-89 to AC-94 (git diff origin/main...HEAD)"
 review_set: subset
 ---
 # SR-1002: criterion strength review of PR 264
@@ -46,11 +46,11 @@ oracles. FR-038-AC-93's missing vectors are SR-999 FND-003.
 
 ## Dispositions
 
-Reviewed at agent-ix/quire-contract-ir@553736cfce62fe6949915559c471d4a7f5349d21 (main still 7d7716d; not rebased onto #263, whose FR-038, TC-048 and checked_package tests.md hunks conflict textually, expected rebase work). Proof re-run: no schemas/, corpus or code file in `git diff origin/main --stat`; `make corpus` exit 0; workspace tests all pass (204 + 101, 0 failed); validate passes, grammar 1 (FR-014 baseline), 215 ACs, strict 23 unbacked, coverage rows 237.
+Reviewed at agent-ix/quire-contract-ir (main still; not rebased onto #263, whose FR-038, TC-048 and checked_package tests.md hunks conflict textually, expected rebase work). Proof re-run: no schemas/, corpus or code file in `git diff origin/main --stat`; `make corpus` exit 0; workspace tests all pass (204 + 101, 0 failed); validate passes, grammar 1 (FR-014 baseline), 215 ACs, strict 23 unbacked, coverage rows 237.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 553736c |
-| FND-002 | fixed | 553736c |
-| FND-003 | fixed | 553736c |
-| FND-004 | fixed | 553736c |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |
+| FND-004 | fixed | Fixed in the reviewed PR. |

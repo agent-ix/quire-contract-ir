@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed IR PR #663 at 6b23776f against QSpec origin/main 81078f14. The changed FR-038 and FR-069 obligations preserve the published TK-01..35, TW-00..26 and NK-00..07 outcomes, stage order, and authoritative checkout boundary. No applicable AssuranceProfile was found.
+Reviewed IR PR #663 against QSpec origin/main. The changed FR-038 and FR-069 obligations preserve the published TK-01..35, TW-00..26 and NK-00..07 outcomes, stage order, and authoritative checkout boundary. No applicable AssuranceProfile was found.
 
 ## Verdict
 

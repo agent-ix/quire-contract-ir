@@ -3,7 +3,7 @@ id: SR-986
 title: "gap analysis of PR 229 (reaches_field reference_edge constraint)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@65d29c5a3bf803c340987fb21eaadb6bd173013b; spec/contract/FR-040-admit-frame-entries-and-state-clauses.md, spec/contract/FR-038-consume-checked-package-v2.md, tests/it/checked_package_v2_model_members.rs, crates/quire-contract-model/src/checked_package/v2/operations.rs"
+scope: "agent-ix/quire-contract-ir; spec/contract/FR-040-admit-frame-entries-and-state-clauses.md, spec/contract/FR-038-consume-checked-package-v2.md, tests/it/checked_package_v2_model_members.rs, crates/quire-contract-model/src/checked_package/v2/operations.rs"
 review_set: subset
 ---
 # SR-986: gap analysis of PR 229
@@ -24,7 +24,7 @@ exception is direction, which SR-984 FND-001 covers. The tests exercise
 RE-01..RE-11 and RE-13. RE-12, RE-14 and RE-15 are not exercised.
 
 `quire coverage --strict` reports the same 22 unbacked rows on this head as
-on `origin/main` (3e7935f). The PR changes nothing in that set.
+on `origin/main` . The PR changes nothing in that set.
 
 ## Findings
 
@@ -54,5 +54,5 @@ additions to make in this PR.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 467ac07: FR-040-AC-13 added (TC-056 row and FR-040 matrix row updated); both tests retagged `#[trace("TC-056", "FR-040-AC-13")]`; coverage shows FR-040 13/13 backed, unbacked set unchanged (22, identical to origin/main). |
-| FND-002 | fixed | 467ac07: refusal cases added for ambiguous name (`Both.code`), unselected version (missing-selection at member declaration), object operand and supertype target; admission cases for `SubSub`. Mutations dropping step-2 refusal pass-through and the unselected pass-through both go red. |
+| FND-001 | fixed |: FR-040-AC-13 added (TC-056 row and FR-040 matrix row updated); both tests retagged `#[trace("TC-056", "FR-040-AC-13")]`; coverage shows FR-040 13/13 backed, unbacked set unchanged (22, identical to origin/main). |
+| FND-002 | fixed |: refusal cases added for ambiguous name (`Both.code`), unselected version (missing-selection at member declaration), object operand and supertype target; admission cases for `SubSub`. Mutations dropping step-2 refusal pass-through and the unselected pass-through both go red. |

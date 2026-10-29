@@ -4,7 +4,7 @@ title: "IR PR 479 integrity: ids, FR backing, TC-047 and matrix rows"
 type: SpecReview
 analysis: integrity
 review_set: subset
-scope: "agent-ix/quire-contract-ir@f5229f01c640aa772fe7ba1c109a3e94dfe75b26; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md, spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md, spec/checked_package/matrix/tests.md (diff origin/main...HEAD)"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md, spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md, spec/checked_package/matrix/tests.md (diff origin/main...HEAD)"
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-035
     type: reviews
@@ -14,7 +14,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-893. PR: agent-ix/quire-contract-ir#479 at f5229f0.
+Ticket: IR-893. PR: agent-ix/quire-contract-ir#479.
 
 Checked:
 
@@ -51,12 +51,12 @@ status claims are honest.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | AC-12 to AC-14 have no backing statement in FR-035's Behavior section. AC-10 and AC-11 each have a "When reading a canonical `ContractPackageWireV1`, Contract IR SHALL ..." sentence there. The new criteria do not, so the FR's requirement text does not say that a missing top-level member, noncanonical bytes or a request-order mismatch in the accounting refuse, or with which fields | spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:139-146 |
+| FND-001 | low | AC-12 to AC-14 have no backing statement in FR-035's Behavior section. AC-10 and AC-11 each have a "When reading a canonical `ContractPackageWireV1`, Contract IR SHALL..." sentence there. The new criteria do not, so the FR's requirement text does not say that a missing top-level member, noncanonical bytes or a request-order mismatch in the accounting refuse, or with which fields | spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:139-146 |
 | FND-002 | low | AC-12 names only `source_map`. The reader gives the same `invalid_package`/`""`/`missing_member` refusal for each of the six required top-level members. This was reproduced for all six, and `contract_version` takes its own branch at contract_package.rs:956. The criterion is not over-general, but the "missing top-level member" class has a criterion for one member only. The other five members, and the separate `contract_version` branch, stay unstated. Consider "omits any of the six required top-level members" | spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:163; crates/quire-contract-model/src/checked_package/v2/contract_package.rs:956 |
 
 ## Dispositions
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Round 1, fix commit 3263d76: FR-035 Behavior gains three "When an otherwise valid canonical `ContractPackageWireV1` ..., Contract IR SHALL refuse with ..." sentences backing AC-12, AC-13 and AC-14, each with its exact code, path and cause |
-| FND-002 | fixed | Round 1, fix commit 3263d76: AC-12 and the Behavior sentence now cover all six required top-level members. The TC-047 step removes each member separately and includes the `contract_version` branch, and the tests.md row says "AC-12 (all six required top-level members)" |
+| FND-001 | fixed | Round 1, fix: FR-035 Behavior gains three "When an otherwise valid canonical `ContractPackageWireV1`..., Contract IR SHALL refuse with..." sentences backing AC-12, AC-13 and AC-14, each with its exact code, path and cause |
+| FND-002 | fixed | Round 1, fix: AC-12 and the Behavior sentence now cover all six required top-level members. The TC-047 step removes each member separately and includes the `contract_version` branch, and the tests.md row says "AC-12 (all six required top-level members)" |

@@ -3,7 +3,7 @@ id: SR-8085
 title: "EARS review of IR-691 bounded record projection"
 type: SpecReview
 analysis: ears-conformance
-scope: "agent-ix/quire-contract-ir@d2055f10f84cfa7a27b7d5fe0fdfe8c79e710657; FR-038 new bounded integer record requirement paragraphs, AC-232 through AC-235; IR-691"
+scope: "agent-ix/quire-contract-ir; FR-038 new bounded integer record requirement paragraphs, AC-232 through AC-235; IR-691"
 review_set: subset
 ---
 

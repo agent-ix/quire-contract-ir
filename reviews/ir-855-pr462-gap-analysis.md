@@ -11,7 +11,7 @@ review_set: subset
 
 ## Summary
 
-Ticket IR-855. Diff-scoped mechanical requirement-to-matrix-to-test and reverse-gap analysis at 40a7fb6c95465af84dc5c8b162ac87e8ae19e2fa. AC-8 through AC-13 have new trace binders; the field guard is owned by AC-9. Test-intent omissions are recorded in SR-12555.
+Ticket IR-855. Diff-scoped mechanical requirement-to-matrix-to-test and reverse-gap analysis. AC-8 through AC-13 have new trace binders; the field guard is owned by AC-9. Test-intent omissions are recorded in SR-12555.
 
 ## Examined units
 
@@ -30,7 +30,7 @@ Ticket IR-855. Diff-scoped mechanical requirement-to-matrix-to-test and reverse-
 
 ## Coverage
 
-Merge base 14f875f: 527/602 backed; head: 533/602 backed. Both report 40 strict unbacked and zero contradicted. The normalized matrix has 568 criterion rows on both sides; only FR-019-AC-8 through AC-13 acquire new binders/status. Plan completion: not assessed. Optional repository-wide semantic review: not run.
+Merge: 527/602 backed; head: 533/602 backed. Both report 40 strict unbacked and zero contradicted. The normalized matrix has 568 criterion rows on both sides; only FR-019-AC-8 through AC-13 acquire new binders/status. Plan completion: not assessed. Optional repository-wide semantic review: not run.
 
 ## Verdict
 

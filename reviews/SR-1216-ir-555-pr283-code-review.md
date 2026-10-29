@@ -3,7 +3,7 @@ id: SR-1216
 title: "PR #283 IR-555 NumberOutOfRange mapping code and Rust review"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@de9bf5c8de38d2b53fbf309e7ab3c7b2d0db3c7e; Cargo.lock, crates/quire-contract-model/src/checked_package/v2/model_members.rs, tests/it/checked_package_v2_model_members.rs (git diff origin/main...HEAD, base 543cd8a8b6a5fe2a1974617869824a75f6c38629)"
+scope: "agent-ix/quire-contract-ir; Cargo.lock, crates/quire-contract-model/src/checked_package/v2/model_members.rs, tests/it/checked_package_v2_model_members.rs (git diff origin/main...HEAD, )"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
@@ -16,21 +16,21 @@ relationships:
 ## Summary
 
 Ticket: IR-555 (and IR-542). PR agent-ix/quire-contract-ir#283, head
-de9bf5c8de38d2b53fbf309e7ab3c7b2d0db3c7e. Methods: code-review with the
+. Methods: code-review with the
 rust-review lane folded in (repo conventions first).
 
 `admit_document` now maps `quire_canonical::ReadError::NumberOutOfRange
-{ pointer, lexeme, .. }` to `SelectionFailure::InexactNumber` (that is,
+{ pointer, lexeme.. }` to `SelectionFailure::InexactNumber` (that is,
 `noncanonical_wire` at the row's `digest`) with `document_pointer` taken from
 the reader's pointer, before the digest comparison. The cause is
-`inexact-integer` when `Spelling::of(lexeme).is_whole_past_2_pow_53()` and
+`inexact-integer` when `Spelling::of(lexeme).is_whole_past_2_pow_53` and
 `inexact-number` otherwise. There is no pre-scan. The lock moves
-`quire-canonical` and `quire-canonical-derive` from b4bb97a to 5dc4e12 (two
+`quire-canonical` and `quire-canonical-derive` from to (two
 `source` lines and nothing else). The manifests are unchanged
 (`branch = "main"`), there is one copy of each in the lock, and no SHA is
 recorded outside the lock.
 
-Read against quire-canonical 5dc4e12 `src/read.rs`, read-only from the cargo
+Read against quire-canonical `src/read.rs`, read-only from the cargo
 checkout. `ReadError` is `#[non_exhaustive]`, `Clone` and not `Copy`. The
 parser returns `NumberOutOfRange` from the number scanner the moment a literal
 parses to a non-finite `f64`, so the read stops at the first such number. An
@@ -46,10 +46,10 @@ under its own digest:
 | `1e400`, `-1e400`, `1e309`, `1.7976931348623157e309`, `1.5e400`, `1` followed by 400 zeros | `noncanonical_wire`, `inexact-integer`, `/package/ratio` |
 | `1e-400`, `-1e-400` | `noncanonical_wire`, `inexact-number`, `/package/ratio` (read as zero, refused through IR's text rule) |
 | 400 nines followed by `.5` (non-whole, past the double range) | `noncanonical_wire`, `inexact-number`, `/package/ratio` |
-| `{"a":[{"x/y~z":[0,{"q":[1,2,1e400]}]}],...}` | pointer `/a/0/x~1y~0z/1/q/2` (escaping and indices correct) |
-| `{"b":0.1000000000000000000001,"a":[1e400],...}` | `/a/0`, `inexact-integer` (FR-038-AC-110 requires `/b`, `inexact-number`) |
-| `{"b":9007199254740993,"a":[1e400],...}` | `/a/0` (FR-038's "first such number in document order" requires `/b`) |
-| `{"b":1e400,"a":[0.1000000000000000000001],...}` | `/b`, `inexact-integer` (correct) |
+| `{"a":[{"x/y~z":[0,{"q":[1,2,1e400]}]}]...}` | pointer `/a/0/x~1y~0z/1/q/2` (escaping and indices correct) |
+| `{"b":0.1000000000000000000001,"a":[1e400]...}` | `/a/0`, `inexact-integer` (FR-038-AC-110 requires `/b`, `inexact-number`) |
+| `{"b":9007199254740993,"a":[1e400]...}` | `/a/0` (FR-038's "first such number in document order" requires `/b`) |
+| `{"b":1e400,"a":[0.1000000000000000000001]...}` | `/b`, `inexact-integer` (correct) |
 | `{"a":1e400,` (truncated) and `{"a":1e400,"a":1}` (duplicate name) | `noncanonical_wire`/`inexact-integer` at `/a`, where any other malformed document is `byte-digest-mismatch` |
 
 Consumers: the only use of `quire_canonical::read` or `ReadError` in this repo
@@ -69,8 +69,8 @@ out-of-range one. That covers every case the new tests build. It runs before
 the digest comparison, and the pointer is right, nesting and escaping included.
 The lock change is minimal and `make deny` (one-copy) passes. `make fmt-check`,
 `make lint`, `make test`, `make deny` and `make conformance-qspec` all pass on
-de9bf5c (conformance was run against a throwaway quire-specification origin/main
-worktree at 2f846f8).
+ (conformance was run against a throwaway quire-specification origin/main
+worktree ).
 
 The author's own report is confirmed (FND-001). Because `read` aborts at the
 first out-of-range number, an earlier inexact number is never named. This is a
@@ -88,16 +88,16 @@ it.
 
 ## Dispositions
 
-Round 1 was reviewed at 3b3cd146dbf7d2df988cd13c9a2e3daf248e7ef0. The delta
-from de9bf5c touches only `model_members.rs` (one hunk), the new test, the
+Round 1 was reviewed. The delta
+from touches only `model_members.rs` (one hunk), the new test, the
 FR-038 note, TC-048, the FR-038 matrix row and `spec/tests.md`. `Cargo.lock`
-and the manifests are as at de9bf5c. I ran `make fmt-check lint test` on
-3b3cd14 and they pass. `quire coverage --strict` reports 23 unbacked rows, and
+and the manifests are as. I ran `make fmt-check lint test` on
+ and they pass. `quire coverage --strict` reports 23 unbacked rows, and
 validate reports 1 grammar finding (FR-014).
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | deferred | IR-573. The behaviour is upstream (`quire-canonical` `read` aborts at the first out-of-range number) and cannot be fixed in IR without the forbidden pre-scan. 3b3cd14 keeps AC-110 partial and names the unmet "first in document order" clause in the FR-038 matrix row, TC-048 and `spec/tests.md`, with IR-573 in the matrix notes. The FR-038 note also records it as today's behaviour. |
-| FND-002 | fixed | 3b3cd14. `tc_048_a_non_whole_number_past_the_double_range_refuses_inexact_number` reads 400 nines then `.5`, and its negative, at `/package/ratio` and expects a hand-written `inexact-number` refusal. I hard-coded `Cause::InexactInteger` in a throwaway copy: this test fails and the other two pass, so it is a real oracle for that arm. |
-| FND-003 | fixed | 3b3cd14. `let document_pointer = JsonPointer::from_escaped(pointer);`. quire-canonical's `pointer()` already escapes `~` as `~0` and `/` as `~1` and writes decimal indices (round 0 probe: `/a/0/x~1y~0z/1/q/2`), and `from_escaped` wraps the text without re-escaping. There is no double-escape, no panic path and no false `byte-digest-mismatch` cause. |
-| FND-004 | fixed | 3b3cd14. The FR-038 note now states that a document malformed after an out-of-range number refuses as that number does, while one malformed before it refuses `byte-digest-mismatch`, as today's behaviour and not a requirement. That resolves "unspecified"; no test pins it, which is acceptable for a stated non-requirement. |
+| FND-001 | deferred | IR-573. The behaviour is upstream (`quire-canonical` `read` aborts at the first out-of-range number) and cannot be fixed in IR without the forbidden pre-scan. keeps AC-110 partial and names the unmet "first in document order" clause in the FR-038 matrix row, TC-048 and `spec/tests.md`, with IR-573 in the matrix notes. The FR-038 note also records it as today's behaviour. |
+| FND-002 | fixed |. `tc_048_a_non_whole_number_past_the_double_range_refuses_inexact_number` reads 400 nines then `.5`, and its negative, at `/package/ratio` and expects a hand-written `inexact-number` refusal. I hard-coded `Cause::InexactInteger` in a throwaway copy: this test fails and the other two pass, so it is a real oracle for that arm. |
+| FND-003 | fixed |. `let document_pointer = JsonPointer::from_escaped(pointer);`. quire-canonical's `pointer` already escapes `~` as `~0` and `/` as `~1` and writes decimal indices (round 0 probe: `/a/0/x~1y~0z/1/q/2`), and `from_escaped` wraps the text without re-escaping. There is no double-escape, no panic path and no false `byte-digest-mismatch` cause. |
+| FND-004 | fixed |. The FR-038 note now states that a document malformed after an out-of-range number refuses as that number does, while one malformed before it refuses `byte-digest-mismatch`, as today's behaviour and not a requirement. That resolves "unspecified"; no test pins it, which is acceptable for a stated non-requirement. |

@@ -3,7 +3,7 @@ id: SR-8007
 title: IR-491 spec-review/dependency review of residual leaf sources
 type: SpecReview
 analysis: dependency
-scope: agent-ix/quire-contract-ir@3709413e6d064855320d11660fde0154b93e4162; spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
   spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; IR-491
 review_set: subset
 ---
@@ -27,7 +27,7 @@ the unchanged package admits through `CheckedPackageV2::read`. For each
 mutation below, rebuild the affected node keys and package id using the
 existing production identity rules, and assert that the adverse package
 pas
-- `FR-038` (examined): The planned IR-491 residual rule applies only after the earlier package, reference, operation and operand checks have succeeded. The catalog names exactly the following leaf-source cases; the reader SHALL use the selected type in this table and SHALL NOT treat failure to resolve a required type as an empty leaf list:
+- `FR-038` (examined): The planned IR-491 residual rule applies only after the earlier package, reference, operation and operand checks have su. The catalog names exactly the following leaf-source cases; the reader SHALL use the selected type in this table and SHALL NOT treat failure to resolve a required type as an empty leaf list:
 
 ## Verdict
 

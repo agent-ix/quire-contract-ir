@@ -3,7 +3,7 @@ id: SR-5902
 title: "IR-575 PR 340 specification base review"
 type: SpecReview
 analysis: base
-scope: "FR-038-AC-214 and TC-048 changed status and measured receipt at e52e94d985f0b9abf6651022d2891c64ebe3b310"
+scope: "FR-038-AC-214 and TC-048 changed status and measured receipt "
 review_set: base
 ---
 
@@ -13,7 +13,7 @@ The changed requirement and test text preserve the concrete threshold, setup val
 
 ## Verdict
 
-**PASS for specification wording only.** The separate implementation finding SR-5900 FND-001 was later fixed at `598538f79f520d384bfc39c698b8c9e62d58294b`; this spec-only verdict does not certify the implementation or final repository gates.
+**PASS for specification wording only.** The separate implementation finding SR-5900 FND-001 was later fixed; this spec-only verdict does not certify the implementation or final repository gates.
 
 ## Findings
 

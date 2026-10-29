@@ -1,6 +1,6 @@
 ---
 id: SR-10892
-title: "Base spec review — IR-759 source census at 2cdac57"
+title: "Base spec review — IR-759 source census "
 type: SpecReview
 analysis: base
 scope: "agent-ix/quire-contract-ir; spec/model/functional/FR-052-source-obligation-correspondence.md, spec/model/matrix/TC-452-source-obligation-correspondence.md, spec/model/functional/FR-019-rust-library-interface.md, spec/model/matrix/tests.md"
@@ -43,7 +43,7 @@ TC-452 requires each complete envelope to be compared with the full owner output
 
 ## Dispositions
 
-Reviewed uncommitted working-tree correction on base 2cdac572; no new commit head yet.
+Reviewed uncommitted working-tree correction on; no new commit head yet.
 
 | FND | outcome | reason |
 | --- | --- | --- |
@@ -51,8 +51,8 @@ Reviewed uncommitted working-tree correction on base 2cdac572; no new commit hea
 
 ## Dispositions — round 2
 
-Reviewed frozen IR-784 input-only head fc28070b40353ba249a4556d57804f32871e837f against the original finding.
+Reviewed frozen IR-784 input-only against the original finding.
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | The matrix at fc28070b marks TC-452 Planned/UNRUN and explicitly says no complete census is published; FR-052 separates current provisional AC-8 from the remaining full criteria. |
+| FND-001 | fixed | The matrix marks TC-452 Planned/UNRUN and explicitly says no complete census is published; FR-052 separates current provisional AC-8 from the remaining full criteria. |

@@ -3,7 +3,7 @@ id: SR-610034
 title: "IR-1053 PR #603 gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir PR #603 at f50585f52177269bbeb7405b1846d02b6ba97c8d; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, refinement.rs; tests/it/checked_package_v2_protocol_body.rs, checked_package_v2_refinement.rs; FR-064-AC-2/4/5, FR-038-AC-325"
+scope: "agent-ix/quire-contract-ir PR #603; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, refinement.rs; tests/it/checked_package_v2_protocol_body.rs, checked_package_v2_refinement.rs; FR-064-AC-2/4/5, FR-038-AC-325"
 review_set: subset
 ---
 
@@ -38,7 +38,7 @@ Audited the changed owner and class-catalog behavior against its criterion tags 
 | FND-003 | deferred | IR-1062 is the structured prerequisite: selected state_machine, process and record_value_type declarations cannot complete the current FR-322 owner join. Their wrong-form edge vectors must land after that owner-environment implementation, while IR-1053 and FR-064-AC-4 remain open. |
 | FND-002 | fixed | The new `refinement_step_defect_precedes_wrong_protocol_clause_owner` first admits the healthy selected-B package, verifies the wrong owner alone refuses `invalid_model_binding` at the clause `owner_model`, then pairs it with an invalid refinement `source_class` and asserts the earlier `missing_declaration`/`missing-name` at `/body/steps/0/source_class`. The existing role-member pair covers the other required earlier phase. |
 | FND-003 | still-open | The earlier blanket IR-1062 deferral is superseded: `ModelOwners::new` already derives selected `StateMachine` and `RecordValueType` owner keys from real selected documents, and both can reach the clause edge today. Add public-reader wrong-owner vectors for those two forms in this PR. Process/persistence may remain under IR-1062, and FR-064-AC-4/IR-1053 remain open. |
-| FND-003 | deferred | At e40e217e, `protocol_owner_selected_state_machine_and_record_value_type_refuse_at_edge` mutates the authoritative selected family document meaning, recomputes its selection digest and the declaration preimage key, inserts the document into evidence, and asserts each baseline admits before retargeting. Each retarget then refuses `invalid_model_binding`/`malformed-declaration` at `owner_model`. The remaining process/persistence selected-owner vectors depend on IR-1062; FR-064-AC-4 and IR-1053 stay open. |
+| FND-003 | deferred |, `protocol_owner_selected_state_machine_and_record_value_type_refuse_at_edge` mutates the authoritative selected family document meaning, recomputes its selection digest and the declaration preimage key, inserts the document into evidence, and asserts each baseline admits before retargeting. Each retarget then refuses `invalid_model_binding`/`malformed-declaration` at `owner_model`. The remaining process/persistence selected-owner vectors depend on IR-1062; FR-064-AC-4 and IR-1053 stay open. |
 
 ## New findings (disposition pass 1)
 
@@ -49,4 +49,4 @@ Audited the changed owner and class-catalog behavior against its criterion tags 
 
 ## Spec delta and coverage
 
-The added FR-064 Behavior/AC-4 and TC-048 step 10 agree with QSpec FR-464-AC-20 at 000cd943 on the earlier unselected-target owner join and the typed clause edge. The public reader now has a genuine unselected object target test that asserts `missing_declaration`/`missing-selection` at the target `node_id`, plus missing local and wrong-kind edge tests. The two precedence pairs and three selected model-form vectors above remain required. Source-default memory/drain catalog evidence remains open under IR-1034; no claim of complete IR-1053 acceptance is made.
+The added FR-064 Behavior/AC-4 and TC-048 step 10 agree with QSpec FR-464-AC-20 on the earlier unselected-target owner join and the typed clause edge. The public reader now has a genuine unselected object target test that asserts `missing_declaration`/`missing-selection` at the target `node_id`, plus missing local and wrong-kind edge tests. The two precedence pairs and three selected model-form vectors above remain required. Source-default memory/drain catalog evidence remains open under IR-1034; no claim of complete IR-1053 acceptance is made.

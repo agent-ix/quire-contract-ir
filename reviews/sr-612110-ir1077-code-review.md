@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #651 head c3023198048a827a3595db4678c72b12e40b09b4 against merged FR-061-AC-14/15/16 and TC-062, QSpec FR-342/FR-375, and IR-874 catalog-present code. Both changed files were examined; no workflow or dependency files changed, no copied artifacts were introduced, and no applicable AssuranceProfile was found. The FR-040 process/state-machine amendment remains an owner-held draft PR #650.
+Reviewed PR #651 against merged FR-061-AC-14/15/16 and TC-062, QSpec FR-342/FR-375, and IR-874 catalog-present code. Both changed files were examined; no workflow or dependency files changed, no copied artifacts were introduced, and no applicable AssuranceProfile was found. The FR-040 process/state-machine amendment remains an owner-held draft PR #650.
 
 ## Verdict
 

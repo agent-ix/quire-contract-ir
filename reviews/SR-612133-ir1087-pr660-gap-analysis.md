@@ -3,7 +3,7 @@ id: SR-612133
 title: "IR-1087 PR 660 trace and gap review"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; PR 660 frozen e6af7a9e; typed operation views, authenticated V1 handoff, public inventory and tests"
+scope: "agent-ix/quire-contract-ir; PR 660 frozen; typed operation views, authenticated V1 handoff, public inventory and tests"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-035

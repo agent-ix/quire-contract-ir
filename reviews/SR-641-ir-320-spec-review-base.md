@@ -3,14 +3,14 @@ id: SR-641
 title: "spec review (base, with rename and object review) of PR 236 (IR-320 subsystem restructure)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@92945cd2e400cdd7940e68db7aab21c3291b7395; spec/** (all 79 renames, 8 matrices, spec/spec.md, spec/tests.md), reviews/SR-034..SR-068, SR-541..SR-582 (30 moved), reviews/SR-633-ir-317-code-review.md"
+scope: "agent-ix/quire-contract-ir; spec/** (all 79 renames, 8 matrices, spec/spec.md, spec/tests.md), reviews/SR-034..SR-068, SR-541..SR-582 (30 moved), reviews/SR-633-ir-317-code-review.md"
 review_set: subset
 ---
 # SR-641: spec review (base) of PR 236
 
 ## Summary
 
-Ticket: IR-320. This review covers the base checklist and a manual review of the renames and the diff. The spec-object-review lens is folded in here, because SpecReview has no object analysis value. Each check was run against origin/main efa5632 and against head 92945cd.
+Ticket: IR-320. This review covers the base checklist and a manual review of the renames and the diff. The spec-object-review lens is folded in here, because SpecReview has no object analysis value. Each check was run against origin/main and against.
 
 - Renames: commit 1 holds 79 renames at 100% similarity. That is 49 spec files plus 30 `spec/reviews/**` files moved to `reviews/SR-<id>-<slug>.md`. Each new file name matches that file's own frontmatter `id`. The commit also adds one new file, `reviews/SR-633-ir-317-code-review.md` (FND-003). Commit 2 adds the per-subsystem matrices, `spec/tests.md`, the registry and relative link fixes. Every link edit resolves.
 - Ids: the frontmatter `id:` set under `spec/` is identical before and after. The only differences are the 30 SR ids that moved to `reviews/` and the new TM-003 through TM-009. No TM-003..TM-009 id was used before anywhere in the repo. Every `ix://` relationship target is id-based, so the move cannot break one. Every StR/FR/NFR/STD/TC/AD/ADR/AC id that disappeared from the `spec/` tree went with the moved review files: ADR-0055, FR-024, FR-201-AC-5, NFR-005, TC-036, TC-037, TC-046, TM-001 and SR-411 are mentioned only in their prose.
@@ -29,7 +29,7 @@ Ticket: IR-320. This review covers the base checklist and a manual review of the
 
 - FND-001: change the path to `spec/output_mapping/functional/STD-003-output-mapping-refusal-registry.md`. No test reads the file, so this is a prose fix only.
 - FND-002: this does not block the PR, because the collisions existed before it. Open a follow-up ticket to renumber the later-dated colliding reviews to free SR ids (ADR-0056 Identifiers rule 5). The pre-existing duplicates SR-546, SR-591..593 and SR-624..628, among files already in `reviews/`, can go in the same ticket.
-- FND-003: the SR-633 content matches the IR-317 Linear `reviewer` marker (`id=SR-633`, reviewed=8371caa) and validates. Accept as-is, or correct the commit 2 message in the squash text so the history is accurate.
+- FND-003: the SR-633 content matches the IR-317 Linear `reviewer` marker (`id=SR-633`, reviewed=) and validates. Accept as-is, or correct the commit 2 message in the squash text so the history is accurate.
 
 ## Verdict
 
@@ -39,6 +39,6 @@ The rename mechanics are sound. The id set is identical, the matrix rows are pre
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 82d57ba |
+| FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | deferred | IR-485 filed; the collisions already existed on main and do not block #236 |
 | FND-003 | accepted-no-change | The PR body says SR-633 is in commit 1 on purpose and that the commit 2 message is wrong. History is not rewritten, and the squash message can carry the correct text |

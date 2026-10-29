@@ -3,7 +3,7 @@ id: SR-1922
 title: IR-646 PR 304 spec-review/base review
 type: SpecReview
 analysis: base
-scope: agent-ix/quire-contract-ir@770969577284fc1b2b063805f1d20cf51e751125; spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
   spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/TC-228-checked-package-v2-wire-owner-and-lock-joins.md
 review_set: subset
 ---
@@ -37,4 +37,4 @@ Ticket: IR-646. The TC-048 expected-result text contradicts the revised AC-89 go
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed db4487f514562739017f8914b03c14d76d0d698c | The TC-048 expected result now restricts the pre-owner package-id golden to the owner-free nominal fixture and describes owner-bearing identity projection and planned QSL-638 golden. |
+| FND-001 | fixed | The TC-048 expected result now restricts the pre-owner package-id golden to the owner-free nominal fixture and describes owner-bearing identity projection and planned QSL-638 golden. |

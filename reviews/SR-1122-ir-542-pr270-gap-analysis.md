@@ -3,7 +3,7 @@ id: SR-1122
 title: "gap analysis of PR 270 against quire-canonical's number writer, QSL's merged rule and the planned TC-048 oracle"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@0280d3aa38288301304c41e053f5f33f8b206224; FR-038-AC-109 to AC-111 and the FR-038 canonical-encoding paragraph, measured against quire-canonical b4bb97a (src/writer.rs Writer::number, src/number.rs with_double_text, src/read.rs number), ryu-js 1.0.3, crates/quire-contract-model/src/checked_package/v2/model_members.rs (admit_document) and common.rs (read_value), and quire-spec-language 8244dd2 FR-056-AC-13/AC-14"
+scope: "agent-ix/quire-contract-ir; FR-038-AC-109 to AC-111 and the FR-038 canonical-encoding paragraph, measured against quire-canonical (src/writer.rs Writer::number, src/number.rs with_double_text, src/read.rs number), ryu-js 1.0.3, crates/quire-contract-model/src/checked_package/v2/model_members.rs (admit_document) and common.rs (read_value), and quire-spec-language FR-056-AC-13/AC-14"
 review_set: subset
 ---
 # SR-1122: gap analysis of PR 270
@@ -14,7 +14,7 @@ Ticket: IR-542. Plan completion: not assessed. This review measures the PR's
 numeric claims against the quire-canonical writer and checks how strong the
 planned TC-048 oracle is.
 
-- Writer: in quire-canonical b4bb97a, `Writer::number` writes
+- Writer: in quire-canonical, `Writer::number` writes
   `with_double_text`. That writes `0` for either zero and otherwise
   `ryu_js::Buffer::format_finite`, which is ECMAScript `Number::toString`.
 - Ties, measured three ways: a throwaway ryu-js 1.0.3 program, node's
@@ -72,7 +72,7 @@ chooses the even digit.
 
 ## New findings (disposition pass 1)
 
-Reviewed at agent-ix/quire-contract-ir@ea56b1196a65c2267d96ae1d4acf69945cb96339 (fix commit ea56b11 on the rebased 1b6ed14 = 0280d3a).
+Reviewed at agent-ix/quire-contract-ir (fix on the rebased = ).
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
@@ -80,14 +80,14 @@ Reviewed at agent-ix/quire-contract-ir@ea56b1196a65c2267d96ae1d4acf69945cb96339 
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir@ea56b1196a65c2267d96ae1d4acf69945cb96339.
+Round 1, reviewed at agent-ix/quire-contract-ir.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | ea56b11: AC-109's admitted list adds `1.0`, `-0` and `1e2`, "spelled other than the text `quire-canonical` writes, `1`, `0` and `100`", and TC-048 repeats them. Measured: ryu-js/ECMAScript write `1`, `0` (with_double_text's zero) and `100`, so each case now witnesses the digits-and-scale comparison against byte equality and matches QSL FR-056-AC-14 |
+| FND-001 | fixed |: AC-109's admitted list adds `1.0`, `-0` and `1e2`, "spelled other than the text `quire-canonical` writes, `1`, `0` and `100`", and TC-048 repeats them. Measured: ryu-js/ECMAScript write `1`, `0` (with_double_text's zero) and `100`, so each case now witnesses the digits-and-scale comparison against byte equality and matches QSL FR-056-AC-14 |
 
-Round 2, reviewed at agent-ix/quire-contract-ir@fb44bf440cebcbd92456740f9d48b21383a6e6b8.
+Round 2, reviewed at agent-ix/quire-contract-ir.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-002 | fixed | fb44bf4: AC-111 names `1.2793061557049685`, `1.2106592671318679` and `1.3567384036451073` as the package-document numbers that `float_roundtrip` keeps from a false `noncanonical_wire`, and no longer credits `0.1` to the feature. TC-048's AC-111 step checks them alongside `0.1`, which remains only as the plain admitted case. These are the values measured in round 1: each is ryu's shortest text, and serde_json 1.0.151 misparses each without the feature |
+| FND-002 | fixed |: AC-111 names `1.2793061557049685`, `1.2106592671318679` and `1.3567384036451073` as the package-document numbers that `float_roundtrip` keeps from a false `noncanonical_wire`, and no longer credits `0.1` to the feature. TC-048's AC-111 step checks them alongside `0.1`, which remains only as the plain admitted case. These are the values measured in round 1: each is ryu's shortest text, and serde_json 1.0.151 misparses each without the feature |

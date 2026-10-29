@@ -3,7 +3,7 @@ id: SR-15650
 title: "Code and Rust review — IR-970 typed operation and identity paths"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir PR #516 at 8b8d145; crates/quire-contract-model/src/checked_package/v2/{application_identity,contract_package,contract_package/result_context,dependency_references,derived_keys,mod,operations}.rs and relevant tests"
+scope: "agent-ix/quire-contract-ir PR #516; crates/quire-contract-model/src/checked_package/v2/{application_identity,contract_package,contract_package/result_context,dependency_references,derived_keys,mod,operations}.rs and relevant tests"
 review_set: subset
 ---
 
@@ -23,7 +23,7 @@ Reviewed the seven changed Rust files against FR-349-AC-1 through AC-4, FR-038-A
 
 ## Rust review
 
-Inspected typed/raw identity preimage equivalence, graph-order application selection, iterative dependency-reference and literal walks, work charges, null or absent terms after the abstraction body scan, refusal order, panic and overflow surfaces, and test fixture boundaries. The raw candidate pre-read API remains separate from admitted typed selection because it accepts provisional draft bodies. No new unsafe, unchecked boundary cast, unbounded recursion, or production test seam was found. `git diff --check c629e2b...8b8d145` passed. No aggregate gate was run in the reviewer lane.
+Inspected typed/raw identity preimage equivalence, graph-order application selection, iterative dependency-reference and literal walks, work charges, null or absent terms after the abstraction body scan, refusal order, panic and overflow surfaces, and test fixture boundaries. The raw candidate pre-read API remains separate from admitted typed selection because it accepts provisional draft bodies. No new unsafe, unchecked boundary cast, unbounded recursion, or production test seam was found. `git diff --check...` passed. No aggregate gate was run in the reviewer lane.
 
 ## Scope
 

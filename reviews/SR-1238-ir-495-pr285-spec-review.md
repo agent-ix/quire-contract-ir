@@ -3,7 +3,7 @@ id: SR-1238
 title: "spec review of PR 285 (IR-495 status flips and FR-038 wording)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@f3d41bca80fe145bdabd345e1d13749f6be1fcaf; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md, spec/assurance/AD-004-checked-package-seam.md, spec/tests.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md, spec/assurance/AD-004-checked-package-seam.md, spec/tests.md"
 review_set: subset
 ---
 # SR-1238: spec review of PR 285
@@ -43,8 +43,8 @@ would protect the fix.
 
 ## Dispositions
 
-Round 1, reviewed at b7dd914b9c995dc9979d31cebfea5feafb4822ad.
+Round 1, reviewed.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | b7dd914. AC-117 adds "one nested within the strict parse's limit but far past the grammar (a body of 61 aggregates, 126 JSON levels) ... on a 256 KiB thread in a debug build with no stack overflow", and TC-048 lists 41 to 61 aggregates and a 50-deep `details` term. `tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse` and `tc_048_a_deep_details_term_within_the_parse_limit_refuses_at_the_grammar` back the clause |
+| FND-001 | fixed |. AC-117 adds "one nested within the strict parse's limit but far past the grammar (a body of 61 aggregates, 126 JSON levels)... on a 256 KiB thread in a debug build with no stack overflow", and TC-048 lists 41 to 61 aggregates and a 50-deep `details` term. `tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse` and `tc_048_a_deep_details_term_within_the_parse_limit_refuses_at_the_grammar` back the clause |

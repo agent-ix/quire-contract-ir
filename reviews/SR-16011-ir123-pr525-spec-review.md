@@ -9,7 +9,7 @@ review_set: base
 
 ## Summary
 
-Ticket: IR-123. Independent base-only spec review of Contract IR PR #525 at exact head `7cc6c9f90d5c438dbce25030cd8d19991ae940de` on `bbc581f5d57790661b044a92546a48ccee995c5f`. The review examined the new FR-057 statement and AC-1 through AC-10, plus the conformance matrix and both indexes. FR-018/FR-020 and the referenced Engineering Assurance/Quoin contracts were read as context for ownership and native result semantics.
+Ticket: IR-123. Independent base-only spec review of Contract IR PR #525 at exact on. The review examined the new FR-057 statement and AC-1 through AC-10, plus the conformance matrix and both indexes. FR-018/FR-020 and the referenced Engineering Assurance/Quoin contracts were read as context for ownership and native result semantics.
 
 ## Findings
 

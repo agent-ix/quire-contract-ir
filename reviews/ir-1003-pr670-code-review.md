@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed the PR 670 production and test diff against IR FR-061-AC-3/7 and QSpec FR-375-AC-33/34 at 282a255b. The new owner check covers population, object and history declarations and operation anchors. The existing catalog comparison retains the extra-versus-omitted class tie-break. No QSpec file or fixture was copied into IR. Focused test execution was pending the shared build lock at review time.
+Reviewed the PR 670 production and test diff against IR FR-061-AC-3/7 and QSpec FR-375-AC-33/34. The new owner check covers population, object and history declarations and operation anchors. The existing catalog comparison retains the extra-versus-omitted class tie-break. No QSpec file or fixture was copied into IR. Focused test execution was pending the shared build lock at review time.
 
 ## Verdict
 
@@ -37,4 +37,4 @@ Plan completion: not assessed.
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | At PR head 3525ecf2, every catalog-backed declared `steps[].source_node` enters `require_concrete_class_source` before catalog comparison. It checks operation anchors through their declaring type, model declarations through their owner, and protocol members through their closest declaring clause's model owner. A new foreign protocol-class step test asserts `invalid_model_binding`/`malformed-declaration` at `steps/0/source_node`. Focused execution and hosted checks were pending at disposition time. |
+| FND-001 | fixed | At PR, every catalog-backed declared `steps[].source_node` enters `require_concrete_class_source` before catalog comparison. It checks operation anchors through their declaring type, model declarations through their owner, and protocol members through their closest declaring clause's model owner. A new foreign protocol-class step test asserts `invalid_model_binding`/`malformed-declaration` at `steps/0/source_node`. Focused execution and hosted checks were pending at disposition time. |

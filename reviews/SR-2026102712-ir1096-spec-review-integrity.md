@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #662 exact head 98c4c975db84499b7388de9aacacf3ae91318f82 against QSpec #485 merged at 81078f141e1de6a9d6560c5b6b95de5775956f77. spec-review/integrity examined FR-038-AC-342, its behavior, and TC-048; no applicable AssuranceProfile found.
+Reviewed PR #662 exact against QSpec #485 merged. spec-review/integrity examined FR-038-AC-342, its behavior, and TC-048; no applicable AssuranceProfile found.
 
 ## Scope
 

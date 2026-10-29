@@ -3,7 +3,7 @@ id: SR-590008
 title: "IR-874 PR 582 code review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/shared.rs, crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, tests/it/checked_package_v2_protocol_body.rs; PR #582 frozen head 2b1dbad0d248ee68efc77562da22ffbc88906f4f against 4b407abc"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/shared.rs, crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, tests/it/checked_package_v2_protocol_body.rs; PR #582 frozen "
 review_set: subset
 ---
 
@@ -38,12 +38,12 @@ The graph has a port per control entry and exit; sequencing, choice, parallel jo
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At 8fabf73f, `check_clause` retains clause references, activation form and capture binder declarations, then `check_clause_causality` checks cycle and progress, and `check_clause_slots` checks the activation guard and capture initializers. The new public test combines a later-sibling await cycle with a conflicting guard and asserts the cycle refusal. |
+| FND-001 | fixed |, `check_clause` retains clause references, activation form and capture binder declarations, then `check_clause_causality` checks cycle and progress, and `check_clause_slots` checks the activation guard and capture initializers. The new public test combines a later-sibling await cycle with a conflicting guard and asserts the cycle refusal. |
 
 ## Disposition verdict
 
-**PASS at 8fabf73f** for the recorded code-review finding. Host backoff left runtime gates to the final exact-head CI run.
+**PASS ** for the recorded code-review finding. Host backoff left runtime gates to the final exact-head CI run.
 
 ## Later test-only check
 
-At f683d452, the regression fix changes tests and review artifacts only. The later-sibling await test now asserts the exact four control identities in the cycle, preserving the FR-464 tree-order oracle. FND-001 remains fixed. No local Cargo, Make or test jobs were started during host backoff.
+, the regression fix changes tests and review artifacts only. The later-sibling await test now asserts the exact four control identities in the cycle, preserving the FR-464 tree-order oracle. FND-001 remains fixed. No local Cargo, Make or test jobs were started during host backoff.

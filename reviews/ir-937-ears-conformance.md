@@ -23,8 +23,8 @@ The edited FR-038 owner-presence statements retain a named reader subject and co
 
 ## Coverage
 
-Examined FR-038-AC-294 through FR-038-AC-298, TC-229, QSpec FR-322-AC-82/83, and the changed code/test/Makefile diff against aa01d0d...387dcf9. The computed Quire matrix was consulted for the changed criteria.
+Examined FR-038-AC-294 through FR-038-AC-298, TC-229, QSpec FR-322-AC-82/83, and the changed code/test/Makefile diff.... The computed Quire matrix was consulted for the changed criteria.
 
 ## Final PR head inspection
 
-PR agent-ix/quire-contract-ir#494 is at 09a81408be067f85f2df6a1d63799a363c59b47d against aa01d0dddb9792ea016f30d1ca09d46c872a782b. `git range-diff` shows all 17 rebased commits patch-identical to the reviewed series. The final population criteria are FR-038-AC-303 through FR-038-AC-307; the computed matrix binds the owner-identity mutation to AC-303 and AC-304. Original finding wording and chronological dispositions above remain the review record.
+PR agent-ix/quire-contract-ir#494 is. `git range-diff` shows all 17 rebased commits patch-identical to the reviewed series. The final population criteria are FR-038-AC-303 through FR-038-AC-307; the computed matrix binds the owner-identity mutation to AC-303 and AC-304. Original finding wording and chronological dispositions above remain the review record.

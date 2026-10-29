@@ -3,7 +3,7 @@ id: SR-610047
 title: "IR-1034 PR 606 scoped gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; PR #606 head 5d0c5fab1f377f55d51b78b9fab76d0ca0c72630 against 453cc86f; crates/quire-contract-model/src/checked_package/v2/refinement.rs, crates/quire-contract-model/src/lib.rs, tests/it/checked_package_v2_refinement.rs"
+scope: "agent-ix/quire-contract-ir; PR #606; crates/quire-contract-model/src/checked_package/v2/refinement.rs, crates/quire-contract-model/src/lib.rs, tests/it/checked_package_v2_refinement.rs"
 review_set: subset
 ---
 
@@ -42,12 +42,12 @@ Plan completion: not assessed. Public-reader tests tagged FR-061-AC-10..13 were 
 
 ## Disposition verdict
 
-**PASS at 1894dee8d0e88cb05f56093dddfe7c32d65dda49** — every recorded finding is fixed in the original PR.
+**PASS ** — every recorded finding is fixed in the original PR.
 
 ## Rebase verification
 
-**PASS at 34a31ea7f790043c94e417ebe7432485ef31d811** — range-diff against the reviewed 1894dee8 head keeps the refinement implementation and tests patch-equivalent. The only conflict resolution combines additive crate-root exports and FR-019 inventory rows from IR-1040 and IR-1034; both are retained. All earlier findings remain fixed.
+**PASS ** — range-diff against the reviewed head keeps the refinement implementation and tests patch-equivalent. The only conflict resolution combines additive crate-root exports and FR-019 inventory rows from IR-1040 and IR-1034; both are retained. All earlier findings remain fixed.
 
 ## Fixture correction verification
 
-**PASS at f0a06da4c79a63f642bbdd56e44d1774b1431d7a** — compared with 0de6f377, the sole change makes the typed-term roundtrip fixture use `memory_model: tso` for `memory flush`, the only admitted model of `RefinementTsoModel`. No production code, FR-061 acceptance test, public export or FR-019 inventory row changed; the prior dispositions remain fixed.
+**PASS ** — compared with, the sole change makes the typed-term roundtrip fixture use `memory_model: tso` for `memory flush`, the only admitted model of `RefinementTsoModel`. No production code, FR-061 acceptance test, public export or FR-019 inventory row changed; the prior dispositions remain fixed.

@@ -3,7 +3,7 @@ id: SR-4603
 title: "Scope-boundary review of IR-361 proof coverage"
 type: SpecReview
 analysis: scope-boundary
-scope: "agent-ix/quire-contract-ir@0eca02b43bd14db1411abff447a45eacced9752f; AD-008, FR-045, FR-029, FR-030; Codegen ADR-003, FR-004 and FR-028 as context"
+scope: "agent-ix/quire-contract-ir; AD-008, FR-045, FR-029, FR-030; Codegen ADR-003, FR-004 and FR-028 as context"
 review_set: subset
 ---
 
@@ -23,10 +23,10 @@ CONDITIONAL. Treat `unsupported` as a negotiation disposition joined to the sour
 
 ## Dispositions
 
-Round 1 reviewed at f9bf82c7f62728cbcc60f994541735b4f366834a. Scoped fix review found no new defect.
+Round 1 reviewed. Scoped fix review found no new defect.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | f9bf82c7f62728cbcc60f994541735b4f366834a: AD-008 and FR-045 now join FR-029 unsupported at negotiation with capability and reason, no artifact/run/Kani outcome; refusals retain producer and stage. FR-045-AC-5 and TC-446 cover the distinction. |
+| FND-001 | fixed |: AD-008 and FR-045 now join FR-029 unsupported at negotiation with capability and reason, no artifact/run/Kani outcome; refusals retain producer and stage. FR-045-AC-5 and TC-446 cover the distinction. |
 
 After excerpt: “An FR-029 `unsupported` decision joins the source candidate at capability negotiation. It records the unsupported capability and reason, with no artifact, run or Kani outcome.”

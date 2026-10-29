@@ -11,7 +11,7 @@ review_set: subset
 
 ## Summary
 
-Ticket IR-855. Non-author diff-scoped code and Rust review of PR #462 at 40a7fb6c95465af84dc5c8b162ac87e8ae19e2fa. The only production change adds deny_unknown_fields to WireExpressionKind; FR-019 line 93 and AC-9 require it. Focused tests pass (six new API tests, decoder unit test, conformance test). Removing the attribute and raising MAX_SEMANTIC_NODES each fails its targeted test. No CI workflow diff, vendoring, unsafe, new panic path, or downstream direct expression feeder found in QSL, CG, or QSpec source scans.
+Ticket IR-855. Non-author diff-scoped code and Rust review of PR #462. The only production change adds deny_unknown_fields to WireExpressionKind; FR-019 line 93 and AC-9 require it. Focused tests pass (six new API tests, decoder unit test, conformance test). Removing the attribute and raising MAX_SEMANTIC_NODES each fails its targeted test. No CI workflow diff, vendoring, unsafe, new panic path, or downstream direct expression feeder found in QSL, CG, or QSpec source scans.
 
 ## Examined units
 
@@ -32,7 +32,7 @@ Ticket IR-855. Non-author diff-scoped code and Rust review of PR #462 at 40a7fb6
 
 ## Coverage
 
-Merge base 14f875f: 527/602 backed; head: 533/602 backed. Both report 40 strict unbacked and zero contradicted. The normalized matrix has 568 criterion rows on both sides; only FR-019-AC-8 through AC-13 acquire new binders/status. Plan completion: not assessed. Optional repository-wide semantic review: not run.
+Merge: 527/602 backed; head: 533/602 backed. Both report 40 strict unbacked and zero contradicted. The normalized matrix has 568 criterion rows on both sides; only FR-019-AC-8 through AC-13 acquire new binders/status. Plan completion: not assessed. Optional repository-wide semantic review: not run.
 
 ## Verdict
 
@@ -42,8 +42,8 @@ CONDITIONAL. The decoder behavior and mutants are sound, but the three medium in
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At 4a2b04a, the AC-8 test inventories public inherent constructors returning the validated type for ContractPackage, Expression, and DeclarationEnvironment; an injected unchecked constructor is detected. |
-| FND-002 | fixed | At 4a2b04a, the AC-10 signature inventory includes BoundPackage::from_json_bytes and rejects a non-Result return mutation. |
-| FND-003 | fixed | At 4a2b04a, the AC-13 visitor checks public struct fields, enum variant fields, and type aliases; a PathBuf result-field mutation is detected. |
+| FND-001 | fixed |, the AC-8 test inventories public inherent constructors returning the validated type for ContractPackage, Expression, and DeclarationEnvironment; an injected unchecked constructor is detected. |
+| FND-002 | fixed |, the AC-10 signature inventory includes BoundPackage::from_json_bytes and rejects a non-Result return mutation. |
+| FND-003 | fixed |, the AC-13 visitor checks public struct fields, enum variant fields, and type aliases; a PathBuf result-field mutation is detected. |
 
-Disposition verdict: PASS at 4a2b04a7f694b18eec27795d93d1f53dd05074f3. All three findings are fixed by inspection of the changed test and its assertions; the original review verdict above records the earlier head. Quire validation passed, and coverage measured 533/602 with 40 strict unbacked rows and zero contradicted rows. The focused Cargo test did not start because the shared heavy-build lock remained occupied by CG gates; the author's reported test result was not independently rerun.
+Disposition verdict: PASS. All three findings are fixed by inspection of the changed test and its assertions; the original review verdict above records the earlier head. Quire validation passed, and coverage measured 533/602 with 40 strict unbacked rows and zero contradicted rows. The focused Cargo test did not start because the shared heavy-build lock remained occupied by CG gates; the author's reported test result was not independently rerun.

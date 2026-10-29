@@ -3,7 +3,7 @@ id: SR-1206
 title: "PR #281 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@98ed90df11a41f8c76aa1b4146b31916d56b4bf7; crates/quire-contract-model/src/checked_package/v2/ (abstraction.rs, rust_spelling.rs, mod.rs, encode.rs, model_members.rs, state.rs, temporal.rs, structural.rs, operations.rs, dependency_references.rs, identity.rs, lower.rs, vocabulary.rs), crates/quire-contract-model/src/checked_package/common.rs, crates/quire-contract-model/Cargo.toml, Cargo.lock (git diff origin/main...HEAD, base 19d4e1f)"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/ (abstraction.rs, rust_spelling.rs, mod.rs, encode.rs, model_members.rs, state.rs, temporal.rs, structural.rs, operations.rs, dependency_references.rs, identity.rs, lower.rs, vocabulary.rs), crates/quire-contract-model/src/checked_package/common.rs, crates/quire-contract-model/Cargo.toml, Cargo.lock (git diff origin/main...HEAD, )"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-346
@@ -50,7 +50,7 @@ Measured by the reviewer in its own worktree and target dir:
 | `make test` | 0 (329 + 138 + 7 passed; 24 `tc_225` tests, all ok) |
 | `make deny` | 0 (advisories, bans, licenses, sources ok) |
 | `make cargo-audit` | 0 (171 crates, no advisories) |
-| `quire coverage --scope . --strict` | 23 unbacked rows, 0 contradicted. It was 35 at base 19d4e1f; FR-346 is 10/10 backed. |
+| `quire coverage --scope. --strict` | 23 unbacked rows, 0 contradicted. It was 35 at; FR-346 is 10/10 backed. |
 | `make spec` grammar | 1 finding (FR-014), the same as the baseline |
 
 ## Verdict
@@ -95,10 +95,10 @@ These checks passed:
 
 ## Dispositions
 
-Round 1 was reviewed at 0768afb609da09d3a82043b1fd63a1780b0a6afa. The reviewer re-ran the gates: fmt-check, lint and test all exit 0 (332 + 138 + 7 passed). Strict coverage gives 23 unbacked rows and 0 contradicted; grammar has 1 finding (FR-014).
+Round 1 was reviewed. The reviewer re-ran the gates: fmt-check, lint and test all exit 0 (332 + 138 + 7 passed). Strict coverage gives 23 unbacked rows and 0 contradicted; grammar has 1 finding (FR-014).
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 0768afb. `node_key` refuses a wrong-domain, non-hex, uppercase or short key `digest_domain_mismatch` at the key's own path (`.../objects/{i}/type`, `.../populations/{i}/population`, `.../frames/{i}/context`). This matches `visit_reference`, which refuses at the key member `at.key(key)`, and FR-038 "Frame bodies". A value that is not a node key stays `invalid_semantic_graph` at the entry, as merged AC-2 states. FR-346 Body shape and AC-2 now state this. `tc_225_a_node_key_outside_the_node_domain_refuses_as_a_domain_mismatch` covers 4 keys x 3 members. |
-| FND-002 | fixed | 0768afb. FR-346 step 4 and AC-7 now state the IR reading: a declared name is the slot's `name`; names that are missing, non-string or duplicated refuse `malformed-declaration` at the frame entry. `check_frame` now requires distinct declared names. This is consistent with FR-450-AC-6, under which an entry naming a parameter twice is refused, so declared `[from, from]` can never be bound exactly. `tc_225_an_operation_without_distinct_parameter_names_cannot_be_bound` covers the four cases. Refusal on the domain-document side is tracked in IR-571. |
-| FND-003 | fixed | 0768afb. `scan_members` is an explicit-stack pre-order walk (children pushed in reverse, outermost first) with an arena of path steps. It counts one work unit per value, as before. `Trail::steps` is iterative. No native recursion on body depth remains in this walker. The one exception is the shared `validate_term` call on the first application found, which is IR-495's to remove. |
+| FND-001 | fixed |. `node_key` refuses a wrong-domain, non-hex, uppercase or short key `digest_domain_mismatch` at the key's own path (`.../objects/{i}/type`, `.../populations/{i}/population`, `.../frames/{i}/context`). This matches `visit_reference`, which refuses at the key member `at.key(key)`, and FR-038 "Frame bodies". A value that is not a node key stays `invalid_semantic_graph` at the entry, as merged AC-2 states. FR-346 Body shape and AC-2 now state this. `tc_225_a_node_key_outside_the_node_domain_refuses_as_a_domain_mismatch` covers 4 keys x 3 members. |
+| FND-002 | fixed |. FR-346 step 4 and AC-7 now state the IR reading: a declared name is the slot's `name`; names that are missing, non-string or duplicated refuse `malformed-declaration` at the frame entry. `check_frame` now requires distinct declared names. This is consistent with FR-450-AC-6, under which an entry naming a parameter twice is refused, so declared `[from, from]` can never be bound exactly. `tc_225_an_operation_without_distinct_parameter_names_cannot_be_bound` covers the four cases. Refusal on the domain-document side is tracked in IR-571. |
+| FND-003 | fixed |. `scan_members` is an explicit-stack pre-order walk (children pushed in reverse, outermost first) with an arena of path steps. It counts one work unit per value, as before. `Trail::steps` is iterative. No native recursion on body depth remains in this walker. The one exception is the shared `validate_term` call on the first application found, which is IR-495's to remove. |

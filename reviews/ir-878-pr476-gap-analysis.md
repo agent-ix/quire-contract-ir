@@ -3,7 +3,7 @@ id: SR-13091
 title: "gap analysis of PR 476 (IR-878 canonicalization and coverage criteria tests)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@ac0d77111ff639266449417f537b0f892996ce81; spec/model/functional/FR-016-canonicalization-digests.md, spec/model/functional/FR-017-version-orphan-coverage.md, spec/core/non-functional/NFR-003-diagnostic-integrity.md, spec/core/matrix/tests.md, spec/model/matrix/tests.md, tests/it/canonicalization.rs, crates/quire-contract-model/src/coverage.rs, crates/quire-contract-model/src/canonical.rs"
+scope: "agent-ix/quire-contract-ir; spec/model/functional/FR-016-canonicalization-digests.md, spec/model/functional/FR-017-version-orphan-coverage.md, spec/core/non-functional/NFR-003-diagnostic-integrity.md, spec/core/matrix/tests.md, spec/model/matrix/tests.md, tests/it/canonicalization.rs, crates/quire-contract-model/src/coverage.rs, crates/quire-contract-model/src/canonical.rs"
 review_set: subset
 ---
 # SR-13091: gap analysis of PR 476
@@ -16,7 +16,7 @@ tag's test asserts the whole criterion, using mutants run in a throwaway worktre
 
 ### Strict coverage
 
-`quire coverage --scope . --strict` (quire 0.36.2, engine 0.50.2) was run on main d7bf519
+`quire coverage --scope. --strict` (quire 0.36.2, engine 0.50.2) was run on main
 and on the PR head.
 
 - Backed rows go from 536/607 to 541/607, with 0 contradicted statuses.

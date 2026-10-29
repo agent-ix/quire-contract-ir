@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Diff-scoped traceability check of PR #458 at 249d09c83e289e2d11083d11bbf2a229a35ff232 against base 31949fa0f919c2a427c9213c764bd0cd37104cea. The six cross-repository QSpec NFR tags are no longer claimed as local IR bindings, while all local bindings remain. Ticket: IR-870.
+Diff-scoped traceability check of PR #458 against. The six cross-repository QSpec NFR tags are no longer claimed as local IR bindings, while all local bindings remain. Ticket: IR-870.
 
 ## Reviewed Scope
 
@@ -24,7 +24,7 @@ Diff-scoped traceability check of PR #458 at 249d09c83e289e2d11083d11bbf2a229a35
 
 ## Verdict
 
-**PASS** — Same-command `quire coverage --scope . --strict` reports six unmatched NFR-060/061 warnings at base and zero at head. Both commits report 527/596 backed, 40 unbacked, and 0 contradicted. All 562 computed criterion rows have identical normalized ID, status, and binder path/name/kind. The unchanged 40 unbacked rows are outside this one-file repair.
+**PASS** — Same-command `quire coverage --scope. --strict` reports six unmatched NFR-060/061 warnings at base and zero at head. Both commits report 527/596 backed, 40 unbacked, and 0 contradicted. All 562 computed criterion rows have identical normalized ID, status, and binder path/name/kind. The unchanged 40 unbacked rows are outside this one-file repair.
 
 ## Coverage
 

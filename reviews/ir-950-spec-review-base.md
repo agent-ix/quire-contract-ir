@@ -33,4 +33,4 @@ FR-018 already owns the checked-in generator, observed-token rejection, and scra
 
 ## Rebase update
 
-At e3645e9b over main 5ffe82b, FR-018 still owns the generator, observed-token rejection, and byte-for-byte regeneration gate. Main's deep coverage input no longer carries a requirement digest, the corpus has 106 inputs, and the Rust port follows those current interfaces. No new normative spec amendment is needed.
+ over main, FR-018 still owns the generator, observed-token rejection, and byte-for-byte regeneration gate. Main's deep coverage input no longer carries a requirement digest, the corpus has 106 inputs, and the Rust port follows those current interfaces. No new normative spec amendment is needed.

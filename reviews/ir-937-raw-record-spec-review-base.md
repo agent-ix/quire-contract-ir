@@ -23,11 +23,11 @@ The edited FR-038 criterion omits one independently required malformed-record sh
 
 ## Coverage
 
-Exact review scope: IR hotfix 2140725..a13f03a, changed FR-038 owner-join prose and AC-304, with merged QSpec FR-322-AC-82 and its published population cases at QSpec main 6ab82c5. This reviewer did not edit the author branch or run heavy gates.
+Exact review scope: IR hotfix .., changed FR-038 owner-join prose and AC-304, with merged QSpec FR-322-AC-82 and its published population cases at QSpec main. This reviewer did not edit the author branch or run heavy gates.
 
 ## Dispositions, round 2
 
-Exact hotfix head `f05b6506726fdb92380ce9261153186392f20030`:
+Exact hotfix:
 
 | FND | Outcome | Evidence |
 | --- | --- | --- |

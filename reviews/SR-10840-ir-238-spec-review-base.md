@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed the three-file diff at 27224be against the IR wire, QSL producer, QSpec FR-322/FR-272, and local matrix and index. The API can carry caller-minted identity and caller-selected limits without adding identity semantics. Three registration and verification defects remain.
+Reviewed the three-file diff against the IR wire, QSL producer, QSpec FR-322/FR-272, and local matrix and index. The API can carry caller-minted identity and caller-selected limits without adding identity semantics. Three registration and verification defects remain.
 
 ## Scope
 
@@ -38,7 +38,7 @@ Changes required before the specification can serve as the handoff gate. The ext
 
 ## Dispositions
 
-Reviewed fix commit 8d6789ce2fd77bc988107a2efc6ad248f5745200. Each outcome refers to the original finding above.
+Reviewed fix. Each outcome refers to the original finding above.
 
 | FND | outcome | reason |
 | --- | --- | --- |

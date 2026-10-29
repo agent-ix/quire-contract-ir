@@ -3,7 +3,7 @@ id: SR-15312
 title: "IR-943 PR 502 QSpec criterion consistency review"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@95483029112d50a0f7ac743e0410668fa325f6e1; QSpec spec/objects/interfaces/FR-322-checked-package-artifact.md FR-322-AC-84..87; three-file IR PR diff"
+scope: "agent-ix/quire-contract-ir; QSpec spec/objects/interfaces/FR-322-checked-package-artifact.md FR-322-AC-84..87; three-file IR PR diff"
 review_set: subset
 ---
 
@@ -29,6 +29,6 @@ Ticket: IR-943. Base spec review of merged QSpec FR-322-AC-84..87 as the governi
 | --- | --- | --- | --- |
 | FND-001 | low | No findings (placeholder) | - |
 
-## Follow-up review at PR head 23ad3392bb8c79daecdf6fbae346bec8041dc73b
+## Follow-up review at PR
 
 **PASS.** This later head edits one IR specification paragraph in `spec/checked_package/functional/FR-038-consume-checked-package-v2.md` under “Dependency references.” Its signature roots now match merged QSpec FR-322-AC-86: the function result `semantic_type` and the `semantic_type` of each node in the first `parameters` binding. It excludes unrelated function dependencies and body references, and follows only type-node `dependencies`, matching the reviewed source. The work-accounting sentence names the charged parameter references and visited type nodes. FR-038-AC-4/37/38 existed unchanged on the PR base and state the local behaviors to which the tests now trace. No new criterion, relationship edge, or digest/pin claim is introduced. The prior summary above describes the earlier review head; this follow-up records the newly added IR spec text.

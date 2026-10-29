@@ -3,7 +3,7 @@ id: SR-15429
 title: 'Code and Rust review of IR-960 PR #508'
 type: SpecReview
 analysis: code-review
-scope: agent-ix/quire-contract-ir@f85a1b91c2b83c1f171a04215900f5831c17f0a2; IR-960 PR #508; crates/quire-contract-model/src/checked_package/, tests/conformance_qspec/extension.rs, spec/checked_package/functional/FR-348-admit-extension-form-nodes.md
+scope: agent-ix/quire-contract-ir; IR-960 PR #508; crates/quire-contract-model/src/checked_package/, tests/conformance_qspec/extension.rs, spec/checked_package/functional/FR-348-admit-extension-form-nodes.md
 review_set: subset
 relationships:
 - target: ix://agent-ix/quire-contract-ir/FR-348
@@ -13,7 +13,7 @@ relationships:
 
 ## Summary
 
-Independent review of PR #508 at `f85a1b91c2b83c1f171a04215900f5831c17f0a2` against merged FR-348/TC-459 and QSpec FR-469/FR-322 at fixture checkout `053b59869f5bc767ae1f35b30c7d00afbe63fda3`. The PR changes Rust reader code and tests; spec artifacts are unchanged in this diff.
+Independent review of PR #508 against merged FR-348/TC-459 and QSpec FR-469/FR-322 at fixture checkout. The PR changes Rust reader code and tests; spec artifacts are unchanged in this diff.
 
 ## Verdict
 
@@ -47,4 +47,4 @@ The reviewed diff adds typed extension evidence and wire forms, validates the bo
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | The fix replaces declaration-name equality with selected `model/record_value_type` owner recovery and a budgeted, directional `DomainModel::conforms_to` walk. It removes the `composite_type/record` name shortcut. The same PR adds positive Base and Child, negative Unrelated and reverse-ancestor, and composite same-name reader controls. Exact reviewed head: `8826263`. |
+| FND-001 | fixed | The fix replaces declaration-name equality with selected `model/record_value_type` owner recovery and a budgeted, directional `DomainModel::conforms_to` walk. It removes the `composite_type/record` name shortcut. The same PR adds positive Base and Child, negative Unrelated and reverse-ancestor, and composite same-name reader controls. Exact reviewed head: . |

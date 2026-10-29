@@ -3,14 +3,14 @@ id: SR-648
 title: "code review of PR 238 (IR-483 operation leaves counted per text leaf)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@b696d0e8363f01fa63de82f4cd6cd521c8d97943; crates/quire-contract-model/src/checked_package/v2/operations.rs"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/operations.rs"
 review_set: base
 ---
 # SR-648: code review of PR 238
 
 ## Summary
 
-Ticket: IR-483. The PR removes the old check (`entry.leaves.is_some() && operation.leaves.is_empty()` refused `operation-law-missing`). In its place, `check_leaf_count` runs after the operand-family and mode-type checks. It counts the text leaves of the compared type with `text_leaf_count` and refuses only when fewer leaves are supplied than that count. Rust-review lane folded in.
+Ticket: IR-483. The PR removes the old check (`entry.leaves.is_some && operation.leaves.is_empty` refused `operation-law-missing`). In its place, `check_leaf_count` runs after the operand-family and mode-type checks. It counts the text leaves of the compared type with `text_leaf_count` and refuses only when fewer leaves are supplied than that count. Rust-review lane folded in.
 
 What is right. For `operand:0` and `inner:0`, the walk matches QSpec FR-322 lines 174-179 and the upstream reference `collect_leaves` (quire-specification `tests/checked_package_v2.rs` 1467-1516). It follows aliases and non-population bounded domains, so `text_bounds` over text counts as a text leaf. It walks record fields, tuple positions and the inner type of option, sequence, set, bag and ordered_set. Enum, ordered enum, quantity, decimal, reference and population count 0, the same as upstream. Probes confirmed alias to text, `text_bounds` field, tuple plus option plus sequence (3 leaves), enum (0) and float plus text (1). The new order (leaves after `operator-ineligible`) is the order FR-322 lines 183-191 own. Previously the reader reported a missing leaf before an ill-typed operand, which was out of order. No existing test depended on the removed check, which had no test. The real QSL package `int_record_eq.json` is admitted by the head reader. Mutations "text counted 0" and "count off by one" each turn both refuse tests red.
 
@@ -42,7 +42,7 @@ Suggested fixes:
 
 ## New findings (disposition pass 1)
 
-Reviewed at agent-ix/quire-contract-ir@7e10a1e3ec0d89d1d02bdf1e14f4b94dd99770b8.
+Reviewed at agent-ix/quire-contract-ir.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
@@ -52,7 +52,7 @@ Reviewed at agent-ix/quire-contract-ir@7e10a1e3ec0d89d1d02bdf1e14f4b94dd99770b8.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 7e10a1e: `result_inner` counts only for a set, bag or ordered_set result. Flatten to a sequence of text with `[]` is admitted; a set/bag/ordered_set result is law-missing for flatten and set. Mutation set-only to sequence is killed. map, flat_map and convert take the same branch, keyed on the entry's leaf source, so no extra fixtures are needed |
-| FND-002 | fixed | 7e10a1e: iterative `LeafWalk` with a memo per type node and one meter unit per visit. Probe 10 fields x 16 levels (10^16 paths) decided in 2.1 ms. Mutation memo-off is killed |
-| FND-003 | fixed | 7e10a1e: no depth cutoff. A cycle or unresolved node refuses `ill_typed`/`operator-ineligible`. Probe: text under 18 options with `[]` refuses law-missing; a recursive int record refuses `operator-ineligible`, as upstream does. Budget exhaustion returns the meter's `incomplete` outcome, which FR-038 lines 123-133 define for the work limit |
-| FND-004 | fixed | 0f45961: `check_leaf_count` runs before `check_leaves` again, and the fixture got its decimal node. Probes now match the reference reader: too few leaves plus a bad leaf mode refuses law-missing; a cycle plus a bad leaf mode refuses `ill_typed`/`operator-ineligible`; a same_type failure plus missing leaves refuses `operator-ineligible` at `arguments/1`. The order-flip mutant is killed by `tc_048_leaf_count_is_settled_before_leaf_modes` |
+| FND-001 | fixed |: `result_inner` counts only for a set, bag or ordered_set result. Flatten to a sequence of text with `[]` is admitted; a set/bag/ordered_set result is law-missing for flatten and set. Mutation set-only to sequence is killed. map, flat_map and convert take the same branch, keyed on the entry's leaf source, so no extra fixtures are needed |
+| FND-002 | fixed |: iterative `LeafWalk` with a memo per type node and one meter unit per visit. Probe 10 fields x 16 levels (10^16 paths) decided in 2.1 ms. Mutation memo-off is killed |
+| FND-003 | fixed |: no depth cutoff. A cycle or unresolved node refuses `ill_typed`/`operator-ineligible`. Probe: text under 18 options with `[]` refuses law-missing; a recursive int record refuses `operator-ineligible`, as upstream does. Budget exhaustion returns the meter's `incomplete` outcome, which FR-038 lines 123-133 define for the work limit |
+| FND-004 | fixed |: `check_leaf_count` runs before `check_leaves` again, and the fixture got its decimal node. Probes now match the reference reader: too few leaves plus a bad leaf mode refuses law-missing; a cycle plus a bad leaf mode refuses `ill_typed`/`operator-ineligible`; a same_type failure plus missing leaves refuses `operator-ineligible` at `arguments/1`. The order-flip mutant is killed by `tc_048_leaf_count_is_settled_before_leaf_modes` |

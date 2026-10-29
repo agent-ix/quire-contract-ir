@@ -3,7 +3,7 @@ id: SR-999
 title: "spec review of PR 264 (identity digests and v1 integers through quire-canonical)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@184e6668bb8722f03c68a6b9924586593233118d; git diff origin/main...HEAD (base 7d7716d94c5596058485e24a5bd6310ee10f63d9, current main, merges clean): schemas/contract-conformance-fixture-v1.schema.json, schemas/contract-package-reference-v1.schema.json, spec/model (FR-013, FR-016, FR-019), spec/core (FR-011, FR-012), spec/conformance (FR-020), spec/checked_package (FR-038, TC-048), spec/output_mapping (FR-032, FR-033, FR-034, STD-003), spec/assurance (AD-004, AD-005), the five matrices and spec/tests.md; checked against crates/quire-contract-model/src at the same sha, quire-canonical origin/main 59fe4f06, quire-spec-language origin/main and PR 613 head (FR-056), quire-specification origin/main (IntegerString, FR-322)"
+scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD (, current main, merges clean): schemas/contract-conformance-fixture-v1.schema.json, schemas/contract-package-reference-v1.schema.json, spec/model (FR-013, FR-016, FR-019), spec/core (FR-011, FR-012), spec/conformance (FR-020), spec/checked_package (FR-038, TC-048), spec/output_mapping (FR-032, FR-033, FR-034, STD-003), spec/assurance (AD-004, AD-005), the five matrices and spec/tests.md; checked against crates/quire-contract-model/src at the same sha, quire-canonical origin/main, quire-spec-language origin/main and PR 613 head (FR-056), quire-specification origin/main (IntegerString, FR-322)"
 review_set: base
 ---
 # SR-999: spec review of PR 264
@@ -26,7 +26,7 @@ Measured at the reviewed sha:
   (`conformance.rs:570-574`) and the executable-projection binder validates
   against both schemas via `include_str!` (`binding.rs:400-410`). The repo's CI
   workflow is `workflow_dispatch` only, so the PR's checks show CLA alone.
-- quire-canonical 59fe4f06: the integer bound is inclusive of 2^53
+- quire-canonical: the integer bound is inclusive of 2^53
   (`number.rs` `MAX_EXACT_INTEGER_MAGNITUDE = 1 << 53`, refuse when
   `magnitude > bound`), so 9007199254740992 admits and 9007199254740993
   refuses, as the PR states. `sha256_with_domain` hashes
@@ -66,7 +66,7 @@ Measured at the reviewed sha:
 | FND-002 | high | The new refusal of a selected model document that holds an integer past 2^53 (`noncanonical_wire` with `document_pointer`) contradicts QSL FR-056 at origin/main and at PR 613 head (lines 101-106): such an integer is encoded for the digest as the nearest double, and declarations read a 64-bit integer exactly. QSpec has no such refusal, so the prose claim that it is "the code QSpec and quire-spec-language use" is unsupported. IR today reads `Int[lo, hi]` bounds as exact `i64` numbers (`model_members.rs:1014`). Such a document, admitted by IR today and by QSL, would be refused. The relayed claim that QSL FR-056 now matches was not true at either measured ref | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:484-518 |
 | FND-003 | high | The planner rule (relayed) is decided on the number's text before any rounding: exponent and past-u64 spellings such as `1e20` and `9.007199254740993e15` refuse, and +/-2^53 admits. The PR words it as "a number denoting a whole number", digested "over the document read as a `Value`". The document is parsed by `strict_json_value` into a serde_json `Value`, which keeps no text, and `9.007199254740993e15` parses to exactly 2^53, so it admits. AC-93 has no exponent-form vector and does not say "decided on the text". `quire_canonical::read`'s `Number::text` gives the text route | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1414 |
 | FND-004 | high | FR-038-AC-94 returns `incomplete` for `bytes` at `/lock/model_selections/0/digest`. Merged FR-038-AC-26 says the byte limit's refusal "carries none" (no pointer). The two ACs contradict each other. The pointer convention also differs from AC-30, which reports the same document's `work` charge at the row `/lock/model_selections/<i>` | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1415, 1356, 1360 |
-| FND-005 | medium | "Canonical encoding of the wire types" says `quire-canonical` "provides the iterative `Encode` for `serde_json::Value`, behind its `serde_json` feature", and the Dependencies paragraph lists it as owned. At quire-canonical 59fe4f06 neither the feature nor the impl exists, and no PR is open. FR-038-AC-91 requires the feature enabled. The prose states as fact a dependency that does not exist, names no owning ticket, and the matrix says AC-77/AC-78 "keep verifying" while their evidence is IR's own walker (`encode.rs` `value_to_vec`), which the amended prose says does not exist | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:334-337, 382-390, 1421-1426 |
+| FND-005 | medium | "Canonical encoding of the wire types" says `quire-canonical` "provides the iterative `Encode` for `serde_json::Value`, behind its `serde_json` feature", and the Dependencies paragraph lists it as owned. At quire-canonical neither the feature nor the impl exists, and no PR is open. FR-038-AC-91 requires the feature enabled. The prose states as fact a dependency that does not exist, names no owning ticket, and the matrix says AC-77/AC-78 "keep verifying" while their evidence is IR's own walker (`encode.rs` `value_to_vec`), which the amended prose says does not exist | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:334-337, 382-390, 1421-1426 |
 | FND-006 | medium | Lowering encodes under the byte limit the admitted package retains: a node over it is `failed`, and a lowered package over it is `failed` for every requested record. No AC states this. The planner (relayed) requires one. It is testable: through a unit seam that takes a ceiling, as FR-034-AC-6 does for the package identity step, or by reading a package at `limits.bytes` equal to its length when its lowered `ContractPackage` is larger. The retained limit is also new state on the admitted package, and it is not named in FR-019. Today `lower.rs:306` `.expect`s this encode | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:430-439 |
 | FND-007 | low | FR-013 says an in-grammar string outside the member's range refuses `invalid_numeric_bounds` "as a wider integer did before". For the six `i64` members that is false: a JSON number past `i64` fails serde decode today and is `invalid_wire_format` (`wire.rs:586`, `wire_type_error`). Only `maximum_denominator` past `i64::MAX` gave `invalid_numeric_bounds` (`expression.rs:118`). This is a behaviour change and should be stated as one | spec/model/functional/FR-013-type-system.md:55-57 |
 | FND-008 | low | The inventory of serde_json canonical encodes that FR-038 and AD-005 retire omits `v2/identity.rs:716`, which orders a dimension preimage's terms by `serde_json::to_vec(term)` bytes. That is a canonical encode on the nominal-identity check. FR-038-AC-91's enumerated "digest path" list does not cover it, so "no encoder of this repository's own remains" can pass with it still in place | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1412 |
@@ -94,7 +94,7 @@ and add a lowering-ceiling AC.
 
 ## New findings (disposition pass 1)
 
-Reviewed at agent-ix/quire-contract-ir@553736cfce62fe6949915559c471d4a7f5349d21 (main still 7d7716d; not rebased onto #263, whose FR-038, TC-048 and checked_package tests.md hunks conflict textually, expected rebase work). Proof re-run: no schemas/, corpus or code file in `git diff origin/main --stat`; `make corpus` exit 0; workspace tests all pass (204 + 101, 0 failed); validate passes, grammar 1 (FR-014 baseline), 215 ACs, strict 23 unbacked, coverage rows 237.
+Reviewed at agent-ix/quire-contract-ir (main still; not rebased onto #263, whose FR-038, TC-048 and checked_package tests.md hunks conflict textually, expected rebase work). Proof re-run: no schemas/, corpus or code file in `git diff origin/main --stat`; `make corpus` exit 0; workspace tests all pass (204 + 101, 0 failed); validate passes, grammar 1 (FR-014 baseline), 215 ACs, strict 23 unbacked, coverage rows 237.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
@@ -103,7 +103,7 @@ Reviewed at agent-ix/quire-contract-ir@553736cfce62fe6949915559c471d4a7f5349d21 
 
 ## New findings (disposition pass 2)
 
-Reviewed at agent-ix/quire-contract-ir@0ff5f99b81634759348b813ff6bb13897d9dc719. Main is still 7d7716d. `git diff origin/main --stat` lists spec files only: no `schemas/`, `corpus/`, `crates/`, `tests/` or `src/`. `quire validate` passes, with 1 grammar finding (the FR-014 baseline) and 215 ACs; strict coverage has 23 unbacked rows; coverage rows total 237.
+Reviewed at agent-ix/quire-contract-ir. Main is still. `git diff origin/main --stat` lists spec files only: no `schemas/`, `corpus/`, `crates/`, `tests/` or `src/`. `quire validate` passes, with 1 grammar finding (the FR-014 baseline) and 215 ACs; strict coverage has 23 unbacked rows; coverage rows total 237.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
@@ -113,16 +113,16 @@ Reviewed at agent-ix/quire-contract-ir@0ff5f99b81634759348b813ff6bb13897d9dc719.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 553736c |
-| FND-002 | fixed | 553736c |
-| FND-003 | fixed | 553736c |
-| FND-004 | fixed | 553736c |
-| FND-005 | fixed | 553736c |
-| FND-006 | fixed | 553736c |
-| FND-007 | fixed | 553736c |
-| FND-008 | fixed | 553736c |
-| FND-009 | fixed | 553736c |
-| FND-010 | fixed | 553736c |
-| FND-011 | fixed | 0ff5f99 |
-| FND-012 | fixed | 0ff5f99 |
-| FND-013 | fixed | 59125e9 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |
+| FND-004 | fixed | Fixed in the reviewed PR. |
+| FND-005 | fixed | Fixed in the reviewed PR. |
+| FND-006 | fixed | Fixed in the reviewed PR. |
+| FND-007 | fixed | Fixed in the reviewed PR. |
+| FND-008 | fixed | Fixed in the reviewed PR. |
+| FND-009 | fixed | Fixed in the reviewed PR. |
+| FND-010 | fixed | Fixed in the reviewed PR. |
+| FND-011 | fixed | Fixed in the reviewed PR. |
+| FND-012 | fixed | Fixed in the reviewed PR. |
+| FND-013 | fixed | Fixed in the reviewed PR. |

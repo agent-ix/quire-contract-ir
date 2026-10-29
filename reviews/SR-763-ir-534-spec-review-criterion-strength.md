@@ -3,14 +3,14 @@ id: SR-763
 title: "criterion-strength review of PR 252 (IR-534)"
 type: SpecReview
 analysis: criterion-strength
-scope: "agent-ix/quire-contract-ir@31d2f9654bd4136ae64c1500074ce01793382af8; spec/checked_package/functional/FR-038-consume-checked-package-v2.md AC-2/10/19/20/27/31/32/45/62/63/64; main's AC-19/AC-20/AC-32 for weakening comparison"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md AC-2/10/19/20/27/31/32/45/62/63/64; main's AC-19/AC-20/AC-32 for weakening comparison"
 review_set: subset
 ---
 # SR-763: criterion-strength review of PR 252 (IR-534)
 
 ## Summary
 
-Ticket: IR-534. I compared each amended criterion with its text on origin/main (eedc378) for
+Ticket: IR-534. I compared each amended criterion with its text on origin/main  for
 silent weakening, and checked that each new criterion can fail.
 
 - AC-2: gains `version`.
@@ -39,10 +39,10 @@ weaknesses (low).
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir@a1f44f02c78fa786dc3e5582a45f46a069d74bd5 (delta from 31d2f9654bd4136ae64c1500074ce01793382af8; base origin/main eedc378d7fe879e0d107e04318773528f9595422 unchanged; merge clean). `make spec` at round 1: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/204 rows backed, FR-038 42/62. No new finding.
+Round 1, reviewed at agent-ix/quire-contract-ir (delta from; base origin/main unchanged; merge clean). `make spec` at round 1: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/204 rows backed, FR-038 42/62. No new finding.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | a1f44f02c78fa786dc3e5582a45f46a069d74bd5 |
-| FND-002 | fixed | a1f44f02c78fa786dc3e5582a45f46a069d74bd5 |
-| FND-003 | fixed | a1f44f02c78fa786dc3e5582a45f46a069d74bd5 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |

@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-883. Reviewed head ee278f54fa576eac8a549add133e234173995048 against main ffd76b1. Quoin advisor recommends the Test class for FR-035-AC-18 and FR-038-AC-293 (property-based-testing); both authored Test methods have mismatch=false and tagged behavior tests.
+Ticket: IR-883. Reviewed against main. Quoin advisor recommends the Test class for FR-035-AC-18 and FR-038-AC-293 (property-based-testing); both authored Test methods have mismatch=false and tagged behavior tests.
 
 ## Verdict
 

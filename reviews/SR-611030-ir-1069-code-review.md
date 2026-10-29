@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-1069. Reviewed PR #626 at 1e54f0dc. The one-line allowed-set change preserves capture and activation-binder refusal under each while admitting over reads.
+Ticket: IR-1069. Reviewed PR #626. The one-line allowed-set change preserves capture and activation-binder refusal under each while admitting over reads.
 
 ## Verdict
 

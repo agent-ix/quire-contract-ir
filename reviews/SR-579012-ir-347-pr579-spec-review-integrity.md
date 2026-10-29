@@ -3,7 +3,7 @@ id: SR-579012
 title: "IR-347 PR #579 spec-review/spec-integrity-analysis review"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir; PR #579 head 4c8d4bc3b0f44b718ddafbd26bbbb99c7967779e, origin/main...HEAD; spec/kani/matrix/TC-055-root-crate-public-interface.md, spec/kani/matrix/tests.md, spec/core/matrix/tests.md, spec/tests.md, spec/assurance/AD-005-qsl-consumption-seam.md; evidence tests/it/kani_shared.rs; IR-347"
+scope: "agent-ix/quire-contract-ir; PR #579, origin/main...HEAD; spec/kani/matrix/TC-055-root-crate-public-interface.md, spec/kani/matrix/tests.md, spec/core/matrix/tests.md, spec/tests.md, spec/assurance/AD-005-qsl-consumption-seam.md; evidence tests/it/kani_shared.rs; IR-347"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/TC-055
@@ -74,13 +74,13 @@ scope:
 
 ## Dispositions
 
-Round 1. Checked at head bcc20f7b11cab92c481eab21666091ba37313243 against fix diff 4c8d4bc3..bcc20f7b. Spec-only; no Cargo, Kani or `make ci`.
+Round 1. Checked at against fix diff... Spec-only; no Cargo, Kani or `make ci`.
 
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | No status location credits AC-4 to TC-042 alone any more. TC-055 Status now says "The TC-055-tagged negative cases in `tests/it/kani_shared.rs` include profile, finite-input, dispatch, outcome-construction, and public JSON-reader refusals under `catch_unwind`, including cases also tagged TC-042, TC-443, and TC-449." The Kani matrix FR-039 row, the TC-055 summary row and the TC-055 coverage-design row, the StR-001 row, the spec index Kani row and AD-005 D-3 all credit TC-055-tagged cases, naming TC-042, TC-443 and TC-449 only as co-tags. Each claim matches the trace tags at `tests/it/kani_shared.rs` 99, 162, 207, 261, 298, 395, 490, 538 and 581. None overclaims: FR-039 ✅ and AD-005 D-3 "implemented" rest on those tests and the TC-055 inventory, and the partly-implemented FR-030-AC-6/TC-443 and the IR-701 TC-449 caveats are unchanged. |
 
-Round 2. Checked at head 13adc3d71743f88d4e8f415a4db2350ec2fd158f against fix diff bcc20f7b..13adc3d7 (one line in `spec/core/matrix/tests.md`). Spec-only; no Cargo, Kani or `make ci`.
+Round 2. Checked at against fix diff.. (one line in `spec/core/matrix/tests.md`). Spec-only; no Cargo, Kani or `make ci`.
 
 | FND | outcome | reason |
 | --- | --- | --- |

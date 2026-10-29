@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket IR-825. Diff-scoped spec-review/ears-analysis review of PR #468 at fa9613d6201fdb8d9d09b04a39e9f2a07d833142. Requirement grammar review: the AC-25 Given statement retains its trigger and observable outcomes. The status edits introduce no ambiguous new condition.
+Ticket IR-825. Diff-scoped spec-review/ears-analysis review of PR #468. Requirement grammar review: the AC-25 Given statement retains its trigger and observable outcomes. The status edits introduce no ambiguous new condition.
 
 ## Examined units
 

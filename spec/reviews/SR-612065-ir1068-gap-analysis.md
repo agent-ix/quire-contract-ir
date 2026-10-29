@@ -27,7 +27,7 @@ Ticket: IR-1068. Planless, PR-diff-scoped trace review of canonical point constr
 ## Coverage
 
 - FR-011-AC-3, role: examined. Excerpt: “An empty or malformed authored execution-point name, including one supplied through the public canonical point to an authored clause constructor, returns `invalid_identifier` under the existing `AnchorName` rule.” The new test asserts constructor and package decoder behavior only.
-- FR-058-AC-11, role: examined. Excerpt: “The crate root exports exactly one public four-variant point type, `ExecutionPoint` ... a V2 reader admits `tick now` and the accessor returns that exact variant and name to a CG-style external consumer.” Existing TC-462 readback was updated to the canonical type; full QSL producer adaptation is not claimed in this IR code review.
+- FR-058-AC-11, role: examined. Excerpt: “The crate root exports exactly one public four-variant point type, `ExecutionPoint`... a V2 reader admits `tick now` and the accessor returns that exact variant and name to a CG-style external consumer.” Existing TC-462 readback was updated to the canonical type; full QSL producer adaptation is not claimed in this IR code review.
 - FR-019-AC-5, role: examined. Excerpt: “The public default-feature crate-root items have an exact documented inventory and no undocumented public export.” The edited Public items row reflects the new root export, and the TC-058 inventory gate remains.
 - FR-058-AC-1/3/4/5/6/9/10, role: context_only. Existing accessor test cases were checked for type-only changes.
 - Reverse trace: `ExecutionPointName`, authored constructor validation and V2 use are owned by FR-011 and FR-058. No unowned behavior found in this diff.
@@ -37,8 +37,8 @@ Ticket: IR-1068. Planless, PR-diff-scoped trace review of canonical point constr
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | At 324b08c2, `expression_inputs_refuse_non_identifier_point_names` tests both empty and `tick now` through `operation_refusal` (unbound expression operation) and `check_expression_input(..., Some((owner, anchor)))` (bound expression input), asserting `InvalidIdentifier` and the authored anchor path in both routes. |
+| FND-001 | fixed |, `expression_inputs_refuse_non_identifier_point_names` tests both empty and `tick now` through `operation_refusal` (unbound expression operation) and `check_expression_input(..., Some((owner, anchor)))` (bound expression input), asserting `InvalidIdentifier` and the authored anchor path in both routes. |
 
 ## Disposition verdict
 
-Round 1 at 324b08c2b5391db3ac5957deb9d86bf6705012cc: FND-001 fixed on inspection. The FR-058 producer-origin and QSL migration obligations remain outside this IR PR.
+Round 1: FND-001 fixed on inspection. The FR-058 producer-origin and QSL migration obligations remain outside this IR PR.

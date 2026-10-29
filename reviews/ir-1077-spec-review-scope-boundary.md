@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #642 at 8b0e53957778f2dd1da5ad2d98207bf28acdf060 against main 66eb6b7f and QSpec 48373530. The IR reader owns the join, while FR-342 owns the anchor context and FR-375 owns the selected model root and row order. No applicable AssuranceProfile or enforced review policy was found in the changed module.
+Reviewed PR #642 against main and QSpec . The IR reader owns the join, while FR-342 owns the anchor context and FR-375 owns the selected model root and row order. No applicable AssuranceProfile or enforced review policy was found in the changed module.
 
 ## Verdict
 

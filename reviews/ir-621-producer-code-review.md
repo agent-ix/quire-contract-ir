@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-621. PR: agent-ix/quire-contract-ir#491. Frozen head 5177fe02efbd62683ae600f278df10523ad596b4, base 000765a9f37121ab208167bc8426f2ef9c3e1db4. No applicable AssuranceProfile exists. Reviewer ran no Cargo, fmt, metadata, native build/test, Kani, or aggregate: supplied focused raw logs and verified cgroup JSON were inspected independently. Exact deployment model SKU is unavailable; model marker uses gpt-6. Excerpts longer than 600 characters are verbatim prefixes. Full changed contract and files were read.
+Ticket: IR-621. PR: agent-ix/quire-contract-ir#491. Frozen. No applicable AssuranceProfile exists. Reviewer ran no Cargo, fmt, metadata, native build/test, Kani, or aggregate: supplied focused raw logs and verified cgroup JSON were inspected independently. Exact deployment model SKU is unavailable; model marker uses gpt-6. Excerpts longer than 600 characters are verbatim prefixes. Full changed contract and files were read.
 
 ## Verdict
 

@@ -3,7 +3,7 @@ id: SR-15659
 title: "Gap analysis — IR-971 typed operand evidence"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir PR #518 at f7f556106a691dde762fe92b9d8a1cbee401cef0; ten changed crates/quire-contract-model/src/checked_package Rust files and relevant tests"
+scope: "agent-ix/quire-contract-ir PR #518; ten changed crates/quire-contract-model/src/checked_package Rust files and relevant tests"
 review_set: subset
 ---
 

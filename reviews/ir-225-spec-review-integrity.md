@@ -3,7 +3,7 @@ id: SR-11671
 title: IR-225 integrity review of catalogue-driven member-result admission
 type: SpecReview
 analysis: integrity
-scope: agent-ix/quire-contract-ir@39627960464edcc4138c29d20c18dbbcbefc603a (PR 408, diff vs origin/main c2b2a8b, merge-base 055ad1f); spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
+scope: agent-ix/quire-contract-ir (PR 408, diff vs origin/main, merge-); spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
   spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md
 review_set: subset
 ---
@@ -37,17 +37,17 @@ scope:
 - id: FR-038-AC-247
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
-  excerpt: "PLANNED/UNRUN (IR-225). Through `CheckedPackageV2::read`, every catalogued operation with result form `member` and member kind `type_argument` admits only when the application's `result_type` equals that member's declared type node ..."
+  excerpt: "PLANNED/UNRUN (IR-225). Through `CheckedPackageV2::read`, every catalogued operation with result form `member` and member kind `type_argument` admits only when the application's `result_type` equals that member's declared type node..."
 - id: TC-048
   path: spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md
   role: examined
-  excerpt: "The catalogue's `result: member` entries with `member: type_argument` are `quire.op.quantity.convert`, `quire.op.ieee.to_float32`, ... and `quire.op.collection.convert`. The five other `result: member` entries are `quire.op.record.project` (`field`), `quire.op.tuple.project` (`position`), `quire.op.collection.index` (`element`), `quire.op.model.navigate` (`relationship_end`) and `quire.op.model.dispatch_call` (`operation`)."
+  excerpt: "The catalogue's `result: member` entries with `member: type_argument` are `quire.op.quantity.convert`, `quire.op.ieee.to_float32`... and `quire.op.collection.convert`. The five other `result: member` entries are `quire.op.record.project` (`field`), `quire.op.tuple.project` (`position`), `quire.op.collection.index` (`element`), `quire.op.model.navigate` (`relationship_end`) and `quire.op.model.dispatch_call` (`operation`)."
 bindings: []
 ```
 
 ## Dispositions
 
-Round 1; reviewed 9e608222751efbe09fe78c8260e3c5bcec143292 (diff 3962796..9e60822).
+Round 1; reviewed (diff ..).
 
 | FND | outcome | reason |
 | --- | --- | --- |
@@ -59,4 +59,4 @@ Round 1; reviewed 9e608222751efbe09fe78c8260e3c5bcec143292 (diff 3962796..9e6082
 
 ## Disposition round 2 verdict
 
-Round 2 reviewed 5918af852bbdbe600181906bd4b71be371902762 (9e60822 plus 05014ba plus a merge of origin/main c2b2a8b). **PASS**: the round-1 `fixed` outcome still holds on the merged tree, no row was added and there are no new findings.
+Round 2 reviewed ( plus plus a merge of origin/main ). **PASS**: the round-1 `fixed` outcome still holds on the merged tree, no row was added and there are no new findings.

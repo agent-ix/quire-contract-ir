@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-883. Reviewed head ee278f54fa576eac8a549add133e234173995048 against main ffd76b1. The edited criteria identify conflicting semantic IDs, both paths, direct-only resolution, and refusal order; the code traversal is iterative and bounded by admitted dependency edges.
+Ticket: IR-883. Reviewed against main. The edited criteria identify conflicting semantic IDs, both paths, direct-only resolution, and refusal order; the code traversal is iterative and bounded by admitted dependency edges.
 
 ## Verdict
 

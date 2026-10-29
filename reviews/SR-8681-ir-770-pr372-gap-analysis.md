@@ -3,7 +3,7 @@ id: SR-8681
 title: IR-770 PR 372 gap-analysis review
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@ebab4128c2d93f79c61d3af28d0e37521afa4208; crates/quire-contract-model/src/checked_package/v2/derived_keys.rs, crates/quire-contract-model/src/checked_package/v2/frame.rs, crates/quire-contract-model/src/checked_package/v2/model_fields.rs, crates/quire-contract-model/src/checked_package/v2/model_fields/tests.rs, crates/quire-contract-model/src/checked_package/v2/model_members.rs, crates/quire-contract-model/src/checked_package/v2/model_members/tests.rs, crates/quire-contract-model/src/checked_package/v2/owner.rs, tests/it/checked_package_v2_frame_entries.rs, tests/it/checked_package_v2_model_fields.rs"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/derived_keys.rs, crates/quire-contract-model/src/checked_package/v2/frame.rs, crates/quire-contract-model/src/checked_package/v2/model_fields.rs, crates/quire-contract-model/src/checked_package/v2/model_fields/tests.rs, crates/quire-contract-model/src/checked_package/v2/model_members.rs, crates/quire-contract-model/src/checked_package/v2/model_members/tests.rs, crates/quire-contract-model/src/checked_package/v2/owner.rs, tests/it/checked_package_v2_frame_entries.rs, tests/it/checked_package_v2_model_fields.rs"
 review_set: subset
 ---
 

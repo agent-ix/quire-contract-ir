@@ -3,7 +3,7 @@ id: SR-1000
 title: "integrity review of PR 264 (identity digests and v1 integers through quire-canonical)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@184e6668bb8722f03c68a6b9924586593233118d; git diff origin/main...HEAD: FR-011, FR-012, FR-013, FR-016, FR-019, FR-020, FR-032, FR-033, FR-034, STD-003, FR-038, TC-048, AD-004, AD-005, the five matrices and spec/tests.md; cross-checked against merged FR-038-AC-26, AC-30, AC-65 to AC-80 and open PR 263 (FR-038-AC-81 to AC-88)"
+scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD: FR-011, FR-012, FR-013, FR-016, FR-019, FR-020, FR-032, FR-033, FR-034, STD-003, FR-038, TC-048, AD-004, AD-005, the five matrices and spec/tests.md; cross-checked against merged FR-038-AC-26, AC-30, AC-65 to AC-80 and open PR 263 (FR-038-AC-81 to AC-88)"
 review_set: subset
 ---
 # SR-1000: integrity review of PR 264
@@ -51,10 +51,10 @@ FR-011/FR-012 and have FR-016-AC-7 cite them.
 
 ## Dispositions
 
-Reviewed at agent-ix/quire-contract-ir@553736cfce62fe6949915559c471d4a7f5349d21 (main still 7d7716d; not rebased onto #263, whose FR-038, TC-048 and checked_package tests.md hunks conflict textually, expected rebase work). Proof re-run: no schemas/, corpus or code file in `git diff origin/main --stat`; `make corpus` exit 0; workspace tests all pass (204 + 101, 0 failed); validate passes, grammar 1 (FR-014 baseline), 215 ACs, strict 23 unbacked, coverage rows 237.
+Reviewed at agent-ix/quire-contract-ir (main still; not rebased onto #263, whose FR-038, TC-048 and checked_package tests.md hunks conflict textually, expected rebase work). Proof re-run: no schemas/, corpus or code file in `git diff origin/main --stat`; `make corpus` exit 0; workspace tests all pass (204 + 101, 0 failed); validate passes, grammar 1 (FR-014 baseline), 215 ACs, strict 23 unbacked, coverage rows 237.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 553736c |
-| FND-002 | fixed | 553736c |
-| FND-003 | fixed | 553736c |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |

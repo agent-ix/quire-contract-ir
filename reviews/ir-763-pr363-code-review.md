@@ -3,7 +3,7 @@ id: SR-8360
 title: "Code review of IR-763 structural candidates"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@4e7dfd4af083e3cc716c6aeda59e55c2687d134f; crates/quire-contract-model/src/checked_package/v2/structural_candidates.rs, encode.rs, structural.rs, application_identity.rs; tests/it/checked_package_v2_structural_keys.rs, checked_package_v2_model_members.rs, public_interface.rs; FR-048-AC-1..5"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/structural_candidates.rs, encode.rs, structural.rs, application_identity.rs; tests/it/checked_package_v2_structural_keys.rs, checked_package_v2_model_members.rs, public_interface.rs; FR-048-AC-1..5"
 review_set: subset
 ---
 
@@ -36,8 +36,8 @@ Reviewed the public candidate API, its shared reader encoders, and the changed t
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | b24215c04b2bb92eda91eebec4c1f1e1ecd231fa — grouped structural and application encoding now accept typed provisional selectors; the reader's final-digest check remains in reference_target. |
+| FND-001 | fixed | — grouped structural and application encoding now accept typed provisional selectors; the reader's final-digest check remains in reference_target. |
 
 ## Recovery provenance
 
-Reconstructed after the temporary reviewer scratchpad was removed. The original findings and fixed dispositions were posted privately to Linear IR-763 and read back byte-for-byte during the review. Source comment IDs: code finding 6ea32d2a-32d4-4f54-9740-8e303ca13b97, gap finding 7b993e43-7625-42e5-8640-ae792519e429, code disposition e1fee837-8f48-4986-a8c4-490b6b26fe67, gap disposition e848e562-9240-49b2-a91b-73065e75a760. The reviewed source revisions are 4e7dfd4af083e3cc716c6aeda59e55c2687d134f and fix b24215c04b2bb92eda91eebec4c1f1e1ecd231fa. Prose outside the finding and disposition rows is reconstructed, not asserted to be byte-identical to the deleted scratchpad files.
+Reconstructed after the temporary reviewer scratchpad was removed. The original findings and fixed dispositions were posted privately to Linear IR-763 and read back byte-for-byte during the review. Source comment IDs: code finding 6ea32d2a-32d4-4f54-9740-8e303ca13b97, gap finding 7b993e43-7625-42e5-8640-ae792519e429, code disposition e1fee837-8f48-4986-a8c4-490b6b26fe67, gap disposition e848e562-9240-49b2-a91b-73065e75a760. The reviewed source revisions are and fix. Prose outside the finding and disposition rows is reconstructed, not asserted to be byte-identical to the deleted scratchpad files.

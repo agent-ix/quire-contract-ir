@@ -3,7 +3,7 @@ id: SR-567895
 title: "IR-874 PR 580 code-review review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, crates/quire-contract-model/src/checked_package/v2/structural.rs, tests/it/checked_package_v2_protocol_body.rs; PR #580 frozen head 7f8d2c8d52d0ae93102b52d26900064400c183b7 against 600f2608"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, crates/quire-contract-model/src/checked_package/v2/structural.rs, tests/it/checked_package_v2_protocol_body.rs; PR #580 frozen "
 review_set: subset
 ---
 
@@ -34,14 +34,14 @@ Reviewed only PR #580's clause reference, activation, and capture changes agains
 
 ## Coverage
 
-The three changed files were inspected; no CI, dependency, spec, or plan file changed. `quoin matrix --repo . --json` completed; focused public-reader tests cover references, trigger dependency, guard root and capture levels. The new clause code has an owning requirement and no stub. No full gate was run; the lead runs final exact-head gates. Full FR-038 protocol criteria remain Planned.
+The three changed files were inspected; no CI, dependency, spec, or plan file changed. `quoin matrix --repo. --json` completed; focused public-reader tests cover references, trigger dependency, guard root and capture levels. The new clause code has an owning requirement and no stub. No full gate was run; the lead runs final exact-head gates. Full FR-038 protocol criteria remain Planned.
 
 ## Dispositions
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At 0ecbde3a, `check_clause` introduces `over`, the optional `each` trigger, then each capture into one readable-name set and refuses the second occurrence as `AmbiguousDeclaration`/`AmbiguousName` at the second parameter node. The new public-reader test uses two distinct parameter nodes named `captured` at levels 1 and 2 and asserts the exact refusal. |
+| FND-001 | fixed |, `check_clause` introduces `over`, the optional `each` trigger, then each capture into one readable-name set and refuses the second occurrence as `AmbiguousDeclaration`/`AmbiguousName` at the second parameter node. The new public-reader test uses two distinct parameter nodes named `captured` at levels 1 and 2 and asserts the exact refusal. |
 
 ## Disposition verdict
 
-**PASS at 0ecbde3a** — the recorded code finding is fixed. This disposition covers only the frozen #580 review scope.
+**PASS ** — the recorded code finding is fixed. This disposition covers only the frozen #580 review scope.

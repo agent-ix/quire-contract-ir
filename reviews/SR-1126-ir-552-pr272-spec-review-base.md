@@ -3,7 +3,7 @@ id: SR-1126
 title: "spec review of PR 272 (FR-038 merged-text prose after QSpec #181/#182)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@29cdb1495b4a623e25df532705553da1e03d6112; git diff origin/main...HEAD (base 12ba8ad694511d273621c4bb1cc9b58bee464d55): spec/checked_package/functional/FR-038-consume-checked-package-v2.md prose hunks (refusal-locus table rows, Merged QSpec text, case outcomes, Diagnostic details, union recursion leaf); checked against quire-specification origin/main 396493c4 (FR-322 Structural leaf walk, FR-370, FR-440) and QSpec PRs #181, #182, #183 via gh"
+scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD : spec/checked_package/functional/FR-038-consume-checked-package-v2.md prose hunks (refusal-locus table rows, Merged QSpec text, case outcomes, Diagnostic details, union recursion leaf); checked against quire-specification origin/main (FR-322 Structural leaf walk, FR-370, FR-440) and QSpec PRs #181, #182, #183 via gh"
 review_set: base
 ---
 # SR-1126: spec review of PR 272, FR-038 prose
@@ -16,8 +16,8 @@ and #182.
 
 Measured:
 
-- QSpec #181 (merged 2026-10-03T12:43Z, f39c93f) and #182 (merged
-  2026-10-03T14:35Z, e3a3e71) are both merged, as the PR says.
+- QSpec #181 (merged 2026-10-03T12:43Z, ) and #182 (merged
+  2026-10-03T14:35Z, ) are both merged, as the PR says.
 - FR-322 "Structural leaf walk" at QSpec origin/main lists a
   `{path: p + ["recursion:<d>"], laws: [], mode: null}` entry when text is
   reachable. Its examples cover a record (`Node`), a tuple (`Cell`) and a union
@@ -54,10 +54,10 @@ repository.
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir@cbcdd758c34ce335b39f4684cf20dff9ca32cd38 (fix commit cbcdd75 on 29cdb14; main 12ba8ad). Checked against QSpec origin/main 396493c4, where #183 and #184 are merged (gh).
+Round 1, reviewed at agent-ix/quire-contract-ir (fix on; main ). Checked against QSpec origin/main, where #183 and #184 are merged (gh).
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | cbcdd75 |
-| FND-002 | fixed | cbcdd75 |
-| FND-003 | fixed | cbcdd75 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |

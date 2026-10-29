@@ -9,10 +9,10 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-824. PR agent-ix/quire-contract-ir#420 at dfd92da, diff
+Ticket: IR-824. PR agent-ix/quire-contract-ir#420, diff
 `origin/main...HEAD`. Base checklist over the new FR-038 `reaches` paragraph,
 FR-038-AC-252, TC-048 item 11 and the matrix rows, checked against merged
-QSpec origin/main 2f1abbb (FR-322 "Reaches over a field" relationship-end
+QSpec origin/main (FR-322 "Reaches over a field" relationship-end
 paragraph, FR-322-AC-57, FR-152 "Reachability over a relationship end",
 FR-152-AC-11/12, TC-281 RN-18 and RN-20..RN-27, TC-197 Y14..Y19) and the
 current reader (`operations.rs` `check_relationship_member`,
@@ -33,18 +33,18 @@ consumer. AC-252 is free and the highest FR-038 id (`git log --all -S`, one
 open PR). TC-048 item 11 cites RN ids only. No hash, digest or pin is
 introduced. `quire validate` is clean (916/916); `quire coverage --strict`
 reports 55 unbacked / 0 contradicted on the branch against 47 / 0 on
-origin/main 1f208ab; the 8-row delta is exactly FR-052-AC-15 and AC-17..23,
+origin/main; the 8-row delta is exactly FR-052-AC-15 and AC-17..23,
 backed by #419 which the branch predates (merge is clean), so the PR adds no
 unbacked row.
 
 ## Findings
 
-| ID      | Severity | Summary | Refs |
+| ID | Severity | Summary | Refs |
 | ------- | -------- | ------- | ---- |
-| FND-001 | low      | The new FR-038 reaches paragraph states the check order twice in one sentence ("The checks run in the order direction, multiplicity, then type: ... with multiplicity decided before type and direction before multiplicity"); the trailing restatement is redundant. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1156-1161 |
+| FND-001 | low | The new FR-038 reaches paragraph states the check order twice in one sentence ("The checks run in the order direction, multiplicity, then type:... with multiplicity decided before type and direction before multiplicity"); the trailing restatement is redundant. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1156-1161 |
 
 ## Dispositions
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Fix commit 1840592 rewrote the sentence (FR-038 lines 1156-1170): the order is stated once, "The checks run in the order stated by FR-322-AC-57: ... then direction; then destination multiplicity; then type", with no trailing restatement. |
+| FND-001 | fixed | Fix rewrote the sentence (FR-038 lines 1156-1170): the order is stated once, "The checks run in the order stated by FR-322-AC-57:... then direction; then destination multiplicity; then type", with no trailing restatement. |

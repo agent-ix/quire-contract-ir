@@ -3,7 +3,7 @@ id: SR-12116
 title: "IR-839 gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@09e52d9bfbb7e41b1cffeaa000ae5461061dbbe8; spec/conformance/functional/FR-018-conformance-corpus.md, spec/conformance/functional/FR-020-json-conformance-interface.md, tests/it/conformance_mismatch_independence.rs, tests/it/conformance.rs, crates/quire-contract-model/src/conformance.rs"
+scope: "agent-ix/quire-contract-ir; spec/conformance/functional/FR-018-conformance-corpus.md, spec/conformance/functional/FR-020-json-conformance-interface.md, tests/it/conformance_mismatch_independence.rs, tests/it/conformance.rs, crates/quire-contract-model/src/conformance.rs"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-018
@@ -14,7 +14,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-839, PR quire-contract-ir#436, head 09e52d9. The scope is FR-018-AC-2, the FR-020 mismatch-kind registry it depends on, the runner's `mismatch_kinds` comparison, and the tests now tagged to the criterion. Plan completion: not assessed.
+Ticket: IR-839, PR quire-contract-ir#436. The scope is FR-018-AC-2, the FR-020 mismatch-kind registry it depends on, the runner's `mismatch_kinds` comparison, and the tests now tagged to the criterion. Plan completion: not assessed.
 
 ## Reviewed scope
 

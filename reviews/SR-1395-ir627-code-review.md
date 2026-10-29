@@ -3,7 +3,7 @@ id: SR-1395
 title: "PR 627 refinement exports: code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@796609b0ce70e2c2a9367d3df8d4e20e43166ba6; crates/quire-contract-model/src/lib.rs; FR-019-AC-5; tests/it/public_interface.rs"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/lib.rs; FR-019-AC-5; tests/it/public_interface.rs"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-019
@@ -27,4 +27,4 @@ PR agent-ix/quire-contract-ir#627 exports fifteen existing, documented refinemen
 
 ## Dispositions
 
-- **FND-001 — fixed:** The same PR now lists all fifteen refinement body exports in FR-019's `checked_package` Public items table. The original finding and gate result above describe the reviewed `796609b0` head; the final PR head requires a fresh TC-058 gate result.
+- **FND-001 — fixed:** The same PR now lists all fifteen refinement body exports in FR-019's `checked_package` Public items table. The original finding and gate result above describe the reviewed head; the final PR head requires a fresh TC-058 gate result.

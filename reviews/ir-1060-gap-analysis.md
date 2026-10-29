@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Reviewed the changed requirement-to-test-to-code chain in PR #608 at 073d4a549eda432ce2979d2c6356f2e3e9bac590. Ticket: IR-1060. The new tick admission test does not yet cover its writer path, although the dense fixture round-trip does.
+Reviewed the changed requirement-to-test-to-code chain in PR #608. Ticket: IR-1060. The new tick admission test does not yet cover its writer path, although the dense fixture round-trip does.
 
 ## Verdict
 
@@ -32,4 +32,4 @@ Plan completion: not assessed. The computed Quoin matrix was read for the reposi
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At 7a24be8d, the healthy tick test uses the public typed encoder, compares the emitted JSON with the authoritative fixture, reads it back, compares graph, package id and operation-anchor term, then encodes again and compares bytes. |
+| FND-001 | fixed |, the healthy tick test uses the public typed encoder, compares the emitted JSON with the authoritative fixture, reads it back, compares graph, package id and operation-anchor term, then encodes again and compares bytes. |

@@ -11,7 +11,7 @@ review_set: subset
 
 ## Summary
 
-Identity, incomplete-owner, binding, and zero-row failure-domain review. Exact reviewed head: `14be7dc`, base: `f7dd613`. The prior unrecorded review concerns about AC-14 producer evidence and the TC-452 owner/AC list are resolved in this head; no new defects were found.
+Identity, incomplete-owner, binding, and zero-row failure-domain review. Exact reviewed head:, base:. The prior unrecorded review concerns about AC-14 producer evidence and the TC-452 owner/AC list are resolved in this head; no new defects were found.
 
 ## Verdict
 

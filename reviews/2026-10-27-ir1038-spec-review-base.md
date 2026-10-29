@@ -3,7 +3,7 @@ id: SR-611019
 title: IR-1038 PR 620 spec review base
 type: SpecReview
 analysis: base
-scope: 'agent-ix/quire-contract-ir; IR-1038 PR #620 head 0988f8f7; spec/model/functional/FR-019-rust-library-interface.md public item inventory row'
+scope: 'agent-ix/quire-contract-ir; IR-1038 PR #620; spec/model/functional/FR-019-rust-library-interface.md public item inventory row'
 review_set: base
 ---
 

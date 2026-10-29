@@ -3,15 +3,15 @@ id: SR-800
 title: "code review of PR 256 (IR-486 recursive equality and the recursion leaf)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@c832ea54d6528369ac8de8f554d8b0d0bcd5d51b; Cargo.toml, Cargo.lock, crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it/checked_package_v2_recursive_leaves.rs, tests/it/main.rs"
+scope: "agent-ix/quire-contract-ir; Cargo.toml, Cargo.lock, crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it/checked_package_v2_recursive_leaves.rs, tests/it/main.rs"
 review_set: subset
 ---
 # SR-800: code review of PR 256
 
 ## Summary
 
-Ticket: IR-486. Reviewed head c832ea54d6528369ac8de8f554d8b0d0bcd5d51b. The base is
-current: the merge base equals origin/main ccf34fe57c0837bff56503568c7f03c732779a59.
+Ticket: IR-486. Reviewed. The base is
+current: the merge base equals origin/main.
 The rust-review lane is folded into this file. Every check was run in a separate detached
 worktree, not taken from the PR body.
 
@@ -36,7 +36,7 @@ already closed components (reverse topological order). It charges one unit per d
 reachable node in `discover`. No function in the new code calls itself directly or
 indirectly.
 
-Pass. `first_leaf_fault` resets the open set. It opens each composite at `path.len()`,
+Pass. `first_leaf_fault` resets the open set. It opens each composite at `path.len`,
 so `d` is the number of segments when the composite was entered (Node 0, `Option<Node>` 1,
 `Two` 1, `Wrap` 1). It places text leaves and recursion leaves in walk order. A recursion
 leaf where a text leaf is due, a wrong prefix, a wrong `d`, or a leftover recursion leaf
@@ -80,8 +80,8 @@ it in the default lane matches repo convention, and AC-72 requires that size.
 
 ## Dispositions
 
-Round 1 at e44305c9dd30c38062d7bac75af5c2a7e2c223c0 (base still origin/main ccf34fe57c0837bff56503568c7f03c732779a59). The delta adds one unit test, one FR-038 clause and one tests.md edit, with no production code change. The gate log ends head=e44305c… exit=2, and only spec fails: 23 unbacked, 166/212, FR-038 45/70, re-measured with quire coverage. Lib 101 and it 184 pass. No new findings.
+Round 1 (base still origin/main ). The delta adds one unit test, one FR-038 clause and one tests.md edit, with no production code change. The gate log ends head=… exit=2, and only spec fails: 23 unbacked, 166/212, FR-038 45/70, re-measured with quire coverage. Lib 101 and it 184 pass. No new findings.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | accepted-no-change | Process-only finding; there was never a code defect to fix. Re-checked at e44305c: git diff --check origin/main...HEAD is clean, and the gate's fmt-check and clippy pass (ir-486-r2-ci.log). The delta commit touches only operations.rs tests, FR-038 and tests.md. |
+| FND-001 | accepted-no-change | Process-only finding; there was never a code defect to fix. Re-checked: git diff --check origin/main...HEAD is clean, and the gate's fmt-check and clippy pass (ir-486-r2-ci.log). The delta commit touches only operations.rs tests, FR-038 and tests.md. |

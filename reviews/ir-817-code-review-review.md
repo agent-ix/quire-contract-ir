@@ -3,7 +3,7 @@ id: SR-11823
 title: "code-review (rust-review lane) of IR-817 PR #418"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@f07017c25c744c66750f0e86ff0bb8b20bb9707d; PR #418; tests/it/conformance.rs"
+scope: "agent-ix/quire-contract-ir; PR #418; tests/it/conformance.rs"
 review_set: subset
 ---
 

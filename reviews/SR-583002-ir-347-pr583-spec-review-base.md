@@ -3,7 +3,7 @@ id: SR-583002
 title: "IR-347 PR #583 spec-review/base (Kani ownership and outcome status closeout)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; PR #583 head e9df7af585b78c93e2e7e6017d438055a983a523 against origin/main; spec/assurance/AD-001-contract-ir-architecture.md, spec/assurance/AD-006-codegen-consumption-seam.md, spec/core/matrix/tests.md, spec/kani/matrix/tests.md, spec/tests.md; IR-347"
+scope: "agent-ix/quire-contract-ir; PR #583 against origin/main; spec/assurance/AD-001-contract-ir-architecture.md, spec/assurance/AD-006-codegen-consumption-seam.md, spec/core/matrix/tests.md, spec/kani/matrix/tests.md, spec/tests.md; IR-347"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/AD-001
@@ -17,7 +17,7 @@ relationships:
 ## Summary
 
 Ticket: IR-347. This base spec-review covers the five Markdown files in
-`git diff origin/main...HEAD` at head `e9df7af585b78c93e2e7e6017d438055a983a523`.
+`git diff origin/main...HEAD` at.
 
 Review set: base plus the integrity sub-analysis (SR-583003). No `AssuranceProfile` exists under
 `spec/`, so no profile requires an enforced spec-review run. The diff adds no requirement
@@ -37,9 +37,9 @@ Checks:
   and FR-036 stay planned. The ✅ marks on TC-223 and TC-443 match tagged tests. No status is
   raised beyond the evidence.
 - No hash, digest, pin or tracking record is introduced.
-- Quire: `quire validate --scope .` over the five files, and over `spec/**`, `plan/**` and
+- Quire: `quire validate --scope.` over the five files, and over `spec/**`, `plan/**` and
   `reviews/**`, passes (1430/1430 docs grammar-clean; module registry warnings only).
-  `quire coverage --scope . --strict` reports 68 unbacked rows and 0 contradicted statuses.
+  `quire coverage --scope. --strict` reports 68 unbacked rows and 0 contradicted statuses.
   Its seven dangling `TC-947` traces in `tests/it/checked_package_v2_protocol_body.rs` come from
   `origin/main`, not from this diff.
 
@@ -86,7 +86,7 @@ scope:
 - id: kani-matrix:FR-030
   path: spec/kani/matrix/tests.md
   role: examined
-  excerpt: "AC-4 and AC-5 implemented and verified by tagged TC-223 constructor, count, cause and wire-reader tests, with the private-field compile-fail probe on `KaniOutcome`; AC-6 implemented and verified by TC-443 ...; AC-7 has TC-449 IR carrier tests, while CG's live cancellation-event reversal control remains planned under IR-701"
+  excerpt: "AC-4 and AC-5 implemented and verified by tagged TC-223 constructor, count, cause and wire-reader tests, with the private-field compile-fail probe on `KaniOutcome`; AC-6 implemented and verified by TC-443...; AC-7 has TC-449 IR carrier tests, while CG's live cancellation-event reversal control remains planned under IR-701"
 - id: kani-matrix:TC-223
   path: spec/kani/matrix/tests.md
   role: examined
@@ -110,7 +110,7 @@ scope:
 - id: FR-030-AC-5
   path: spec/kani/functional/FR-030-bounded-kani-domain-and-outcomes.md
   role: context_only
-  excerpt: "An `unavailable` outcome built for an absent checker carries cause `kani_checker_absent` and one built for an absent backend carries `kani_backend_absent` ...; and a struct-literal `KaniOutcome` outside the `kani` module fails to compile."
+  excerpt: "An `unavailable` outcome built for an absent checker carries cause `kani_checker_absent` and one built for an absent backend carries `kani_backend_absent`...; and a struct-literal `KaniOutcome` outside the `kani` module fails to compile."
 - id: FR-030-AC-6
   path: spec/kani/functional/FR-030-bounded-kani-domain-and-outcomes.md
   role: context_only

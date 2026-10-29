@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Diff-scoped Rust review of PR #554 at c4abdd8, including the constructor, deserializer, accessors, tests, and adjacent IR consumers. The kind/cause/count invariants are enforced in the implementation; the privacy compile-fail probe can pass for the wrong compiler error.
+Diff-scoped Rust review of PR #554, including the constructor, deserializer, accessors, tests, and adjacent IR consumers. The kind/cause/count invariants are enforced in the implementation; the privacy compile-fail probe can pass for the wrong compiler error.
 
 ## Verdict
 
@@ -39,7 +39,7 @@ Focused checks reported on the PR: 7 kani_outcome, 12 kani_shared, 4 TC-223 test
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At aa3cdd1, the probe uses `Some(NonZeroUsize::MIN)` and every other field value is type-correct; a struct literal from outside `kani` now fails on field visibility rather than the former E0308 mismatch. |
+| FND-001 | fixed |, the probe uses `Some(NonZeroUsize::MIN)` and every other field value is type-correct; a struct literal from outside `kani` now fails on field visibility rather than the former E0308 mismatch. |
 
 ## Disposition Evidence
 

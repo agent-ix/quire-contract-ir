@@ -3,7 +3,7 @@ id: SR-671
 title: "PR 241 seam ADs gap analysis: measured claims against IR, QSL and codegen source"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@43967a9b8410c5825ffef77df48ff45bc265f23b; spec/assurance/AD-005-qsl-consumption-seam.md, spec/assurance/AD-006-codegen-consumption-seam.md against IR origin/main src/, crates/quire-contract-model/src/, tests/it/cycle_free_model.rs, deny.toml, Makefile, and QSL and codegen origin/main (read-only)"
+scope: "agent-ix/quire-contract-ir; spec/assurance/AD-005-qsl-consumption-seam.md, spec/assurance/AD-006-codegen-consumption-seam.md against IR origin/main src/, crates/quire-contract-model/src/, tests/it/cycle_free_model.rs, deny.toml, Makefile, and QSL and codegen origin/main (read-only)"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/AD-005
@@ -16,8 +16,8 @@ relationships:
 ## Summary
 
 Ticket: IR-323. Plan completion: not assessed. This is a spec-only PR, so the gap analysis
-re-measures every claim the two ADs make about code. IR was read at origin/main 0a889f9, QSL at
-d81193f9, codegen at 2fad745 and runtime at 215e443, the same revisions the ADs name.
+re-measures every claim the two ADs make about code. IR was read at origin/main, QSL at
+, codegen and runtime, the same revisions the ADs name.
 
 These claims were re-verified and hold:
 - `src/lib.rs:12` is a glob, and the crate doc calls itself a "compatibility bridge".
@@ -64,8 +64,8 @@ absent from IR. FND-002 gives a false reason for a routed need.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | d22e222: AD-005:59-62 and D-3 (:140-144), and AD-006:61-64, now say that the root crate currently exports KaniProviderResult and KaniProviderRecord (outcome.rs:56-89, mod.rs:23) and that the target is removal under IR-347 |
-| FND-002 | fixed | d22e222: R3-Q1 is dropped. AD-005:94 now reads "none: the manifests resolve the model package" |
-| FND-003 | fixed | d22e222: AD-006:102 reads "tc_041 today; target: cargo-deny bans entries as well", with gap "no deny entry exists yet". AD-005 D says "Target ... No such entry exists today". deny.toml is unchanged |
-| FND-004 | fixed | d22e222: AD-005:93 reads "an external edge of layer 4 beside quire-canonical" |
-| FND-005 | fixed | d22e222: AD-005:76-77 cites v2/mod.rs:759-760 and serde_json::to_value of the typed preimage. :104 cites V2ReadIncomplete as "documented at checked_v2.rs:53" |
+| FND-001 | fixed |: AD-005:59-62 and D-3 (:140-144), and AD-006:61-64, now say that the root crate currently exports KaniProviderResult and KaniProviderRecord (outcome.rs:56-89, mod.rs:23) and that the target is removal under IR-347 |
+| FND-002 | fixed |: R3-Q1 is dropped. AD-005:94 now reads "none: the manifests resolve the model package" |
+| FND-003 | fixed |: AD-006:102 reads "tc_041 today; target: cargo-deny bans entries as well", with gap "no deny entry exists yet". AD-005 D says "Target... No such entry exists today". deny.toml is unchanged |
+| FND-004 | fixed |: AD-005:93 reads "an external edge of layer 4 beside quire-canonical" |
+| FND-005 | fixed |: AD-005:76-77 cites v2/mod.rs:759-760 and serde_json::to_value of the typed preimage.:104 cites V2ReadIncomplete as "documented at checked_v2.rs:53" |

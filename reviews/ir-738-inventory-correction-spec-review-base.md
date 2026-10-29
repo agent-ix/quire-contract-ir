@@ -3,7 +3,7 @@ id: SR-6511
 title: base review of planned application inventory correction
 type: SpecReview
 analysis: base
-scope: agent-ix/quire-contract-ir@7c760bc7b7e0c7b4216297db15ca4a61df50abd6; spec/model/functional/FR-019-rust-library-interface.md;
+scope: agent-ix/quire-contract-ir; spec/model/functional/FR-019-rust-library-interface.md;
   spec/model/matrix/TC-058-model-crate-public-interface.md; FR-046 context; TC-058
   source oracle
 review_set: subset
@@ -73,33 +73,33 @@ scope:
 - id: tests/it/public_interface.rs
   path: tests/it/public_interface.rs
   role: examined
-  excerpt: "fn expected_items() -> BTreeMap<String, BTreeSet<String>> {\n    let (_,\
-    \ after_heading) = FR_019\n        .split_once(\"### Public items\")\n       \
-    \ .expect(\"FR-019 public items table must exist\");\n    let (table, _) = after_heading\n\
-    \        .split_once(\"## Acceptance Criteria\")\n        .expect(\"FR-019 acceptance\
-    \ criteria must follow the table\");\n    let mut items = BTreeMap::<String, BTreeSet<String>>::new();\n\
-    \    for row in table.lines().filter(|line| line.starts_with(\"| `\")) {\n   \
-    \     let cells: Vec<_> = row.split('|').collect();\n        let module = quoted_names(cells[1])\n\
-    \            .next()\n    "
+  excerpt: "fn expected_items -> BTreeMap<String, BTreeSet<String>> {\n let (_,\
+    \ after_heading) = FR_019\n.split_once(\"### Public items\")\n \
+    \.expect(\"FR-019 public items table must exist\");\n let (table, _) = after_heading\n\
+    \.split_once(\"## Acceptance Criteria\")\n.expect(\"FR-019 acceptance\
+    \ criteria must follow the table\");\n let mut items = BTreeMap::<String, BTreeSet<String>>::new;\n\
+    \ for row in table.lines.filter(|line| line.starts_with(\"| `\")) {\n \
+    \ let cells: Vec<_> = row.split('|').collect;\n let module = quoted_names(cells[1])\n\
+    \.next\n "
 - id: crates/quire-contract-model/src/lib.rs
   path: crates/quire-contract-model/src/lib.rs
   role: context_only
-  excerpt: '//!     authority: "a".into(),
+  excerpt: '//! authority: "a".into,
 
-    //!     identity: "i".into(),
+    //! identity: "i".into,
 
-    //!     digest_domain: "d".into(),
+    //! digest_domain: "d".into,
 
-    //!     digest: "x".into(),
+    //! digest: "x".into,
 
-    //!     revision: "r".into(),
+    //! revision: "r".into,
 
     //! };'
 ```
 
 ## Evidence
 
-TC-058 expected_items splits after `### Public items` and before `## Acceptance Criteria`; only table rows beginning `| ` with a backticked module contribute. Independent replay against frozen source gives 249 exports and 249 table names, equal with no missing or extra names. Base ecd9ad2 has 254 names, missing only the five planned FR-046 exports; its parent 7805ce8 has 249 equal names. This is a read-only source check, not a runtime execution or new gate.
+TC-058 expected_items splits after `### Public items` and before `## Acceptance Criteria`; only table rows beginning `| ` with a backticked module contribute. Independent replay against frozen source gives 249 exports and 249 table names, equal with no missing or extra names. has 254 names, missing only the five planned FR-046 exports; its parent has 249 equal names. This is a read-only source check, not a runtime execution or new gate.
 
 No Rust source, Cargo policy, CI, dependency edge, schema, reader admission rule, or resource contract changes. Source-oracle checks are folded into code-review. Cargo/Kani/full gates and full matrix were deliberately not run for this documentation diff. No applicable AssuranceProfile was found in spec. Exact configured model ID is unavailable; host identifies this agent only as Codex based on GPT-6. GitHub API verification was unavailable in this subagent (HTTP 401); the dispatching lead independently verified public repository visibility and PR 344 frozen head/base through its configured GitHub connector. PR body contains Part of IR-738, so no GitHub ticket comment is needed.
 
@@ -113,17 +113,16 @@ No Rust source, Cargo policy, CI, dependency edge, schema, reader admission rule
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed 7eb07671c951bf3693495f6948b12b7cef3ec444 | TC-058 now locates the planned API paragraph before Public items, where FR-019 retains the required five future exports. |
+| FND-001 | fixed | TC-058 now locates the planned API paragraph before Public items, where FR-019 retains the required five future exports. |
 
 ## Disposition round 1 verdict
 
-**PASS** — Rechecked the recorded defect and directly affected fix at `7eb07671c951bf3693495f6948b12b7cef3ec444`. No new finding. Original review text remains unchanged.
+**PASS** — Rechecked the recorded defect and directly affected fix. No new finding. Original review text remains unchanged.
 
 ```yaml
 dispositions:
 - fnd: FND-001
   outcome: fixed
-  fix_sha: 7eb07671c951bf3693495f6948b12b7cef3ec444
   after_excerpt: 'PLANNED/UNRUN (IR-738). Verify
 
     [FR-046](../functional/FR-046-derive-candidate-application-node-identity.md),

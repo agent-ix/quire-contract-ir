@@ -3,18 +3,18 @@ id: SR-8690
 title: "QSL-737 quire-contract-ir PR 376 code review: conforming records at operand positions"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@d0b83ff93fdea368f23de95da2b781fd9f7b9e6c; crates/quire-contract-model/src/checked_package/v2/operations.rs; crates/quire-contract-model/src/checked_package/v2/model_members.rs; crates/quire-contract-model/src/checked_package/v2/structural.rs; tests/it/checked_package_v2_operation_arguments.rs"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/operations.rs; crates/quire-contract-model/src/checked_package/v2/model_members.rs; crates/quire-contract-model/src/checked_package/v2/structural.rs; tests/it/checked_package_v2_operation_arguments.rs"
 review_set: subset
 ---
 
 ## Summary
 
 Ticket: QSL-737. Code review with the rust-review lane folded in, over the
-diff of quire-contract-ir PR 376 (one commit, d0b83ff, on main 220a2e3).
+diff of quire-contract-ir PR 376 (one commit,, on main ).
 Reviewer-only: no build or test run. The coder's gate log at the PR head
 (`make ci`: fmt, both clippy lanes, 528 + 211 + 21 + 8 tests green, the 14
 `tc_448` tests among them; stop at `make spec` strict coverage) was read, not
-re-run. The coder worktree sits at d0b83ff with a clean tree.
+re-run. The coder worktree sits with a clean tree.
 
 Checked:
 
@@ -43,12 +43,12 @@ Checked:
   preimages differ.
 - `check_model_member`: the field operand check now goes through
   `conforms_to_type` against the declaring node's key, so it stays exact for an
-  object-type declaring node. The owner lookup moved from `object_type()`
-  to `field_owner()`, and a record owner refuses an `operation` member at
+  object-type declaring node. The owner lookup moved from `object_type`
+  to `field_owner`, and a record owner refuses an `operation` member at
   `name`. `object` is read only in the operation branch (`interface`). The
   order of refusals is unchanged: `declaration`, then `arguments/0`, then
   `name`.
-- `union_arms_hold` was rewritten from `all()` to a loop so that it can
+- `union_arms_hold` was rewritten from `all` to a loop so that it can
   propagate the meter error. Its empty-arms and missing-`result_type`
   outcomes match the old expression, and binders stay exact.
 - `union_defect` now returns `Result<Option<_>>`. The refusal order
@@ -58,7 +58,7 @@ Checked:
   "Result positions" requires. Before relying on that, every
   function/expression root in the nine QSpec positive fixtures
   (`proposals/checked-package-v2/fixtures/positive-*.json` at
-  quire-specification main 65609b9) was read statically: 26 roots checked,
+  quire-specification main ) was read statically: 26 roots checked,
   0 mismatches. Their only `function.call` callee has no `parameters`
   binding, so `check_function_call` does not apply to it.
   `make conformance-qspec` is outside `make ci` and was not run by the coder.
@@ -76,14 +76,14 @@ Checked:
   node; "Slots": a union member payload position) needs both. No existing
   FR-038 criterion or test refuses a record-typed binder or payload, and no
   existing test expectation changed: apart from the new file and its `mod`
-  line, the only test edits add a `ModelOwners::default()` argument to two
+  line, the only test edits add a `ModelOwners::default` argument to two
   unit-test calls.
 - Rust: no `unsafe`, `unwrap`, `expect` or panic in the production diff.
   Indices come from `index` positions or are bounded by the arity check, and
   `saturating_add` is used throughout. Production tags use `Implements:
   FR-347` (the CR-061 non-binding-tag warnings in the coder's earlier coverage
   log are gone in the final CI log). Tests carry `/// Trace:` plus
-  `#[trace("TC-448", ...)]`.
+  `#[trace("TC-448"...)]`.
 - Public-repo rules: SPDX header, fixture identities `acme/ledger` and
   `acme/vendor`, no private text, no local paths, no artifacts.
 

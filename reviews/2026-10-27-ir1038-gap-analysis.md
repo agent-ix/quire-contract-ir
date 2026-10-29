@@ -3,7 +3,7 @@ id: SR-611018
 title: IR-1038 PR 620 scoped gap analysis
 type: SpecReview
 analysis: gap-analysis
-scope: 'agent-ix/quire-contract-ir; IR-1038 PR #620 head 0988f8f7; FR-066-AC-3/4/5, FR-019-AC-5 and changed tests'
+scope: 'agent-ix/quire-contract-ir; IR-1038 PR #620; FR-066-AC-3/4/5, FR-019-AC-5 and changed tests'
 review_set: subset
 ---
 
@@ -34,9 +34,9 @@ CONDITIONAL — FR-066-AC-3 has an executable external integration test, includi
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | At feedd435, `typed_clause_body` uses `operation.execution_point().cloned()` as its admitted point carrier; the raw point check is confined to structural malformed-input refusal. |
-| FND-002 | fixed | At feedd435, TC-056 integration tests tag FR-066-AC-4 at the duplicate-member precedence, malformed-point, point-agreement, distinct-anchor, and duplicate-anchor assertions. |
+| FND-001 | fixed |, `typed_clause_body` uses `operation.execution_point.cloned` as its admitted point carrier; the raw point check is confined to structural malformed-input refusal. |
+| FND-002 | fixed |, TC-056 integration tests tag FR-066-AC-4 at the duplicate-member precedence, malformed-point, point-agreement, distinct-anchor, and duplicate-anchor assertions. |
 
 ## Disposition verdict
 
-PASS for the recorded findings at feedd435; final gate is owned by the code lead.
+PASS for the recorded findings; final gate is owned by the code lead.

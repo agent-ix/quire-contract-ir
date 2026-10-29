@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-874. Diff-scoped traceability and reverse-gap review of frozen head d1ec73c2802101d7694046fc79f56e3fa391a14e. The new module is a staged implementation owned by FR-038-AC-281 and AC-282 and remains unwired to the reader. Its five unit tests bind local TC-048; the QSpec TC-946, TC-947 and TC-948 sources are retained as plain prose. No new criterion coverage is claimed for this partial stage.
+Ticket: IR-874. Diff-scoped traceability and reverse-gap review of frozen. The new module is a staged implementation owned by FR-038-AC-281 and AC-282 and remains unwired to the reader. Its five unit tests bind local TC-048; the QSpec TC-946, TC-947 and TC-948 sources are retained as plain prose. No new criterion coverage is claimed for this partial stage.
 
 ## Examined units
 

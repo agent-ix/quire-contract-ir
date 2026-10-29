@@ -23,7 +23,7 @@ The TC-458 positive public test uses an IR-authored JSON fixture, so it never ex
 
 ## Coverage
 
-Reviewed PR #496 head 276a6d40cc0c2fbb68f1f0efd7343a9b22b1d64c against main d41e521f97aee80f81ebce42fbe97d88792891be. Examined FR-054-AC-1 through FR-054-AC-5, TC-458, FR-019 public inventory, source and tagged tests. Plan completion: not assessed.
+Reviewed PR #496 against main. Examined FR-054-AC-1 through FR-054-AC-5, TC-458, FR-019 public inventory, source and tagged tests. Plan completion: not assessed.
 
 The new tests carry `#[trace]` bindings for all five FR-054 criteria. The remaining finding concerns the origin of the positive test fixture, not a missing trace tag.
 
@@ -41,4 +41,4 @@ The new tests carry `#[trace]` bindings for all five FR-054 criteria. The remain
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | deferred | QSL main 0582efb14fcbf9a599d92e698fef077adf8e9fe0 lowers the authored integer 1 in a + 1 to a represented literal node and graph reference, so the proposed TC-458 inline-literal producer assertion would fail on the current producer. QSL-940 tracks correcting that producer behavior. PR head 45d4f5d83b494ed50b7d731b13e32231dd7c4788 marks producer-origin evidence Planned and untagged in TC-458; the reader-admitted IR positive still exercises the specified inline shape. Defer only that producer origin evidence until QSL-940 is resolved. |
+| FND-001 | deferred | QSL main lowers the authored integer 1 in a + 1 to a represented literal node and graph reference, so the proposed TC-458 inline-literal producer assertion would fail on the current producer. QSL-940 tracks correcting that producer behavior. PR marks producer-origin evidence Planned and untagged in TC-458; the reader-admitted IR positive still exercises the specified inline shape. Defer only that producer origin evidence until QSL-940 is resolved. |

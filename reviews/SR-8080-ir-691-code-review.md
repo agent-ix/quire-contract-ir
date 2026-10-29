@@ -3,7 +3,7 @@ id: SR-8080
 title: "Code review of IR-691 specification diff"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@d2055f10f84cfa7a27b7d5fe0fdfe8c79e710657; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; IR-691"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; IR-691"
 review_set: subset
 ---
 

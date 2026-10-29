@@ -3,7 +3,7 @@ id: SR-12076
 title: "IR-210 slice D gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@b8c20987bd4fca0a5a97480be5054a4b1f0391e1; crates/quire-contract-model/src/checked_package/v2/model_members/tests.rs, crates/quire-contract-model/src/checked_package/v2/model_members/tests/intake_retention.rs, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/tests.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/model_members/tests.rs, crates/quire-contract-model/src/checked_package/v2/model_members/tests/intake_retention.rs, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/tests.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
@@ -14,9 +14,9 @@ relationships:
 
 ## Summary
 
-Ticket: IR-210 (slice D), PR quire-contract-ir#429. This is a planless gap analysis, so plan completion was not assessed. The matrix was measured with quire 0.36.2 (engine 0.50.2) twice: on origin/main 1bd6749, in a detached scratch worktree, and on head b8c2098.
+Ticket: IR-210 (slice D), PR quire-contract-ir#429. This is a planless gap analysis, so plan completion was not assessed. The matrix was measured with quire 0.36.2 (engine 0.50.2) twice: on origin/main, in a detached scratch worktree, and on.
 
-`quire coverage --scope . --strict`:
+`quire coverage --scope. --strict`:
 
 - **Base:** 508/565 rows backed, 43 unbacked, 0 contradicted.
 - **Head:** 508/565 rows backed, 43 unbacked, 0 contradicted. The full output is byte-identical to base, so the unbacked list is unchanged.
@@ -35,23 +35,23 @@ My measurements match the coder's `ir210d_file_before.tsv` and `ir210d_file_afte
 
 | Unit | Role | Excerpt |
 | --- | --- | --- |
-| FR-038-AC-27 | examined | A domain package selection is admitted only by the document the evidence supplies under its digest ... and a matching document admits. |
-| FR-038-AC-28 | examined | A domain package document's declarations refuse at the row, in FR-154's order ... two nodes with no identity refuse `malformed-declaration`, never `conflicting-binding`. |
-| FR-038-AC-29 | examined | ... an inherited field resolves on a subtype and a subtype conforms to its supertype in either operand order; a field typed at an `Int[lo, hi]` value type has the integer-range member type `[lo, hi]`. |
-| FR-038-AC-30 | examined | Reading a selected domain package and resolving a model-owned member are charged to the `work` limit ... and the exact work admits. |
-| FR-038-AC-174 | examined | ... retains that exact FCD identity in the private refusal returned by `admit_selection` ... Missing or non-string identity yields None ... |
-| FR-038-AC-175 | examined | Each private `SelectionRefusal` constructor ... preserves the selected retained metadata record ... Pre-declaration constructors preserve genuine metadata absence. |
-| FR-038-AC-186 | examined | ... exact typed source member values and optional-member presence ..., including all four end-coordinate presence combinations and the existing admitted 2^53 boundary. |
-| FR-038-AC-187 | examined | ... exact generator identity/version text and input identity sequence ... Input order/repetition remains unchanged and no source span is present. |
-| FR-038-AC-188 | examined | ... retains the actual offending field, operation, parameter or relationship's supplied identity and valid origin. Missing nested metadata remains None ... |
-| FR-038-AC-189 | examined | Given a located refusal with missing or malformed origin, the reader returns None for origin while independently retaining any available declaration identity. ... |
-| FR-038-AC-190 | examined | For every same-identity type group ... retains origin only if every candidate has a valid origin and all typed values and optional-member presence agree. ... |
-| FR-038-AC-191 | examined | Retaining metadata does not change the existing first code, cause or selection-row member in node/table/member-path order. ... |
-| FR-038-AC-192 | examined | Retained metadata is acquired and released within the existing bounded document/read/work accounting ... the first unpayable charge preserves the existing incomplete result and no partial package. |
-| FR-038-AC-196 | examined | A relationship identity repeated sequentially ... retains the later actual offending relationship's supplied identity and its own valid origin ... |
+| FR-038-AC-27 | examined | A domain package selection is admitted only by the document the evidence supplies under its digest... and a matching document admits. |
+| FR-038-AC-28 | examined | A domain package document's declarations refuse at the row, in FR-154's order... two nodes with no identity refuse `malformed-declaration`, never `conflicting-binding`. |
+| FR-038-AC-29 | examined |... an inherited field resolves on a subtype and a subtype conforms to its supertype in either operand order; a field typed at an `Int[lo, hi]` value type has the integer-range member type `[lo, hi]`. |
+| FR-038-AC-30 | examined | Reading a selected domain package and resolving a model-owned member are charged to the `work` limit... and the exact work admits. |
+| FR-038-AC-174 | examined |... retains that exact FCD identity in the private refusal returned by `admit_selection`... Missing or non-string identity yields None... |
+| FR-038-AC-175 | examined | Each private `SelectionRefusal` constructor... preserves the selected retained metadata record... Pre-declaration constructors preserve genuine metadata absence. |
+| FR-038-AC-186 | examined |... exact typed source member values and optional-member presence..., including all four end-coordinate presence combinations and the existing admitted 2^53 boundary. |
+| FR-038-AC-187 | examined |... exact generator identity/version text and input identity sequence... Input order/repetition remains unchanged and no source span is present. |
+| FR-038-AC-188 | examined |... retains the actual offending field, operation, parameter or relationship's supplied identity and valid origin. Missing nested metadata remains None... |
+| FR-038-AC-189 | examined | Given a located refusal with missing or malformed origin, the reader returns None for origin while independently retaining any available declaration identity.... |
+| FR-038-AC-190 | examined | For every same-identity type group... retains origin only if every candidate has a valid origin and all typed values and optional-member presence agree.... |
+| FR-038-AC-191 | examined | Retaining metadata does not change the existing first code, cause or selection-row member in node/table/member-path order.... |
+| FR-038-AC-192 | examined | Retained metadata is acquired and released within the existing bounded document/read/work accounting... the first unpayable charge preserves the existing incomplete result and no partial package. |
+| FR-038-AC-196 | examined | A relationship identity repeated sequentially... retains the later actual offending relationship's supplied identity and its own valid origin... |
 | TC-048 | examined | TC-048 Test Case Summary row in `spec/checked_package/matrix/tests.md` ("Traces To" lists FR-038-AC-174, FR-038-AC-175, not AC-186..196) |
 | spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md | context_only | "These Test and Inspection procedures back FR-038-AC-174/175 and FR-038-AC-186 through FR-038-AC-196." |
-| spec/checked_package/matrix/tests.md FR-038 row | context_only | FR-038 Functional Requirement Coverage row lists "FR-038-AC-186 through FR-038-AC-196" with Test Cases TC-048, TC-050, ... |
+| spec/checked_package/matrix/tests.md FR-038 row | context_only | FR-038 Functional Requirement Coverage row lists "FR-038-AC-186 through FR-038-AC-196" with Test Cases TC-048, TC-050... |
 
 ## Findings
 

@@ -3,7 +3,7 @@ id: SR-16524
 title: "IR-9 PR 536 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@ba543f3f2000eeef22a6b60e0deb1f616486eea0; crates/quire-contract-model/src/checked_package/v2/scalar_operands.rs"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/scalar_operands.rs"
 review_set: subset
 relationships:
   - { target: "ix://agent-ix/quire-contract-ir/FR-038", type: references }

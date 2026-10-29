@@ -3,7 +3,7 @@ id: SR-16511
 title: "IR-996 PR 535 incremental gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@78cd34126b73586a6c21730003134fd8db4021b3; FR-038-AC-160/162; FR-054-AC-1/5; FR-056-AC-8; TC-048; TC-458; scalar operand source and tests"
+scope: "agent-ix/quire-contract-ir; FR-038-AC-160/162; FR-054-AC-1/5; FR-056-AC-8; TC-048; TC-458; scalar operand source and tests"
 review_set: subset
 relationships:
   - { target: "ix://agent-ix/quire-contract-ir/FR-038", type: references }

@@ -3,13 +3,13 @@ id: SR-567877
 title: IR-874 PR 568 gap-analysis review
 type: SpecReview
 analysis: gap-analysis
-scope: 'agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/flat_wire.rs, protocol_body.rs, structural.rs; tests/it/checked_package_v2_protocol_body.rs, tests/it/support/checked_package.rs; IR-874 PR #568 head caf87602eb91320a45eea4309bf83598e85eaad1'
+scope: 'agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/flat_wire.rs, protocol_body.rs, structural.rs; tests/it/checked_package_v2_protocol_body.rs, tests/it/support/checked_package.rs; IR-874 PR #568 '
 review_set: subset
 ---
 
 ## Summary
 
-Frozen PR #568 member-prefix review at caf87602eb91320a45eea4309bf83598e85eaad1.
+Frozen PR #568 member-prefix review.
 
 ## Verdict
 
@@ -30,7 +30,7 @@ Frozen PR #568 member-prefix review at caf87602eb91320a45eea4309bf83598e85eaad1.
 - FR-038-AC-287 (examined): A clause names exactly one `finish` obligation whose closing-record binder and Boolean constraint read only the binders available after the root control; its optional `terminal` obligation admits `when` with one Boolean condition or `any` with none. A missing or extra condition refuses `malformed_wire`, a non-Boolean condition or constraint refuses `ill_typed`/`non-boolean-root`, an unjoined branch binder read by finish refuses `missing_declaration`/`missing-name`, and a terminal target in the finish position or an unattached finish refuses by the FR-464 membership rules.
 - FR-038-AC-288 (context_only): Each of the thirteen control operators admits its FR-466 ordered arguments and local reference, type, bounds, label and ordering checks: `sequence`, `choice`, `parallel`, `repeat`, `await`, `check`, `send`, `receive`, `attempt`, `effect`, `event`, `commit` and `fence`. A choice or parallel branch list with fewer than two entries, repeated labels, a receive naming a non-send, an effect naming a non-attempt, an await naming an ineligible event, a non-Boolean guard or constraint, an invalid join count or an ineligible memory or ordering spelling refuses with the FR-466 code, cause and locus, with
 - FR-038-AC-289 (context_only): A `compensate` body admits the thirteen FR-466 bindings in order, including distinct registration and activation captures, a trigger, interval, at-least-one attempt, retry relation, optional commit and recovery predicate. `commit never` is an absent optional Group, not a fabricated commit. The reader refuses a forward target that is not an `effect`, a commit target that is not a `commit`, an inverted interval or zero attempts, a commit that dominates its forward effect, and a read outside any of the five compensation stages with the corresponding FR-466 code, cause and locus; a commit in one c
-- FR-464 (context_only): When a checked package carries a protocol declaration, the producer SHALL emit it as `quire.checked-semantic-graph/v2` nodes with `node_tag: "protocol"`: one `protocol_clause` node for the declaration and one member node for each of its roles, channels, queues, obligations, controls and compensations ([FR-465](FR-465-checked-package-protocol-declaration-bodies.md), [FR-466](FR-466-checked-package-protocol-control-bodies.md)). Every such body is one application of `quire.op.protocol.control`, whose `profile_operator` member names the construct. The nodes are the only carrier of the protocol: a 
+- FR-464 (context_only): When a checked package carries a protocol declaration, the producer SHALL emit it as `quire.checked-semantic-graph/v2` nodes with `node_tag: "protocol"`: one `protocol_clause` node for the declaration and one member node for each of its roles, channels, queues, obligations, controls and compensations ([FR-465](FR-465-checked-package-protocol-declaration-bodies.md), [FR-466](FR-466-checked-package-protocol-control-bodies.md)). Every such body is one application of `quire.op.protocol.control`, whose `profile_operator` member names the construct. The nodes are the only carrier of the protocol: a
 - FR-465 (context_only): When a checked package carries a protocol declaration's roles, channels, queue bounds, finish and terminal members, the producer SHALL encode each as one `protocol` node whose body is the [FR-464](FR-464-checked-package-protocol-node-bodies.md) application with the operator and argument layout below, and the reader SHALL refuse a node whose checks below do not hold, with the first refusal in the order each section lists. The node family's operation, keys, declarations, membership, binders and reader order are FR-464's; this requirement fixes the member set, order and checks of the declarations
 - FR-466 (context_only): When a checked package carries a protocol declaration's control tree and compensation templates, the producer SHALL encode each control and each template as one `protocol` node whose body is the [FR-464](FR-464-checked-package-protocol-node-bodies.md) application with the operator and argument layout below, and the reader SHALL refuse a node whose checks below do not hold, with the first refusal in the order each section lists. This requirement fixes the member set, order, binder scope and checks of the thirteen control operators and of `compensate`.
 
@@ -43,4 +43,4 @@ Plan completion: not assessed. Scope is the changed prefix and its public-reader
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Public-reader tests now cover valid replicated-role admission, max precedence, wrong binder with positive max, eligible and float FIFO keys, and a foreign-clause queue; replicated-role tests trace AC-286. Verified at e7c0d239c6384f27b9ee09d41ba368862a621170. |
+| FND-001 | fixed | Public-reader tests now cover valid replicated-role admission, max precedence, wrong binder with positive max, eligible and float FIFO keys, and a foreign-clause queue; replicated-role tests trace AC-286. Verified. |

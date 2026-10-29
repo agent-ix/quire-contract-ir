@@ -3,7 +3,7 @@ id: SR-1015
 title: "gap analysis of PR 266 (IR-274 part A): FR-038-AC-89..95 against tests and code, with mutation probes"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@476e9b418e69aaaf7e796e3923e3d8321a812d50; FR-038-AC-89, AC-90, AC-91, AC-92, AC-93, AC-94, AC-95 against tests/it/checked_package_v2_identity_digests.rs, tests/it/checked_package_v2_model_members.rs, crates/quire-contract-model/src/checked_package/v2/lower/ceiling_tests.rs, v2/model_members/tests.rs, v2/operations.rs tests, and spec/checked_package/matrix/{tests.md,TC-048-checked-package-v2-strict-reader.md}"
+scope: "agent-ix/quire-contract-ir; FR-038-AC-89, AC-90, AC-91, AC-92, AC-93, AC-94, AC-95 against tests/it/checked_package_v2_identity_digests.rs, tests/it/checked_package_v2_model_members.rs, crates/quire-contract-model/src/checked_package/v2/lower/ceiling_tests.rs, v2/model_members/tests.rs, v2/operations.rs tests, and spec/checked_package/matrix/{tests.md,TC-048-checked-package-v2-strict-reader.md}"
 review_set: subset
 ---
 # SR-1015: gap analysis of PR 266
@@ -58,9 +58,9 @@ oracle for "the reader passes `limits.bytes`", so that is not a finding.
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | AC-89 asks for an expected byte string written out in the test for "a lowered node and a lowered package preimage" too. Neither exists: those two are checked only through recorded digests and length. The matrix row nevertheless lists AC-89 as verified, and the `#[trace]` tag counts it backed under `--strict`. "Every positive fixture" is also only three fixtures. I measured two more as unchanged (model-members `package_over` and complete-v1 `mixed_fixture`), but no test records them. Either add the two byte strings (for example over the ceiling test's empty `ContractPackagePreimage` and its `LoweredNodePreimage`) or keep AC-89 🚧 | tests/it/checked_package_v2_identity_digests.rs:90 |
-| FND-002 | medium | AC-93's clause "an integer value type whose upper bound is `9007199254740993` in a document that is otherwise admitted refuses the same way, where today it is admitted (the reader change)" has no test. Nothing in `tests/` or `crates/` puts that bound in a value type's `max` constraint. `semantic_ir_value_type` also accepts a bound written as a decimal string (`Value::String(text) => text.parse()`), which the number scan never sees, so this is the clause where the spelling matters. Add a test for it (number form refused with `document_pointer` at that bound), and state the string-form outcome | tests/it/checked_package_v2_model_members.rs:449 |
+| FND-002 | medium | AC-93's clause "an integer value type whose upper bound is `9007199254740993` in a document that is otherwise admitted refuses the same way, where today it is admitted (the reader change)" has no test. Nothing in `tests/` or `crates/` puts that bound in a value type's `max` constraint. `semantic_ir_value_type` also accepts a bound written as a decimal string (`Value::String(text) => text.parse`), which the number scan never sees, so this is the clause where the spelling matters. Add a test for it (number form refused with `document_pointer` at that bound), and state the string-form outcome | tests/it/checked_package_v2_model_members.rs:449 |
 | FND-003 | medium | AC-95: "a lowered package whose bytes exceed the ceiling makes every requested record `failed` with no package bytes or id". The tests check `encode_package` and `failed_records` separately, never the `lower_on_stack` wiring. Deleting the record replacement (M1) and lowering under `u64::MAX` instead of the retained limit (M2) both pass the whole suite. The "its sibling records are unchanged" clause of the node case is not asserted either. Add a test that lowers through `lower_on_stack` (the unit seam takes the ceiling) with a ceiling between the largest node preimage and the package length | crates/quire-contract-model/src/checked_package/v2/lower/ceiling_tests.rs:60 |
-| FND-004 | low | AC-91's scan list omits `serde_json::to_value`, which the AC names explicitly ("no `serde_json::to_vec` or `serde_json::to_value` call whose result reaches a digest ..."). The scan also drops everything after the first `\n#[cfg(test)]` in a file, so production code below a test module is unscanned. The structural byte test `tc_048_structural_node_keys_hash_the_expected_canonical_bytes` carries "Tracing: TC-048, FR-038-AC-89" in its doc comment but no `#[trace]` attribute | tests/it/checked_package_v2_identity_digests.rs:262 |
+| FND-004 | low | AC-91's scan list omits `serde_json::to_value`, which the AC names explicitly ("no `serde_json::to_vec` or `serde_json::to_value` call whose result reaches a digest..."). The scan also drops everything after the first `\n#[cfg(test)]` in a file, so production code below a test module is unscanned. The structural byte test `tc_048_structural_node_keys_hash_the_expected_canonical_bytes` carries "Tracing: TC-048, FR-038-AC-89" in its doc comment but no `#[trace]` attribute | tests/it/checked_package_v2_identity_digests.rs:262 |
 
 ## Verdict
 
@@ -84,7 +84,7 @@ honestly scoped to `checked_package/` and correctly left 🚧.
 
 ## Dispositions
 
-Round 1, reviewed at 249acbcd028536586d0e8162b1a15ddfc59e75a9. Mutants were rerun in a detached worktree outside the
+Round 1, reviewed. Mutants were rerun in a detached worktree outside the
 repository. M1 (drop the all-records replacement), M2 (lower under `u64::MAX`),
 M8 (node byte failure recorded as `work`), M10 (skip a refused owner key) and
 M11 (every document number as a double) are killed. M3, M4 and M5 still
@@ -92,18 +92,18 @@ survive and are equivalent, as in the review pass. M9 survives (new FND-006).
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 249acbcd028536586d0e8162b1a15ddfc59e75a9 |
-| FND-002 | fixed | 249acbcd028536586d0e8162b1a15ddfc59e75a9 |
-| FND-003 | fixed | 249acbcd028536586d0e8162b1a15ddfc59e75a9 |
-| FND-004 | fixed | 249acbcd028536586d0e8162b1a15ddfc59e75a9 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |
+| FND-004 | fixed | Fixed in the reviewed PR. |
 
 ### Round 2
 
-Round 2, reviewed at 31ba6f5f7443e3cb01258f55bb66bd84669b2290 (one commit on ebea678). These are measured in a
+Round 2, reviewed (one commit on ). These are measured in a
 detached worktree outside the repository, since removed. All gates exit 0
 (`make spec` 2 at the baseline: 1 grammar finding, 23 unbacked, 0
 contradicted). The 5-fixture digest dump and all five lowered `.bytes` files
-are identical to ebea678.
+are identical to.
 The same mutant on the package path (M9) survives, but it is equivalent under
 the AC-95 oracle. At one byte under the package length, `required` equals the
 full length, which is also `limit + 1`, as #267 itself states. The matrix
@@ -114,13 +114,13 @@ untested.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-005 | fixed | 31ba6f5f7443e3cb01258f55bb66bd84669b2290 |
-| FND-006 | fixed | 31ba6f5f7443e3cb01258f55bb66bd84669b2290 |
+| FND-005 | fixed | Fixed in the reviewed PR. |
+| FND-006 | fixed | Fixed in the reviewed PR. |
 
 ### Round 3
 
-Round 3, reviewed at 9698c7f8cd5bfd925c1da117631a29582303d367 (one commit on
-ebea678). These are measured in a detached worktree outside the repository,
+Round 3, reviewed (one commit on
+). These are measured in a detached worktree outside the repository,
 since removed. All gates exit 0 (`make spec` 2 at the baseline: 1 grammar
 finding, 23 unbacked, 0 contradicted). The `reviews/` copies are
 byte-identical to the round-2 SR files.
@@ -142,8 +142,8 @@ and M9b (`lower_one` records `ceiling + 1`) still passes the whole suite.
 
 ### Round 4
 
-Round 4, reviewed at 2425551e243fe56b92a036d1c40666ecfa7b5ffb (one commit on
-ebea678). These are measured in a detached worktree outside the repository,
+Round 4, reviewed (one commit on
+). These are measured in a detached worktree outside the repository,
 since removed. All gates exit 0 (`make spec` 2 at the baseline: 1 grammar
 finding, 23 unbacked, 0 contradicted). The `reviews/` copies are
 byte-identical to the round-3 SR files.
@@ -158,4 +158,4 @@ Nothing else changed in the delta.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-007 | fixed | 2425551e243fe56b92a036d1c40666ecfa7b5ffb |
+| FND-007 | fixed | Fixed in the reviewed PR. |

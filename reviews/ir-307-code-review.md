@@ -3,7 +3,7 @@ id: SR-982
 title: "code review of PR 230 (same_type compares resolved operand types)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@c24c6a4f2fba713b35ea577969fa0a7c5f3c0082; crates/quire-contract-model/src/checked_package/v2/operations.rs"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/operations.rs"
 review_set: subset
 ---
 # SR-982: code review of PR 230
@@ -14,7 +14,7 @@ Former id: SR-624 (cited by the marker on IR-307).
 
 Ticket: IR-307. Code review with the rust-review lane folded in. The PR changes one line in `check_operands`: the `same_type` arm now maps each operand through `operand_type_node` (the type node the operand resolves to) instead of `argument_type_id` (the operand's own reference target). It also adds one unit test. The normative rule is QSpec FR-322 (quire-specification origin/main, "Operation families, groups and constraints"): "`same_type` | The two named operands resolve to the same type node."
 
-What was measured: the new test passes at the PR head. With the one-line fix reverted and the test kept, the test goes red on the admit half ("distinct parameters of one record type must be admitted"). `make ci` passes fmt-check, lint, test and corpus, and fails only at `make spec` with 22 unbacked rows. `make spec` on clean origin/main 3e7935f fails with the same 22 rows. PR #229 (head 65d29c5) merges cleanly with this head (`git merge-tree`), and the merged tree passes the full workspace test suite.
+What was measured: the new test passes at the PR head. With the one-line fix reverted and the test kept, the test goes red on the admit half ("distinct parameters of one record type must be admitted"). `make ci` passes fmt-check, lint, test and corpus, and fails only at `make spec` with 22 unbacked rows. `make spec` on clean origin/main fails with the same 22 rows. PR #229  merges cleanly with this head (`git merge-tree`), and the merged tree passes the full workspace test suite.
 
 ## Findings
 
@@ -46,7 +46,7 @@ The fix is correct and minimal. It is the smallest change that makes `same_type`
 
 ## New findings (disposition pass 1)
 
-Reviewed at agent-ix/quire-contract-ir@82bea50be15fe315027e93a59eef49d02a756517.
+Reviewed at agent-ix/quire-contract-ir.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
@@ -56,19 +56,19 @@ Reviewed at agent-ix/quire-contract-ir@82bea50be15fe315027e93a59eef49d02a756517.
 
 ## New findings (disposition pass 2)
 
-Reviewed at agent-ix/quire-contract-ir@fd3850a703b78dbbc3f6097e939a9a1b347e0fdd.
+Reviewed at agent-ix/quire-contract-ir.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-007 | low | `is_clause_application` reads the global `operation_catalog()` instead of the `catalog: &OperationCatalog` that `check_operands` receives and uses for every other family decision. A caller that passes a different catalog gets clause classification from the production catalog. It is behaviour-neutral today, because every caller passes `operation_catalog()` | crates/quire-contract-model/src/checked_package/v2/operations.rs:679-687 |
+| FND-007 | low | `is_clause_application` reads the global `operation_catalog` instead of the `catalog: &OperationCatalog` that `check_operands` receives and uses for every other family decision. A caller that passes a different catalog gets clause classification from the production catalog. It is behaviour-neutral today, because every caller passes `operation_catalog` | crates/quire-contract-model/src/checked_package/v2/operations.rs:679-687 |
 
 ## Dispositions
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 82bea50 |
-| FND-002 | fixed | 82bea50 |
-| FND-003 | fixed | 82bea50 |
-| FND-004 | fixed | fd3850a |
-| FND-005 | fixed | fd3850a |
-| FND-006 | fixed | fd3850a |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |
+| FND-004 | fixed | Fixed in the reviewed PR. |
+| FND-005 | fixed | Fixed in the reviewed PR. |
+| FND-006 | fixed | Fixed in the reviewed PR. |

@@ -3,7 +3,7 @@ id: SR-16523
 title: "IR-9 PR 538 incremental gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@3dee1546ad6cf77e68c60613b18f89c4df09ede7; FR-018-AC-1/2/3; FR-056-AC-8; TC-018; two corpus-generator producer files"
+scope: "agent-ix/quire-contract-ir; FR-018-AC-1/2/3; FR-056-AC-8; TC-018; two corpus-generator producer files"
 review_set: subset
 relationships:
   - { target: "ix://agent-ix/quire-contract-ir/FR-018", type: references }

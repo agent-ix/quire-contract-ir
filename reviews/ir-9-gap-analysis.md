@@ -3,7 +3,7 @@ id: SR-16634
 title: "Gap analysis — IR-9 PR 555 string-edge traceability"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; PR #555 origin/main...1970117b; spec/core/functional/FR-056-consume-authoritative-string-edge-scan.md, Makefile, Cargo.toml, string-edge-rules.json, changed src/ and crates/ sources, tests/it/string_edge_gate.rs"
+scope: "agent-ix/quire-contract-ir; PR #555 origin/main...; spec/core/functional/FR-056-consume-authoritative-string-edge-scan.md, Makefile, Cargo.toml, string-edge-rules.json, changed src/ and crates/ sources, tests/it/string_edge_gate.rs"
 review_set: subset
 relationships:
   - { target: "ix://agent-ix/quire-contract-ir/FR-056", type: references }
@@ -34,7 +34,7 @@ Planless audit of FR-056 in the computed repository Test Matrix, changed test bi
 - FR-056-AC-7 (examined): Each marked function is an actual intake conversion; the checked-in rules contain no branch-dispatch suppression, file/crate exemption or copied scanner logic. Existing reported post-intake decisions retain their owning remediation until removed from the real report.
 - FR-056-AC-8 (examined): The actual repository command completes with no unresolved occurrences across both roots, without removing a root, filtering diagnostics, introducing a local marker or weakening FR-064's rule checks. A fixture-only success cannot satisfy this criterion.
 
-- Reconciliation: `quoin matrix --repo . --json` at PR head 1970117b, Quoin 0.29.1 and Quire 0.36.2; static tags and no bound run evidence.
+- Reconciliation: `quoin matrix --repo. --json` at PR, Quoin 0.29.1 and Quire 0.36.2; static tags and no bound run evidence.
 - Plan completion: not assessed
 - Repository criteria: 570 tagged, 86 untagged, 1 tagged by ignored test, 15 method without symbol. These include inherited and other-lane gaps, not new defects attributed to this PR.
 - FR-056: 7 Test criteria tagged; AC-7 is Inspection and `method-without-symbol`. Verified the test symbols in `tests/it/string_edge_gate.rs` and the actual `Makefile` target. The installed scanner and external QSpec timed-model fixtures were unavailable to this independent pass.
@@ -56,7 +56,7 @@ Planless audit of FR-056 in the computed repository Test Matrix, changed test bi
 
 ## Current review state
 
-**CONDITIONAL** — original high findings are fixed at c75c9c9f; the untagged new tests need a fix round. The installed scanner and full aggregate gate remain unqualified here.
+**CONDITIONAL** — original high findings are fixed; the untagged new tests need a fix round. The installed scanner and full aggregate gate remain unqualified here.
 
 ## Dispositions (round 2)
 
@@ -66,4 +66,4 @@ Planless audit of FR-056 in the computed repository Test Matrix, changed test bi
 
 ## Current review state (round 2)
 
-**PASS for the PR diff** — all recorded findings have latest disposition `fixed` at 7eaa7fc0. Repository-wide pre-existing matrix gaps, installed scanner availability, and aggregate gate qualification are separate gates and remain unclaimed by this review.
+**PASS for the PR diff** — all recorded findings have latest disposition `fixed`. Repository-wide pre-existing matrix gaps, installed scanner availability, and aggregate gate qualification are separate gates and remain unclaimed by this review.

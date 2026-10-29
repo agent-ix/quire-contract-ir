@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket IR-825. Diff-scoped spec-review review of PR #468 at fa9613d6201fdb8d9d09b04a39e9f2a07d833142. Requirement review: AC-25 is independently testable and the new implemented status is scoped to the IR V2 adapter. FR-019 lists the compiled exports.
+Ticket IR-825. Diff-scoped spec-review review of PR #468. Requirement review: AC-25 is independently testable and the new implemented status is scoped to the IR V2 adapter. FR-019 lists the compiled exports.
 
 ## Examined units
 

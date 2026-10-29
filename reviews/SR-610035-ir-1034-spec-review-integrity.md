@@ -3,7 +3,7 @@ id: SR-610035
 title: "Integrity review — IR-1034 drain-bearing refinement catalog"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-061-admit-refinement-nodes.md; PR #594 at fc2afe9420821292a6eacf42f499892010593052"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-061-admit-refinement-nodes.md; PR #594 "
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-061
@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Integrity review of IR-1034 PR #594 at fc2afe9420821292a6eacf42f499892010593052. The diff changes only FR-061. QSpec #447 at c5cfb1da5be1f29730ac90d2b8862251388d0100 supplies the authoritative FR-375/TC-310 shape. No applicable AssuranceProfile was found under spec/.
+Integrity review of IR-1034 PR #594. The diff changes only FR-061. QSpec #447 supplies the authoritative FR-375/TC-310 shape. No applicable AssuranceProfile was found under spec/.
 
 ## Verdict
 
@@ -44,7 +44,7 @@ Integrity review of IR-1034 PR #594 at fc2afe9420821292a6eacf42f499892010593052.
 
 ## Evidence
 
-- `quire validate --scope . spec/checked_package/functional/FR-061-admit-refinement-nodes.md --summary`: 1/1 grammar-clean.
+- `quire validate --scope. spec/checked_package/functional/FR-061-admit-refinement-nodes.md --summary`: 1/1 grammar-clean.
 - `quire lint` on the changed FR: exit 0. `quire properties --criteria --all`: 13 criteria classified, 8 extractable.
 - Diff has no code, fixture, schema, or copied QSpec file. Existing AC-1 through AC-8 are unchanged; AC-9 extends ordering without removing the prior stages.
 - QSpec PR #447 FR-375 states one catalog entry per alias-free class spelling and one `memory drain` per source default; TC-310 CC-12 asks one subject with SC, TSO and RA defaults.
@@ -53,20 +53,20 @@ Integrity review of IR-1034 PR #594 at fc2afe9420821292a6eacf42f499892010593052.
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | still-open | Round 1 at ab0a8fbdbaac9c48421f06c3e46ccf0182e46fb0 changes only FR-061 model-root header and AC-3. AC-12 and the duplicate class-entry refusal are unchanged; STD-499 remains open for QSpec catalog multiplicity and order. |
+| FND-001 | still-open | Round 1 changes only FR-061 model-root header and AC-3. AC-12 and the duplicate class-entry refusal are unchanged; STD-499 remains open for QSpec catalog multiplicity and order. |
 
-| FND-001 | still-open | Round 2 at d50f9c232df7cb591b511680baa66e47be374d42: rebased on merged IR main 03a48096. AC-1, AC-3 and AC-7 are byte-identical to main; AC-9 through AC-13 are byte-identical to the originally reviewed memory-drain head fc2afe94. The multi-default catalog contradiction is unchanged and remains owned by STD-499. |
+| FND-001 | still-open | Round 2: rebased on merged IR main. AC-1, AC-3 and AC-7 are byte-identical to main; AC-9 through AC-13 are byte-identical to the originally reviewed memory-drain. The multi-default catalog contradiction is unchanged and remains owned by STD-499. |
 
-| FND-001 | fixed | Round 3 at 327e31ec337b72a65418ed34ac8100df383a59fb: QSpec #459 (merge 2b991805) defines declared-class key as `class` and memory-class key as (`class`, `memory_model`), ordered by class then model bytes. FR-061 now requires ra/sc/tso drains plus TSO flush, one entry per distinct source-default model, and rejects only equal catalog keys. The valid multi-default subject can now be admitted. |
+| FND-001 | fixed | Round 3: QSpec #459 (merge ) defines declared-class key as `class` and memory-class key as (`class`, `memory_model`), ordered by class then model bytes. FR-061 now requires ra/sc/tso drains plus TSO flush, one entry per distinct source-default model, and rejects only equal catalog keys. The valid multi-default subject can now be admitted. |
 
 ## Current verdict
 
-**FAIL** at ab0a8fbdbaac9c48421f06c3e46ccf0182e46fb0. The model-root correction matches QSpec origin/main e3d48d76 FR-375 header joins, FR-375-AC-25 and FR-322 model-root owner rules. A selected package has one canonical root regardless of object-type or state-machine count; a local abstract root is a local dependency, while a directly selected external root joins through its package. The new AC-3 wrong-declaration and wrong-owner-root cases can fail and preserve the prior local/external-key refusal cases. No new finding. FND-001 remains open pending STD-499; PR #594 remains draft.
+**FAIL**. The model-root correction matches QSpec origin/main FR-375 header joins, FR-375-AC-25 and FR-322 model-root owner rules. A selected package has one canonical root regardless of object-type or state-machine count; a local abstract root is a local dependency, while a directly selected external root joins through its package. The new AC-3 wrong-declaration and wrong-owner-root cases can fail and preserve the prior local/external-key refusal cases. No new finding. FND-001 remains open pending STD-499; PR #594 remains draft.
 
 ## Current verdict after round 2
 
-**FAIL** at d50f9c232df7cb591b511680baa66e47be374d42. Rebase introduces no new finding or AC narrowing. FND-001 remains still-open solely because QSpec STD-499 has not settled memory catalog uniqueness, multiplicity and order. PR #594 remains draft.
+**FAIL**. Rebase introduces no new finding or AC narrowing. FND-001 remains still-open solely because QSpec STD-499 has not settled memory catalog uniqueness, multiplicity and order. PR #594 remains draft.
 
 ## Current verdict after round 3
 
-**PASS** at 327e31ec337b72a65418ed34ac8100df383a59fb. Original FND-001 is fixed by the QSpec #459 catalog-key ruling and aligned IR prose/AC-10 through AC-12. All three source-default drain entries remain required and the duplicate/reorder refusals use the complete catalog key. AC-1 through AC-8 are unchanged from IR main; AC-9 and AC-13 are unchanged from the prior reviewed memory head. No new finding or AC narrowing. Spec validation and lint pass.
+**PASS**. Original FND-001 is fixed by the QSpec #459 catalog-key ruling and aligned IR prose/AC-10 through AC-12. All three source-default drain entries remain required and the duplicate/reorder refusals use the complete catalog key. AC-1 through AC-8 are unchanged from IR main; AC-9 and AC-13 are unchanged from the prior reviewed memory head. No new finding or AC narrowing. Spec validation and lint pass.

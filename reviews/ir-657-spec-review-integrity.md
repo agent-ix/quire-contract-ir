@@ -3,7 +3,7 @@ id: SR-2023
 title: "spec-review/integrity review of IR-657 catalog spelling"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@56a7a5a96f85282618adcdd7c42ebf41c39f381f; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; context: spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; context: spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md"
 review_set: subset
 ---
 

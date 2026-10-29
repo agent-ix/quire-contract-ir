@@ -3,7 +3,7 @@ id: SR-1731
 title: "Integrity review of IR-644 optional record leaf walk"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@55c22b8de810ff3b1fcf9e19eb470705a6aeb5ca; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md"
 review_set: subset
 ---
 
@@ -36,9 +36,9 @@ Ticket: IR-644. Checked the new leaf-walk rule and AC-151/152 with TC-048 for on
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | ccd719ef20580cad745a6e3191bad9c1e8a64659 — AC-151 and TC-048 now require observable admission with the same field and inner path, without the unobservable classification claim. |
-| FND-002 | fixed | ccd719ef20580cad745a6e3191bad9c1e8a64659 — AC-152 and TC-048 now require every listed grammar-valid mutant to reach the operation check and refuse `ill_typed`/`operator-ineligible` at `operation.leaves`; an earlier refusal fails. |
+| FND-001 | fixed | — AC-151 and TC-048 now require observable admission with the same field and inner path, without the unobservable classification claim. |
+| FND-002 | fixed | — AC-152 and TC-048 now require every listed grammar-valid mutant to reach the operation check and refuse `ill_typed`/`operator-ineligible` at `operation.leaves`; an earlier refusal fails. |
 
 ## Round 1 verdict
 
-**PASS** — Both integrity findings are fixed at ccd719ef20580cad745a6e3191bad9c1e8a64659; no new defect was found in the fix delta.
+**PASS** — Both integrity findings are fixed; no new defect was found in the fix delta.

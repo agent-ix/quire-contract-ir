@@ -11,7 +11,7 @@ review_set: subset
 
 ## Summary
 
-Exact head ba9c5d6a9d8742a12d6e5d8e7e0aaf6ad8cc8e8f. Examined FR-020 shared CLI boundary, AC-16 through AC-19, and both changed matrix declarations against ix-cli-kit main 7f3b58b6. No defect found under this method.
+Exact. Examined FR-020 shared CLI boundary, AC-16 through AC-19, and both changed matrix declarations against ix-cli-kit main. No defect found under this method.
 
 ## Scope
 
@@ -33,4 +33,4 @@ Pass for this method.
 
 ## Narrow re-review
 
-PR head 2f60e12941a529d1387a34c1dd7e09b012287481 on main cbac029bf42e1ea06926298b197515f71b297c1c changes the reviewed patch only by adding the FR-003 dependency and changing AC-19 verification to Inspection, Test. The earlier clean verdict under this method carries.
+PR on main changes the reviewed patch only by adding the FR-003 dependency and changing AC-19 verification to Inspection, Test. The earlier clean verdict under this method carries.

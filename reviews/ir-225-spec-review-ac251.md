@@ -3,7 +3,7 @@ id: SR-11676
 title: IR-225 spec review of the FR-038-AC-251 amendment (catalogue entry-shape selection)
 type: SpecReview
 analysis: base
-scope: agent-ix/quire-contract-ir@9e7fe57352f25477d3c7d4b359da450cb17ce529; PR 409, spec hunks of diff 9e44b4b..9e7fe57; spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
+scope: agent-ix/quire-contract-ir; PR 409, spec hunks of diff..; spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
   spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md, tests/it/checked_package_v2_catalogue_differential.rs
 review_set: subset
 ---
@@ -57,7 +57,7 @@ helpers cannot build them, not because of any semantic exclusion:
   Lacking an admitted control for these is a gap-analysis finding
   (SR-11675 FND-005), not a spec defect.
 
-Quire state at 9e7fe57: `validate` passes 884/884, and `coverage --strict`
+Quire state: `validate` passes 884/884, and `coverage --strict`
 reports 50 unbacked rows and 0 contradicted.
 
 ## Findings
@@ -81,7 +81,7 @@ reports 50 unbacked rows and 0 contradicted.
 - id: FR-038-AC-247
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
-  excerpt: '... regardless of whether its family resolves or the entry has a `member_family` constraint ... a simultaneous operand defect wins over a result defect, while a simultaneous genuine rounding-mode type defect on `quantity.convert` does not displace the `result_type` refusal.'
+  excerpt: '... regardless of whether its family resolves or the entry has a `member_family` constraint... a simultaneous operand defect wins over a result defect, while a simultaneous genuine rounding-mode type defect on `quantity.convert` does not displace the `result_type` refusal.'
 - id: FR-038-AC-249
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
@@ -99,8 +99,8 @@ reports 50 unbacked rows and 0 contradicted.
 ## Dispositions
 
 Round 2 (the first disposition pass for this artifact). Verified at
-f30fd77bb53ef69a268dbbe0c8fbf92fa4ddc7fc by reviewing
-`git diff 9e7fe57..f30fd77`.
+ by reviewing
+`git diff..`.
 
 The differential's denominator is stated the same way in the test
 message, TC-048 and tests.md: "behavioral controls for 56 of 160 entries",

@@ -3,7 +3,7 @@ id: SR-565875
 title: "IR-1014 PR 564 FR-019 public inventory review"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; PR #564 at 92aa6e74; FR-019 Public items table rows for refinement source rows and V2 envelope encoder"
+scope: "agent-ix/quire-contract-ir; PR #564; FR-019 Public items table rows for refinement source rows and V2 envelope encoder"
 review_set: base
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-019

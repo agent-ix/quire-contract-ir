@@ -3,7 +3,7 @@ id: SR-7043
 title: dependency review of IR-272 FR-330 ContractPackage alignment
 type: SpecReview
 analysis: dependency
-scope: agent-ix/quire-contract-ir@c9e06ba2e99dce5852641073cf72d659d8b33170; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md, spec/assurance/AD-001-contract-ir-architecture.md, spec/assurance/AD-004-checked-package-seam.md, spec/checked_package/matrix/TC-044-complete-v1-contract-package-lowering.md, spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md, spec/checked_package/matrix/tests.md
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md, spec/assurance/AD-001-contract-ir-architecture.md, spec/assurance/AD-004-checked-package-seam.md, spec/checked_package/matrix/TC-044-complete-v1-contract-package-lowering.md, spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md, spec/checked_package/matrix/tests.md
 review_set: subset
 ---
 

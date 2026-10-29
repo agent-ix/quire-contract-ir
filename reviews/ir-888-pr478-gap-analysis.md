@@ -3,7 +3,7 @@ id: SR-13161
 title: "IR-888 quire-contract-ir PR 478 gap analysis: FR-035-AC-10/AC-11 backing vs matrix"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir PR #478 head f4ad2a5 vs origin/main d17b623; tests/it/complete_v1_contract_package.rs; read-only: spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md, spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md, spec/checked_package/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir PR #478 vs origin/main; tests/it/complete_v1_contract_package.rs; read-only: spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md, spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md, spec/checked_package/matrix/tests.md"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-035
@@ -14,7 +14,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-888 (under IR-878). Plan completion: not assessed. This is a planless gap analysis. `quire coverage --scope . --strict` (quire 0.36.2) was measured the same way on an origin/main worktree and on the PR head. On main: 541/609 rows backed, 42 unbacked, 0 contradicted, FR-035 8/11. On the PR head: 543/609 backed, 40 unbacked, 0 contradicted, FR-035 10/11. The only rows that changed are FR-035-AC-10 and FR-035-AC-11, which are now backed. Rust symbols went from 948/949/952 to 950/951/955 bound/tagged/candidates. This matches the author's claim. No production code changed, and TC-456, `public_interface.rs` and `identity.rs` are untouched. The reorder (noncanonical) case is not part of AC-10, and no cumulative work bound is asserted (IR-889 open), as decided.
+Ticket: IR-888 (under IR-878). Plan completion: not assessed. This is a planless gap analysis. `quire coverage --scope. --strict` (quire 0.36.2) was measured the same way on an origin/main worktree and on the PR head. On main: 541/609 rows backed, 42 unbacked, 0 contradicted, FR-035 8/11. On the PR head: 543/609 backed, 40 unbacked, 0 contradicted, FR-035 10/11. The only rows that changed are FR-035-AC-10 and FR-035-AC-11, which are now backed. Rust symbols went from 948/949/952 to 950/951/955 bound/tagged/candidates. This matches the author's claim. No production code changed, and TC-456, `public_interface.rs` and `identity.rs` are untouched. The reorder (noncanonical) case is not part of AC-10, and no cumulative work bound is asserted (IR-889 open), as decided.
 
 ## Reviewed units
 
@@ -36,4 +36,4 @@ Ticket: IR-888 (under IR-878). Plan completion: not assessed. This is a planless
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | TC-047 Status, the tests.md FR-035 row and the TC-047 row now state that AC-10 and AC-11 are backed by the two named tagged tests, with the AC-11 work-limit scope open under IR-889; strict coverage at 8551c3c is 543/609 backed, 40 unbacked, 0 contradicted |
+| FND-001 | fixed | TC-047 Status, the tests.md FR-035 row and the TC-047 row now state that AC-10 and AC-11 are backed by the two named tagged tests, with the AC-11 work-limit scope open under IR-889; strict coverage is 543/609 backed, 40 unbacked, 0 contradicted |

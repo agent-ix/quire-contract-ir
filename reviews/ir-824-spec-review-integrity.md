@@ -23,12 +23,12 @@ superseded AC itself.
 
 ## Findings
 
-| ID      | Severity | Summary | Refs | Escape Cause |
+| ID | Severity | Summary | Refs | Escape Cause |
 | ------- | -------- | ------- | ---- | ------------ |
-| FND-001 | medium   | FR-038-AC-172 is left verbatim with no pointer to FR-038-AC-252, so read alone it still requires "otherwise ineligible Set/Bag edge refuses `ill_typed`/`operator-ineligible`" while AC-252 admits the same input: two live criteria disagree. The repo convention puts the pointer in the superseded row too (FR-040-AC-7 "(FR-040-AC-28 supersedes the former shared-frame refusal)"; FR-052-AC-8 "FR-052-AC-17 supersedes this criterion"). Add a pointer to AC-172 (e.g. "FR-038-AC-252 supersedes the Set/Bag clause for `quire.op.model.reaches`") without rewriting its outcomes. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4348 | wrong-requirement |
+| FND-001 | medium | FR-038-AC-172 is left verbatim with no pointer to FR-038-AC-252, so read alone it still requires "otherwise ineligible Set/Bag edge refuses `ill_typed`/`operator-ineligible`" while AC-252 admits the same input: two live criteria disagree. The repo convention puts the pointer in the superseded row too (FR-040-AC-7 "(FR-040-AC-28 supersedes the former shared-frame refusal)"; FR-052-AC-8 "FR-052-AC-17 supersedes this criterion"). Add a pointer to AC-172 (e.g. "FR-038-AC-252 supersedes the Set/Bag clause for `quire.op.model.reaches`") without rewriting its outcomes. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4348 | wrong-requirement |
 
 ## Dispositions
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Fix commit 1840592 appends to FR-038-AC-172 (line 4356) "FR-038-AC-252 supersedes the otherwise-ineligible Set/Bag clause for `quire.op.model.reaches`." with outcomes and status unchanged, matching the FR-040-AC-7 / FR-052-AC-8 convention; TC-048 item 10 and the matrix rows assert only the new behaviour. |
+| FND-001 | fixed | Fix appends to FR-038-AC-172 (line 4356) "FR-038-AC-252 supersedes the otherwise-ineligible Set/Bag clause for `quire.op.model.reaches`." with outcomes and status unchanged, matching the FR-040-AC-7 / FR-052-AC-8 convention; TC-048 item 10 and the matrix rows assert only the new behaviour. |

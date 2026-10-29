@@ -3,7 +3,7 @@ id: SR-7120
 title: "IR-630 PR 346 code-review review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@f84b9b278b3547da072d2da7b63af2674725c00f; crates/quire-contract-model/src/checked_package/v2/derived_keys.rs, crates/quire-contract-model/src/checked_package/v2/encode.rs, crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/checked_package/v2/model_members.rs, crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it/checked_package_v2_model_fields.rs, tests/it/checked_package_v2_owners.rs, tests/it/checked_package_v2_reader.rs, tests/it/checked_package_v2_structural_keys.rs"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/derived_keys.rs, crates/quire-contract-model/src/checked_package/v2/encode.rs, crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/checked_package/v2/model_members.rs, crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it/checked_package_v2_model_fields.rs, tests/it/checked_package_v2_owners.rs, tests/it/checked_package_v2_reader.rs, tests/it/checked_package_v2_structural_keys.rs"
 review_set: subset
 ---
 

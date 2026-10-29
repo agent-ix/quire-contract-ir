@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-883. Reviewed head ee278f54fa576eac8a549add133e234173995048 against main ffd76b1. Language-independent code review found no changed-source defect; no duplicated upstream file, compatibility layer, weakened CI lane, or new unowned behavior.
+Ticket: IR-883. Reviewed against main. Language-independent code review found no changed-source defect; no duplicated upstream file, compatibility layer, weakened CI lane, or new unowned behavior.
 
 ## Verdict
 

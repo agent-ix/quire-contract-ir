@@ -3,7 +3,7 @@ id: SR-1130
 title: "gap analysis of PR 274 against FR-038-AC-112, FR-038-AC-113 and TC-048 (IR-552 code)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@cb0a8bf46b879a39de3c27682c208cb879299a7d; git diff origin/main...cb0a8bf (base 90ad41d); spec/checked_package/functional/FR-038-consume-checked-package-v2.md (AC-112, AC-113; AC-70, AC-97, AC-106 for the retagged and added tests), spec/checked_package/matrix/tests.md (FR-038 and TC-048 rows), spec/tests.md"
+scope: "agent-ix/quire-contract-ir; git diff origin/main...; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (AC-112, AC-113; AC-70, AC-97, AC-106 for the retagged and added tests), spec/checked_package/matrix/tests.md (FR-038 and TC-048 rows), spec/tests.md"
 review_set: subset
 ---
 # SR-1130: gap analysis of PR 274 against FR-038-AC-112, FR-038-AC-113 and TC-048 (IR-552 code)
@@ -12,7 +12,7 @@ review_set: subset
 
 Ticket: IR-552. In scope: FR-038-AC-112 and FR-038-AC-113 as merged in #272, traced to the tests in `tests/conformance_qspec/main.rs`, the matrix flips, and the bindings of the added recursion tests. Plan completion: not assessed.
 
-What I examined, with `make conformance-qspec` run against a throwaway worktree of quire-specification origin/main (396493c):
+What I examined, with `make conformance-qspec` run against a throwaway worktree of quire-specification origin/main :
 
 - **FR-038-AC-112.** Every clause has code. The harness reads `adverse.json` from `QUIRE_SPECIFICATION_DIR` and applies both lists to a fresh copy of `positive-all-families.json`, refreshing no identity. It runs the `flattened` control and keeps the expected-failure list with id, today's refusal and owning ticket. It fails on an absent id, a stale entry, a 'neither' refusal and an unlisted mismatch. The five listed `body_grammar_mutations` give exactly the listed refusals on origin/main, and IR-495 owns them. The result test fails on origin/main because of the cause comparison (SR-1129 FND-001), so the AC is not verified today. See FND-001.
 - **FR-038-AC-113.** It replaces `dependency_selections` in both the `lock` and the `identity_preimage`. It derives through `CheckedPackageIdentityPreimageV2` and `quire_canonical::sha256`, as the reader does (mod.rs:772), and the result equals the recorded `package_id`. An entry with `version` fails to decode as a V2 lock. The unchanged base derives a different id. The fail-closed cases are tested: variable unset or empty, file missing, recorded id differing. The result test passes on origin/main. See FND-002 for the 'own package_id' and `base` clauses.
@@ -23,7 +23,7 @@ What I examined, with `make conformance-qspec` run against a throwaway worktree 
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | high | The FR-038 matrix row says AC-112 is 'implemented ... and verified by TC-048' and that 'every structural_mutations entry refuses as recorded'. TC-048 says the same. On quire-specification origin/main, `tc_048_qspec_adverse_mutations_refuse_as_recorded` fails on `negative-temporal-interval-bound` (recorded `refused:invalid_package`, reader `refused:invalid_package/invalid-value`). The reader does refuse it with the recorded code. The harness's whole-string comparison is stricter than AC-112's 'cause ... where it gives one' (SR-1129 FND-001). The flip is backed by tags but not by a passing run against current QSpec. Fix the comparison; the matrix text can stay as written once the run passes. | spec/checked_package/matrix/tests.md:15, 23; tests/conformance_qspec/main.rs:289-307 |
+| FND-001 | high | The FR-038 matrix row says AC-112 is 'implemented... and verified by TC-048' and that 'every structural_mutations entry refuses as recorded'. TC-048 says the same. On quire-specification origin/main, `tc_048_qspec_adverse_mutations_refuse_as_recorded` fails on `negative-temporal-interval-bound` (recorded `refused:invalid_package`, reader `refused:invalid_package/invalid-value`). The reader does refuse it with the recorded code. The harness's whole-string comparison is stricter than AC-112's 'cause... where it gives one' (SR-1129 FND-001). The flip is backed by tags but not by a passing run against current QSpec. Fix the comparison; the matrix text can stay as written once the run passes. | spec/checked_package/matrix/tests.md:15, 23; tests/conformance_qspec/main.rs:289-307 |
 | FND-002 | low | AC-113 says 'the base fixture unchanged derives its own different package_id' and names the `base` fixture through the vectors file. The harness checks only that the unchanged base does not derive the recorded id. It never checks that the result equals the base's own `package_id.digest`. It also ignores the file's `base` member (`fixtures/positive-all-families.json`) and hardcodes `MUTATED_BASE`. If the base changes, the run fails closed on the id, but the failure message points at the derivation, not at the base. Assert `derived_with(base, None) == base.package_id.digest`, and read the base path from `vectors.base`. | tests/conformance_qspec/main.rs:51, 343-376, 544-551 |
 
 ## Verdict
@@ -32,9 +32,9 @@ AC-113 is implemented and verified, with one low gap against its 'own package_id
 
 ## Dispositions
 
-Round 1 was reviewed at 05465f3f419fe4d49aa6c8a598bbac730cd40fc8. `make conformance-qspec` against quire-specification origin/main (396493c) passes all 6 tests. The AC-112 matrix flip is now backed by a passing run. Guard-deletion mutants for the own-package_id check and the selections non-empty guard each fail `tc_048_qspec_selection_run_fails_closed` (see SR-1129 Dispositions). `make spec` is at the baseline.
+Round 1 was reviewed. `make conformance-qspec` against quire-specification origin/main  passes all 6 tests. The AC-112 matrix flip is now backed by a passing run. Guard-deletion mutants for the own-package_id check and the selections non-empty guard each fail `tc_048_qspec_selection_run_fails_closed` (see SR-1129 Dispositions). `make spec` is at the baseline.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed 05465f3 | With `refuses_as`, `negative-temporal-interval-bound` meets its cause-less recorded outcome. The AC-112 result test passes on QSpec main, so the 'verified' and 'every structural_mutations entry refuses as recorded' claims now hold. |
-| FND-002 | fixed 05465f3 | `selection_problems` checks that the unchanged base derives its own recorded `package_id.digest`, and a changed base digest fails that check. `selection_inputs` reads the base path from the vectors' `base` member through `base_path_of`. |
+| FND-001 | fixed | With `refuses_as`, `negative-temporal-interval-bound` meets its cause-less recorded outcome. The AC-112 result test passes on QSpec main, so the 'verified' and 'every structural_mutations entry refuses as recorded' claims now hold. |
+| FND-002 | fixed | `selection_problems` checks that the unchanged base derives its own recorded `package_id.digest`, and a changed base digest fails that check. `selection_inputs` reads the base path from the vectors' `base` member through `base_path_of`. |

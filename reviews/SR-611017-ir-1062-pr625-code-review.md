@@ -3,7 +3,7 @@ id: SR-611017
 title: "Code and Rust review of IR-1062 PR 625"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; tests/conformance_qspec/main.rs:393; PR #625 at dc9789ecaa461466d9e37981e282dcc72fad0ed1"
+scope: "agent-ix/quire-contract-ir; tests/conformance_qspec/main.rs:393; PR #625 "
 review_set: subset
 ---
 

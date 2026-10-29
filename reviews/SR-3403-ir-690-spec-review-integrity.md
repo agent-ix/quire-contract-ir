@@ -3,7 +3,7 @@ id: SR-3403
 title: Integrity review of IR-690 implementation status
 type: SpecReview
 analysis: integrity
-scope: agent-ix/quire-contract-ir@71abb07c7bb23785edfccb0c2ac75ef3a64a32ad; crates/quire-contract-model/src/checked_package/v2/composite_operands.rs,
+scope: agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/composite_operands.rs,
   spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md,
   spec/checked_package/matrix/tests.md, tests/it/checked_package_v2_composite_operands.rs
 review_set: subset
@@ -16,7 +16,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-690. Exact frozen candidate 71abb07c7bb23785edfccb0c2ac75ef3a64a32ad. The new implemented status is consistent across FR-038 and the matrix, but the TC-048 procedure retains one stale planned-status phrase.
+Ticket: IR-690. Exact frozen candidate. The new implemented status is consistent across FR-038 and the matrix, but the TC-048 procedure retains one stale planned-status phrase.
 
 ## Examined units
 
@@ -44,8 +44,8 @@ Ticket: IR-690. Exact frozen candidate 71abb07c7bb23785edfccb0c2ac75ef3a64a32ad.
 
 ## Dispositions
 
-Round 1 checked local unpublished fix head `b6d3db8d0bdbe5d71c51592126f0346fb2c504d3` against the original reviewed head. The only prose change replaces the stale planned phrase with the implemented assertion; the five initial review exports were copied byte-exact. No regression was found in the six-path fix delta.
+Round 1 checked local unpublished fix against the original reviewed head. The only prose change replaces the stale planned phrase with the implemented assertion; the five initial review exports were copied byte-exact. No regression was found in the six-path fix delta.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | b6d3db8d0bdbe5d71c51592126f0346fb2c504d3: “The former structural.ne refusal was superseded; the retargeted public assertion now verifies IneligibleOperator for an admitted non-eq/ne operation.” |
+| FND-001 | fixed |: “The former structural.ne refusal was superseded; the retargeted public assertion now verifies IneligibleOperator for an admitted non-eq/ne operation.” |

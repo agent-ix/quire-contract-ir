@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket IR-825. Diff-scoped spec-review/integrity-analysis review of PR #468 at fa9613d6201fdb8d9d09b04a39e9f2a07d833142. Integrity review: FR-052, TC-452, FR-019 and the matrix agree that only AC-25 gains owner-native credit; four-owner completion remains planned.
+Ticket IR-825. Diff-scoped spec-review/integrity-analysis review of PR #468. Integrity review: FR-052, TC-452, FR-019 and the matrix agree that only AC-25 gains owner-native credit; four-owner completion remains planned.
 
 ## Examined units
 

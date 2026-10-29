@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-The new nested-repeat rule matches the QSpec oracle on admission, refusal, zero maximum, reset and basic work boundaries. Three test-matrix gaps remain. Reviewed PR #671 at 2996c176452745d6fee32c2c85ab616c6ed10e32 against merged QSpec FR-464-AC-21 to 23 and TC-946 R13 to R24. No applicable AssuranceProfile was found in the changed module.
+The new nested-repeat rule matches the QSpec oracle on admission, refusal, zero maximum, reset and basic work boundaries. Three test-matrix gaps remain. Reviewed PR #671 against merged QSpec FR-464-AC-21 to 23 and TC-946 R13 to R24. No applicable AssuranceProfile was found in the changed module.
 
 ## Examined units
 

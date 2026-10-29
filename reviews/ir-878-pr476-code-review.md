@@ -3,7 +3,7 @@ id: SR-13090
 title: "code review of PR 476 (IR-878 canonicalization and coverage criteria tests)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@ac0d77111ff639266449417f537b0f892996ce81; git diff origin/main...HEAD (main d7bf519): tests/it/canonicalization.rs, spec/core/matrix/tests.md, spec/model/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD (main ): tests/it/canonicalization.rs, spec/core/matrix/tests.md, spec/model/matrix/tests.md"
 review_set: subset
 ---
 # SR-13090: code review of PR 476
@@ -11,7 +11,7 @@ review_set: subset
 ## Summary
 
 Ticket: IR-878. Non-author review of agent-ix/quire-contract-ir PR 476 at
-ac0d77111ff639266449417f537b0f892996ce81, scoped to `git diff origin/main...HEAD`. The PR
+, scoped to `git diff origin/main...HEAD`. The PR
 changes three files: tests only in `tests/it/canonicalization.rs`, and status prose in two
 matrix files. It changes no production code. The rust-review lane is folded into this file.
 

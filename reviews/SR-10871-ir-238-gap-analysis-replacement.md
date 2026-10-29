@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Replacement gap review of PR #389 at frozen head `f6abcf0f1a95cae9c87e18f547b307c8d8f5d9ea`, scoped to `git diff origin/main...HEAD`. `quoin matrix --repo . --json` reports FR-051-AC-1..3 tagged by the changed tests. Source and tests contain real implementations and behavioral assertions; no unowned behavior or hollow trace was found in this change. The matrix reports no run evidence bound to the criteria; no aggregate gate was run. Prior scoped gap conclusion still holds after rebase. Repository-wide unrelated gaps are outside this PR disposition.
+Replacement gap review of PR #389 at frozen, scoped to `git diff origin/main...HEAD`. `quoin matrix --repo. --json` reports FR-051-AC-1..3 tagged by the changed tests. Source and tests contain real implementations and behavioral assertions; no unowned behavior or hollow trace was found in this change. The matrix reports no run evidence bound to the criteria; no aggregate gate was run. Prior scoped gap conclusion still holds after rebase. Repository-wide unrelated gaps are outside this PR disposition.
 
 ## Verdict
 

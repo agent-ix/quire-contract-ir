@@ -11,7 +11,7 @@ review_set: subset
 
 ## Summary
 
-Requirement statement grammar and observable response review in the changed FR-052 prose. Exact reviewed head: `14be7dc`, base: `f7dd613`. The prior unrecorded review concerns about AC-14 producer evidence and the TC-452 owner/AC list are resolved in this head; no new defects were found.
+Requirement statement grammar and observable response review in the changed FR-052 prose. Exact reviewed head:, base:. The prior unrecorded review concerns about AC-14 producer evidence and the TC-452 owner/AC list are resolved in this head; no new defects were found.
 
 ## Verdict
 

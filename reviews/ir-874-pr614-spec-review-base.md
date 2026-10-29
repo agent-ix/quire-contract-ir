@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed the FR-038-AC-292 and TC-048 additions in PR #614 at b201f727bf402e1cc4694360ff735886dac5448c against QSpec 9bcbc625. The IR criterion distinguishes a field projection from a bare record-binder read and preserves scope, model-state, bare-read and decision-fact precedence. TC-048 names the four slots, the `opened` and `got` cases, both mixed operand orders and exact refusal location/detail.
+Reviewed the FR-038-AC-292 and TC-048 additions in PR #614 against QSpec. The IR criterion distinguishes a field projection from a bare record-binder read and preserves scope, model-state, bare-read and decision-fact precedence. TC-048 names the four slots, the `opened` and `got` cases, both mixed operand orders and exact refusal location/detail.
 
 ## Examined units
 

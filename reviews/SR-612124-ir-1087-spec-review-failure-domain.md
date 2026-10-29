@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-IR-1087 PR #652 at 2df5c36ad6518438a95cfbcd57009b523f0491d6, base b712988b. Examined FR-035-AC-23..26, FR-038-AC-341, unchanged FR-035-AC-22 and TC-047/048 plus FR-019 inventory. Spec-only diff; no code or aggregate gate.
+IR-1087 PR #652. Examined FR-035-AC-23..26, FR-038-AC-341, unchanged FR-035-AC-22 and TC-047/048 plus FR-019 inventory. Spec-only diff; no code or aggregate gate.
 
 ## Verdict
 
@@ -23,11 +23,11 @@ CONDITIONAL: authenticated source matching omits represented non-operation nodes
 
 ## Coverage
 
-All changed files and the unchanged AC-22 equality requirement examined. `quire validate --scope .` on the five changed files: 5/5 grammar-clean. `quoin advise --json` checked all five new AC methods; no mismatch. No backing test tags were added in this spec-only diff; the new criteria are marked Planned/UNRUN. The full computed matrix was not run for this scoped review. Plan completion: not assessed.
+All changed files and the unchanged AC-22 equality requirement examined. `quire validate --scope.` on the five changed files: 5/5 grammar-clean. `quoin advise --json` checked all five new AC methods; no mismatch. No backing test tags were added in this spec-only diff; the new criteria are marked Planned/UNRUN. The full computed matrix was not run for this scoped review. Plan completion: not assessed.
 
 ## Dispositions
 
-Round 1, reviewed at ac26f2154a6a77f9010a176ce0977f59642258d2.
+Round 1, reviewed.
 
 | FND | outcome | reason |
 | --- | --- | --- |

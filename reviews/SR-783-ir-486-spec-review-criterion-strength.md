@@ -3,7 +3,7 @@ id: SR-783
 title: "criterion-strength review of PR 255 (IR-486)"
 type: SpecReview
 analysis: criterion-strength
-scope: "agent-ix/quire-contract-ir@154fc38ef518b036ef68ca1bb25fd6911846750d; spec/checked_package/functional/FR-038-consume-checked-package-v2.md AC-43 amended, AC-69..71; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md Recursive compared types; reader code (operations.rs LeafWalk) to judge which implementations each clause can fail; quire-spec-language origin/main FR-093-AC-11"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md AC-43 amended, AC-69..71; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md Recursive compared types; reader code (operations.rs LeafWalk) to judge which implementations each clause can fail; quire-spec-language origin/main FR-093-AC-11"
 review_set: subset
 ---
 # SR-783: criterion-strength review of PR 255 (IR-486)
@@ -34,12 +34,12 @@ Adequate for the main path. One medium discrimination gap and two low gaps.
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir@2f54f96507fd81b6d1b428cbf1113ad4cd50f035. The PR was rebased onto origin/main 35c098f51a0e0e126a3d05ef9a3647aa3527df39, after #254 merged, and is one commit on it. Its diff against that base is the delta I reviewed; the rebase is excluded. GitHub reports MERGEABLE. `make spec` at round 1: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/212 rows backed, FR-038 42/70 (main: 163/209, 42/67). The new ids are AC-70 to AC-72, and the only FR-038-AC-69 row is #254's. No AC id is duplicated. The diff and the PR body contain no SHA.
+Round 1, reviewed at agent-ix/quire-contract-ir. The PR was rebased onto origin/main, after #254 merged, and is one commit on it. Its diff against that base is the delta I reviewed; the rebase is excluded. GitHub reports MERGEABLE. `make spec` at round 1: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/212 rows backed, FR-038 42/70 (main: 163/209, 42/67). The new ids are AC-70 to AC-72, and the only FR-038-AC-69 row is #254's. No AC id is duplicated. The diff and the PR body contain no SHA.
 
 Notes on the round-1 checks: AC-70 adds `Wrap` over `X`/`Y`, with 4 text leaves and the law-missing and law-mismatch edges. It compares `A` and `B` in one package, so a memo shared across operations is caught. It adds `Tree2`, which reenters through a bounded `Sequence`, and the tuple `Pair`. AC-72 names "the default read limits" for the ten records and a ring of 12 text-holding records for the bisection. The minimal patch now fails AC-70.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 2f54f96507fd81b6d1b428cbf1113ad4cd50f035 |
-| FND-002 | fixed | 2f54f96507fd81b6d1b428cbf1113ad4cd50f035 |
-| FND-003 | fixed | 2f54f96507fd81b6d1b428cbf1113ad4cd50f035 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |

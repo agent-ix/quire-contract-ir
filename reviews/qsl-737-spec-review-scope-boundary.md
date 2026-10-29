@@ -3,14 +3,14 @@ id: SR-8685
 title: QSL-737 scope-boundary review of operation-call argument record conformance
 type: SpecReview
 analysis: scope-boundary
-scope: agent-ix/quire-contract-ir@70f0c54b97ab22981edf8bb0447e0fc59156a162; spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md,
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md,
   spec/checked_package/functional/FR-038-consume-checked-package-v2.md
 review_set: subset
 ---
 
 ## Summary
 
-Ticket: QSL-737. Checks where the reader's obligations under the record-conformance change start and stop. The inputs are QSL FR-359 (items 2, 3 and 6, cross-repo requirements 4 and 7) and the pending QSpec FR-322 amendment (FR-322-AC-31 as amended, FR-322-AC-69). The rule is compared with every place the V2 reader on origin/main 6e45fd57 compares a record type node exactly.
+Ticket: QSL-737. Checks where the reader's obligations under the record-conformance change start and stop. The inputs are QSL FR-359 (items 2, 3 and 6, cross-repo requirements 4 and 7) and the pending QSpec FR-322 amendment (FR-322-AC-31 as amended, FR-322-AC-69). The rule is compared with every place the V2 reader on origin/main compares a record type node exactly.
 
 ## Verdict
 
@@ -60,11 +60,11 @@ bindings: []
 
 ## Dispositions
 
-Round 1; reviewed 66a261051c487bebfe2637e155d815f4d308f68d.
+Round 1; reviewed.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 66a261051c487bebfe2637e155d815f4d308f68d |
+| FND-001 | fixed | Fixed in the reviewed PR. |
 
 ## Disposition round 1 verdict
 
@@ -78,12 +78,12 @@ Round 1; reviewed 66a261051c487bebfe2637e155d815f4d308f68d.
 
 ## Dispositions round 2
 
-Round 2; reviewed 8a8cf551e52968fff3631ca733181ad1a89a6c49.
+Round 2; reviewed.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-002 | fixed | 2bea0ab6b2c4a745a10a1d3dd94c1455eb862fa2 |
-| FND-003 | fixed | 2bea0ab6b2c4a745a10a1d3dd94c1455eb862fa2 |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |
 
 ## Disposition round 2 verdict
 
@@ -91,15 +91,15 @@ Round 2; reviewed 8a8cf551e52968fff3631ca733181ad1a89a6c49.
 
 FND-002: "Case arm bodies and union payloads" relaxes the two exact comparisons, `union_arms_hold`'s arm body against `result_type` (operations.rs:1451-1452) and `union_defect`'s payload term against the member payload (`type-mismatch` at the node). Binder `semantic_type` stays exact, which matches operations.rs:1445-1446. AC-10 and AC-11 back both. The body-root claim holds: the reader reads no `body` binding of a function node and has no structural rule for `function` bodies. See SR-8683 FND-006 for why pinning that as tested behavior is a defect.
 
-FND-003: the function-call rule is stated with AC-13. Its source, the callee body `parameters` binding, matches QSL FR-092 "Function nodes" (`parameters` = `aggregate{[reference(p0), ..., reference(pn-1)]}` in parameter order, including unread parameters). The count comes first at `arguments`, then exact-or-conforming at each argument. No binding means unchecked, as today. The AC-13 vectors can all be built and checked. New: FND-004 (low).
+FND-003: the function-call rule is stated with AC-13. Its source, the callee body `parameters` binding, matches QSL FR-092 "Function nodes" (`parameters` = `aggregate{[reference(p0)..., reference(pn-1)]}` in parameter order, including unread parameters). The count comes first at `arguments`, then exact-or-conforming at each argument. No binding means unchecked, as today. The AC-13 vectors can all be built and checked. New: FND-004 (low).
 
 ## Dispositions round 3
 
-Round 3; reviewed 63626fac4a3d2ecb60e01e925a3f5cd000ce5f10.
+Round 3; reviewed.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-004 | fixed | 63626fac4a3d2ecb60e01e925a3f5cd000ce5f10 |
+| FND-004 | fixed | Fixed in the reviewed PR. |
 
 ## Disposition round 3 verdict
 

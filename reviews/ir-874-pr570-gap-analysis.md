@@ -3,13 +3,13 @@ id: SR-567881
 title: "IR-874 PR 570 gap-analysis review"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; protocol_body.rs, flat_wire.rs, contract_package.rs, shared.rs, public-reader and model tests; PR #570 head dd393e25828c52a13230370da4cafeaad9b41b0b"
+scope: "agent-ix/quire-contract-ir; protocol_body.rs, flat_wire.rs, contract_package.rs, shared.rs, public-reader and model tests; PR #570 "
 review_set: subset
 ---
 
 ## Summary
 
-Reviewed repeat and await local member and reference checks at frozen PR #570 head dd393e25828c52a13230370da4cafeaad9b41b0b. FR-038-AC-282/284/288, including causal, progress, binder and decision stages, remain Planned.
+Reviewed repeat and await local member and reference checks at frozen PR #570. FR-038-AC-282/284/288, including causal, progress, binder and decision stages, remain Planned.
 
 ## Verdict
 
@@ -46,4 +46,4 @@ Plan completion: not assessed. Quoin matrix reports FR-038-AC-282/284/288 tagged
 
 ## Disposition verdict
 
-**PASS at 0acca5a0c8874294f1a42f6d323aa41a3c539c97** — All original findings in this method are fixed. Remaining protocol stages and the full FR-038 acceptance criteria remain Planned.
+**PASS ** — All original findings in this method are fixed. Remaining protocol stages and the full FR-038 acceptance criteria remain Planned.

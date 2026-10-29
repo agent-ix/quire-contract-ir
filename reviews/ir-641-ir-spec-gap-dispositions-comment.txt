@@ -1,4 +1,4 @@
-<!-- reviewer-dispositions repo=agent-ix/quire-contract-ir visibility=public quoin=0.28.4 module=spec-artifacts-process@b82e42e893612b4b4ee94127714b4577ee893502 id=SR-15311 round=1 model=gpt-6.1-sol run=be712d1b-4313-4600-bcdd-879623058932 -->
+<!-- reviewer-dispositions repo=agent-ix/quire-contract-ir visibility=public quoin=0.28.4 module=spec-artifacts-process id=SR-15311 round=1 model=gpt-6.1-sol run=be712d1b-4313-4600-bcdd-879623058932 -->
 
 64 inherited criterion gaps and one helper-tag finding deferred to IR-878 (actual owner handoff c235aa4e-50e1-4489-9477-f6915a9a6787); four new planned consumer Test criteria FR-055-AC-1/2/3/5 deferred to IR-641 implementation. Full-gap remains FAIL; the specification-only contract has no scoped correctness finding. No evidence or source behavior was changed to dispose these findings.
 

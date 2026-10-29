@@ -3,7 +3,7 @@ id: SR-5223
 title: integrity review of IR-630 structural key specification
 type: SpecReview
 analysis: integrity
-scope: agent-ix/quire-contract-ir@47861328129cc60638217f0fd858402b3815a30b; spec/checked_package/functional/FR-038-consume-checked-package-v2.md;
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md;
   spec/checked_package/matrix/TC-226-checked-package-v2-anonymous-structural-node-bodies.md
 review_set: subset
 ---
@@ -213,7 +213,7 @@ scope:
     owner-free, ungrouped node in each of the `derived_key` closed-shape and `UngroupedPreimage`
     branches, a retained node id that differs from the production-derived key refuses
     `invalid_package`/`stale-node-key` at the original `node_id`, keeps that original
-    typed id in `locus`, and returns the distinct derived typed key through `expected_node_id()`.
+    typed id in `locus`, and returns the distinct derived typed key through `expected_node_id`.
     A fresh package whose unreferenced node is rekeyed to that value and whose package
     identity is refreshed admits; one changed preimage member changes the expected
     digest
@@ -230,4 +230,4 @@ scope:
 
 ## Evidence and Limits
 
-Frozen base ee116d87774572bb45633a77f2e267bc3bf77396; exactly two documents, 232 additions and 260 deletions. Targeted Quire validation exited 0; 2/2 grammar-clean, zero grammar findings. All new controls remain PLANNED and UNRUN. No Cargo, Kani, builds, runtime probes, full CI or branch edits were performed. Rust-review checklist loaded before prospective algorithm/API examination; formal Rust source lane and production gap-analysis are inapplicable to this spec-only diff. No applicable AssuranceProfile was found. Jev and Filament executables are unavailable; semantic judgments are manual, not solver verdicts. Actual model/native identity is unavailable in the harness. Canonical private upstream content was read locally and not copied or excerpted here.
+Frozen; exactly two documents, 232 additions and 260 deletions. Targeted Quire validation exited 0; 2/2 grammar-clean, zero grammar findings. All new controls remain PLANNED and UNRUN. No Cargo, Kani, builds, runtime probes, full CI or branch edits were performed. Rust-review checklist loaded before prospective algorithm/API examination; formal Rust source lane and production gap-analysis are inapplicable to this spec-only diff. No applicable AssuranceProfile was found. Jev and Filament executables are unavailable; semantic judgments are manual, not solver verdicts. Actual model/native identity is unavailable in the harness. Canonical private upstream content was read locally and not copied or excerpted here.

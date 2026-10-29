@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #651 head c3023198048a827a3595db4678c72b12e40b09b4 against merged FR-061-AC-14/15/16 and TC-062, QSpec FR-342/FR-375, and IR-874 catalog-present code. Both changed files were examined; no workflow or dependency files changed, no copied artifacts were introduced, and no applicable AssuranceProfile was found. The FR-040 process/state-machine amendment remains an owner-held draft PR #650.
+Reviewed PR #651 against merged FR-061-AC-14/15/16 and TC-062, QSpec FR-342/FR-375, and IR-874 catalog-present code. Both changed files were examined; no workflow or dependency files changed, no copied artifacts were introduced, and no applicable AssuranceProfile was found. The FR-040 process/state-machine amendment remains an owner-held draft PR #650.
 
 ## Verdict
 
@@ -39,7 +39,7 @@ Computed Quire matrix reports FR-061-AC-14, FR-061-AC-15 and FR-061-AC-16 all un
 | FND | Outcome | Reason |
 | --- | --- | --- |
 | FND-001 | deferred | FR-040 process/state-machine admission is owner-held in draft IR #650 pending Peter; PR #651 tests object_type only. AC-14 remains uncredited and must remain untagged until the full process/state-machine oracle passes. |
-| FND-002 | rejected | Already covered at c3023198: the test adds a second model selection and foreign model evidence, constructs that selected model’s anchor, keeps refinement semantic_type on the original model_root, and asserts invalid_model_binding/malformed-declaration at steps/0/source_node. Fix head 9b27ece5 adds explicit two-selection and original-root assertions. |
-| FND-003 | rejected | Already covered at c3023198: save then other share one source_node, so the canonical sort key differs only by class and save > other; index 1 is out of order while other also mismatches anchor operation save. Reversing the rows repairs order and exposes invalid_model_binding at index 0/source_class. Fix head 9b27ece5 makes these preconditions explicit. |
-| FND-004 | fixed | 9b27ece5 adds an admitted present-catalog protocol refinement, then changes only steps/0/source_node to the model root, rekeys, and asserts invalid_model_binding/malformed-declaration at the exact row pointer. |
-| FND-005 | deferred | At 9b27ece5, tests now directly trace FR-061-AC-15 and AC-16; the remaining AC-14 trace is deliberately withheld because process/state-machine admission is owner-held under draft IR #650 and the whole criterion is not yet backed. |
+| FND-002 | rejected | Already covered: the test adds a second model selection and foreign model evidence, constructs that selected model’s anchor, keeps refinement semantic_type on the original model_root, and asserts invalid_model_binding/malformed-declaration at steps/0/source_node. Fix adds explicit two-selection and original-root assertions. |
+| FND-003 | rejected | Already covered: save then other share one source_node, so the canonical sort key differs only by class and save > other; index 1 is out of order while other also mismatches anchor operation save. Reversing the rows repairs order and exposes invalid_model_binding at index 0/source_class. Fix makes these preconditions explicit. |
+| FND-004 | fixed | adds an admitted present-catalog protocol refinement, then changes only steps/0/source_node to the model root, rekeys, and asserts invalid_model_binding/malformed-declaration at the exact row pointer. |
+| FND-005 | deferred |, tests now directly trace FR-061-AC-15 and AC-16; the remaining AC-14 trace is deliberately withheld because process/state-machine admission is owner-held under draft IR #650 and the whole criterion is not yet backed. |

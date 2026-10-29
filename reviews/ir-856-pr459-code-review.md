@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-856. Diff-scoped review of PR 459 at b644efed1d4b648a74e4897fbbc7fa78be4c6480. No Rust source or test changed. The existing public generic canonical API and its caller paths were inspected to test the PR prose. The spec finding is recorded by the base and boundary methods.
+Ticket: IR-856. Diff-scoped review of PR 459. No Rust source or test changed. The existing public generic canonical API and its caller paths were inspected to test the PR prose. The spec finding is recorded by the base and boundary methods.
 
 ## Examined units
 

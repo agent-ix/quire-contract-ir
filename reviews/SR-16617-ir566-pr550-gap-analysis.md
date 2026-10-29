@@ -3,7 +3,7 @@ id: SR-16617
 title: "IR-566 PR 550 incremental gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@0e65202439b00c264555db19e2a208964139211b; FR-020-AC-18, TC-018; Cargo.toml, Makefile, tests/it/cycle_free_model.rs"
+scope: "agent-ix/quire-contract-ir; FR-020-AC-18, TC-018; Cargo.toml, Makefile, tests/it/cycle_free_model.rs"
 review_set: subset
 ---
 

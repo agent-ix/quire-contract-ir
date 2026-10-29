@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-IR-1052 PR #605 at 385c3c392637836ad390bd3e77a9d151135ff07e; spec-review/failure-domain examined FR-040, FR-067 AC-1..7 and TC-064 against QSpec aa3ce8f4. No findings.
+IR-1052 PR #605; spec-review/failure-domain examined FR-040, FR-067 AC-1..7 and TC-064 against QSpec. No findings.
 
 ## Findings
 

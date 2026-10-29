@@ -3,7 +3,7 @@ id: SR-8691
 title: "QSL-737 quire-contract-ir PR 376 gap analysis: FR-347 criteria to TC-448 tests"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@d0b83ff93fdea368f23de95da2b781fd9f7b9e6c; spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md; tests/it/checked_package_v2_operation_arguments.rs; crates/quire-contract-model/src/checked_package/v2/"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md; tests/it/checked_package_v2_operation_arguments.rs; crates/quire-contract-model/src/checked_package/v2/"
 review_set: subset
 ---
 
@@ -42,11 +42,11 @@ GiftTaxedMoney costs 2 at Money and also at TaxedMoney, and D costs 4 at A
 cost 1) pins "an exact match charges none": without the exact shortcut its
 delta would be 1, not 2.
 
-Coverage baseline: the CI log written at the PR head (worktree at d0b83ff,
+Coverage baseline: the CI log written at the PR head (worktree,
 clean) ends `42 unbacked row(s)`, with FR-347 14/14. The earlier snapshots
 taken for spec PR 375 show main before 375 at 42, and PR 375's head, which
 then had 8 ACs, at 52 (42 + 8 + the FR-347 functional row + the TC-448 row).
-PR 375 merged with 14 ACs, which makes main 220a2e3 42 + 14 + 2 = 58. So the
+PR 375 merged with 14 ACs, which makes main 42 + 14 + 2 = 58. So the
 coder's "58 to 42" holds. The remaining 42 are the same rows as before PR 375.
 `make ci` stops at `make spec` on main as well, so the strict-coverage stop
 is not new.

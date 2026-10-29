@@ -3,16 +3,16 @@ id: SR-16359
 title: "spec-review-integrity of PR 530 (IR-992 timed-model reader order)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@6689102f2a9bb438cc844dd9226e0b1947ad8fbc; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/model/functional/FR-019-rust-library-interface.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/model/functional/FR-019-rust-library-interface.md"
 review_set: subset
 ---
 # SR-16359: spec-review-integrity of PR 530
 
 ## Summary
 
-Ticket: IR-992. At QSpec #425 c90518d5, the owner schema fixes the outer semantic type, eight closed bodies and the hybrid → timed-model → protocol order. IR AC-318..322 are consistent with those owner rules; no integrity defect was found.
+Ticket: IR-992. At QSpec #425, the owner schema fixes the outer semantic type, eight closed bodies and the hybrid → timed-model → protocol order. IR AC-318..322 are consistent with those owner rules; no integrity defect was found.
 
-Reviewed exact IR head 6689102f2a9bb438cc844dd9226e0b1947ad8fbc against QSpec #425 c90518d505dcd31b28b798b11aad64c66c321e66. Spec-only review; no Cargo or Kani gate run.
+Reviewed exact IR against QSpec #425. Spec-only review; no Cargo or Kani gate run.
 
 ## Scope examined
 
@@ -23,8 +23,8 @@ Reviewed exact IR head 6689102f2a9bb438cc844dd9226e0b1947ad8fbc against QSpec #4
 - FR-038-AC-322: The public V2 writer round-trips an admitted timed model through the reader with the same complete node order, semantic identities, selected model and exact normalized quantities, and emits no `identity_preimage.identity_projection` member.
 - FR-038 timed-model reader prose and fixture-path instruction (examined).
 - FR-019 V2 vocabulary public inventory: `TimedModelForm` added (examined).
-- QSpec FR-322-AC-120 and Body steps at PR #425 c90518d5 (context only).
-- QSpec checked-package and node-identity-preimage schemas at PR #425 c90518d5 (context only).
+- QSpec FR-322-AC-120 and Body steps at PR #425 (context only).
+- QSpec checked-package and node-identity-preimage schemas at PR #425 (context only).
 
 ## Findings
 

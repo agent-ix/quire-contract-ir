@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket IR-875. Diff-scoped non-author review of the combined PR head 436abf06ee7a9298deeb7abcf1e03d3fae8d1008. Risk review checked deep-body stack behavior, optional omission, copy avoidance and the still-planned integrated memory measurement.
+Ticket IR-875. Diff-scoped non-author review of the combined PR. Risk review checked deep-body stack behavior, optional omission, copy avoidance and the still-planned integrated memory measurement.
 
 ## Examined units
 
@@ -46,7 +46,7 @@ node body without retaining a second owned `serde_json::Value` body per node.
 
 ## Coverage
 
-`quire coverage --scope . --strict` reports 534/603 backed, 40 inherited unbacked and 0 contradicted. FR-051-AC-1 through AC-4 are tagged. Plan completion: not assessed. Independent focused Cargo test: queued on the shared heavy-build lock at review authoring time.
+`quire coverage --scope. --strict` reports 534/603 backed, 40 inherited unbacked and 0 contradicted. FR-051-AC-1 through AC-4 are tagged. Plan completion: not assessed. Independent focused Cargo test: queued on the shared heavy-build lock at review authoring time.
 
 ## Verdict
 

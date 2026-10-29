@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Independent spec-review/integrity of quire-contract-ir PR #600 at 48dd790dac48f36b526f6f47dfe3a0b4f2b2bbb1 against QSpec main 46c7a46582f86c177d339f7934db9919bc042cae. Ticket STD-498.
+Independent spec-review/integrity of quire-contract-ir PR #600 against QSpec main. Ticket STD-498.
 
 ## Examined scope
 

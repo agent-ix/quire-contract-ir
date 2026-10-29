@@ -3,7 +3,7 @@ id: SR-12400
 title: "IR-869 code-review of IR PR #446"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@72d6520eae2eb0f62b46162a70fef4cce93abcc4; .github/workflows/ci.yml, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir;.github/workflows/ci.yml, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/tests.md"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
@@ -20,7 +20,7 @@ Ticket IR-869. The workflow diff replaces the Lint step's single workspace Clipp
 
 | Unit | Role | Excerpt |
 | --- | --- | --- |
-| .github/workflows/ci.yml:26 | examined | `run: make lint` |
+|.github/workflows/ci.yml:26 | examined | `run: make lint` |
 | Makefile:53-57 | invoked target | both Clippy lanes with `-D warnings` |
 | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4756 | examined | AC-195 uses Analysis (`make lint`) |
 | spec/checked_package/matrix/tests.md:21-22 | examined | AC-195 has a dedicated lint row and is excluded from the TC-048 range |

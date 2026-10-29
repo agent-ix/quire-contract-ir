@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-883. Reviewed head ee278f54fa576eac8a549add133e234173995048 against main ffd76b1. FR-038-AC-293 cites TC-048, but TC-048 does not name or describe its diamond and single-edge cases.
+Ticket: IR-883. Reviewed against main. FR-038-AC-293 cites TC-048, but TC-048 does not name or describe its diamond and single-edge cases.
 
 ## Verdict
 
@@ -32,4 +32,4 @@ Ticket: IR-883. Reviewed head ee278f54fa576eac8a549add133e234173995048 against m
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Head 5633b11 adds TC-048 FR-038-AC-293 procedures for both conflict shapes, exact typed paths, code and cause, and names the tagged public-reader tests. |
+| FND-001 | fixed | adds TC-048 FR-038-AC-293 procedures for both conflict shapes, exact typed paths, code and cause, and names the tagged public-reader tests. |

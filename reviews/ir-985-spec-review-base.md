@@ -3,14 +3,14 @@ id: SR-16266
 title: "Base checklist review of IR-985 PR 527"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@6def8a01a612f586b0a226c606610923f1f1347d; FR-038-AC-311..317, TC-048 hybrid procedure, FR-019 HybridForm inventory; QSpec FR-481/TC-966@26582406e4d339916ef56f7562ffb5918c2d838c"
+scope: "agent-ix/quire-contract-ir; FR-038-AC-311..317, TC-048 hybrid procedure, FR-019 HybridForm inventory; QSpec FR-481/TC-966"
 review_set: subset
 ---
 # SR-16266: Base checklist review of IR-985 PR 527
 
 ## Summary
 
-Ticket: IR-985. Exact IR head 6def8a01a612f586b0a226c606610923f1f1347d; QSpec #415 head 26582406e4d339916ef56f7562ffb5918c2d838c. The new hybrid criteria have unique IDs, named verification in TC-048, and matching QSpec authority. The only observed order conflict is recorded under integrity.
+Ticket: IR-985. Exact IR; QSpec #415. The new hybrid criteria have unique IDs, named verification in TC-048, and matching QSpec authority. The only observed order conflict is recorded under integrity.
 
 ## Findings
 

@@ -3,7 +3,7 @@ id: SR-11401
 title: "IR-800 PR 405 gap-analysis review"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@0768eb1b35f1736b785479e8efcb4c688e9181ee (base 84734511996c8fff2574037397f49c44d3efdd05); spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; tests/it/checked_package_v2_operand_families.rs; tests/it/checked_package_v2_model_fields.rs; tests/it/checked_package_v2_model_members.rs; crates/quire-contract-model/src/checked_package/v2"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; tests/it/checked_package_v2_operand_families.rs; tests/it/checked_package_v2_model_fields.rs; tests/it/checked_package_v2_model_members.rs; crates/quire-contract-model/src/checked_package/v2"
 review_set: subset
 ---
 
@@ -56,9 +56,9 @@ Plan completion: not assessed. Semantic review: scoped to FR-038-AC-242..245, th
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | b747d65f7571590fe8e234ff86f471fb4e778070: item 22 now lists String, Uuid and Timestamp. Observation, not a finding against this PR: Record and Variant are still missing from the list, which predates this PR |
-| FND-002 | fixed | b747d65f7571590fe8e234ff86f471fb4e778070: AC-242..245 read "IMPLEMENTED (IR-800; tagged reader tests passed)", matching the AC-225..227 convention, and TC-048 drops the "claims none" text. All four criteria have tagged tests that pass at b747d65 |
-| FND-003 | fixed | b747d65f7571590fe8e234ff86f471fb4e778070: asserts the exact invalid_package/invalid-value refusal at /body/value for budget `high`, Incomplete with limit_kind Work and limit high-1 below it, and high < upper |
-| FND-004 | fixed | b747d65f7571590fe8e234ff86f471fb4e778070: text_comparison_rejects_string_at_its_mode_value now loops String over argument positions 0 and 1 |
-| FND-005 | still-open | b747d65 changed the Timestamp comparison pair from ("0", "1") to ("-1", "1"). -1 is now covered, but 0 is no longer an admitted comparison payload. TC-048 names 0, 1 and -1, so the controls still cover only two of the three |
-| FND-005 | fixed | 572ff4ecbabfc1fb221db4c13da506ee93ead31a: the Timestamp cases are now ("-1", "1") and ("0", "1"), so 0, 1 and -1 are each admitted comparison operands under both eq and ne (round 2) |
+| FND-001 | fixed |: item 22 now lists String, Uuid and Timestamp. Observation, not a finding against this PR: Record and Variant are still missing from the list, which predates this PR |
+| FND-002 | fixed |: AC-242..245 read "IMPLEMENTED (IR-800; tagged reader tests passed)", matching the AC-225..227 convention, and TC-048 drops the "claims none" text. All four criteria have tagged tests that pass |
+| FND-003 | fixed |: asserts the exact invalid_package/invalid-value refusal at /body/value for budget `high`, Incomplete with limit_kind Work and limit high-1 below it, and high < upper |
+| FND-004 | fixed |: text_comparison_rejects_string_at_its_mode_value now loops String over argument positions 0 and 1 |
+| FND-005 | still-open | changed the Timestamp comparison pair from ("0", "1") to ("-1", "1"). -1 is now covered, but 0 is no longer an admitted comparison payload. TC-048 names 0, 1 and -1, so the controls still cover only two of the three |
+| FND-005 | fixed |: the Timestamp cases are now ("-1", "1") and ("0", "1"), so 0, 1 and -1 are each admitted comparison operands under both eq and ne (round 2) |

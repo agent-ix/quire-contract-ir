@@ -6,7 +6,7 @@ analysis: code-review
 scope: 'agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/flat_wire.rs,
   crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, crates/quire-contract-model/src/checked_package/v2/mod.rs,
   tests/it/checked_package_v2_protocol_body.rs, tests/it/support/checked_package.rs;
-  IR-874 PR #566 head 30ac95e4'
+  IR-874 PR #566 '
 review_set: subset
 ---
 
@@ -38,11 +38,11 @@ Rust lane: rust-review applied; focused protocol_body unit tests 9/9 pass. No sp
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Verified at PR #566 head 156e59c0; see new term-pointer logic or narrowed trace tag. |
+| FND-001 | fixed | Verified at PR #566; see new term-pointer logic or narrowed trace tag. |
 
-## Supplemental verification at 79e29b9c
+## Supplemental verification
 
-Reviewed only the added IR987 golden and admitted-result test changes since 156e59c0. The new `scalar.json` equals the canonical bytes of `fixture()` in the focused test; that fixture now contains 30 nodes versus 27, with 26 shared node ids having unchanged full node content, one rekeyed protocol clause and three added nodes. The changed lock profile selection matches the new declared protocol fixture. `context.json` equals the canonical bytes of the result contract; its changed top-level members are package source, identity digest, and source map. The test's scalar operand, result context, provenance and missing-conversion assertions remain unchanged. The bounded-read work threshold changed from 263 to 339 and is still checked against the exact admitted/incomplete boundary. The renamed focused test passed 1/1; `git diff --check` passed. No new findings.
+Reviewed only the added IR987 golden and admitted-result test changes since. The new `scalar.json` equals the canonical bytes of `fixture` in the focused test; that fixture now contains 30 nodes versus 27, with 26 shared node ids having unchanged full node content, one rekeyed protocol clause and three added nodes. The changed lock profile selection matches the new declared protocol fixture. `context.json` equals the canonical bytes of the result contract; its changed top-level members are package source, identity digest, and source map. The test's scalar operand, result context, provenance and missing-conversion assertions remain unchanged. The bounded-read work threshold changed from 263 to 339 and is still checked against the exact admitted/incomplete boundary. The renamed focused test passed 1/1; `git diff --check` passed. No new findings.
 
 ## New findings (disposition pass 2)
 
@@ -56,16 +56,16 @@ A package can contain a protocol node whose body applies another root operator (
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-002 | still-open | No fix for the protocol placement versus duplicate-declaration order exists at 79e29b9c. |
+| FND-002 | still-open | No fix for the protocol placement versus duplicate-declaration order exists. |
 
 ## Dispositions (round 3)
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-002 | fixed | At 5b1680e2, the generic name sweep skips protocol nodes, and the protocol step checks protocol-involved duplicates after placement and operator checks. The combined-defect test now yields IllTyped/OperatorIneligible; a valid duplicate yields AmbiguousDeclaration. Existing non-protocol declaration precedence tests still pass. |
+| FND-002 | fixed |, the generic name sweep skips protocol nodes, and the protocol step checks protocol-involved duplicates after placement and operator checks. The combined-defect test now yields IllTyped/OperatorIneligible; a valid duplicate yields AmbiguousDeclaration. Existing non-protocol declaration precedence tests still pass. |
 
-## Supplemental review at 39996a46
+## Supplemental review
 
-Reviewed only the hosted-CI repair diff since 57a5afd3. The selected protocol profile is borrowed as `CheckedArtifactRef`; the law definition is compared by its exact two-field `{authority, identity}` shape and values, matching the typed reference contract without serializing the lock. The `ProtocolLayoutWireDefect` rename changes no refusal branch. The claim-terminal tests replace the former fixed insertion indices with the length of their immutable base fixture; node-key, package-id, source-map, dependency, duplicate-locus and precedence assertions remain in place. Frame, TC-226, complete-v1 edge and byte oracles retain explicit exact-budget or exact-pointer assertions. The byte oracle changes only the measured canonical length.
+Reviewed only the hosted-CI repair diff since. The selected protocol profile is borrowed as `CheckedArtifactRef`; the law definition is compared by its exact two-field `{authority, identity}` shape and values, matching the typed reference contract without serializing the lock. The `ProtocolLayoutWireDefect` rename changes no refusal branch. The claim-terminal tests replace the former fixed insertion indices with the length of their immutable base fixture; node-key, package-id, source-map, dependency, duplicate-locus and precedence assertions remain in place. Frame, TC-226, complete-v1 edge and byte oracles retain explicit exact-budget or exact-pointer assertions. The byte oracle changes only the measured canonical length.
 
 Focused reviewer checks: protocol-body unit tests 9/9; claim-terminal integration tests 11/11; the selected-frame-work, scoped-delete-work, TC-226 tree-work, complete-v1 edge and contract-package byte-limit cases each passed 1/1; `git diff --check` passed. No new findings.

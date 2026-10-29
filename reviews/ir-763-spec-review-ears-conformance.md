@@ -3,13 +3,13 @@ id: SR-8342
 title: "spec-review/ears-conformance review of IR-763 structural candidates"
 type: SpecReview
 analysis: ears-conformance
-scope: "agent-ix/quire-contract-ir@47be2719a17f4f6ceaf2a59c959464593395d08d; spec/model/functional/FR-048, FR-019; spec/checked_package/matrix/TC-048; spec/model/matrix/TC-058, tests.md; spec/spec.md"
+scope: "agent-ix/quire-contract-ir; spec/model/functional/FR-048, FR-019; spec/checked_package/matrix/TC-048; spec/model/matrix/TC-058, tests.md; spec/spec.md"
 review_set: subset
 ---
 
 ## Summary
 
-PR #362 at 47be2719a17f4f6ceaf2a59c959464593395d08d; The new FR statement uses a named actor, event trigger and concrete response; the scoped grammar check reported no finding.
+PR #362; The new FR statement uses a named actor, event trigger and concrete response; the scoped grammar check reported no finding.
 
 ## Verdict
 

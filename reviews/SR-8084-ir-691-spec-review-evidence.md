@@ -3,13 +3,13 @@ id: SR-8084
 title: "Evidence-method review of IR-691 bounded record projection"
 type: SpecReview
 analysis: evidence
-scope: "agent-ix/quire-contract-ir@d2055f10f84cfa7a27b7d5fe0fdfe8c79e710657; FR-038-AC-232 through FR-038-AC-235; IR-691"
+scope: "agent-ix/quire-contract-ir; FR-038-AC-232 through FR-038-AC-235; IR-691"
 review_set: subset
 ---
 
 ## Summary
 
-The installed `quoin advise --repo . --json` returns no method mismatch for AC-232 through AC-235. Authored Test for all four and Inspection for AC-235 are appropriate to the planned public and private controls. The concrete control gaps are recorded in the base and failure-domain reviews.
+The installed `quoin advise --repo. --json` returns no method mismatch for AC-232 through AC-235. Authored Test for all four and Inspection for AC-235 are appropriate to the planned public and private controls. The concrete control gaps are recorded in the base and failure-domain reviews.
 
 ## Verdict
 

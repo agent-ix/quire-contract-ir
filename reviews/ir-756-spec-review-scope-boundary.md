@@ -3,7 +3,7 @@ id: SR-7085
 title: spec-review/scope-boundary review of IR-756 evidence repetition policy
 type: SpecReview
 analysis: scope-boundary
-scope: agent-ix/quire-contract-ir@eec76bc3712f5b49705a2f1b125c46d80b4368fa; IR-756;
+scope: agent-ix/quire-contract-ir; IR-756;
   spec/checked_package/functional/FR-047-preserve-first-evidence-entry.md; spec/checked_package/matrix/TC-059-evidence-entry-repetition.md;
   spec/spec.md
 review_set: subset
@@ -31,7 +31,7 @@ scope:
   path: spec/checked_package/functional/FR-047-preserve-first-evidence-entry.md
   role: examined
   excerpt: A vacant domain key accepts its exact bytes; an identical raw-byte repeat
-    returns `Ok(())` and preserves the complete evidence state. Equal values under
+    returns `Ok()` and preserves the complete evidence state. Equal values under
     distinct exact keys remain separate, and reading a valid selected document after
     one or two equal declarations gives the same admitted content.
 - id: FR-047-AC-2
@@ -45,7 +45,7 @@ scope:
   path: spec/checked_package/functional/FR-047-preserve-first-evidence-entry.md
   role: examined
   excerpt: Equal admitted-content dependencies in distinct `Arc` allocations return
-    `Ok(())` on repetition and retain the first package object. Separately admitted
+    `Ok()` on repetition and retain the first package object. Separately admitted
     equal content under different byte ceilings remains an equal repeat and preserves
     the first object's ceiling and derived state in both orders. Independent exact
     identities remain separate; the public reader binds a selected valid dependency
@@ -88,9 +88,9 @@ scope:
 - id: FR-047/Outputs
   path: spec/checked_package/functional/FR-047-preserve-first-evidence-entry.md
   role: examined
-  excerpt: 'Each insert method returns `Result<(), CheckedPackageEvidenceInsertionError>`.
+  excerpt: 'Each insert method returns `Result<, CheckedPackageEvidenceInsertionError>`.
 
-    Both a vacant insertion and an equal repeat return `Ok(())`. An unequal repeat
+    Both a vacant insertion and an equal repeat return `Ok()`. An unequal repeat
 
     returns one of these closed variants:
 
@@ -128,7 +128,7 @@ scope:
 
     supplied byte sequence. When that key is occupied by equal bytes, the evidence
 
-    builder SHALL return `Ok(())` without replacing the first sequence. When that
+    builder SHALL return `Ok()` without replacing the first sequence. When that
 
     key is occupied by different bytes, the evidence builder SHALL return
 
@@ -141,7 +141,7 @@ scope:
 
     supplied admitted package. When that identity is occupied by equal admitted
 
-    content, the evidence builder SHALL return `Ok(())` without replacing the first
+    content, the evidence builder SHALL return `Ok()` without replacing the first
 
     package. When that identity is occupied by unequal admitted content, the
 
@@ -219,10 +219,10 @@ scope:
     parent package bytes selecting A under its canonical selection digest K.\nChoose\
     \ sufficient finite read limits and declare any required feature. Include\nunrelated\
     \ document, dependency and feature sentinels in every evidence fixture\nso atomicity\
-    \ checks cover the entire builder state.\n\n1. Insert A under K and observe `Ok(())`.\
-    \ Clone the evidence as the first-only\n   control; read the parent through `CheckedPackageV2::read`\
-    \ and\n   `read_checked_package`. Require admission and compare admitted content.\n\
-    \   Repeat exact A byt"
+    \ checks cover the entire builder state.\n\n1. Insert A under K and observe `Ok()`.\
+    \ Clone the evidence as the first-only\n control; read the parent through `CheckedPackageV2::read`\
+    \ and\n `read_checked_package`. Require admission and compare admitted content.\n\
+    \ Repeat exact A byt"
 - id: TC-059/Admitted dependencies
   path: spec/checked_package/matrix/TC-059-evidence-entry-repetition.md
   role: examined
@@ -230,10 +230,10 @@ scope:
     \ the\nreal reader. Build an otherwise valid parent selecting D1 under identity\
     \ I;\nensure a dependency reference resolves through that package. Keep unrelated\n\
     evidence sentinels in every fixture.\n\n1. Insert an `Arc` of D1 under I; clone\
-    \ first-only evidence and require parent\n   admission. Repeat D1 in a separate\
-    \ content-equal `Arc`, assert `Ok(())`,\n   evidence equality and the same admitted\
-    \ parent content through both public\n   reader entrypoints. Store equal content\
-    \ under separate exact identities\n   and independently selec"
+    \ first-only evidence and require parent\n admission. Repeat D1 in a separate\
+    \ content-equal `Arc`, assert `Ok()`,\n evidence equality and the same admitted\
+    \ parent content through both public\n reader entrypoints. Store equal content\
+    \ under separate exact identities\n and independently selec"
 - id: TC-059/Exact feature declarations
   path: spec/checked_package/matrix/TC-059-evidence-entry-repetition.md
   role: examined
@@ -289,38 +289,38 @@ scope:
 - id: CheckedPackageV2::eq
   path: crates/quire-contract-model/src/checked_package/v2/mod.rs
   role: context_only
-  excerpt: "impl PartialEq for CheckedPackageV2 {\n    fn eq(&self, other: &Self)\
-    \ -> bool {\n        self.wire == other.wire && self.kinds == other.kinds\n  \
-    \  }\n}"
+  excerpt: "impl PartialEq for CheckedPackageV2 {\n fn eq(&self, other: &Self)\
+    \ -> bool {\n self.wire == other.wire && self.kinds == other.kinds\n \
+    \ }\n}"
 - id: Evidence-builder-current
   path: crates/quire-contract-model/src/checked_package/evidence.rs
   role: context_only
-  excerpt: "    pub fn insert_domain_package_document(\n        &mut self,\n     \
-    \   digest: impl Into<Box<str>>,\n        document: impl Into<Box<[u8]>>,\n  \
-    \  ) {\n        self.domain_packages.insert(digest.into(), document.into());\n\
-    \    }"
+  excerpt: " pub fn insert_domain_package_document(\n &mut self,\n \
+    \ digest: impl Into<Box<str>>,\n document: impl Into<Box<[u8]>>,\n \
+    \ ) {\n self.domain_packages.insert(digest.into, document.into);\n\
+    \ }"
 - id: Reader-feature-check
   path: crates/quire-contract-model/src/checked_package/v2/mod.rs
   role: context_only
-  excerpt: "    for (index, feature) in wire.lock.required_features.iter().enumerate()\
-    \ {\n        let path = match reported.get(feature.as_ref()) {\n            //\
-    \ Unreported: the report lacks the capability.\n            None => report(),\n\
-    \            Some((disposition, reported_at))\n                if *disposition\
-    \ != CheckedCapabilityDisposition::Available =>\n            {\n             \
-    \   report().index(*reported_at).key(\"disposition\")\n            }\n       \
-    \     // Reported available, but this reader does not support it.\n          \
-    \  Some(_) if !evidence.supports(feature) => {\n                member_pointer(&"
+  excerpt: " for (index, feature) in wire.lock.required_features.iter.enumerate\
+    \ {\n let path = match reported.get(feature.as_ref) {\n //\
+    \ Unreported: the report lacks the capability.\n None => report,\n\
+    \ Some((disposition, reported_at))\n if *disposition\
+    \ != CheckedCapabilityDisposition::Available =>\n {\n \
+    \ report.index(*reported_at).key(\"disposition\")\n }\n \
+    \ // Reported available, but this reader does not support it.\n \
+    \ Some(_) if !evidence.supports(feature) => {\n member_pointer(&"
 - id: Reader-dependency-binding
   path: crates/quire-contract-model/src/checked_package/v2/dependency_references.rs
   role: context_only
-  excerpt: "        let Some(package) = evidence.dependency_package(&entry.identity)\
-    \ else {\n            return Err(ValidationFailure::refused_because(\n       \
-    \         CheckedPackageRefusalCode::MissingImport,\n                at(index),\n\
-    \                CheckedPackageRefusalCause::MissingSelection,\n            ));\n\
-    \        };\n        // A `CheckedPackageV2` exists only as the reader's admitted\
-    \ result,\n        // so its `package_id` is the digest the reader recomputed\
-    \ from its\n        // identity preimage; the binding rests on that content digest.\n\
-    \        if package.package_id() != &entry.package_id {\n       "
+  excerpt: " let Some(package) = evidence.dependency_package(&entry.identity)\
+    \ else {\n return Err(ValidationFailure::refused_because(\n \
+    \ CheckedPackageRefusalCode::MissingImport,\n at(index),\n\
+    \ CheckedPackageRefusalCause::MissingSelection,\n ));\n\
+    \ };\n // A `CheckedPackageV2` exists only as the reader's admitted\
+    \ result,\n // so its `package_id` is the digest the reader recomputed\
+    \ from its\n // identity preimage; the binding rests on that content digest.\n\
+    \ if package.package_id != &entry.package_id {\n "
 - id: FR-038/grammar-fixed-depth
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: context_only
@@ -348,6 +348,6 @@ scope:
 
 ## Evidence and limits
 
-Reviewed frozen head eec76bc3712f5b49705a2f1b125c46d80b4368fa. Selected three-document validation exit 0. quire 0.36.2 (engine 0.50.2); quoin 0.28.3. Duplicate archetype, duplicate part_of inverse and inline semantic schema advisories were observed, not repaired or bypassed. No Cargo, Kani, replay, runtime mutation campaign, full CI or full matrix was run. No applicable AssuranceProfile was found. Exact harness model ID is unavailable.
+Reviewed frozen. Selected three-document validation exit 0. quire 0.36.2 (engine 0.50.2); quoin 0.28.3. Duplicate archetype, duplicate part_of inverse and inline semantic schema advisories were observed, not repaired or bypassed. No Cargo, Kani, replay, runtime mutation campaign, full CI or full matrix was run. No applicable AssuranceProfile was found. Exact harness model ID is unavailable.
 
 Criterion-strength schema value is installed, but the loaded skill declares its Jev client unavailable and forbids running the classifier. Manual falsifiability review belongs to base, not a claimed Jev result. Production gap-analysis does not apply to this spec-only diff.

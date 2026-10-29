@@ -3,7 +3,7 @@ id: SR-12121
 title: "IR-840 spec integrity review of IR PR #440"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@e1e0eddf3a0672be7648f3bcaf1804d944f548d9 (PR #440); git diff origin/main...HEAD: spec/checked_package/matrix/tests.md:32; consistency against spec/checked_package/functional/FR-038-consume-checked-package-v2.md (Acceptance Criteria Verification column), spec/checked_package/matrix/tests.md:21 (FR-038 coverage row) and :40-92 (per-criterion rows), spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md"
+scope: "agent-ix/quire-contract-ir (PR #440); git diff origin/main...HEAD: spec/checked_package/matrix/tests.md:32; consistency against spec/checked_package/functional/FR-038-consume-checked-package-v2.md (Acceptance Criteria Verification column), spec/checked_package/matrix/tests.md:21 (FR-038 coverage row) and:40-92 (per-criterion rows), spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/TC-048
@@ -37,8 +37,8 @@ not block the PR. The missing ids that do block it are in SR-12120.
 | FR-038-AC-183 shared claim | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | Test (TC-048, TC-226) |
 | FR-038-AC-202..209 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4568-4575 | Test (TC-445) |
 | FR-038 Verification column, AC-177..182, 186..201, 214, 246 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4543-4567, 4587, 4631 | Test / Test, Inspection / Inspection (no TC id) |
-| FR-038-AC-236..238 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4604-4606 | IMPLEMENTED (IR-777) ... Test |
-| FR-038 coverage row | examined | spec/checked_package/matrix/tests.md:21 | ... FR-038-AC-215 through FR-038-AC-218, FR-038-AC-239 through FR-038-AC-241, FR-038-AC-246, FR-038-AC-252 ... |
+| FR-038-AC-236..238 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4604-4606 | IMPLEMENTED (IR-777)... Test |
+| FR-038 coverage row | examined | spec/checked_package/matrix/tests.md:21 |... FR-038-AC-215 through FR-038-AC-218, FR-038-AC-239 through FR-038-AC-241, FR-038-AC-246, FR-038-AC-252... |
 
 ## Findings
 
@@ -61,4 +61,4 @@ still incomplete (SR-12120 FND-001..003), and that keeps the PR from merging.
 | --- | --- | --- |
 | FND-001 | deferred | IR-861: add (TC-048) to the FR-038 Verification cells of AC-177..182, 186..201, 214 and 246. This was pre-existing, and the PR does not touch FR-038. |
 | FND-002 | deferred | IR-861: give AC-236..238 an owning TC procedure, then index them. This was pre-existing, and leaving them out of the TC-048 cell is still correct. |
-| FND-003 | fixed | Round 1 (f967d1e): the FR-038 coverage row at tests.md:21 now lists AC-214, AC-222 through AC-238, AC-242 through AC-245 and AC-247 through AC-251. AC-219..221 are not listed, which is correct because they do not exist. Only the ids changed; the status prose did not. |
+| FND-003 | fixed | Round 1 : the FR-038 coverage row at tests.md:21 now lists AC-214, AC-222 through AC-238, AC-242 through AC-245 and AC-247 through AC-251. AC-219..221 are not listed, which is correct because they do not exist. Only the ids changed; the status prose did not. |

@@ -3,7 +3,7 @@ id: SR-1780
 title: "Independent code and Rust review — IR-627 structural keys"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@c3f83a41c4c00bca1a7b2ee1c5a81001a882be66; IR-627; crates/quire-contract-model/src/checked_package/v2/, tests/conformance_qspec/main.rs, tests/it/"
+scope: "agent-ix/quire-contract-ir; IR-627; crates/quire-contract-model/src/checked_package/v2/, tests/conformance_qspec/main.rs, tests/it/"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Independent code and Rust review of the IR-627 diff against 1540b3b6c0e4d167fe1ed9116c296e45e7dff258. The owner-free stage admits rekeyed bounded-domain nodes whose semantic type is Boolean: an integer range contrary to FR-038-AC-125 and collection bounds contrary to QSL FR-092’s type-node table.
+Independent code and Rust review of the IR-627 diff. The owner-free stage admits rekeyed bounded-domain nodes whose semantic type is Boolean: an integer range contrary to FR-038-AC-125 and collection bounds contrary to QSL FR-092’s type-node table.
 
 ## Verdict
 
@@ -33,7 +33,7 @@ The same function accepts `collection_bounds` with an arbitrary `semantic_type` 
 
 ## Focused evidence
 
-At c3f83a41c4c00bca1a7b2ee1c5a81001a882be66, `cargo test --workspace tc_226_a_node_is_its_own_type_and_the_key_covers_semantic_type_and_literal_type` passed. In disposable worktree `<disposable worktree>`, a test using `base()` and `rekeyed(&base.package, &base.zero, |node| node["semantic_type"] = node_id(BOOLEAN_KEY))` failed its expected-refusal assertion because `read` returned `Admitted`. Command: `CARGO_TARGET_DIR=<worktree target> cargo test --workspace ir627_repro_rekeyed_integer_range_typed_at_boolean_must_refuse` (exit 101). A second disposable test rekeyed `base.sequence_bounds` after pointing its `semantic_type` to Boolean; `cargo test --workspace ir627_repro_rekeyed_collection_bounds_typed_at_boolean_must_refuse` failed for the same reason: `Admitted`. `git diff --check` passed. Full gates are owned by the lead's pre-PR and pre-merge runs.
+, `cargo test --workspace tc_226_a_node_is_its_own_type_and_the_key_covers_semantic_type_and_literal_type` passed. In disposable worktree `<disposable worktree>`, a test using `base` and `rekeyed(&base.package, &base.zero, |node| node["semantic_type"] = node_id(BOOLEAN_KEY))` failed its expected-refusal assertion because `read` returned `Admitted`. Command: `CARGO_TARGET_DIR=<worktree target> cargo test --workspace ir627_repro_rekeyed_integer_range_typed_at_boolean_must_refuse` (exit 101). A second disposable test rekeyed `base.sequence_bounds` after pointing its `semantic_type` to Boolean; `cargo test --workspace ir627_repro_rekeyed_collection_bounds_typed_at_boolean_must_refuse` failed for the same reason: `Admitted`. `git diff --check` passed. Full gates are owned by the lead's pre-PR and pre-merge runs.
 
 ## Reviewed scope
 
@@ -56,11 +56,11 @@ derived_keys.rs, mod.rs, model_members.rs, structural.rs; FR-038; conformance_qs
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 4d667e9f70e9d87be18bf5eedb1c9bee067179cc |
-| FND-002 | fixed | 4d667e9f70e9d87be18bf5eedb1c9bee067179cc |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
 
 ## Disposition evidence
 
-**Current disposition: PASS** — every original finding is fixed at `4d667e9f70e9d87be18bf5eedb1c9bee067179cc`.
+**Current disposition: PASS** — every original finding is fixed.
 
-Rechecked at `4d667e9f70e9d87be18bf5eedb1c9bee067179cc` against original reviewed head `c3f83a41c4c00bca1a7b2ee1c5a81001a882be66`. The added `bounded_key` guard ties `integer_range` to the Integer key. `validate_derived_keys` now requires a `collection_bounds` semantic type to resolve to a set, bag, sequence or ordered-set node. The AC-125 test rekeys both forms at Boolean and checks `stale-node-key` at the fresh id. `cargo test --workspace tc_226_` passed (19 integration and 2 unit tests; one named performance test ignored). Targeted FR-038 Quire validation, changed-file rustfmt check, and `git diff --check` passed. No new defect was found in this focused fix diff.
+Rechecked against original reviewed. The added `bounded_key` guard ties `integer_range` to the Integer key. `validate_derived_keys` now requires a `collection_bounds` semantic type to resolve to a set, bag, sequence or ordered-set node. The AC-125 test rekeys both forms at Boolean and checks `stale-node-key` at the fresh id. `cargo test --workspace tc_226_` passed (19 integration and 2 unit tests; one named performance test ignored). Targeted FR-038 Quire validation, changed-file rustfmt check, and `git diff --check` passed. No new defect was found in this focused fix diff.

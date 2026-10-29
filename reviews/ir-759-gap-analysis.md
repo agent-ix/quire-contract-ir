@@ -1,6 +1,6 @@
 ---
 id: SR-10891
-title: "Gap analysis — IR-759 source census at 2cdac57"
+title: "Gap analysis — IR-759 source census "
 type: SpecReview
 analysis: gap-analysis
 scope: "agent-ix/quire-contract-ir; FR-052, TC-452, tests/it/source_obligation.rs, source_obligation.rs, FR-019 public API"
@@ -27,7 +27,7 @@ Plan completion: not assessed. Examined FR-052-AC-1 through FR-052-AC-7 and FR-0
 
 ## Evidence
 
-`make_envelope` derives `item_count` from `rows.len()` and sets `Complete` without enumeration evidence. Its omission case removes a selected IR occurrence and still expects a successful census. No IR/QSL/quire-code-rs adapter or independent owner-output comparison appears in the branch diff. Remove AC-7 trace and the TC-452 implemented claim for this slice, or add native producer evidence and the omission refusal required by TC-452.
+`make_envelope` derives `item_count` from `rows.len` and sets `Complete` without enumeration evidence. Its omission case removes a selected IR occurrence and still expects a successful census. No IR/QSL/quire-code-rs adapter or independent owner-output comparison appears in the branch diff. Remove AC-7 trace and the TC-452 implemented claim for this slice, or add native producer evidence and the omission refusal required by TC-452.
 
 ## Reviewed units
 
@@ -43,7 +43,7 @@ Plan completion: not assessed. Examined FR-052-AC-1 through FR-052-AC-7 and FR-0
 
 ## Dispositions
 
-Reviewed uncommitted working-tree correction on base 2cdac572; no new commit head yet.
+Reviewed uncommitted working-tree correction on; no new commit head yet.
 
 | FND | outcome | reason |
 | --- | --- | --- |
@@ -51,7 +51,7 @@ Reviewed uncommitted working-tree correction on base 2cdac572; no new commit hea
 
 ## Dispositions — round 2
 
-Reviewed frozen IR-784 input-only head fc28070b40353ba249a4556d57804f32871e837f against the original finding.
+Reviewed frozen IR-784 input-only against the original finding.
 
 | FND | outcome | reason |
 | --- | --- | --- |

@@ -23,7 +23,7 @@ Examined FR-054 requirement grammar; no defects found in this lens.
 
 ## Coverage
 
-Reviewed PR #496 head 276a6d40cc0c2fbb68f1f0efd7343a9b22b1d64c against main d41e521f97aee80f81ebce42fbe97d88792891be. Examined FR-054-AC-1 through FR-054-AC-5, TC-458, FR-019 public inventory, source and tagged tests. Plan completion: not assessed.
+Reviewed PR #496 against main. Examined FR-054-AC-1 through FR-054-AC-5, TC-458, FR-019 public inventory, source and tagged tests. Plan completion: not assessed.
 
 Targeted `quire validate --summary` reports FR-054 grammar-clean with zero grammar findings.
 

@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-785. PR: agent-ix/quire-contract-ir#492. Frozen head 95c9664464811b3f2101c116f647ad1a8e33faf6 against main 06130a47657c13def85c7f01b97864c6a09138bb. No applicable AssuranceProfile was found. Reviewer performed no Cargo, fmt, metadata, compiler, native or Kani execution. Existing raw execution receipts and exact old/healthy inputs were inspected. Model deployment SKU is unavailable; marker uses the advertised model family gpt-6. Excerpts beyond 600 characters are verbatim prefixes; complete criteria were read.
+Ticket: IR-785. PR: agent-ix/quire-contract-ir#492. Frozen against main. No applicable AssuranceProfile was found. Reviewer performed no Cargo, fmt, metadata, compiler, native or Kani execution. Existing raw execution receipts and exact old/healthy inputs were inspected. Model deployment SKU is unavailable; marker uses the advertised model family gpt-6. Excerpts beyond 600 characters are verbatim prefixes; complete criteria were read.
 
 ## Verdict
 
@@ -637,7 +637,7 @@ scope:
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
   excerpt: Given a selected QSL checked request, the QSL-owned adapter enumerates
-    every `CheckedGraph::requirements()` key and every native pending obligation,
+    every `CheckedGraph::requirements` key and every native pending obligation,
     preserving each requirement's wire node bytes, occurrence role and ordinal and
     each obligation's declaration, unit, expression, byte span, kind and predicate
     target. Its `Complete` outcome matches an independent full-output traversal only

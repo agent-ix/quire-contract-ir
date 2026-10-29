@@ -3,7 +3,7 @@ id: SR-567884
 title: "IR-874 PR 571 gap-analysis review"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; protocol_body.rs and checked_package_v2_protocol_body.rs; PR #571 head 3e78f463f295eee182ec55801283770aadeca713"
+scope: "agent-ix/quire-contract-ir; protocol_body.rs and checked_package_v2_protocol_body.rs; PR #571 "
 review_set: subset
 ---
 
@@ -38,9 +38,9 @@ Plan completion: not assessed. The computed Quoin matrix has tagged FR-038-AC-28
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At `0fbe2c533d563b16ab0f598184a20b80d8de6d19`, the public-reader test admits two distinct related tuples in JCS order and refuses the reverse order as `invalid_semantic_graph`. |
-| FND-002 | fixed | At `0fbe2c533d563b16ab0f598184a20b80d8de6d19`, tests assert the exact expected and actual source type, then refuse a malformed `to` end at its pointer with exact target type detail. |
+| FND-001 | fixed |, the public-reader test admits two distinct related tuples in JCS order and refuses the reverse order as `invalid_semantic_graph`. |
+| FND-002 | fixed |, tests assert the exact expected and actual source type, then refuse a malformed `to` end at its pointer with exact target type detail. |
 
 ## Disposition verdict
 
-**PASS at 0fbe2c533d563b16ab0f598184a20b80d8de6d19** — Both test evidence gaps were closed in the same PR. Remaining protocol stages and the full FR-038 criteria remain Planned.
+**PASS ** — Both test evidence gaps were closed in the same PR. Remaining protocol stages and the full FR-038 criteria remain Planned.

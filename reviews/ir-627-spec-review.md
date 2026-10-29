@@ -3,7 +3,7 @@ id: SR-1552
 title: "Base spec review of quire-contract-ir PR #295 (IR-627 anonymous structural node bodies)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@984c283099ce117b5ab7cba2b8f03fe3d6e5e5bc; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (section 'Anonymous structural node bodies and keys', FR-038-AC-123..130), spec/checked_package/matrix/TC-226-checked-package-v2-anonymous-structural-node-bodies.md, spec/checked_package/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (section 'Anonymous structural node bodies and keys', FR-038-AC-123..130), spec/checked_package/matrix/TC-226-checked-package-v2-anonymous-structural-node-bodies.md, spec/checked_package/matrix/tests.md"
 review_set: subset
 ---
 
@@ -37,9 +37,9 @@ matrix row and the TC-226 summary and cases rows, and that no CI or workflow fil
 
 ## Dispositions
 
-Round 1, reviewed at ab860cac3a7162c5eea073d99bb5bcf5433e1237.
+Round 1, reviewed.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | ab860cac3a7162c5eea073d99bb5bcf5433e1237 |
-| FND-002 | fixed | ab860cac3a7162c5eea073d99bb5bcf5433e1237 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |

@@ -3,7 +3,7 @@ id: SR-567883
 title: "IR-874 PR 571 code-review review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; shared.rs, contract_package.rs, mod.rs, protocol_body.rs, checked_package_v2_protocol_body.rs, checked_package_v2_temporal.rs; PR #571 head 3e78f463f295eee182ec55801283770aadeca713"
+scope: "agent-ix/quire-contract-ir; shared.rs, contract_package.rs, mod.rs, protocol_body.rs, checked_package_v2_protocol_body.rs, checked_package_v2_temporal.rs; PR #571 "
 review_set: subset
 ---
 
@@ -41,14 +41,14 @@ The diff changes no CI workflow or dependency declarations. Rust style and repos
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-002 | high | Hosted Rust Checks at head `3e78f463` failed two FR-038-AC-90 identity tests: the new related-record sort encoded through `serde_json::to_value` and passed `u64::MAX` to `Limits::new`, violating the repository's checked-package encoding boundary. | crates/quire-contract-model/src/checked_package/v2/protocol_body.rs:435 |
+| FND-002 | high | Hosted Rust Checks at failed two FR-038-AC-90 identity tests: the new related-record sort encoded through `serde_json::to_value` and passed `u64::MAX` to `Limits::new`, violating the repository's checked-package encoding boundary. | crates/quire-contract-model/src/checked_package/v2/protocol_body.rs:435 |
 
 ## Dispositions
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-002 | fixed | At `0fbe2c533d563b16ab0f598184a20b80d8de6d19`, related sorting calls `quire_canonical::to_vec` directly on the typed `CheckedTerm` with the reader's `limits.bytes`; neither forbidden encoder path remains. |
+| FND-002 | fixed |, related sorting calls `quire_canonical::to_vec` directly on the typed `CheckedTerm` with the reader's `limits.bytes`; neither forbidden encoder path remains. |
 
 ## Disposition verdict
 
-**PASS at 0fbe2c533d563b16ab0f598184a20b80d8de6d19** — The newly discovered hosted gate failure was fixed in the same PR. Its final full hosted run remains the code lead's gate.
+**PASS ** — The newly discovered hosted gate failure was fixed in the same PR. Its final full hosted run remains the code lead's gate.

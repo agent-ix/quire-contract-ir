@@ -3,7 +3,7 @@ id: SR-1790
 title: "Author Rust review — IR-627 owner-free structural keys"
 type: SpecReview
 analysis: code-review
-scope: "quire-contract-ir@5b73113; IR-627 diff against 1540b3b (production, FR-038, conformance and integration fixtures)"
+scope: "quire-contract-ir; IR-627 diff (production, FR-038, conformance and integration fixtures)"
 review_set: subset
 ---
 

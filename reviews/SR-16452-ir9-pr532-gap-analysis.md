@@ -3,7 +3,7 @@ id: SR-16452
 title: "IR-9 PR 532 incremental gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@819df8e88b7ae56a318cd938f25f08748251c894; FR-056-AC-3/6/7/8; TC-460; two selected-model intake functions and changed tests"
+scope: "agent-ix/quire-contract-ir; FR-056-AC-3/6/7/8; TC-460; two selected-model intake functions and changed tests"
 review_set: subset
 relationships:
   - { target: "ix://agent-ix/quire-contract-ir/FR-056", type: references }

@@ -4,7 +4,7 @@ title: "IR PR 479 EARS conformance: FR-035-AC-12 to AC-14"
 type: SpecReview
 analysis: ears-conformance
 review_set: subset
-scope: "agent-ix/quire-contract-ir@f5229f01c640aa772fe7ba1c109a3e94dfe75b26; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md lines 163-167 (diff origin/main...HEAD)"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md lines 163-167 (diff origin/main...HEAD)"
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-035
     type: reviews
@@ -14,7 +14,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-893. PR: agent-ix/quire-contract-ir#479 at f5229f0.
+Ticket: IR-893. PR: agent-ix/quire-contract-ir#479.
 
 Examined: FR-035-AC-12, FR-035-AC-13 and FR-035-AC-14, and the trailing note "FR-035-AC-12
 through FR-035-AC-14 are planned until TC-047 tests carry their trace tags." For comparison,
@@ -39,10 +39,10 @@ defects in AC-12 and AC-14 are recorded once, in SR-13230, and are not repeated 
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | FR-035-AC-12, AC-13 and AC-14 are written as obligations ("SHALL return ... SHALL admit no"). The sibling reader criteria AC-10 and AC-11 use the direct-assertion form ("`read` returns `Refused` ... it returns no admitted package"). The obligation form adds three `ac:non-canonical-shape` warnings to `quire validate` that were not there before. Restate them in the AC-10 form | spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:163-165 |
+| FND-001 | low | FR-035-AC-12, AC-13 and AC-14 are written as obligations ("SHALL return... SHALL admit no"). The sibling reader criteria AC-10 and AC-11 use the direct-assertion form ("`read` returns `Refused`... it returns no admitted package"). The obligation form adds three `ac:non-canonical-shape` warnings to `quire validate` that were not there before. Restate them in the AC-10 form | spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:163-165 |
 
 ## Dispositions
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Round 1, fix commit 3263d76: AC-12 to AC-14 now use the AC-10 direct-assertion form ("Given ..., `read` returns `Refused` ...; it returns no admitted package"). `quire validate` on the changed files now reports no `ac:non-canonical-shape` warning |
+| FND-001 | fixed | Round 1, fix: AC-12 to AC-14 now use the AC-10 direct-assertion form ("Given..., `read` returns `Refused`...; it returns no admitted package"). `quire validate` on the changed files now reports no `ac:non-canonical-shape` warning |

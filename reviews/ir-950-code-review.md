@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-The Rust generator, ordered JSON model, all 107 case builders, regeneration test, README, and removed Python implementation were reviewed at 0f88f3e. The generated deep coverage trace embeds a fixed requirement digest, and generation mutates the destination before the runner has succeeded.
+The Rust generator, ordered JSON model, all 107 case builders, regeneration test, README, and removed Python implementation were reviewed. The generated deep coverage trace embeds a fixed requirement digest, and generation mutates the destination before the runner has su.
 
 ## Verdict
 
@@ -40,16 +40,16 @@ The ordered JSON serializer intentionally preserves object declaration order for
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Round 1, fe0e4973: the requirement digest is derived from the parsed fixture package through `canonical_requirement(..., CanonicalProfile::V1).digest()`; the 64-digit literal is gone. |
-| FND-002 | fixed | Round 1, fe0e4973: generation and runner self-check complete in a sibling stage before the destination is renamed; the new `tc_018_failed_regeneration_preserves_the_existing_corpus` test verifies paths and bytes after a missing runner. |
+| FND-001 | fixed | Round 1,: the requirement digest is derived from the parsed fixture package through `canonical_requirement(..., CanonicalProfile::V1).digest`; the 64-digit literal is gone. |
+| FND-002 | fixed | Round 1,: generation and runner self-check complete in a sibling stage before the destination is renamed; the new `tc_018_failed_regeneration_preserves_the_existing_corpus` test verifies paths and bytes after a missing runner. |
 
-After excerpts (same source locations, fe0e4973):
+After excerpts (same source locations, ):
 
-- FND-001: `let digest = parsed.canonical_requirement(&parsed.requirements()[0], CanonicalProfile::V1).expect("coverage fixture requirement canonicalizes").digest().to_string();`
+- FND-001: `let digest = parsed.canonical_requirement(&parsed.requirements[0], CanonicalProfile::V1).expect("coverage fixture requirement canonicalizes").digest.to_string;`
 - FND-002: `generate(root, &staged_corpus, runner)?;` precedes `fs::rename(corpus, &backup)?;` and `fs::rename(&staged_corpus, corpus)`.
 
 ## Current verdict
 
-**PASS at fe0e4973** — both original findings are fixed by inspected source changes. The original review verdict above remains the frozen-head record; the final aggregate gate is the author's pending pre-PR qualification.
+**PASS ** — both original findings are fixed by inspected source changes. The original review verdict above remains the frozen-head record; the final aggregate gate is the author's pending pre-PR qualification.
 
-Rebase confirmation at e3645e9b (current main 5ffe82b): FND-001 remains fixed because the entire `requirement_digest` member and `coverage-digest` case were removed from the upstream corpus contract; the Rust `trace` builder now emits only `{kind: deep|shallow}`. FND-002 remains fixed because sibling staging, runner self-check, and destination swap still occur in that order. The conflict resolution matches main's 106 inputs and `2^127` numeric range fixture, and `Scratch::empty` was moved into the shared support module. No new finding in this narrow rebase review. **Current verdict: PASS at e3645e9b**, subject to the author's final aggregate gate.
+Rebase confirmation (current main ): FND-001 remains fixed because the entire `requirement_digest` member and `coverage-digest` case were removed from the upstream corpus contract; the Rust `trace` builder now emits only `{kind: deep|shallow}`. FND-002 remains fixed because sibling staging, runner self-check, and destination swap still occur in that order. The conflict resolution matches main's 106 inputs and `2^127` numeric range fixture, and `Scratch::empty` was moved into the shared support module. No new finding in this narrow rebase review. **Current verdict: PASS **, subject to the author's final aggregate gate.

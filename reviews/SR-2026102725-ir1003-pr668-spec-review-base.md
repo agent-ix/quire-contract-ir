@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed the edited IR criteria and matrix against QSpec 282a255b. The refusal stages, row-empty model admission, protocol catalog comparison, and graph-case status of SR-01..13 agree with the source contract. The matrix lacks a population-key precedence control.
+Reviewed the edited IR criteria and matrix against QSpec. The refusal stages, row-empty model admission, protocol catalog comparison, and graph-case status of SR-01..13 agree with the source contract. The matrix lacks a population-key precedence control.
 
 ## Verdict
 
@@ -36,4 +36,4 @@ No new hash, digest, pin, or tracking record was introduced by the diff. QSpec S
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At rebased PR head fbb60a41, TC-062 requires a foreign `populations[0].concrete` before foreign object and step keys and the exact `invalid_model_binding`/`malformed-declaration` refusal at `/body/populations/0/concrete`. |
+| FND-001 | fixed | At rebased PR, TC-062 requires a foreign `populations[0].concrete` before foreign object and step keys and the exact `invalid_model_binding`/`malformed-declaration` refusal at `/body/populations/0/concrete`. |

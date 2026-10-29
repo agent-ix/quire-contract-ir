@@ -3,19 +3,19 @@ id: SR-1080
 title: "code review of PR 259 after rebase (IR-535 selections bind by identity)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@22ed70872d8e5cc42fcd68c882428399facec766; crates/quire-contract-model/src/checked_package/shared.rs, crates/quire-contract-model/src/checked_package/v2/identity.rs, crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/checked_package/v2/model_members.rs, crates/quire-contract-model/src/checked_package/v2/model_members/tests.rs, tests/it/checked_package_v2_canonical_encoding.rs, tests/it/checked_package_v2_dependency_reference.rs, tests/it/checked_package_v2_dependency_selections.rs, tests/it/checked_package_v2_frame_entries.rs, tests/it/checked_package_v2_model_members.rs, tests/it/checked_package_v2_reader.rs, tests/it/checked_package_v2_temporal.rs, tests/it/support/checked_package.rs"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/shared.rs, crates/quire-contract-model/src/checked_package/v2/identity.rs, crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/checked_package/v2/model_members.rs, crates/quire-contract-model/src/checked_package/v2/model_members/tests.rs, tests/it/checked_package_v2_canonical_encoding.rs, tests/it/checked_package_v2_dependency_reference.rs, tests/it/checked_package_v2_dependency_selections.rs, tests/it/checked_package_v2_frame_entries.rs, tests/it/checked_package_v2_model_members.rs, tests/it/checked_package_v2_reader.rs, tests/it/checked_package_v2_temporal.rs, tests/it/support/checked_package.rs"
 review_set: subset
 ---
 # SR-1080: code review of PR 259 after rebase
 
 ## Summary
 
-Ticket: IR-535. Reviewed head 22ed70872d8e5cc42fcd68c882428399facec766. It is one commit
-whose parent is origin/main cbcd790a8fc9d07c83c7c7f6238023ed85fa0bad, so the two-dot and
+Ticket: IR-535. Reviewed. It is one commit
+whose parent is origin/main, so the two-dot and
 three-dot diffs are the same. There are 14 files, +510/-309. The rust-review lane is folded
 into this file. Every measurement was taken in a detached worktree outside the repo, with
 its own target dir. The PR body and the author's gate log were treated as claims and
-re-measured. This review replaces SR-820, which reviewed the pre-rebase head 558f45b.
+re-measured. This review replaces SR-820, which reviewed the pre-rebase.
 
 Wire. `CheckedDomainPackageRef` is now `{identity, digest_domain, digest}` and
 `CheckedDependencySelection` is `{identity, package_id}`. Both keep `deny_unknown_fields`.
@@ -48,10 +48,10 @@ the `Entry` import was removed.
 different `package_id`. No recorded constant covers such a package. The recorded
 `identity_digests.rs` fixtures (all-families, nominal, operations) have empty selection
 arrays, so they are unchanged and still pass. I recomputed one value independently. I took
-QSpec's `dependency-selection-vectors.json` at 974fb24, which is positive-all-families plus
+QSpec's `dependency-selection-vectors.json`, which is positive-all-families plus
 two `{identity, package_id}` entries. Python RFC 8785 plus SHA-256 over that preimage gives
 0606043af7f4996c38c54d7207600badadaee17bf90955263bbfd652b209abf2, the value QSpec
-records. With a `version` member on each entry it gives 1ed1ecc3…, which differs. A
+records. With a `version` member on each entry it gives …, which differs. A
 throwaway probe fed this reader the package under each digest. Under QSpec's digest it
 passed the `package_id` check and refused at the next step, `missing_import` at
 `/lock/dependency_selections/0`, because the probe supplied no dependency packages. Under
@@ -82,7 +82,7 @@ Gates I ran at this head:
   Coverage is 220/261 against main's 217/261, and FR-038 is 98/108 against 95/108.
 - `make deny` exits 0 (including one-copy). `cargo audit` exits 0, and `make audit-unsafe`
   exits 0.
-- `make conformance-qspec` with `QUIRE_SPECIFICATION_DIR` at a detached QSpec 974fb24: 1
+- `make conformance-qspec` with `QUIRE_SPECIFICATION_DIR` at a detached QSpec: 1
   passed (all three positive fixtures admit).
 
 The author's log matches. Its last line is a hand-written summary. These results are mine.
@@ -127,8 +127,8 @@ blocks the merge. The PR stays HELD only for the QSL lockstep.
 
 ## Dispositions
 
-Round 1, reviewed at ae9e3f16b7af1e5f06cfb8e04c543a19735a7518 (one commit on main
-cbcd790, force-pushed over 22ed708). The tree delta 22ed708..ae9e3f1 touches three files
+Round 1, reviewed (one commit on main
+, force-pushed over ). The tree delta.. touches three files
 only: identity.rs, model_members.rs and tests/it/checked_package_v2_model_members.rs.
 
 Checks run at the new head:
@@ -144,6 +144,6 @@ Checks run at the new head:
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | ae9e3f16b7af1e5f06cfb8e04c543a19735a7518 |
-| FND-002 | fixed | ae9e3f16b7af1e5f06cfb8e04c543a19735a7518 |
-| FND-003 | fixed | ae9e3f16b7af1e5f06cfb8e04c543a19735a7518 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |

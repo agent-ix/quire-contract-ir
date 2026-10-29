@@ -3,7 +3,7 @@ id: SR-600008
 title: IR-874 PR 588 code and Rust review
 type: SpecReview
 analysis: code-review
-scope: 'agent-ix/quire-contract-ir; PR #588 cf151429fe0965b4a9e93326983cdca9aee003c2;
+scope: 'agent-ix/quire-contract-ir; PR #588;
   crates/quire-contract-model/src/checked_package/shared.rs, crates/quire-contract-model/src/checked_package/v2/protocol_body.rs,
   crates/quire-contract-model/src/lib.rs, tests/it/checked_package_v2_protocol_body.rs,
   spec/model/functional/FR-019-rust-library-interface.md'
@@ -34,19 +34,19 @@ Reviewed the frozen decision-fact source and public-reader tests against QSpec F
 
 ## Coverage
 
-Hosted Rust Checks at cf151429 failed make lint with E0004 in contract_package.rs:1502; Supply-chain, guard and CLA passed. No local Cargo or Make run under the shared build lock. The nested projection path follows the unconditional continue after the project identity branch; the operation catalog permits a record operand and record-valued fields.
+Hosted Rust Checks failed make lint with E0004 in contract_package.rs:1502; Supply-chain, guard and CLA passed. No local Cargo or Make run under the shared build lock. The nested projection path follows the unconditional continue after the project identity branch; the operation catalog permits a record operand and record-valued fields.
 
 ## Dispositions
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At da9239cb, cause_admitted pairs WrongObservation only with WrongSnapshot; the exhaustive temporal test helpers spell both new enum values explicitly. The coder reports focused public-reader tests passing under the shared build lock; hosted full Rust Checks at this head remain in progress. |
-| FND-002 | fixed | At da9239cb, a record.project only stops traversal when its receiver is a direct parameter binder. Otherwise the walk follows its dependencies; nested_projection_exposes_its_unlisted_inner_fact asserts wrong_snapshot with the inner field in typed detail. Focused public-reader tests passed; hosted full Rust Checks remain in progress. |
+| FND-001 | fixed |, cause_admitted pairs WrongObservation only with WrongSnapshot; the exhaustive temporal test helpers spell both new enum values explicitly. The coder reports focused public-reader tests passing under the shared build lock; hosted full Rust Checks at this head remain in progress. |
+| FND-002 | fixed |, a record.project only stops traversal when its receiver is a direct parameter binder. Otherwise the walk follows its dependencies; nested_projection_exposes_its_unlisted_inner_fact asserts wrong_snapshot with the inner field in typed detail. Focused public-reader tests passed; hosted full Rust Checks remain in progress. |
 
 ## Disposition verdict
 
-**PASS for the two code findings at da9239cb** — both source defects are fixed in the changed code and backed by focused local tests. Final hosted gate evidence remains pending. FR-038-AC-292 remains Planned, including the STD-496 owner decision.
+**PASS for the two code findings ** — both source defects are fixed in the changed code and backed by focused local tests. Final hosted gate evidence remains pending. FR-038-AC-292 remains Planned, including the STD-496 owner decision.
 
 ## Final exact-head integration review
 
-Hosted Rust Checks at exact code head da9239cbf5ab663037ad02b56e9764e2cf8af8a8 passed Format, Lint and Test; Supply-chain Checks, language-boundary guard and CLA passed at the same head. The final diff changes no CI workflow or safety lint, introduces no unsafe code, and keeps the typed WrongObservation/WrongSnapshot pair exhaustive in model and test code. The nested record projection walk reaches the inner field through validated dependencies and is metered; the public-reader adverse case passed in the hosted Test step. Formal Rust review finds no new defect after the round-1 fixes. **Final code-review verdict: PASS** for this PR's independent slice. FND-001 and FND-002 remain fixed. FR-038-AC-292 remains Planned.
+Hosted Rust Checks at exact code passed Format, Lint and Test; Supply-chain Checks, language-boundary guard and CLA passed at the same head. The final diff changes no CI workflow or safety lint, introduces no unsafe code, and keeps the typed WrongObservation/WrongSnapshot pair exhaustive in model and test code. The nested record projection walk reaches the inner field through validated dependencies and is metered; the public-reader adverse case passed in the hosted Test step. Formal Rust review finds no new defect after the round-1 fixes. **Final code-review verdict: PASS** for this PR's independent slice. FND-001 and FND-002 remain fixed. FR-038-AC-292 remains Planned.

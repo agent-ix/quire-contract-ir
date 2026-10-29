@@ -3,7 +3,7 @@ id: SR-721
 title: "gap analysis of PR 247 (IR-476 test trace hygiene)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@f512aac4330ad47cf474d23af9f2407a32c45f19; tests/it/executable_binding.rs, crates/quire-contract-model/src/checked_package/v2/operations.rs, spec/checked_package/matrix/tests.md, spec/checked_package/functional/FR-038-consume-checked-package-v2.md"
+scope: "agent-ix/quire-contract-ir; tests/it/executable_binding.rs, crates/quire-contract-model/src/checked_package/v2/operations.rs, spec/checked_package/matrix/tests.md, spec/checked_package/functional/FR-038-consume-checked-package-v2.md"
 review_set: subset
 ---
 # SR-721: gap analysis of PR 247
@@ -11,7 +11,7 @@ review_set: subset
 ## Summary
 
 Ticket: IR-476. Plan completion: not assessed. Measured with `quire coverage --json` at base
-4233b56 and head f512aac. Coverage 161/184 both; 23 unbacked matrix rows both, identical
+ and. Coverage 161/184 both; 23 unbacked matrix rows both, identical
 set; FR-023 5/5 both; candidates/tagged/bound 267/243/239 before and 267/245/239 after. The
 shared-trace-id symbol sets (which list all 13 TC-035 symbols) are byte-identical before and
 after. The only JSON differences are `binding_census` (tagged +2), `metrics`, and four new
@@ -37,8 +37,8 @@ operations.rs half adds no coverage. File a Linear subticket for the FR-038 oper
 
 ## Dispositions
 
-Round 1, reviewed agent-ix/quire-contract-ir@f6cc2e9a7f9a387a073211e653fddfac5f4dd54c.
-Measured with `quire coverage --scope . --strict --json` at head: coverage 163/184 (base
+Round 1, reviewed agent-ix/quire-contract-ir.
+Measured with `quire coverage --scope. --strict --json` at head: coverage 163/184 (base
 161/184), FR-038 42/42, candidates/tagged/bound 267/245/243. FR-038-AC-43 and AC-44 are now
 backed in `minted_targets`. Every one of the 24 tagged tests (10 on AC-43, 14 on AC-44) was
 read against the AC text. Each exercises a clause of the AC it names, and each already cited
@@ -57,5 +57,5 @@ move.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 743407e13fdfc7a3fc3c4f8a865834d4ae81326f |
+| FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | deferred | Needs a spec PR adding an FR-038 operation-law AC plus a TC-048 case first, which is out of scope for this test-hygiene PR. The PR body records it under "Not done", and the team leader files the Linear subticket (none exists yet). |

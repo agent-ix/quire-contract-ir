@@ -3,14 +3,14 @@ id: SR-11802
 title: IR-816 failure-domain review of receiver-scoped frame entries and deletes_scoped (FR-040-AC-17..29)
 type: SpecReview
 analysis: failure-domain
-scope: agent-ix/quire-contract-ir@9526be4cce3d637705b22ec4804705ff718dcb3a (PR 415, diff vs origin/main 32e433a); spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-056-checked-package-v2-frame-entries-and-state-clauses.md, spec/checked_package/matrix/TC-053-checked-package-v2-frame-bodies.md, spec/checked_package/matrix/tests.md, spec/spec.md, spec/tests.md
+scope: agent-ix/quire-contract-ir (PR 415, diff vs origin/main ); spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-056-checked-package-v2-frame-entries-and-state-clauses.md, spec/checked_package/matrix/TC-053-checked-package-v2-frame-bodies.md, spec/checked_package/matrix/tests.md, spec/spec.md, spec/tests.md
 review_set: subset
 date: '2026-10-16'
 ---
 
 ## Summary
 
-Ticket: IR-816. Failure modes, identity confusion and edge cases in the new frame rules of PR 415 at 9526be4: conflict location, listing-order dependence, shared frames, unresolved contexts and step precedence, against QSpec FR-340/FR-342 and QSL TC-1043 rows X6, X8, X9, I8 and step 2b. Review only; no edits.
+Ticket: IR-816. Failure modes, identity confusion and edge cases in the new frame rules of PR 415: conflict location, listing-order dependence, shared frames, unresolved contexts and step precedence, against QSpec FR-340/FR-342 and QSL TC-1043 rows X6, X8, X9, I8 and step 2b. Review only; no edits.
 
 ## Verdict
 
@@ -67,9 +67,9 @@ scope:
 
 ## Dispositions
 
-Round 1, fix commit 99f4936 on 9526be4.
+Round 1, fix on.
 
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | The path is now that of the entry that sorts second by the order key (the `receiver` one), with the locus at the declaring node key. The author's argument holds against TC-1043. X8 = [step/receiver@0, step/every-object@1, value@2] gives /modifies/0, and X9 = [step/every-object@0, step/receiver@1, value@2] gives /modifies/1. The pointer strings differ only because the same entry sits at a different index, while the entry identified is the same `receiver` entry in both listings. The old array-order rule gives /modifies/1 in both, which is the same string but a different entry (every-object in X8, receiver in X9). So the new rule is the listing-independent one. It also follows FR-340's statement that the scope component fixes the conflict's naming order (every-object first). TC-1043 X8/X9 do not fix a path, so nothing conflicts. TC-056 now asserts that the `receiver` entry is located in both listings. |
-| FND-002 | fixed | The skip is labelled "IR reading, which QSpec FR-342 check 5 does not state" (FR-040 :223-226) and pinned by the new FR-040-AC-30, with a TC-056 case. |
+| FND-002 | fixed | The skip is labelled "IR reading, which QSpec FR-342 check 5 does not state" (FR-040:223-226) and pinned by the new FR-040-AC-30, with a TC-056 case. |

@@ -3,7 +3,7 @@ id: SR-8440
 title: "IR-766 code-review review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@bd897ccb4791da8e392a87919c8e1694c7e70304; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md; spec/model/functional/FR-019-rust-library-interface.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md; spec/model/functional/FR-019-rust-library-interface.md"
 review_set: subset
 ---
 
@@ -34,6 +34,6 @@ Checked the Rust closure traversal, selected-reference extraction, classificatio
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | cb96651e2653aa355984ae6f77b66975b68a8853 |
-| FND-002 | fixed | cb96651e2653aa355984ae6f77b66975b68a8853 |
-| FND-003 | fixed | cb96651e2653aa355984ae6f77b66975b68a8853 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |

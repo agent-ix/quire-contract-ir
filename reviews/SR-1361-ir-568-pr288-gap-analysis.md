@@ -3,7 +3,7 @@ id: SR-1361
 title: "PR #288 FR-020-AC-3 gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@9adfb5a0259d84da4fc68471f886b56f7e4a73f6; FR-020-AC-3, TC-018; tests/it/conformance.rs, corpus/contract-v0.1/canonical (read only), spec/conformance/matrix/tests.md, spec/core/matrix/tests.md, spec/tests.md"
+scope: "agent-ix/quire-contract-ir; FR-020-AC-3, TC-018; tests/it/conformance.rs, corpus/contract-v0.1/canonical (read only), spec/conformance/matrix/tests.md, spec/core/matrix/tests.md, spec/tests.md"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-020

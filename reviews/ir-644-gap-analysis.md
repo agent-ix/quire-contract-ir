@@ -3,7 +3,7 @@ id: SR-1741
 title: "Gap analysis of IR-644 wrapped optional leaf evidence"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@66c362435cd627f5d72718f8f34b065ee97713dd; crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it/checked_package_v2_recursive_leaves.rs, spec/checked_package/functional/FR-038-consume-checked-package-v2.md"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it/checked_package_v2_recursive_leaves.rs, spec/checked_package/functional/FR-038-consume-checked-package-v2.md"
 review_set: subset
 relationships:
   - { target: "ix://agent-ix/quire-contract-ir/FR-038", type: references }
@@ -32,7 +32,7 @@ Planless traceability check of the PR #301 code and tests against FR-038-AC-151/
 ## Coverage
 
 - Reconciliation: `quoin matrix --repo <worktree> --json` (quoin 0.28.1) found 299 criteria, 254 tagged, 43 untagged and 2 method-without-symbol; FR-038's last minted criterion is AC-150. `quire matrix --scope <worktree> --format json` independently has neither AC-151 nor AC-152. The 43 unrelated untagged criteria predate this PR and are not attributed to its diff.
-- The two new tests carry `#[trace("TC-048", "FR-038-AC-151")]` and `#[trace("TC-048", "FR-038-AC-152")]` and pass in the focused integration run. Their rows follow a blank line after AC-150 in the merged spec at 4d5754b6af95b07ee1977ab1bd58216136aa86d0.
+- The two new tests carry `#[trace("TC-048", "FR-038-AC-151")]` and `#[trace("TC-048", "FR-038-AC-152")]` and pass in the focused integration run. Their rows follow a blank line after AC-150 in the merged spec.
 - Source behavior inventory for this diff: one record-field wrapper branch, one direct-reference branch, one malformed-shape refusal path; all map to the two intended ACs. No source or test stubs found in the diff.
 - Plan completion: not assessed
 - Semantic review: skipped; the targeted code review in SR-1740 compared the two criteria with source and test behavior.
@@ -41,9 +41,9 @@ Planless traceability check of the PR #301 code and tests against FR-038-AC-151/
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed ce210cf63520bf520fac1bf3522bceae063cd10f | The adjacent AC-151/152 rows are minted by Quire and each is tagged by the intended TC-048 test. |
-| FND-002 | fixed ce210cf63520bf520fac1bf3522bceae063cd10f | FR-038, TC-048 and the test matrix now state that both ACs are implemented and tested. |
+| FND-001 | fixed | The adjacent AC-151/152 rows are minted by Quire and each is tagged by the intended TC-048 test. |
+| FND-002 | fixed | FR-038, TC-048 and the test matrix now state that both ACs are implemented and tested. |
 
 ### Round 1 verification
 
-At `ce210cf63520bf520fac1bf3522bceae063cd10f`, `quire matrix` reports FR-038-AC-151 and FR-038-AC-152 as `tagged`, with binders `tc_048_wrapped_optional_record_fields_keep_their_leaf_order` and `tc_048_malformed_optional_record_fields_refuse_at_operation_leaves`. `quire coverage` reports no focused untracked symbols or diagnostics. The focused recursive-leaf integration filter passed 7 tests. The fix changes specification and review files only; the clean code review in SR-1740 remains valid. No new finding arose from the delta.
+, `quire matrix` reports FR-038-AC-151 and FR-038-AC-152 as `tagged`, with binders `tc_048_wrapped_optional_record_fields_keep_their_leaf_order` and `tc_048_malformed_optional_record_fields_refuse_at_operation_leaves`. `quire coverage` reports no focused untracked symbols or diagnostics. The focused recursive-leaf integration filter passed 7 tests. The fix changes specification and review files only; the clean code review in SR-1740 remains valid. No new finding arose from the delta.

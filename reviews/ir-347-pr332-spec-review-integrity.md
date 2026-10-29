@@ -3,7 +3,7 @@ id: SR-5053
 title: spec-review/integrity review of IR-347 PR 332
 type: SpecReview
 analysis: integrity
-scope: agent-ix/quire-contract-ir@5649b86f446d44fc54c558d7333bee32b0944eb9; spec/assurance/AD-004-checked-package-seam.md,
+scope: agent-ix/quire-contract-ir; spec/assurance/AD-004-checked-package-seam.md,
   spec/assurance/AD-005-qsl-consumption-seam.md, spec/assurance/AD-006-codegen-consumption-seam.md,
   spec/assurance/AD-007-cross-repo-dependency-graph.md, spec/core/functional/FR-044-typed-std001-code.md,
   spec/kani/functional/FR-031-bounded-kani-dispatch-and-terminal-map.md, spec/kani/matrix/TC-223-kani-outcome-fr331-result-map.md,
@@ -14,7 +14,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-347. Reviewed exact PR head `5649b86f446d44fc54c558d7333bee32b0944eb9` against base `efa4e37babce07afbf4829df0e641e2b124348e0`. Diff-scoped review.
+Ticket: IR-347. Reviewed exact PR against. Diff-scoped review.
 
 ## Findings
 
@@ -38,11 +38,11 @@ Units examined (each excerpt is verbatim from the reviewed head):
 - `FR-031` — `spec/kani/functional/FR-031-bounded-kani-dispatch-and-terminal-map.md` (examined): # FR-031: Dispatch bounded Kani modules and expose typed outcomes
 - `TC-223` — `spec/kani/matrix/TC-223-kani-outcome-fr331-result-map.md` (examined): # TC-223: Kani outcomes are built only by validated constructors, with their check count and cause codes
 - `TM-009` — `spec/kani/matrix/tests.md` (examined): # quire-contract-ir bounded Kani test matrix
-- `AD-005` — `spec/assurance/AD-005-qsl-consumption-seam.md` (examined): - The model crate's own root uses glob re-exports for seven modules   (the `pub use` lines of `crates/quire-contract-model/src/lib.rs`), against AD-001 and FR-019 ("by name, no   glob").
+- `AD-005` — `spec/assurance/AD-005-qsl-consumption-seam.md` (examined): - The model crate's own root uses glob re-exports for seven modules (the `pub use` lines of `crates/quire-contract-model/src/lib.rs`), against AD-001 and FR-019 ("by name, no glob").
 
 ## New findings (disposition pass 1)
 
-Observed on interim fix head `3a571f83b204728e54d6f5e6ee0edc68b96c28d0` and fixed before this disposition was published.
+Observed on interim fix and fixed before this disposition was published.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
@@ -52,5 +52,5 @@ Observed on interim fix head `3a571f83b204728e54d6f5e6ee0edc68b96c28d0` and fixe
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 3a571f83b204728e54d6f5e6ee0edc68b96c28d0 |
-| FND-002 | fixed | 59f35103175d8d4fbdb2e20a8e8c09489eaf7295 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |

@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed only the 140 added lines in PR #657 at 6b22d1be50254ae18826e0450affba92fe082298 against FR-058-AC-8 and TC-462. The Rust review checked the real reader path and the shared fixture helpers. No applicable AssuranceProfile was found under `spec/`.
+Reviewed only the 140 added lines in PR #657 against FR-058-AC-8 and TC-462. The Rust review checked the real reader path and the shared fixture helpers. No applicable AssuranceProfile was found under `spec/`.
 
 ## Verdict
 
@@ -30,4 +30,4 @@ Reviewed only the 140 added lines in PR #657 at 6b22d1be50254ae18826e0450affba92
 
 ## Checks
 
-`git diff --check ca23abbd...HEAD` and `cargo fmt --all -- --check` passed. Focused `cargo test --locked --test it tc_462_clause_point_applicability -- --nocapture` passed both tests, with 1008 others filtered out. Aggregate gates are reserved for the code lead's final reviewed head.
+`git diff --check...HEAD` and `cargo fmt --all -- --check` passed. Focused `cargo test --locked --test it tc_462_clause_point_applicability -- --nocapture` passed both tests, with 1008 others filtered out. Aggregate gates are reserved for the code lead's final reviewed head.

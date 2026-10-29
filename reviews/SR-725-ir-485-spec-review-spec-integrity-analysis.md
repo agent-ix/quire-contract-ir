@@ -3,14 +3,14 @@ id: SR-725
 title: "integrity review of PR 248 (IR-485 marker-free duplicate SR ids)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@bf72c142b6221889d73d729b5ac4a5bc8ca40ac2; reviews/**/*.md frontmatter ids and SR- filename prefixes; reviews/SR-970..SR-975 (renamed from SR-044/045/046/061/062/547), reviews/2026-09-15-plan-009-complete-v1-backend-gap-analysis.md (SR-546 -> SR-976); citations in spec/, plan/, reviews/, README.md, CLAUDE.md, AGENTS.md, Makefile, scripts/, tests/; compared against origin/main 4233b56"
+scope: "agent-ix/quire-contract-ir; reviews/**/*.md frontmatter ids and SR- filename prefixes; reviews/SR-970..SR-975 (renamed from SR-044/045/046/061/062/547), reviews/2026-09-15-plan-009-complete-v1-backend-gap-analysis.md (SR-546 -> SR-976); citations in spec/, plan/, reviews/, README.md, CLAUDE.md, AGENTS.md, Makefile, scripts/, tests/; compared against origin/main "
 review_set: subset
 ---
 # SR-725: integrity review of PR 248
 
 ## Summary
 
-Ticket: IR-485. Reviewed head bf72c14 against origin/main 4233b56. The diff is seven
+Ticket: IR-485. Reviewed against origin/main. The diff is seven
 records-only files under `reviews/`: six renames (similarity 93-98%) and one in-place edit.
 Every change is the frontmatter `id:` line plus, where the H1 carried the id, the H1. No
 other byte changed.
@@ -64,4 +64,4 @@ correcting in the squash text.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | accepted-no-change | Round 1 at bf72c14 (no new commit). The false claim was in the PR body, not the repo. The body now reads "One old SR-prefixed file name is still cited by path: reviews/SR-641-ir-320-spec-review-base.md FND-002 cites reviews/SR-044-native-predicate-bridge-base.md as history. SR-641 is a posted review and is left as written." SR-641 stays unedited because it records what was true at its reviewed sha. Re-measured on a trial merge with origin/main 70314b7: that Refs cell is the only reference to any of the six old file names. |
+| FND-001 | accepted-no-change | Round 1 (no new commit). The false claim was in the PR body, not the repo. The body now reads "One old SR-prefixed file name is still cited by path: reviews/SR-641-ir-320-spec-review-base.md FND-002 cites reviews/SR-044-native-predicate-bridge-base.md as history. SR-641 is a posted review and is left as written." SR-641 stays unedited because it records what was true at its reviewed sha. Re-measured on a trial merge with origin/main: that Refs cell is the only reference to any of the six old file names. |

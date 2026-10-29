@@ -11,7 +11,7 @@ review_set: subset
 
 ## Summary
 
-Ticket IR-855. Base spec review of the two changed TestMatrix status lines at 40a7fb6c95465af84dc5c8b162ac87e8ae19e2fa. They describe new TC-018 evidence without changing normative FR-019 or FR-020 wording or minting new criteria. The FR-019 row remains marked in progress.
+Ticket IR-855. Base spec review of the two changed TestMatrix status lines. They describe new TC-018 evidence without changing normative FR-019 or FR-020 wording or minting new criteria. The FR-019 row remains marked in progress.
 
 ## Examined units
 
@@ -31,7 +31,7 @@ Ticket IR-855. Base spec review of the two changed TestMatrix status lines at 40
 
 ## Coverage
 
-Merge base 14f875f: 527/602 backed; head: 533/602 backed. Both report 40 strict unbacked and zero contradicted. The normalized matrix has 568 criterion rows on both sides; only FR-019-AC-8 through AC-13 acquire new binders/status. Plan completion: not assessed. Optional repository-wide semantic review: not run.
+Merge: 527/602 backed; head: 533/602 backed. Both report 40 strict unbacked and zero contradicted. The normalized matrix has 568 criterion rows on both sides; only FR-019-AC-8 through AC-13 acquire new binders/status. Plan completion: not assessed. Optional repository-wide semantic review: not run.
 
 ## Verdict
 

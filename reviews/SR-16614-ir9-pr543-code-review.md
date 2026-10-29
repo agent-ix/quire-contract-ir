@@ -3,7 +3,7 @@ id: SR-16614
 title: "IR-9 PR 543 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@b86f3638e5ff2b2c331833ecccfc5c2d832f9a39; PR #543 operations.rs forwarding predicates and private controls"
+scope: "agent-ix/quire-contract-ir; PR #543 operations.rs forwarding predicates and private controls"
 review_set: subset
 relationships:
   - { target: "ix://agent-ix/quire-contract-ir/FR-056", type: references }
@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Independent diff-scoped code and Rust review of the frozen PR head against `243d7ce6`. Examined the two production predicates, surrounding traversal and work-meter order, cache writes, all six added private controls, repository Rust conventions and the author's focused evidence. No author edits.
+Independent diff-scoped code and Rust review of the frozen PR head. Examined the two production predicates, surrounding traversal and work-meter order, cache writes, all six added private controls, repository Rust conventions and the author's focused evidence. No author edits.
 
 ## Findings
 

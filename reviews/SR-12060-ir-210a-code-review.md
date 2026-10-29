@@ -3,7 +3,7 @@ id: SR-12060
 title: "IR-210 slice A code review (rust lane)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@5231586114bf3c83bee5d127cb745ff759f3d4d0; tests/it/expression.rs, crates/quire-contract-model/src/expression.rs"
+scope: "agent-ix/quire-contract-ir; tests/it/expression.rs, crates/quire-contract-model/src/expression.rs"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-012
@@ -22,7 +22,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-210 (slice A), PR quire-contract-ir#432, head 5231586 over merge base 1bd6749. One commit. origin/main is now 0747970: slice D (#429) landed after the branch point, and it touches other files only. The diff touches two test files. 18 TC-016 tests get `#[trace(...)]`: 12 in `tests/it/expression.rs` and 6 in `range_set_tests` in `crates/quire-contract-model/src/expression.rs`. Both files gain `use ix_trace_rs::trace;`. Each `/// Tracing:` block and its bare `/// ID.` lines become one `/// Trace:` line. A line filter over the diff finds no other change: no test body, assertion or function name changed. The rust-review lane is folded into this file. Each kept id and each dropped id was read against its criterion text in `spec/` and against the test body. Coverage accounting is in the gap-analysis artifact (SR-12061).
+Ticket: IR-210 (slice A), PR quire-contract-ir#432, over merge. One commit. origin/main is now : slice D (#429) landed after the branch point, and it touches other files only. The diff touches two test files. 18 TC-016 tests get `#[trace(...)]`: 12 in `tests/it/expression.rs` and 6 in `range_set_tests` in `crates/quire-contract-model/src/expression.rs`. Both files gain `use ix_trace_rs::trace;`. Each `/// Tracing:` block and its bare `/// ID.` lines become one `/// Trace:` line. A line filter over the diff finds no other change: no test body, assertion or function name changed. The rust-review lane is folded into this file. Each kept id and each dropped id was read against its criterion text in `spec/` and against the test body. Coverage accounting is in the gap-analysis artifact (SR-12061).
 
 The attribute spelling is canonical. `quire trace --file` (quire 0.36.2) credits all 18 tests through `rust-trace-attribute` / `canonical`, and every attribute id equals its `/// Trace:` line. `ix-trace-rs` is a dev-dependency of both the root package and `quire-contract-model`.
 
@@ -44,7 +44,7 @@ Most drops are right. One is wrong: StR-001-VC-1 is dropped from `tc_016_closed_
 | FR-014-AC-4 | examined | Rechecking identical declarations, context, expression, and expected type produces structurally equal typed output, ordered diagnostics, and dependency identities. |
 | FR-014-AC-5 | examined | Expression trees at the node/depth limits validate normally; the first node beyond either limit fails with `expression_too_large` before recursive typing. |
 | FR-014-AC-6 | examined | Typed expression fixtures derive exact input/state-observation, field-owner, enum-variant, and pure-function dependencies once in structural order, satisfying FR-012-AC-5. |
-| FR-014-AC-7 | examined | A guarded product of 120 leaves checks successfully for integer and rational operands because range intervals merge; a sum of more than 64 guarded leaves checks successfully because the range set is widened ...; a divisor whose resulting set contains zero reports `non_zero_divisor`; and every case returns a typed result or diagnostic without panic. |
+| FR-014-AC-7 | examined | A guarded product of 120 leaves checks successfully for integer and rational operands because range intervals merge; a sum of more than 64 guarded leaves checks successfully because the range set is widened...; a divisor whose resulting set contains zero reports `non_zero_divisor`; and every case returns a typed result or diagnostic without panic. |
 | FR-015-AC-1 | examined | Every partial operation is accepted only when its obligation is statically established by declarations or dominating guards. |
 | FR-015-AC-2 | examined | Replacing a short-circuit guard with a total Boolean operator exposes the previously guarded undefined operation. |
 | FR-015-AC-3 | examined | True/false facts from conjunction, disjunction, implication, and negation apply only to their conditionally evaluated branch and never escape a quantifier scope. |
@@ -62,7 +62,7 @@ Most drops are right. One is wrong: StR-001-VC-1 is dropped from `tc_016_closed_
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | StR-001-VC-1 is dropped from tc_016_closed_types_expressions_scopes_and_dependencies_conform for asserting "no revision/anchor/location". Those are the VC's TC-015 legs. This test asserts the TC-016 legs: it type-checks expressions and inspects the dependency set. With slice B #430 at its current head, the row has zero backers. | tests/it/expression.rs:217-231 |
-| FND-002 | low | FR-014-AC-6 stays on tc_016_closed_types_... although the body only checks that a Field, EnumVariant or PureFunction dependency exists (`any()`). It does not check exactness, input/state dependencies, "once" or structural order. The PR drops FR-012-AC-5 from this same test for that reason. | tests/it/expression.rs:348-387 |
+| FND-002 | low | FR-014-AC-6 stays on tc_016_closed_types_... although the body only checks that a Field, EnumVariant or PureFunction dependency exists (`any`). It does not check exactness, input/state dependencies, "once" or structural order. The PR drops FR-012-AC-5 from this same test for that reason. | tests/it/expression.rs:348-387 |
 | FND-003 | low | FR-014-AC-1 ("fail at the narrowest source span") stays on tc_016_closed_types_..., which asserts diagnostic codes only, never a span. The PR drops FR-015-AC-4 elsewhere for being "code only, no span". tc_016_scope_guard_... does assert the InvalidScope narrowest span, but it does not claim the AC. | tests/it/expression.rs:395-437, tests/it/expression.rs:1118-1119 |
 | FND-004 | low | The new `/// Trace:` line is 151 characters, beyond the repo's 100-column rustfmt width. rustfmt does not wrap comments, so fmt-check stays green. Slice B (#430) wraps the same shape over two lines. | tests/it/expression.rs:217 |
 
@@ -74,7 +74,7 @@ REQUEST CHANGES, for FND-001. The fix is small and touches doc and attribute lin
 
 - On the merge base, StR-001-VC-1 has two binders: this test and `identity.rs` `tc_015_identity_anchor_dependency_and_reference_contract_conforms`.
 - At this head it has one, the tc_015 test.
-- Slice B #430, at its current head 406e8d7, drops StR-001-VC-1 from that tc_015 test too. On that branch SR-12065 FND-002 asks to restore it, but no fix commit has landed.
+- Slice B #430, at its current, drops StR-001-VC-1 from that tc_015 test too. On that branch SR-12065 FND-002 asks to restore it, but no fix commit has landed.
 - A tree with both heads applied leaves StR-001-VC-1 with no binder in `quire trace --id`. `minted_targets` shows it backed true -> false, and backed rows fall to 504/565. Strict coverage still reads 43 and does not show this.
 - SR-12065 FND-002 had judged this row safe because "it is still bound by tc_016_closed_types_...". This PR removes exactly that binding.
 
@@ -82,11 +82,11 @@ The fix is to keep StR-001-VC-1 on `tc_016_closed_types_...`, or better, add it 
 
 **Every other dropped id was checked against its text and body. Each drop is right:**
 
-- **FR-012-AC-5 from closed_types:** `any()` existence on three kinds only, with no input or state. It is still backed by mixed_dependencies, which pins the exact ordered set (1 backer).
+- **FR-012-AC-5 from closed_types:** `any` existence on three kinds only, with no input or state. It is still backed by mixed_dependencies, which pins the exact ordered set (1 backer).
 - **FR-014-AC-4 from closed_types, definedness and numeric_policies:** no body rechecks identical input. The only equality in these tests is `same == environment` (line 241), a rebuilt declaration environment. It backs FR-013-AC-4, not a recheck of typed output, diagnostics and dependencies. The 3 -> 0 loss is honest. The PR body states it. It does not cite IR-838, the ticket for the real test.
 - **FR-014-AC-1 from definedness:** no ill-typed operand, scope or root case. It is still backed by closed_types and declaration_and_literal; the latter asserts the narrowest span at line 812.
 - **FR-015-AC-4 from definedness:** NonZeroDivisor code only, with no saturating case and no span. It is still backed by numeric_policies, which asserts saturating add is total and the proof span at line 995.
-- **FR-015-AC-7 from definedness:** `rational_add` is `is_ok()` only. It is still backed by numeric_policies (2/4 normalises to 1/2) and rational_literal_guards.
+- **FR-015-AC-7 from definedness:** `rational_add` is `is_ok` only. It is still backed by numeric_policies (2/4 normalises to 1/2) and rational_literal_guards.
 - **NFR-002-AC-4 from limits_preflight:** no vocabulary assertion. It is still backed by closed_types (forbidden-vocabulary loop, lines 457-468).
 - **FR-013-AC-4 from declaration_and_literal:** no equality or round trip is asserted. It is still backed by closed_types (line 241).
 - **FR-015-AC-1 from numeric_policies:** accept-only, with no negative to show "only when". It is still backed by definedness (`TotalAnd` exposes NonZeroDivisor).
@@ -108,11 +108,11 @@ The fix is to keep StR-001-VC-1 on `tc_016_closed_types_...`, or better, add it 
 **Gates:**
 
 - Reviewer reran `cargo test --locked --workspace --test it expression`, `cargo test --locked -p quire-contract-model --lib range_set_tests` and `cargo fmt --check` at the head. Results are in the gap-analysis artifact (SR-12061).
-- `quire validate` and strict coverage were measured: 43 unbacked rows on the merge base, on origin/main 0747970 and at the head.
+- `quire validate` and strict coverage were measured: 43 unbacked rows on the merge base, on origin/main and at the head.
 
 ## Dispositions
 
-Round 1, at head 6b789b9: the fix commit, plus a merge of origin/main 0747970. Re-measured with quire 0.36.2 on a tree made of origin/main 2641418, which now contains #430 and #431, with this head's two expression files on top. `git merge-tree` reports the merge clean.
+Round 1, at: the fix commit, plus a merge of origin/main. Re-measured with quire 0.36.2 on a tree made of origin/main, which now contains #430 and #431, with this head's two expression files on top. `git merge-tree` reports the merge clean.
 
 - Rows backed: 508/565 -> 507/565.
 - `minted_targets`: the only change is FR-014-AC-4.

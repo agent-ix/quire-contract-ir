@@ -34,7 +34,7 @@ Caller-supplied package identity is sound for a byte-construction API because FR
 
 ## Dispositions
 
-Reviewed fix commit 8d6789ce2fd77bc988107a2efc6ad248f5745200.
+Reviewed fix.
 
 | FND | outcome | reason |
 | --- | --- | --- |

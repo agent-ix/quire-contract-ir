@@ -3,7 +3,7 @@ id: SR-996
 title: "AC-shape review of PR 263 (FR-038-AC-81 to AC-88)"
 type: SpecReview
 analysis: ears-conformance
-scope: "agent-ix/quire-contract-ir@376269e0d67ee1451ee9629dbe897c06a8a730de; spec/checked_package/functional/FR-038-consume-checked-package-v2.md FR-038-AC-81 to FR-038-AC-88 and the two new prose sections"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md FR-038-AC-81 to FR-038-AC-88 and the two new prose sections"
 review_set: subset
 ---
 # SR-996: AC-shape review of PR 263
@@ -37,5 +37,5 @@ needed.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 9d4379b |
-| FND-002 | fixed | 9d4379b |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |

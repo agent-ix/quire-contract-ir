@@ -3,7 +3,7 @@ id: SR-1561
 title: "Scope-boundary review of quire-contract-ir PR #296 (IR-628 typed model object fields accessor)"
 type: SpecReview
 analysis: scope-boundary
-scope: "agent-ix/quire-contract-ir@7ffa956c25fe491767cb790d8168e958929000e4; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (paragraphs 'What the accessor guarantees, stated exactly', 'What quire-contract-codegen can then retire', open questions IR-628-Q1..Q3)"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (paragraphs 'What the accessor guarantees, stated exactly', 'What quire-contract-codegen can then retire', open questions IR-628-Q1..Q3)"
 review_set: subset
 ---
 
@@ -38,9 +38,9 @@ Changes requested: one medium finding. The IR/CG boundary itself is drawn correc
 
 ## Dispositions
 
-Round 1, reviewed at bd47f6aa58501e5d88afff2657f634f9f2b4f382.
+Round 1, reviewed.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | bd47f6aa58501e5d88afff2657f634f9f2b4f382 |
-| FND-002 | fixed | bd47f6aa58501e5d88afff2657f634f9f2b4f382 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |

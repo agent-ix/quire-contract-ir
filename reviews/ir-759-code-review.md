@@ -1,6 +1,6 @@
 ---
 id: SR-10890
-title: "Code review — IR-759 source-obligation census at 2cdac57"
+title: "Code review — IR-759 source-obligation census "
 type: SpecReview
 analysis: code-review
 scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/source_obligation.rs, crates/quire-contract-model/src/lib.rs, tests/it/source_obligation.rs, tests/it/public_interface.rs, tests/it/cycle_free_model.rs; FR-052-AC-1 through AC-7, FR-019-AC-5"
@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed the whole branch diff against d8febf7, including the Rust idiom and public API checks. The QSL occurrence-key, obligation-site/kind and exhaustion projections match the current native types. The source completeness claim remains unsupported by an owner-issued enumerator or adapter. Ticket: IR-759. Prior open findings: SR-10874/FND-001 and SR-10875/FND-001.
+Reviewed the whole branch diff, including the Rust idiom and public API checks. The QSL occurrence-key, obligation-site/kind and exhaustion projections match the current native types. The source completeness claim remains unsupported by an owner-issued enumerator or adapter. Ticket: IR-759. Prior open findings: SR-10874/FND-001 and SR-10875/FND-001.
 
 ## Verdict
 
@@ -43,7 +43,7 @@ Examined FR-052-AC-1 through FR-052-AC-7 and FR-019-AC-5; read FR-028, FR-045 an
 
 ## Dispositions
 
-Reviewed uncommitted working-tree correction on base 2cdac572; no new commit head yet.
+Reviewed uncommitted working-tree correction on; no new commit head yet.
 
 | FND | outcome | reason |
 | --- | --- | --- |
@@ -51,8 +51,8 @@ Reviewed uncommitted working-tree correction on base 2cdac572; no new commit hea
 
 ## Dispositions — round 2
 
-Reviewed frozen IR-784 input-only head fc28070b40353ba249a4556d57804f32871e837f against the original finding.
+Reviewed frozen IR-784 input-only against the original finding.
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | The public Complete flag, caller count, SourceObligationCensus and build_source_obligation_census are absent at fc28070b. SourceInventoryEnvelope::new retains provisional rows and an optional stop_reason; None expressly does not prove exhaustion. A shortened vector can no longer produce a complete-looking census. |
+| FND-001 | fixed | The public Complete flag, caller count, SourceObligationCensus and build_source_obligation_census are absent. SourceInventoryEnvelope::new retains provisional rows and an optional stop_reason; None expressly does not prove exhaustion. A shortened vector can no longer produce a complete-looking census. |

@@ -32,4 +32,4 @@ TC-223 (examined): tagged cases cover most clauses; the count propagation gap is
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At aa3cdd1, the tagged three-check positive case calls `KaniOutcome::proved_from_checks(3, ...)` and retains assertions for `success_checks() == Some(3)`, Boolean true, and serialization round trip. |
+| FND-001 | fixed |, the tagged three-check positive case calls `KaniOutcome::proved_from_checks(3...)` and retains assertions for `success_checks == Some(3)`, Boolean true, and serialization round trip. |

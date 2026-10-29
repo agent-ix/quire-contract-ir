@@ -3,14 +3,14 @@ id: SR-11803
 title: IR-816 EARS conformance review of receiver-scoped frame entries and deletes_scoped (FR-040-AC-17..29)
 type: SpecReview
 analysis: ears-conformance
-scope: agent-ix/quire-contract-ir@9526be4cce3d637705b22ec4804705ff718dcb3a (PR 415, diff vs origin/main 32e433a); spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-056-checked-package-v2-frame-entries-and-state-clauses.md, spec/checked_package/matrix/TC-053-checked-package-v2-frame-bodies.md, spec/checked_package/matrix/tests.md, spec/spec.md, spec/tests.md
+scope: agent-ix/quire-contract-ir (PR 415, diff vs origin/main ); spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-056-checked-package-v2-frame-entries-and-state-clauses.md, spec/checked_package/matrix/TC-053-checked-package-v2-frame-bodies.md, spec/checked_package/matrix/tests.md, spec/spec.md, spec/tests.md
 review_set: subset
 date: '2026-10-16'
 ---
 
 ## Summary
 
-Ticket: IR-816. EARS and AC-quality pass over FR-040-AC-17..29, the edited AC-1 and AC-7, and TC-056's new procedure in PR 415 at 9526be4. Review only; no edits.
+Ticket: IR-816. EARS and AC-quality pass over FR-040-AC-17..29, the edited AC-1 and AC-7, and TC-056's new procedure in PR 415. Review only; no edits.
 
 ## Verdict
 
@@ -18,7 +18,7 @@ Ticket: IR-816. EARS and AC-quality pass over FR-040-AC-17..29, the edited AC-1 
 
 What holds:
 
-- The direct-assertion wording ("A ... refuses X at Y") matches the neighbouring FR-040-AC-1..16 and avoids the validator's `ac:non-canonical-shape` warning. `quire validate` emits no AC-shape warning for FR-040.
+- The direct-assertion wording ("A... refuses X at Y") matches the neighbouring FR-040-AC-1..16 and avoids the validator's `ac:non-canonical-shape` warning. `quire validate` emits no AC-shape warning for FR-040.
 - AC-17, 18, 19, 21, 24, 25, 26, 27, 28 and 29 each state one observable outcome with code, cause and locus, and are testable from TC-056's procedure. AC-21 carries a concrete admit/refuse pair, matching TC-1043 X4.
 - TC-056 names TC-1043 W1-W6 and X1-X9 by id only and re-authors the cases from IR's own vocabulary.
 
@@ -93,9 +93,9 @@ scope:
 
 ## Dispositions
 
-Round 1, fix commit 99f4936 on 9526be4.
+Round 1, fix on.
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | AC-20 now locates each case at the offending entry, and a repeat at its second occurrence. FR-040 :94-96 and FR-038 say the same, and so does `reject_repeat` (frame.rs:150-158). |
+| FND-001 | fixed | AC-20 now locates each case at the offending entry, and a repeat at its second occurrence. FR-040:94-96 and FR-038 say the same, and so does `reject_repeat` (frame.rs:150-158). |
 | FND-002 | fixed | AC-22 now asserts name order only; the conflict naming order is carried by AC-23. |

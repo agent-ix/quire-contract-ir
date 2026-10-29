@@ -3,13 +3,13 @@ id: SR-567890
 title: "IR-874 PR 575 gap-analysis review"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, tests/it/checked_package_v2_protocol_body.rs, tests/it/checked_package_v2_protocol_reference.rs; PR #575 frozen head decf37259513a31a003831c2ce04ec026932f1c9 against 5e0ea8d3"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, tests/it/checked_package_v2_protocol_body.rs, tests/it/checked_package_v2_protocol_reference.rs; PR #575 frozen "
 review_set: subset
 ---
 
 ## Summary
 
-Reviewed the frozen stage-5 membership diff and hosted Rust Checks at decf37259513a31a003831c2ce04ec026932f1c9.
+Reviewed the frozen stage-5 membership diff and hosted Rust Checks.
 
 ## Verdict
 
@@ -39,4 +39,4 @@ Plan completion: not assessed. Quire matrix marks FR-038-AC-26/284/285 tagged; t
 
 ## Disposition verdict
 
-**PASS at a72241c2ab8b6c19ca11d8df9cda0becae0c45fd** — FND-001 fixed; full FR-038-AC-282/284/285 remain Planned.
+**PASS ** — FND-001 fixed; full FR-038-AC-282/284/285 remain Planned.

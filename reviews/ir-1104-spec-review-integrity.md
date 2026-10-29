@@ -5,13 +5,13 @@ type: SpecReview
 analysis: integrity
 scope: 'agent-ix/quire-contract-ir; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md;
   spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md; PR #674
-  @ 47f82e8e'
+  @ '
 review_set: subset
 ---
 
 ## Summary
 
-Ticket: IR-1104. Frozen PR head 47f82e8e. The new requested-root kind stays outside FR-330 wire and distinguishes the requested root from the first unsupported descendant. The required fairness-to-clause fixture conflicts with QSpec FR-370.
+Ticket: IR-1104. Frozen PR. The new requested-root kind stays outside FR-330 wire and distinguishes the requested root from the first unsupported descendant. The required fairness-to-clause fixture conflicts with QSpec FR-370.
 
 ## Verdict
 
@@ -39,4 +39,4 @@ QSpec FR-330 keeps the unsupported wire payload closed. QSpec FR-370 fixes the t
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At PR head 666f97966bf3590d7f0c757fd481064c789d0b2d, AC-27 and TC-047 use a temporal-clause root whose fairness argument references a distinct fairness node. QSpec FR-370 explicitly permits that reference, and the fairness node remains a zero-operand application that does not reference the clause. Direct fairness and formula requests remain covered. |
+| FND-001 | fixed | At PR, AC-27 and TC-047 use a temporal-clause root whose fairness argument references a distinct fairness node. QSpec FR-370 explicitly permits that reference, and the fairness node remains a zero-operand application that does not reference the clause. Direct fairness and formula requests remain covered. |

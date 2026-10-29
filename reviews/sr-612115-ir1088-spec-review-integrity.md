@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #654 at d70e576d for consistency among FR-019, TC-058, and the model Test Matrix TM-004. The new typed operation fixture obligations are internally coherent, but the existing matrix still declares the old criterion range and TC-058 coverage design.
+Reviewed PR #654 for consistency among FR-019, TC-058, and the model Test Matrix TM-004. The new typed operation fixture obligations are internally coherent, but the existing matrix still declares the old criterion range and TC-058 coverage design.
 
 ## Findings
 
@@ -21,4 +21,4 @@ Reviewed PR #654 at d70e576d for consistency among FR-019, TC-058, and the model
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | PR #654 head 4a59f450 extends the FR-019 row to AC-16 and labels AC-14 through AC-16 PLANNED/UNRUN; the TC-058 row names all three ACs, and a planned fixture-cases row covers typed controls, malformed shape, provenance, feature isolation, and strict reader admission. |
+| FND-001 | fixed | PR #654 extends the FR-019 row to AC-16 and labels AC-14 through AC-16 PLANNED/UNRUN; the TC-058 row names all three ACs, and a planned fixture-cases row covers typed controls, malformed shape, provenance, feature isolation, and strict reader admission. |

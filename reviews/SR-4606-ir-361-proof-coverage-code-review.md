@@ -3,7 +3,7 @@ id: SR-4606
 title: "Code review of IR-361 spec-only candidate"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@0eca02b43bd14db1411abff447a45eacced9752f; seven changed Markdown files; no code changes"
+scope: "agent-ix/quire-contract-ir; seven changed Markdown files; no code changes"
 review_set: subset
 ---
 

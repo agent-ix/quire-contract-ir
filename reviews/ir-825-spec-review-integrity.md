@@ -40,7 +40,7 @@ dependency.
 
 ## Dispositions
 
-Round 1, verified against fix commit c4681e7 (after merge 629ae82 of
+Round 1, verified against fix (after merge of
 origin/main) with `git diff origin/main...HEAD`.
 
 | FND | Outcome | Reason |

@@ -12,14 +12,14 @@ relationships:
 
 ## Summary
 
-Compared with current main at a69587f, PR head loses the AC-24 trace binding and omits the newly merged FR-051-AC-4 while adding three intentionally planned and untagged owner criteria. Main has 535/603 backed and 39 unbacked; head has 533/605 backed and 43 unbacked, with zero contradicted statuses in both.
+Compared with current main, PR head loses the AC-24 trace binding and omits the newly merged FR-051-AC-4 while adding three intentionally planned and untagged owner criteria. Main has 535/603 backed and 39 unbacked; head has 533/605 backed and 43 unbacked, with zero contradicted statuses in both.
 
 ## Scope
 
 | ID | Path | Role | Excerpt |
 | --- | --- | --- | --- |
 | FR-052-AC-25 | spec/model/functional/FR-052-source-obligation-correspondence.md | examined | Given an owner-issued IR V2 reader result for a selected artifact, the model-owned adapter enumerates every node in an admitted package as its `node_id` plus native `semantic_type: CheckedNodeId` fact and every source occurrence under its node key, and issues `Complete` only after the graph reaches its normal end. |
-| FR-052-AC-26 | spec/model/functional/FR-052-source-obligation-correspondence.md | examined | Given a selected QSL checked request, the QSL-owned adapter enumerates every `CheckedGraph::requirements()` key and every native pending obligation, preserving each requirement's wire node bytes, occurrence role and ordinal and each obligation's declaration, unit, expression, byte span, kind and predicate target. |
+| FR-052-AC-26 | spec/model/functional/FR-052-source-obligation-correspondence.md | examined | Given a selected QSL checked request, the QSL-owned adapter enumerates every `CheckedGraph::requirements` key and every native pending obligation, preserving each requirement's wire node bytes, occurrence role and ordinal and each obligation's declaration, unit, expression, byte span, kind and predicate target. |
 | FR-052-AC-27 | spec/model/functional/FR-052-source-obligation-correspondence.md | examined | Given a `quire-code-rs` selected production module, the owner adapter retains that module and every function fact from its complete native parse, including a parsed module with zero functions, and issues `Complete` only after the selected module's normal terminal state. |
 | FR-052-AC-16 | spec/model/functional/FR-052-source-obligation-correspondence.md | context_only | With PLAT-1165's real Quire producer, normal exhaustion of the validated selected scope issues `Complete` with every authored criterion and its provenance; |
 | FR-052-AC-7 | spec/model/functional/FR-052-source-obligation-correspondence.md | context_only | Complete Quire scope covers every authored acceptance criterion in the bound selected corpus and declared obligation sources, including unbound criteria; |
@@ -49,11 +49,11 @@ FAIL for this head: AC-24 is newly unbacked and FR-051-AC-4 is absent relative t
 
 ## Coverage
 
-Plan completion: not assessed. Current main a69587f has 535/603 backed, 39 unbacked, 0 contradicted; PR head has 533/605 backed, 43 unbacked, 0 contradicted. AC-24 is the fourth newly unbacked row after AC-25 through AC-27; FR-051-AC-4 is absent altogether. Optional repository-wide semantic review was not requested; the three new criteria and TC-452 procedure were checked in this PR.
+Plan completion: not assessed. Current main has 535/603 backed, 39 unbacked, 0 contradicted; PR head has 533/605 backed, 43 unbacked, 0 contradicted. AC-24 is the fourth newly unbacked row after AC-25 through AC-27; FR-051-AC-4 is absent altogether. Optional repository-wide semantic review was not requested; the three new criteria and TC-452 procedure were checked in this PR.
 
 ## Dispositions
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At 83ac5a4737cb7641d2c8c2e52089b26704340dcc, the traced AC-24 conflict test is present and computed matrix status is tagged. |
-| FND-002 | fixed | At 83ac5a4737cb7641d2c8c2e52089b26704340dcc, FR-051-AC-4 and its borrowed-projection test are present after integration with main. |
+| FND-001 | fixed |, the traced AC-24 conflict test is present and computed matrix status is tagged. |
+| FND-002 | fixed |, FR-051-AC-4 and its borrowed-projection test are present after integration with main. |

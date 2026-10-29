@@ -3,7 +3,7 @@ id: SR-716
 title: "gap analysis of PR 246 (IR-475 KaniProfile validated on every construction path)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@1bd313563d7f6a1ea704e7c0868fb3b4d4f94f4e; spec/kani/functional/FR-029-versioned-bounded-kani-profile.md, spec/kani/functional/FR-039-root-crate-public-interface.md, spec/assurance/AD-006-codegen-consumption-seam.md, src/kani/profile.rs, tests/it/kani_shared.rs"
+scope: "agent-ix/quire-contract-ir; spec/kani/functional/FR-029-versioned-bounded-kani-profile.md, spec/kani/functional/FR-039-root-crate-public-interface.md, spec/assurance/AD-006-codegen-consumption-seam.md, src/kani/profile.rs, tests/it/kani_shared.rs"
 review_set: subset
 ---
 # SR-716: gap analysis of PR 246
@@ -48,7 +48,7 @@ Status section already marks AC-2 as planned, so this gap is tracked, not new.
 ## Scope
 
 - FR-029-AC-1, spec/kani/functional/FR-029-versioned-bounded-kani-profile.md, examined: "A selected profile binds its versioned lowering, harness, oracle/strategy, replay, bounds, and capability-matrix identities before lowering."
-- FR-029-AC-2, spec/kani/functional/FR-029-versioned-bounded-kani-profile.md, examined: "Every encountered construct has exactly one supported, refused, or unsupported matrix entry; ... unknown, conflicting, and incomplete matrices refuse with the originating source identity."
+- FR-029-AC-2, spec/kani/functional/FR-029-versioned-bounded-kani-profile.md, examined: "Every encountered construct has exactly one supported, refused, or unsupported matrix entry;... unknown, conflicting, and incomplete matrices refuse with the originating source identity."
 - FR-039 `kani` inventory row, spec/kani/functional/FR-039-root-crate-public-interface.md, context_only.
 - AD-006 shared Kani contract row, spec/assurance/AD-006-codegen-consumption-seam.md, context_only.
 
@@ -59,9 +59,9 @@ match main.
 
 ## Disposition pass 1
 
-Reviewed at 66967e8cec9449b75d668aeb07d8cf6708bfcd4e. This review had no findings, so there
-are no dispositions. The delta from 1bd313563d7f6a1ea704e7c0868fb3b4d4f94f4e is one commit
+Reviewed. This review had no findings, so there
+are no dispositions. The delta from is one commit
 that changes only the body of `tc_042_an_invalid_profile_is_refused_on_every_construction_path`.
 Its `#[trace("TC-042", "FR-029-AC-1", "FR-029-AC-2")]` tag is unchanged, and so are the TC-042
-bindings to FR-029-AC-1 and AC-2. The gate log for 66967e8cec9449b75d668aeb07d8cf6708bfcd4e
+bindings to FR-029-AC-1 and AC-2. The gate log for
 shows the same 23 strict-unbacked rows. The delta adds no new gap.

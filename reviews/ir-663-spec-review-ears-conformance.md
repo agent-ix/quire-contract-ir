@@ -3,7 +3,7 @@ id: SR-2157
 title: "EARS conformance review of IR-663"
 type: SpecReview
 analysis: ears-conformance
-scope: "agent-ix/quire-contract-ir@05afc225eba55736ffc0ffd54255e8a966cdec5f; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md"
 review_set: subset
 ---
 
@@ -15,11 +15,11 @@ The edited FR-038 requirement statements and criteria were checked with a target
 
 ### FR-038-AC-167 — examined
 
-PLANNED / UNRUN (IR-661). An unresolved `sourceEnd.type` or `targetEnd.type` refuses `missing_declaration`/`missing-name`; a type naming a relationship or another declaration of the wrong meaning refuses `invalid_model_binding`/`malformed-declaration`, independent of declaration order. A source end naming another owning type, a malformed end or multiplicity refuses `invalid_model_binding`/`malformed-declaration`; `lower > upper` alone refuses `invalid_model_binding`/`unpreserved-model-meaning`. Each declaration refusal retains its typed code, cause and selection-row pointer. The planned public refusal also retains the authentic identity of the actual relationship declaration and its valid origin verbatim under the declaration-refusal retention contract; source coordinates remain supplied, generated origin gains no span, and missing/malformed origin remains absent. Selection-row path and existing graph-node locus meaning stay separate; no metadata is fabricated. All added retention checks remain PLANNED / UNRUN. 
+PLANNED / UNRUN (IR-661). An unresolved `sourceEnd.type` or `targetEnd.type` refuses `missing_declaration`/`missing-name`; a type naming a relationship or another declaration of the wrong meaning refuses `invalid_model_binding`/`malformed-declaration`, independent of declaration order. A source end naming another owning type, a malformed end or multiplicity refuses `invalid_model_binding`/`malformed-declaration`; `lower > upper` alone refuses `invalid_model_binding`/`unpreserved-model-meaning`. Each declaration refusal retains its typed code, cause and selection-row pointer. The planned public refusal also retains the authentic identity of the actual relationship declaration and its valid origin verbatim under the declaration-refusal retention contract; source coordinates remain supplied, generated origin gains no span, and missing/malformed origin remains absent. Selection-row path and existing graph-node locus meaning stay separate; no metadata is fabricated. All added retention checks remain PLANNED / UNRUN.
 
 ### FR-038-AC-173 — examined
 
-PLANNED / UNRUN (IR-661). Removing direction, category, composite or origin, setting each to null or a wrong type, using an unsupported direction/category value, or supplying a malformed common-schema origin branch refuses `invalid_model_binding`/`malformed-declaration` at the selection row before any application resolution, retaining code, cause and selection-row pointer under AC-167's existing refusal contract. The planned refusal retains any authentic declaration identity; a missing or malformed origin retains no origin, including both-branch and partial-branch cases. Schema-valid source and generated origins admit without a default direction; a later declaration refusal retains their valid origin exactly, with no span invented for generated origin. Retention remains PLANNED / UNRUN and does not change the existing code, cause, selection-row pointer or check order. 
+PLANNED / UNRUN (IR-661). Removing direction, category, composite or origin, setting each to null or a wrong type, using an unsupported direction/category value, or supplying a malformed common-schema origin branch refuses `invalid_model_binding`/`malformed-declaration` at the selection row before any application resolution, retaining code, cause and selection-row pointer under AC-167's existing refusal contract. The planned refusal retains any authentic declaration identity; a missing or malformed origin retains no origin, including both-branch and partial-branch cases. Schema-valid source and generated origins admit without a default direction; a later declaration refusal retains their valid origin exactly, with no span invented for generated origin. Retention remains PLANNED / UNRUN and does not change the existing code, cause, selection-row pointer or check order.
 
 ### FR-038-AC-174 — examined
 
@@ -45,4 +45,4 @@ Rust review: no Rust or Cargo diff. React review: no TSX/JSX or React change. Ga
 
 ## Validation
 
-`quire validate --scope . .review-scratchpad/ir-663-spec-review-ears-conformance.md` — PASS (exit 0); module warnings only, no document validation error.
+`quire validate --scope..review-scratchpad/ir-663-spec-review-ears-conformance.md` — PASS (exit 0); module warnings only, no document validation error.

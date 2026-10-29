@@ -3,7 +3,7 @@ id: SR-1393
 title: "dependency review of PR 289 (AD-007 edges, cycles and extraction options)"
 type: SpecReview
 analysis: dependency
-scope: "agent-ix/quire-contract-ir@cb94d57e427dd1154a442b8ba7ba0461e99443e1; spec/assurance/AD-007-cross-repo-dependency-graph.md (repo-level edges, cycles, O-1 options and recommendation, routed gaps R-1..R-4); measured read-only from origin/main Cargo.toml and Cargo.lock of quire-spec-language and quire-contract-codegen, QSL ADR-011 'Differences from today' table, and QSL spec and test sources, fetched 2026-10-04"
+scope: "agent-ix/quire-contract-ir; spec/assurance/AD-007-cross-repo-dependency-graph.md (repo-level edges, cycles, O-1 options and recommendation, routed gaps R-1..R-4); measured read-only from origin/main Cargo.toml and Cargo.lock of quire-spec-language and quire-contract-codegen, QSL ADR-011 'Differences from today' table, and QSL spec and test sources, fetched 2026-10-04"
 review_set: subset
 ---
 # SR-1393: dependency review of PR 289
@@ -28,7 +28,7 @@ option table.
 | FND-001 | medium | The `quire-rs` edge is described as QSL `qsl-source` -> `quire-rs`, "N, optional (`quire-extraction`)", but `quire-rs` is always in QSL's and CG's graphs: `filament-core-data`'s `agent-ix-extraction-frontend` (a non-optional dependency of `qsl-semantics`) depends on `quire-rs`, at the same `rev` (both Cargo.lock files show it). The table has no `filament-core-data` -> `quire-rs` edge. R-1 asks QSL to justify or move the two `rev` edges independently, but moving only `qsl-source`'s `quire-rs` to `branch = "main"` would put two `quire-rs` entries in the lock (one `rev`, one branch), breaking G-4. Add the edge, say `quire-rs` is mandatory transitively, and state in R-1 that the two edges move together (or `filament-core-data` moves first). | spec/assurance/AD-007-cross-repo-dependency-graph.md:71-72, spec/assurance/AD-007-cross-repo-dependency-graph.md:244 |
 | FND-002 | medium | Option 3 claims "cycles through QSL become structurally impossible", and the "risk of staying" row puts RT and CG in the same position. CG keeps a normal edge to `qsl-replay` (and so to 8 QSL crates) under every option, so a later QSL dev edge to CG for fixtures would still close a cycle after extraction. Extraction removes the risk for RT only. As written the option table credits option 3 with a benefit it does not give; correct both rows. | spec/assurance/AD-007-cross-repo-dependency-graph.md:212, spec/assurance/AD-007-cross-repo-dependency-graph.md:218 |
 | FND-003 | medium | The option costs omit real parts of the extraction, so "The cost is QSL's and is one change" understates option 3: (a) the requirements and trace move: 85 QSL spec files name `quire-exact`, and its tests carry trace tags against QSL requirements, which either move with the crate or become cross-repo traces; (b) the new repository's own gates (CI, `deny`, spec validation and coverage), not only the two `no_std` gates; (c) RT gains a quire-canonical edge when it takes `quire-semantic-value` (that crate depends on it), under any option, which the "What RT takes" rows do not show. Add them so the owner weighs the real cost. | spec/assurance/AD-007-cross-repo-dependency-graph.md:205-226 |
-| FND-004 | low | R-2 asks QSL to restate ADR-011's "Differences from today" rows for the CG and historical-IR dev edges, but the same table's row "QSL tests -> RT (fixture crate, IT-010 generated crates)", also "Removed with SEAM-4 ... M-6c", is equally absent today (QSL's RT and CG mentions are doc comments; no generated crate names RT). Include that row in R-2 so QSL restates all three at once. | spec/assurance/AD-007-cross-repo-dependency-graph.md:245 |
+| FND-004 | low | R-2 asks QSL to restate ADR-011's "Differences from today" rows for the CG and historical-IR dev edges, but the same table's row "QSL tests -> RT (fixture crate, IT-010 generated crates)", also "Removed with SEAM-4... M-6c", is equally absent today (QSL's RT and CG mentions are doc comments; no generated crate names RT). Include that row in R-2 so QSL restates all three at once. | spec/assurance/AD-007-cross-repo-dependency-graph.md:245 |
 
 ## Verdict
 
@@ -51,7 +51,7 @@ against QSL-358 is the real sequencing constraint, not O-1.
 
 ## New findings (disposition pass 1)
 
-Re-reviewed at agent-ix/quire-contract-ir@568adea9219264dec13494a3b3fdb10174784845. On the spec-footprint count, both figures are true and differ only in method, measured on QSL main:
+Re-reviewed at agent-ix/quire-contract-ir. On the spec-footprint count, both figures are true and differ only in method, measured on QSL main:
 - Files under `spec/` naming `quire-exact`: 74. With `quire_exact` included as well: 85, which was my review-pass figure.
 - Markdown files repository-wide: 129 naming `quire-exact` (147 with either spelling), and 41 naming `quire-semantic-value` (54 with either).
 - Files in `quire-exact` carrying `#[trace]`: 11 (21 with any `tc_` reference). `quire-semantic-value` has 1.
@@ -66,8 +66,8 @@ The AD states its method ("name `quire-exact`"), and its figures match that meth
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 568adea9219264dec13494a3b3fdb10174784845: the `filament-core-data` -> `quire-rs` edge is added, and R-1 links the two `rev` edges (move both together, `filament-core-data` first) |
-| FND-002 | fixed | 568adea9219264dec13494a3b3fdb10174784845: option 3's benefit and the stay-risk row now cover RT only; CG's `qsl-replay` edge stays under every option |
-| FND-003 | fixed | 568adea9219264dec13494a3b3fdb10174784845: the spec and trace footprint, the new repository's gates and RT's quire-canonical edge are in the option table; the 74 versus 85 difference is method (see above) |
-| FND-004 | fixed | 568adea9219264dec13494a3b3fdb10174784845: R-2 and the absence paragraph include ADR-011's "QSL tests to RT" row |
-| FND-005 | fixed | 495aba4c183aa5ba371bccbb7038e34970e5dbbf: option 2's row and the recommendation say the gates repeat only for a second repository; the footprint row uses one scope (QSL `spec/`: 74 `quire-exact`, 22 `quire-semantic-value`, both re-counted). It still omits `quire-semantic-value`'s one traced file, which is immaterial to the comparison |
+| FND-001 | fixed |: the `filament-core-data` -> `quire-rs` edge is added, and R-1 links the two `rev` edges (move both together, `filament-core-data` first) |
+| FND-002 | fixed |: option 3's benefit and the stay-risk row now cover RT only; CG's `qsl-replay` edge stays under every option |
+| FND-003 | fixed |: the spec and trace footprint, the new repository's gates and RT's quire-canonical edge are in the option table; the 74 versus 85 difference is method (see above) |
+| FND-004 | fixed |: R-2 and the absence paragraph include ADR-011's "QSL tests to RT" row |
+| FND-005 | fixed |: option 2's row and the recommendation say the gates repeat only for a second repository; the footprint row uses one scope (QSL `spec/`: 74 `quire-exact`, 22 `quire-semantic-value`, both re-counted). It still omits `quire-semantic-value`'s one traced file, which is immaterial to the comparison |

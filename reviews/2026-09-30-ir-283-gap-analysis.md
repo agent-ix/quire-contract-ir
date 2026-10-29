@@ -3,7 +3,7 @@ id: SR-628
 title: "PR #231 gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@a567ba99e8601849c77984f19c723a000e664fca; FR-038 requires-bound rules, crates/quire-contract-model/src/checked_package/v2/lower.rs, tests/it/checked_package_v2_require_bounds.rs, tests/it/complete_v1_contract_package.rs"
+scope: "agent-ix/quire-contract-ir; FR-038 requires-bound rules, crates/quire-contract-model/src/checked_package/v2/lower.rs, tests/it/checked_package_v2_require_bounds.rs, tests/it/complete_v1_contract_package.rs"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
@@ -21,8 +21,8 @@ TC-050 tests and the changed TC-047 test. Also examined: the tickets'
 acceptance statements (untrusted ticket text, re-measured here) against QSL
 TC-440 run with this PR patched in.
 
-Matrix: `quire coverage --scope . --strict` at a567ba9 and at merge-base
-70792e7 both report 22 unbacked rows, the same rows (pre-existing, IR-448).
+Matrix: `quire coverage --scope. --strict` and at merge-base
+ both report 22 unbacked rows, the same rows (pre-existing, IR-448).
 Bound evidence goes from 202 to 206 symbols. The PR adds no unbacked row.
 
 ## Verdict
@@ -45,9 +45,9 @@ Bound evidence goes from 202 to 206 symbols. The PR adds no unbacked row.
 
 ## Dispositions
 
-Round 1, reviewed at edb862819349fae5ba5bf2a19ea565ab1a3f96dd.
+Round 1, reviewed.
 
-- **`make spec`** at edb8628 and at origin/main 7c70041 (which includes #229):
+- **`make spec`** and at origin/main (which includes #229):
   both report 22 unbacked rows, the same rows (IR-448). The PR adds no
   unbacked row. Bound evidence goes from 204 to 209 symbols, and docs from
   223 to 226, all grammar-clean.
@@ -55,6 +55,6 @@ Round 1, reviewed at edb862819349fae5ba5bf2a19ea565ab1a3f96dd.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | edb8628 |
-| FND-002 | fixed | edb8628 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
 | FND-003 | deferred | FR-038 now states the unit/quantity divergence explicitly (line 575-576). No IR ticket tracks it yet, and filing one is the lead's action, outside this PR's code. |

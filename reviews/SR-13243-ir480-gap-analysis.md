@@ -57,4 +57,4 @@ tagged by a test of its superseded behaviour.
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Fix commit 36d5036 names the stale assertions in the TC-047 Status and both tests.md rows: occurrence limit 0 expects `/source_map` and consumed 2, and work limit 7 expects `/semantic_graph/nodes/2/node_id`. It says they do not back amended AC-11, and it marks AC-11 through AC-13 PLANNED/UNRUN until the code PR rewrites the test. |
+| FND-001 | fixed | Fix names the stale assertions in the TC-047 Status and both tests.md rows: occurrence limit 0 expects `/source_map` and consumed 2, and work limit 7 expects `/semantic_graph/nodes/2/node_id`. It says they do not back amended AC-11, and it marks AC-11 through AC-13 PLANNED/UNRUN until the code PR rewrites the test. |

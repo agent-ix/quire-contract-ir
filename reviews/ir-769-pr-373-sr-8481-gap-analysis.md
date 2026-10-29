@@ -3,7 +3,7 @@ id: SR-8481
 title: "gap-analysis review of IR-769 PR #373"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@d8e47266f6a3ebf1b0953399677b6b2da1897add; FR-049-AC-1..6; TC-447; tests/it/admitted_result_context.rs; tests/conformance_qsl_ir769/main.rs"
+scope: "agent-ix/quire-contract-ir; FR-049-AC-1..6; TC-447; tests/it/admitted_result_context.rs; tests/conformance_qsl_ir769/main.rs"
 review_set: subset
 ---
 
@@ -31,6 +31,6 @@ Plan completion: not assessed. Computed matrix: FR-049-AC-1 through AC-6 are tag
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | ed951691c2415447b1e0f3688d65ad566b103b1e |
-| FND-002 | fixed | ed951691c2415447b1e0f3688d65ad566b103b1e |
-| FND-003 | fixed | ed951691c2415447b1e0f3688d65ad566b103b1e |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |

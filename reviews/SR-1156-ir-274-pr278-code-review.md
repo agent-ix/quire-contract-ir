@@ -3,7 +3,7 @@ id: SR-1156
 title: "code review of PR 278 (IR-274 part B: v1 decimal-string wire and canonical objects through quire-canonical)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@297810203764f5cab680427ea79ff9da26956bf4; git diff origin/main...HEAD (base 4d705fdbdb705063a7119e6a7cc7ba48be23f57c): crates/quire-contract-model/src/{binding,canonical,conformance,decimal,expression,identity,lib,output_mapping,wire}.rs, schemas/contract-conformance-fixture-v1.schema.json, schemas/contract-package-reference-v1.schema.json, scripts/generate_conformance_corpus.py, corpus/contract-v0.1/**, tests/it/{canonical_v1_quire_canonical,canonicalization,checked_package_v2_identity_digests,conformance,identity,main}.rs; checked against quire-canonical b4bb97a5 (Cargo.lock) and read-only checkouts of quire-contract-codegen 37ff360, quire-spec-language eddbdc54, quire-driver c0b2f31, quire-analyze 588e05f, quire-protocol 0ba20ec"
+scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD : crates/quire-contract-model/src/{binding,canonical,conformance,decimal,expression,identity,lib,output_mapping,wire}.rs, schemas/contract-conformance-fixture-v1.schema.json, schemas/contract-package-reference-v1.schema.json, scripts/generate_conformance_corpus.py, corpus/contract-v0.1/**, tests/it/{canonical_v1_quire_canonical,canonicalization,checked_package_v2_identity_digests,conformance,identity,main}.rs; checked against quire-canonical (Cargo.lock) and read-only checkouts of quire-contract-codegen, quire-spec-language, quire-driver, quire-analyze, quire-protocol "
 review_set: subset
 ---
 # SR-1156: code review of PR 278
@@ -107,14 +107,14 @@ follow-up.
 
 ## Dispositions
 
-Round 1, reviewed at e8d73a5a74888339dbe09274de4ddda9f50e3768 (fix commits
-bc0b172 and e8d73a5 since 2978102). Re-measured in a fresh worktree: `make test`
+Round 1, reviewed (fix commits
+ and since ). Re-measured in a fresh worktree: `make test`
 308 integration, 135 model unit and 7 doc tests pass; `make fmt-check` and
 `make lint` clean; `make corpus` exit 0 with 107 `match` and no mismatch;
 `make spec` at the baseline (grammar 1, strict 23).
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | PR body as of head e8d73a5 (a body edit, not a commit): a "Breaks downstream after merge" section names QSL `src/lowering/wire.rs` and the six quire-contract-codegen files. A read-only re-grep of codegen 37ff360 finds exactly those six as number-wire producers; the other hits are codegen's own schemas and `tests/exact_scalar_support/agreement.rs`, which already writes strings |
-| FND-002 | fixed | bc0b172: `canonical::encoder_refusal` keeps `canonicalization_resource_exhausted` (the one code STD-001 registers) and gives `Error::Limit`/`Error::Allocation` the resource message and every other variant "canonical encoder failed unexpectedly: {error}"; `canonicalize` and `binding.rs` both route through it; unit test `tc_017_a_limit_and_an_encoder_fault_share_the_code_but_not_the_message` pins both messages |
-| FND-003 | fixed | bc0b172: a successful expression `document_json` input is parsed and validated against a newly compiled `expressionInput` named schema; `tc_018_a_successful_expression_document_is_checked_against_the_schema` shows a control document matches and the same document with an unknown expression member (which the decoder ignores) makes the run `invalid_corpus`. The corpus is unchanged and still runs 107 `match` |
+| FND-001 | fixed | PR body as of (a body edit, not a commit): a "Breaks downstream after merge" section names QSL `src/lowering/wire.rs` and the six quire-contract-codegen files. A read-only re-grep of codegen finds exactly those six as number-wire producers; the other hits are codegen's own schemas and `tests/exact_scalar_support/agreement.rs`, which already writes strings |
+| FND-002 | fixed |: `canonical::encoder_refusal` keeps `canonicalization_resource_exhausted` (the one code STD-001 registers) and gives `Error::Limit`/`Error::Allocation` the resource message and every other variant "canonical encoder failed unexpectedly: {error}"; `canonicalize` and `binding.rs` both route through it; unit test `tc_017_a_limit_and_an_encoder_fault_share_the_code_but_not_the_message` pins both messages |
+| FND-003 | fixed |: a successful expression `document_json` input is parsed and validated against a newly compiled `expressionInput` named schema; `tc_018_a_successful_expression_document_is_checked_against_the_schema` shows a control document matches and the same document with an unknown expression member (which the decoder ignores) makes the run `invalid_corpus`. The corpus is unchanged and still runs 107 `match` |

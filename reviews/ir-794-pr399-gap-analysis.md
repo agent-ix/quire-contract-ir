@@ -38,5 +38,5 @@ Diff-scoped matrix audit: the measured pre-spec log has 49 unbacked rows; merged
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At 9c1b2a3 the stop test tags only FR-052-AC-12/13. The current matrix leaves AC-10 untagged, and TC-452 plus FR-052 retain owner-native stop evidence as Planned/UNRUN. |
-| FND-002 | fixed | At 9c1b2a3 the zero/nonzero/count test tags only FR-052-AC-12/13. The current matrix leaves AC-11 untagged; the new multi-row control compares both distinct retained rows and count 2, while owner full-output comparison remains Planned/UNRUN. |
+| FND-001 | fixed | the stop test tags only FR-052-AC-12/13. The current matrix leaves AC-10 untagged, and TC-452 plus FR-052 retain owner-native stop evidence as Planned/UNRUN. |
+| FND-002 | fixed | the zero/nonzero/count test tags only FR-052-AC-12/13. The current matrix leaves AC-11 untagged; the new multi-row control compares both distinct retained rows and count 2, while owner full-output comparison remains Planned/UNRUN. |

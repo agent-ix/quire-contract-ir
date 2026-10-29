@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed the frozen PR diff at a4d4bda against cbac029, including Rust idioms, admission ordering, typed source-to-lowered association, node-index construction, work-meter semantics, and the new traced test. No code defect was found in this diff.
+Reviewed the frozen PR diff, including Rust idioms, admission ordering, typed source-to-lowered association, node-index construction, work-meter semantics, and the new traced test. No code defect was found in this diff.
 
 ## Verdict
 

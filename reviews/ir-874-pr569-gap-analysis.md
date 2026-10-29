@@ -3,13 +3,13 @@ id: SR-567879
 title: "IR-874 PR 569 gap-analysis review"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, tests/it/checked_package_v2_protocol_body.rs; PR #569 head 786722d469368b1cebf99490e9bd67a3f0b157a7"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, tests/it/checked_package_v2_protocol_body.rs; PR #569 "
 review_set: subset
 ---
 
 ## Summary
 
-Reviewed the first ordered FR-466 control prefix at frozen PR #569 head 786722d469368b1cebf99490e9bd67a3f0b157a7. The rest of FR-038-AC-282/284/288 remains Planned.
+Reviewed the first ordered FR-466 control prefix at frozen PR #569. The rest of FR-038-AC-282/284/288 remains Planned.
 
 ## Verdict
 
@@ -39,8 +39,8 @@ Plan completion: not assessed. Quoin matrix reports all three FR-038 criteria ta
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Public-reader tests now admit any, quorum and predicate joins, reject a wrong-form predicate target, and reject invalid memory and outstanding spellings at their wire loci; 33 tests pass at cee96d69. |
+| FND-001 | fixed | Public-reader tests now admit any, quorum and predicate joins, reject a wrong-form predicate target, and reject invalid memory and outstanding spellings at their wire loci; 33 tests pass. |
 
 ## Disposition verdict
 
-**PASS at cee96d69a0e5aec656b14368abff1aa71496ede3** — FND-001 is fixed. The unimplemented FR-466 operators and protocol stages remain Planned.
+**PASS ** — FND-001 is fixed. The unimplemented FR-466 operators and protocol stages remain Planned.

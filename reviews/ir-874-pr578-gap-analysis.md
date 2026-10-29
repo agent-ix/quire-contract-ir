@@ -3,7 +3,7 @@ id: SR-567894
 title: "IR-874 PR 578 gap-analysis review"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, tests/it/checked_package_v2_protocol_body.rs; PR #578 frozen head 600f2608a924ca9e93ddcc3c78599eb3982178bb against f1ff2218"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, tests/it/checked_package_v2_protocol_body.rs; PR #578 frozen "
 review_set: subset
 ---
 
@@ -30,14 +30,14 @@ The computed Quire matrix tags FR-038-AC-282 and AC-286, and the new tests exerc
 
 ## Coverage
 
-Plan completion: not assessed. `quire matrix --scope . --format json` completed: FR-038-AC-26 is tagged by 2 tests; AC-282 and AC-286 are each tagged by 12 tests. Those tags do not establish the missing whole-model combinations. The changed source has an owning criterion and no stub. Optional repository-wide semantic review was not requested; this scoped review compared new test behavior against the QSpec criterion. Full FR-038-AC-282/286 remain Planned.
+Plan completion: not assessed. `quire matrix --scope. --format json` completed: FR-038-AC-26 is tagged by 2 tests; AC-282 and AC-286 are each tagged by 12 tests. Those tags do not establish the missing whole-model combinations. The changed source has an owning criterion and no stub. Optional repository-wide semantic review was not requested; this scoped review compared new test behavior against the QSpec criterion. Full FR-038-AC-282/286 remain Planned.
 
 ## Dispositions
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Fixed at cb081772: the new public-reader test places two static text-model roles from separate lock selections in one clause, checks distinct keys and empty model dependencies, admits both a model-type and scalar over type, then removes one selection and checks MissingDeclaration/MissingSelection at the second role. |
+| FND-001 | fixed | Fixed: the new public-reader test places two static text-model roles from separate lock selections in one clause, checks distinct keys and empty model dependencies, admits both a model-type and scalar over type, then removes one selection and checks MissingDeclaration/MissingSelection at the second role. |
 
 ## Disposition verdict
 
-**PASS at cb081772** — the focused finding is fixed on the original PR. Full FR-038-AC-282/286 remain Planned.
+**PASS ** — the focused finding is fixed on the original PR. Full FR-038-AC-282/286 remain Planned.

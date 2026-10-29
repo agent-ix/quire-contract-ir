@@ -3,7 +3,7 @@ id: SR-1237
 title: "gap analysis of PR 285 (IR-495 FR-038-AC-114 through AC-118 to tests)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@f3d41bca80fe145bdabd345e1d13749f6be1fcaf; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md, spec/checked_package/functional/FR-346-admit-abstraction-relation-body.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md, spec/assurance/AD-004-checked-package-seam.md, crates/quire-contract-model/src/checked_package/**, tests/it/checked_package_v2_flat_wire.rs, tests/conformance_qspec/main.rs"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md, spec/checked_package/functional/FR-346-admit-abstraction-relation-body.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md, spec/assurance/AD-004-checked-package-seam.md, crates/quire-contract-model/src/checked_package/**, tests/it/checked_package_v2_flat_wire.rs, tests/conformance_qspec/main.rs"
 review_set: subset
 ---
 # SR-1237: gap analysis of PR 285
@@ -13,8 +13,8 @@ review_set: subset
 Ticket: IR-495. Plan completion: not assessed. This review checks FR-038-AC-114 through
 FR-038-AC-118, FR-038-AC-9, FR-040-AC-10, FR-038 "Reading", "The flat wire" and the order
 of checks, and TC-048 ("Flat wire and no depth limit") against the code and tests at
-f3d41bca80fe145bdabd345e1d13749f6be1fcaf. It reads them against merged QSpec FR-322 (Body
-grammar, Identity and validation, AC-39 to AC-41) at quire-specification 2f846f8.
+. It reads them against merged QSpec FR-322 (Body
+grammar, Identity and validation, AC-39 to AC-41) at quire-specification.
 
 Bindings checked:
 
@@ -39,7 +39,7 @@ Bindings checked:
   pointer, ahead of canonical bytes; 20 levels at the first value outside the grammar).
   Correct for the clauses as written.
 - AC-118: `tc_048_qspec_adverse_mutations_refuse_as_recorded`, run with `make
-  conformance-qspec`; it passes against 2f846f8.
+  conformance-qspec`; it passes.
 - AC-9 (six limits) and FR-040-AC-10: tables and `tc_056_a_state_clause_application_stands_only_as_a_clause_body_root`.
   Correct.
 
@@ -64,9 +64,9 @@ tagged test.
 
 ## Dispositions
 
-Round 1, reviewed at b7dd914b9c995dc9979d31cebfea5feafb4822ad.
+Round 1, reviewed.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | b7dd914. FR-038 "Reading" now says the closed decode does not read bodies, projection bodies or `details`, and names the 90-126-level window that refuses at the grammar on a 256 KiB debug stack. Reproduced. See SR-1236 FND-007 for one remaining omission |
-| FND-002 | fixed | b7dd914. `tc_048_the_flattened_form_of_each_refused_body_is_admitted` admits the reference form of each refused position and stratum shape |
+| FND-001 | fixed |. FR-038 "Reading" now says the closed decode does not read bodies, projection bodies or `details`, and names the 90-126-level window that refuses at the grammar on a 256 KiB debug stack. Reproduced. See SR-1236 FND-007 for one remaining omission |
+| FND-002 | fixed |. `tc_048_the_flattened_form_of_each_refused_body_is_admitted` admits the reference form of each refused position and stratum shape |

@@ -3,7 +3,7 @@ id: SR-632
 title: "spec review of PR 233 matrix edits (FR-037, FR-039)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@6a04978b0e34cb4d8e1a179a58ae52dc19fde2df; spec/contract-test-matrix.md"
+scope: "agent-ix/quire-contract-ir; spec/contract-test-matrix.md"
 review_set: base
 ---
 # SR-632: spec review of PR 233 matrix edits
@@ -30,10 +30,10 @@ Approve with one low status-prose fix. Requirement statements and ACs are unchan
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-002 | low | The FND-001 fix dropped the "and" between the two clauses without adding a comma, so the FR-039 status cell reads "re-exports the whole model with `pub use quire_contract_model::*` exports the family lowerings codegen owns, and exports ..."; insert a comma after the backticked glob | spec/contract-test-matrix.md:41 |
+| FND-002 | low | The FND-001 fix dropped the "and" between the two clauses without adding a comma, so the FR-039 status cell reads "re-exports the whole model with `pub use quire_contract_model::*` exports the family lowerings codegen owns, and exports..."; insert a comma after the backticked glob | spec/contract-test-matrix.md:41 |
 
 ## Dispositions
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 8501552 |
+| FND-001 | fixed |  |

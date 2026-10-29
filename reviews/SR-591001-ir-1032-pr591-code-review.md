@@ -1,6 +1,6 @@
 ---
 id: SR-591001
-title: "IR-1032 code and Rust review at 4eb2ab4a"
+title: "IR-1032 code and Rust review "
 type: SpecReview
 analysis: code-review
 scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/, crates/quire-contract-model/src/lib.rs, tests/it/, tests/conformance_qspec/; FR-063-AC-1..6"
@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-1032. Reviewed PR #591 at 4eb2ab4ac003ac9e74ac4f11c6c0eb21dcd63bad against FR-063, QSpec FR-322-AC-118, TC-233 and TC-280. The code adds a closed typed form and bounded exact graph validation. FR-063-AC-5 remains Planned and unclaimed pending STD-497.
+Ticket: IR-1032. Reviewed PR #591 against FR-063, QSpec FR-322-AC-118, TC-233 and TC-280. The code adds a closed typed form and bounded exact graph validation. FR-063-AC-5 remains Planned and unclaimed pending STD-497.
 
 ## Scope
 
@@ -38,8 +38,8 @@ Applied code-review with rust-review and rust-style, including API, exhaustive c
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At fix head 6dbb500e786632e055293850c114c15eb5b73bc7, the six copied digest literals are gone. The vector test now reads `expected_key` directly from each authoritative QSpec row's `sha256` and compares the typed preimage digest to it. |
+| FND-001 | fixed | At fix, the six copied digest literals are gone. The vector test now reads `expected_key` directly from each authoritative QSpec row's `sha256` and compares the typed preimage digest to it. |
 
 ## Disposition Verdict
 
-**PASS for the reviewed code slice at 6dbb500e786632e055293850c114c15eb5b73bc7.** The original finding remains above as the review record; its latest disposition is fixed. FR-063-AC-5 and broad QSpec conformance are outside this pass.
+**PASS for the reviewed code slice.** The original finding remains above as the review record; its latest disposition is fixed. FR-063-AC-5 and broad QSpec conformance are outside this pass.

@@ -3,13 +3,13 @@ id: SR-15562
 title: "Code and Rust review — IR-969 typed V2 graph joins"
 type: SpecReview
 analysis: code-review
-scope: "quire-contract-ir PR #515 at 84be2d2; checked_package/v2/{mod,structural,owner,extension,contract_package,typed_terms}.rs and changed tests"
+scope: "quire-contract-ir PR #515; checked_package/v2/{mod,structural,owner,extension,contract_package,typed_terms}.rs and changed tests"
 review_set: subset
 ---
 
 ## Summary
 
-Reviewed the diff against 01b3d9b for decoder placement, V1 structural reuse, and changed typed graph joins. The new decode follows each node's flat grammar scan and preserves the abstraction relation's later semantic refusal; the V1 path supplies the same typed terms to its shared structural validator. The changed structural module now duplicates shape rules in typed and raw readers; later V2 validators still call the raw copies.
+Reviewed the diff for decoder placement, V1 structural reuse, and changed typed graph joins. The new decode follows each node's flat grammar scan and preserves the abstraction relation's later semantic refusal; the V1 path supplies the same typed terms to its shared structural validator. The changed structural module now duplicates shape rules in typed and raw readers; later V2 validators still call the raw copies.
 
 ## Verdict
 
@@ -23,7 +23,7 @@ Reviewed the diff against 01b3d9b for decoder placement, V1 structural reuse, an
 
 ## Rust review
 
-Inspected ownership and borrowing of typed terms, fallible decoding and refusal mapping, bounded term depth after flat validation, iterative application-dependency traversal, integer conversion and panic surfaces, source duplication, and repository conventions. No new `unsafe`, unchecked cast, panic on untrusted input, or unbounded recursive preadmission traversal was identified in the changed lines. The structural-shape duplication is the finding above. `git diff --check 01b3d9b..4b0ea163` passed. Final aggregate gates remain with the author after custody commit.
+Inspected ownership and borrowing of typed terms, fallible decoding and refusal mapping, bounded term depth after flat validation, iterative application-dependency traversal, integer conversion and panic surfaces, source duplication, and repository conventions. No new `unsafe`, unchecked cast, panic on untrusted input, or unbounded recursive preadmission traversal was identified in the changed lines. The structural-shape duplication is the finding above. `git diff --check..` passed. Final aggregate gates remain with the author after custody commit.
 
 ## Finding detail
 
@@ -31,7 +31,7 @@ Inspected ownership and borrowing of typed terms, fallible decoding and refusal 
 
 ## Head confirmation
 
-The 4b0ea163..84be2d2 delta only changes the structural unit test to decode three JSON fixtures into `CheckedTerm` before calling `application_dependencies`. It leaves the production paths and the code finding unchanged. `git diff --check` on the delta passed.
+The.. delta only changes the structural unit test to decode three JSON fixtures into `CheckedTerm` before calling `application_dependencies`. It leaves the production paths and the code finding unchanged. `git diff --check` on the delta passed.
 
 ## New findings (disposition pass 1)
 
@@ -45,19 +45,19 @@ The typed `parameter_defect` calls `typed_parameter_binding` during V2 structura
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At 21bf990, the raw anchor, state-clause, union-type and union-value readers are removed. State, union operations/leaf walks, and comparison lookup now use retained typed terms. |
+| FND-001 | fixed |, the raw anchor, state-clause, union-type and union-value readers are removed. State, union operations/leaf walks, and comparison lookup now use retained typed terms. |
 | FND-002 | still-open | The raw `parameter_binding` remains in use by `CheckedPackageV2::parameter_declaration`, beside the new typed structural reader. |
 
 ## Narrow review evidence
 
-Reviewed `git diff 84be2d2..21bf990` (five files); diff check passed. The changed `state` and `operations` consumers receive the already decoded `terms` vector; the admitted package accessor reads its retained vector. No aggregate gate was run in this reviewer lane.
+Reviewed `git diff..` (five files); diff check passed. The changed `state` and `operations` consumers receive the already decoded `terms` vector; the admitted package accessor reads its retained vector. No aggregate gate was run in this reviewer lane.
 
 ## Dispositions — round 2
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-002 | fixed | At d76e4b1, `parameter_declaration` reads `self.terms` and calls the single `typed_parameter_binding` owner. The raw `parameter_binding` and its raw literal helper are removed. The retained-term mutation test and synchronized malformed-body controls exercise the new accessor path. |
+| FND-002 | fixed |, `parameter_declaration` reads `self.terms` and calls the single `typed_parameter_binding` owner. The raw `parameter_binding` and its raw literal helper are removed. The retained-term mutation test and synchronized malformed-body controls exercise the new accessor path. |
 
 ## Current verdict
 
-**PASS** at exact head d76e4b1e2a1f6c13fdbc6f7692a8575308470edd — both findings are fixed; no new finding in the two-file fix diff. `git diff --check 21bf990..d76e4b1` passed. The author owns the final-head aggregate gate.
+**PASS** at exact — both findings are fixed; no new finding in the two-file fix diff. `git diff --check..` passed. The author owns the final-head aggregate gate.

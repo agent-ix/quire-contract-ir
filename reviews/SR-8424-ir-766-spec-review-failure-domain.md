@@ -3,14 +3,14 @@ id: SR-8424
 title: spec-review/failure-domain review of admitted traversal view
 type: SpecReview
 analysis: failure-domain
-scope: agent-ix/quire-contract-ir@5a160f815c4351d9ec9ecaff8cd9c795e41de26d; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md,
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md,
   spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md; FR-035-AC-6..8
 review_set: subset
 ---
 
 ## Summary
 
-Ticket: IR-766. Reviewed spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md and spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md at 5a160f815c4351d9ec9ecaff8cd9c795e41de26d. The criteria cover cycles and shared nodes, package-boundary identity, absent or stale dependency packages, refused and absent requests, and read-only behavior. The admitted graph is finite and visited once by typed key.
+Ticket: IR-766. Reviewed spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md and spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md. The criteria cover cycles and shared nodes, package-boundary identity, absent or stale dependency packages, refused and absent requests, and read-only behavior. The admitted graph is finite and visited once by typed key.
 
 ## Verdict
 

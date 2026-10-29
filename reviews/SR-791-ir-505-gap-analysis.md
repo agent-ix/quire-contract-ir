@@ -3,7 +3,7 @@ id: SR-791
 title: "gap analysis of PR 250 against IR-505 (content-only ModelOwner)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@286dc707986d19f2d9a38f3b752be436d5b278ec; spec/checked_package/functional/FR-038 (ModelOwner paragraph, Model-owned members step 2, FR-038-AC-5, FR-038-AC-45); spec/checked_package/functional/FR-040 (AC-3, AC-7, AC-13); spec/checked_package/matrix/TC-048 (FR-038-AC-45 procedure); spec/checked_package/matrix/tests.md (FR-038, FR-040, TC-048, TC-056 rows); IR-505 ticket and comments (untrusted data)"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038 (ModelOwner paragraph, Model-owned members step 2, FR-038-AC-5, FR-038-AC-45); spec/checked_package/functional/FR-040 (AC-3, AC-7, AC-13); spec/checked_package/matrix/TC-048 (FR-038-AC-45 procedure); spec/checked_package/matrix/tests.md (FR-038, FR-040, TC-048, TC-056 rows); IR-505 ticket and comments (untrusted data)"
 review_set: subset
 ---
 # SR-791: gap analysis of PR 250 against IR-505
@@ -16,7 +16,7 @@ AC-3/AC-7/AC-13, and the TC-048 FR-038-AC-45 procedure.
 
 Spec coverage, measured with `make spec`:
 
-| | merge base db5ca1c | head 286dc70 |
+| | merge | |
 | --- | --- | --- |
 | Rows backed | 163/185 | 164/185 |
 | FR-038 | 42/43 | 43/43 |
@@ -26,7 +26,7 @@ Spec coverage, measured with `make spec`:
 
 At both commits the 23 unbacked rows are all in `spec/kani`, `spec/core` and
 `spec/model`, and none is in `spec/checked_package`. The coder's `ir-505-ci.log` ends
-`head=286dc707986d19f2d9a38f3b752be436d5b278ec exit=2`, and the only failing target is
+`head= exit=2`, and the only failing target is
 `spec`. fmt, clippy, the workspace tests (181 + 88 + 2), deny, audit and the unsafe
 audit are all green.
 
@@ -94,17 +94,17 @@ Under the repo's cadence the full gate runs again on the merged state before mer
 
 ## Dispositions
 
-Round 1, reviewed at head 90f6a3a33ceee1315cdea212aca8b4c503636bf5. The PR was rebased onto
-origin/main e80ea70, which is also its merge base. `git range-diff` shows the original
-commit unchanged (286dc70 = fd27d14), so only the fix commit is new.
+Round 1, reviewed at. The PR was rebased onto
+origin/main, which is also its merge base. `git range-diff` shows the original
+commit unchanged ( = ), so only the fix commit is new.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 90f6a3a33ceee1315cdea212aca8b4c503636bf5: the new `tc_048_a_declaration_node_keyed_under_another_domain_package_refuses` (traced TC-048, FR-038-AC-45) reads a real package whose member declaration is `Order` keyed under `OTHER_PACKAGE`. It asserts `MissingDeclaration`/`MissingSelection` at `body/operation/member/declaration`, plus a positive control: the selected package's key admits. Probes: changing the reader's `unselected()` cause to `MissingName` fails it; putting `version` back into `declaration_key` fails its positive control. |
-| FND-002 | fixed | 90f6a3a33ceee1315cdea212aca8b4c503636bf5: the FR-038 cell now says AC-16 and AC-34 do not exist. It names the reason for 🚧: the depth-ceiling deviation pending STD-125, and incomplete operand typing (operands not refused `operator-ineligible`). Both match FR-038's own text. |
-| FND-003 | fixed | PR body edit at head 90f6a3a33ceee1315cdea212aca8b4c503636bf5 (not a commit): the body now opens "Part of IR-505" and says the QSL-emitted A3k admission test is not here and IR-243 is left open. IR-505 therefore stays open for those two items, and IR-243 is still Backlog. |
+| FND-001 | fixed |: the new `tc_048_a_declaration_node_keyed_under_another_domain_package_refuses` (traced TC-048, FR-038-AC-45) reads a real package whose member declaration is `Order` keyed under `OTHER_PACKAGE`. It asserts `MissingDeclaration`/`MissingSelection` at `body/operation/member/declaration`, plus a positive control: the selected package's key admits. Probes: changing the reader's `unselected` cause to `MissingName` fails it; putting `version` back into `declaration_key` fails its positive control. |
+| FND-002 | fixed |: the FR-038 cell now says AC-16 and AC-34 do not exist. It names the reason for 🚧: the depth-ceiling deviation pending STD-125, and incomplete operand typing (operands not refused `operator-ineligible`). Both match FR-038's own text. |
+| FND-003 | fixed | PR body edit at (not a commit): the body now opens "Part of IR-505" and says the QSL-emitted A3k admission test is not here and IR-243 is left open. IR-505 therefore stays open for those two items, and IR-243 is still Backlog. |
 
 Round-1 measurements:
-- `make -k ci` log (`ir-505-final-ci.log`) ends `head=90f6a3a33ceee1315cdea212aca8b4c503636bf5 exit=2`. Only `spec` fails: 164/185 rows backed, 23 strict unbacked, 0 contradicted (the same baseline). The workspace tests pass (183 integration, 88 unit, 2 doc), and fmt, clippy, deny, audit and the unsafe audit are green.
+- `make -k ci` log (`ir-505-final-ci.log`) ends `head= exit=2`. Only `spec` fails: 164/185 rows backed, 23 strict unbacked, 0 contradicted (the same baseline). The workspace tests pass (183 integration, 88 unit, 2 doc), and fmt, clippy, deny, audit and the unsafe audit are green.
 - Focused tests rerun here: `cargo test --test it checked_package_v2` 103 passed, quire-contract-model unit tests 88 passed.
 - No new findings.

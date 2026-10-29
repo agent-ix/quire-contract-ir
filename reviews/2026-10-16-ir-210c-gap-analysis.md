@@ -3,7 +3,7 @@ id: SR-12071
 title: "IR-210 slice C gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@eece4f2c9a49cfc4ea80263e93d0351d0989c6e1; the 10 changed files under crates/quire-contract-model/src, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md, spec/checked_package/functional/FR-346-admit-abstraction-relation-body.md, spec/output_mapping/functional/FR-034-assemble-output-package-atomically.md"
+scope: "agent-ix/quire-contract-ir; the 10 changed files under crates/quire-contract-model/src, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md, spec/checked_package/functional/FR-346-admit-abstraction-relation-body.md, spec/output_mapping/functional/FR-034-assemble-output-package-atomically.md"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
@@ -18,7 +18,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-210 (slice C), PR quire-contract-ir#431. This is a planless gap analysis, so plan completion was not assessed. The matrix was measured with quire 0.36.2 (engine 0.50.2) twice: on the merge base 1bd6749, in a detached scratch worktree, and on head eece4f2. origin/main 0747970 adds only slice D files, which do not overlap this diff.
+Ticket: IR-210 (slice C), PR quire-contract-ir#431. This is a planless gap analysis, so plan completion was not assessed. The matrix was measured with quire 0.36.2 (engine 0.50.2) twice: on the merge, in a detached scratch worktree, and on. origin/main adds only slice D files, which do not overlap this diff.
 
 **`quire coverage --strict`**
 
@@ -79,16 +79,16 @@ On head, every near-miss citation from these files is gone. The 2 remaining FR-0
 
 | Unit | Role | Excerpt |
 | --- | --- | --- |
-| FR-038-AC-2 | examined | The reader refuses malformed, duplicate-member, unknown-member, noncanonical, ... inputs with exactly those codes ... before exposing a package; ... |
+| FR-038-AC-2 | examined | The reader refuses malformed, duplicate-member, unknown-member, noncanonical... inputs with exactly those codes... before exposing a package;... |
 | FR-038-AC-3 | examined | Exact byte, node, edge, occurrence, diagnostic and work limits admit a package; each one-over limit returns `incomplete` with that limit kind, the limit and the consumed counter and no package; no limit kind is a depth (FR-038-AC-117). |
-| FR-038-AC-5 | examined | Every nominal preimage of the in-repo nominal fixture re-derives the node key it is keyed by ...; every authored invalid nominal mutation ... refuses as `invalid_semantic_graph`; ... |
-| FR-038-AC-24 | examined | Every refusal about a value carries the RFC 6901 pointer of that value, built from the reader's own position ... |
-| FR-038-AC-79 | examined | A package document holding the integer 9007199254740993 in a node body refuses `noncanonical_wire` with no pointer, as does ... the float `2.0` in a body ... |
-| FR-038-AC-117 | examined | `CheckedPackageReadLimits` has no depth member ...; ... past the strict parse's recursion limit of 128 ... refuses `malformed_wire` with no pointer ... and is never `incomplete` ... |
-| FR-038-AC-121 | examined | Under `quire.temporal.timed/v1`, `lower` `{numerator: "2", denominator: "4"}` refuses `invalid_semantic_graph` ...; ... read with a work limit that the GCD or cross-multiplication of its bounds takes past returns `incomplete` naming the `work` limit ... |
+| FR-038-AC-5 | examined | Every nominal preimage of the in-repo nominal fixture re-derives the node key it is keyed by...; every authored invalid nominal mutation... refuses as `invalid_semantic_graph`;... |
+| FR-038-AC-24 | examined | Every refusal about a value carries the RFC 6901 pointer of that value, built from the reader's own position... |
+| FR-038-AC-79 | examined | A package document holding the integer 9007199254740993 in a node body refuses `noncanonical_wire` with no pointer, as does... the float `2.0` in a body... |
+| FR-038-AC-117 | examined | `CheckedPackageReadLimits` has no depth member...;... past the strict parse's recursion limit of 128... refuses `malformed_wire` with no pointer... and is never `incomplete`... |
+| FR-038-AC-121 | examined | Under `quire.temporal.timed/v1`, `lower` `{numerator: "2", denominator: "4"}` refuses `invalid_semantic_graph`...;... read with a work limit that the GCD or cross-multiplication of its bounds takes past returns `incomplete` naming the `work` limit... |
 | FR-038-AC-12, AC-22, AC-23, AC-65, AC-114 | examined | Kept or added bindings; see SR-12070 for each body-to-text judgement. |
-| FR-040-AC-1 | examined | ... a bare node key, an entry of another `kind`, a `field` entry without `name`, a `relationship` entry carrying `name`, and an entry with an extra member each refuse as `invalid_semantic_graph` ... |
-| FR-040-AC-2 | examined | A relationship entry naming an object type, a field entry declared on a process, a relationship or a systems node ... refuse as `invalid_model_binding`/`malformed-declaration` ... |
+| FR-040-AC-1 | examined |... a bare node key, an entry of another `kind`, a `field` entry without `name`, a `relationship` entry carrying `name`, and an entry with an extra member each refuse as `invalid_semantic_graph`... |
+| FR-040-AC-2 | examined | A relationship entry naming an object type, a field entry declared on a process, a relationship or a systems node... refuse as `invalid_model_binding`/`malformed-declaration`... |
 | FR-346-AC-2, FR-346-AC-6 | examined | Abstraction-relation body shape and Rust-spelling refusals (see SR-12070). |
 | FR-034-AC-3 | examined | Every zero, exact, just-over, and overflowing aggregate limit is classified without partial output or a smaller successful package. |
 | FR-040 Behavior, "`name` is the field's identifier" | context_only | FR-040 lines 77-80: the identifier rule for a `modifies` field entry's `name`. |

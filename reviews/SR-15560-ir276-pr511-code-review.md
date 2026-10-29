@@ -14,7 +14,7 @@ relationships:
 
 ## Summary
 
-Reviewed the production and test diff from be5fcb1 to fc00297d for retained lowering facts, lowering-only SCCs, bounded closure caching, schema compilation, and indexed lookups. The Rust implementation preserves the prior edge order and per-request charging, omits extension-only admission edges from lowering, bounds memoized positions, and has no detected code defect.
+Reviewed the production and test diff from to for retained lowering facts, lowering-only SCCs, bounded closure caching, schema compilation, and indexed lookups. The Rust implementation preserves the prior edge order and per-request charging, omits extension-only admission edges from lowering, bounds memoized positions, and has no detected code defect.
 
 ## Verdict
 

@@ -3,7 +3,7 @@ id: SR-11632
 title: spec-review of IR-742 status wording for FR-038-AC-222 and AC-223
 type: SpecReview
 analysis: base
-scope: agent-ix/quire-contract-ir@737c11411c8009dd1bf33e6de12f91e5f93563cf; commit d9369b7; spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
+scope: agent-ix/quire-contract-ir;; spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
   spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md
 review_set: subset
 ---
@@ -11,12 +11,12 @@ review_set: subset
 ## Summary
 
 Ticket: IR-742. Method: spec-review limited to the changed status lines of
-commit d9369b7. PR: none yet. Each AC row differs from origin/main only in its
+. PR: none yet. Each AC row differs from origin/main only in its
 status prefix (`PLANNED/UNRUN (IR-742).` to `IMPLEMENTED (IR-742; tagged reader
 tests passed).`); the criterion text after the prefix is byte-identical. The
 TC-048 paragraph and section status, and the tests.md row status and heading,
 change the same way; the tests.md "Required cases" cell is unchanged.
-`quire validate --scope . 'spec/**/*.md' 'plan/**/*.md' 'reviews/**/*.md'
+`quire validate --scope. 'spec/**/*.md' 'plan/**/*.md' 'reviews/**/*.md'
 --summary` exits 0 (873/873 grammar-clean); `quire coverage --strict` reports
 49 unbacked rows at base and head; `quire matrix` shows both ACs tagged at head
 and untagged at base.
@@ -58,7 +58,7 @@ FR-038 normative bullet these rows extend is still not fully met by the code
 
 ## Dispositions
 
-Round 1, verified at 1164072dd746d32129b42bd2adb0ad5bd1d9244a (`git diff 737c114..1164072`).
+Round 1, verified (`git diff..`).
 
 | FND | Outcome | Reason |
 | --- | --- | --- |

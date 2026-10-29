@@ -3,7 +3,7 @@ id: SR-16603
 title: "Incremental gap analysis — typed retained-term conversion causes"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir PR #540 abd13e9017b56447f93a272fa887ceb29847ac03; crates/quire-contract-model/src/checked_package/v2/typed_terms.rs, mod.rs, contract_package.rs; FR-349-AC-4, FR-038, TC-048"
+scope: "agent-ix/quire-contract-ir PR #540; crates/quire-contract-model/src/checked_package/v2/typed_terms.rs, mod.rs, contract_package.rs; FR-349-AC-4, FR-038, TC-048"
 review_set: subset
 ---
 

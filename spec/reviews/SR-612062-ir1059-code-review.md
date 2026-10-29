@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1059. Reviewed PR #634 at 127a8932459e6084b62ed058d14766b6bddf2ddf, limited to tuple and variant payload selected intake, model owner, vocabulary, and general type-family use. The slice leaves the complete FR-069 conformance and projection work open.
+Ticket: IR-1059. Reviewed PR #634, limited to tuple and variant payload selected intake, model owner, vocabulary, and general type-family use. The slice leaves the complete FR-069 conformance and projection work open.
 
 ## Verdict
 
@@ -37,8 +37,8 @@ Ticket: IR-1059. Reviewed PR #634 at 127a8932459e6084b62ed058d14766b6bddf2ddf, l
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | At 4831e13a, the selected model-owner lookup supplies union/enum family to the common resolver at each visited type node. Literal typing, operation operand, type-argument member result, inner result and mode checks now use that selected resolution; `composite_operands` uses the same selected-aware walk. A bounded-domain chain reaches its selected variant before the fallback enum branch. A focused structural-equality versus enum-equality regression test was added. |
+| FND-001 | fixed |, the selected model-owner lookup supplies union/enum family to the common resolver at each visited type node. Literal typing, operation operand, type-argument member result, inner result and mode checks now use that selected resolution; `composite_operands` uses the same selected-aware walk. A bounded-domain chain reaches its selected variant before the fallback enum branch. A focused structural-equality versus enum-equality regression test was added. |
 
 ## Disposition verdict
 
-Round 1 at 4831e13a0f472f468ad927d77c17b8168df89a72: FND-001 fixed on inspection. The focused regression and hosted checks were still running at this review point; the lead owns the final gate result.
+Round 1: FND-001 fixed on inspection. The focused regression and hosted checks were still running at this review point; the lead owns the final gate result.

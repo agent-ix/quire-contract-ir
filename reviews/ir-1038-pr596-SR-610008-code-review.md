@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket IR-1038. Frozen PR #596 at 6bef91d62a0279565097cc53dca00a15e06cae48. Reviewed FR-066-AC-1 through AC-5 and the master index against current QSpec, FR-040 and the public model.
+Ticket IR-1038. Frozen PR #596. Reviewed FR-066-AC-1 through AC-5 and the master index against current QSpec, FR-040 and the public model.
 
 ## Examined units
 

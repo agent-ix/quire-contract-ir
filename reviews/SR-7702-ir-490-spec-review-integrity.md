@@ -3,7 +3,7 @@ id: SR-7702
 title: integrity review of IR-490 structural forwarding specification
 type: SpecReview
 analysis: integrity
-scope: agent-ix/quire-contract-ir@2ae2d4678c5a005845b784679d376e503e2c63e2; spec/checked_package/functional/FR-038-consume-checked-package-v2.md;
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md;
   spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; spec/checked_package/matrix/tests.md;
   baseline crates/quire-contract-model/src/checked_package/v2/operations.rs and checked_package/v2/mod.rs
 review_set: subset
@@ -152,11 +152,11 @@ Exact GitHub head was verified independently. Scoped Quire validation of all thr
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 871b241e30cf141304add390de66f084baf6a37b; separate admitted lawful-leaf control now requires both passes and zero additional second-pass structural forwarding work. |
+| FND-001 | fixed |; separate admitted lawful-leaf control now requires both passes and zero additional second-pass structural forwarding work. |
 
 ## Disposition pass 1
 
-**PASS** at agent-ix/quire-contract-ir@871b241e30cf141304add390de66f084baf6a37b. Verified the exact pushed head independently. The original missing-leaf W/W-1 test remains count-only. AC-224 now separately requires supplied lawful leaves, two-pass execution and admission at its independently measured total limit. TC-048 names that independent limit L, requires per-pass counters (first pass one unit per distinct forwarding node; second pass zero for resolved nodes), and admits at L while L-1 returns typed Work. The planned matrix row agrees. Source check_leaf_count:3166-3173 gates first_leaf_fault on having enough supplied leaves, so the new positive control reaches the previously untested pass. Source visit and final mode checks still require correct paths, selected laws and pinned profile modes; admission makes those checks part of the positive fixture. No residual or new finding in the fix diff.
+**PASS** at agent-ix/quire-contract-ir. Verified the exact pushed head independently. The original missing-leaf W/W-1 test remains count-only. AC-224 now separately requires supplied lawful leaves, two-pass execution and admission at its independently measured total limit. TC-048 names that independent limit L, requires per-pass counters (first pass one unit per distinct forwarding node; second pass zero for resolved nodes), and admits at L while L-1 returns typed Work. The planned matrix row agrees. Source check_leaf_count:3166-3173 gates first_leaf_fault on having enough supplied leaves, so the new positive control reaches the previously untested pass. Source visit and final mode checks still require correct paths, selected laws and pinned profile modes; admission makes those checks part of the positive fixture. No residual or new finding in the fix diff.
 
 Scoped Quire validation of the three changed files and git diff --check passed. Full spec coverage was not repeated during this scoped disposition; the original exact-base 48/0 comparison remains historical evidence, and the dispatching lead reports the same final-head result. No Cargo tests, source edits or author-worktree mutations.
 

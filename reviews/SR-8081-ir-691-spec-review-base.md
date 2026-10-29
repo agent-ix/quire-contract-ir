@@ -3,7 +3,7 @@ id: SR-8081
 title: "Base specification review of IR-691 bounded record projection"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@d2055f10f84cfa7a27b7d5fe0fdfe8c79e710657; FR-038-AC-232 through FR-038-AC-235, TC-048 bounded integer record section; IR-691"
+scope: "agent-ix/quire-contract-ir; FR-038-AC-232 through FR-038-AC-235, TC-048 bounded integer record section; IR-691"
 review_set: subset
 ---
 
@@ -40,10 +40,10 @@ The FR requires canonical signed decimal range comparison and canonical Integer 
 
 ## Dispositions — round 1
 
-Reviewed fix revision `380bccef51abff270d9f960bcdfadfab2bfdbda6` against the original finding at `d2055f10f84cfa7a27b7d5fe0fdfe8c79e710657`. This was a focused two-document specification diff review; no code test or full gate was run.
+Reviewed fix against the original finding. This was a focused two-document specification diff review; no code test or full gate was run.
 
 | FND | Outcome | Evidence |
 | --- | --- | --- |
-| FND-001 | fixed 380bccef51abff270d9f960bcdfadfab2bfdbda6 | AC-233 now requires malformed endpoint binding and literal shape, wrong endpoint literal type, positive and negative ranges beyond i128, signed one-below/one-above refusals, and min/max admissions. TC-048 supplies independent negative decimal strings and Boolean-typed endpoint mutation, with expected order derived from authored inputs. |
+| FND-001 | fixed | AC-233 now requires malformed endpoint binding and literal shape, wrong endpoint literal type, positive and negative ranges beyond i128, signed one-below/one-above refusals, and min/max admissions. TC-048 supplies independent negative decimal strings and Boolean-typed endpoint mutation, with expected order derived from authored inputs. |
 
 No new finding arose from this fix diff. The original finding text and reviewed scope above remain the record of the first pass.

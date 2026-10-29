@@ -3,7 +3,7 @@ id: SR-726
 title: "gap analysis of PR 248 against IR-485 (duplicate SR ids)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@bf72c142b6221889d73d729b5ac4a5bc8ca40ac2; reviews/**/*.md; Makefile spec target; IR-485 needs (rule decision, renumber or rename, validator or lint); compared against origin/main 4233b56"
+scope: "agent-ix/quire-contract-ir; reviews/**/*.md; Makefile spec target; IR-485 needs (rule decision, renumber or rename, validator or lint); compared against origin/main "
 review_set: subset
 ---
 # SR-726: gap analysis of PR 248 against IR-485
@@ -12,7 +12,7 @@ review_set: subset
 
 Ticket: IR-485. The PR is records-only, so the gap analysis checks the ticket's needs
 against the head rather than requirement-to-test coverage. Spec coverage is unchanged:
-`make spec` gives byte-identical output at origin/main 4233b56 and head bf72c14 (161/184
+`make spec` gives byte-identical output at origin/main and (161/184
 rows backed, the same 23 unbacked rows, 1 warning, exit 2 at both). No requirement, matrix
 row or test is touched.
 
@@ -63,5 +63,5 @@ ticket.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | deferred | Second PR under IR-485. A planner decision recorded on IR-485 (comment 3e27b527, relayed by luna:IR:plan) assigns this PR the 7 marker-free groups. It sends the 8 marker-bearing groups (SR-591, 592, 593, 624-628; 21 files) to a second PR, to be renumbered with a former-id line added to each renamed file. The PR body opens "Part of IR-485" and has no Closes line, so IR-485 stays open. Re-measured on a trial merge with origin/main 70314b7: exactly those 8 groups remain duplicated. |
+| FND-001 | deferred | Second PR under IR-485. A planner decision recorded on IR-485 (comment, relayed by luna:IR:plan) assigns this PR the 7 marker-free groups. It sends the 8 marker-bearing groups (SR-591, 592, 593, 624-628; 21 files) to a second PR, to be renumbered with a former-id line added to each renamed file. The PR body opens "Part of IR-485" and has no Closes line, so IR-485 stays open. Re-measured on a trial merge with origin/main: exactly those 8 groups remain duplicated. |
 | FND-002 | accepted-no-change | The same IR-485 planner decision says "No new tracking machinery", which rules out a duplicate-id validator or lint. The gap is real: quire 0.33.0 `validate` still passes over `reviews/**/*.md` with the 8 duplicated groups present. Uniqueness depends on the second PR and on reviewers allocating ids carefully. |

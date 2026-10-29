@@ -3,13 +3,13 @@ id: SR-2133
 title: "IR-662 spec-review/failure-domain of i128 model requirements"
 type: SpecReview
 analysis: failure-domain
-scope: "agent-ix/quire-contract-ir@c5d7cca9fa3ed577c3578af2ea5d9a7c99ae4b75; spec/model/functional/FR-013-type-system.md, spec/model/functional/FR-014-expression-semantics.md, spec/model/functional/FR-015-definedness.md, spec/model/functional/FR-019-rust-library-interface.md; ticket IR-662"
+scope: "agent-ix/quire-contract-ir; spec/model/functional/FR-013-type-system.md, spec/model/functional/FR-014-expression-semantics.md, spec/model/functional/FR-015-definedness.md, spec/model/functional/FR-019-rust-library-interface.md; ticket IR-662"
 review_set: subset
 ---
 
 ## Summary
 
-Ticket IR-662, frozen PR #310 at c5d7cca9fa3ed577c3578af2ea5d9a7c99ae4b75. The changed wire and arithmetic boundary cases name typed refusals, panic safety, and no partial validated value. The conflicting rational cross-product outcome is recorded by integrity analysis.
+Ticket IR-662, frozen PR #310. The changed wire and arithmetic boundary cases name typed refusals, panic safety, and no partial validated value. The conflicting rational cross-product outcome is recorded by integrity analysis.
 
 ## Verdict
 

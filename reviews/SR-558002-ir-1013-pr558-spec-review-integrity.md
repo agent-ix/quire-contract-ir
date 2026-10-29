@@ -3,7 +3,7 @@ id: SR-558002
 title: "Spec integrity review of IR-1013 PR #558"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@c89dc3704e74117f08e4001e46ea4a2982e3baaa; spec/checked_package/functional/FR-058-admitted-clause-execution-point.md, spec/checked_package/matrix/TC-462-admitted-clause-execution-point.md, spec/spec.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-058-admitted-clause-execution-point.md, spec/checked_package/matrix/TC-462-admitted-clause-execution-point.md, spec/spec.md"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-058
@@ -14,7 +14,7 @@ relationships:
 ## Summary
 
 Ticket: IR-1013. This review checks completeness, consistency and atomicity of
-FR-058, TC-462 and the master-index paragraph at `c89dc370`.
+FR-058, TC-462 and the master-index paragraph.
 
 - **Ids.** FR-058 and TC-462 are free on main and on the only other open PR (#553).
   The ids are sequential after FR-057 and TC-461.
@@ -60,7 +60,7 @@ FR-058, TC-462 and the master-index paragraph at `c89dc370`.
 
 ## Dispositions
 
-Round 1, checked against the repo at `095a9bdc` (diff `c89dc370..095a9bdc`).
+Round 1, checked against the repo (diff `..`).
 
 | FND | outcome | reason |
 | --- | --- | --- |

@@ -3,7 +3,7 @@ id: SR-16356
 title: "spec-review-base of PR 530 (IR-992 timed-model reader order)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@6689102f2a9bb438cc844dd9226e0b1947ad8fbc; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/model/functional/FR-019-rust-library-interface.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/model/functional/FR-019-rust-library-interface.md"
 review_set: subset
 ---
 # SR-16356: spec-review-base of PR 530
@@ -12,7 +12,7 @@ review_set: subset
 
 Ticket: IR-992. The refreshed IR wording agrees with QSpec #425 on self-typed outer nodes, closed eight-form bodies and body-step order. One new fixture-path instruction names the wrong environment variable.
 
-Reviewed exact IR head 6689102f2a9bb438cc844dd9226e0b1947ad8fbc against QSpec #425 c90518d505dcd31b28b798b11aad64c66c321e66. Spec-only review; no Cargo or Kani gate run.
+Reviewed exact IR against QSpec #425. Spec-only review; no Cargo or Kani gate run.
 
 ## Scope examined
 
@@ -23,8 +23,8 @@ Reviewed exact IR head 6689102f2a9bb438cc844dd9226e0b1947ad8fbc against QSpec #4
 - FR-038-AC-322: The public V2 writer round-trips an admitted timed model through the reader with the same complete node order, semantic identities, selected model and exact normalized quantities, and emits no `identity_preimage.identity_projection` member.
 - FR-038 timed-model reader prose and fixture-path instruction (examined).
 - FR-019 V2 vocabulary public inventory: `TimedModelForm` added (examined).
-- QSpec FR-322-AC-120 and Body steps at PR #425 c90518d5 (context only).
-- QSpec checked-package and node-identity-preimage schemas at PR #425 c90518d5 (context only).
+- QSpec FR-322-AC-120 and Body steps at PR #425 (context only).
+- QSpec checked-package and node-identity-preimage schemas at PR #425 (context only).
 
 ## Findings
 
@@ -36,4 +36,4 @@ Reviewed exact IR head 6689102f2a9bb438cc844dd9226e0b1947ad8fbc against QSpec #4
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | At PR #530 head f11c986cf901990c98c239e257c2bad268102304, the only delta from reviewed 6689102 replaces `QSPEC_DIR` with `QUIRE_SPECIFICATION_DIR` in the timed-vector instruction. This matches `tests/conformance_qspec/main.rs:48`, the Make target, and FR-038-AC-107. |
+| FND-001 | fixed | At PR #530, the only delta from reviewed  replaces `QSPEC_DIR` with `QUIRE_SPECIFICATION_DIR` in the timed-vector instruction. This matches `tests/conformance_qspec/main.rs:48`, the Make target, and FR-038-AC-107. |

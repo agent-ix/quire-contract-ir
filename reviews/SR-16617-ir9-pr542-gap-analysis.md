@@ -3,7 +3,7 @@ id: SR-16617
 title: "IR-9 PR 542 incremental gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@15bcf93a8efec4e50b957ad84ac232497e387338; PR #542 retained-kind comparison operand slice"
+scope: "agent-ix/quire-contract-ir; PR #542 retained-kind comparison operand slice"
 review_set: subset
 relationships:
   - { target: "ix://agent-ix/quire-contract-ir/FR-056", type: references }

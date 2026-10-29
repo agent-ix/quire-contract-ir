@@ -3,7 +3,7 @@ id: SR-15721
 title: "Code and Rust review — IR-975 single-body V2 wire"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; PR #521 at f08265affe2165e852c2febd85659ef68da2e70d; checked_package/v2 production and conformance/test diff"
+scope: "agent-ix/quire-contract-ir; PR #521; checked_package/v2 production and conformance/test diff"
 review_set: subset
 ---
 
@@ -13,7 +13,7 @@ The reader uses the seven selection fields from the wire and derives the package
 
 ## Verdict
 
-**PASS at 8521036b21b13dd3057a34cd83e3fa54ff73a85b** — the stale coverage description is corrected; no code or test behavior changed in the fix rounds.
+**PASS ** — the stale coverage description is corrected; no code or test behavior changed in the fix rounds.
 
 ## Findings
 
@@ -27,7 +27,7 @@ The diff adds no unsafe code, panic or unchecked conversion in the production pa
 
 ## Scope
 
-Examined FR-038-AC-4, AC-107, AC-112, AC-123, AC-133, AC-154 and AC-310; FR-051-AC-4; FR-349-AC-3. Examined the PR's production Rust, test and conformance diff against QSpec FR-322 at published revision 4c687282. The stale AC-123/AC-133 normative text is recorded in the spec-review artifacts.
+Examined FR-038-AC-4, AC-107, AC-112, AC-123, AC-133, AC-154 and AC-310; FR-051-AC-4; FR-349-AC-3. Examined the PR's production Rust, test and conformance diff against QSpec FR-322 at published. The stale AC-123/AC-133 normative text is recorded in the spec-review artifacts.
 
 ## Custody correction
 
@@ -37,4 +37,4 @@ This artifact supersedes the same reviewer method under SR-15714 on IR-975. SR-1
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | At 5e2eaa1, the module header names AC-310 and describes exact malformed-wire pointers for shipped projections and extra selection members. The obsolete AC-154 projection-owner claim is gone. |
+| FND-001 | fixed |, the module header names AC-310 and describes exact malformed-wire pointers for shipped projections and extra selection members. The obsolete AC-154 projection-owner claim is gone. |

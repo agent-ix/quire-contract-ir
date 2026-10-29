@@ -3,7 +3,7 @@ id: SR-1781
 title: "Independent gap analysis — IR-627 structural keys"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@c3f83a41c4c00bca1a7b2ee1c5a81001a882be66; IR-627; FR-038-AC-123 through FR-038-AC-134, changed tests and source"
+scope: "agent-ix/quire-contract-ir; IR-627; FR-038-AC-123 through FR-038-AC-134, changed tests and source"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
@@ -30,7 +30,7 @@ The computed Test Matrix tags most IR-627 criteria, but several tagged tests do 
 
 ## Coverage
 
-Plan completion: not assessed. `quire matrix --scope . --format tsv` computed tags for AC-123 through AC-131 and AC-133 through AC-134; AC-132 is untagged. AC-132 and the QSpec positive conformance portion of AC-133 await the separately planned QSpec #191 source fixtures, so this review does not assign their implementation to this PR. The five findings concern obligations this PR marks implemented. The matrix is a binder index: a `tagged` status does not prove each row of a criterion executes.
+Plan completion: not assessed. `quire matrix --scope. --format tsv` computed tags for AC-123 through AC-131 and AC-133 through AC-134; AC-132 is untagged. AC-132 and the QSpec positive conformance portion of AC-133 await the separately planned QSpec #191 source fixtures, so this review does not assign their implementation to this PR. The five findings concern obligations this PR marks implemented. The matrix is a binder index: a `tagged` status does not prove each row of a criterion executes.
 
 The changed production stage has an owning FR-038 requirement. No added stub or copied external fixture was found in the diff.
 
@@ -51,14 +51,14 @@ The changed production stage has an owning FR-038 requirement. No added stub or 
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 4d667e9f70e9d87be18bf5eedb1c9bee067179cc |
-| FND-002 | fixed | 4d667e9f70e9d87be18bf5eedb1c9bee067179cc |
-| FND-003 | fixed | 4d667e9f70e9d87be18bf5eedb1c9bee067179cc |
-| FND-004 | fixed | 4d667e9f70e9d87be18bf5eedb1c9bee067179cc |
-| FND-005 | fixed | 4d667e9f70e9d87be18bf5eedb1c9bee067179cc |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |
+| FND-004 | fixed | Fixed in the reviewed PR. |
+| FND-005 | fixed | Fixed in the reviewed PR. |
 
 ## Disposition evidence
 
-**Current disposition: PASS** — every original finding is fixed at `4d667e9f70e9d87be18bf5eedb1c9bee067179cc`.
+**Current disposition: PASS** — every original finding is fixed.
 
-Rechecked at `4d667e9f70e9d87be18bf5eedb1c9bee067179cc` against original reviewed head `c3f83a41c4c00bca1a7b2ee1c5a81001a882be66`. AC-125 now tests both rekeyed wrong-type forms. AC-131 has one body mutation for the included generic forms, with separate compound-unit and union rows. AC-126 reaches selected-document wrapped fields and a dispatch operation parameter. AC-128 covers declared fields at zero and i128 extremes. AC-123 now uses a state-field binding target and all four tamper rows. `cargo test --workspace tc_226_` passed (19 integration and 2 unit tests; one named performance test ignored). Targeted FR-038 Quire validation, changed-file rustfmt check, and `git diff --check` passed. No new defect was found in this focused fix diff.
+Rechecked against original reviewed. AC-125 now tests both rekeyed wrong-type forms. AC-131 has one body mutation for the included generic forms, with separate compound-unit and union rows. AC-126 reaches selected-document wrapped fields and a dispatch operation parameter. AC-128 covers declared fields at zero and i128 extremes. AC-123 now uses a state-field binding target and all four tamper rows. `cargo test --workspace tc_226_` passed (19 integration and 2 unit tests; one named performance test ignored). Targeted FR-038 Quire validation, changed-file rustfmt check, and `git diff --check` passed. No new defect was found in this focused fix diff.

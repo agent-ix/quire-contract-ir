@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #642 at 8b0e53957778f2dd1da5ad2d98207bf28acdf060 against main 66eb6b7f and QSpec 48373530. TC-062 does not require a combined-defect vector for each earlier stage enumerated by AC-16. No applicable AssuranceProfile or enforced review policy was found in the changed module.
+Reviewed PR #642 against main and QSpec . TC-062 does not require a combined-defect vector for each earlier stage enumerated by AC-16. No applicable AssuranceProfile or enforced review policy was found in the changed module.
 
 ## Verdict
 

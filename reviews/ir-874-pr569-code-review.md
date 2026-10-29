@@ -3,13 +3,13 @@ id: SR-567878
 title: "IR-874 PR 569 code-review review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, tests/it/checked_package_v2_protocol_body.rs; PR #569 head 786722d469368b1cebf99490e9bd67a3f0b157a7"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, tests/it/checked_package_v2_protocol_body.rs; PR #569 "
 review_set: subset
 ---
 
 ## Summary
 
-Reviewed the first ordered FR-466 control prefix at frozen PR #569 head 786722d469368b1cebf99490e9bd67a3f0b157a7. The rest of FR-038-AC-282/284/288 remains Planned.
+Reviewed the first ordered FR-466 control prefix at frozen PR #569. The rest of FR-038-AC-282/284/288 remains Planned.
 
 ## Verdict
 
@@ -39,8 +39,8 @@ Rust style and repository conventions reviewed; no CI workflow changed. Focused 
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | The QSpec frame fixture now supplies two sorted choice cases; both previously failing model tests pass at cee96d69. |
+| FND-001 | fixed | The QSpec frame fixture now supplies two sorted choice cases; both previously failing model tests pass. |
 
 ## Disposition verdict
 
-**PASS at cee96d69a0e5aec656b14368abff1aa71496ede3** — FND-001 is fixed. The unimplemented FR-466 operators and protocol stages remain Planned.
+**PASS ** — FND-001 is fixed. The unimplemented FR-466 operators and protocol stages remain Planned.

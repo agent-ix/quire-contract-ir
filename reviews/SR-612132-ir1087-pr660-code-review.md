@@ -3,7 +3,7 @@ id: SR-612132
 title: "IR-1087 PR 660 Rust code review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; PR 660 frozen e6af7a9e; typed operation views, authenticated V1 handoff, public inventory and tests"
+scope: "agent-ix/quire-contract-ir; PR 660 frozen; typed operation views, authenticated V1 handoff, public inventory and tests"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-035
@@ -16,7 +16,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1087. Reviewed exact head e6af7a9eeb046189bda0fae73bd99a17d57d09b8 against base 5ed832e5, including Rust API, producer lowering, plain V1 reader, authenticated handoff, test assertions and FR-019 inventory. No applicable AssuranceProfile was found. No copied source, unsafe code, new wire member or identity change was introduced.
+Ticket: IR-1087. Reviewed exact against, including Rust API, producer lowering, plain V1 reader, authenticated handoff, test assertions and FR-019 inventory. No applicable AssuranceProfile was found. No copied source, unsafe code, new wire member or identity change was introduced.
 
 ## Verdict
 

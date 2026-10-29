@@ -81,7 +81,7 @@ actionable findings.
 | FND-056 | high | Rational denominator propagation had no executable rule or positive oracle. | FR-015 specifies normalized singleton and unreduced worst-case numerator/denominator formulas plus AC-7. |
 | FND-057 | medium | A non-zero guard discharged division but did not refine an interval containing zero. | FR-015 uses finite interval sets split around zero and fails checked range if zero remains. |
 | FND-058 | medium | Multiple proof facts made the retained discharge span nondeterministic. | FR-015 selects the innermost contributing guard, authored-preorder tie break, then declaration fallback; AC-5 verifies it. |
-| FND-059 | low | Text remained an unbounded one-node resource. | FR-013 caps text at 1048576 Unicode scalar values and STD-001 registers `text_bound_exceeded`. |
+| FND-059 | low | Text remained an unbounded one-node resource. | FR-013 caps text Unicode scalar values and STD-001 registers `text_bound_exceeded`. |
 | FND-060 | low | Dependency kind/observation/path order was implementation-defined. | FR-014 defines exact kind and observation orders plus scalar-value path ordering. |
 | FND-061 | high | Exact-subject guards narrowed references but not numeric fields, unwraps, indices, lengths, or calls. | FR-015 starts each such node at declared bounds and applies the same exact-subject fact intersection rule. |
 

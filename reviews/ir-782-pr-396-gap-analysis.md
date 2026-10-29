@@ -16,12 +16,12 @@ relationships:
 
 ## Summary
 
-Ticket IR-782, PR #396, frozen head `186352561f3bb43d6b341bd9106c66006413083f`. Reviewed exactly the nine changed files and FR-038-AC-239 through AC-241 / TC-048, with QSpec FR-322-AC-66, FR-330-AC-4 and TC-931 as authority.
+Ticket IR-782, PR #396, frozen. Reviewed exactly the nine changed files and FR-038-AC-239 through AC-241 / TC-048, with QSpec FR-322-AC-66, FR-330-AC-4 and TC-931 as authority.
 
 ## Examined scope
 
 - `FR-038-AC-239` (examined; `spec/checked_package/functional/FR-038-consume-checked-package-v2.md`): PLANNED/UNRUN (IR-782). A package with a `protocol`/`protocol_reference` carrier whose closed reference body targets an exact local `protocol` node, with one `expression` occurrence, the same semantic type and exactly that target as its dependency, admits through the public V2 reader as `ProtocolForm::ProtocolReference`. Both a `protocol_clause` target and a different protocol form (`role` or `control`) admit; a reader that accepts only `protocol_clause` fails the second control. For each admitted target, the structural key, identity projection and package id are independently recomputed; chan
-- `FR-038-AC-240` (examined; `spec/checked_package/functional/FR-038-consume-checked-package-v2.md`): PLANNED/UNRUN (IR-782). An extra dependency or a dependency unequal to the carrier's body target refuses `invalid_semantic_graph` at `/semantic_graph/nodes/{i}/dependencies` in graph-shape validation; a stale carrier key with matching dependency refuses `invalid_package`/`stale-node-key` before the local target join. With both body target and sole dependency changed together and identities independently recomputed, an absent local target refuses `missing_declaration`/`missing-name` at `/semantic_graph/nodes/{i}/body/target`, even if an admitted selected dependency contains that key. A present 
+- `FR-038-AC-240` (examined; `spec/checked_package/functional/FR-038-consume-checked-package-v2.md`): PLANNED/UNRUN (IR-782). An extra dependency or a dependency unequal to the carrier's body target refuses `invalid_semantic_graph` at `/semantic_graph/nodes/{i}/dependencies` in graph-shape validation; a stale carrier key with matching dependency refuses `invalid_package`/`stale-node-key` before the local target join. With both body target and sole dependency changed together and identities independently recomputed, an absent local target refuses `missing_declaration`/`missing-name` at `/semantic_graph/nodes/{i}/body/target`, even if an admitted selected dependency contains that key. A present
 - `FR-038-AC-241` (examined; `spec/checked_package/functional/FR-038-consume-checked-package-v2.md`): PLANNED/UNRUN (IR-782). A carrier with a non-reference or `dependency_reference` body or an extra body member fails the closed V2 schema. A carrier with an extra occurrence, declaration, owner, nominal preimage or recursion group refuses at its offending member before target resolution. An ordinary node holding a generic reference remains an ordinary node; no second protocol-reference form or separate collection is admitted.
 - `TC-048` (examined; `spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md`): For FR-038-AC-239 through FR-038-AC-241, construct a local
 `protocol`/`protocol_clause` target and a `protocol`/`protocol_reference`
@@ -46,13 +46,13 @@ function with package-independent signature types. Include a function-call
 callee `dependency_reference` to the exported function and an unrelated
 lowered sibling. Inspect the ContractPackage and compare its node collection,
 identities, r
-- `crates/quire-contract-model/src/checked_package/v2/identity.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/identity.rs`):                 | ProtocolForm::ProtocolReference
-- `crates/quire-contract-model/src/checked_package/v2/lower.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/lower.rs`):             | ProtocolForm::ProtocolReference
-- `crates/quire-contract-model/src/checked_package/v2/mod.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/mod.rs`):         K::Protocol(ProtocolForm::ProtocolReference) => true,
-- `crates/quire-contract-model/src/checked_package/v2/operations.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/operations.rs`):             | ProtocolForm::ProtocolReference
-- `crates/quire-contract-model/src/checked_package/v2/owner.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/owner.rs`):         if node.node_tag.as_ref() == "protocol"
-- `crates/quire-contract-model/src/checked_package/v2/structural.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/structural.rs`):     Occurrences,
-- `crates/quire-contract-model/src/checked_package/v2/vocabulary.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/vocabulary.rs`):         ProtocolReference => "protocol_reference",
+- `crates/quire-contract-model/src/checked_package/v2/identity.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/identity.rs`): | ProtocolForm::ProtocolReference
+- `crates/quire-contract-model/src/checked_package/v2/lower.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/lower.rs`): | ProtocolForm::ProtocolReference
+- `crates/quire-contract-model/src/checked_package/v2/mod.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/mod.rs`): K::Protocol(ProtocolForm::ProtocolReference) => true,
+- `crates/quire-contract-model/src/checked_package/v2/operations.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/operations.rs`): | ProtocolForm::ProtocolReference
+- `crates/quire-contract-model/src/checked_package/v2/owner.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/owner.rs`): if node.node_tag.as_ref == "protocol"
+- `crates/quire-contract-model/src/checked_package/v2/structural.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/structural.rs`): Occurrences,
+- `crates/quire-contract-model/src/checked_package/v2/vocabulary.rs` (examined; `crates/quire-contract-model/src/checked_package/v2/vocabulary.rs`): ProtocolReference => "protocol_reference",
 - `tests/it/checked_package_v2_protocol_reference.rs` (examined; `tests/it/checked_package_v2_protocol_reference.rs`): use crate::support::checked_package::{
 - `tests/it/main.rs` (examined; `tests/it/main.rs`): mod checked_package_v2_protocol_reference;
 
@@ -68,7 +68,7 @@ PASS: no findings in the frozen diff. The computed Quoin matrix tags all three c
 
 ## Coverage
 
-- Reconciliation: `quoin matrix --repo . --json` at the frozen head; all three criteria `tagged`.
+- Reconciliation: `quoin matrix --repo. --json` at the frozen head; all three criteria `tagged`.
 - Criteria: 3 tagged, 0 untagged, 0 tagged by ignored tests within this PR scope.
 - Evidence: the six focused tests passed; Quoin reported no bound run evidence.
 - Untraced new behaviors / stubs: 0.

@@ -3,7 +3,7 @@ id: SR-5020
 title: "IR-347 PR 331 code review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@4c749b2d2360f3ac05d3b712045e84ab6af3922b; model/root public API, TC-058, import migration, TC-041 deletion"
+scope: "agent-ix/quire-contract-ir; model/root public API, TC-058, import migration, TC-041 deletion"
 review_set: subset
 ---
 # SR-5020: IR-347 PR 331 code review
@@ -32,8 +32,8 @@ CONDITIONAL. The model-interface change is coherent; correct the FR-039-AC-1 tra
 
 ## Dispositions
 
-Reviewed the same PR at agent-ix/quire-contract-ir@794bf6ef3a6a0abaa5333d5bbc39e6372a26bd3c.
+Reviewed the same PR at agent-ix/quire-contract-ir.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 794bf6e — `tests/it/public_interface.rs:143` now tags only TC-058 and FR-019-AC-5. FR-039-AC-1 remains unbacked for the future Kani work. |
+| FND-001 | fixed | — `tests/it/public_interface.rs:143` now tags only TC-058 and FR-019-AC-5. FR-039-AC-1 remains unbacked for the future Kani work. |

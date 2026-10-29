@@ -3,7 +3,7 @@ id: SR-6504
 title: spec-review/failure-domain of IR-738 candidate application identity
 type: SpecReview
 analysis: failure-domain
-scope: agent-ix/quire-contract-ir@431f218fad539f01764fba4807a712ae16e21010; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/model/functional/FR-019-rust-library-interface.md, spec/model/functional/FR-046-derive-candidate-application-node-identity.md, spec/model/matrix/TC-058-model-crate-public-interface.md
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/model/functional/FR-019-rust-library-interface.md, spec/model/functional/FR-046-derive-candidate-application-node-identity.md, spec/model/matrix/TC-058-model-crate-public-interface.md
 review_set: subset
 ---
 
@@ -80,12 +80,12 @@ scope:
 - id: TC-048
   path: spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md
   role: examined
-  excerpt: '  - target: ix://agent-ix/quire-contract-ir/FR-046'
+  excerpt: ' - target: ix://agent-ix/quire-contract-ir/FR-046'
   lines: '8'
 - id: TC-048
   path: spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md
   role: examined
-  excerpt: '    type: verifies'
+  excerpt: ' type: verifies'
   lines: '9'
 - id: TC-048
   path: spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md
@@ -320,7 +320,7 @@ scope:
 - id: FR-046
   path: spec/model/functional/FR-046-derive-candidate-application-node-identity.md
   role: examined
-  excerpt: result above. `CandidateApplicationNodeId::candidate_node_id()` returns an
+  excerpt: result above. `CandidateApplicationNodeId::candidate_node_id` returns an
   lines: '58'
 - id: FR-046
   path: spec/model/functional/FR-046-derive-candidate-application-node-identity.md
@@ -805,12 +805,12 @@ scope:
 - id: TC-058
   path: spec/model/matrix/TC-058-model-crate-public-interface.md
   role: examined
-  excerpt: '  - target: ix://agent-ix/quire-contract-ir/FR-046'
+  excerpt: ' - target: ix://agent-ix/quire-contract-ir/FR-046'
   lines: '8'
 - id: TC-058
   path: spec/model/matrix/TC-058-model-crate-public-interface.md
   role: examined
-  excerpt: '    type: verifies'
+  excerpt: ' type: verifies'
   lines: '9'
 - id: TC-058
   path: spec/model/matrix/TC-058-model-crate-public-interface.md
@@ -850,7 +850,7 @@ scope:
 - id: TC-058
   path: spec/model/matrix/TC-058-model-crate-public-interface.md
   role: examined
-  excerpt: obtains `CandidateApplicationNodeId::candidate_node_id()` and exhaustively
+  excerpt: obtains `CandidateApplicationNodeId::candidate_node_id` and exhaustively
   lines: '59'
 - id: TC-058
   path: spec/model/matrix/TC-058-model-crate-public-interface.md
@@ -954,7 +954,7 @@ scope:
 - id: FR-028
   path: spec/model/functional/FR-028-separate-cycle-free-contract-model.md
   role: context_only
-  excerpt: "\nThe Contract IR repository SHALL expose its stable semantic substrate only from a dependency-free `quire-contract-model` package, which the `quire-contract-ir` package consumes without re-exporting it, so the production Cargo graph remains acyclic, the root package depends on no crate from the agent-ix/quire-spec-language repository, and every model item has one import path.\n\n## Package architecture\n\nThe repository becomes one Cargo workspace with:\n\n- `quire-contract-model`: the existing package/requirement/clause, type,\n  expression, definedness, canonicalization, identity, binding, limit,"
+  excerpt: "\nThe Contract IR repository SHALL expose its stable semantic substrate only from a dependency-free `quire-contract-model` package, which the `quire-contract-ir` package consumes without re-exporting it, so the production Cargo graph remains acyclic, the root package depends on no crate from the agent-ix/quire-spec-language repository, and every model item has one import path.\n\n## Package architecture\n\nThe repository becomes one Cargo workspace with:\n\n- `quire-contract-model`: the existing package/requirement/clause, type,\n expression, definedness, canonicalization, identity, binding, limit,"
   lines: 16-24
 - id: StR-001
   path: spec/core/stakeholder/StR-001-authoritative-contract.md
@@ -989,22 +989,22 @@ scope:
 - id: crates/quire-contract-model/src/checked_package/v2/operations.rs
   path: crates/quire-contract-model/src/checked_package/v2/operations.rs
   role: context_only
-  excerpt: "pub(super) fn validate_application_keys(\n    nodes: &[CheckedSemanticNodeV2],\n    index: &BTreeMap<&CheckedNodeId, usize>,\n    meter: &mut WorkMeter,\n    bytes: u64,\n) -> Result<(), ValidationFailure> {\n    // Each recursion group's members, in graph order.\n    let mut groups: BTreeMap<&str, Vec<&CheckedNodeId>> = BTreeMap::new();\n    for node in nodes {\n        if let Some(label) = node.recursion_group.as_deref() {\n            groups.entry(label).or_default().push(&node.node_id);\n        }\n    }\n    for (&node_id, &position) in index {\n        let node = &nodes[position];\n        if !is_appli"
+  excerpt: "pub(super) fn validate_application_keys(\n nodes: &[CheckedSemanticNodeV2],\n index: &BTreeMap<&CheckedNodeId, usize>,\n meter: &mut WorkMeter,\n bytes: u64,\n) -> Result<, ValidationFailure> {\n // Each recursion group's members, in graph order.\n let mut groups: BTreeMap<&str, Vec<&CheckedNodeId>> = BTreeMap::new;\n for node in nodes {\n if let Some(label) = node.recursion_group.as_deref {\n groups.entry(label).or_default.push(&node.node_id);\n }\n }\n for (&node_id, &position) in index {\n let node = &nodes[position];\n if !is_appli"
   lines: 132-181
 - id: crates/quire-contract-model/src/checked_package/v2/operations.rs
   path: crates/quire-contract-model/src/checked_package/v2/operations.rs
   role: context_only
-  excerpt: "fn group_references<'a>(term: &'a Value, group: &[&CheckedNodeId]) -> Cow<'a, Value> {\n    if group.is_empty() {\n        return Cow::Borrowed(term);\n    }\n    // One copy of the body, rewritten in place by one visit of each of its\n    // terms: no enclosing term is copied again at any level.\n    let mut rewritten = term.clone();\n    let ControlFlow::Continue(()) = walk(&mut GroupRewrite { group }, &mut rewritten);\n    Cow::Owned(rewritten)\n}\n\n/// The walk of [`group_references`], over the terms of a copy of the body: each\n/// `reference` to a member of the recursion group becomes"
+  excerpt: "fn group_references<'a>(term: &'a Value, group: &[&CheckedNodeId]) -> Cow<'a, Value> {\n if group.is_empty {\n return Cow::Borrowed(term);\n }\n // One copy of the body, rewritten in place by one visit of each of its\n // terms: no enclosing term is copied again at any level.\n let mut rewritten = term.clone;\n let ControlFlow::Continue() = walk(&mut GroupRewrite { group }, &mut rewritten);\n Cow::Owned(rewritten)\n}\n\n/// The walk of [`group_references`], over the terms of a copy of the body: each\n/// `reference` to a member of the recursion group becomes"
   lines: 224-236
 - id: crates/quire-contract-model/src/checked_package/v2/mod.rs
   path: crates/quire-contract-model/src/checked_package/v2/mod.rs
   role: context_only
-  excerpt: "/// A checked V2 semantic graph node.\n#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]\n#[serde(deny_unknown_fields)]\npub struct CheckedSemanticNodeV2 {\n    /// Stable checked node identity.\n    pub node_id: CheckedNodeId,\n    /// Must be `quire.checked-semantic-graph/v2`.\n    pub schema_version: Box<str>,\n    /// Closed semantic family (see [`CheckedNodeTag`]).\n    pub node_tag: Box<str>,\n    /// Closed semantic form for the family.\n    pub semantic_form: Box<str>,\n    /// Checked semantic type identity.\n    pub semantic_type: CheckedNodeId,\n    /// Identity-based dependencies.\n "
+  excerpt: "/// A checked V2 semantic graph node.\n#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]\n#[serde(deny_unknown_fields)]\npub struct CheckedSemanticNodeV2 {\n /// Stable checked node identity.\n pub node_id: CheckedNodeId,\n /// Must be `quire.checked-semantic-graph/v2`.\n pub schema_version: Box<str>,\n /// Closed semantic family (see [`CheckedNodeTag`]).\n pub node_tag: Box<str>,\n /// Closed semantic form for the family.\n pub semantic_form: Box<str>,\n /// Checked semantic type identity.\n pub semantic_type: CheckedNodeId,\n /// Identity-based dependencies.\n "
   lines: 118-150
 - id: crates/quire-contract-model/src/checked_package/shared.rs
   path: crates/quire-contract-model/src/checked_package/shared.rs
   role: context_only
-  excerpt: "\n/// A checked semantic graph node identity.\n#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]\n#[serde(deny_unknown_fields)]\npub struct CheckedNodeId {\n    /// Must be `quire.checked-semantic-node/v1`.\n    pub domain: Box<str>,\n    /// Lowercase SHA-256 digest.\n    pub digest: Box<str>,"
+  excerpt: "\n/// A checked semantic graph node identity.\n#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]\n#[serde(deny_unknown_fields)]\npub struct CheckedNodeId {\n /// Must be `quire.checked-semantic-node/v1`.\n pub domain: Box<str>,\n /// Lowercase SHA-256 digest.\n pub digest: Box<str>,"
   lines: 424-432
 findings:
 - fnd: FND-001
@@ -1038,7 +1038,7 @@ Production gap-analysis, runtime Rust review gates, correctness/fuzz/matrix auth
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 1cb3e58be6c27363a33987e8d40cc4e59cf6cd5d |
+| FND-001 | fixed | Fixed in the reviewed PR. |
 
 ## Disposition pass 1
 
@@ -1046,7 +1046,7 @@ Production gap-analysis, runtime Rust review gates, correctness/fuzz/matrix auth
 
 Deep draft handling now explicitly requires heap-frame structural equality with no recursive Value comparison; iterative body copy/rewrite and authoritative nonrecursive disposal cover success, partial-copy and refusal paths. Retained context stays O(1) while equality/copy traversal may allocate O(D) frames, honestly removing the former no-allocation claim. The 100000-level, 256 KiB grouped/ungrouped control includes a distinct structurally equal snapshot target, deepest-value mismatch, tiny-byte refusal and iterative fixture teardown. This is a candidate-only planned control, not reader-admission evidence. No input depth cap or extra error is added.
 
-Round 1 rechecked only the fix diff and the original five finding rows at 1cb3e58be6c27363a33987e8d40cc4e59cf6cd5d. The actual Git history has one fix commit after the original reviewed head; all five fixed rows name that commit. No regression or new contradiction was found. Application/group order, typed errors, outside-group re-derivation, sole encoder, reader charge order and existing IR575/742 norms remain intact. Existing N(N-1)/2 uniqueness scans, O(B) full copy, group/reference searches and encoder heap costs remain separate from the byte ceiling. No helper graph cap or reduced reader bound is inferred. All runtime/API controls remain PLANNED/UNRUN; no build, Cargo, Kani, replay, full gate or runtime test was run.
+Round 1 rechecked only the fix diff and the original five finding rows. The actual Git history has one fix commit after the original reviewed head; all five fixed rows name that commit. No regression or new contradiction was found. Application/group order, typed errors, outside-group re-derivation, sole encoder, reader charge order and existing IR575/742 norms remain intact. Existing N(N-1)/2 uniqueness scans, O(B) full copy, group/reference searches and encoder heap costs remain separate from the byte ceiling. No helper graph cap or reduced reader bound is inferred. All runtime/API controls remain PLANNED/UNRUN; no build, Cargo, Kani, replay, full gate or runtime test was run.
 
 Original review scope, Findings, Verdict and review data are retained byte-for-byte. Original review run: daa3de71-257b-4bd0-ac51-528497a47468; disposition run: d236e9cd-509c-425f-862a-df56a6eb9fda; model: unavailable.
 
@@ -1054,7 +1054,6 @@ Original review scope, Findings, Verdict and review data are retained byte-for-b
 dispositions:
 - fnd: FND-001
   outcome: fixed
-  fix_sha: 1cb3e58be6c27363a33987e8d40cc4e59cf6cd5d
   artifact_id: FR-046
   path: spec/model/functional/FR-046-derive-candidate-application-node-identity.md
   lines: 136-140

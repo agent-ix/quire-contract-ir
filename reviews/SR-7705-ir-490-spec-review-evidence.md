@@ -3,7 +3,7 @@ id: SR-7705
 title: evidence review of IR-490 structural forwarding specification
 type: SpecReview
 analysis: evidence
-scope: agent-ix/quire-contract-ir@2ae2d4678c5a005845b784679d376e503e2c63e2; spec/checked_package/functional/FR-038-consume-checked-package-v2.md;
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md;
   spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; spec/checked_package/matrix/tests.md;
   baseline crates/quire-contract-model/src/checked_package/v2/operations.rs and checked_package/v2/mod.rs
 review_set: subset

@@ -3,7 +3,7 @@ id: SR-4601
 title: "Integrity review of IR-361 proof coverage"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@0eca02b43bd14db1411abff447a45eacced9752f; AD-008, FR-045, StR-004, TC-446, matrix/index edits"
+scope: "agent-ix/quire-contract-ir; AD-008, FR-045, StR-004, TC-446, matrix/index edits"
 review_set: subset
 ---
 
@@ -23,10 +23,10 @@ FAIL. Define a source-semantic candidate identity independently of evidence prop
 
 ## Dispositions
 
-Round 1 reviewed at f9bf82c7f62728cbcc60f994541735b4f366834a. Scoped fix review found no new defect.
+Round 1 reviewed. Scoped fix review found no new defect.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | f9bf82c7f62728cbcc60f994541735b4f366834a: AD-008 now keys the source-semantic candidate by criterion, semantic obligation, selected source identity, and declared domain. Method, subject, profile, assumptions, run and effective bounds are joined evidence attempts; FR-045-AC-1 and TC-446 assert attempts leave candidate keys and denominators stable. |
+| FND-001 | fixed |: AD-008 now keys the source-semantic candidate by criterion, semantic obligation, selected source identity, and declared domain. Method, subject, profile, assumptions, run and effective bounds are joined evidence attempts; FR-045-AC-1 and TC-446 assert attempts leave candidate keys and denominators stable. |
 
 After excerpt: “The accounting unit is a source-semantic candidate claim, keyed by its owning requirement criterion, semantic-obligation identity, source identity at the selected source state, and declared domain.”

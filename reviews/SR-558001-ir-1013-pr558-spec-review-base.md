@@ -3,7 +3,7 @@ id: SR-558001
 title: "Spec base review of IR-1013 PR #558"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@c89dc3704e74117f08e4001e46ea4a2982e3baaa; spec/checked_package/functional/FR-058-admitted-clause-execution-point.md, spec/checked_package/matrix/TC-462-admitted-clause-execution-point.md, spec/spec.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-058-admitted-clause-execution-point.md, spec/checked_package/matrix/TC-462-admitted-clause-execution-point.md, spec/spec.md"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-058
@@ -13,13 +13,13 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1013. Spec-only draft PR, frozen head `c89dc370`, base `ea9af060`
+Ticket: IR-1013. Spec-only draft PR, frozen,
 (current main). It adds FR-058, TC-462 and one master-index paragraph. No
 existing FR, AC or TC is touched.
 
 Checked against the repo at that head, quire-spec-language origin/main,
-quire-specification origin/main `17a304c0` (FR-341, FR-342), and CG drafts #572
-(`b7913953`), #573 (`194c5d00`) and #574 (`c65d4f7b`):
+quire-specification origin/main (FR-341, FR-342), and CG drafts #572
+, #573  and #574 :
 
 - `quire_contract_model::ExecutionPoint` exists with exactly the four variants
   FR-058 names (`crates/quire-contract-model/src/identity.rs:937`). It is owned by
@@ -79,7 +79,7 @@ is either fixed in-PR or recorded as a named follow-up.
 
 ## New findings (disposition pass 1)
 
-Checked at fix-round head `095a9bdc0925266dff3c31c4e4c23d6933349a34`.
+Checked at fix-round.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
@@ -87,14 +87,14 @@ Checked at fix-round head `095a9bdc0925266dff3c31c4e4c23d6933349a34`.
 
 ## Dispositions
 
-Round 1, checked against the repo at `095a9bdc` (diff `c89dc370..095a9bdc`; vs main only FR-058, TC-462 and six added lines in spec/spec.md; no existing FR/AC touched; QSL-1082 prerequisite and Planned status retained; `quire validate` 1380/1380 grammar-clean; strict coverage FR-058 0/8, 61 unbacked rows, AC-6 no longer reported as Inspection).
+Round 1, checked against the repo (diff `..`; vs main only FR-058, TC-462 and six added lines in spec/spec.md; no existing FR/AC touched; QSL-1082 prerequisite and Planned status retained; `quire validate` 1380/1380 grammar-clean; strict coverage FR-058 0/8, 61 unbacked rows, AC-6 no longer reported as Inspection).
 
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | New "Admission and retention" section (lines 55-71). `CheckedPackageV2::read` retains at most one point per claim and refuses `DuplicatePoint` (equal or conflicting), `NonClaimPoint` and `IncompatiblePoint` with a kind table, revalidating at admission. Backed by AC-7, AC-8 and TC-462 step 4 |
 | FND-002 | fixed | AC-6 is now a `Test`: a compile control plus a reader control with source bytes dropped and a source check. The vacuous temporal clause is removed, and strict coverage no longer reports AC-6 as Inspection-only |
 
-Round 2, checked against the repo at `0a06d2460bf657b7684d605d4eed40d97c85def1`. The diff from `095a9bdc` is two added lines in the FR-058 Outputs; the PR body now says eight Planned ACs.
+Round 2, checked against the repo. The diff from is two added lines in the FR-058 Outputs; the PR body now says eight Planned ACs.
 
 | FND | outcome | reason |
 | --- | --- | --- |

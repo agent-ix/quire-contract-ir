@@ -3,14 +3,14 @@ id: SR-711
 title: "gap analysis of PR 245 (IR-360 numeric operand ranges)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@9f57b4518882cb6bbd0dba6c6be6988336cacc80; crates/quire-contract-model/src/expression.rs, spec/core/non-functional/NFR-003-diagnostic-integrity.md, spec/model/functional/FR-014-expression-semantics.md"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/expression.rs, spec/core/non-functional/NFR-003-diagnostic-integrity.md, spec/model/functional/FR-014-expression-semantics.md"
 review_set: subset
 ---
 # SR-711: gap analysis of PR 245
 
 ## Summary
 
-Ticket: IR-360. Reviewed head 9f57b45 against origin/main 4233b56. Quire 0.33.0 (engine
+Ticket: IR-360. Reviewed against origin/main. Quire 0.33.0 (engine
 0.47.1). This was a manual gap analysis scoped to the diff. The PR changes no `spec/` or
 `plan/` files and has no observable behaviour change, so the full planless audit adds nothing
 here.

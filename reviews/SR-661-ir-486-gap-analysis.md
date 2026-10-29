@@ -3,7 +3,7 @@ id: SR-661
 title: "gap analysis of PR 240 (IR-486 exact operation leaves)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@5dddf2eaea8b4115ca611c915318bcd48d394d4e; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md, crates/quire-contract-model/src/checked_package/v2/operations.rs"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md, crates/quire-contract-model/src/checked_package/v2/operations.rs"
 review_set: base
 ---
 # SR-661: gap analysis of PR 240
@@ -26,8 +26,8 @@ Mergeable on the gap-analysis axis once FND-001 is fixed. The trace is complete 
 
 ## Dispositions
 
-Reviewed at agent-ix/quire-contract-ir@b2ba6c53bfb89f7a7bff9be7890ad92662452764.
+Reviewed at agent-ix/quire-contract-ir.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 489d6a8 |
+| FND-001 | fixed | Fixed in the reviewed PR. |

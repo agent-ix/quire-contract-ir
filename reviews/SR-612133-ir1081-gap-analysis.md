@@ -3,7 +3,7 @@ id: SR-612133
 title: "IR-1081 PR 648 gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; IR-1081; PR #648 head 318fe29ba05f8b9be2341dbd1aef1cbc3cc8559e; Cargo.toml, tests/tc019_determinism.rs; NFR-001-AC-2/3, TC-019"
+scope: "agent-ix/quire-contract-ir; IR-1081; PR #648; Cargo.toml, tests/tc019_determinism.rs; NFR-001-AC-2/3, TC-019"
 review_set: subset
 ---
 

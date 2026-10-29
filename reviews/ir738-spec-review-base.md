@@ -3,7 +3,7 @@ id: SR-7102
 title: IR-738 spec-review-base of candidate application identity
 type: SpecReview
 analysis: base
-scope: agent-ix/quire-contract-ir@5c89ebe8414a29d9e540ec8ac8d83cfe925f45cb; crates/quire-contract-model/src/checked_package/v2/application_identity.rs,
+scope: agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/application_identity.rs,
   crates/quire-contract-model/src/checked_package/v2/encode.rs, crates/quire-contract-model/src/checked_package/v2/mod.rs,
   crates/quire-contract-model/src/checked_package/v2/operations.rs, crates/quire-contract-model/src/lib.rs,
   spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/model/functional/FR-019-rust-library-interface.md,
@@ -31,7 +31,7 @@ Ticket: IR-738. Base spec review scopes the implementation status, public invent
 
 Base spec review scopes the implementation status, public inventory and AC6 evidence wording changed by the PR, with their impacted procedure/resource text. Requirement field rules remain authoritative in FR038; no duplicated preimage grammar introduced. No new relationships/domain objects/architecture, EARS condition or structural artifact changes justify additional lenses. Findings concern stale status integration after implementation. Preserve currentmain FR038AC224 aliaswork planned/unrun; it is disjoint and no implementation credit is claimed.
 
-Review-only: no source edits, builds, tests, lock acquisition, push or merge. Exact frozen HEAD and clean status verified before/after. Local main is stale; explicit dc6e083...HEAD has ten owned paths and merge-base057d157. No applicable AssuranceProfile found. Installed catalog template/schema read. Exact configured model ID unavailable; host identifies GPT-6 based Codex. Runtime receipts are evidence inspected, not independently executed reviewer tests. Full make ci exit2 at strictcoverage; baseline48unbacked to candidate42, zero new unbacked and zero status contradictions. Native459integration/197model/18modeldoc/7rootdoc, fmt, both clippy lanes, corpus,632document validation and separately run policy/unsafe tail pass. Kani/replay not rerun; no aggregate-green or merge authorization claim.
+Review-only: no source edits, builds, tests, lock acquisition, push or merge. Exact frozen HEAD and clean status verified before/after. Local main is stale; explicit...HEAD has ten owned paths and merge-bas. No applicable AssuranceProfile found. Installed catalog template/schema read. Exact configured model ID unavailable; host identifies GPT-6 based Codex. Runtime receipts are evidence inspected, not independently executed reviewer tests. Full make ci exit2 at strictcoverage; baseline48unbacked to candidate42, zero new unbacked and zero status contradictions. Native459integration/197model/18modeldoc/7rootdoc, fmt, both clippy lanes, corpus,632document validation and separately run policy/unsafe tail pass. Kani/replay not rerun; no aggregate-green or merge authorization claim.
 
 ## Examined units
 
@@ -151,18 +151,18 @@ bindings:
 
 ## Dispositions
 
-Round 1; reviewed a881f0cb2cad1778d9026cc5a5af484005b2c2e0. Both original findings fixed in the actual documentation commit a881f0cb2cad1778d9026cc5a5af484005b2c2e0. Original findings and round-zero verdict remain unchanged.
+Round 1; reviewed. Both original findings fixed in the actual documentation. Original findings and round-zero verdict remain unchanged.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | a881f0cb2cad1778d9026cc5a5af484005b2c2e0 |
-| FND-002 | fixed | a881f0cb2cad1778d9026cc5a5af484005b2c2e0 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
 
 ## Disposition round 1 verdict
 
 **PASS** — both findings fixed; no new regression in the documentation fix or integrated delta.
 
-Actual parent chain: fix a881f0c follows merge 8e053619 with parents original reviewed 5c89ebe and main dc6e083. Production, tests, Cargo, Make, scripts and CI are unchanged versus the reviewed source. Integrated IR-490 documentation still labels FR-038-AC-224 PLANNED/UNRUN and receives no implementation credit. Current TC-058 locator resolves the five-export FR-019 Public items row; source inventory and compiled consumer evidence remain separate. Resource text now names the implemented iterative copy and nonrecursive cleanup.
+Actual parent chain: fix follows merge with parents original reviewed and main. Production, tests, Cargo, Make, scripts and CI are unchanged versus the reviewed source. Integrated IR-490 documentation still labels FR-038-AC-224 PLANNED/UNRUN and receives no implementation credit. Current TC-058 locator resolves the five-export FR-019 Public items row; source inventory and compiled consumer evidence remain separate. Resource text now names the implemented iterative copy and nonrecursive cleanup.
 
 This is disposition-only source inspection, no fresh review, runtime/build/test or locks. Exact HEAD and clean status verified. The pending gate/review wording is honest during this round; for durable merged documentation, recommend removing only temporal pending clauses and retaining focused-check evidence while tracker/review artifacts carry qualification. No new finding for this recommendation. Original candidate make ci strict-coverage failure and separately passing tail remain the only measured full-gate evidence; final changed-head full gate is pending. No aggregate-green or merge authorization claim.
 
@@ -170,7 +170,6 @@ This is disposition-only source inspection, no fresh review, runtime/build/test 
 dispositions:
 - fnd: FND-001
   outcome: fixed
-  fix_sha: a881f0cb2cad1778d9026cc5a5af484005b2c2e0
   after_excerpt: 'Implemented (IR-738). The compiled public consumer controls and
     the three
 
@@ -185,7 +184,6 @@ dispositions:
     [FR-019](../functional/FR-019-rust-library-interface.md).'
 - fnd: FND-002
   outcome: fixed
-  fix_sha: a881f0cb2cad1778d9026cc5a5af484005b2c2e0
   after_excerpt: 'The implementation uses the iterative body copy and
 
     nonrecursive cleanup described above.'

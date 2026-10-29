@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket IR-825. Diff-scoped spec-review/failure-domain-analysis review of PR #468 at fa9613d6201fdb8d9d09b04a39e9f2a07d833142. Failure-domain review: admitted, reader Incomplete, and Refused paths are distinct; a zero-node graph is refused by the V2 reader and cannot yield Complete.
+Ticket IR-825. Diff-scoped spec-review/failure-domain-analysis review of PR #468. Failure-domain review: admitted, reader Incomplete, and Refused paths are distinct; a zero-node graph is refused by the V2 reader and cannot yield Complete.
 
 ## Examined units
 

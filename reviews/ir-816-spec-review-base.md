@@ -3,14 +3,14 @@ id: SR-11800
 title: IR-816 base spec review of receiver-scoped frame entries and deletes_scoped (FR-040-AC-17..29)
 type: SpecReview
 analysis: base
-scope: agent-ix/quire-contract-ir@9526be4cce3d637705b22ec4804705ff718dcb3a (PR 415, diff vs origin/main 32e433a); spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-056-checked-package-v2-frame-entries-and-state-clauses.md, spec/checked_package/matrix/TC-053-checked-package-v2-frame-bodies.md, spec/checked_package/matrix/tests.md, spec/spec.md, spec/tests.md
+scope: agent-ix/quire-contract-ir (PR 415, diff vs origin/main ); spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-056-checked-package-v2-frame-entries-and-state-clauses.md, spec/checked_package/matrix/TC-053-checked-package-v2-frame-bodies.md, spec/checked_package/matrix/tests.md, spec/spec.md, spec/tests.md
 review_set: subset
 date: '2026-10-16'
 ---
 
 ## Summary
 
-Ticket: IR-816. Base checklist over the seven-file spec diff of PR 415 at 9526be4: FR-040's four-member frame body, field-entry `scope`, `deletes_scoped`, ordering, `conflicting-binding` rank and the state-step scoped-deletes check; FR-038's frame text; TC-056/TC-053; matrices. Each rule was checked against merged QSpec FR-340/FR-342 (quire-specification origin/main 9a1d3cf), QSL TC-1043 (quire-spec-language origin/main 24fa7b4a3) and the current reader (`v2/frame.rs`, `tests/it/checked_package_v2_frame_entries.rs`). Review only; no edits.
+Ticket: IR-816. Base checklist over the seven-file spec diff of PR 415: FR-040's four-member frame body, field-entry `scope`, `deletes_scoped`, ordering, `conflicting-binding` rank and the state-step scoped-deletes check; FR-038's frame text; TC-056/TC-053; matrices. Each rule was checked against merged QSpec FR-340/FR-342 (quire-specification origin/main ), QSL TC-1043 (quire-spec-language origin/main ) and the current reader (`v2/frame.rs`, `tests/it/checked_package_v2_frame_entries.rs`). Review only; no edits.
 
 ## Verdict
 
@@ -22,9 +22,9 @@ What holds:
 - Codes and causes used (`invalid_semantic_graph`, `invalid_model_binding`/`conflicting-binding`, `missing_declaration`/`missing-name`, `invalid_package`/`stale-node-key`, `ambiguous_declaration`/`ambiguous-name`) all already exist in the reader's taxonomy (`CheckedPackageRefusalCause::ConflictingBinding`, shared.rs:205; used by FR-346 and FR-038). No code is invented. (STD-001 is IR's own registry and does not carry checked-package codes; the authoritative pairing is QSpec FR-322 as stated in FR-038.)
 - The AC-7 change (shared frame admitted) is justified by merged QSpec FR-342 ("Two anchors of one `context` that reference one `frame` node are admitted") and FR-342-AC-6, and by QSL TC-1043 step 2b. It breaks no other IR criterion's text.
 - No fallback or compatibility reader for the old three-member body is specified; a body without `deletes_scoped` refuses (AC-19).
-- AC-17..29 are free: `git log --all -S FR-040-AC-17` finds only 9526be4; open PRs #413 and #414 touch no FR-040 ids. No renumbering.
+- AC-17..29 are free: `git log --all -S FR-040-AC-17` finds only; open PRs #413 and #414 touch no FR-040 ids. No renumbering.
 - TC-056 cites TC-1043 rows by id (W1-W6, X1-X9) and re-authors its cases; no wire bytes are copied.
-- Gates measured: `quire validate --scope . "spec/**/*.md"` exits 0 with only module-level warnings. `quire coverage --strict` is 49 unbacked / 0 contradicted at both origin/main 32e433a (temporary worktree, removed) and 9526be4; FR-040 moves 16/16 to 16/29 rows. `quire matrix` differs only by the thirteen new untagged FR-040 rows.
+- Gates measured: `quire validate --scope. "spec/**/*.md"` exits 0 with only module-level warnings. `quire coverage --strict` is 49 unbacked / 0 contradicted at both origin/main (temporary worktree, removed) and; FR-040 moves 16/16 to 16/29 rows. `quire matrix` differs only by the thirteen new untagged FR-040 rows.
 - Outside IR, noted not a finding: QSL TC-1043 itself states that every row using a scoped member (W1, W2, W4, W6, I1-I17, X1-X9) depends on the filament-core-data semantic-IR frame schema admitting `modifies_receiver`/`deletes_receiver`/`deletes_parameters`; only step 2b is reachable today. IR's TC-056 re-authors its packages in-repo, so the IR code slice is not blocked by that, but a QSL-emitted oracle package for those rows does not exist yet.
 
 ## Findings
@@ -103,10 +103,10 @@ scope:
 
 ## Dispositions
 
-Round 1, fix commit 99f4936 on 9526be4.
+Round 1, fix on.
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | FR-040 :166-177 and AC-23 drop the message claim. The refusal carries one path and one locus, "the other entry is not carried", and this is recorded as a QSpec question in FR-346's words. That matches FR-346 :246-253 and the refusal type (no message member). |
+| FND-001 | fixed | FR-040:166-177 and AC-23 drop the message claim. The refusal carries one path and one locus, "the other entry is not carried", and this is recorded as a QSpec question in FR-346's words. That matches FR-346:246-253 and the refusal type (no message member). |
 | FND-002 | fixed | AC-7 again states today's behaviour: a shared frame refuses `ambiguous-name`, which the existing tagged test asserts. AC-28 owns the admission and names the AC-7 test case that changes when it is implemented. TC-056 Status and both matrix rows record the supersession. |
 | FND-003 | fixed | The TC-056 matrix cell now marks AC-14..16 implemented (IR-770). |

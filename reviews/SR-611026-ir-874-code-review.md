@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed quire-contract-ir PR #629 at frozen head 7ac176525c667a13a44a3fdaea28b2e60e8eee26 against IR FR-038-AC-285, AC-324 and AC-327, QSpec FR-322-AC-96 and FR-464-AC-6/13. The graph stage now owns exact protocol-family dependencies. No applicable AssuranceProfile was found.
+Reviewed quire-contract-ir PR #629 at frozen against IR FR-038-AC-285, AC-324 and AC-327, QSpec FR-322-AC-96 and FR-464-AC-6/13. The graph stage now owns exact protocol-family dependencies. No applicable AssuranceProfile was found.
 
 ## Findings
 
@@ -25,4 +25,4 @@ CONDITIONAL. The reader's new stage order and target resolution match the review
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | At fix head 34e3a57bb55ea70a0bc0ae33da4838da056cc46e, `check_clause_slots` begins with `ProtocolScope::new`; the duplicate `application_dependencies` comparison is gone. The structural graph-stage check remains the sole exact dependency comparison for the clause. |
+| FND-001 | fixed | At fix, `check_clause_slots` begins with `ProtocolScope::new`; the duplicate `application_dependencies` comparison is gone. The structural graph-stage check remains the sole exact dependency comparison for the clause. |

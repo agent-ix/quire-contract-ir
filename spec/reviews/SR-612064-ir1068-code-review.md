@@ -12,11 +12,11 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1068. Reviewed PR #635 at 13f39e246105b91c4deb7ccc832e7896e24c6677 against merged main d4f75fc2. The single canonical public point type and V2 nonempty-name path are present, but authored expression wire input is widened by the same type.
+Ticket: IR-1068. Reviewed PR #635 against merged main. The single canonical public point type and V2 nonempty-name path are present, but authored expression wire input is widened by the same type.
 
 ## Verdict
 
-**FAIL** — the expression-operation decoder admits a nonempty point name outside authored `AnchorName` grammar, contrary to FR-011-AC-3. A prior hosted compile failure from a missing `ExecutionPoint` import at 8a544f25 was already fixed in this reviewed head, 13f39e24. No full local gate was run; hosted checks on the reviewed head were pending. The diff adds no vendoring, compatibility bridge, unsafe code or CI workflow change; `git diff --check` passed.
+**FAIL** — the expression-operation decoder admits a nonempty point name outside authored `AnchorName` grammar, contrary to FR-011-AC-3. A prior hosted compile failure from a missing `ExecutionPoint` import was already fixed in this reviewed head. No full local gate was run; hosted checks on the reviewed head were pending. The diff adds no vendoring, compatibility bridge, unsafe code or CI workflow change; `git diff --check` passed.
 
 ## Findings
 
@@ -36,8 +36,8 @@ Ticket: IR-1068. Reviewed PR #635 at 13f39e246105b91c4deb7ccc832e7896e24c6677 ag
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | At 324b08c2, `ExpressionInput.execution_point` is private `WireExecutionPoint`; `check_expression_input` calls its `validate()` before binding comparison or expression checking. The four validation arms use `AnchorName::new`, so empty and `tick now` now return `InvalidIdentifier` for unbound expression operation and bound binding expression input. The V2 `ExecutionPoint::from_wire` path remains nonempty-only and separate. |
+| FND-001 | fixed |, `ExpressionInput.execution_point` is private `WireExecutionPoint`; `check_expression_input` calls its `validate` before binding comparison or expression checking. The four validation arms use `AnchorName::new`, so empty and `tick now` now return `InvalidIdentifier` for unbound expression operation and bound binding expression input. The V2 `ExecutionPoint::from_wire` path remains nonempty-only and separate. |
 
 ## Disposition verdict
 
-Round 1 at 324b08c2b5391db3ac5957deb9d86bf6705012cc: FND-001 fixed on inspection. Focused/hosted gate outcomes remain the lead's final gate evidence.
+Round 1: FND-001 fixed on inspection. Focused/hosted gate outcomes remain the lead's final gate evidence.

@@ -3,14 +3,14 @@ id: SR-8423
 title: spec-review/integrity review of admitted traversal view
 type: SpecReview
 analysis: integrity
-scope: agent-ix/quire-contract-ir@5a160f815c4351d9ec9ecaff8cd9c795e41de26d; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md,
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md,
   spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md; FR-035-AC-6..8
 review_set: subset
 ---
 
 ## Summary
 
-Ticket: IR-766. Reviewed spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md and spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md at 5a160f815c4351d9ec9ecaff8cd9c795e41de26d. AC-7 permits omission of bound and claim subsets even when lowering derived them. The other changed criteria have discriminating adverse cases and the planned TC identifies their expected outcomes.
+Ticket: IR-766. Reviewed spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md and spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md. AC-7 permits omission of bound and claim subsets even when lowering derived them. The other changed criteria have discriminating adverse cases and the planned TC identifies their expected outcomes.
 
 ## Verdict
 
@@ -33,4 +33,4 @@ Ticket: IR-766. Reviewed spec/checked_package/functional/FR-035-complete-v1-cont
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | a3e791d908095170d63df43fb21dd48167528a3b — FR-035-AC-7 now requires both subsets for every lowered root; TC-047 checks exact nonempty and empty cases against independently derived results. |
+| FND-001 | fixed | — FR-035-AC-7 now requires both subsets for every lowered root; TC-047 checks exact nonempty and empty cases against independently derived results. |

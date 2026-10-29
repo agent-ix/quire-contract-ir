@@ -3,7 +3,7 @@ id: SR-10814
 title: IR-756 evidence insertion verification review
 type: SpecReview
 analysis: evidence
-scope: "agent-ix/quire-contract-ir; PR 383 at 6ecd464; TC-059 and FR-047-AC-1..6"
+scope: "agent-ix/quire-contract-ir; PR 383; TC-059 and FR-047-AC-1..6"
 review_set: subset
 ---
 

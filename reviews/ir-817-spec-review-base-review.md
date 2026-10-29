@@ -3,7 +3,7 @@ id: SR-11820
 title: "spec-review/base review of IR-817 PR #418"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@f07017c25c744c66750f0e86ff0bb8b20bb9707d; PR #418; spec/conformance/functional/FR-020-json-conformance-interface.md; spec/conformance/matrix/tests.md; spec/core/functional/FR-012-anchors-clauses-dependencies.md; spec/core/matrix/tests.md; spec/model/functional/FR-023-executable-projection-binding.md; spec/tests.md; tests/it/conformance.rs"
+scope: "agent-ix/quire-contract-ir; PR #418; spec/conformance/functional/FR-020-json-conformance-interface.md; spec/conformance/matrix/tests.md; spec/core/functional/FR-012-anchors-clauses-dependencies.md; spec/core/matrix/tests.md; spec/model/functional/FR-023-executable-projection-binding.md; spec/tests.md; tests/it/conformance.rs"
 review_set: subset
 ---
 

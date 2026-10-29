@@ -3,7 +3,7 @@ id: SR-11662
 title: IR-803 EARS conformance review of the typed composite operator requirement text
 type: SpecReview
 analysis: ears-conformance
-scope: agent-ix/quire-contract-ir@9c2a2fe0550f18dad6e8313f9588c0cea52af6ef (PR 407, diff vs origin/main 055ad1f); spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+scope: agent-ix/quire-contract-ir (PR 407, diff vs origin/main ); spec/checked_package/functional/FR-038-consume-checked-package-v2.md
 review_set: subset
 ---
 
@@ -42,7 +42,7 @@ bindings: []
 
 ## Dispositions
 
-Round 1; reviewed 81ddbb6046a6b5f063e80624ab874366b08f053c (diff 9c2a2fe..81ddbb6).
+Round 1; reviewed (diff..).
 
 | FND | outcome | reason |
 | --- | --- | --- |

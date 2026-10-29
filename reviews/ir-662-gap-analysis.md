@@ -3,7 +3,7 @@ id: SR-2191
 title: "Gap analysis of IR-662 numeric width change"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@a352c4509f155c6de1b430501a3e9b211283a2d2; FR-013-AC-5, FR-013-AC-6, FR-014-AC-8, FR-015-AC-8, FR-016-AC-9, FR-019-AC-7; changed model source, wire, corpus, and tests"
+scope: "agent-ix/quire-contract-ir; FR-013-AC-5, FR-013-AC-6, FR-014-AC-8, FR-015-AC-8, FR-016-AC-9, FR-019-AC-7; changed model source, wire, corpus, and tests"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-013

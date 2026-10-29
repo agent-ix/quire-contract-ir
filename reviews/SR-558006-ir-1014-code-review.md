@@ -3,7 +3,7 @@ id: SR-558006
 title: "IR-1014 PR 564 Rust and code review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; PR #564 at a08376c2; refinement reader, sidecar, writer and focused tests"
+scope: "agent-ix/quire-contract-ir; PR #564; refinement reader, sidecar, writer and focused tests"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-061
@@ -30,7 +30,7 @@ CONDITIONAL. Fix FND-001 in this PR. Complete catalog attestation remains owned 
 
 ## Dispositions
 
-Fix round 1 at PR head `b71dcf3022e9c94017b081f0d336eaa0e4efaaea`:
+Fix round 1 at PR:
 
 | FND | outcome | reason |
 | --- | --- | --- |
@@ -40,8 +40,8 @@ Final verdict: PASS for the reviewed early refinement slice. IR-874 and the othe
 
 ## String-edge gate re-review
 
-At PR head `421176f25daed888a2fb549bfef55bd1ec76e97b`, the source-map root comparison uses `JsonPointer` instead of a raw string, the body header check is extracted unchanged, and class/open/memory spellings flow through typed `string_edge` functions. The `source_node` presence test in catalog absence is equivalent to the former memory-prefix test because `check_wire` first enforces exactly that pairing for each step. The new open-term vector reaches the stale-key stage for `open` and refuses `other` at the argument pointer. No semantic regression or new code-review finding was established. PASS remains for this head; the code lead owns the final aggregate gate.
+At PR, the source-map root comparison uses `JsonPointer` instead of a raw string, the body header check is extracted unchanged, and class/open/memory spellings flow through typed `string_edge` functions. The `source_node` presence test in catalog absence is equivalent to the former memory-prefix test because `check_wire` first enforces exactly that pairing for each step. The new open-term vector reaches the stale-key stage for `open` and refuses `other` at the argument pointer. No semantic regression or new code-review finding was established. PASS remains for this head; the code lead owns the final aggregate gate.
 
 ## Root-gate regression re-review
 
-At PR head `92aa6e74a10708bb8d0fca4d6849e5f662e4c0a5`, the refinement writer now emits each closed row through direct canonical writer events and bounded nested `CheckedTerm::encode_into`, removing the intermediate `serde_json::to_value` from production identity paths. The typed replacement walk reaches header, population, object, step, history, fairness, protocol and catalog node keys, plus nested expression targets. It preserves package IDs, class spellings, profiles and other non-node-key fields. The new typed writer and replacement vectors exercise the four target kinds, nested terms and representative catalog keys. The selected state-machine fixture corrections restore the former positive form checks under the newly enforced owner rule. No new code or Rust finding was established; PASS remains for this head, subject to the code lead's final aggregate gate.
+At PR, the refinement writer now emits each closed row through direct canonical writer events and bounded nested `CheckedTerm::encode_into`, removing the intermediate `serde_json::to_value` from production identity paths. The typed replacement walk reaches header, population, object, step, history, fairness, protocol and catalog node keys, plus nested expression targets. It preserves package IDs, class spellings, profiles and other non-node-key fields. The new typed writer and replacement vectors exercise the four target kinds, nested terms and representative catalog keys. The selected state-machine fixture corrections restore the former positive form checks under the newly enforced owner rule. No new code or Rust finding was established; PASS remains for this head, subject to the code lead's final aggregate gate.

@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-The diff changes only FR-038 and TC-048 prose. No source code or tests were changed. Reviewed PR #671 at 2996c176452745d6fee32c2c85ab616c6ed10e32 against merged QSpec FR-464-AC-21 to 23 and TC-946 R13 to R24. No applicable AssuranceProfile was found in the changed module.
+The diff changes only FR-038 and TC-048 prose. No source code or tests were changed. Reviewed PR #671 against merged QSpec FR-464-AC-21 to 23 and TC-946 R13 to R24. No applicable AssuranceProfile was found in the changed module.
 
 ## Examined units
 

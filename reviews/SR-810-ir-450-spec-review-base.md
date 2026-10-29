@@ -3,7 +3,7 @@ id: SR-810
 title: "spec review of PR 257 quantity bound class (IR-450)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@10a17ec6b705ec88b5442a3367b826043d76ed2b; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-050-checked-package-v2-lowering.md; spec/checked_package/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-050-checked-package-v2-lowering.md; spec/checked_package/matrix/tests.md"
 review_set: subset
 ---
 # SR-810: spec review of PR 257 quantity bound class
@@ -11,7 +11,7 @@ review_set: subset
 ## Summary
 
 Ticket: IR-450. Base and correctness review of `git diff origin/main...HEAD`. The PR is
-based on origin/main 1a59efc and merges cleanly. It changes the FR-038 prose on unbounded
+based on origin/main and merges cleanly. It changes the FR-038 prose on unbounded
 forms, amends FR-038-AC-8, adds FR-038-AC-73 (Test TC-050, planned), the TC-050 procedure
 section and three matrix rows. `make spec` gives the same result before and after: grammar
 312/313 (baseline 1) and strict 23 unbacked (baseline 23).
@@ -29,7 +29,7 @@ true from `requires_bound` for the two forms, because that also sends them throu
 composite or parameter, so its `unit` node, lowered as the requested node, still lowers under
 the new rule.
 
-QSL agreement, measured against QSL origin/main 8d1deba4. QSL FR-097-AC-2 and ADR-014 §4
+QSL agreement, measured against QSL origin/main. QSL FR-097-AC-2 and ADR-014 §4
 count each quantity in the closure of a claim's argument and bound-variable types as one
 unbounded domain that takes no finite bound. The ignored TC-440 test
 (`qsl-package/src/emit/extent_agreement.rs`, `Measure{len: metre}`) asserts only that IR
@@ -48,7 +48,7 @@ QSL FR-097-AC-6 already places it outside the agreement, as it does for integers
 
 On the open question: AC-73 says IR names "its `unit` or `compound_unit` node", meaning the
 node at the position. That is the right statement. It lets QSL move `Measure` into the main
-TC-440 table with `Form("unit")` once the code lands. QSpec origin/main c76c6ae states no
+TC-440 table with `Form("unit")` once the code lands. QSpec origin/main states no
 bound class for quantity. FR-142 and TC-187 are evaluation rules only. FR-322 says only that
 a `unit` is family `quantity`, "read from the type the node resolves to through its
 `bounded_domain` base chain", which is what FND-001 turns on.
@@ -69,10 +69,10 @@ assert the form. Fix FND-001 here, together with SR-811 FND-001, before the code
 
 ## Dispositions
 
-Round 1 at 4b19dbe6da4c34665076d325b4d7d385d265fa50 (base still origin/main 1a59efc, merges cleanly). FR-038 now defines a quantity as a `unit` or `compound_unit` `scalar_type`, or as a `bounded_domain` whose base chain ends at one. A position typed at a quantity raises `requires_bound`, either directly or through that chain, and names the `unit` or `compound_unit` node at the end of the chain. I checked this against `lower.rs` at the reviewed head. A position is the type node a composite or parameter edge names, which here is the `bounded_domain`. That domain is visited, and its edge 0 (`semantic_type`, its base) is a typing successor, so every node on the chain is in the closure and `ordered`. The unit at the end of the chain is therefore a reachable node that the record can name. The least-key rule then picks among the named chain ends.
+Round 1 (base still origin/main, merges cleanly). FR-038 now defines a quantity as a `unit` or `compound_unit` `scalar_type`, or as a `bounded_domain` whose base chain ends at one. A position typed at a quantity raises `requires_bound`, either directly or through that chain, and names the `unit` or `compound_unit` node at the end of the chain. I checked this against `lower.rs` at the reviewed head. A position is the type node a composite or parameter edge names, which here is the `bounded_domain`. That domain is visited, and its edge 0 (`semantic_type`, its base) is a typing successor, so every node on the chain is in the closure and `ordered`. The unit at the end of the chain is therefore a reachable node that the record can name. The least-key rule then picks among the named chain ends.
 
 QSL FR-097-AC-2 ("a quantity's domain takes no finite bound") classifies such a type as Unbounded, so the two now agree. QSL never emits this shape. The QSL cases from round 0 still hold: Measure, Trip, collections, parameters and binders raise, and an application with a quantity `result_type` over bounded parameters lowers. A note for the code PR: the chain walk must be bounded and safe against cycles, as `operations.rs` `structural_type` is, and must exclude `model_population`. No new findings.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | fixed 4b19dbe6da4c34665076d325b4d7d385d265fa50 |
+| FND-001 | fixed | fixed |

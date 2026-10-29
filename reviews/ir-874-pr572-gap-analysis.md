@@ -3,7 +3,7 @@ id: SR-567886
 title: "IR-874 PR 572 gap-analysis review"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, tests/it/checked_package_v2_protocol_body.rs; PR #572 head 1d5fdfc60fa7bc3473c065bbe750ec48bc95785c"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, tests/it/checked_package_v2_protocol_body.rs; PR #572 "
 review_set: subset
 ---
 
@@ -44,4 +44,4 @@ Plan completion: not assessed. Quoin matrix reports FR-038-AC-282/284/288 tagged
 
 ## Disposition verdict
 
-**PASS at dbd78036bfaf0217a76a8d5277f5ee5bc6e9b282** — All original findings were fixed on this PR; the complete FR-038-AC-282/284/288 criteria remain Planned.
+**PASS ** — All original findings were fixed on this PR; the complete FR-038-AC-282/284/288 criteria remain Planned.

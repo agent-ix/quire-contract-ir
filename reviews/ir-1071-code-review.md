@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed the three-file diff at PR head a0ce4e18 against IR-1071 AC-1 through AC-3 and the repository's Rust conventions. The manifest retains `test = false`; the new CI prerequisite explicitly compiles the test executable with `--no-run`, and the named fixture lane retains its executing command and checkout-dependent assertions.
+Reviewed the three-file diff at PR against IR-1071 AC-1 through AC-3 and the repository's Rust conventions. The manifest retains `test = false`; the new CI prerequisite explicitly compiles the test executable with `--no-run`, and the named fixture lane retains its executing command and checkout-dependent assertions.
 
 ## Verdict
 
@@ -33,4 +33,4 @@ Read repository `AGENTS.md` and `CLAUDE.md`, the Rust review and style rules, th
 
 ## Rebase review
 
-At rebased PR head `8118692e8d8bb9a8ff0e582e7322984f3424521f` over main `976e25eb`, the Cargo.toml, Makefile and conformance main diff is unchanged. Main adds `model_tuple_union` to the same integration target and extends model member code; its QSpec checkout reads remain inside test functions. `--no-run` still builds the target without executing those functions. The original scoped PASS verdict holds.
+At rebased PR over main, the Cargo.toml, Makefile and conformance main diff is unchanged. Main adds `model_tuple_union` to the same integration target and extends model member code; its QSpec checkout reads remain inside test functions. `--no-run` still builds the target without executing those functions. The original scoped PASS verdict holds.

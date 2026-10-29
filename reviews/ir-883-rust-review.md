@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-883. Reviewed head ee278f54fa576eac8a549add133e234173995048 against main ffd76b1. Rust review checked closure identity, persistent trie sharing, iterative Drop, equality, work metering, panic surface, and trace-tagged tests; no defect found.
+Ticket: IR-883. Reviewed against main. Rust review checked closure identity, persistent trie sharing, iterative Drop, equality, work metering, panic surface, and trace-tagged tests; no defect found.
 
 ## Verdict
 

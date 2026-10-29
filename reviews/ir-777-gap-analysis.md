@@ -3,7 +3,7 @@ id: SR-8694
 title: IR-777 selected variant reader gap analysis
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; IR-777; FR-038-AC-236..238 and their changed production and integration-test paths at b0da7f5"
+scope: "agent-ix/quire-contract-ir; IR-777; FR-038-AC-236..238 and their changed production and integration-test paths "
 review_set: subset
 ---
 
@@ -35,4 +35,4 @@ No actionable findings. The single numbered row below is a Quire schema placehol
 
 Plan completion: not assessed.
 Semantic review: the dispatch requested an independent targeted comparison of the changed behavior with its acceptance criteria; no broader repository semantic audit was run.
-Computed matrix: `quire matrix --scope . --format json` reported `FR-038-AC-236`, `FR-038-AC-237`, and `FR-038-AC-238` as tagged to the new public-reader tests. Assertion strength and the changed production paths were inspected manually. Full gates remain with the author.
+Computed matrix: `quire matrix --scope. --format json` reported `FR-038-AC-236`, `FR-038-AC-237`, and `FR-038-AC-238` as tagged to the new public-reader tests. Assertion strength and the changed production paths were inspected manually. Full gates remain with the author.

@@ -3,14 +3,14 @@ id: SR-16604
 title: "IR-9 PR 541 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir PR #541 @ 0432c53b6854183b4e90c74a81138d70cfd011a2; crates/quire-contract-model/src/checked_package/v2/flat_wire.rs"
+scope: "agent-ix/quire-contract-ir PR #541 @; crates/quire-contract-model/src/checked_package/v2/flat_wire.rs"
 review_set: subset
 ---
 # SR-16604: IR-9 PR 541 code and Rust review
 
 ## Summary
 
-Independent diff-scoped code and Rust review against base 243d7ce6. The changed flat-wire header check uses `decode_node_kind` for the successful typed kind and rechecks only failed extension, hybrid and timed forms to retain their earlier `malformed_wire` refusal priority.
+Independent diff-scoped code and Rust review against. The changed flat-wire header check uses `decode_node_kind` for the successful typed kind and rechecks only failed extension, hybrid and timed forms to retain their earlier `malformed_wire` refusal priority.
 
 ## Findings
 

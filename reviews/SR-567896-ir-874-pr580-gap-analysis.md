@@ -3,7 +3,7 @@ id: SR-567896
 title: "IR-874 PR 580 gap-analysis review"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, crates/quire-contract-model/src/checked_package/v2/structural.rs, tests/it/checked_package_v2_protocol_body.rs; PR #580 frozen head 7f8d2c8d52d0ae93102b52d26900064400c183b7 against 600f2608"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, crates/quire-contract-model/src/checked_package/v2/structural.rs, tests/it/checked_package_v2_protocol_body.rs; PR #580 frozen "
 review_set: subset
 ---
 
@@ -33,15 +33,15 @@ The computed matrix and changed public-reader tests were checked against the cla
 
 ## Coverage
 
-Plan completion: not assessed. `quoin matrix --repo . --json` completed: FR-038-AC-284 has 15 bound tests, AC-285 has 6, AC-291 has 0 (`untagged`), and AC-324 has 3. All three AC-324 tests are new in this diff; none asserts relation rows. Changed source has an owning requirement and no stub. Optional repository-wide semantic review was not requested; this scoped review compared the changed assertions to their trace tags. The remaining FR-038 protocol criteria stay Planned.
+Plan completion: not assessed. `quoin matrix --repo. --json` completed: FR-038-AC-284 has 15 bound tests, AC-285 has 6, AC-291 has 0 (`untagged`), and AC-324 has 3. All three AC-324 tests are new in this diff; none asserts relation rows. Changed source has an owning requirement and no stub. Optional repository-wide semantic review was not requested; this scoped review compared the changed assertions to their trace tags. The remaining FR-038 protocol criteria stay Planned.
 
 ## Dispositions
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At 0ecbde3a, the trigger and ordered-capture level tests now trace `FR-038-AC-291`, and a new public-reader test traced to AC-291 asserts `AmbiguousDeclaration`/`AmbiguousName` for duplicate readable capture names. The full AC remains Planned for later binder-scope work. |
-| FND-002 | fixed | At 0ecbde3a, the three changed tests no longer trace `FR-038-AC-324`; they assert only their actual clause and binder behavior. Activation-relation row content and ordering remain unimplemented and unverified under Planned AC-324, so these tests no longer claim that evidence. |
+| FND-001 | fixed |, the trigger and ordered-capture level tests now trace `FR-038-AC-291`, and a new public-reader test traced to AC-291 asserts `AmbiguousDeclaration`/`AmbiguousName` for duplicate readable capture names. The full AC remains Planned for later binder-scope work. |
+| FND-002 | fixed |, the three changed tests no longer trace `FR-038-AC-324`; they assert only their actual clause and binder behavior. Activation-relation row content and ordering remain unimplemented and unverified under Planned AC-324, so these tests no longer claim that evidence. |
 
 ## Disposition verdict
 
-**PASS at 0ecbde3a** — both recorded test-evidence defects are fixed; AC-324's relation work remains Planned.
+**PASS ** — both recorded test-evidence defects are fixed; AC-324's relation work remains Planned.

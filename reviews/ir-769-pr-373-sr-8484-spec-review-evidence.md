@@ -3,7 +3,7 @@ id: SR-8484
 title: "spec-review/evidence review of IR-769 PR #373"
 type: SpecReview
 analysis: evidence
-scope: "agent-ix/quire-contract-ir@d8e47266f6a3ebf1b0953399677b6b2da1897add; FR-049-AC-1..6; TC-447"
+scope: "agent-ix/quire-contract-ir; FR-049-AC-1..6; TC-447"
 review_set: subset
 ---
 

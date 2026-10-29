@@ -3,7 +3,7 @@ id: SR-815
 title: "spec review of PR 258 canonical encoding of the V2 wire types (IR-533)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@f3606b05780f22897c15fccc0eb2756ab284f14e; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/model/functional/FR-019-rust-library-interface.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/model/functional/FR-019-rust-library-interface.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md"
 review_set: subset
 ---
 # SR-815: spec review of PR 258 canonical encoding of the V2 wire types
@@ -13,10 +13,10 @@ review_set: subset
 Ticket: IR-533. PR #258 is spec only. It amends FR-038's `package_id` paragraph and adds a
 section, "Canonical encoding of the wire types". It adds FR-038-AC-73 to AC-78, one FR-019
 paragraph, the TC-048 procedure and traces, and the FR-038 and TC-048 rows of tests.md. The
-base is current: the merge-base is origin/main 1a59efc, and the PR merges cleanly onto main.
+base is current: the merge-base is origin/main, and the PR merges cleanly onto main.
 
 Checked independently against the code at the reviewed sha and quire-canonical origin/main
-59fe4f06370fbdbd8de4fa446ad78f3974926252.
+.
 
 - The type table is right. `CheckedSemanticId`, `CheckedCapability`,
   `CheckedSourceMapEntry` and `CheckedPackageLockV2` hold only strings, `u64`, `Vec`,
@@ -72,13 +72,13 @@ with IR-274. FND-002 and FND-003 are small text fixes. FND-004 is a nit.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-005 | low | Three wording problems in the new section "Canonical bytes are quire-canonical's bytes". (1) It opens "narrows what the reader admits, once, for one input and one code", then lists three inputs, and the third one widens admission: names in UTF-16 order were `noncanonical_wire` and now pass. (2) "the same names in UTF-16 order are admitted" overstates the change. A body object with those member names still fails the closed body grammar. What changes is that it passes the canonical-bytes check, which is what FR-038-AC-79 says. (3) "The held change of IR-274 ... whichever of the two changes merges second keeps this paragraph's text once" is merge-coordination text in a normative section, and it goes stale when either change merges. Say "for three inputs, under one code". Say "pass the canonical-bytes check". Move the merge note to the PR or ticket, or reduce it to a dependency line. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:385-422 |
+| FND-005 | low | Three wording problems in the new section "Canonical bytes are quire-canonical's bytes". (1) It opens "narrows what the reader admits, once, for one input and one code", then lists three inputs, and the third one widens admission: names in UTF-16 order were `noncanonical_wire` and now pass. (2) "the same names in UTF-16 order are admitted" overstates the change. A body object with those member names still fails the closed body grammar. What changes is that it passes the canonical-bytes check, which is what FR-038-AC-79 says. (3) "The held change of IR-274... whichever of the two changes merges second keeps this paragraph's text once" is merge-coordination text in a normative section, and it goes stale when either change merges. Say "for three inputs, under one code". Say "pass the canonical-bytes check". Move the merge note to the PR or ticket, or reduce it to a dependency line. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:385-422 |
 | FND-006 | low | "for every in-repo fixture, including strings with non-ASCII and astral characters and the integers 9007199254740992 and -9007199254740992" says the fixtures hold those values. They do not: `tests/it/support/checked_package.rs` has no non-ASCII content and no large integer. The crafted cases of FR-038-AC-74 and AC-75 hold them. Say "for every in-repo fixture and for the crafted values of FR-038-AC-74 and FR-038-AC-75". | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:375-382 |
 
 ## Dispositions
 
-Round 1 at 2f491e0a30bd3b29b9ae6f9abf81f28ba09bac81. The author squashed and rebased onto
-main 7ed352beb994355413b9d7c572e45667aee229ba (#257 merged). This round reviewed the delta
+Round 1. The author squashed and rebased onto
+main (#257 merged). This round reviewed the delta
 only, excluding #257's content.
 
 - QSpec FR-322 (quire-specification origin/main) lists `noncanonical_wire` in the v2 refusal
@@ -87,7 +87,7 @@ only, excluding #257's content.
 - The canonical check runs in `read_value`, before decode and before the version dispatch.
 - The V2 literal grammar admits only `i64`/`u64` (common.rs:844-849), so a whole float is
   refused by the grammar today.
-- AC-79's classes are right against quire-canonical 59fe4f06370fbdbd8de4fa446ad78f3974926252:
+- AC-79's classes are right against quire-canonical:
   - its integer bound is "magnitude exceeds 2^53", so ±9007199254740993 is refused and
     ±9007199254740992 is not;
   - its ECMAScript number text spells 2.0 as `2`;
@@ -100,18 +100,18 @@ only, excluding #257's content.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | fixed 2f491e0a30bd3b29b9ae6f9abf81f28ba09bac81 |
-| FND-002 | fixed | fixed 2f491e0a30bd3b29b9ae6f9abf81f28ba09bac81 |
-| FND-003 | fixed | fixed 2f491e0a30bd3b29b9ae6f9abf81f28ba09bac81 |
-| FND-004 | fixed | fixed 2f491e0a30bd3b29b9ae6f9abf81f28ba09bac81 |
+| FND-001 | fixed | fixed |
+| FND-002 | fixed | fixed |
+| FND-003 | fixed | fixed |
+| FND-004 | fixed | fixed |
 
-Round 2 at f6195185fbeebc0f697ae76e98c33673591c2324, still based on main
-7ed352beb994355413b9d7c572e45667aee229ba. The delta is one commit that changes wording in
+Round 2, still based on main
+. The delta is one commit that changes wording in
 FR-038 only: 12 lines added, 13 removed, and no AC, trace or matrix change. `make spec`
 gives 1 grammar finding and 23 strict unbacked rows, the same as main. FR-038 coverage is
 45/78. No regression and no new findings.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-005 | fixed | fixed f6195185fbeebc0f697ae76e98c33673591c2324 |
-| FND-006 | fixed | fixed f6195185fbeebc0f697ae76e98c33673591c2324 |
+| FND-005 | fixed | fixed |
+| FND-006 | fixed | fixed |

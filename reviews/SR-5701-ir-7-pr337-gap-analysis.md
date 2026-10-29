@@ -3,7 +3,7 @@ id: SR-5701
 title: IR-7 PR337 gap-analysis operation redefinition
 type: SpecReview
 analysis: gap-analysis
-scope: agent-ix/quire-contract-ir@c7a29419a31028d456ad5d1d2ad189ae2e943a85; crates/quire-contract-model/src/checked_package/v2/model_members.rs;
+scope: agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/model_members.rs;
   crates/quire-contract-model/src/checked_package/v2/model_members/tests.rs; tests/it/checked_package_v2_temporal.rs
 review_set: subset
 relationships:
@@ -13,7 +13,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-7; PR #337. Frozen checkout clean. Three changed paths, 131 additions/20 deletions. No spec, schema, public API, dependency, CI or gate change. Review limited to the operation-redefinition delta; AC excerpts identify the portions examined, not full-criterion acceptance. Current published main 7fd9917e4b7a176f58baf6ce354f53f9b86e344b adds IR-484 AC-210..213 only as normative context and leaves AC-28/103 unchanged.
+Ticket: IR-7; PR #337. Frozen checkout clean. Three changed paths, 131 additions/20 deletions. No spec, schema, public API, dependency, CI or gate change. Review limited to the operation-redefinition delta; AC excerpts identify the portions examined, not full-criterion acceptance. Current published main adds IR-484 AC-210..213 only as normative context and leaves AC-28/103 unchanged.
 
 ## Verdict
 
@@ -35,7 +35,7 @@ Reconciliation: quire matrix (quire 0.36.2 / engine 0.50.2), static axis only; n
 
 No Cargo/build/Kani/lock or full gate run by this reviewer, per dispatch. Independently inspected candidate aggregate receipt and CI logs: 444 integration +193 model tests, 17+7 doctests, zero ignored; fmt/lint/corpus and 578 document grammar checks pass. Actual make ci exit 2; exact baseline 43 unbacked-row triples and zero status lies; retained deny/one-copy/audit/unsafe continuation exits 0. Static matrix run by reviewer: 367 criteria, 314 tagged, 45 untagged, 2 ignored-only, 6 method-without-symbol; gap ID/status set matches baseline. AC-28/103 are tagged with the added tests. Current computed matrix equals retained candidate matrix. Retained coverage has no untracked symbols; ten declaration/method/property-shape diagnostics are context limitations, not delta defects. This is no repository-wide PASS or whole IR-7 acceptance. Remaining temporal/producer acceptance and existing repository gaps are unresolved outside this PR.
 
-No applicable AssuranceProfile found in spec/. Authoritative remote FCD schema independently fetched at 531b007085d5c1977cb903340d8a230d5501e6c5, blob 2f3431b964385ed9bcb2f5ed55567e8cb4c1d271: operation.redefines is optional semanticIdentity reference. No upstream content copied into the reviewed repository. Exact backend model ID is not exposed; configured Codex recorded as model=unknown. Quire0.36.2(engine0.50.2), Quoin0.28.3. CLI matrix emits DuplicateArchetype/InverseEdge diagnostics retained in matrix.stderr; schema with explicit module also emitted UnknownEdgeType diagnostics, exits0. No fallback to old tools.
+No applicable AssuranceProfile found in spec/. Authoritative remote FCD schema independently fetched, blob: operation.redefines is optional semanticIdentity reference. No upstream content copied into the reviewed repository. Exact backend model ID is not exposed; configured Codex recorded as model=unknown. Quire0.36.2(engine0.50.2), Quoin0.28.3. CLI matrix emits DuplicateArchetype/InverseEdge diagnostics retained in matrix.stderr; schema with explicit module also emitted UnknownEdgeType diagnostics, exits0. No fallback to old tools.
 
 ```yaml
 scope:
@@ -53,32 +53,32 @@ scope:
 - id: References::redefinition
   path: crates/quire-contract-model/src/checked_package/v2/model_members.rs
   role: examined
-  excerpt: '    /// Reads a field or operation''s optional redefinition reference.'
+  excerpt: ' /// Reads a field or operation''s optional redefinition reference.'
 - id: semantic_ir_object_type::operation-intake
   path: crates/quire-contract-model/src/checked_package/v2/model_members.rs
   role: examined
-  excerpt: '            redefines: references.redefinition(operation, &base, defects),'
+  excerpt: ' redefines: references.redefinition(operation, &base, defects),'
 - id: DomainModel::resolve
   path: crates/quire-contract-model/src/checked_package/v2/model_members.rs
   role: examined
-  excerpt: "        // The most-derived-redefiner rule: a redefiner of a target that\
-    \ a\n        // redefiner in a more derived owner also redefines is hidden."
+  excerpt: " // The most-derived-redefiner rule: a redefiner of a target that\
+    \ a\n // redefiner in a more derived owner also redefines is hidden."
 - id: operation_redefinitions_select_the_most_derived_member
   path: crates/quire-contract-model/src/checked_package/v2/model_members/tests.rs
   role: examined
-  excerpt: '    assert_eq!(resolved.identity(), "ix://acme/orders/Child/act");'
+  excerpt: ' assert_eq!(resolved.identity, "ix://acme/orders/Child/act");'
 - id: operation_redefinitions_refuse_malformed_and_missing_targets
   path: crates/quire-contract-model/src/checked_package/v2/model_members/tests.rs
   role: examined
-  excerpt: '        assert_eq!(read(&document(vec![declared])).map(|_| ()), Err(expected));'
+  excerpt: ' assert_eq!(read(&document(vec![declared])).map(|_| ), Err(expected));'
 - id: fairness_resolves_the_most_derived_operation_redefinition
   path: tests/it/checked_package_v2_temporal.rs
   role: examined
-  excerpt: '                "most-derived redefinition must admit: {result:?}"'
+  excerpt: ' "most-derived redefinition must admit: {result:?}"'
 - id: read_with_model
   path: tests/it/checked_package_v2_temporal.rs
   role: examined
-  excerpt: '    CheckedPackageV2::read(&canonical(package), limits, &evidence)'
+  excerpt: ' CheckedPackageV2::read(&canonical(package), limits, &evidence)'
 - id: FR-038-AC-210
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: context_only

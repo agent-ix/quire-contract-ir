@@ -13,7 +13,7 @@ Ticket: IR-881. Compared changed obligations with computed matrix binders, test 
 
 ## Scope
 
-Examined: FR-044-AC-3; NFR-002-AC-1; NFR-002-AC-3; FR-030-AC-5. PR diff 7c4367d..c98a2bc.
+Examined: FR-044-AC-3; NFR-002-AC-1; NFR-002-AC-3; FR-030-AC-5. PR diff...
 
 ## Examined units
 

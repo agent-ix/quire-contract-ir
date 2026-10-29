@@ -3,14 +3,14 @@ id: SR-16500
 title: "IR-995 PR 534 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@802916fe9585012ddc72c216d3421854b93238f4; crates/quire-contract-model/src/checked_package/selected_population.rs; crates/quire-contract-model/src/checked_package/v2/operations.rs"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/selected_population.rs; crates/quire-contract-model/src/checked_package/v2/operations.rs"
 review_set: subset
 ---
 # SR-16500: IR-995 PR 534 code and Rust review
 
 ## Summary
 
-Ticket: IR-995. Independent review of the two-file production and test diff on main 9f8546fe. The Rust review lane is included here. The relationship-member check now resolves the linked node's index once and reads both node and retained kind at that position; the population discriminator checks the closed `CheckedNodeKind` variant. No public API, dependency, wire form, or gate configuration changed.
+Ticket: IR-995. Independent review of the two-file production and test diff on main. The Rust review lane is included here. The relationship-member check now resolves the linked node's index once and reads both node and retained kind at that position; the population discriminator checks the closed `CheckedNodeKind` variant. No public API, dependency, wire form, or gate configuration changed.
 
 ## Findings
 

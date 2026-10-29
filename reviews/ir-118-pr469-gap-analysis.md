@@ -3,7 +3,7 @@ id: SR-12851
 title: "IR-118 PR 469 gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; PR #469 b3fe12f; tests/it/canonicalization.rs; FR-019-AC-2; TC-017; TC-018"
+scope: "agent-ix/quire-contract-ir; PR #469; tests/it/canonicalization.rs; FR-019-AC-2; TC-017; TC-018"
 review_set: subset
 ---
 
@@ -26,7 +26,7 @@ Ticket IR-118. Diff-scoped, planless check of acceptance criterion, trace bindin
 
 ## Coverage
 
-Measured `quire coverage --strict` on exact base fdef3c5 and reviewed head b3fe12f: both 536/606 backed, 41 unbacked, 0 contradicted. Strict exits 1 for the unchanged 41 unbacked rows. The three tests add no false criterion coverage claim or extra matrix credit.
+Measured `quire coverage --strict` on exact and reviewed: both 536/606 backed, 41 unbacked, 0 contradicted. Strict exits 1 for the unchanged 41 unbacked rows. The three tests add no false criterion coverage claim or extra matrix credit.
 
 ## Verdict
 

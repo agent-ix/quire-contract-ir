@@ -10,7 +10,7 @@ review_set: base
 
 ## Summary
 
-PR #631 at f0aa4f9f; IR-1059. Examined FR-069 Description, Inputs, Outputs, Behavior, Dependencies and FR-069-AC-1 through FR-069-AC-8. Compared against QSpec FR-322-AC-140 through AC-147 and the authoritative model tuple/union vector and fixture paths on QSpec origin/main deec3a2c. The reader/writer obligations preserve the QSpec declaration, selected-document identity, refusal ordering and union value distinctions. No applicable AssuranceProfile was found in this repository's spec tree. No defect found.
+PR #631; IR-1059. Examined FR-069 Description, Inputs, Outputs, Behavior, Dependencies and FR-069-AC-1 through FR-069-AC-8. Compared against QSpec FR-322-AC-140 through AC-147 and the authoritative model tuple/union vector and fixture paths on QSpec origin/main. The reader/writer obligations preserve the QSpec declaration, selected-document identity, refusal ordering and union value distinctions. No applicable AssuranceProfile was found in this repository's spec tree. No defect found.
 
 ## Findings
 

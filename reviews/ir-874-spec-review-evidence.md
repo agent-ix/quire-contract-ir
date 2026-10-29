@@ -3,13 +3,13 @@ id: SR-611021
 title: "Evidence suitability — IR-874 PR #622"
 type: SpecReview
 analysis: evidence
-scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; IR-874 PR #622 head 214cd092"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; IR-874 PR #622 "
 review_set: subset
 ---
 
 ## Summary
 
-TC-048 items 3 and 7 prescribe identity-consistent positive and adverse cases with exact code, cause, pointer and node locus; QSpec TC-946 is named as an independent oracle. The criteria remain Planned for later code tests. Independent review of frozen PR head `214cd092defab2d2a8ebbc45d22265545944e8cc`.
+TC-048 items 3 and 7 prescribe identity-consistent positive and adverse cases with exact code, cause, pointer and node locus; QSpec TC-946 is named as an independent oracle. The criteria remain Planned for later code tests. Independent review of frozen PR.
 
 ## Verdict
 

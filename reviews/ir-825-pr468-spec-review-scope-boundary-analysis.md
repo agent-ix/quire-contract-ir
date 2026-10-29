@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket IR-825. Diff-scoped spec-review/scope-boundary-analysis review of PR #468 at fa9613d6201fdb8d9d09b04a39e9f2a07d833142. Scope review: the adapter consumes the IR V2 reader result in the model crate and introduces no QSL or code-rs dependency.
+Ticket IR-825. Diff-scoped spec-review/scope-boundary-analysis review of PR #468. Scope review: the adapter consumes the IR V2 reader result in the model crate and introduces no QSL or code-rs dependency.
 
 ## Examined units
 

@@ -3,7 +3,7 @@ id: SR-992
 title: "integrity review of PR 262 (IR-485 marker-bearing duplicate SR ids)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@b86735023d5fc3e5704bc5c090e90e20da3bb6e6; reviews/**/*.md frontmatter ids and SR- filename prefixes; the 15 renumbered reviews/ files (SR-977..SR-991) and the 8 keepers of SR-591, 592, 593, 624, 625, 626, 627, 628; citations of those ids across the whole repo; open PR branches 243, 250, 253, 259; compared against origin/main 9631d7e86976855f17b3e590a29604a122b60443"
+scope: "agent-ix/quire-contract-ir; reviews/**/*.md frontmatter ids and SR- filename prefixes; the 15 renumbered reviews/ files (SR-977..SR-991) and the 8 keepers of SR-591, 592, 593, 624, 625, 626, 627, 628; citations of those ids across the whole repo; open PR branches 243, 250, 253, 259; compared against origin/main "
 review_set: subset
 ---
 # SR-992: integrity review of PR 262

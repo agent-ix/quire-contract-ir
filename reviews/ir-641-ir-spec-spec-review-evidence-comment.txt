@@ -1,4 +1,4 @@
-<!-- reviewer repo=agent-ix/quire-contract-ir visibility=public quoin=0.28.4 module=spec-artifacts-process@b82e42e893612b4b4ee94127714b4577ee893502 id=SR-15318 method=spec-review/evidence lang=spec pr=quire-contract-ir#499 model=gpt-6.1-sol run=be712d1b-4313-4600-bcdd-879623058932 -->
+<!-- reviewer repo=agent-ix/quire-contract-ir visibility=public quoin=0.28.4 module=spec-artifacts-process id=SR-15318 method=spec-review/evidence lang=spec pr=quire-contract-ir#499 model=gpt-6.1-sol run=be712d1b-4313-4600-bcdd-879623058932 -->
 
 PASS: The actual quoin advise catalog run class-matches four Test criteria and reports one advisory mismatch for Inspection AC4 based solely on the example property shape. Reviewer judgement retains Inspection: absence of a copied checker, shim and allowance is a source-review obligation, while actual command behavior is independently tested by AC1–3/5. Replacing it with a file-scanning test would not prove the absence of a semantic copy. The advisory does not demonstrate a defective verification method; the explicit Inspection choice is settled. No run evidence or implementation completion is claimed.
 

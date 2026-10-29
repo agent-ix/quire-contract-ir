@@ -3,13 +3,13 @@ id: SR-610022
 title: "IR-1043 PR 599 code-review review"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; PR #599 head 73909ecbc7030eecf5bb9c2bff3154879067d7c5; crates/quire-contract-model/src/checked_package/v2; tests/it; FR-065"
+scope: "agent-ix/quire-contract-ir; PR #599; crates/quire-contract-model/src/checked_package/v2; tests/it; FR-065"
 review_set: subset
 ---
 
 ## Summary
 
-Ticket: IR-1043. One frozen-head diff review at 73909ecbc7030eecf5bb9c2bff3154879067d7c5. All eight FR-065 criteria were examined for code and trace claims. AC-5 closed-wire cases are implemented; its well-formed unselected-pair exact oracle remains open on STD-500 and is not claimed. No applicable AssuranceProfile was found under spec/.
+Ticket: IR-1043. One frozen-head diff review. All eight FR-065 criteria were examined for code and trace claims. AC-5 closed-wire cases are implemented; its well-formed unselected-pair exact oracle remains open on STD-500 and is not claimed. No applicable AssuranceProfile was found under spec/.
 
 ## Examined units
 
@@ -39,11 +39,11 @@ FAIL: findings require a same-PR fix or a truthful unclaimed disposition.
 
 ## Dispositions
 
-Round 1, verified at PR #599 head bfc074a83096c19df35109c59e0ca5b93bce65ef. The original finding rows remain unchanged.
+Round 1, verified at PR #599. The original finding rows remain unchanged.
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | deferred | STD-505: QSpec b30710e3 ModelRef has only identity/digest and SourceMapEntry has only raw source regions; no selected-model-to-source-occurrence relation exists. The PR expressly leaves this AC-2 source-correspondence clause unclaimed and retains the full requirement. IR cannot invent the missing alias/range oracle. |
+| FND-001 | deferred | STD-505: QSpec ModelRef has only identity/digest and SourceMapEntry has only raw source regions; no selected-model-to-source-occurrence relation exists. The PR expressly leaves this AC-2 source-correspondence clause unclaimed and retains the full requirement. IR cannot invent the missing alias/range oracle. |
 | FND-002 | fixed | The model_root conformance test reads node-identity-vectors.json from the authoritative QSpec proposal directory, selects model-root-counter-cas, constructs a typed draft, calls derive_structural_candidates, and compares the production candidate digest with row["sha256"]. The copied preimage and digest literals were removed from IR. |
 
 ## Current verdict

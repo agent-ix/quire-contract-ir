@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #399 at 0248e68 against FR-052-AC-9..11, TC-452 and FR-019. The neutral retention code validates owner/scope, row provenance, typed stop owner and observed count without claiming external owner authentication. No source defect found.
+Reviewed PR #399 against FR-052-AC-9..11, TC-452 and FR-019. The neutral retention code validates owner/scope, row provenance, typed stop owner and observed count without claiming external owner authentication. No source defect found.
 
 ## Examined scope
 

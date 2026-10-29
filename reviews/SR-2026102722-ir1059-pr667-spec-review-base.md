@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed IR-1059 PR #667 at 5032e290 against merged QSpec 282a255b FR-322-AC-169/170, TC-940 step 19, nominal-rekey NK-00..14 and tuple/union TW-05..09. The diff changes only FR-038's key-and-join order and refusal loci. No applicable AssuranceProfile was found.
+Reviewed IR-1059 PR #667 against merged QSpec FR-322-AC-169/170, TC-940 step 19, nominal-rekey NK-00..14 and tuple/union TW-05..09. The diff changes only FR-038's key-and-join order and refusal loci. No applicable AssuranceProfile was found.
 
 ## Verdict
 

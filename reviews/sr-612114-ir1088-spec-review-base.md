@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #654 at d70e576d. Examined FR-019 Behavior and AC-14 through AC-16, TC-058's planned external probes and adverse cases, and IR-1088's three acceptance criteria against the four CG scalar controls. The added criteria have concrete outputs and refusal oracles; their planned status is explicit. The `CheckedNodeId` digest condition validates this existing canonical identity type, not a repository tracking record. No applicable AssuranceProfile was found in the model spec tree.
+Reviewed PR #654. Examined FR-019 Behavior and AC-14 through AC-16, TC-058's planned external probes and adverse cases, and IR-1088's three acceptance criteria against the four CG scalar controls. The added criteria have concrete outputs and refusal oracles; their planned status is explicit. The `CheckedNodeId` digest condition validates this existing canonical identity type, not a repository tracking record. No applicable AssuranceProfile was found in the model spec tree.
 
 ## Verdict
 

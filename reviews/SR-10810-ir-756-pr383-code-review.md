@@ -3,7 +3,7 @@ id: SR-10810
 title: IR-756 evidence insertion code and Rust review
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; PR 383 at 6ecd464; evidence.rs, model export, public reader tests, and migrated insertion callers"
+scope: "agent-ix/quire-contract-ir; PR 383; evidence.rs, model export, public reader tests, and migrated insertion callers"
 review_set: subset
 ---
 

@@ -33,8 +33,8 @@ FAIL. The blanket implemented/backed status is premature because the AC-1 and AC
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Head e66c9d3 removes AC-1's host filter, adds target-gated owner-edge evidence, and scans public callback aliases with adverse controls for AC-5. The erroneous name-limited path-owner example from the first pass was withdrawn. The unchanged Status now matches the two repaired controls reviewed in this round. |
+| FND-001 | fixed | removes AC-1's host filter, adds target-gated owner-edge evidence, and scans public callback aliases with adverse controls for AC-5. The erroneous name-limited path-owner example from the first pass was withdrawn. The unchanged Status now matches the two repaired controls reviewed in this round. |
 
 ## Disposition verdict
 
-Round 1 at e66c9d3: the previously reported Status overclaim is resolved for the two reviewed control failures. No new spec finding in this fix diff.
+Round 1: the previously reported Status overclaim is resolved for the two reviewed control failures. No new spec finding in this fix diff.

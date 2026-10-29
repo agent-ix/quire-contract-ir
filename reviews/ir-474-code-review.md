@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-474. Reviewed the diff from `2699a8b` to `87070fd` for Serde error provenance, closed-member classification, nominal preimage location, pointer preservation, bounded processing, and the public reader controls. The failed-decode observer uses Serde's derived struct field list, preserves the original successful decode path, and does not parse error prose.
+Ticket: IR-474. Reviewed the diff from to for Serde error provenance, closed-member classification, nominal preimage location, pointer preservation, bounded processing, and the public reader controls. The failed-decode observer uses Serde's derived struct field list, preserves the original successful decode path, and does not parse error prose.
 
 ## Verdict
 

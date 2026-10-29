@@ -3,7 +3,7 @@ id: SR-2106
 title: "Criterion strength (manual, Jev unavailable) \u2014 IR-661 FR-038-AC-165..171"
 type: SpecReview
 analysis: criterion-strength
-scope: agent-ix/quire-contract-ir@705cef3f7a07370f111f19e8e7d86e1e07fd31d7; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; base 1540b3b6c0e4d167fe1ed9116c296e45e7dff258; Ticket IR-661
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md;; Ticket IR-661
 review_set: subset
 ---
 
@@ -46,10 +46,10 @@ Ticket: IR-661. Method: `spec-review/spec-criterion-strength-analysis`. Reviewer
 
 ## Dispositions
 
-Round 1, reviewed at `agent-ix/quire-contract-ir@c50050da5f20d4af41ab2dd6ea573d5e4b9abacc` (prior review `705cef3f7a07370f111f19e8e7d86e1e07fd31d7`), reviewer model `claude-opus-5-5`, run `ae1a4470-06bc-44c7-90df-81c70be53842`. Every outcome was verified against the fix commit's own text, not the author's receipt. All new criteria and procedures remain PLANNED / UNRUN; no implementation, CI gate or procedure coverage is claimed.
+Round 1, reviewed at `agent-ix/quire-contract-ir` (prior review ), reviewer model `claude-opus-5-5`, run `ae1a4470-06bc-44c7-90df-81c70be53842`. Every outcome was verified against the fix commit's own text, not the author's receipt. All new criteria and procedures remain PLANNED / UNRUN; no implementation, CI gate or procedure coverage is claimed.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed c50050da5f20d4af41ab2dd6ea573d5e4b9abacc | AC-169 now names the observable outcome: `ill_typed`/`operator-ineligible` at `member.declaration`, after owner recovery and before role lookup, without invalidating the object owner. (Manual judgement; Jev still unavailable.) |
-| FND-002 | fixed c50050da5f20d4af41ab2dd6ea573d5e4b9abacc | The unobservable retention clause is replaced by observable mutations: renaming a role makes the old name `missing-name` and the new name resolve, and destination changes are observed through AC-170 result nodes. No accessor is invented. (Manual judgement; Jev still unavailable.) |
-| FND-003 | fixed c50050da5f20d4af41ab2dd6ea573d5e4b9abacc | The clause duplicating AC-155 is removed from AC-165, and AC-155 keeps that obligation. (Manual judgement; Jev still unavailable.) |
+| FND-001 | fixed | AC-169 now names the observable outcome: `ill_typed`/`operator-ineligible` at `member.declaration`, after owner recovery and before role lookup, without invalidating the object owner. (Manual judgement; Jev still unavailable.) |
+| FND-002 | fixed | The unobservable retention clause is replaced by observable mutations: renaming a role makes the old name `missing-name` and the new name resolve, and destination changes are observed through AC-170 result nodes. No accessor is invented. (Manual judgement; Jev still unavailable.) |
+| FND-003 | fixed | The clause duplicating AC-155 is removed from AC-165, and AC-155 keeps that obligation. (Manual judgement; Jev still unavailable.) |

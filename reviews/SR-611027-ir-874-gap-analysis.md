@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed quire-contract-ir PR #629 at frozen head 7ac176525c667a13a44a3fdaea28b2e60e8eee26. FR-038-AC-285/324/327 have tagged integration tests for omitted existing targets and extra dependencies across five protocol member forms; an absent listed target is tested through the public reader for a role. No applicable AssuranceProfile was found.
+Reviewed quire-contract-ir PR #629 at frozen. FR-038-AC-285/324/327 have tagged integration tests for omitted existing targets and extra dependencies across five protocol member forms; an absent listed target is tested through the public reader for a role. No applicable AssuranceProfile was found.
 
 ## Findings
 
@@ -29,4 +29,4 @@ Plan completion: not assessed. The computed Quire matrix marks FR-038-AC-285/324
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | At fix head 34e3a57bb55ea70a0bc0ae33da4838da056cc46e, the exact-dependency table includes a `control` holder and asserts both extra and omitted dependency refusals. `listed_clause_targets_missing_from_graph_reach_their_body_joins` checks C13a, A8a and A9a with a listed absent target and exact `MissingDeclaration`/`MissingName` locus. C13a uses an orphan-free base; the isolated repaired test passes 1/1. |
+| FND-001 | fixed | At fix, the exact-dependency table includes a `control` holder and asserts both extra and omitted dependency refusals. `listed_clause_targets_missing_from_graph_reach_their_body_joins` checks C13a, A8a and A9a with a listed absent target and exact `MissingDeclaration`/`MissingName` locus. C13a uses an orphan-free base; the isolated repaired test passes 1/1. |

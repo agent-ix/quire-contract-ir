@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket IR-825. Diff-scoped code-review review of PR #468 at fa9613d6201fdb8d9d09b04a39e9f2a07d833142. Code and Rust review: the admitted graph enumerator yields each node and occurrence, preserves native semantic_type, uses typed refusal and incomplete branches, and exposes no caller-authored completion input.
+Ticket IR-825. Diff-scoped code-review review of PR #468. Code and Rust review: the admitted graph enumerator yields each node and occurrence, preserves native semantic_type, uses typed refusal and incomplete branches, and exposes no caller-authored completion input.
 
 ## Examined units
 

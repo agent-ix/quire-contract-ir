@@ -3,7 +3,7 @@ id: SR-4602
 title: "Failure-domain review of IR-361 proof coverage"
 type: SpecReview
 analysis: failure-domain
-scope: "agent-ix/quire-contract-ir@0eca02b43bd14db1411abff447a45eacced9752f; AD-008 and FR-045 candidate and projection failure cases"
+scope: "agent-ix/quire-contract-ir; AD-008 and FR-045 candidate and projection failure cases"
 review_set: subset
 ---
 
@@ -23,10 +23,10 @@ CONDITIONAL. Require at least one eligible mapped obligation for full criterion/
 
 ## Dispositions
 
-Round 1 reviewed at f9bf82c7f62728cbcc60f994541735b4f366834a. Scoped fix review found no new defect.
+Round 1 reviewed. Scoped fix review found no new defect.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | f9bf82c7f62728cbcc60f994541735b4f366834a: AD-008 and FR-045 now require at least one eligible mapped obligation for full credit, mark zero-mapping entities as gaps, and cover that case in FR-045-AC-4 and TC-446. |
+| FND-001 | fixed |: AD-008 and FR-045 now require at least one eligible mapped obligation for full credit, mark zero-mapping entities as gaps, and cover that case in FR-045-AC-4 and TC-446. |
 
 After excerpt: “An entity with zero eligible mapped obligations remains a visible mapping gap, never full credit; a partial result is reported as a gap with the qualified subset visible.”

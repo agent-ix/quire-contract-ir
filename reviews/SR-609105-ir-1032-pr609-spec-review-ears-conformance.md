@@ -3,7 +3,7 @@ id: SR-609105
 title: "IR-1032 PR #609 ears-conformance review"
 type: SpecReview
 analysis: ears-conformance
-scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-063-dimension-equivalence-node.md; PR #609 at 2eb008aa34743daf7844534224a2eae602e91027"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-063-dimension-equivalence-node.md; PR #609 "
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-063
@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Ticket IR-1032. The changed SHALL statements are conditional and testable against the named malformed-wire and graph oracles. Reviewed exact PR head 2eb008aa34743daf7844534224a2eae602e91027 against QSpec 000cd9438a2bcc90abbe4f58a5ec7bd48172d20a.
+Ticket IR-1032. The changed SHALL statements are conditional and testable against the named malformed-wire and graph oracles. Reviewed exact PR against QSpec.
 
 ## Verdict
 
@@ -36,10 +36,10 @@ Ticket IR-1032. The changed SHALL statements are conditional and testable agains
 ## Evidence
 
 - The PR changes one FR document and adds a QSpec FR-322-AC-139 reference; all earlier criteria remain.
-- `quire validate --scope . spec/checked_package/functional/FR-063-dimension-equivalence-node.md` passed.
+- `quire validate --scope. spec/checked_package/functional/FR-063-dimension-equivalence-node.md` passed.
 - Focused `quire properties --criteria` classified 6 criteria; `git diff --check` passed.
 - QSpec TC-280 MU-23 and MU-24 cover dimension-equivalence graph and wire mutations. The other four schema mutations are listed only in QSpec `node-identity-vectors.json` and FR-322-AC-139.
 
 ## Current verdict
 
-**PASS** for this method at af49100fae6b8b7430cc7c37294687c7aa9932a8. The fix changes only AC-5 source attribution and its dependency explanation; the clean review remains valid.
+**PASS** for this method. The fix changes only AC-5 source attribution and its dependency explanation; the clean review remains valid.

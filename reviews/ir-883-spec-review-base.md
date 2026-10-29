@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-883. Reviewed head ee278f54fa576eac8a549add133e234173995048 against main ffd76b1. Base review checked the two new criteria and TC-047 procedure for testability, identity terminology, diagnostic outcomes, and cross-references; no base-checklist defect found.
+Ticket: IR-883. Reviewed against main. Base review checked the two new criteria and TC-047 procedure for testability, identity terminology, diagnostic outcomes, and cross-references; no base-checklist defect found.
 
 ## Verdict
 

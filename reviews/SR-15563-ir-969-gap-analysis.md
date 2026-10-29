@@ -3,7 +3,7 @@ id: SR-15563
 title: "Gap analysis — IR-969 typed V2 graph joins"
 type: SpecReview
 analysis: gap-analysis
-scope: "quire-contract-ir PR #515 at 84be2d2; FR-349-AC-1/2/3/4/5 and changed tests"
+scope: "quire-contract-ir PR #515; FR-349-AC-1/2/3/4/5 and changed tests"
 review_set: subset
 ---
 
@@ -27,4 +27,4 @@ Plan completion: not assessed. Reviewed `tests/it/checked_package_v2_typed_terms
 
 ## Head confirmation
 
-The 4b0ea163..84be2d2 delta only changes the structural unit test to decode three JSON fixtures into `CheckedTerm` before calling `application_dependencies`. It leaves the production paths and the code finding unchanged. `git diff --check` on the delta passed.
+The.. delta only changes the structural unit test to decode three JSON fixtures into `CheckedTerm` before calling `application_dependencies`. It leaves the production paths and the code finding unchanged. `git diff --check` on the delta passed.

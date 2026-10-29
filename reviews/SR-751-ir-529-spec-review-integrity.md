@@ -3,7 +3,7 @@ id: SR-751
 title: "integrity review of PR 251 (IR-529 artifact references)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@0b106a64ea261a86c0f2f64eb9ab8f31f546d39d; spec/ tree grep for revision, digest_domain, export, CheckedRevision, raw-artifact wording; FR-038 (AC-2, AC-4, AC-10, AC-19, AC-20, AC-21, AC-27, AC-31, AC-32, AC-46..64); FR-019 Public items; FR-035; AD-004; spec/checked_package/matrix/tests.md; spec/model/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir; spec/ tree grep for revision, digest_domain, export, CheckedRevision, raw-artifact wording; FR-038 (AC-2, AC-4, AC-10, AC-19, AC-20, AC-21, AC-27, AC-31, AC-32, AC-46..64); FR-019 Public items; FR-035; AD-004; spec/checked_package/matrix/tests.md; spec/model/matrix/tests.md"
 review_set: subset
 ---
 # SR-751: integrity review of PR 251
@@ -51,17 +51,17 @@ contradiction with an easy fix. The rest are wording nits.
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir@9f76810d4bfd9b6ac4590f49d15bc2484fdc6a5f (delta from 0b106a64ea261a86c0f2f64eb9ab8f31f546d39d; base origin/main e80ea70ab8874676de47ac1b7fb439497ced7991 unchanged).
+Round 1, reviewed at agent-ix/quire-contract-ir (delta from; base origin/main unchanged).
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 9f76810d4bfd9b6ac4590f49d15bc2484fdc6a5f |
-| FND-002 | fixed | 9f76810d4bfd9b6ac4590f49d15bc2484fdc6a5f |
-| FND-003 | fixed | 9f76810d4bfd9b6ac4590f49d15bc2484fdc6a5f |
-| FND-004 | fixed | 9f76810d4bfd9b6ac4590f49d15bc2484fdc6a5f |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |
+| FND-004 | fixed | Fixed in the reviewed PR. |
 
-Round 2, reviewed at agent-ix/quire-contract-ir@a4811eab16f0f89208c20ca172291d31344d8f0c (delta from 9f76810d4bfd9b6ac4590f49d15bc2484fdc6a5f; base unchanged).
+Round 2, reviewed at agent-ix/quire-contract-ir (delta from; base unchanged).
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-005 | fixed | a4811eab16f0f89208c20ca172291d31344d8f0c |
+| FND-005 | fixed | Fixed in the reviewed PR. |

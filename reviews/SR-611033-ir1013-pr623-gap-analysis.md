@@ -3,7 +3,7 @@ id: SR-611033
 title: "IR-1013 PR 623 gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; PR #623 at f86ea12e; FR-058-AC-3/4/5/9/10 and TC-462"
+scope: "agent-ix/quire-contract-ir; PR #623; FR-058-AC-3/4/5/9/10 and TC-462"
 review_set: subset
 ---
 
@@ -40,12 +40,12 @@ The test tagged FR-058-AC-9 constructs four independent packages and compares re
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Commit 71c870d2 adds an AC-9 tagged test for invariant and constraint, checks shared nonpoint arguments, distinct node and package identities across initialization/handler and handler-name changes, and reads the exact point through the accessor on each admitted rekeyed package. |
+| FND-001 | fixed | adds an AC-9 tagged test for invariant and constraint, checks shared nonpoint arguments, distinct node and package identities across initialization/handler and handler-name changes, and reads the exact point through the accessor on each admitted rekeyed package. |
 
 ## Disposition verdict
 
-**PASS at ad800259** for the recorded finding. This is a focused disposition on the test fix, not a repeat review or aggregate gate result. Fresh QSL producer AC-1/6 evidence remains with QSL-1183.
+**PASS ** for the recorded finding. This is a focused disposition on the test fix, not a repeat review or aggregate gate result. Fresh QSL producer AC-1/6 evidence remains with QSL-1183.
 
 ## Post-disposition compile correction
 
-At 55ed78e0, the AC-9 test computes `positions` by borrowing `sources` through `std::array::from_fn` instead of consuming the array with `map`. All node/package identity inequalities and accessor value assertions remain intact. FND-001 stays fixed. Hosted CI and the focused local test were still pending at this inspection; this note makes no gate claim.
+, the AC-9 test computes `positions` by borrowing `sources` through `std::array::from_fn` instead of consuming the array with `map`. All node/package identity inequalities and accessor value assertions remain intact. FND-001 stays fixed. Hosted CI and the focused local test were still pending at this inspection; this note makes no gate claim.

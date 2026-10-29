@@ -3,7 +3,7 @@ id: SR-12355
 title: "IR-864 code and Rust review of IR PR 443"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir PR 443, 09bea8a..1c314d3; eight checked-package model Rust test files"
+scope: "agent-ix/quire-contract-ir PR 443..; eight checked-package model Rust test files"
 review_set: subset
 ---
 
@@ -37,4 +37,4 @@ The changed files are `checked_package/common.rs` and seven `checked_package/v2/
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Commit `c54999e` removes exactly the 15 empty `///` lines left at the affected trace sites. The prose now ends directly above the unchanged `#[trace]` attribute. A full base-to-head diff still contains only the 26 duplicate trace-line removals and these 15 empty-line removals. |
+| FND-001 | fixed | removes exactly the 15 empty `///` lines left at the affected trace sites. The prose now ends directly above the unchanged `#[trace]` attribute. A full base-to-head diff still contains only the 26 duplicate trace-line removals and these 15 empty-line removals. |

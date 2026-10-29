@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-IR-1083 spec-only PR #649 at 600770bb against fc4f5bfb. Examined FR-038 AC-335..340 and TC-048 against QSpec 7d8d2090: FR-322-AC-148..150,155..157; TC-367 CK-26/27; timed-slot-selector-vectors SL-01..08, SR-01..04, GD-01..03, PR-01..06. No applicable AssuranceProfile was identified in the checked_package spec tree.
+IR-1083 spec-only PR #649. Examined FR-038 AC-335..340 and TC-048 against QSpec: FR-322-AC-148..150,155..157; TC-367 CK-26/27; timed-slot-selector-vectors SL-01..08, SR-01..04, GD-01..03, PR-01..06. No applicable AssuranceProfile was identified in the checked_package spec tree.
 
 ## Verdict
 

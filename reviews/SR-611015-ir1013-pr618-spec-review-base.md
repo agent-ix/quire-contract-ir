@@ -3,7 +3,7 @@ id: SR-611015
 title: "IR-1013 PR 618 base specification review"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; PR #618 at 922976b8; spec/checked_package/functional/FR-058-admitted-clause-execution-point.md; spec/checked_package/matrix/TC-462-admitted-clause-execution-point.md"
+scope: "agent-ix/quire-contract-ir; PR #618; spec/checked_package/functional/FR-058-admitted-clause-execution-point.md; spec/checked_package/matrix/TC-462-admitted-clause-execution-point.md"
 review_set: subset
 ---
 

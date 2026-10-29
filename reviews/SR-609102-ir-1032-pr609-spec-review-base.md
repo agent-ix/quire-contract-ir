@@ -3,7 +3,7 @@ id: SR-609102
 title: "IR-1032 PR #609 base review"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-063-dimension-equivalence-node.md; PR #609 at 2eb008aa34743daf7844534224a2eae602e91027"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-063-dimension-equivalence-node.md; PR #609 "
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-063
@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Ticket IR-1032. Wire-first refusal and preserved graph cases match QSpec FR-322-AC-118/139. The attribution of unrelated vector mutations to TC-280 is false. Reviewed exact PR head 2eb008aa34743daf7844534224a2eae602e91027 against QSpec 000cd9438a2bcc90abbe4f58a5ec7bd48172d20a.
+Ticket IR-1032. Wire-first refusal and preserved graph cases match QSpec FR-322-AC-118/139. The attribution of unrelated vector mutations to TC-280 is false. Reviewed exact PR against QSpec.
 
 ## Verdict
 
@@ -36,7 +36,7 @@ Ticket IR-1032. Wire-first refusal and preserved graph cases match QSpec FR-322-
 ## Evidence
 
 - The PR changes one FR document and adds a QSpec FR-322-AC-139 reference; all earlier criteria remain.
-- `quire validate --scope . spec/checked_package/functional/FR-063-dimension-equivalence-node.md` passed.
+- `quire validate --scope. spec/checked_package/functional/FR-063-dimension-equivalence-node.md` passed.
 - Focused `quire properties --criteria` classified 6 criteria; `git diff --check` passed.
 - QSpec TC-280 MU-23 and MU-24 cover dimension-equivalence graph and wire mutations. The other four schema mutations are listed only in QSpec `node-identity-vectors.json` and FR-322-AC-139.
 
@@ -50,10 +50,10 @@ Ticket IR-1032. Wire-first refusal and preserved graph cases match QSpec FR-322-
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At 7ffff54fb407e49e88f1b69c493287f3bf62dac2, AC-5 names QSpec FR-322-AC-139 node-identity-vectors.json for the four cross-form mutations and the dependency paragraph separates those vectors from TC-280. All four refusal cases remain. |
+| FND-001 | fixed |, AC-5 names QSpec FR-322-AC-139 node-identity-vectors.json for the four cross-form mutations and the dependency paragraph separates those vectors from TC-280. All four refusal cases remain. |
 | FND-002 | still-open | The first AC-5 sentence still attributes negative denominator to TC-280, where MU-24 has no such mutation. The requirement is in QSpec FR-322-AC-139. |
-| FND-002 | fixed | Round 2 at af49100fae6b8b7430cc7c37294687c7aa9932a8: AC-5 now cites governing QSpec FR-322-AC-139 for the full absent/zero/negative numerator-or-denominator wire refusal set. The negative-denominator case and every other refusal remain. |
+| FND-002 | fixed | Round 2: AC-5 now cites governing QSpec FR-322-AC-139 for the full absent/zero/negative numerator-or-denominator wire refusal set. The negative-denominator case and every other refusal remain. |
 
 ## Current verdict
 
-**PASS** at af49100fae6b8b7430cc7c37294687c7aa9932a8. FND-001 and FND-002 are fixed; no open finding.
+**PASS**. FND-001 and FND-002 are fixed; no open finding.

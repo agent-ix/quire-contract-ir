@@ -9,11 +9,11 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-874. This static review covers draft PR #597 at `2b11491b`, including the typed string-edge fix, its model evidence retention, selected clause join, class comparison and new tests. The PR correctly leaves the complete FR-038-AC-325 and FR-064-AC-5 unclaimed, but the current partial join changes admission for cases it cannot yet reconstruct.
+Ticket: IR-874. This static review covers draft PR #597, including the typed string-edge fix, its model evidence retention, selected clause join, class comparison and new tests. The PR correctly leaves the complete FR-038-AC-325 and FR-064-AC-5 unclaimed, but the current partial join changes admission for cases it cannot yet reconstruct.
 
 ## Verdict
 
-**FAIL** — the reader can admit an invented `await` class and reject a protocol refinement whose concrete model contributes operation classes. Cargo gates were not run in this review because the shared build lock was held by another lane. Hosted Rust Checks failed on the earlier `523482ff` head for string-edge gating; the coder has pushed a typed fix at `2b11491b`, whose hosted result is not part of this review's evidence.
+**FAIL** — the reader can admit an invented `await` class and reject a protocol refinement whose concrete model contributes operation classes. Cargo gates were not run in this review because the shared build lock was held by another lane. Hosted Rust Checks failed on the earlier head for string-edge gating; the coder has pushed a typed fix, whose hosted result is not part of this review's evidence.
 
 ## Scope
 
@@ -44,11 +44,11 @@ Ticket: IR-874. This static review covers draft PR #597 at `2b11491b`, including
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | rejected | QSpec FR-426 defines `timeout` as the step of the thread at an `await` node and names that node in the transition; FR-432 gives timeout the bare node-path class spelling. The original finding mistook the source operator name for the step-class name. At `21f525d9`, the code names this mapping `TimeoutFromAwait` and tests an admitted await-holder catalog. |
-| FND-002 | still-open | At `21f525d9`, `protocol_classes` still derives only protocol-clause classes and does not reconstruct selected concrete model operation classes. This remains an IR-1043-dependent limitation; PR #597 must stay draft and the full FR-038-AC-325 claim unmade. |
-| FND-003 | fixed | At `21f525d9`, `compare_abstract_classes` peeks at the next expected class and returns the catalog array pointer when it precedes the next actual class; the public-reader test omits fork before join and asserts that pointer. |
-| FND-002 | still-open | At `d0752dd7`, the graph join still reconstructs only protocol clauses and omits concrete model operation classes; IR-1043 remains the carrier blocker. This partial PR stays draft. |
-| FND-004 | fixed | At `d0752dd7`, `RetainedModels::new` no longer takes or charges the reader meter and no longer eagerly resolves operation signatures. `operation_binder_types` takes the meter only when the catalog join selects a concrete operation anchor; focused exact-work and bounded-chain tests passed locally at this head, with hosted full Rust Checks pending. |
+| FND-001 | rejected | QSpec FR-426 defines `timeout` as the step of the thread at an `await` node and names that node in the transition; FR-432 gives timeout the bare node-path class spelling. The original finding mistook the source operator name for the step-class name., the code names this mapping `TimeoutFromAwait` and tests an admitted await-holder catalog. |
+| FND-002 | still-open |, `protocol_classes` still derives only protocol-clause classes and does not reconstruct selected concrete model operation classes. This remains an IR-1043-dependent limitation; PR #597 must stay draft and the full FR-038-AC-325 claim unmade. |
+| FND-003 | fixed |, `compare_abstract_classes` peeks at the next expected class and returns the catalog array pointer when it precedes the next actual class; the public-reader test omits fork before join and asserts that pointer. |
+| FND-002 | still-open |, the graph join still reconstructs only protocol clauses and omits concrete model operation classes; IR-1043 remains the carrier blocker. This partial PR stays draft. |
+| FND-004 | fixed |, `RetainedModels::new` no longer takes or charges the reader meter and no longer eagerly resolves operation signatures. `operation_binder_types` takes the meter only when the catalog join selects a concrete operation anchor; focused exact-work and bounded-chain tests passed locally at this head, with hosted full Rust Checks pending. |
 
 ## New findings (disposition pass 2)
 
@@ -56,12 +56,12 @@ Ticket: IR-874. This static review covers draft PR #597 at `2b11491b`, including
 | --- | --- | --- | --- |
 | FND-004 | high | Eager operation-signature retention charges the shared reader meter for unrelated model reads, changing exact work totals and the first unpayable pointer. | crates/quire-contract-model/src/checked_package/v2/model_fields.rs:503 |
 
-Hosted Rust Checks [run 40532190627](https://github.com/agent-ix/quire-contract-ir/actions/runs/40532190627) at exact head `21f525d9` completed 934 workspace tests and failed 10 existing exact work-accounting tests. New `RetainedModels::new` loops through every selected object and calls `operation_names` and `effective_operation_binder_types` with the admission `WorkMeter` before the graph join, even for packages that have no refinement catalog. The resulting failures include IR-987 work totals 388→398 and 183→193, TC-048 97→99, and first-unpayable pointers shifted from a graph dependency or member target to `/lock/model_selections/0` or `/lock/model_selections/1`. TC-227's previously admitted long-chain boundary also becomes `incomplete`. The fix must preserve the existing accounting on unrelated reads, not change the exact-work tests' expected values.
+Hosted Rust Checks [run 40532190627](https://github.com/agent-ix/quire-contract-ir/actions/runs/40532190627) at exact completed 934 workspace tests and failed 10 existing exact work-accounting tests. New `RetainedModels::new` loops through every selected object and calls `operation_names` and `effective_operation_binder_types` with the admission `WorkMeter` before the graph join, even for packages that have no refinement catalog. The resulting failures include IR-987 work totals 388→398 and 183→193, TC-048 97→99, and first-unpayable pointers shifted from a graph dependency or member target to `/lock/model_selections/0` or `/lock/model_selections/1`. TC-227's previously admitted long-chain boundary also becomes `incomplete`. The fix must preserve the existing accounting on unrelated reads, not change the exact-work tests' expected values.
 
 ## Disposition Round 3
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-002 | fixed | At `8f1a98efaebc0eecbb0ff22b1bef7eae623aa701`, `validate_catalog_graph` obtains the selected concrete `ModelRootOwner.identity`, adds `ModelOwners::operation_classes(identity, meter)` to the clause-derived concrete classes, sorts the combined inventory, and compares the catalog. The new public-reader test admits `Worker::run` with the selected declaration key and receiver type, and refuses omitted, wrong-node and wrong-binder variants. This resolves the protocol-only concrete inventory defect for the modeled operation case; complete FR-038-AC-325 remains unclaimed. |
+| FND-002 | fixed |, `validate_catalog_graph` obtains the selected concrete `ModelRootOwner.identity`, adds `ModelOwners::operation_classes(identity, meter)` to the clause-derived concrete classes, sorts the combined inventory, and compares the catalog. The new public-reader test admits `Worker::run` with the selected declaration key and receiver type, and refuses omitted, wrong-node and wrong-binder variants. This resolves the protocol-only concrete inventory defect for the modeled operation case; complete FR-038-AC-325 remains unclaimed. |
 
 **CONDITIONAL** — the reviewed code finding is fixed in the current diff. The corresponding abstract-protocol regression case remains open in SR-597002, and the full FR-038-AC-325 and FR-064-AC-5 criteria remain unclaimed. No aggregate gate was run in this reviewer pass.

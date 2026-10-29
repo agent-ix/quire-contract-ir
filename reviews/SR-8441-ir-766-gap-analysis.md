@@ -3,7 +3,7 @@ id: SR-8441
 title: "IR-766 gap-analysis review"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@bd897ccb4791da8e392a87919c8e1694c7e70304; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md; spec/model/functional/FR-019-rust-library-interface.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md; spec/model/functional/FR-019-rust-library-interface.md"
 review_set: subset
 ---
 
@@ -38,6 +38,6 @@ Plan completion: not assessed. Semantic review: scoped to the changed acceptance
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | cb96651e2653aa355984ae6f77b66975b68a8853 |
-| FND-002 | fixed | cb96651e2653aa355984ae6f77b66975b68a8853 |
-| FND-003 | fixed | cb96651e2653aa355984ae6f77b66975b68a8853 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |

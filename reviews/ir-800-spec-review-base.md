@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket IR-800. Reviewed all four new criteria and the TC-048 procedure against QSpec FR-322-AC-31/67 at 9b6a84d, including canonical literal spellings, typed refusal order, selected type ownership, source identity, and the IR/QSL/FCD boundary. The initial review found two adverse-control gaps; both are fixed in the first disposition pass on 3fccf18.
+Ticket IR-800. Reviewed all four new criteria and the TC-048 procedure against QSpec FR-322-AC-31/67, including canonical literal spellings, typed refusal order, selected type ownership, source identity, and the IR/QSL/FCD boundary. The initial review found two adverse-control gaps; both are fixed in the first disposition pass on.
 
 ## Findings
 

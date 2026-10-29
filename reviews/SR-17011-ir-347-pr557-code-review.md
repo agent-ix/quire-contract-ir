@@ -3,7 +3,7 @@ id: SR-17011
 title: "IR-347 PR 557 code review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir#557@59d855c0418db8f707c2084d5644dad2b8427b86 vs origin/main 7075edc; src/kani/mod.rs, src/kani/arithmetic.rs (deleted), src/kani/collections.rs (deleted), src/kani/objects.rs (deleted), tests/it/kani_shared.rs, tests/it/public_interface.rs, tests/it/main.rs, tests/it/kani_arithmetic.rs (deleted), tests/it/kani_collections.rs (deleted), tests/it/kani_objects.rs (deleted)"
+scope: "agent-ix/quire-contract-ir#557 vs origin/main; src/kani/mod.rs, src/kani/arithmetic.rs (deleted), src/kani/collections.rs (deleted), src/kani/objects.rs (deleted), tests/it/kani_shared.rs, tests/it/public_interface.rs, tests/it/main.rs, tests/it/kani_arithmetic.rs (deleted), tests/it/kani_collections.rs (deleted), tests/it/kani_objects.rs (deleted)"
 review_set: subset
 ---
 # SR-17011: IR-347 PR 557 code review
@@ -11,7 +11,7 @@ review_set: subset
 ## Summary
 
 Ticket: IR-347. Scope is `git diff origin/main...HEAD` at frozen head
-`59d855c0418db8f707c2084d5644dad2b8427b86`, merge base `7075edc`. The Rust lane runs as its own
+, merge. The Rust lane runs as its own
 artifact (SR-17012), as the dispatch brief requests.
 
 Checks run by the reviewer at the frozen head, in the worktree's own `target/`:
@@ -23,7 +23,7 @@ Checks run by the reviewer at the frozen head, in the worktree's own `target/`:
 - The deleted `kani_*` integration suites were checked against `kani_shared.rs`. FR-029-AC-1,
   FR-030-AC-1, FR-030-AC-2 and FR-031-AC-1 keep TC-042 backing in
   `tests/it/kani_shared.rs` (lines 71, 92, 228, 429).
-- Codegen origin/main `4eccd68` names none of the removed IR items through `quire_contract_ir`.
+- Codegen origin/main names none of the removed IR items through `quire_contract_ir`.
   It uses its own `CollectionQuery`, `QueryKind`, `GraphLowering` and `GraphRequest`, so the
   removal does not break the downstream build.
 
@@ -50,7 +50,7 @@ the other `KaniProfile::new` refusals. Either fix keeps AC-4 at full strength.
 
 ## Dispositions
 
-Round 1. Checked against fix commit `c28a120bb41f1dea550006fc55b79dd692419bc7`, which follows reviewed head `59d855c0`. Focused checks at that head: `cargo test --locked --test it -- kani_shared:: tc_055` (17 passed), `make fmt-check` clean, `make lint` clean.
+Round 1. Checked against fix, which follows reviewed. Focused checks at that head: `cargo test --locked --test it -- kani_shared:: tc_055` (17 passed), `make fmt-check` clean, `make lint` clean.
 
 | FND | outcome | reason |
 | --- | --- | --- |

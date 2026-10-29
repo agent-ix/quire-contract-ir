@@ -3,7 +3,7 @@ id: SR-12402
 title: "IR-869 spec-integrity of IR PR #446"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@72d6520eae2eb0f62b46162a70fef4cce93abcc4; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/tests.md"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
@@ -14,7 +14,7 @@ relationships:
 
 ## Summary
 
-Ticket IR-869. AC-195 now names the two Clippy lanes and the repository lint gate as an Analysis obligation. The initial PR head 1e2457d added a dedicated lint row but retained AC-195 inside the broad FR-038 row's AC-186 through AC-196 range with TC-048 in its Test Cases cell. That assigned one criterion to two incompatible verification routes. The author fixed the range at head 72d6520: it now ends at AC-194 and names AC-196 separately, leaving AC-195 only in the lint row. Both edited Quire documents validate grammar-clean (2/2).
+Ticket IR-869. AC-195 now names the two Clippy lanes and the repository lint gate as an Analysis obligation. The initial PR added a dedicated lint row but retained AC-195 inside the broad FR-038 row's AC-186 through AC-196 range with TC-048 in its Test Cases cell. That assigned one criterion to two incompatible verification routes. The author fixed the range at: it now ends at AC-194 and names AC-196 separately, leaving AC-195 only in the lint row. Both edited Quire documents validate grammar-clean (2/2).
 
 ## Reviewed scope
 
@@ -35,7 +35,7 @@ Ticket IR-869. AC-195 now names the two Clippy lanes and the repository lint gat
 
 | Finding | Outcome | Evidence |
 | --- | --- | --- |
-| FND-001 | fixed | Commit 72d6520 splits the broad range into AC-186 through AC-194 and AC-196; the dedicated lint row is the only explicit AC-195 row. |
+| FND-001 | fixed | splits the broad range into AC-186 through AC-194 and AC-196; the dedicated lint row is the only explicit AC-195 row. |
 
 ## Verdict
 

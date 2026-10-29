@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #616 at 22b74cb4 against FR-068-AC-1..5, QSpec FR-322-AC-63/65/72 and FR-208-AC-5/6/7. The new owner-key mappings authenticate the selected meaning, but intake admits incomplete process, state-machine and persistence-interface declarations as valid selected owners.
+Reviewed PR #616 against FR-068-AC-1..5, QSpec FR-322-AC-63/65/72 and FR-208-AC-5/6/7. The new owner-key mappings authenticate the selected meaning, but intake admits incomplete process, state-machine and persistence-interface declarations as valid selected owners.
 
 ## Verdict
 

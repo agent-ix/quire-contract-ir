@@ -3,7 +3,7 @@ id: SR-8470
 title: ears-conformance review of typed source selections
 type: SpecReview
 analysis: ears-conformance
-scope: agent-ix/quire-contract-ir@a959c202e6414a76346ff494812d41fb25124ae5; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md
 review_set: subset
 ---
 
@@ -97,19 +97,18 @@ CONDITIONAL. Resolve the recorded findings; this artifact reviews only the origi
 
 ## Dispositions
 
-Round 1 reviewed `17341112080f533448b79036a43a08fa3d50fd31`. The original findings above remain unchanged.
+Round 1 reviewed. The original findings above remain unchanged.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 17341112080f533448b79036a43a08fa3d50fd31 |
-| FND-002 | fixed | 17341112080f533448b79036a43a08fa3d50fd31 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
 | FND-003 | still-open | The replacement FR-035 sentence combines "the lowerer SHALL implement" and "it SHALL NOT introduce" with a semicolon. Split the two atomic obligations into separate sentences without changing meaning. |
 
 ```yaml
 dispositions:
 - fnd: FND-001
   outcome: fixed
-  fix_sha: 17341112080f533448b79036a43a08fa3d50fd31
   after_excerpt: 'QSpec FR-330''s "Typed source-selection compatibility" is the sole
     owner of
 
@@ -126,7 +125,6 @@ dispositions:
     requirement lookup.'
 - fnd: FND-002
   outcome: fixed
-  fix_sha: 17341112080f533448b79036a43a08fa3d50fd31
   after_excerpt: 'The output adapter retains `profile.reference` as the sole emitted
 
     lowering-profile value and retains the original checked source provenance under
@@ -174,17 +172,16 @@ Current disposition verdict: CONDITIONAL.
 
 ### Round 2
 
-Reviewed `99e99e7395f236d54ea993fb4b453d17d5a90835`. Only the requested wording hunk changed; the prior matrix repair, charged predicate, work vectors and single normative ownership remain intact. No new finding or regression.
+Reviewed. Only the requested wording hunk changed; the prior matrix repair, charged predicate, work vectors and single normative ownership remain intact. No new finding or regression.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-003 | fixed | 99e99e7395f236d54ea993fb4b453d17d5a90835 |
+| FND-003 | fixed | Fixed in the reviewed PR. |
 
 ```yaml
 dispositions:
 - fnd: FND-003
   outcome: fixed
-  fix_sha: 99e99e7395f236d54ea993fb4b453d17d5a90835
   after_excerpt: 'The lowerer SHALL implement that contract using
 
     its typed `CompleteLoweringProfileV2.required_source_selections` field and

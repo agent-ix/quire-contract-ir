@@ -9,7 +9,7 @@ review_set: base
 
 ## Summary
 
-Reviewed PR #565 at `cb98dbfbdff22822ecff187b3b436cfff2f98a4a` against QSpec FR-322, FR-375, FR-464 and TC-310, TC-946 through TC-948, then checked the FND-001 correction at `9aa73406f26328094fa36b21c2570bc22b8540d8`. The body-step order, activation relation, class-catalog comparison and refusal precedence match the source contracts. No applicable AssuranceProfile was found under this repository's `spec/` tree.
+Reviewed PR #565 against QSpec FR-322, FR-375, FR-464 and TC-310, TC-946 through TC-948, then checked the FND-001 correction. The body-step order, activation relation, class-catalog comparison and refusal precedence match the source contracts. No applicable AssuranceProfile was found under this repository's `spec/` tree.
 
 ## Findings
 
@@ -25,4 +25,4 @@ PASS after the FND-001 correction. The existing AC-282 canonical-set refusal rem
 
 | FND | Outcome | Evidence |
 | --- | --- | --- |
-| FND-001 | fixed | At `9aa73406`, FR-038-AC-324 and TC-048 step 7 distinguish two source declarations normalized to one canonical wire entry from duplicate wire entries that refuse `invalid_semantic_graph` with no activation relation. The prose states the same rule. This agrees with QSpec FR-464 canonical order and TC-946 A4. |
+| FND-001 | fixed |, FR-038-AC-324 and TC-048 step 7 distinguish two source declarations normalized to one canonical wire entry from duplicate wire entries that refuse `invalid_semantic_graph` with no activation relation. The prose states the same rule. This agrees with QSpec FR-464 canonical order and TC-946 A4. |

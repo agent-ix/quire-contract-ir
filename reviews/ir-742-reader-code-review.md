@@ -3,7 +3,7 @@ id: SR-11630
 title: code-review and rust-review of IR-742 IEEE reader admission
 type: SpecReview
 analysis: code-review
-scope: agent-ix/quire-contract-ir@737c11411c8009dd1bf33e6de12f91e5f93563cf; branch code/ir742-reader-admission; diff origin/main...737c114 (f16d0fd..737c114, commits e2f8bea and d9369b7);
+scope: agent-ix/quire-contract-ir; branch code/ir742-reader-admission; diff origin/main... (.., commits and );
   crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it/checked_package_v2_ieee_admission.rs, tests/it/main.rs
 review_set: subset
 ---
@@ -11,7 +11,7 @@ review_set: subset
 ## Summary
 
 Ticket: IR-742. Method: code-review with the rust-review lane folded in. PR: none yet.
-Authority: spec PR #341 (6e53653) FR-038 normative bullet "IEEE literal type and
+Authority: spec PR #341  FR-038 normative bullet "IEEE literal type and
 catalog result", FR-038-AC-222 and FR-038-AC-223, the published
 `quire.checked-operation-catalog/v1` entries for `quire.op.ieee.to_float32` and
 `quire.op.ieee.to_float64` (result `member`, member `type_argument`, constraint
@@ -19,7 +19,7 @@ catalog result", FR-038-AC-222 and FR-038-AC-223, the published
 
 The branch adds `check_ieee_member_result` after `check_operands` and relies on
 main's `literal_defect` (IR-484, #351) for the literal width rule; the rebase
-dropped the original `check_ieee_literals` pass from 41e7da1. Reviewer measured
+dropped the original `check_ieee_literals` pass from. Reviewer measured
 every case the dropped pass covered with a scratch scan through the public
 `CheckedPackageV2::read` over every node of the all-families fixture as the
 declared literal `type` (standalone body root, `arguments/0` and `arguments/1`
@@ -50,14 +50,14 @@ The failure is the rebase resolution. The dropped pass refused an IEEE literal
 whose declared `type` resolves to no operand family; main's `literal_defect`
 skips such a literal, so those packages are now admitted (FND-001).
 
-Deleted-pass coverage (scratch scan at 737c114):
+Deleted-pass coverage (scratch scan ):
 
 | Case the dropped pass refused | At HEAD |
 | --- | --- |
 | float32_bits / float64_bits at the opposite width, standalone body root | refused, same code/cause/pointer `/body/type`/locus |
 | same, at `arguments/0` or `arguments/1` of an application | refused, same, `/body/arguments/{i}/type` |
 | declared at any other familied type (boolean, integer, text, option, integer_range, pure_function, object_type, temporal formula, reference) | refused, same |
-| declared `type` absent from the graph, or not a node id | refused earlier, `invalid_semantic_graph` at the same `/type` pointer, no locus (wire stage precedes; unchanged from 41e7da1) |
+| declared `type` absent from the graph, or not a node id | refused earlier, `invalid_semantic_graph` at the same `/type` pointer, no locus (wire stage precedes; unchanged from ) |
 | declared at a node with no operand family (value/literal, value/parameter, model/namespace, model/process, relation/relationship, state/snapshot, state/frame, temporal/temporal_clause, protocol/protocol_clause, claim/verification_claim, correspondence/source_locus) | **ADMITTED**, standalone and in either argument position |
 
 ## Examined scope
@@ -70,7 +70,7 @@ Deleted-pass coverage (scratch scan at 737c114):
 - id: FR-038-AC-223
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
-  excerpt: Through `CheckedPackageV2::read`, valid `quire.op.ieee.to_float32` over Float64 and `quire.op.ieee.to_float64` over Float32 admit when each `type_argument` and `result_type` name the same correctly typed destination node. For each identity, changing `result_type` and the enclosing application's root-node `semantic_type` together to the source-width node while retaining the valid destination `type_argument` ... refuses `ill_typed`/`operator-ineligible` at the application's `result_type` by the `member` result form; changing `type_argument`, `result_type` and that root-node `semantic_type` together to the source-width node likewise refuses there by the catalogued `member_family` constraint.
+  excerpt: Through `CheckedPackageV2::read`, valid `quire.op.ieee.to_float32` over Float64 and `quire.op.ieee.to_float64` over Float32 admit when each `type_argument` and `result_type` name the same correctly typed destination node. For each identity, changing `result_type` and the enclosing application's root-node `semantic_type` together to the source-width node while retaining the valid destination `type_argument`... refuses `ill_typed`/`operator-ineligible` at the application's `result_type` by the `member` result form; changing `type_argument`, `result_type` and that root-node `semantic_type` together to the source-width node likewise refuses there by the catalogued `member_family` constraint.
 - id: FR-038/IEEE-literal-type-and-catalog-result
   path: spec/checked_package/functional/FR-038-consume-checked-package-v2.md
   role: examined
@@ -98,7 +98,7 @@ Deleted-pass coverage (scratch scan at 737c114):
 
 ## Dispositions
 
-Round 1, verified at 1164072dd746d32129b42bd2adb0ad5bd1d9244a (`git diff 737c114..1164072`).
+Round 1, verified (`git diff..`).
 
 | FND | Outcome | Reason |
 | --- | --- | --- |

@@ -3,7 +3,7 @@ id: SR-16510
 title: "IR-996 PR 535 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@78cd34126b73586a6c21730003134fd8db4021b3; crates/quire-contract-model/src/checked_package/v2/{scalar_operands.rs,contract_package/scalar_operands.rs}; tests/it/admitted_scalar_operands.rs"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/{scalar_operands.rs,contract_package/scalar_operands.rs}; tests/it/admitted_scalar_operands.rs"
 review_set: subset
 ---
 # SR-16510: IR-996 PR 535 code and Rust review

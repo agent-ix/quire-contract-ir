@@ -3,7 +3,7 @@ id: SR-579011
 title: "IR-347 PR #579 spec-review/base review"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; PR #579 head 4c8d4bc3b0f44b718ddafbd26bbbb99c7967779e, origin/main...HEAD; spec/kani/functional/FR-039-root-crate-public-interface.md, spec/kani/matrix/TC-055-root-crate-public-interface.md, spec/kani/matrix/tests.md, spec/core/matrix/tests.md, spec/tests.md, spec/assurance/AD-005-qsl-consumption-seam.md; evidence tests/it/kani_shared.rs, tests/it/cycle_free_model.rs, src/kani/; IR-347"
+scope: "agent-ix/quire-contract-ir; PR #579, origin/main...HEAD; spec/kani/functional/FR-039-root-crate-public-interface.md, spec/kani/matrix/TC-055-root-crate-public-interface.md, spec/kani/matrix/tests.md, spec/core/matrix/tests.md, spec/tests.md, spec/assurance/AD-005-qsl-consumption-seam.md; evidence tests/it/kani_shared.rs, tests/it/cycle_free_model.rs, src/kani/; IR-347"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-039
@@ -58,7 +58,7 @@ scope:
 - id: TC-042 cases
   path: spec/kani/matrix/tests.md
   role: context_only
-  excerpt: "every profile/matrix construct and unknown/conflicting/missing entry; ... each valid, duplicate, dangling, foreign, wrong-type, incomplete, unavailable and one-over-bound population/snapshot/reference/collection case; no-assumption invalid-input probes; every typed outcome kind and Boolean-field absence; arithmetic/definedness, object/reference/graph and collection/query dispatch ownership"
+  excerpt: "every profile/matrix construct and unknown/conflicting/missing entry;... each valid, duplicate, dangling, foreign, wrong-type, incomplete, unavailable and one-over-bound population/snapshot/reference/collection case; no-assumption invalid-input probes; every typed outcome kind and Boolean-field absence; arithmetic/definedness, object/reference/graph and collection/query dispatch ownership"
 - id: TC-041
   path: spec/model/matrix/tests.md
   role: context_only
@@ -67,7 +67,7 @@ scope:
 
 ## Dispositions
 
-Round 1. Checked at head bcc20f7b11cab92c481eab21666091ba37313243 against fix diff 4c8d4bc3..bcc20f7b (one commit, "Preserve full public Kani error surface in TC-055"), six spec files, no code. Cargo, Kani and `make ci` were not run (spec-only). `quire validate` over spec, plan and reviews is grammar-clean; `quire coverage --strict` reports 68 unbacked rows, byte-identical to `origin/main`, none in a file this PR touches.
+Round 1. Checked at against fix diff.. (one commit, "Preserve full public Kani error surface in TC-055"), six spec files, no code. Cargo, Kani and `make ci` were not run (spec-only). `quire validate` over spec, plan and reviews is grammar-clean; `quire coverage --strict` reports 68 unbacked rows, byte-identical to `origin/main`, none in a file this PR touches.
 
 | FND | outcome | reason |
 | --- | --- | --- |

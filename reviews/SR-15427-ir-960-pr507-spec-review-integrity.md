@@ -3,7 +3,7 @@ id: SR-15427
 title: 'Spec integrity review of IR-960 PR #507'
 type: SpecReview
 analysis: integrity
-scope: agent-ix/quire-contract-ir@7fe24d5b3a74fc17c99f691accb0509658deb228; spec/checked_package/functional/FR-348-admit-extension-form-nodes.md,
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-348-admit-extension-form-nodes.md,
   spec/checked_package/matrix/TC-459-checked-package-extension-nodes.md
 review_set: subset
 relationships:
@@ -14,7 +14,7 @@ relationships:
 
 ## Summary
 
-Independent spec-only review of `7fe24d5b3a74fc17c99f691accb0509658deb228` against QSpec #341 FR-469 and TC-951 at `053b59869f5bc767ae1f35b30c7d00afbe63fda3`, QSpec FR-467 and Contract IR FR-038. QSpec #363 subsequently reverted FR-469 and fixtures; this PR describes the reader contract for their coordinated restoration.
+Independent spec-only review of against QSpec #341 FR-469 and TC-951, QSpec FR-467 and Contract IR FR-038. QSpec #363 subsequently reverted FR-469 and fixtures; this PR describes the reader contract for their coordinated restoration.
 
 The review examined FR-348-AC-1 through AC-8 and TC-459. Initial TC-459 wording called all X01..X17 controls negative and treated X02 identity-only mutations as admission outcomes; the author corrected both on this reviewed head. TC-459 now explicitly checks equal repeated held-definition evidence, conflict rejection, and retained-definition admission.
 

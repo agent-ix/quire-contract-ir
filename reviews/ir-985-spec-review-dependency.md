@@ -3,14 +3,14 @@ id: SR-16268
 title: "Dependency review of IR-985 PR 527"
 type: SpecReview
 analysis: dependency
-scope: "agent-ix/quire-contract-ir@6def8a01a612f586b0a226c606610923f1f1347d; FR-038-AC-311..317, TC-048 hybrid procedure, FR-019 HybridForm inventory; QSpec FR-481/TC-966@26582406e4d339916ef56f7562ffb5918c2d838c"
+scope: "agent-ix/quire-contract-ir; FR-038-AC-311..317, TC-048 hybrid procedure, FR-019 HybridForm inventory; QSpec FR-481/TC-966"
 review_set: subset
 ---
 # SR-16268: Dependency review of IR-985 PR 527
 
 ## Summary
 
-Ticket: IR-985. Exact IR head 6def8a01a612f586b0a226c606610923f1f1347d; QSpec #415 head 26582406e4d339916ef56f7562ffb5918c2d838c. The added FR-481 and TC-966 edges resolve at QSpec #415 head and allocate wire authority and fixture evidence to QSpec.
+Ticket: IR-985. Exact IR; QSpec #415. The added FR-481 and TC-966 edges resolve at QSpec #415 head and allocate wire authority and fixture evidence to QSpec.
 
 ## Findings
 
@@ -31,4 +31,4 @@ Clean for this method on the examined diff.
 
 ## Upstream dependency
 
-Verified after the initial review at QSpec #415 head `26582406e4d339916ef56f7562ffb5918c2d838c`: FR-481 specifies `ill_typed`/`non-boolean-root` for non-Boolean hybrid invariant, guard and initial condition, but the published `proposals/checked-package-v2/schema.json` Diagnostic cause-tag enum and cause pairing omit `non-boolean-root`. QSpec must reconcile its schema with its FR-481 refusal contract before the affected diagnostic vectors can be schema-valid. No IR spec finding is added because this PR quotes the QSpec normative contract correctly.
+Verified after the initial review at QSpec #415: FR-481 specifies `ill_typed`/`non-boolean-root` for non-Boolean hybrid invariant, guard and initial condition, but the published `proposals/checked-package-v2/schema.json` Diagnostic cause-tag enum and cause pairing omit `non-boolean-root`. QSpec must reconcile its schema with its FR-481 refusal contract before the affected diagnostic vectors can be schema-valid. No IR spec finding is added because this PR quotes the QSpec normative contract correctly.

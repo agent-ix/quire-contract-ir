@@ -3,13 +3,13 @@ id: SR-12436
 title: "Traceability gap analysis of IR PR 457"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; .github/workflows/ci.yml; Cargo.toml; Makefile; tests/conformance_qsl_ir760/main.rs; tests/it/main.rs"
+scope: "agent-ix/quire-contract-ir;.github/workflows/ci.yml; Cargo.toml; Makefile; tests/conformance_qsl_ir760/main.rs; tests/it/main.rs"
 review_set: subset
 ---
 
 ## Summary
 
-Ticket IR-871, PR #457 at d6b4e1c1aaa89034655c5420a0d1e21b8d1392d3. The source tests and their trace attributes stay in place under an explicit target. Base and head matrices are byte-identical across 562 normalized rows; no new criterion gap or coverage claim is introduced.
+Ticket IR-871, PR #457. The source tests and their trace attributes stay in place under an explicit target. Base and head matrices are byte-identical across 562 normalized rows; no new criterion gap or coverage claim is introduced.
 
 ## Examined scope
 
@@ -33,4 +33,4 @@ Ticket IR-871, PR #457 at d6b4e1c1aaa89034655c5420a0d1e21b8d1392d3. The source t
 
 ## Evidence
 
-At exact head d6b4e1c, GitHub Actions pull_request run 39102603725 succeeded with Rust Checks and Supply-chain Checks; the Test step passed without a QSL checkout. Cargo metadata reports test=false for both conformance_qsl_ir760 and selected_population_public. With QUIRE_SPEC_LANGUAGE_DIR unset, the named make target exits 2 before building. The exact base 31949fa and head quire matrix TSV files compare byte-identically (562 criterion rows); head strict coverage reports 527/596 backed, 40 unbacked, 0 contradicted. The NFR-060/061 unmatched warnings refer to unchanged files and are outside this diff. Git diff --check passes.
+At exact, GitHub Actions pull_request run 39102603725 su with Rust Checks and Supply-chain Checks; the Test step passed without a QSL checkout. Cargo metadata reports test=false for both conformance_qsl_ir760 and selected_population_public. With QUIRE_SPEC_LANGUAGE_DIR unset, the named make target exits 2 before building. The exact and head quire matrix TSV files compare byte-identically (562 criterion rows); head strict coverage reports 527/596 backed, 40 unbacked, 0 contradicted. The NFR-060/061 unmatched warnings refer to unchanged files and are outside this diff. Git diff --check passes.

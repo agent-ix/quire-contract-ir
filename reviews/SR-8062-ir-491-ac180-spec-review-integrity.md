@@ -3,7 +3,7 @@ id: SR-8062
 title: IR-491 AC-180 correction integrity review
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@7d0adeb864110b696a568f8983f64e766ac0615c; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; IR-491"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; IR-491"
 review_set: subset
 ---
 
@@ -33,4 +33,4 @@ The exhaustive mapping and corrected test plan agree on the 15-plus-3 split, but
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 4a3b1a09a169fe6bfeb859f78c4a6e4011286e3d — `| Type form | Introduced descriptor and source node |` |
+| FND-001 | fixed | — `| Type form | Introduced descriptor and source node |` |

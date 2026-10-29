@@ -3,14 +3,14 @@ id: SR-16520
 title: "IR-9 PR 537 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir PR #537 @ dbc2ca9f6e0fddb9860282ab11a6f64d0d8b2622; crates/quire-contract-model/src/checked_package/v2/extension.rs"
+scope: "agent-ix/quire-contract-ir PR #537 @; crates/quire-contract-model/src/checked_package/v2/extension.rs"
 review_set: subset
 ---
 # SR-16520: IR-9 PR 537 code and Rust review
 
 ## Summary
 
-Independent diff-scoped code and Rust review against base 243d7ce6. The changed production path uses the retained node-kind vector for scalar, integer-range and selected-record joins and for refusal details. The extension body, expected type grammar, open extension-name comparison and admission stages are unchanged.
+Independent diff-scoped code and Rust review against. The changed production path uses the retained node-kind vector for scalar, integer-range and selected-record joins and for refusal details. The extension body, expected type grammar, open extension-name comparison and admission stages are unchanged.
 
 ## Findings
 

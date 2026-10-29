@@ -3,7 +3,7 @@ id: SR-1134
 title: "code review of PR 275 (IR-532/IR-476 bind 23 operation-law unit tests to FR-038 ACs)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@f257d1fb2612a59e410249f8c78897165eee2501; crates/quire-contract-model/src/checked_package/v2/operations.rs"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/operations.rs"
 review_set: subset
 ---
 # SR-1134: code review of PR 275
@@ -12,7 +12,7 @@ review_set: subset
 
 Ticket: IR-532 (and its parent IR-476). This is a code review with the rust-review lane
 folded in. It covers `git diff origin/main...HEAD` at
-f257d1fb2612a59e410249f8c78897165eee2501, base main 74087d296f9bf42ee7400f479e735e3fde6272f2
+, base main
 (the merge base is main itself, so there is no drift).
 
 What was checked, and what holds:
@@ -59,8 +59,8 @@ SR-1135 for the matrix finding that does.
 
 ## Dispositions
 
-Round 1 at ec5ac123f3e93d9cf75c09eb9665e37681aff977 (one fix commit on top of f257d1f; main
-has not moved from 74087d2, and GitHub reports MERGEABLE). The full `origin/main...HEAD` diff
+Round 1 (one fix commit on top of; main
+has not moved from, and GitHub reports MERGEABLE). The full `origin/main...HEAD` diff
 of `operations.rs` still changes only `///` and `#[trace(` lines, so no test body changed.
 66 tests and 66 trace attributes. The 66 `operations.rs` tests pass, and fmt-check is clean.
 
@@ -72,4 +72,4 @@ No new findings.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | ec5ac123f3e93d9cf75c09eb9665e37681aff977 |
+| FND-001 | fixed | Fixed in the reviewed PR. |

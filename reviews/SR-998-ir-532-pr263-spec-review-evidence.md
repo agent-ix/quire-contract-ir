@@ -3,7 +3,7 @@ id: SR-998
 title: "evidence review of PR 263 (FR-038-AC-81 to AC-88, TC-048, tests.md)"
 type: SpecReview
 analysis: evidence
-scope: "agent-ix/quire-contract-ir@376269e0d67ee1451ee9629dbe897c06a8a730de; FR-038-AC-81 to FR-038-AC-88 verification methods; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; spec/checked_package/matrix/tests.md FR-038 and TC-048 rows; tests in crates/quire-contract-model/src/checked_package/v2/operations.rs and tests/it/checked_package_v2_reader.rs"
+scope: "agent-ix/quire-contract-ir; FR-038-AC-81 to FR-038-AC-88 verification methods; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; spec/checked_package/matrix/tests.md FR-038 and TC-048 rows; tests in crates/quire-contract-model/src/checked_package/v2/operations.rs and tests/it/checked_package_v2_reader.rs"
 review_set: subset
 ---
 # SR-998: evidence review of PR 263
@@ -38,7 +38,7 @@ Notes for the binding PR (outside this diff, not findings):
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | AC-81 to AC-87 are worded as reader behaviour ("An application ... refuses"). Their only evidence is unit calls of `operation_defect` on fixtures the reader's grammar would refuse: `literal` terms with no `type` or `value_kind`, and old-shape artifact references. AC-81's "admits" control could not pass a full read. AC-68 already uses the honest form, "observed on that node (a unit-level check of the node's operation step)". The new ACs should say the same, or gain reader-level evidence | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1403-1409; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md:287-330 |
+| FND-001 | medium | AC-81 to AC-87 are worded as reader behaviour ("An application... refuses"). Their only evidence is unit calls of `operation_defect` on fixtures the reader's grammar would refuse: `literal` terms with no `type` or `value_kind`, and old-shape artifact references. AC-81's "admits" control could not pass a full read. AC-68 already uses the honest form, "observed on that node (a unit-level check of the node's operation step)". The new ACs should say the same, or gain reader-level evidence | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1403-1409; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md:287-330 |
 | FND-002 | low | End-to-end evidence for AC-88 already exists but is traced to the wrong AC. `tc_048_an_application_node_in_a_recursion_group_keys_by_fr322_ordinals` (tests/it/checked_package_v2_reader.rs:2499-2593) asserts graph-order group keys and `stale-node-key`, and is tagged FR-038-AC-17, whose text says nothing of keys. The PR's enumeration and TC-048's AC-88 procedure ("as unit tests of operations.rs") omit it. The binding PR should retag it to AC-88 | spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md:35-38 |
 
 ## Verdict
@@ -51,5 +51,5 @@ test should be bound to AC-88.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 9d4379b |
+| FND-001 | fixed | Fixed in the reviewed PR. |
 | FND-002 | deferred | A trace tag lives in code, so the retag of tests/it/checked_package_v2_reader.rs:2502 from FR-038-AC-17 to FR-038-AC-88 is the binding PR's (IR-532 code, after #253); the PR body's Binding PR scope lists it. |

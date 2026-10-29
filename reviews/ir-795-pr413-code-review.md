@@ -3,13 +3,13 @@ id: SR-11760
 title: "Code and Rust review — IR-795 four-owner source-inventory port"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/source_obligation.rs, tests/it/source_obligation.rs (PR #413 at 77284f7)"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/source_obligation.rs, tests/it/source_obligation.rs (PR #413 )"
 review_set: subset
 ---
 
 ## Summary
 
-Ticket: IR-795 (IR-759 Slice B). Reviewed PR #413 at 77284f7 with `git diff origin/main...HEAD`, the code-review method with its rust-review lane in this file. The port adds `SourceInventoryOwner::Quire`, `SourceInventoryScope::QuireSelectedAuthoredCriteria`, `SourceAuthoredCriterionId`, `SourceCriterionSourceBinding`, and a Quire envelope position plus a binding on `SourceObligationInput`. It replaces `Criterion(ClauseRef)` with `Criterion(SourceAuthoredCriterionId)` and moves that variant's owner from Qsl to Quire.
+Ticket: IR-795 (IR-759 Slice B). Reviewed PR #413 with `git diff origin/main...HEAD`, the code-review method with its rust-review lane in this file. The port adds `SourceInventoryOwner::Quire`, `SourceInventoryScope::QuireSelectedAuthoredCriteria`, `SourceAuthoredCriterionId`, `SourceCriterionSourceBinding`, and a Quire envelope position plus a binding on `SourceObligationInput`. It replaces `Criterion(ClauseRef)` with `Criterion(SourceAuthoredCriterionId)` and moves that variant's owner from Qsl to Quire.
 
 Checks run on the worktree with `CARGO_TARGET_DIR=<worktree>/target`, `-j2`, and the `/tmp/luna-ir-heavy.lock` flock. `cargo test --test it source_obligation` passed 7/7. `cargo test --test it public_interface` passed 4/4, so the FR-019 inventory matches the compiled surface. The model doctests for `source_obligation` passed 6/6. `cargo clippy -p quire-contract-model -p quire-contract-ir --tests -D warnings` is clean, and so is `rustfmt --check` on both changed files.
 
@@ -21,7 +21,7 @@ Mutation probes ran in a separate detached scratch worktree, never on the PR bra
 - FR-052-AC-15 (examined): An explicit source-author binding connects the selected Quire corpus/obligation scope to the selected IR `SourceIdentity`. A missing, foreign or conflicting binding refuses a complete census with distinct typed causes; a matching label or revision alone is not treated as proof of equal source bytes across Quire, IR V2 and QSL. Foreign and dangling AC-to-occurrence/function assertions retain their separate typed dispositions.
 - FR-052-AC-12 (examined): A synthetic `SourceInventoryEnumerator` producing zero or multiple `Ok(Some(row))` events yields a neutral `Complete` outcome only after its `Ok(None)` terminal event. Replacing that terminal event with `Err(typed_cause)` yields `Incomplete(typed_cause)` and retains exactly the preceding rows; the typed cause is equal to the emitted error.
 - FR-052-AC-13 (examined): For a synthetic enumerator, the neutral outcome keeps its retained rows and count private. Mismatched observed count, owner/scope pair, row owner, row source, or stop-cause owner returns the corresponding typed structural error and no outcome.
-- FR-052 statement, owner/scope pairing (spec/model/functional/FR-052-source-obligation-correspondence.md:89-99, 128-140, 275-279) (examined): `SourceInventoryOwner` shall distinguish `Quire`, `IrV2`, `Qsl`, and `QuireCodeRs`; `SourceInventoryScope` shall distinguish `QuireSelectedAuthoredCriteria` ...; each owner shall supply exactly its corresponding scope; a `SourceInventoryIdentity::Criterion` row shall have owner `Quire`.
+- FR-052 statement, owner/scope pairing (spec/model/functional/FR-052-source-obligation-correspondence.md:89-99, 128-140, 275-279) (examined): `SourceInventoryOwner` shall distinguish `Quire`, `IrV2`, `Qsl`, and `QuireCodeRs`; `SourceInventoryScope` shall distinguish `QuireSelectedAuthoredCriteria`...; each owner shall supply exactly its corresponding scope; a `SourceInventoryIdentity::Criterion` row shall have owner `Quire`.
 - FR-052-AC-16 (context_only): IR-812 / PLAT-1165 Quire producer; out of scope. No Quire producer or PLAT-1165 claim was added.
 
 ## Verdict
@@ -40,12 +40,12 @@ The weak point is the AC-14 "cannot substitute" oracle (FND-001).
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | AC-14 negative doctests are `compile_fail` with no error code and probe only implicit coercion (`let _: SourceAuthoredCriterionId = clause;`). Adding `impl From<ClauseRef> for SourceAuthoredCriterionId` leaves them green (mutation M6 survived), and an unrelated import or syntax error would also pass them. Pin `compile_fail,E0308` and add `SourceAuthoredCriterionId::from(clause)` / `.into()` probes pinned to E0277, for ClauseRef and SourceRequirementOccurrenceId. | crates/quire-contract-model/src/source_obligation.rs:310-324 |
-| FND-002 | low | `SourceObligationInput::new` now takes four adjacent positional `Option<SourceInventoryEnvelope>` arguments (quire, ir_v2, qsl, quire_code_rs), and nothing checks the envelope owner against its position. A swapped Quire/IrV2 envelope compiles silently. Consider asserting `envelope.owner()` per position, or using a per-owner typed slot. | crates/quire-contract-model/src/source_obligation.rs:866-884 |
+| FND-001 | medium | AC-14 negative doctests are `compile_fail` with no error code and probe only implicit coercion (`let _: SourceAuthoredCriterionId = clause;`). Adding `impl From<ClauseRef> for SourceAuthoredCriterionId` leaves them green (mutation M6 survived), and an unrelated import or syntax error would also pass them. Pin `compile_fail,E0308` and add `SourceAuthoredCriterionId::from(clause)` / `.into` probes pinned to E0277, for ClauseRef and SourceRequirementOccurrenceId. | crates/quire-contract-model/src/source_obligation.rs:310-324 |
+| FND-002 | low | `SourceObligationInput::new` now takes four adjacent positional `Option<SourceInventoryEnvelope>` arguments (quire, ir_v2, qsl, quire_code_rs), and nothing checks the envelope owner against its position. A swapped Quire/IrV2 envelope compiles silently. Consider asserting `envelope.owner` per position, or using a per-owner typed slot. | crates/quire-contract-model/src/source_obligation.rs:866-884 |
 
 ## Dispositions
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Fixed in 36707b1. The doctests now pin `compile_fail,E0308` for coercion and add `::from` / `.into()` probes pinned to `compile_fail,E0277` for both ClauseRef and SourceRequirementOccurrenceId. Re-running mutation M6 (`From<ClauseRef>`) turns the doctests at lines 320 and 330 red. M6b (`From<SourceRequirementOccurrenceId>`) turns the doctests at lines 346 and 352 red. |
-| FND-002 | deferred | FR-052:139-140 (36707b1) now states that the provisional envelope input retains reports by position, and that the completed census shall refuse an envelope whose owner does not match its position. Enforcement belongs to the IR-759 Slice C census builder. |
+| FND-001 | fixed | Fixed in. The doctests now pin `compile_fail,E0308` for coercion and add `::from` / `.into` probes pinned to `compile_fail,E0277` for both ClauseRef and SourceRequirementOccurrenceId. Re-running mutation M6 (`From<ClauseRef>`) turns the doctests at lines 320 and 330 red. M6b (`From<SourceRequirementOccurrenceId>`) turns the doctests at lines 346 and 352 red. |
+| FND-002 | deferred | FR-052:139-140  now states that the provisional envelope input retains reports by position, and that the completed census shall refuse an envelope whose owner does not match its position. Enforcement belongs to the IR-759 Slice C census builder. |

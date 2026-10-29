@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed IR-1063 PR #613 at 132bd22a3bc5565c92a016bc44506a59092fc80b against main 3ecdd5ed. The TC-229 test now finds its population node by canonical node ID after fixture settlement, preserving the owner-refusal pointer suffixes, all fifteen QSpec case rows, codes, causes and admitted controls.
+Reviewed IR-1063 PR #613 against main. The TC-229 test now finds its population node by canonical node ID after fixture settlement, preserving the owner-refusal pointer suffixes, all fifteen QSpec case rows, codes, causes and admitted controls.
 
 ## Verdict
 

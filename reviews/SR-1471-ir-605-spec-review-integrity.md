@@ -3,7 +3,7 @@ id: SR-1471
 title: "integrity review of PR 291 (typed STD-001 code, FR-044)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@c109f7eaba2d15f2d8d526f0b0f9dfdfc240a0dd; git diff origin/main...HEAD (base 6fb6e974efd6b9a9c74515ee7e07df250fa4aacf): spec/core/matrix/tests.md, spec/core/matrix/TC-442, spec/kani/matrix/tests.md, spec/kani/matrix/TC-223, spec/tests.md, spec/spec.md, FR-044, FR-030, FR-039, FR-019, STD-001, AD-006"
+scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD : spec/core/matrix/tests.md, spec/core/matrix/TC-442, spec/kani/matrix/tests.md, spec/kani/matrix/TC-223, spec/tests.md, spec/spec.md, FR-044, FR-030, FR-039, FR-019, STD-001, AD-006"
 review_set: subset
 ---
 # SR-1471: integrity review of PR 291
@@ -34,7 +34,7 @@ paragraph.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | Two prose rows lag the PR. The spec.md sentence now reads "STD-001 is the stable diagnostic code registry, and FR-044 exports its code as the typed `Std001Code` ..., which `KaniOutcome.code` carries; STD-003 the closed output-mapping refusal registry", which has lost its verb in the second clause. The core matrix StR-001 row adds FR-044 and TC-442 to its traces but its status prose still lists the planned items without the typed code | spec/spec.md:95-97; spec/core/matrix/tests.md:12 |
+| FND-001 | low | Two prose rows lag the PR. The spec.md sentence now reads "STD-001 is the stable diagnostic code registry, and FR-044 exports its code as the typed `Std001Code`..., which `KaniOutcome.code` carries; STD-003 the closed output-mapping refusal registry", which has lost its verb in the second clause. The core matrix StR-001 row adds FR-044 and TC-442 to its traces but its status prose still lists the planned items without the typed code | spec/spec.md:95-97; spec/core/matrix/tests.md:12 |
 
 ## Verdict
 
@@ -43,8 +43,8 @@ coverage changes are consistent with each other and with merged text.
 
 ## Dispositions
 
-Round 1, reviewed at cace2678410ee69ae71e656e26f80541ba2e31e4.
+Round 1, reviewed.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | cace267 |
+| FND-001 | fixed | Fixed in the reviewed PR. |

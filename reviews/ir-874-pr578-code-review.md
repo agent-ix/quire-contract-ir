@@ -3,7 +3,7 @@ id: SR-567893
 title: "IR-874 PR 578 code-review review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, tests/it/checked_package_v2_protocol_body.rs; PR #578 frozen head 600f2608a924ca9e93ddcc3c78599eb3982178bb against f1ff2218"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, tests/it/checked_package_v2_protocol_body.rs; PR #578 frozen "
 review_set: subset
 ---
 
@@ -36,8 +36,8 @@ The changed Rust model and public-reader tests were reviewed; no CI, dependency,
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Fixed at cb081772: the selected-text role loop now charges one work unit at the role pointer before examining each model selection and stops at the first match. The preserved reference branch is unchanged. The existing layout test now uses an integer literal as its invalid role model, keeping the MalformedLayout assertion meaningful after Text became valid. |
+| FND-001 | fixed | Fixed: the selected-text role loop now charges one work unit at the role pointer before examining each model selection and stops at the first match. The preserved reference branch is unchanged. The existing layout test now uses an integer literal as its invalid role model, keeping the MalformedLayout assertion meaningful after Text became valid. |
 
 ## Disposition verdict
 
-**PASS at cb081772** — the focused finding is fixed on the original PR. Full FR-038-AC-282/286 remain Planned.
+**PASS ** — the focused finding is fixed on the original PR. Full FR-038-AC-282/286 remain Planned.

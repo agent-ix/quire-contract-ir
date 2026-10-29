@@ -1,4 +1,4 @@
-<!-- reviewer repo=agent-ix/quire-contract-ir visibility=public quoin=0.28.4 module=spec-artifacts-process@b82e42e893612b4b4ee94127714b4577ee893502 id=SR-15317 method=spec-review/scope-boundary lang=spec pr=quire-contract-ir#499 model=gpt-6.1-sol run=be712d1b-4313-4600-bcdd-879623058932 -->
+<!-- reviewer repo=agent-ix/quire-contract-ir visibility=public quoin=0.28.4 module=spec-artifacts-process id=SR-15317 method=spec-review/scope-boundary lang=spec pr=quire-contract-ir#499 model=gpt-6.1-sol run=be712d1b-4313-4600-bcdd-879623058932 -->
 
 PASS: IR owns only developer Make invocation, copy removal and local consumer qualification; CLI FR-027 owns parsing, normalization, diagnostics and installation. Normal real-command positive/adverse tests guarantee the consumed boundary rather than assuming text-only wiring. This is infrastructure/developer tooling with no runtime dependency. CG/RT are sibling consumers; the driver is evaluated only. No owner gap or second algorithm is introduced.
 

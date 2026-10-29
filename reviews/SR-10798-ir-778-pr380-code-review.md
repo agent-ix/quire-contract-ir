@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-778. Reviewed the exact PR #380 diff at 312d3c57 against FR-030-AC-7, FR-039 and TC-449. The Rust carrier and serializer have no code defect found in this scope.
+Ticket: IR-778. Reviewed the exact PR #380 diff against FR-030-AC-7, FR-039 and TC-449. The Rust carrier and serializer have no code defect found in this scope.
 
 ## Verdict
 

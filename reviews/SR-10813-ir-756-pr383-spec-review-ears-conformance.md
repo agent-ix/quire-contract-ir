@@ -3,7 +3,7 @@ id: SR-10813
 title: IR-756 evidence insertion EARS review
 type: SpecReview
 analysis: ears-conformance
-scope: "agent-ix/quire-contract-ir; PR 383 at 6ecd464; edited FR-047-AC-6 requirement statement"
+scope: "agent-ix/quire-contract-ir; PR 383; edited FR-047-AC-6 requirement statement"
 review_set: subset
 ---
 

@@ -24,17 +24,17 @@ The computed matrix tags FR-038-AC-303/304, but the new tests do not gate raw-re
 
 ## Coverage
 
-Exact scope: origin/main 2140725d0c522541f303853c0f07b4f8771cfc71 through raw-record head 77a5ae763cf39778c534169c5582cc5f5e9d4b39 (two changed files). Reviewed FR-038-AC-303/304 and TC-229. The actual agent-ix-semantic-ir PopulationRecord schema requires identity, kind, members, extent and origin; QSpec FR-154-AC-7 requires a population kind to resolve to a Quire population meaning. The IR selected-document reader authenticates digest and package identity but does not run that schema validator.
+Exact scope: origin/main through raw-record (two changed files). Reviewed FR-038-AC-303/304 and TC-229. The actual agent-ix-semantic-ir PopulationRecord schema requires identity, kind, members, extent and origin; QSpec FR-154-AC-7 requires a population kind to resolve to a Quire population meaning. The IR selected-document reader authenticates digest and package identity but does not run that schema validator.
 
 Plan completion: not assessed. Optional whole-repository semantic review: not requested; this method checked changed criterion-to-test bindings.
 
 ## Normative basis
 
-QSpec FR-322 “Model-owned members” step 1 requires this reader to admit each selected document under FR-154 before graph admission and to report the first FR-154 refusal. QSpec FR-154-AC-7 requires a population whose kind names no `constructs` entry, or resolves outside FR-208's meaning set, to refuse `invalid_model_binding`/`malformed-declaration`. IR FR-038's own “Model-owned members” step 1 (lines 810–833) states the same reader boundary. The locked `agent-ix-semantic-ir` PopulationRecord schema (`crates/semantic-ir/src/schema.rs:699–727` at filament-core-data rev 033e228) requires `identity` and `kind`. `admit_document` authenticates and parses bytes but does not run that schema validator; `read_semantic_ir` is the only changed population-declaration check on the selected-document path.
+QSpec FR-322 “Model-owned members” step 1 requires this reader to admit each selected document under FR-154 before graph admission and to report the first FR-154 refusal. QSpec FR-154-AC-7 requires a population whose kind names no `constructs` entry, or resolves outside FR-208's meaning set, to refuse `invalid_model_binding`/`malformed-declaration`. IR FR-038's own “Model-owned members” step 1 (lines 810–833) states the same reader boundary. The locked `agent-ix-semantic-ir` PopulationRecord schema (`crates/semantic-ir/src/schema.rs:699–727` at filament-core-data rev ) requires `identity` and `kind`. `admit_document` authenticates and parses bytes but does not run that schema validator; `read_semantic_ir` is the only changed population-declaration check on the selected-document path.
 
 ## Dispositions
 
-Round 1, exact hotfix head `a13f03a7c855f68c4e237fed4a938fc5e1d40460`:
+Round 1, exact hotfix:
 
 | FND | Outcome | Evidence |
 | --- | --- | --- |
@@ -45,11 +45,11 @@ Round 1, exact hotfix head `a13f03a7c855f68c4e237fed4a938fc5e1d40460`:
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-003 | high | QSpec #321 merged with 15 population-reference adverse cases, including independent `with-node-member` and `without-identity` selected-document mutations. TC-229 still asserts 13 cases and handles only `node-only`; against current merged QSpec it fails at inventory before testing either new case, and its fallback document for the new cases remains valid. | `tests/it/checked_package_v2_owners.rs:721,739`; QSpec `adverse.json:90-91` at merged #321 (`6ab82c5`) |
+| FND-003 | high | QSpec #321 merged with 15 population-reference adverse cases, including independent `with-node-member` and `without-identity` selected-document mutations. TC-229 still asserts 13 cases and handles only `node-only`; against current merged QSpec it fails at inventory before testing either new case, and its fallback document for the new cases remains valid. | `tests/it/checked_package_v2_owners.rs:721,739`; QSpec `adverse.json:90-91` at merged #321  |
 
 ## Dispositions, round 2
 
-Exact hotfix head `f05b6506726fdb92380ce9261153186392f20030`:
+Exact hotfix:
 
 | FND | Outcome | Evidence |
 | --- | --- | --- |
@@ -61,4 +61,4 @@ Exact hotfix head `f05b6506726fdb92380ce9261153186392f20030`:
 
 ## Final-head inspection
 
-At `a6558bcc6b7c2a7dda41713f646022a3c8873776`, the TC-225 shared fixture replaces two synthetic `{"node": ...}` population entries with full raw records and a resolving population construct. The only remaining `node` fields in that test file are graph owner members, not raw selected-document population entries. This removes unrelated TC-225 fixture regressions without changing TC-229's criterion binding or conformance cases. No new finding.
+, the TC-225 shared fixture replaces two synthetic `{"node":...}` population entries with full raw records and a resolving population construct. The only remaining `node` fields in that test file are graph owner members, not raw selected-document population entries. This removes unrelated TC-225 fixture regressions without changing TC-229's criterion binding or conformance cases. No new finding.

@@ -3,7 +3,7 @@ id: SR-610036
 title: "Failure-domain review — IR-1034 drain-bearing refinement catalog"
 type: SpecReview
 analysis: failure-domain
-scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-061-admit-refinement-nodes.md; PR #594 at fc2afe9420821292a6eacf42f499892010593052"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-061-admit-refinement-nodes.md; PR #594 "
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-061
@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Failure-domain review of IR-1034 PR #594 at fc2afe9420821292a6eacf42f499892010593052. The diff changes only FR-061. QSpec #447 at c5cfb1da5be1f29730ac90d2b8862251388d0100 supplies the authoritative FR-375/TC-310 shape. No applicable AssuranceProfile was found under spec/.
+Failure-domain review of IR-1034 PR #594. The diff changes only FR-061. QSpec #447 supplies the authoritative FR-375/TC-310 shape. No applicable AssuranceProfile was found under spec/.
 
 ## Verdict
 
@@ -44,7 +44,7 @@ Failure-domain review of IR-1034 PR #594 at fc2afe9420821292a6eacf42f49989201059
 
 ## Evidence
 
-- `quire validate --scope . spec/checked_package/functional/FR-061-admit-refinement-nodes.md --summary`: 1/1 grammar-clean.
+- `quire validate --scope. spec/checked_package/functional/FR-061-admit-refinement-nodes.md --summary`: 1/1 grammar-clean.
 - `quire lint` on the changed FR: exit 0. `quire properties --criteria --all`: 13 criteria classified, 8 extractable.
 - Diff has no code, fixture, schema, or copied QSpec file. Existing AC-1 through AC-8 are unchanged; AC-9 extends ordering without removing the prior stages.
 - QSpec PR #447 FR-375 states one catalog entry per alias-free class spelling and one `memory drain` per source default; TC-310 CC-12 asks one subject with SC, TSO and RA defaults.

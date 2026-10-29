@@ -3,7 +3,7 @@ id: SR-5054
 title: spec-review/scope-boundary review of IR-347 PR 332
 type: SpecReview
 analysis: scope-boundary
-scope: agent-ix/quire-contract-ir@5649b86f446d44fc54c558d7333bee32b0944eb9; spec/assurance/AD-004-checked-package-seam.md,
+scope: agent-ix/quire-contract-ir; spec/assurance/AD-004-checked-package-seam.md,
   spec/assurance/AD-005-qsl-consumption-seam.md, spec/assurance/AD-006-codegen-consumption-seam.md,
   spec/assurance/AD-007-cross-repo-dependency-graph.md
 review_set: subset
@@ -12,7 +12,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-347. Reviewed exact PR head `5649b86f446d44fc54c558d7333bee32b0944eb9` against base `efa4e37babce07afbf4829df0e641e2b124348e0`. Diff-scoped review.
+Ticket: IR-347. Reviewed exact PR against. Diff-scoped review.
 
 ## Findings
 
@@ -38,4 +38,4 @@ Units examined (each excerpt is verbatim from the reviewed head):
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 3a571f83b204728e54d6f5e6ee0edc68b96c28d0 |
+| FND-001 | fixed | Fixed in the reviewed PR. |

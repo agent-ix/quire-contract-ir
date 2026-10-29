@@ -3,7 +3,7 @@ id: SR-984
 title: "code review of PR 229 (reaches_field reference_edge constraint)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@65d29c5a3bf803c340987fb21eaadb6bd173013b; crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it/checked_package_v2_model_members.rs, spec/contract/FR-040-admit-frame-entries-and-state-clauses.md"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it/checked_package_v2_model_members.rs, spec/contract/FR-040-admit-frame-entries-and-state-clauses.md"
 review_set: subset
 ---
 # SR-984: code review of PR 229
@@ -33,10 +33,10 @@ Each FR-322 rule compared with the code:
 - Rule 4, operand 1 is `Reference<B>` with `B` conforming to `T`: **does not
   match.** The code calls the symmetric `DomainModel::conforms`. See FND-001.
 
-Gates on 65d29c5 with CARGO_TARGET_DIR in the worktree: fmt-check, both clippy
+Gates on with CARGO_TARGET_DIR in the worktree: fmt-check, both clippy
 lanes, the full test suite (179 + 48 + 2 doctests), corpus, `quire validate`,
 deny, cargo-audit and audit-unsafe all pass. `quire coverage --strict` fails
-with 22 unbacked rows. The same command on a clean `origin/main` (3e7935f)
+with 22 unbacked rows. The same command on a clean `origin/main`
 gives the same 22 rows; the two outputs differ only in line numbers. So the
 coder's claim holds, and this PR neither adds nor removes an unbacked row.
 
@@ -71,7 +71,7 @@ Mutation oracle (`cargo test --test it reaches_field`):
     that only declared supertypes count. It does not restate "either
     direction".
   - TC-281 RE-05 admits a subtype target. No vector admits a supertype target.
-  - FR-322 closes with "Any other operand ... refuses
+  - FR-322 closes with "Any other operand... refuses
     `ill_typed`/`operator-ineligible`".
   - The repo's own new FR-040 paragraph repeats "that conforms to `T`", so the
     code disagrees with this repo's statement too.
@@ -84,7 +84,7 @@ Mutation oracle (`cargo test --test it reaches_field`):
     saying so. Until then, the literal text refuses this case.
   - Reproduction: add a `child` field typed `Sub` to `Sub` in
     `edge_document`, then admit `(SUB, "child", SUB, ORDER)`. It passes on
-    65d29c5 and fails with a one-way `conforms`.
+     and fails with a one-way `conforms`.
 
 ## Verdict
 
@@ -97,4 +97,4 @@ direction of rule 4.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 467ac07: rule 4 now calls the one-way `DomainModel::conforms_to(end_owner.node, edge_owner)` (model_members.rs:504-513, operations.rs:1254); `(SUB, "child", SUB, ORDER)` refusal pins it. Mutations symmetric-conform and reversed-conform both go red. |
+| FND-001 | fixed |: rule 4 now calls the one-way `DomainModel::conforms_to(end_owner.node, edge_owner)` (model_members.rs:504-513, operations.rs:1254); `(SUB, "child", SUB, ORDER)` refusal pins it. Mutations symmetric-conform and reversed-conform both go red. |

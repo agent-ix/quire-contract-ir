@@ -1,6 +1,6 @@
 ---
 id: SR-610016
-title: "IR-1040 PR #598 acceptance evidence gap review at e2e310ae"
+title: "IR-1040 PR #598 acceptance evidence gap review "
 type: SpecReview
 analysis: gap-analysis
 scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md, tests/it/checked_package_v2_frame_entries.rs, crates/quire-contract-model/src/checked_package/v2/typed_terms.rs, crates/quire-contract-model/src/checked_package/v2/{execution_point,state,structural,flat_wire}.rs; FR-040-AC-31..36"
@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-1040. Static gap review of PR #598 at exact head e2e310ae1c0cc0da852e9311b8b09efa93e6c992 for FR-040-AC-31..36. Every criterion has at least one trace-tagged test. Several AC clauses have no behavioural oracle, the AC-35 precedence clauses most of all. QSpec's producer-origin TC-056 vector (the fresh QSL producer vector that FR-040-AC-34 names) is not in this PR. It is a separate open follow-up, QSL-1082, and this review does not claim it passes.
+Ticket: IR-1040. Static gap review of PR #598 at exact for FR-040-AC-31..36. Every criterion has at least one trace-tagged test. Several AC clauses have no behavioural oracle, the AC-35 precedence clauses most of all. QSpec's producer-origin TC-056 vector (the fresh QSL producer vector that FR-040-AC-34 names) is not in this PR. It is a separate open follow-up, QSL-1082, and this review does not claim it passes.
 
 ## Scope
 
@@ -58,7 +58,7 @@ Existing focused evidence, reported by the lead and not re-run here: 30/30 frame
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At 58ffe3afebb58d572ce66ce287dda31b229bef90 the new test `tc_056_point_checks_follow_anchor_joins_and_clause_signature` (tagged FR-040-AC-35) asserts that operation resolution and scoped deletes come before anchor point applicability, and that the clause signature comes before clause/anchor point agreement. `tc_056_same_operation_admits_distinct_anchor_points` (now also tagged AC-35) asserts that anchor point applicability comes before duplicate-tuple detection. |
+| FND-001 | fixed | the new test `tc_056_point_checks_follow_anchor_joins_and_clause_signature` (tagged FR-040-AC-35) asserts that operation resolution and scoped deletes come before anchor point applicability, and that the clause signature comes before clause/anchor point agreement. `tc_056_same_operation_admits_distinct_anchor_points` (now also tagged AC-35) asserts that anchor point applicability comes before duplicate-tuple detection. |
 | FND-002 | fixed | `tc_056_execution_point_shape_and_agreement_refuse_at_their_stage` now loops over `initialization{startup}`, `handler{tick}`, `pre{withdraw}` and `post{withdraw}` on the anchor. Each expects `invalid_model_binding`/`malformed-declaration` at the anchor node. |
 | FND-003 | fixed | The new `assert_pointed_writer_round_trip` helper runs the encoder plus read/write/read for invariant clause points (`initialization`/`handler`) and constraint clause points, comparing body bytes, package id and graph equality. |
 | FND-004 | fixed | The constraint test now asserts a package-id and node-digest difference from an absent-point constraint. It also asserts refusals for a `pre` point on a constraint (`malformed-declaration` at the node), an operation-anchor target (`malformed-declaration` at `arguments/1/target`) and a two-parameter signature (`ill_typed`/`operator-ineligible` at `arguments/0`). |
@@ -66,4 +66,4 @@ Existing focused evidence, reported by the lead and not re-run here: 30/30 frame
 
 ## Disposition Verdict
 
-**PASS for FND-001..005 at 58ffe3afebb58d572ce66ce287dda31b229bef90.** No new gap findings. The QSL producer-origin TC-056 vector remains the open follow-up QSL-1082 and is not claimed. Plan completion: not assessed. Static review only, with the coder's focused tests reported green and not re-run here. The full aggregate gate is deferred to the lead.
+**PASS for FND-001..005.** No new gap findings. The QSL producer-origin TC-056 vector remains the open follow-up QSL-1082 and is not claimed. Plan completion: not assessed. Static review only, with the coder's focused tests reported green and not re-run here. The full aggregate gate is deferred to the lead.

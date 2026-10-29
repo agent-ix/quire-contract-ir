@@ -3,7 +3,7 @@ id: SR-15660
 title: "Code and Rust review — IR-972 retained declaration terms"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir PR #519 at 798026771e43f0a9494fe2b5921f142b22fa3f70; five changed crates/quire-contract-model/src/checked_package/v2 Rust files"
+scope: "agent-ix/quire-contract-ir PR #519; five changed crates/quire-contract-model/src/checked_package/v2 Rust files"
 review_set: subset
 ---
 

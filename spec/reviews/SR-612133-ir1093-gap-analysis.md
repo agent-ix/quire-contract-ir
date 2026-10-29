@@ -36,8 +36,8 @@ CONDITIONAL: the computed matrix tag for FR-038-AC-329 does not prove its contro
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Head 5dc02418 adds rekeyed Main-ancestor fork and join refusal cases with exact code/locus and a tagged prefix-related nested-clause admission and wrong-class refusal case. |
+| FND-001 | fixed | adds rekeyed Main-ancestor fork and join refusal cases with exact code/locus and a tagged prefix-related nested-clause admission and wrong-class refusal case. |
 
 ## Disposition verdict
 
-Round 1 at 5dc02418: the recorded finding is fixed. Aggregate gates remain with the code lead.
+Round 1: the recorded finding is fixed. Aggregate gates remain with the code lead.

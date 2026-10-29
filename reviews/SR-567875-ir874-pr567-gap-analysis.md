@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-874. Planless, diff-scoped traceability and reverse-gap audit of PR #567 at b72b8e4fcdd3ca58f08d40e775d3adef62e72e27. Plan completion was not assessed. The new source has FR-038-AC-283/284 ownership. New public-reader tests carry TC-048, with no claim that either full AC is discharged.
+Ticket: IR-874. Planless, diff-scoped traceability and reverse-gap audit of PR #567. Plan completion was not assessed. The new source has FR-038-AC-283/284 ownership. New public-reader tests carry TC-048, with no claim that either full AC is discharged.
 
 ## Examined units
 

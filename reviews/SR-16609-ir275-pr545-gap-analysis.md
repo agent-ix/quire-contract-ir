@@ -3,7 +3,7 @@ id: SR-16609
 title: "IR-275 PR 545 incremental gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@54d9723d2b37e99f13e9a0a2c7add312920f003a; IR-275 AC-2; TC-048; protocol_body.rs and typed_terms.rs"
+scope: "agent-ix/quire-contract-ir; IR-275 AC-2; TC-048; protocol_body.rs and typed_terms.rs"
 review_set: subset
 ---
 # SR-16609: IR-275 PR 545 incremental gap analysis

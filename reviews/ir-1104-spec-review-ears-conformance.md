@@ -5,13 +5,13 @@ type: SpecReview
 analysis: ears-conformance
 scope: 'agent-ix/quire-contract-ir; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md;
   spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md; PR #674
-  @ 47f82e8e'
+  @ '
 review_set: subset
 ---
 
 ## Summary
 
-Ticket: IR-1104. Frozen PR head 47f82e8e. The new requested-root kind stays outside FR-330 wire and distinguishes the requested root from the first unsupported descendant. No defect was found by this lens.
+Ticket: IR-1104. Frozen PR. The new requested-root kind stays outside FR-330 wire and distinguishes the requested root from the first unsupported descendant. No defect was found by this lens.
 
 ## Verdict
 

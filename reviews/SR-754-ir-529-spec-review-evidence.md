@@ -3,7 +3,7 @@ id: SR-754
 title: "evidence review of PR 251 (IR-529 artifact references)"
 type: SpecReview
 analysis: evidence
-scope: "agent-ix/quire-contract-ir@0b106a64ea261a86c0f2f64eb9ab8f31f546d39d; FR-038-AC-46 through FR-038-AC-64 verification column; TC-048 Artifact references procedure; spec/checked_package/matrix/tests.md FR-038 and TC-048 rows; FR-019-AC-5 and TC-058 as context"
+scope: "agent-ix/quire-contract-ir; FR-038-AC-46 through FR-038-AC-64 verification column; TC-048 Artifact references procedure; spec/checked_package/matrix/tests.md FR-038 and TC-048 rows; FR-019-AC-5 and TC-058 as context"
 review_set: subset
 ---
 # SR-754: evidence review of PR 251
@@ -39,15 +39,15 @@ verified.
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir@9f76810d4bfd9b6ac4590f49d15bc2484fdc6a5f (delta from 0b106a64ea261a86c0f2f64eb9ab8f31f546d39d; base origin/main e80ea70ab8874676de47ac1b7fb439497ced7991 unchanged).
+Round 1, reviewed at agent-ix/quire-contract-ir (delta from; base origin/main unchanged).
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 9f76810d4bfd9b6ac4590f49d15bc2484fdc6a5f |
-| FND-002 | fixed | 9f76810d4bfd9b6ac4590f49d15bc2484fdc6a5f |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
 
-Round 2, reviewed at agent-ix/quire-contract-ir@a4811eab16f0f89208c20ca172291d31344d8f0c (delta from 9f76810d4bfd9b6ac4590f49d15bc2484fdc6a5f; base unchanged).
+Round 2, reviewed at agent-ix/quire-contract-ir (delta from; base unchanged).
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-003 | fixed | a4811eab16f0f89208c20ca172291d31344d8f0c |
+| FND-003 | fixed | Fixed in the reviewed PR. |

@@ -3,7 +3,7 @@ id: SR-8042
 title: "Base spec review of IR-491 table formatting"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@a5f0d9c486b86185e0866d159e35b532d3911ffd; spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4190-4196; IR-491"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4190-4196; IR-491"
 review_set: subset
 ---
 

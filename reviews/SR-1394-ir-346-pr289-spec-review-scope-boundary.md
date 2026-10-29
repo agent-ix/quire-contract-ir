@@ -3,7 +3,7 @@ id: SR-1394
 title: "scope-boundary review of PR 289 (AD-007 decisions and routing)"
 type: SpecReview
 analysis: scope-boundary
-scope: "agent-ix/quire-contract-ir@cb94d57e427dd1154a442b8ba7ba0461e99443e1; spec/assurance/AD-007-cross-repo-dependency-graph.md (System Boundary, Decisions A-D, invariants G-1..G-5, O-1..O-3, routed gaps R-1..R-4 and the RT, CG and IR-owned routing lines)"
+scope: "agent-ix/quire-contract-ir; spec/assurance/AD-007-cross-repo-dependency-graph.md (System Boundary, Decisions A-D, invariants G-1..G-5, O-1..O-3, routed gaps R-1..R-4 and the RT, CG and IR-owned routing lines)"
 review_set: subset
 ---
 # SR-1394: scope-boundary review of PR 289
@@ -33,8 +33,8 @@ the AD's decisions stay inside IR's boundary and agree with R-1.
 
 ## Dispositions
 
-Re-reviewed at agent-ix/quire-contract-ir@568adea9219264dec13494a3b3fdb10174784845. Decision C's cited source is real: QSL `Cargo.toml` lines 81-83 say "one-copy-deps (agent-ix org-wide, IR #225/RT #88): branch = \"main\", no rev". CG's and RT's first-party edges are all `branch = "main"` with no `rev`. No new findings in this lens.
+Re-reviewed at agent-ix/quire-contract-ir. Decision C's cited source is real: QSL `Cargo.toml` lines 81-83 say "one-copy-deps (agent-ix org-wide, IR #225/RT #88): branch = \"main\", no rev". CG's and RT's first-party edges are all `branch = "main"` with no `rev`. No new findings in this lens.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 568adea9219264dec13494a3b3fdb10174784845: decision C is scoped to IR's position on IR, CG and RT edges, with QSL's edges a routed recommendation (R-1, "QSL's call"); G-1..G-5 are framed as targets proposed to each owner |
+| FND-001 | fixed |: decision C is scoped to IR's position on IR, CG and RT edges, with QSL's edges a routed recommendation (R-1, "QSL's call"); G-1..G-5 are framed as targets proposed to each owner |

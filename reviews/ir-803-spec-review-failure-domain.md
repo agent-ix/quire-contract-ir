@@ -3,7 +3,7 @@ id: SR-11663
 title: IR-803 failure-domain review of the typed composite operator on the composite operand accessor
 type: SpecReview
 analysis: failure-domain
-scope: agent-ix/quire-contract-ir@9c2a2fe0550f18dad6e8313f9588c0cea52af6ef (PR 407, diff vs origin/main 055ad1f); spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
+scope: agent-ix/quire-contract-ir (PR 407, diff vs origin/main ); spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
   spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md
 review_set: subset
 ---
@@ -50,7 +50,7 @@ bindings: []
 
 ## Disposition round 1 verdict
 
-Reviewed 81ddbb6046a6b5f063e80624ab874366b08f053c (diff 9c2a2fe..81ddbb6). There were no findings, so there is nothing to disposition. Re-checked against the fix diff:
+Reviewed (diff..). There were no findings, so there is nothing to disposition. Re-checked against the fix diff:
 - The scoped refusal sentence keeps the node, application, occurrence, operation order.
 - The work-charge sentence is unchanged.
 - AC-246's allowed differences (operator, application identity and occurrence) match what the accessor returns.

@@ -3,7 +3,7 @@ id: SR-1272
 title: "gap analysis of PR 286 (IR-551 FR-038-AC-119 through AC-122 to tests)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@65a034d7b14d64c150646ebef77f8403b9e3257d; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md, spec/tests.md, tests/it/checked_package_v2_temporal.rs, crates/quire-contract-model/src/checked_package/v2/natural.rs"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md, spec/tests.md, tests/it/checked_package_v2_temporal.rs, crates/quire-contract-model/src/checked_package/v2/natural.rs"
 review_set: subset
 ---
 # SR-1272: gap analysis of PR 286
@@ -13,11 +13,11 @@ review_set: subset
 Ticket: IR-551. This review maps FR-038-AC-119 through AC-122 and TC-048 "Timed interval
 form" to the tests, checks the planned-to-implemented flips, and measures how strong the
 test oracles are. It was done by hand (quoin 0.24.1, spec-artifacts-process@v0.26.0)
-over `git diff origin/main...HEAD` at 65a034d. Sources read: the merged spec (the
+over `git diff origin/main...HEAD`. Sources read: the merged spec (the
 FR-038 member rule "The timed interval form" with its stages 1 to 5, AC-104,
 AC-119..AC-122, the Path and locus rows, AC-3) and merged QSpec FR-370 (AC-3, AC-8,
 AC-9), FR-322 (AC-10; lines 810-811 on the order of checks) and the schema's
-`NonNegativeRational`, all at quire-specification origin/main 2f846f8.
+`NonNegativeRational`, all at quire-specification origin/main.
 
 Criterion by criterion:
 
@@ -52,7 +52,7 @@ Criterion by criterion:
   five Path rows and the AC-119..122 rows; TC-048 intro and section; the FR-038 and TC-048
   matrix rows; and `spec/tests.md`. A repo-wide grep for "IR-551" planned wording,
   "until that code", `NullOnly` and `IntervalFit::Any` finds nothing.
-  `quire coverage --scope . --strict` gives 23 unbacked rows at both the base 4762ce2 and
+  `quire coverage --scope. --strict` gives 23 unbacked rows at both the and
   the head. FR-038 goes from 115/119 to 119/119, so AC-119 to AC-122 are now backed; they
   were never in the unbacked list because they were planned rows. Total coverage moves
   from 260/285 to 264/285. `quire validate` passes with one grammar finding (FR-014,
@@ -85,17 +85,17 @@ consistent: 23 unbacked rows before and after, and FR-038 at 119/119.
 
 ## Dispositions
 
-Round 1, reviewed at 4ce54d157870be2ae3acc00bf5d2e731db184fd8.
+Round 1, reviewed.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 4ce54d1. AC-120 and FR-038 stage 1 now read "in strict wire validation, before the `package_id` recomputation, any node-key check and any temporal step (so also in a package whose `package_id` and node ids are all stale)". The code meets this (SR-1271 FND-001). The new test `tc_048_a_bound_outside_the_pattern_is_refused_ahead_of_every_identity_check` is a real oracle: a control with good bounds refuses at the identity check (`stale-node-key` at the root's `node_id` when everything is stale, `stale_dependency` when only `package_id` is stale), and timed and integer bad bounds refuse `invalid-value` at the bound in both stale shapes. It fails when the check is moved after `package_id` |
-| FND-002 | fixed | 4ce54d1. `tc_048_the_first_non_reduced_bound_is_the_lower_digest_nodes` builds two non-reduced nodes in both digest arrangements, asserts the arrangement, and expects the lower-digest node. The position-order mutant now fails it |
-| FND-003 | fixed | 4ce54d1. The AC-121 fit-defect case now builds both arrangements (fit node lower and higher digest) and asserts each. The AC-120 cross-node test asserts `root < added` (position, as the AC words it), and TC-048 now says "the first node ... a later node, and the two swapped". Moving lowest terms after the temporal step still fails the AC-121 test |
+| FND-001 | fixed |. AC-120 and FR-038 stage 1 now read "in strict wire validation, before the `package_id` recomputation, any node-key check and any temporal step (so also in a package whose `package_id` and node ids are all stale)". The code meets this (SR-1271 FND-001). The new test `tc_048_a_bound_outside_the_pattern_is_refused_ahead_of_every_identity_check` is a real oracle: a control with good bounds refuses at the identity check (`stale-node-key` at the root's `node_id` when everything is stale, `stale_dependency` when only `package_id` is stale), and timed and integer bad bounds refuse `invalid-value` at the bound in both stale shapes. It fails when the check is moved after `package_id` |
+| FND-002 | fixed |. `tc_048_the_first_non_reduced_bound_is_the_lower_digest_nodes` builds two non-reduced nodes in both digest arrangements, asserts the arrangement, and expects the lower-digest node. The position-order mutant now fails it |
+| FND-003 | fixed |. The AC-121 fit-defect case now builds both arrangements (fit node lower and higher digest) and asserts each. The AC-120 cross-node test asserts `root < added` (position, as the AC words it), and TC-048 now says "the first node... a later node, and the two swapped". Moving lowest terms after the temporal step still fails the AC-121 test |
 
-Round 2, reviewed at 43646a2b3fca1c475de55718d5307217840a6e57.
+Round 2, reviewed.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-004 | fixed | 43646a2. `tc_048_a_bound_outside_the_pattern_is_refused_ahead_of_every_identity_check` now carries `#[trace("TC-048", "FR-038-AC-97", "FR-038-AC-120")]` and a matching "Tracing:" line. Its integer stale-identity cases back AC-97's "before any identity check" clause. TC-048's matrix row already lists FR-038-AC-97. Strict coverage: 23 unbacked rows, FR-038 119/119 |
+| FND-004 | fixed |. `tc_048_a_bound_outside_the_pattern_is_refused_ahead_of_every_identity_check` now carries `#[trace("TC-048", "FR-038-AC-97", "FR-038-AC-120")]` and a matching "Tracing:" line. Its integer stale-identity cases back AC-97's "before any identity check" clause. TC-048's matrix row already lists FR-038-AC-97. Strict coverage: 23 unbacked rows, FR-038 119/119 |
 

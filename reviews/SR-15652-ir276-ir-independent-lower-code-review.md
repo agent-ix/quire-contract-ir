@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #517 at 7d6e7dc against c629e2b, including the shared candidate builder, one-key package assembly, byte-ceiling failure path, and test controls. Ticket: IR-276. No code or Rust defect was found in the changed lines.
+Reviewed PR #517, including the shared candidate builder, one-key package assembly, byte-ceiling failure path, and test controls. Ticket: IR-276. No code or Rust defect was found in the changed lines.
 
 ## Verdict
 

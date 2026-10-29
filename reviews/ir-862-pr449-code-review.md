@@ -3,7 +3,7 @@ id: SR-12177
 title: "IR-862 code and Rust review of IR PR 449"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir PR 449, ed35c89..785593f; tests/it/checked_package_v2_model_members.rs and FR-038-AC-236 through FR-038-AC-238"
+scope: "agent-ix/quire-contract-ir PR 449..; tests/it/checked_package_v2_model_members.rs and FR-038-AC-236 through FR-038-AC-238"
 review_set: subset
 ---
 

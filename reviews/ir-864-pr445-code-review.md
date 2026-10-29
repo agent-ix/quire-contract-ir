@@ -3,7 +3,7 @@ id: SR-12360
 title: "IR-864 code and Rust review of IR PR 445"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir PR 445, 09bea8a..24261e0; ten tests/it Rust files"
+scope: "agent-ix/quire-contract-ir PR 445..; ten tests/it Rust files"
 review_set: subset
 ---
 

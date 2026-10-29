@@ -3,7 +3,7 @@ id: SR-600006
 title: "IR-874 PR 587 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; PR #587 f14f62f402adf78a385914589a27079b469085d5; crates/quire-contract-model/src/checked_package/shared.rs, crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, tests/it/checked_package_v2_protocol_body.rs"
+scope: "agent-ix/quire-contract-ir; PR #587; crates/quire-contract-model/src/checked_package/shared.rs, crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, tests/it/checked_package_v2_protocol_body.rs"
 review_set: subset
 ---
 
@@ -40,25 +40,25 @@ The changed files add no CI or gate edits, unsafe code, wire decoder, or depende
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At db4fa435, `known` is explicitly `BTreeMap<usize, Vec<ProtocolBinderOrigin>>`, and the index comparison is `index > usize::from(activation.is_some())`; both cited source defects are removed. Exact-head hosted Rust Checks are pending. |
-| FND-002 | fixed | At db4fa435, the terminal readable set starts empty and inserts `over` and captures only for `origin`; the new public-reader test admits `origin` over and requires `missing_declaration`/`missing-name`, stage `terminal`, for the same read under `each`. Exact-head hosted execution is pending. |
+| FND-001 | fixed |, `known` is explicitly `BTreeMap<usize, Vec<ProtocolBinderOrigin>>`, and the index comparison is `index > usize::from(activation.is_some)`; both cited source defects are removed. Exact-head hosted Rust Checks are pending. |
+| FND-002 | fixed |, the terminal readable set starts empty and inserts `over` and captures only for `origin`; the new public-reader test admits `origin` over and requires `missing_declaration`/`missing-name`, stage `terminal`, for the same read under `each`. Exact-head hosted execution is pending. |
 
 ## Disposition verdict
 
-**PASS for recorded code findings at db4fa435** — the changed source and tests address both findings. Hosted Rust Checks are pending, so this is not final gate evidence. FR-038-AC-291/292 remain Planned.
+**PASS for recorded code findings ** — the changed source and tests address both findings. Hosted Rust Checks are pending, so this is not final gate evidence. FR-038-AC-291/292 remain Planned.
 
 ## Verification after hosted regression fix
 
-Hosted Rust Checks at b6ff93a compiled but failed 13 tests, including previously admitted protocol fixtures, the new terminal test, and two work-boundary tests. At 98e826a4, production code is unchanged from db4fa435. The fix adjusts fixture binder levels to their new readable entry counts, keeps the valid related-end admission assertion, and changes only the added peer-end case to the required `missing_declaration`/`missing-name` scope refusal. Static review found no new code finding. The exact-head hosted Rust Checks are pending.
+Hosted Rust Checks compiled but failed 13 tests, including previously admitted protocol fixtures, the new terminal test, and two work-boundary tests., production code is unchanged from. The fix adjusts fixture binder levels to their new readable entry counts, keeps the valid related-end admission assertion, and changes only the added peer-end case to the required `missing_declaration`/`missing-name` scope refusal. Static review found no new code finding. The exact-head hosted Rust Checks are pending.
 
 ## Verification after second hosted regression fix
 
-Hosted Rust Checks at 98e826a4 ran 915 tests and failed three: a duplicate parameter node ID in the sibling-branch compensation fixture, a receive binder at sequence rather than parallel-branch entry level, and the Tree work-boundary pointer. At b6d5b251, production code remains unchanged. `clause_parameter` reuses an existing node with the same structural key, the independent parallel receive binder is relevelled from 2 to 1, and the Tree fixture restores its dependency charge at 489/490 while retaining total M=549. The related-record test again admits two distinct canonically ordered records by introducing the peer binder in an earlier event and the send binder at level 2. Static review found no new code finding. Exact-head hosted Rust Checks remain pending.
+Hosted Rust Checks ran 915 tests and failed three: a duplicate parameter node ID in the sibling-branch compensation fixture, a receive binder at sequence rather than parallel-branch entry level, and the Tree work-boundary pointer., production code remains unchanged. `clause_parameter` reuses an existing node with the same structural key, the independent parallel receive binder is relevelled from 2 to 1, and the Tree fixture restores its dependency charge at 489/490 while retaining total M=549. The related-record test again admits two distinct canonically ordered records by introducing the peer binder in an earlier event and the send binder at level 2. Static review found no new code finding. Exact-head hosted Rust Checks remain pending.
 
 ## Verification after measured Tree boundary
 
-The diagnostic 2eed08ca hosted run passed 914 tests and failed only TC-226's Tree pointer assertion. Its printed charge sequence measured Tree dependency at 536/537 and final body target at 543/544. At 21706686, the diagnostic print loop is removed, parameter-key reuse is in `relevel_parameter` where it belongs, and TC-226's authored constants match those measured boundaries: 453 pre-scope charges plus 47 new scope charges and 37 Tree charges give dependency 536/537; seven remaining charges give admitted M=544. No production source or gate changed. Static review found no new code finding; exact-head hosted Rust Checks remain pending.
+The diagnostic hosted run passed 914 tests and failed only TC-226's Tree pointer assertion. Its printed charge sequence measured Tree dependency at 536/537 and final body target at 543/544., the diagnostic print loop is removed, parameter-key reuse is in `relevel_parameter` where it belongs, and TC-226's authored constants match those measured boundaries: 453 pre-scope charges plus 47 new scope charges and 37 Tree charges give dependency 536/537; seven remaining charges give admitted M=544. No production source or gate changed. Static review found no new code finding; exact-head hosted Rust Checks remain pending.
 
 ## Final exact-head verification
 
-At authored code head 2170668603c86f34149ba105f08fc6f839364e27, hosted Rust Checks, Supply-chain Checks, guard, CLA and language-boundary checks passed. The original FND-001 and FND-002 remain fixed, and the hosted suite now passes the previously failing protocol and Tree tests. **Final disposition: PASS** for this PR diff. The full FR-038-AC-291/292 criteria remain Planned beyond this binder slice.
+At authored code, hosted Rust Checks, Supply-chain Checks, guard, CLA and language-boundary checks passed. The original FND-001 and FND-002 remain fixed, and the hosted suite now passes the previously failing protocol and Tree tests. **Final disposition: PASS** for this PR diff. The full FR-038-AC-291/292 criteria remain Planned beyond this binder slice.

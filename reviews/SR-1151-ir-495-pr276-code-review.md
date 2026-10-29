@@ -3,7 +3,7 @@ id: SR-1151
 title: "code review of PR 276 (spec-only diff)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@dd407ae54c8e813c9d6e8efb97d6d435d6947ec1; git diff origin/main...HEAD (base e6fc881e6315c9763d1783e152dc1ed59e070427): spec/assurance/AD-004-checked-package-seam.md, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD : spec/assurance/AD-004-checked-package-seam.md, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md"
 review_set: base
 ---
 # SR-1151: code review of PR 276

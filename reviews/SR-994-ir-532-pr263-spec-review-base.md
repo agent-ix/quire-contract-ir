@@ -3,7 +3,7 @@ id: SR-994
 title: "spec review of PR 263 (FR-038 operation-law ACs AC-81 to AC-88)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@376269e0d67ee1451ee9629dbe897c06a8a730de; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (sections Application node keys, Operation identity, laws, mode, member and operands; FR-038-AC-81 to AC-88), spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md (FR-038 and TC-048 rows); checked against crates/quire-contract-model/src/checked_package/v2/operations.rs at the same sha, QSpec FR-322 and the checked-package v2 schema (quire-specification origin/main), and QSL qsl-semantics node_key tests and FR-092 (quire-spec-language origin/main)"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (sections Application node keys, Operation identity, laws, mode, member and operands; FR-038-AC-81 to AC-88), spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md (FR-038 and TC-048 rows); checked against crates/quire-contract-model/src/checked_package/v2/operations.rs at the same sha, QSpec FR-322 and the checked-package v2 schema (quire-specification origin/main), and QSL qsl-semantics node_key tests and FR-092 (quire-spec-language origin/main)"
 review_set: base
 ---
 # SR-994: spec review of PR 263
@@ -15,7 +15,7 @@ prose sections, eight planned ACs (AC-81 to AC-88), a TC-048 procedure section a
 the matching tests.md rows. The aim is to give owning ACs to the untraced
 operation-law unit tests in `operations.rs`.
 
-Enumeration, measured at origin/main (9631d7e; main has since moved to 7d7716d,
+Enumeration, measured at origin/main (; main has since moved to,
 a reviews-only commit, and the PR merges clean onto it):
 
 - `operations.rs` has 61 `#[test]`. 37 carry `#[trace]` (AC-43, AC-44, AC-70,
@@ -81,24 +81,24 @@ AC-68, and AC-88 claims a QSL vector that does not exist. Suggested fixes:
 
 ## New findings (disposition pass 1)
 
-Reviewed at agent-ix/quire-contract-ir@9d4379bea459d7a30bc277ecbdaa72bae08d9bac.
+Reviewed at agent-ix/quire-contract-ir.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-009 | low | The omission leniency is called tracked as an existing defect, but no IR ticket exists for it (Linear search, 2026-10-03), and the other three stated deviations (reversed mode-type/operator-ineligible pair, body-root-only operation check and keying, binding-only mode pin) name no ticket either. File the tickets and cite them, or drop the word tracked. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:937-941 |
-| FND-010 | low | The Mode bullet attributes the unbound exact rounding pin to QSpec FR-322. FR-322 (c76c6ae, lines 160-162) says only that the value equals the single value pinned by the operand and result types; the exact default for an omitted rounding spelling is QSpec AD-005 line 65 and FR-140 line 40. Cite those for the exact part. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:963-966 |
+| FND-010 | low | The Mode bullet attributes the unbound exact rounding pin to QSpec FR-322. FR-322 (, lines 160-162) says only that the value equals the single value pinned by the operand and result types; the exact default for an omitted rounding spelling is QSpec AD-005 line 65 and FR-140 line 40. Cite those for the exact part. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:963-966 |
 
 ## Dispositions
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 9d4379b |
-| FND-002 | fixed | 9d4379b |
-| FND-003 | fixed | 9d4379b |
-| FND-004 | fixed | 9d4379b |
-| FND-005 | fixed | 9d4379b |
-| FND-006 | fixed | 9d4379b |
-| FND-007 | fixed | 9d4379b |
-| FND-008 | fixed | 9d4379b |
-| FND-009 | fixed | cfb815d |
-| FND-010 | rejected | Not a defect: QSpec FR-322 at c76c6ae line 684 states 'a type without a `rounding` binding pins `exact`' (and line 682 that the result type pins too), so the original attribution to FR-322 was right; the AD-005/FR-140 citation the author added for the strict default is accurate and harmless. |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |
+| FND-004 | fixed | Fixed in the reviewed PR. |
+| FND-005 | fixed | Fixed in the reviewed PR. |
+| FND-006 | fixed | Fixed in the reviewed PR. |
+| FND-007 | fixed | Fixed in the reviewed PR. |
+| FND-008 | fixed | Fixed in the reviewed PR. |
+| FND-009 | fixed | Fixed in the reviewed PR. |
+| FND-010 | rejected | Not a defect: QSpec FR-322 line 684 states 'a type without a `rounding` binding pins `exact`' (and line 682 that the result type pins too), so the original attribution to FR-322 was right; the AD-005/FR-140 citation the author added for the strict default is accurate and harmless. |

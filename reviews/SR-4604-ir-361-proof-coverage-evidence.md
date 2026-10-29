@@ -3,7 +3,7 @@ id: SR-4604
 title: "Evidence review of IR-361 proof coverage"
 type: SpecReview
 analysis: evidence
-scope: "agent-ix/quire-contract-ir@0eca02b43bd14db1411abff447a45eacced9752f; FR-045-AC-1 through AC-6, StR-004-VC-1, TC-446"
+scope: "agent-ix/quire-contract-ir; FR-045-AC-1 through AC-6, StR-004-VC-1, TC-446"
 review_set: subset
 ---
 

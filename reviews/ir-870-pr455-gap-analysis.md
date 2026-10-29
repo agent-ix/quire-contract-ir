@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Diff-scoped PR #455 review at frozen head a08f734bbcc5385e1f5548935d1607cc503fe623. The diff deletes 199 Trace/Tracing doc lines and 42 empty doc lines across 13 integration files. Six deleted Trace lines in output_mapping.rs carry NFR-060 or NFR-061, but the same tests’ #[trace] attributes lack those IDs; 193 other deleted trace lines retain all IDs. Ticket: IR-870.
+Diff-scoped PR #455 review at frozen. The diff deletes 199 Trace/Tracing doc lines and 42 empty doc lines across 13 integration files. Six deleted Trace lines in output_mapping.rs carry NFR-060 or NFR-061, but the same tests’ #[trace] attributes lack those IDs; 193 other deleted trace lines retain all IDs. Ticket: IR-870.
 
 ## Reviewed Scope
 
@@ -48,4 +48,4 @@ Diff and formatting: `git diff --check` and `make fmt-check` passed. Author repo
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | PR #455 head `256bdc80a43701c0a03b22394f8061b6070fc2ee` adds NFR-060 to five same-test `#[trace]` attributes and NFR-061 to one. Independent all-prefix audit: 199 removed trace lines, 415 ID occurrences, zero missing from the same-function attributes. |
+| FND-001 | fixed | PR #455 adds NFR-060 to five same-test `#[trace]` attributes and NFR-061 to one. Independent all-prefix audit: 199 removed trace lines, 415 ID occurrences, zero missing from the same-function attributes. |

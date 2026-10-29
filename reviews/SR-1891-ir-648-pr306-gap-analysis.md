@@ -3,7 +3,7 @@ id: SR-1891
 title: "IR-648 CODE PR #306 gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@221c680d1a0faba4fb53409405c0561bbc6bee73; Cargo.lock, crates/quire-contract-model/Cargo.toml, crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/checked_package/v2/scalar_operands.rs, tests/it/checked_package_v2_model_fields.rs"
+scope: "agent-ix/quire-contract-ir; Cargo.lock, crates/quire-contract-model/Cargo.toml, crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/checked_package/v2/scalar_operands.rs, tests/it/checked_package_v2_model_fields.rs"
 review_set: subset
 ---
 
@@ -23,7 +23,7 @@ PASS for the PR delta. All six new criteria have direct tagged tests, and no cha
 
 ## Coverage
 
-- Reconciliation: `quire matrix --scope . --format json` (no run evidence read); FR-038-AC-159 through FR-038-AC-164 are all `tagged`.
+- Reconciliation: `quire matrix --scope. --format json` (no run evidence read); FR-038-AC-159 through FR-038-AC-164 are all `tagged`.
 - Plan completion: not assessed
 - Criteria in scope: 6 tagged, 0 untagged; repository-wide known strict baseline: 43 unbacked, 0 contradicted.
 - Reverse gaps or stubs in changed code: 0.

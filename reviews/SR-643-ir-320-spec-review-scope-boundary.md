@@ -3,7 +3,7 @@ id: SR-643
 title: "scope-boundary review of PR 236 (IR-320 subsystem boundaries)"
 type: SpecReview
 analysis: scope-boundary
-scope: "agent-ix/quire-contract-ir@92945cd2e400cdd7940e68db7aab21c3291b7395; spec/spec.md Subsystem Registry, spec/{core,model,conformance,checked_package,output_mapping,kani,bridge}/**, src/lib.rs, src/bin/, src/kani/, crates/quire-contract-model/src/"
+scope: "agent-ix/quire-contract-ir; spec/spec.md Subsystem Registry, spec/{core,model,conformance,checked_package,output_mapping,kani,bridge}/**, src/lib.rs, src/bin/, src/kani/, crates/quire-contract-model/src/"
 review_set: subset
 ---
 # SR-643: scope-boundary review of PR 236
@@ -37,5 +37,5 @@ The core, model, conformance, output_mapping and kani boundaries are sound. Two 
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 82d57ba |
-| FND-002 | fixed | 82d57ba |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |

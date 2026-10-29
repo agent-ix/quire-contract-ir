@@ -3,7 +3,7 @@ id: SR-653
 title: "gap analysis of PR 239 against IR-324 (QSpec to IR seam AD)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@a7924dc2c05d421e4323a28373dc0c546ec9917a; spec/assurance/AD-004-checked-package-seam.md, spec/spec.md"
+scope: "agent-ix/quire-contract-ir; spec/assurance/AD-004-checked-package-seam.md, spec/spec.md"
 review_set: subset
 ---
 # SR-653: gap analysis of PR 239 against IR-324
@@ -39,4 +39,4 @@ and QSpec routing review.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | dbf1475: "`package_id` is the package's content identity". The other wire digests are listed as "QSpec-owned identities of the package's parts, and IR adds none" |
+| FND-001 | fixed |: "`package_id` is the package's content identity". The other wire digests are listed as "QSpec-owned identities of the package's parts, and IR adds none" |

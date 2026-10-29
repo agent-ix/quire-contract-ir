@@ -3,7 +3,7 @@ id: SR-838
 title: "gap analysis of PR 261 (IR-533 encode the v2 wire types through quire-canonical)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@82e60e791442a63426f7a739a8cb9256aa0aa8f8; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/model/functional/FR-019-rust-library-interface.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md, crates/quire-contract-model/src/checked_package/v2/encode.rs, crates/quire-contract-model/src/checked_package/common.rs, tests/it/checked_package_v2_canonical_encoding.rs"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/model/functional/FR-019-rust-library-interface.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md, crates/quire-contract-model/src/checked_package/v2/encode.rs, crates/quire-contract-model/src/checked_package/common.rs, tests/it/checked_package_v2_canonical_encoding.rs"
 review_set: subset
 ---
 # SR-838: gap analysis of PR 261
@@ -11,8 +11,8 @@ review_set: subset
 ## Summary
 
 Ticket: IR-533. Plan completion: not assessed. This review checks the merged spec (#258,
-squash a41c0e5f7360d37b8a3ce740108d8077329b36c8) against the code and tests at
-82e60e791442a63426f7a739a8cb9256aa0aa8f8. It covers FR-038 "Canonical encoding of the
+squash ) against the code and tests at
+. It covers FR-038 "Canonical encoding of the
 wire types" with its per-type table, "Canonical bytes are quire-canonical's bytes", the
 FR-019 paragraph, FR-038-AC-74 through FR-038-AC-80, and TC-048 "Canonical encoding".
 
@@ -59,7 +59,7 @@ depth blocker, and send the merge SHA to QSL) belong to the lead, not to code ac
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | FR-038's first bullet ("An integer whose magnitude exceeds 2^53 anywhere in the document ... refuses `noncanonical_wire`") has no test past the `i64`/`u64` range. The implementation does not satisfy it there: `100000000000000000000` passes the canonical-bytes check and then refuses with a grammar or identity code (SR-837 FND-001, reproduced). FR-038-AC-79 names only ±9007199254740993, so the AC passes while the FR statement is contradicted. Add the case to AC-79's test (and to the AC text if the spec is amended to define "integer" by token) | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:400, tests/it/checked_package_v2_canonical_encoding.rs:632 |
+| FND-001 | medium | FR-038's first bullet ("An integer whose magnitude exceeds 2^53 anywhere in the document... refuses `noncanonical_wire`") has no test past the `i64`/`u64` range. The implementation does not satisfy it there: `100000000000000000000` passes the canonical-bytes check and then refuses with a grammar or identity code (SR-837 FND-001, reproduced). FR-038-AC-79 names only ±9007199254740993, so the AC passes while the FR statement is contradicted. Add the case to AC-79's test (and to the AC text if the spec is amended to define "integer" by token) | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:400, tests/it/checked_package_v2_canonical_encoding.rs:632 |
 
 ## Verdict
 
@@ -72,11 +72,11 @@ outside the `u64` range.
 
 ## Dispositions
 
-Round 1 at 0c2508e107b480d51e8ddb718c89d29048253823, rebased onto main
-1042762d0d77e1774d6e3d1c5af1155917f8c8a1.
+Round 1, rebased onto main
+.
 
 FND-001. The FR-038 bullet "An integer whose magnitude exceeds 2^53 anywhere in the
-document ... refuses `noncanonical_wire`" is now backed past the `i64`/`u64` range. The
+document... refuses `noncanonical_wire`" is now backed past the `i64`/`u64` range. The
 backing test is `tc_048_an_integer_spelled_past_the_64_bit_range_is_noncanonical`,
 `#[trace("TC-048", "FR-038-AC-79")]`, a correct binding. It covers four integer spellings
 past 64 bits, each refused `noncanonical_wire` ahead of a stale id and a non-term body.
@@ -88,4 +88,4 @@ review pass after the rebase. No new findings.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 0c2508e107b480d51e8ddb718c89d29048253823 |
+| FND-001 | fixed | Fixed in the reviewed PR. |

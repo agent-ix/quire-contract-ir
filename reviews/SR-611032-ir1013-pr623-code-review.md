@@ -3,7 +3,7 @@ id: SR-611032
 title: "IR-1013 PR 623 code review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; PR #623 at f86ea12e; checked V2 execution-point accessor, exports, FR-019 inventory and TC-462 tests"
+scope: "agent-ix/quire-contract-ir; PR #623; checked V2 execution-point accessor, exports, FR-019 inventory and TC-462 tests"
 review_set: subset
 ---
 

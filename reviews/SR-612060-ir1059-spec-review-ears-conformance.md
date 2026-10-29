@@ -10,7 +10,7 @@ review_set: base
 
 ## Summary
 
-PR #631 at f0aa4f9f; IR-1059. Examined the FR-069 Description and Behavior requirement statements and FR-069-AC-1 through FR-069-AC-8 for testable responses. `quire validate --summary` reported 1/1 document grammar-clean and zero grammar findings. No semantic trigger or response ambiguity found.
+PR #631; IR-1059. Examined the FR-069 Description and Behavior requirement statements and FR-069-AC-1 through FR-069-AC-8 for testable responses. `quire validate --summary` reported 1/1 document grammar-clean and zero grammar findings. No semantic trigger or response ambiguity found.
 
 ## Findings
 

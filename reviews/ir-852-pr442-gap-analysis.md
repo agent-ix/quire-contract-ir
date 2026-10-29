@@ -3,7 +3,7 @@ id: SR-12161
 title: "IR-852 gap analysis of IR PR #442"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@6f0452297d487e0adf8b93a5f53e1e6d4b984e4c; FR-038-AC-269..280, TC-048, tests/it/checked_package_v2_model_members/reaches_population.rs, tests/conformance_qspec/main.rs, crates/quire-contract-model/src/checked_package/{selected_population.rs,v2/reaches_population.rs,v2/operations.rs,v2/structural.rs,v2/relationship_end.rs}"
+scope: "agent-ix/quire-contract-ir; FR-038-AC-269..280, TC-048, tests/it/checked_package_v2_model_members/reaches_population.rs, tests/conformance_qspec/main.rs, crates/quire-contract-model/src/checked_package/{selected_population.rs,v2/reaches_population.rs,v2/operations.rs,v2/structural.rs,v2/relationship_end.rs}"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
@@ -42,7 +42,7 @@ Ticket: IR-852. This planless audit compared FR-038-AC-269 through AC-280, the c
 
 ## Coverage
 
-- Reconciliation: `quire coverage --scope . --strict --json` on PR head and current `origin/main`; the strict command exits 1 for existing unbacked rows.
+- Reconciliation: `quire coverage --scope. --strict --json` on PR head and current `origin/main`; the strict command exits 1 for existing unbacked rows.
 - PR head: 527/584 backed, 43 unbacked, 0 contradicted. Current `origin/main`: 515/584 backed, 39 unbacked, 0 contradicted. The four additional unbacked rows are FR-038-AC-193, AC-194, AC-195, and AC-201: this branch predates IR-861, which added TC-048 to those four Verification cells on main. They are unrelated to AC-269..280; rebasing the conflicting FR-038 file restores the newer cells.
 - FR-038-AC-269 through AC-280: 12/12 tagged in the computed matrix; 13 integration tests and one crate unit test passed in the focused review run.
 - Plan completion: not assessed
@@ -61,7 +61,7 @@ Ticket: IR-852. This planless audit compared FR-038-AC-269 through AC-280, the c
 | FR-038-AC-274 | examined | Implemented (IR-852). A reaches application whose `operation.member.population` names a `model_population` node over an object type other than the declared type of the selected receiver end, including a subtype of that type, is refused by t... |
 | FR-038-AC-275 | examined | Implemented (IR-852). A `quire.op.model.navigate` application whose `operation.member` carries a `population` key that names a node id its `dependencies` list, whatever the node is (an absent node, an integer-range node or a valid populatio... |
 | FR-038-AC-276 | examined | Implemented (IR-852). A reaches or navigate application whose `operation.member.population` is a node id is admitted by the dependency join only when its `dependencies` hold that id in the unique, digest-ascending list; a package that omits... |
-| FR-038-AC-277 | examined | Implemented (IR-852). When `reaches_population` is called twice on an admitted reaches application and on a clone of the admitted package, the results are equal, the package equals its pre-call self and no work is charged; every package of ... |
+| FR-038-AC-277 | examined | Implemented (IR-852). When `reaches_population` is called twice on an admitted reaches application and on a clone of the admitted package, the results are equal, the package equals its pre-call self and no work is charged; every package of... |
 | FR-038-AC-278 | examined | Implemented (IR-852). An external Rust API fixture calls `reaches_population` with `&CheckedNodeId`, binds the result as `Result<Option<CheckedSelectedPopulationSelector>, CheckedReachesPopulationError>` and exhaustively matches `CheckedRea... |
 | FR-038-AC-279 | examined | Implemented (IR-852). A reaches application whose `operation.member.population` names a `model_population` node over the receiver end's declared type with a missing `max`, two `max` members, a `max` that is not an integer `literal`, a negat... |
 | FR-038-AC-280 | examined | Implemented (IR-852). A reaches application with an invalid `population` (a node id absent from the graph, listed in its `dependencies`) and an earlier defect in `check_relationship_member` (an operand 1 that does not conform to the receive... |
@@ -70,5 +70,5 @@ Ticket: IR-852. This planless audit compared FR-038-AC-269 through AC-280, the c
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Verified in 2b798f2; see the after excerpt in the Linear disposition. |
-| FND-002 | fixed | Verified in 2b798f2; see the after excerpt in the Linear disposition. |
+| FND-001 | fixed | Verified in; see the after excerpt in the Linear disposition. |
+| FND-002 | fixed | Verified in; see the after excerpt in the Linear disposition. |

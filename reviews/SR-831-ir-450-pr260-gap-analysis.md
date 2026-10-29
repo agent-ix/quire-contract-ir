@@ -3,7 +3,7 @@ id: SR-831
 title: "gap analysis of PR 260 (IR-450 a quantity at a position requires a bound)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@e7fc7a69a1dfb6632a5a1b0e69be368918d51ffc; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-050-checked-package-v2-lowering.md, spec/checked_package/matrix/tests.md, crates/quire-contract-model/src/checked_package/v2/lower.rs, tests/it/checked_package_v2_require_bounds.rs"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-050-checked-package-v2-lowering.md, spec/checked_package/matrix/tests.md, crates/quire-contract-model/src/checked_package/v2/lower.rs, tests/it/checked_package_v2_require_bounds.rs"
 review_set: subset
 ---
 # SR-831: gap analysis of PR 260
@@ -11,7 +11,7 @@ review_set: subset
 ## Summary
 
 Ticket: IR-450. Plan completion: not assessed. This review checks the merged spec (#257)
-against the code and tests at e7fc7a69a1dfb6632a5a1b0e69be368918d51ffc. It covers the
+against the code and tests. It covers the
 FR-038 quantity paragraph, "unbounded by form", FR-038-AC-8, FR-038-AC-73, TC-050's
 "Quantity positions" procedure and TC-052.
 
@@ -34,7 +34,7 @@ Further tests cover the least key among offenders (`both`), the cyclic chain, an
 also raise.
 
 AC-8 is unchanged and still backed by TC-052. Adding `Unit`/`CompoundUnit` to
-`requires_bound()` breaks TC-052, which is the intended guard against folding a quantity
+`requires_bound` breaks TC-052, which is the intended guard against folding a quantity
 into the eight forms.
 
 The new tests live in `checked_package_v2_require_bounds.rs`. That file already holds 9
@@ -46,7 +46,7 @@ QSL agreement. QSL FR-097-AC-2 says a quantity's domain takes no finite bound. F
 requires IR to raise exactly where QSL's extent is Unbounded. QSL's TC-440 suite was run
 against this head with a `--config patch`. All six `extent_agreement` tests pass with
 `--include-ignored`, including the ignored Measure test. Measure fails against IR main
-7ed352b, so this PR is what closes the IR side. The per-application agreement (a constant
+, so this PR is what closes the IR side. The per-application agreement (a constant
 quantity application lowers) still passes.
 
 Matrix. The FR-038 row moves AC-73 into "AC-70 through AC-73 implemented", deletes the
@@ -69,7 +69,7 @@ one explicit `recursion_group`, and the fixture's `loop_a`/`loop_b` is admitted.
 under `require_bounds`, as it did on main. Ending the walk without a quantity is safe.
 Every node in a cycle is a `bounded_domain` with exactly one `semantic_type`, so no `unit`
 or `compound_unit` lies on it and no quantity is missed. Termination is guaranteed by the
-`closure.len()` bound.
+`closure.len` bound.
 
 ## Findings
 
@@ -86,8 +86,8 @@ edge cases where the code's choice is safe.
 
 ## Dispositions
 
-Round 1 at c3d89a01928d806bba6b0df7859e1eebb72d877b, on main
-a41c0e5f7360d37b8a3ce740108d8077329b36c8.
+Round 1, on main
+.
 
 FR-038's quantity paragraph now says: "The base chain continues through every
 `bounded_domain` form other than `model_population`; a chain that returns to a domain
@@ -106,4 +106,4 @@ TC-050 flip are as in the review pass. No new findings.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | c3d89a01928d806bba6b0df7859e1eebb72d877b |
+| FND-001 | fixed | Fixed in the reviewed PR. |

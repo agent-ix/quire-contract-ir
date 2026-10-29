@@ -3,7 +3,7 @@ id: SR-11791
 title: "IR-574 Slice 3 probe and coverage corpus bounds gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; PR #414 diff origin/main...6741c65: tests/it/conformance.rs, spec/conformance/matrix/tests.md, spec/core/matrix/tests.md; read against FR-011-AC-3, FR-012-AC-6, FR-020-AC-3, FR-023 prose, spec/tests.md"
+scope: "agent-ix/quire-contract-ir; PR #414 diff origin/main...: tests/it/conformance.rs, spec/conformance/matrix/tests.md, spec/core/matrix/tests.md; read against FR-011-AC-3, FR-012-AC-6, FR-020-AC-3, FR-023 prose, spec/tests.md"
 review_set: subset
 ---
 
@@ -11,12 +11,12 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-574. PR: quire-contract-ir#414 at 6741c658514c97043e489c5b74775a4ba04b886a. This is a planless gap analysis, scoped to the PR diff and the criteria it claims. Plan completion: not assessed.
+Ticket: IR-574. PR: quire-contract-ir#414. This is a planless gap analysis, scoped to the PR diff and the criteria it claims. Plan completion: not assessed.
 
 The PR adds one test and makes no production or schema change. The obligation it backs is that probe and coverage corpus inputs refuse an over-2^53 revision or byte offset as `invalid_corpus` at the fixture schema, before any typed decoding. That obligation is stated in two places:
 
 - FR-012-AC-6, for byte offsets, with a pointer to FR-020-AC-3;
-- the FR-023 prose ("The same stage refuses the same value in the probe and coverage inputs of the conformance corpus (FR-020-AC-3) ...").
+- the FR-023 prose ("The same stage refuses the same value in the probe and coverage inputs of the conformance corpus (FR-020-AC-3)...").
 
 The computed matrix (`quoin matrix --json`, quoin 0.28.3) binds the new test to FR-011-AC-3, FR-012-AC-6 and FR-020-AC-3, all with static status `tagged` and no run evidence. That is the expected state for a tagged test that has not been run under evidence capture.
 
@@ -48,7 +48,7 @@ scope:
 - id: FR-012-AC-6
   path: spec/core/functional/FR-012-anchors-clauses-dependencies.md
   role: examined
-  excerpt: "Source spans reject ... a byte offset above 9007199254740992 ... using `invalid_source_span` ... and the probe and coverage inputs of the conformance corpus refuse it `invalid_corpus` at the fixture schema (FR-020-AC-3)."
+  excerpt: "Source spans reject... a byte offset above 9007199254740992... using `invalid_source_span`... and the probe and coverage inputs of the conformance corpus refuse it `invalid_corpus` at the fixture schema (FR-020-AC-3)."
 - id: FR-011-AC-3
   path: spec/core/functional/FR-011-package-identity.md
   role: examined
@@ -64,18 +64,18 @@ scope:
 - id: spec/tests.md#Core-Model
   path: spec/tests.md
   role: examined
-  excerpt: "Whole projections meet the published schema first (`invalid_wire_format` at `projection`, planned FR-023-AC-6); ... FR-023-AC-6 is planned (IR-574)."
+  excerpt: "Whole projections meet the published schema first (`invalid_wire_format` at `projection`, planned FR-023-AC-6);... FR-023-AC-6 is planned (IR-574)."
 ```
 
 ## Dispositions
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Fix commit 46edc40 adds a clause to FR-020-AC-3. Probe clause-reference revisions and coverage trace source, target-span and target revisions and byte offsets above 2^53 are refused as `invalid_corpus` at the fixture input schema, while exactly 2^53 passes. The AC is extended, not weakened: every earlier clause is unchanged. The revision half now has an owning AC, and FR-011-AC-3 correctly stays scoped to the constructors and typed decoders. |
-| FND-002 | fixed | Fix commit 46edc40 updates the `spec/tests.md` Core row to "implemented FR-023-AC-6 in TC-035" and the Model row to "FR-023-AC-6 is implemented in TC-035". Both now agree with the core matrix rows. |
+| FND-001 | fixed | Fix adds a clause to FR-020-AC-3. Probe clause-reference revisions and coverage trace source, target-span and target revisions and byte offsets above 2^53 are refused as `invalid_corpus` at the fixture input schema, while exactly 2^53 passes. The AC is extended, not weakened: every earlier clause is unchanged. The revision half now has an owning AC, and FR-011-AC-3 correctly stays scoped to the constructors and typed decoders. |
+| FND-002 | fixed | Fix updates the `spec/tests.md` Core row to "implemented FR-023-AC-6 in TC-035" and the Model row to "FR-023-AC-6 is implemented in TC-035". Both now agree with the core matrix rows. |
 
 ## New findings (disposition pass 1)
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-003 | low | FR-020-AC-3 is not singular and not in EARS form. It is a compound "Landed with code change B (IR-274): ...; ...; ..." list, and the new clause makes six obligations under one id. The compound shape predates this PR, and the extension follows it. The new clause also reads "target revisions and byte offsets", but a coverage `target` (`RequirementRef`) has no byte offset, so the offsets belong only to source and target-span. Splitting AC-3 and naming the offset members exactly is a spec follow-up. This is non-blocking, and deferral is recommended. | spec/conformance/functional/FR-020-json-conformance-interface.md:136 |
+| FND-003 | low | FR-020-AC-3 is not singular and not in EARS form. It is a compound "Landed with code change B (IR-274):...;...;..." list, and the new clause makes six obligations under one id. The compound shape predates this PR, and the extension follows it. The new clause also reads "target revisions and byte offsets", but a coverage `target` (`RequirementRef`) has no byte offset, so the offsets belong only to source and target-span. Splitting AC-3 and naming the offset members exactly is a spec follow-up. This is non-blocking, and deferral is recommended. | spec/conformance/functional/FR-020-json-conformance-interface.md:136 |

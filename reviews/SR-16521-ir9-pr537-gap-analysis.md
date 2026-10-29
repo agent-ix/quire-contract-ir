@@ -3,7 +3,7 @@ id: SR-16521
 title: "IR-9 PR 537 incremental gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir PR #537 @ dbc2ca9f6e0fddb9860282ab11a6f64d0d8b2622; FR-348-AC-5/7; FR-056-AC-8; TC-459; extension joins and tests"
+scope: "agent-ix/quire-contract-ir PR #537 @; FR-348-AC-5/7; FR-056-AC-8; TC-459; extension joins and tests"
 review_set: subset
 relationships:
   - { target: "ix://agent-ix/quire-contract-ir/FR-348", type: references }

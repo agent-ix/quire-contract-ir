@@ -3,7 +3,7 @@ id: SR-12061
 title: "IR-210 slice A gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@5231586114bf3c83bee5d127cb745ff759f3d4d0; tests/it/expression.rs, crates/quire-contract-model/src/expression.rs, spec/core/stakeholder/StR-001-authoritative-contract.md, spec/core/functional/FR-012-anchors-clauses-dependencies.md, spec/model/functional/FR-013-type-system.md, spec/model/functional/FR-014-expression-semantics.md, spec/model/functional/FR-015-definedness.md, spec/core/non-functional/NFR-002-portability-independence.md"
+scope: "agent-ix/quire-contract-ir; tests/it/expression.rs, crates/quire-contract-model/src/expression.rs, spec/core/stakeholder/StR-001-authoritative-contract.md, spec/core/functional/FR-012-anchors-clauses-dependencies.md, spec/model/functional/FR-013-type-system.md, spec/model/functional/FR-014-expression-semantics.md, spec/model/functional/FR-015-definedness.md, spec/core/non-functional/NFR-002-portability-independence.md"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-014
@@ -14,9 +14,9 @@ relationships:
 
 ## Summary
 
-Ticket: IR-210 (slice A), PR quire-contract-ir#432, head 5231586. Planless gap analysis over the computed Test Matrix. Plan completion: not assessed.
+Ticket: IR-210 (slice A), PR quire-contract-ir#432. Planless gap analysis over the computed Test Matrix. Plan completion: not assessed.
 
-All coverage was measured with quire 0.36.2 (engine 0.50.2) on four trees: the merge base 1bd6749, origin/main 0747970, the PR head, and a combined tree (the PR head with slice B #430's three files at its head 406e8d7). The method was to compare `quire coverage --json` `minted_targets`, `groups` and the per-criterion `coverage_matrix` binders before and after. The strict gate is not enough on its own: it does not count stakeholder VC rows or a row that loses its last tag.
+All coverage was measured with quire 0.36.2 (engine 0.50.2) on four trees: the merge, origin/main, the PR head, and a combined tree (the PR head with slice B #430's three files at its ). The method was to compare `quire coverage --json` `minted_targets`, `groups` and the per-criterion `coverage_matrix` binders before and after. The strict gate is not enough on its own: it does not count stakeholder VC rows or a row that loses its last tag.
 
 **Measured, merge base to PR head:**
 
@@ -35,7 +35,7 @@ All coverage was measured with quire 0.36.2 (engine 0.50.2) on four trees: the m
   - FR-015-AC-7: 3 -> 2 (numeric_policies, rational_literal_guards)
   - NFR-002-AC-4: 2 -> 1 (closed_types)
 - **StR-001-VC-1:** 2 binders -> 1 (`identity.rs` tc_015). It is still backed.
-- **Combined tree (this PR plus #430 at 406e8d7):** rows backed fall to 504/565. FR-014-AC-4, StR-001-VC-1, StR-001-VC-2 and StR-003-VC-1 all flip to unbacked. `quire trace --id StR-001-VC-1` finds no binder. Strict coverage still reads 43. The StR-001-VC-1 part of this comes from this PR and is SR-12060 FND-001.
+- **Combined tree (this PR plus #430 ):** rows backed fall to 504/565. FR-014-AC-4, StR-001-VC-1, StR-001-VC-2 and StR-003-VC-1 all flip to unbacked. `quire trace --id StR-001-VC-1` finds no binder. Strict coverage still reads 43. The StR-001-VC-1 part of this comes from this PR and is SR-12060 FND-001.
 
 **Already fully qualified tests:**
 
@@ -83,7 +83,7 @@ Each reduced-count row was verified still backed, with the remaining binder name
 
 ## Dispositions
 
-Round 1, at head 6b789b9. Re-measured on a tree made of origin/main 2641418 with this head's two expression files on top.
+Round 1. Re-measured on a tree made of origin/main with this head's two expression files on top.
 
 - Rows backed: 507/565.
 - `minted_targets`: the only change is FR-014-AC-4.

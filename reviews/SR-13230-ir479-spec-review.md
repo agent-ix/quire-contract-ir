@@ -4,7 +4,7 @@ title: "IR PR 479 spec review: ContractPackage reader refusal criteria FR-035-AC
 type: SpecReview
 analysis: base
 review_set: subset
-scope: "agent-ix/quire-contract-ir@f5229f01c640aa772fe7ba1c109a3e94dfe75b26; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md, spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md, spec/checked_package/matrix/tests.md (diff origin/main...HEAD)"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md, spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md, spec/checked_package/matrix/tests.md (diff origin/main...HEAD)"
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-035
     type: reviews
@@ -14,7 +14,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-893. PR: agent-ix/quire-contract-ir#479 at f5229f0. Spec-only (three Markdown files).
+Ticket: IR-893. PR: agent-ix/quire-contract-ir#479. Spec-only (three Markdown files).
 
 The PR adds FR-035-AC-12 (missing top-level `source_map`), AC-13 (leading whitespace) and
 AC-14 (first `feature_accounting` record names a different requested node). It adds TC-047
@@ -23,7 +23,7 @@ selected dependency), adds FR-035-AC-2 to TC-047's Traces To, and widens the FR-
 to AC-14. AC-1 to AC-11 are unchanged.
 
 Each claimed behaviour was reproduced against the code with throwaway probe tests in a reviewer
-worktree, over the `mixed_fixture()` wire from `tests/it/complete_v1_contract_package.rs`. The
+worktree, over the `mixed_fixture` wire from `tests/it/complete_v1_contract_package.rs`. The
 reader is `ContractPackageWireV1::read` / `admit` in
 `crates/quire-contract-model/src/checked_package/v2/contract_package.rs:905-971`.
 
@@ -75,11 +75,11 @@ findings are missing "otherwise valid" preconditions. TC-047's own procedure alr
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | FR-035-AC-12 has no "otherwise valid" precondition. It says that any canonical package omitting `source_map` returns `invalid_package`/`""`/`missing_member`. A canonical package with no `source_map` and a different string `contract_version` returns `unknown_contract_version` at `/contract_version`, because the version is checked before `validate_shapes` (contract_package.rs:944-957). A byte limit also returns `Incomplete(Bytes)` first. As written, AC-12 contradicts AC-10's outcome on that input, and a correct reader fails it. AC-10, AC-11, AC-13 and TC-047's own AC-12 step all say "otherwise valid" | spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:163; crates/quire-contract-model/src/checked_package/v2/contract_package.rs:944-957 |
-| FND-002 | medium | FR-035-AC-14's precondition, "canonical ... has a valid recomputed identity", does not exclude the earlier refusals. With the same first-record mismatch plus a dropped `source_map.nodes` entry, the reader returns `/source_map` (`validate_correspondence` runs before `validate_accounting`). With an empty region, it returns `/source_map/nodes/0/occurrences/0/regions/0/start`. The identity clause is also not what decides the outcome: accounting is validated before identity, and a stale identity still yields `/feature_accounting`. The criterion should say "otherwise valid canonical" (the identity may be recomputed or not) | spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:165; crates/quire-contract-model/src/checked_package/v2/contract_package.rs:964-967 |
+| FND-002 | medium | FR-035-AC-14's precondition, "canonical... has a valid recomputed identity", does not exclude the earlier refusals. With the same first-record mismatch plus a dropped `source_map.nodes` entry, the reader returns `/source_map` (`validate_correspondence` runs before `validate_accounting`). With an empty region, it returns `/source_map/nodes/0/occurrences/0/regions/0/start`. The identity clause is also not what decides the outcome: accounting is validated before identity, and a stale identity still yields `/feature_accounting`. The criterion should say "otherwise valid canonical" (the identity may be recomputed or not) | spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md:165; crates/quire-contract-model/src/checked_package/v2/contract_package.rs:964-967 |
 
 ## Dispositions
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Round 1, fix commit 3263d76: AC-12 now reads "Given an otherwise valid canonical `ContractPackageWireV1` that omits any of its six required top-level members". The wrong-version counterexample is outside its precondition |
-| FND-002 | fixed | Round 1, fix commit 3263d76: AC-14 now reads "Given an otherwise valid canonical `ContractPackageWireV1` except that its first `feature_accounting` record names ...", and the identity clause is gone. Earlier source_map refusals are excluded |
+| FND-001 | fixed | Round 1, fix: AC-12 now reads "Given an otherwise valid canonical `ContractPackageWireV1` that omits any of its six required top-level members". The wrong-version counterexample is outside its precondition |
+| FND-002 | fixed | Round 1, fix: AC-14 now reads "Given an otherwise valid canonical `ContractPackageWireV1` except that its first `feature_accounting` record names...", and the identity clause is gone. Earlier source_map refusals are excluded |

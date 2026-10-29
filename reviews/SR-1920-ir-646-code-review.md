@@ -3,7 +3,7 @@ id: SR-1920
 title: IR-646 PR 304 code-review review
 type: SpecReview
 analysis: code-review
-scope: agent-ix/quire-contract-ir@770969577284fc1b2b063805f1d20cf51e751125; crates/quire-contract-model/src/checked_package/v2/encode.rs,
+scope: agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/encode.rs,
   crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/checked_package/v2/owner.rs,
   spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md,
   spec/checked_package/matrix/TC-228-checked-package-v2-wire-owner-and-lock-joins.md,

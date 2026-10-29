@@ -3,7 +3,7 @@ id: SR-760
 title: "base and correctness review of PR 252 (IR-534 selections bind by identity)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@31d2f9654bd4136ae64c1500074ce01793382af8; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (classes 1-4, ModelOwner, Selections bind by identity, step 1, Dependency selections, AC-2/10/19/20/27/31/32/45/62/63/64); QSpec origin/main proposals/checked-package-v2/schema.json, FR-322, FR-321, FR-154; crates/quire-contract-model/src/checked_package/v2/{mod.rs,model_members.rs,dependency_references.rs}"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (classes 1-4, ModelOwner, Selections bind by identity, step 1, Dependency selections, AC-2/10/19/20/27/31/32/45/62/63/64); QSpec origin/main proposals/checked-package-v2/schema.json, FR-322, FR-321, FR-154; crates/quire-contract-model/src/checked_package/v2/{mod.rs,model_members.rs,dependency_references.rs}"
 review_set: subset
 ---
 # SR-760: base and correctness review of PR 252 (IR-534 selections bind by identity)
@@ -53,10 +53,10 @@ Three medium gaps remain:
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir@a1f44f02c78fa786dc3e5582a45f46a069d74bd5 (delta from 31d2f9654bd4136ae64c1500074ce01793382af8; base origin/main eedc378d7fe879e0d107e04318773528f9595422 unchanged; merge clean). `make spec` at round 1: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/204 rows backed, FR-038 42/62. No new finding.
+Round 1, reviewed at agent-ix/quire-contract-ir (delta from; base origin/main unchanged; merge clean). `make spec` at round 1: validate passes, 1 grammar finding (baseline), 23 strict unbacked rows (baseline), 163/204 rows backed, FR-038 42/62. No new finding.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | a1f44f02c78fa786dc3e5582a45f46a069d74bd5 |
-| FND-002 | fixed | a1f44f02c78fa786dc3e5582a45f46a069d74bd5 |
-| FND-003 | fixed | a1f44f02c78fa786dc3e5582a45f46a069d74bd5 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |

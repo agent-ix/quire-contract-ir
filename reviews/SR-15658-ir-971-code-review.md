@@ -3,7 +3,7 @@ id: SR-15658
 title: "Code and Rust review — IR-971 retained operand interpreters"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir PR #518 at f7f556106a691dde762fe92b9d8a1cbee401cef0; ten changed crates/quire-contract-model/src/checked_package Rust files and relevant tests"
+scope: "agent-ix/quire-contract-ir PR #518; ten changed crates/quire-contract-model/src/checked_package Rust files and relevant tests"
 review_set: subset
 ---
 
@@ -23,7 +23,7 @@ Reviewed the ten changed Rust files and their focused tests against retained typ
 
 ## Rust review
 
-Inspected retained application and nested term selection, scalar V1 on-demand decoding and range classification, comparison refusal order, composite work charges, selected population identity and maximum, relationship-end and reaches population selection, and synthetic fixture mutations. No new unsafe, panic, unchecked conversion, unbounded walk, or test-only production seam was found. The raw population helper remains at the reader admission edge. `git diff --check a693f49...f7f5561` passed. Aggregate gates were not run in this reviewer lane.
+Inspected retained application and nested term selection, scalar V1 on-demand decoding and range classification, comparison refusal order, composite work charges, selected population identity and maximum, relationship-end and reaches population selection, and synthetic fixture mutations. No new unsafe, panic, unchecked conversion, unbounded walk, or test-only production seam was found. The raw population helper remains at the reader admission edge. `git diff --check...` passed. Aggregate gates were not run in this reviewer lane.
 
 ## Scope
 

@@ -3,7 +3,7 @@ id: SR-11790
 title: "IR-574 Slice 3 probe and coverage corpus bounds tests code review (with Rust review)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; PR #414 diff origin/main...6741c65: tests/it/conformance.rs, spec/conformance/matrix/tests.md, spec/core/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir; PR #414 diff origin/main...: tests/it/conformance.rs, spec/conformance/matrix/tests.md, spec/core/matrix/tests.md"
 review_set: subset
 ---
 
@@ -11,7 +11,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-574. PR: quire-contract-ir#414 at 6741c658514c97043e489c5b74775a4ba04b886a. The PR changes three files, adding 138 lines and removing 7. It contains tests and matrix rows only. This is one pass of code review with the rust-review lane folded in, scoped to the PR diff.
+Ticket: IR-574. PR: quire-contract-ir#414. The PR changes three files, adding 138 lines and removing 7. It contains tests and matrix rows only. This is one pass of code review with the rust-review lane folded in, scoped to the PR diff.
 
 The PR adds `tc_018_probe_and_coverage_bounds_fail_at_the_fixture_schema`, traced to TC-015, TC-018, FR-011-AC-3, FR-012-AC-6 and FR-020-AC-3. For each of six members, the test writes 2^53+1 and then `u64::MAX` into a scratch copy of the corpus, runs the runner, and asserts all of the following:
 
@@ -84,11 +84,11 @@ scope:
 - id: FR-020-AC-3
   path: spec/conformance/functional/FR-020-json-conformance-interface.md
   role: examined
-  excerpt: "the package schema accepts a revision and a byte offset of `9007199254740992` and rejects `9007199254740993`; a decoder fixture that supplies a JSON number in one of the eight members straight to the decoder returns `invalid_wire_format` ... while the same number in a valid-operation input is `invalid_corpus` at the schema check"
+  excerpt: "the package schema accepts a revision and a byte offset of `9007199254740992` and rejects `9007199254740993`; a decoder fixture that supplies a JSON number in one of the eight members straight to the decoder returns `invalid_wire_format`... while the same number in a valid-operation input is `invalid_corpus` at the schema check"
 - id: FR-012-AC-6
   path: spec/core/functional/FR-012-anchors-clauses-dependencies.md
   role: examined
-  excerpt: "Source spans reject ... a byte offset above 9007199254740992 ... using `invalid_source_span` ... and the probe and coverage inputs of the conformance corpus refuse it `invalid_corpus` at the fixture schema (FR-020-AC-3)."
+  excerpt: "Source spans reject... a byte offset above 9007199254740992... using `invalid_source_span`... and the probe and coverage inputs of the conformance corpus refuse it `invalid_corpus` at the fixture schema (FR-020-AC-3)."
 - id: FR-011-AC-3
   path: spec/core/functional/FR-011-package-identity.md
   role: examined
@@ -96,11 +96,11 @@ scope:
 - id: FR-023-AC-6
   path: spec/model/functional/FR-023-executable-projection-binding.md
   role: context_only
-  excerpt: "A projection whose ... revision ... or expression byte offset is 9007199254740993 (and, for each, `u64::MAX`) is refused `invalid_wire_format` at path `projection` ..."
+  excerpt: "A projection whose... revision... or expression byte offset is 9007199254740993 (and, for each, `u64::MAX`) is refused `invalid_wire_format` at path `projection`..."
 - id: tc_018_probe_and_coverage_bounds_fail_at_the_fixture_schema
   path: tests/it/conformance.rs
   role: examined
-  excerpt: "for value in [BOUND + 1, u64::MAX] { ... assert_eq!(error[\"code\"], \"invalid_corpus\"); assert_eq!(error[\"path\"], format!(\"fixtures.{fixture}.input\")); assert_eq!(error[\"detail\"], \"instance does not match schema\"); ... decoded.to_string().starts_with(&format!(\"{code} at \")) }"
+  excerpt: "for value in [BOUND + 1, u64::MAX] {... assert_eq!(error[\"code\"], \"invalid_corpus\"); assert_eq!(error[\"path\"], format!(\"fixtures.{fixture}.input\")); assert_eq!(error[\"detail\"], \"instance does not match schema\");... decoded.to_string.starts_with(&format!(\"{code} at \")) }"
 - id: spec/conformance/matrix/tests.md#FR-020
   path: spec/conformance/matrix/tests.md
   role: examined
@@ -115,4 +115,4 @@ scope:
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Fix commit 46edc40. At exactly 2^53, every member is now decoded directly with the public API (`ClauseRef`, `RequirementRef` or `SourceSpan`), with the other endpoint kept consistent, and the test asserts `decoded.is_ok()`. That shows the typed decoder accepts the bound. The runner control still asserts `fixtures.covers`, which proves only that the schema stage was passed. It no longer depends on the inventory message text, so that coupling is accepted as the stage check. Re-measured in a throwaway worktree at 46edc40. Raising the fixture-schema `revision` maximum is killed. Making the model revision bound exclusive (`>=`) is killed directly by the new control at the first member. With the control removed, that mutant is caught only incidentally, when the unrelated `package-revision-maximum` fixture fails the run. With the control removed and no mutant, the test stays green, so the control is the direct kill. |
+| FND-001 | fixed | Fix. At exactly 2^53, every member is now decoded directly with the public API (`ClauseRef`, `RequirementRef` or `SourceSpan`), with the other endpoint kept consistent, and the test asserts `decoded.is_ok`. That shows the typed decoder accepts the bound. The runner control still asserts `fixtures.covers`, which proves only that the schema stage was passed. It no longer depends on the inventory message text, so that coupling is accepted as the stage check. Re-measured in a throwaway worktree. Raising the fixture-schema `revision` maximum is killed. Making the model revision bound exclusive (`>=`) is killed directly by the new control at the first member. With the control removed, that mutant is caught only incidentally, when the unrelated `package-revision-maximum` fixture fails the run. With the control removed and no mutant, the test stays green, so the control is the direct kill. |

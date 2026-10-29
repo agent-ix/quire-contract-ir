@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-824. PR agent-ix/quire-contract-ir#422 at 3a79b1f, diff
+Ticket: IR-824. PR agent-ix/quire-contract-ir#422, diff
 `origin/main...HEAD`. Independent code review with the rust-review lane folded
 in. Checked against FR-038-AC-252..257, the FR-038 reaches paragraph, TC-048
 item 11 and merged QSpec (origin/main) FR-322-AC-57, FR-152 "Reachability over
@@ -17,7 +17,7 @@ a relationship end", TC-281 RN-18 and RN-20..27, TC-197 Y18.
 
 Code, examined and clean: `check_relationship_member` now checks operand 0
 and then, for `reaches`, operand 1 against the RECEIVER endpoint type
-(`conforms_to(.., &receiver.type_ref, ..)`, subtype admitted through
+(`conforms_to(.., &receiver.type_ref..)`, subtype admitted through
 ancestors) before direction (operations.rs:2226-2244); multiplicity is decided
 only by the existing `RelationshipDecl::navigation_type`
 (model_members.rs:252, not duplicated), which refuses `unbounded` and
@@ -54,7 +54,7 @@ the AC-172 row is unchanged and keeps its AC-252 supersession pointer.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | The AC-252 test's node-shape assertions (`operator`, member kind, operand count, `body.get("multiplicity").is_none()`, `body.get("charge").is_none()`, body equal to the baseline) inspect the body the test fixture itself authored, which no multiplicity input changes; only the admission assertion exercises the reader. The Y18 claim is backed by admission of an identical body, not by these asserts. | tests/it/checked_package_v2_model_members.rs:1392-1409 |
+| FND-001 | low | The AC-252 test's node-shape assertions (`operator`, member kind, operand count, `body.get("multiplicity").is_none`, `body.get("charge").is_none`, body equal to the baseline) inspect the body the test fixture itself authored, which no multiplicity input changes; only the admission assertion exercises the reader. The Y18 claim is backed by admission of an identical body, not by these asserts. | tests/it/checked_package_v2_model_members.rs:1392-1409 |
 | FND-002 | low | AC-253's wrong-direction multi-defect case traverses `linkedBy`, whose destination is the `[0,1]` source end, so it is not a wrong-direction multi-valued end as AC-253 frames the case; the operand-1-first order is still pinned (it went red when the operand-1 check was moved). | tests/it/checked_package_v2_model_members.rs:1428-1437 |
 
 ## Verdict
@@ -66,9 +66,9 @@ against FR-322-AC-57 order, RN-18 and RN-20..27 and Y18; no blocking defect.
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Fix commit 6ec6ec9: the AC-252 test now reads the body, operand count and result form back from the admitted graph (`admitted_reaches`) and adds a tamper control per multiplicity that inserts a `multiplicity` member, re-keys the node and expects non-admission. Probed: the tampered package refuses `invalid_semantic_graph` at `/semantic_graph/nodes/6/body`, and the same re-keying without the member admits, so the refusal comes from the member. |
-| FND-002 | fixed | Fix commit 6ec6ec9: the wrong-direction case now sets `sourceEnd` to `{0,3}` not unique, so `linkedBy` traverses a wrong-direction multi-valued end; a mutant that decides direction before operand 1 turns this test red. |
-| FND-003 | fixed | Round 2, fix commit 1fe9b55: the tamper control now asserts `refusal.code == InvalidSemanticGraph` and path `/semantic_graph/nodes/6/body` for all five multiplicities on both ends, the refusal the round-1 probe measured, whose re-keyed control without the member admits; a refusal for another reason (for example a stale key) now fails the test. 45/45 model-member tests pass at 1fe9b55. |
+| FND-001 | fixed | Fix: the AC-252 test now reads the body, operand count and result form back from the admitted graph (`admitted_reaches`) and adds a tamper control per multiplicity that inserts a `multiplicity` member, re-keys the node and expects non-admission. Probed: the tampered package refuses `invalid_semantic_graph` at `/semantic_graph/nodes/6/body`, and the same re-keying without the member admits, so the refusal comes from the member. |
+| FND-002 | fixed | Fix: the wrong-direction case now sets `sourceEnd` to `{0,3}` not unique, so `linkedBy` traverses a wrong-direction multi-valued end; a mutant that decides direction before operand 1 turns this test red. |
+| FND-003 | fixed | Round 2, fix: the tamper control now asserts `refusal.code == InvalidSemanticGraph` and path `/semantic_graph/nodes/6/body` for all five multiplicities on both ends, the refusal the round-1 probe measured, whose re-keyed control without the member admits; a refusal for another reason (for example a stale key) now fails the test. 45/45 model-member tests pass. |
 
 ## New findings (disposition pass 1)
 

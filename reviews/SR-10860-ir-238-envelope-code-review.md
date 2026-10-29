@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Ticket IR-238; PR #389 exact head 946632291f8d93f80949db6c1a69d82e93f91f1f. The Rust/code review found no defect in the PR diff. The generic envelope field list generates both serde shape and canonical field dispatch; fixed-depth members use Writer::serialize and arbitrary-depth members reuse iterative Encode. Public visibility, no-clone behavior, strict intake, error propagation, tests, and unchanged CI workflows were inspected.
+Ticket IR-238; PR #389 exact. The Rust/code review found no defect in the PR diff. The generic envelope field list generates both serde shape and canonical field dispatch; fixed-depth members use Writer::serialize and arbitrary-depth members reuse iterative Encode. Public visibility, no-clone behavior, strict intake, error propagation, tests, and unchanged CI workflows were inspected.
 
 ## Verdict
 

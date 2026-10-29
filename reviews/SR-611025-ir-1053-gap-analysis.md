@@ -3,7 +3,7 @@ id: SR-611025
 title: "IR-1053 PR #628 focused gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; tests/it/checked_package_v2_refinement.rs; PR #628 at 173f1202b31a56160da8366e3710cc116242cda3"
+scope: "agent-ix/quire-contract-ir; tests/it/checked_package_v2_refinement.rs; PR #628 "
 review_set: subset
 ---
 
@@ -13,7 +13,7 @@ Checked the added selected PersistenceInterface vector against FR-064-AC-4, TC-4
 
 ## Verdict
 
-**PASS for the PR diff** — no coverage or evidence gap in the added row. Plan completion: not assessed. A repository-wide matrix audit was not requested for this one-line test PR; `quire matrix --scope . --format json` did not produce criterion records in this checkout, so the trace tag and executable assertions were inspected directly. The aggregate gate belongs to the final reviewed head before merge.
+**PASS for the PR diff** — no coverage or evidence gap in the added row. Plan completion: not assessed. A repository-wide matrix audit was not requested for this one-line test PR; `quire matrix --scope. --format json` did not produce criterion records in this checkout, so the trace tag and executable assertions were inspected directly. The aggregate gate belongs to the final reviewed head before merge.
 
 ## Findings
 

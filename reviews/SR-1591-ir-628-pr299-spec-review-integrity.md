@@ -3,7 +3,7 @@ id: SR-1591
 title: "integrity review of PR 299's spec edits (IR-628 AC-136 to AC-144 statuses)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@656fd549e65d0736993f87021b549dc4c2272b19; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-227-checked-package-v2-model-object-fields-accessor.md, spec/checked_package/matrix/tests.md, spec/model/functional/FR-019-rust-library-interface.md, spec/tests.md; compared with open PR #297 (81fda6a6c6f2367dc6f2eabb9b3f17e4a5982549)"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-227-checked-package-v2-model-object-fields-accessor.md, spec/checked_package/matrix/tests.md, spec/model/functional/FR-019-rust-library-interface.md, spec/tests.md; compared with open PR #297 "
 review_set: subset
 ---
 # SR-1591: integrity review of PR 299's spec edits
@@ -40,7 +40,7 @@ integration tests and 163 unit tests. Whichever PR lands second must merge in th
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | AC-138 is marked "implemented, ungated", but one of its rows cannot be satisfied. The reader refuses a field typed as a relationship (`check_type_ref` pushes `malformed` for `relationships.contains(type_ref)`), so no admitted package holds the "relationship type ... present with `member_type` `None`" field the AC requires. Item 23 lists it too. TC-227's status notes the gap, but the FR-038 row says implemented without qualification. The AC and item 23 need amending, or the row needs a stated exception | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2933, crates/quire-contract-model/src/checked_package/v2/model_members.rs:1874 |
+| FND-001 | medium | AC-138 is marked "implemented, ungated", but one of its rows cannot be satisfied. The reader refuses a field typed as a relationship (`check_type_ref` pushes `malformed` for `relationships.contains(type_ref)`), so no admitted package holds the "relationship type... present with `member_type` `None`" field the AC requires. Item 23 lists it too. TC-227's status notes the gap, but the FR-038 row says implemented without qualification. The AC and item 23 need amending, or the row needs a stated exception | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2933, crates/quire-contract-model/src/checked_package/v2/model_members.rs:1874 |
 | FND-002 | low | AC-138's mutation row "bounds narrowed through `i64` or `f64` (the `i128` extremes differ)" is false for `f64`. `i128::MAX as f64 as i128` saturates back to `i128::MAX`, and `i128::MIN` is exact in `f64`. Every other bound in the fixture (0, 1000, -5, 5) is exact too. The reviewer's f64 round-trip mutant survives. Catching it needs a bound that `f64` cannot represent, such as 2^53 + 1 | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2933 |
 | FND-003 | low | Two AC-143 mutation rows cannot be caught as written. (a) "equality of packages gains the retained tables" is an equivalent mutant for every admitted package, because the tables are a pure function of documents that the package's digests fix. The reviewer's mutant survives, and only a crate-internal package with differing tables could detect it. (b) "it recurses over the chain": a recursive component search survives both the 200-type chain and the 1500-type chain, because neither depth can overflow a test thread's stack. Both rows claim a kill no test can give | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2938 |
 | FND-004 | low | AC-144 is marked implemented, and it states that a frame entry, an abstraction relation's field entry and a relationship edge read each charge the table's entries end to end. The tests check those charges only at `ModelOwners::resolve_member` and `DomainModel::resolve`. TC-227's status discloses this, but the FR-038 row does not | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2939, crates/quire-contract-model/src/checked_package/v2/model_fields/tests.rs:314 |
@@ -61,9 +61,9 @@ main's baseline.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 65622b8230443d661fa00aa55c2f02169b3fba3e |
-| FND-002 | fixed | 65622b8230443d661fa00aa55c2f02169b3fba3e |
-| FND-003 | fixed | 65622b8230443d661fa00aa55c2f02169b3fba3e |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |
 | FND-004 | still-open | AC-144 still calls for frame, abstraction and relationship-edge field charge observations. The only checks remain at ModelOwners::resolve_member and DomainModel::resolve; TC-227 still discloses that end-to-end cases are unexercised. |
-| FND-005 | fixed | 65622b8230443d661fa00aa55c2f02169b3fba3e |
-| FND-004 | fixed | e48401f |
+| FND-005 | fixed | Fixed in the reviewed PR. |
+| FND-004 | fixed | Fixed in the reviewed PR. |

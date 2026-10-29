@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Ticket IR-238; PR #389 exact head 946632291f8d93f80949db6c1a69d82e93f91f1f. The edited FR-051 behavior clauses use a defined actor, mandatory SHALL action, concrete field dispatch, and observable constraints. The TC-451 procedure supplies verification for the edited clauses. No EARS defect was found.
+Ticket IR-238; PR #389 exact. The edited FR-051 behavior clauses use a defined actor, mandatory SHALL action, concrete field dispatch, and observable constraints. The TC-451 procedure supplies verification for the edited clauses. No EARS defect was found.
 
 ## Verdict
 

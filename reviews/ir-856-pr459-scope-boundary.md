@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-856. Diff-scoped review of PR 459 at b644efed1d4b648a74e4897fbbc7fa78be4c6480. The PR assigns all canonical bodies to the model, but the public generic API allows a downstream owner.
+Ticket: IR-856. Diff-scoped review of PR 459. The PR assigns all canonical bodies to the model, but the public generic API allows a downstream owner.
 
 ## Examined units
 

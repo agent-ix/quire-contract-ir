@@ -3,7 +3,7 @@ id: SR-5012
 title: "Integrity review of FR-019 public items table"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@d61f55e1db42a3ea0a55484d3d4873feb2ac60ea; spec/model/functional/FR-019-rust-library-interface.md:161-163; FR-019-AC-5; FR-038; AD-001; source export chain"
+scope: "agent-ix/quire-contract-ir; spec/model/functional/FR-019-rust-library-interface.md:161-163; FR-019-AC-5; FR-038; AD-001; source export chain"
 review_set: subset
 ---
 

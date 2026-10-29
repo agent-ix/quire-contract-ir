@@ -3,7 +3,7 @@ id: SR-8693
 title: IR-777 selected variant reader code and Rust review
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; IR-777; selected checked-package V2 reader, FR-038-AC-236..238, and three integration-test files at b0da7f5"
+scope: "agent-ix/quire-contract-ir; IR-777; selected checked-package V2 reader, FR-038-AC-236..238, and three integration-test files "
 review_set: subset
 ---
 
@@ -33,4 +33,4 @@ No actionable findings. The single numbered row below is a Quire schema placehol
 
 ## Review evidence
 
-The review covered all thirteen changed files in `f1761a9...b0da7f5`. It checked the repository Rust conventions, the owner join before nominal case checks, selected document lookup, public type representation, enum family resolution, and traced integration assertions. No Cargo gate was run by this reviewer.
+The review covered all thirteen changed files in `...`. It checked the repository Rust conventions, the owner join before nominal case checks, selected document lookup, public type representation, enum family resolution, and traced integration assertions. No Cargo gate was run by this reviewer.

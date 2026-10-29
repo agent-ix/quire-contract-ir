@@ -3,13 +3,13 @@ id: SR-2026102753
 title: "IR-1109 PR 686 spec-review base"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; IR-1109 PR #686 at 72334867; spec/checked_package/functional/FR-038-consume-checked-package-v2.md:5583-5588"
+scope: "agent-ix/quire-contract-ir; IR-1109 PR #686; spec/checked_package/functional/FR-038-consume-checked-package-v2.md:5583-5588"
 review_set: subset
 ---
 
 ## Summary
 
-Reviewed the six FR-038 AC-357..362 status/evidence prefixes added in PR #686 at exact head 72334867a67f427e25e0f3d36c48f3de854779f6. The normative criterion text and Test verification cells remain verbatim. The matching test controls use the public V2 reader and selected QSpec vectors at 0d76d4362613cd0546ba355a676426494bfad3d0. No applicable AssuranceProfile or enforced spec-review policy was found in this module.
+Reviewed the six FR-038 AC-357..362 status/evidence prefixes added in PR #686 at exact. The normative criterion text and Test verification cells remain verbatim. The matching test controls use the public V2 reader and selected QSpec vectors. No applicable AssuranceProfile or enforced spec-review policy was found in this module.
 
 ## Verdict
 
@@ -42,8 +42,8 @@ Reviewed the six FR-038 AC-357..362 status/evidence prefixes added in PR #686 at
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-002 | fixed | Head d25736ff removes the single blank line. Targeted Quire validation passes; matrix mints AC-343 as untagged and AC-357..362 as tagged. AC-343 remains honestly unbacked. |
+| FND-002 | fixed | removes the single blank line. Targeted Quire validation passes; matrix mints AC-343 as untagged and AC-357..362 as tagged. AC-343 remains honestly unbacked. |
 
 ## Final structural review
 
-The exact delta from 72334867 to 94b73dbc removes one blank line before AC-343; the exact delta from 94b73dbc to d25736ff changes only three test trace tags. `quire trace --scope . --id` resolves both named AC-357 tests, all four AC-358 tests and all three AC-359 tests at d25736ff. The six IMPLEMENTED status rows now belong to minted criteria; AC-343's untagged state is preserved. No normative criterion text changed.
+The exact delta from to removes one blank line before AC-343; the exact delta from to changes only three test trace tags. `quire trace --scope. --id` resolves both named AC-357 tests, all four AC-358 tests and all three AC-359 tests. The six IMPLEMENTED status rows now belong to minted criteria; AC-343's untagged state is preserved. No normative criterion text changed.

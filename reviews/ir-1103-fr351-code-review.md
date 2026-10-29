@@ -13,7 +13,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1103. Frozen PR #684 at 6d5f229d38e5653d9a3ddfe60063c8e242f6d7e7. The frozen diff contains only the FR identifier rename and the historical review provenance update. No code or tests changed.
+Ticket: IR-1103. Frozen PR #684. The frozen diff contains only the FR identifier rename and the historical review provenance update. No code or tests changed.
 
 ## Verdict
 

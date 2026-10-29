@@ -3,7 +3,7 @@ id: SR-623
 title: "gap analysis of PR 227 (IR use-local/use-remote aligned to codegen)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@c2b266dac1a19ee8c3a0920054615864128bf96c; Makefile, scripts/check_one_copy.awk, .gitignore, CLAUDE.md, .github/workflows/ci.yml (context)"
+scope: "agent-ix/quire-contract-ir; Makefile, scripts/check_one_copy.awk.gitignore, CLAUDE.md.github/workflows/ci.yml (context)"
 review_set: subset
 ---
 # SR-623: gap analysis of PR 227
@@ -16,7 +16,7 @@ Ticket: IR-358. This is a planless gap analysis, proportional to a build-tooling
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | CI never runs the one-copy gate. The Supply-chain job runs `cargo deny check`, not `make deny`, so `scripts/check_one_copy.awk`, IR-358's guard, runs only locally through `make deny` and `make ci`. This predates the PR: ci.yml is unchanged | .github/workflows/ci.yml:53-54 |
+| FND-001 | medium | CI never runs the one-copy gate. The Supply-chain job runs `cargo deny check`, not `make deny`, so `scripts/check_one_copy.awk`, IR-358's guard, runs only locally through `make deny` and `make ci`. This predates the PR: ci.yml is unchanged |.github/workflows/ci.yml:53-54 |
 
 ## Finding Detail
 

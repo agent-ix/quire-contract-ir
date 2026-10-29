@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Diff-scoped review of PR #454: 158 redundant Trace/Tracing doc lines and 33 empty doc lines removed across 10 integration files, with no executable line or substantive doc prose changed. All 305 removed ID occurrences remain in their same-test #[trace] attributes. Coverage and computed matrix are unchanged. Ticket: IR-870. Frozen head: 3c726eb160e0d6a88f84a9ac1c2e49acc74990a2.
+Diff-scoped review of PR #454: 158 redundant Trace/Tracing doc lines and 33 empty doc lines removed across 10 integration files, with no executable line or substantive doc prose changed. All 305 removed ID occurrences remain in their same-test #[trace] attributes. Coverage and computed matrix are unchanged. Ticket: IR-870. Frozen head:.
 
 ## Reviewed Scope
 

@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #642 at 8b0e53957778f2dd1da5ad2d98207bf28acdf060 against main 66eb6b7f and QSpec 48373530. The new FR criteria are typed and located, with TC-062 as their verification method. QSpec FR-375 and FR-342 preserve the declared-context distinction. No applicable AssuranceProfile or enforced review policy was found in the changed module.
+Reviewed PR #642 against main and QSpec . The new FR criteria are typed and located, with TC-062 as their verification method. QSpec FR-375 and FR-342 preserve the declared-context distinction. No applicable AssuranceProfile or enforced review policy was found in the changed module.
 
 ## Verdict
 

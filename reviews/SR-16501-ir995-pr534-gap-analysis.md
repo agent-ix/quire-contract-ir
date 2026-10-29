@@ -3,7 +3,7 @@ id: SR-16501
 title: "IR-995 PR 534 incremental gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@802916fe9585012ddc72c216d3421854b93238f4; FR-038-AC-269, FR-038-AC-273, FR-053-AC-2, FR-056-AC-7/8; selected_population.rs; operations.rs; related TC-048 and TC-453 tests"
+scope: "agent-ix/quire-contract-ir; FR-038-AC-269, FR-038-AC-273, FR-053-AC-2, FR-056-AC-7/8; selected_population.rs; operations.rs; related TC-048 and TC-453 tests"
 review_set: subset
 relationships:
   - { target: "ix://agent-ix/quire-contract-ir/FR-038", type: references }
@@ -36,4 +36,4 @@ CONDITIONAL. The production typed dispatch and narrow scanner reduction are soun
 
 | ID | Round | Outcome | Evidence |
 | --- | --- | --- | --- |
-| FND-001 | 1 | fixed | The same-PR test at 4170fa7 invokes `check_relationship_member` on a private graph with actual checked relationship owners. Its valid population baseline and raw-scalar/retained-population case both return `None` with the same measured work; its raw-population/retained-IntegerRange case returns `IllTyped`/`OperatorIneligible` at the population member. The graph index is built after inserting both nodes and kinds, so the changed caller reads the tested position. The author's actual-caller bypass mutant made the negative assertion fail, and the restored source passed. The history-preserving merge to a993e66 adds the disjoint IR-996 main patch; `operations.rs` is byte-identical to 4170fa7. |
+| FND-001 | 1 | fixed | The same-PR test invokes `check_relationship_member` on a private graph with actual checked relationship owners. Its valid population baseline and raw-scalar/retained-population case both return `None` with the same measured work; its raw-population/retained-IntegerRange case returns `IllTyped`/`OperatorIneligible` at the population member. The graph index is built after inserting both nodes and kinds, so the changed caller reads the tested position. The author's actual-caller bypass mutant made the negative assertion fail, and the restored source passed. The history-preserving merge to adds the disjoint IR-996 main patch; `operations.rs` is byte-identical to. |

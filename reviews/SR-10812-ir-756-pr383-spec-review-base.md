@@ -3,7 +3,7 @@ id: SR-10812
 title: IR-756 evidence insertion specification base review
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; PR 383 at 6ecd464; FR-047, TC-059, FR-019 public-item row"
+scope: "agent-ix/quire-contract-ir; PR 383; FR-047, TC-059, FR-019 public-item row"
 review_set: base
 ---
 

@@ -3,7 +3,7 @@ id: SR-16605
 title: "IR-9 PR 541 incremental gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir PR #541 @ 0432c53b6854183b4e90c74a81138d70cfd011a2; FR-038-AC-2/114/115/116; FR-056-AC-8; TC-048; flat-wire headers"
+scope: "agent-ix/quire-contract-ir PR #541 @; FR-038-AC-2/114/115/116; FR-056-AC-8; TC-048; flat-wire headers"
 review_set: subset
 relationships:
   - { target: "ix://agent-ix/quire-contract-ir/FR-038", type: references }

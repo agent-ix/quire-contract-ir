@@ -3,7 +3,7 @@ id: SR-12130
 title: "IR-851 spec review (base)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@dcd84d128d6ce891d555032cb9767a4301d55fbe (PR #435); spec/checked_package/functional/FR-038-consume-checked-package-v2.md (Typed relationship end of a reaches claim, AC-262..267), spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir (PR #435); spec/checked_package/functional/FR-038-consume-checked-package-v2.md (Typed relationship end of a reaches claim, AC-262..267), spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
@@ -16,7 +16,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-851. Spec-only PR #435 adds the FR-038 section "Typed relationship end of a reaches claim", AC-262..267 (PLANNED), six tests.md rows and a TC-048 procedure. Each statement was checked against origin/main code (`model_members.rs` RelationshipEnd/RelationshipDecl/navigation_type :218-282, `operations.rs` check_relationship_member :2132-2286, `model_fields.rs` RetainedModels :407-457, `mod.rs` validate :916-969 and equality :559-563, `parameter_declaration.rs` as the sibling pattern). The core claims hold: an admitted package keeps no relationship end today; retention after `validate` returns is outside equality, uncharged and does not move any refusal; the direction rule and the destination rule match `navigation_type`; and admission guarantees `ordered` false, `upper` Some and a homogeneous destination type for every admitted reaches claim (navigation_type is called on the reaches path at :2261 and the homogeneity check is at :2265).
+Ticket: IR-851. Spec-only PR #435 adds the FR-038 section "Typed relationship end of a reaches claim", AC-262..267 (PLANNED), six tests.md rows and a TC-048 procedure. Each statement was checked against origin/main code (`model_members.rs` RelationshipEnd/RelationshipDecl/navigation_type:218-282, `operations.rs` check_relationship_member:2132-2286, `model_fields.rs` RetainedModels:407-457, `mod.rs` validate:916-969 and equality:559-563, `parameter_declaration.rs` as the sibling pattern). The core claims hold: an admitted package keeps no relationship end today; retention after `validate` returns is outside equality, uncharged and does not move any refusal; the direction rule and the destination rule match `navigation_type`; and admission guarantees `ordered` false, `upper` Some and a homogeneous destination type for every admitted reaches claim (navigation_type is called on the reaches path at:2261 and the homogeneity check is at:2265).
 
 ## Reviewed scope
 
@@ -29,12 +29,12 @@ Ticket: IR-851. Spec-only PR #435 adds the FR-038 section "Typed relationship en
 | FR-038 admitted-claim paragraph | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | For every admitted reaches claim the accessor therefore returns ordered false, upper Some and a destination_type that names the receiver endpoint's own object type. |
 | FR-038 refusal paragraph | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | A claim whose declaration does not resolve to a retained relationship, whose name matches no role or both roles of it, or whose destination type has no model declaration node in the graph shall refuse UnresolvedEnd. |
 | FR-038 FR-053 split paragraph | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | A relationship end is not an edge field. FR-053 and its AC-5 name model_object_fields as the sole authority for model edge-FIELD multiplicity |
-| FR-038-AC-262 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | homogeneous relationship whose source end is {1,1} and whose target end is {2,3} unique with role peer ... so a swap of the two ends fails |
-| FR-038-AC-263 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | destination end of {0,3} unique, {0,3} not unique, {2,3}, {0,1} and {1,1} ... omits its role it returns role None |
-| FR-038-AC-264 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | refuses UnknownNode; ... navigate application with a relationship_end member ... refuses NotRelationshipEndClaim for each |
-| FR-038-AC-265 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | four post-admission mutations ... refuses UnresolvedEnd for each |
+| FR-038-AC-262 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | homogeneous relationship whose source end is {1,1} and whose target end is {2,3} unique with role peer... so a swap of the two ends fails |
+| FR-038-AC-263 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | destination end of {0,3} unique, {0,3} not unique, {2,3}, {0,1} and {1,1}... omits its role it returns role None |
+| FR-038-AC-264 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | refuses UnknownNode;... navigate application with a relationship_end member... refuses NotRelationshipEndClaim for each |
+| FR-038-AC-265 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | four post-admission mutations... refuses UnresolvedEnd for each |
 | FR-038-AC-266 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | results are equal, the package equals its pre-call self, the accessor charges no work |
-| FR-038-AC-267 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | exhaustively matches CheckedRelationshipEndError ... constructs CheckedRelationshipEnd field by field |
+| FR-038-AC-267 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | exhaustively matches CheckedRelationshipEndError... constructs CheckedRelationshipEnd field by field |
 | TC-048 relationship-end section | examined | spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md | Build admitted packages from the IR-824 reaches fixtures |
 | FR-038-AC-252..257 | context_only | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | reaches admission criteria the new section relies on |
 
@@ -62,9 +62,9 @@ PASS WITH FINDINGS. The measured gap, the direction and destination rule, the ad
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Round 1 (29f86c7): the new Retention paragraph retains "the derived model declaration node id of each end's type" and says "The accessor shall not recompute that id". The ids are already in the admission declaration index (ModelOwners::index), so this can be implemented without a second derivation. |
-| FND-002 | fixed | Round 1 (29f86c7): `destination_type` is "the declared end type to which every operand conforms, not the type of a particular operand, so a subtype operand does not change it". |
-| FND-003 | fixed | Round 1 (29f86c7): UnresolvedEnd is now a catch-all, "a reaches application whose operation.member no longer resolves as admission resolved it", listing absent member, wrong kind, non-node-id or unresolved declaration, and non-text, no-role or both-role name. AC-265 covers all seven. |
-| FND-004 | fixed | Round 1 (29f86c7): AC-262 and TC-048 name a bidirectional relationship. |
-| FND-005 | fixed | Round 1 (29f86c7): the parameter and field are renamed `application`, the error is `NotReachesApplication`, and the spec states the id is the reaches application, not the enclosing state_clause. A `relationship: CheckedNodeId` field was added (nine fields). |
-| FND-006 | fixed | Round 2 (b71d804): TC-048:2298 now reads "a `source-to-target` or `target-to-source` direction", matching model_members.rs:2505-2506; no underscore spelling remains under spec/. |
+| FND-001 | fixed | Round 1 : the new Retention paragraph retains "the derived model declaration node id of each end's type" and says "The accessor shall not recompute that id". The ids are already in the admission declaration index (ModelOwners::index), so this can be implemented without a second derivation. |
+| FND-002 | fixed | Round 1 : `destination_type` is "the declared end type to which every operand conforms, not the type of a particular operand, so a subtype operand does not change it". |
+| FND-003 | fixed | Round 1 : UnresolvedEnd is now a catch-all, "a reaches application whose operation.member no longer resolves as admission resolved it", listing absent member, wrong kind, non-node-id or unresolved declaration, and non-text, no-role or both-role name. AC-265 covers all seven. |
+| FND-004 | fixed | Round 1 : AC-262 and TC-048 name a bidirectional relationship. |
+| FND-005 | fixed | Round 1 : the parameter and field are renamed `application`, the error is `NotReachesApplication`, and the spec states the id is the reaches application, not the enclosing state_clause. A `relationship: CheckedNodeId` field was added (nine fields). |
+| FND-006 | fixed | Round 2 : TC-048:2298 now reads "a `source-to-target` or `target-to-source` direction", matching model_members.rs:2505-2506; no underscore spelling remains under spec/. |

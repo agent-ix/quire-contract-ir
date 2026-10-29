@@ -3,7 +3,7 @@ id: SR-813
 title: "criterion strength review of PR 257 quantity bound class (IR-450)"
 type: SpecReview
 analysis: criterion-strength
-scope: "agent-ix/quire-contract-ir@10a17ec6b705ec88b5442a3367b826043d76ed2b; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-050-checked-package-v2-lowering.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-050-checked-package-v2-lowering.md"
 review_set: subset
 ---
 # SR-813: criterion strength review of PR 257 quantity bound class
@@ -14,7 +14,7 @@ Ticket: IR-450. This review asks whether FR-038-AC-73 and amended AC-8 can fail.
 raising cases fail against today's reader, which lowers all three, so the criterion is not
 tautological. Its lowering cases (the requested `unit`, the requested `compound_unit` with
 its dependencies, and the annotation-only unit) are the ones that catch the wrong
-implementation, one that returns true from `requires_bound()` for the two forms (SR-811
+implementation, one that returns true from `requires_bound` for the two forms (SR-811
 FND-001). Under that implementation a requested unit is in `typed` with no covering domain
 and raises. Two clauses are weaker than they look.
 
@@ -32,9 +32,9 @@ FND-002 close the two gaps.
 
 ## Dispositions
 
-Round 1 at 4b19dbe6da4c34665076d325b4d7d385d265fa50. The clause that could not fail is replaced. AC-73 and TC-050 now cover a record whose field is typed at a reachable `bounded_domain` over a `unit`. That record must raise and must name the unit rather than the domain. Both today's reader and a predicate that tests only direct positions would lower it, so the case can fail. A case is also added for an application whose `result_type` is a quantity, over parameters typed at a bounded type, and it must lower. This matches QSL, which records it Bounded: its roots are bounded and literals add no domain. It also fails an implementation that adds `result_type` edges to the positions. No new findings.
+Round 1. The clause that could not fail is replaced. AC-73 and TC-050 now cover a record whose field is typed at a reachable `bounded_domain` over a `unit`. That record must raise and must name the unit rather than the domain. Both today's reader and a predicate that tests only direct positions would lower it, so the case can fail. A case is also added for an application whose `result_type` is a quantity, over parameters typed at a bounded type, and it must lower. This matches QSL, which records it Bounded: its roots are bounded and literals add no domain. It also fails an implementation that adds `result_type` edges to the positions. No new findings.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | fixed 4b19dbe6da4c34665076d325b4d7d385d265fa50 |
-| FND-002 | fixed | fixed 4b19dbe6da4c34665076d325b4d7d385d265fa50 |
+| FND-001 | fixed | fixed |
+| FND-002 | fixed | fixed |

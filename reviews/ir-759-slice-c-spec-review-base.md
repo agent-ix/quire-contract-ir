@@ -3,14 +3,14 @@ id: SR-11810
 title: "IR-759 Slice C base spec review of FR-052 census construction rules and AC-17..19"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@794d6e2 (PR 417, diff vs origin/main 6b80801); spec/model/functional/FR-052-source-obligation-correspondence.md, spec/model/matrix/TC-452-source-obligation-correspondence.md, spec/model/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir (PR 417, diff vs origin/main ); spec/model/functional/FR-052-source-obligation-correspondence.md, spec/model/matrix/TC-452-source-obligation-correspondence.md, spec/model/matrix/tests.md"
 review_set: subset
 date: '2026-10-16'
 ---
 
 ## Summary
 
-Ticket: IR-759. Base checklist over PR 417 at 794d6e2 (FR-052, TC-452, spec/model/matrix/tests.md), checked against merged crates/quire-contract-model/src/source_obligation.rs on origin/main and, as a read-only design reference only, branch code/ir-759-neutral-census-v2. Focus: precedence, the IR-reading labels, AC-8 supersession and stale envelope clauses.
+Ticket: IR-759. Base checklist over PR 417 (FR-052, TC-452, spec/model/matrix/tests.md), checked against merged crates/quire-contract-model/src/source_obligation.rs on origin/main and, as a read-only design reference only, branch code/ir-759-neutral-census-v2. Focus: precedence, the IR-reading labels, AC-8 supersession and stale envelope clauses.
 
 ## Verdict
 
@@ -23,9 +23,9 @@ What holds:
 - The assertion pipeline, dispositions, endpoint resolution and ordering are each decisive enough to write a failing test from; every ordering key named is `Ord` on origin/main (SourceIdentity, SourceAuthoredCriterionId, SourceSemanticOccurrenceId, SourceProductionFunctionId, SourceAssertionProvenance, SourceInventoryIdentity). After exact-duplicate collapse the rejection sort key is total.
 - The AC-8 transition removes the envelope port outright; no shim, fallback or second constructor is specified. Not a compatibility layer.
 - The Behavior text no longer has the census accept a `SourceInventoryEnvelope`.
-- AC-7's plural 'declared obligation sources' versus the single `obligation_scope()` reading is raised in Open questions and the FR-052 body labels the conflicting-binding rule and the QSL-row rule as IR readings.
+- AC-7's plural 'declared obligation sources' versus the single `obligation_scope` reading is raised in Open questions and the FR-052 body labels the conflicting-binding rule and the QSL-row rule as IR readings.
 - FR-019: nothing in this PR makes FR-019 false now. FR-052 still describes the current compiled surface (envelope port + outcome boundary) and FR-019:191 still lists it exactly; the new types are 'when implemented'.
-- Gates: `quire validate --scope . 'spec/**/*.md' 'plan/**/*.md' 'reviews/**/*.md'` exits 0. `quire coverage --scope . --strict`: 51 unbacked / 0 contradicted at 794d6e2; 48 / 0 at origin/main (temporary worktree, removed). The diff of unbacked rows is exactly FR-052-AC-17, AC-18, AC-19 (strict exits 1 on both; pre-existing).
+- Gates: `quire validate --scope. 'spec/**/*.md' 'plan/**/*.md' 'reviews/**/*.md'` exits 0. `quire coverage --scope. --strict`: 51 unbacked / 0 contradicted; 48 / 0 at origin/main (temporary worktree, removed). The diff of unbacked rows is exactly FR-052-AC-17, AC-18, AC-19 (strict exits 1 on both; pre-existing).
 
 ## Findings
 
@@ -43,7 +43,7 @@ scope:
 - id: FR-052-AC-8
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
-  excerpt: 'A default-feature consumer can construct and borrow provisional owner rows, ... and the public module exposes no census or complete-census builder. FR-052-AC-17 supersedes this criterion when the census builder lands: that code change removes `SourceInventoryEnvelope`, the envelope-taking `SourceObligationInput` constructor, the tests tagged FR-052-AC-8, and the no-census assertions in `tests/it/source_obligation.rs` (lines 368-369); the FR-052-AC-4 inspection of `SourceObligationInput` fields remains.'
+  excerpt: 'A default-feature consumer can construct and borrow provisional owner rows... and the public module exposes no census or complete-census builder. FR-052-AC-17 supersedes this criterion when the census builder lands: that code change removes `SourceInventoryEnvelope`, the envelope-taking `SourceObligationInput` constructor, the tests tagged FR-052-AC-8, and the no-census assertions in `tests/it/source_obligation.rs` (lines 368-369); the FR-052-AC-4 inspection of `SourceObligationInput` fields remains.'
 - id: FR-052-AC-10
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
@@ -51,11 +51,11 @@ scope:
 - id: FR-052-AC-15
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
-  excerpt: An explicit source-author binding connects the selected Quire corpus/obligation scope to the selected IR `SourceIdentity`. A missing, foreign or conflicting binding refuses a complete census with distinct typed causes; ...
+  excerpt: An explicit source-author binding connects the selected Quire corpus/obligation scope to the selected IR `SourceIdentity`. A missing, foreign or conflicting binding refuses a complete census with distinct typed causes;...
 - id: FR-052-AC-16
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
-  excerpt: With PLAT-1165's real Quire producer, normal exhaustion of the validated selected scope issues `Complete` ... Until this producer exists, no Quire `Complete` or full FR-052 census is claimed.
+  excerpt: With PLAT-1165's real Quire producer, normal exhaustion of the validated selected scope issues `Complete`... Until this producer exists, no Quire `Complete` or full FR-052 census is claimed.
 - id: FR-052-AC-17
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
@@ -75,11 +75,11 @@ scope:
 - id: FR-052#census-construction-rules
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
-  excerpt: '### Census construction rules: `SourceObligationInput::new` shall take, in order, the selected `SourceIdentity`, an `Option<SourceCriterionSourceBinding>`, one `Option<SourceInventoryOutcome>` for each of the Quire, IR V2, QSL and `quire-code-rs` positions, and a `Vec<SourceCorrespondenceAssertion>`. ... A binding conflicts when a `Criterion` row of the Quire outcome has an `obligation_declaration()` different from the binding''s `obligation_scope()`. ... This definition of a conflicting binding is an IR reading pending owner confirmation (see Open questions).'
+  excerpt: '### Census construction rules: `SourceObligationInput::new` shall take, in order, the selected `SourceIdentity`, an `Option<SourceCriterionSourceBinding>`, one `Option<SourceInventoryOutcome>` for each of the Quire, IR V2, QSL and `quire-code-rs` positions, and a `Vec<SourceCorrespondenceAssertion>`.... A binding conflicts when a `Criterion` row of the Quire outcome has an `obligation_declaration` different from the binding''s `obligation_scope`.... This definition of a conflicting binding is an IR reading pending owner confirmation (see Open questions).'
 - id: FR-052#dispositions
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
-  excerpt: A `SemanticNode` row in a conflicting key group is `ConflictingIdentity`. Otherwise a row is `Mapped` when an accepted row names it ... A row that is not `Mapped` is `ZeroMappings(ExplicitNoProductionFunction)` when it is an occurrence, or the node of an occurrence, named by an accepted row with no production function. Every other row, including an empty module and every QSL `RequirementRecord` and `PendingObligation` row, is `ZeroMappings(NoAuthoredMapping)`; no assertion endpoint can name a QSL row. That QSL rows are always `ZeroMappings(NoAuthoredMapping)` is an IR reading pending owner confirmation (see Open questions).
+  excerpt: A `SemanticNode` row in a conflicting key group is `ConflictingIdentity`. Otherwise a row is `Mapped` when an accepted row names it... A row that is not `Mapped` is `ZeroMappings(ExplicitNoProductionFunction)` when it is an occurrence, or the node of an occurrence, named by an accepted row with no production function. Every other row, including an empty module and every QSL `RequirementRecord` and `PendingObligation` row, is `ZeroMappings(NoAuthoredMapping)`; no assertion endpoint can name a QSL row. That QSL rows are always `ZeroMappings(NoAuthoredMapping)` is an IR reading pending owner confirmation (see Open questions).
 - id: FR-052#outputs-transition
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
@@ -91,27 +91,27 @@ scope:
 - id: FR-052#open-questions
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
-  excerpt: '### Open questions: IR V2 semantic-node identity ...; Conflicting binding. ... FR-052-AC-7 names the bound corpus''s "declared obligation sources" in the plural. Whether one binding may cover several obligation declarations ... awaits owner confirmation.; QSL rows. ... awaits owner confirmation.'
+  excerpt: '### Open questions: IR V2 semantic-node identity...; Conflicting binding.... FR-052-AC-7 names the bound corpus''s "declared obligation sources" in the plural. Whether one binding may cover several obligation declarations... awaits owner confirmation.; QSL rows.... awaits owner confirmation.'
 - id: FR-052#status-paragraph
   path: spec/model/functional/FR-052-source-obligation-correspondence.md
   role: examined
-  excerpt: FR-052-AC-8 stays Implemented until the census builder lands; FR-052-AC-17 then supersedes it and the envelope port and its tests are removed. ... FR-052-AC-17 through AC-19 are Planned/UNRUN until the census builder exists; they exercise the neutral census over synthetic outcomes only, and passing them shall not change the status of AC-1 through AC-3, AC-5 through AC-7, or AC-9 through AC-11.
+  excerpt: FR-052-AC-8 stays Implemented until the census builder lands; FR-052-AC-17 then supersedes it and the envelope port and its tests are removed.... FR-052-AC-17 through AC-19 are Planned/UNRUN until the census builder exists; they exercise the neutral census over synthetic outcomes only, and passing them shall not change the status of AC-1 through AC-3, AC-5 through AC-7, or AC-9 through AC-11.
 - id: TC-452#synthetic-procedure
   path: spec/model/matrix/TC-452-source-obligation-correspondence.md
   role: examined
-  excerpt: Separately, build the same fixture from four synthetic `Complete` outcomes and a valid binding. ... Supply a missing binding, a binding naming another source, and a binding whose obligation scope differs from a Quire criterion row's obligation declaration. ... These checks use synthetic outcomes only.
+  excerpt: Separately, build the same fixture from four synthetic `Complete` outcomes and a valid binding.... Supply a missing binding, a binding naming another source, and a binding whose obligation scope differs from a Quire criterion row's obligation declaration.... These checks use synthetic outcomes only.
 - id: TC-452#synthetic-expected
   path: spec/model/matrix/TC-452-source-obligation-correspondence.md
   role: examined
-  excerpt: The synthetic census matches the census construction rules field by field and is equal under permutation. Only the earliest failing position's error is returned ... and the occurrence under a conflicting node is `DanglingOccurrence`. None of these observations grants full-owner AC-1 through AC-3, AC-5 through AC-7, or AC-9 through AC-11 credit.
+  excerpt: The synthetic census matches the census construction rules field by field and is equal under permutation. Only the earliest failing position's error is returned... and the occurrence under a conflicting node is `DanglingOccurrence`. None of these observations grants full-owner AC-1 through AC-3, AC-5 through AC-7, or AC-9 through AC-11 credit.
 - id: TC-452#provisional-steps
   path: spec/model/matrix/TC-452-source-obligation-correspondence.md
   role: examined
-  excerpt: 'Pass a provisional envelope with `stop_reason: None` and verify no API promotes it to `Complete`. ... A missing stop cause on the provisional input remains provisional.'
+  excerpt: 'Pass a provisional envelope with `stop_reason: None` and verify no API promotes it to `Complete`.... A missing stop cause on the provisional input remains provisional.'
 - id: tests.md#TC-452
   path: spec/model/matrix/tests.md
   role: examined
-  excerpt: '| TC-452 | ... | FR-052-AC-1, ..., FR-052-AC-17, FR-052-AC-18, FR-052-AC-19 | Planned/UNRUN: ... AC-17..19 synthetic-census checks await the census builder and grant no full-owner credit; AC-8 is covered by provisional-port tests and is superseded by AC-17 when the census builder lands, which removes the envelope port and those tests; ...'
+  excerpt: '| TC-452 |... | FR-052-AC-1..., FR-052-AC-17, FR-052-AC-18, FR-052-AC-19 | Planned/UNRUN:... AC-17..19 synthetic-census checks await the census builder and grant no full-owner credit; AC-8 is covered by provisional-port tests and is superseded by AC-17 when the census builder lands, which removes the envelope port and those tests;...'
 ```
 
 ## New findings (disposition pass 1)
@@ -122,7 +122,7 @@ scope:
 
 ## Dispositions
 
-Round 1, against fix commit 8119d05.
+Round 1, against fix.
 
 | FND | outcome | reason |
 | --- | --- | --- |
@@ -131,7 +131,7 @@ Round 1, against fix commit 8119d05.
 | FND-003 | fixed | - |
 | FND-004 | fixed | - |
 
-Round 2, against fix commit 94352a0.
+Round 2, against fix.
 
 | FND | outcome | reason |
 | --- | --- | --- |

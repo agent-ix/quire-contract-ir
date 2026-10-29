@@ -3,7 +3,7 @@ id: SR-2026102736
 title: "IR-1104 PR 676 Rust code review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; PR #676 head 31bdc5099b27d87592b3f86af3905f1788d82de0; crates/quire-contract-model/src/checked_package/v2/contract_package.rs, crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/lib.rs, tests/it/checked_package_v2_temporal.rs, tests/it/complete_v1_contract_package.rs"
+scope: "agent-ix/quire-contract-ir; PR #676; crates/quire-contract-model/src/checked_package/v2/contract_package.rs, crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/lib.rs, tests/it/checked_package_v2_temporal.rs, tests/it/complete_v1_contract_package.rs"
 review_set: subset
 ---
 
@@ -35,4 +35,4 @@ The producer uses the admitted V2 source root key, and the authenticated read ap
 
 ## Final public-inventory correction verification
 
-**PASS at 382c163c71fb049fb6ed45b3c14710474f154170.** The sole delta after the final gate failure adds `ContractUnsupportedSourceKindError` to FR-019's `checked_package` ContractPackage v1 public-items row. The crate-root named re-export at `crates/quire-contract-model/src/lib.rs:199` already exposes that type; FR-019-AC-5 and TC-058 require exact inventory agreement. `ContractScalarOperandViewV1` was already present in both the inventory row and the crate-root export before this delta. No source or test file changed. The coder reports the focused TC-058 tests passing 6/6 and Quire validation passing; this reviewer checked the inventory delta and did not rerun the full gate.
+**PASS.** The sole delta after the final gate failure adds `ContractUnsupportedSourceKindError` to FR-019's `checked_package` ContractPackage v1 public-items row. The crate-root named re-export at `crates/quire-contract-model/src/lib.rs:199` already exposes that type; FR-019-AC-5 and TC-058 require exact inventory agreement. `ContractScalarOperandViewV1` was already present in both the inventory row and the crate-root export before this delta. No source or test file changed. The coder reports the focused TC-058 tests passing 6/6 and Quire validation passing; this reviewer checked the inventory delta and did not rerun the full gate.

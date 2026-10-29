@@ -3,7 +3,7 @@ id: SR-11750
 title: "IR-574 Slice 1 FR-023-AC-6 projection boundary tests code review (with Rust review)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; PR #412 diff origin/main...5123e6b: tests/it/executable_binding.rs, spec/model/matrix/tests.md, spec/core/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir; PR #412 diff origin/main...: tests/it/executable_binding.rs, spec/model/matrix/tests.md, spec/core/matrix/tests.md"
 review_set: subset
 ---
 
@@ -11,7 +11,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-574. PR: quire-contract-ir#412 at 5123e6b9ba4fd33c7b7b0fdb43ac9231ddccedf6. The PR has three files, with 67 lines added and 25 removed. This is one pass of code review with the rust-review lane folded in, scoped to the PR diff.
+Ticket: IR-574. PR: quire-contract-ir#412. The PR has three files, with 67 lines added and 25 removed. This is one pass of code review with the rust-review lane folded in, scoped to the PR diff.
 
 The PR replaces `tc_015_a_binding_expression_admits_a_revision_and_offset_of_exactly_two_to_the_53` with `tc_035_projection_revisions_and_offsets_obey_the_schema_boundary`, traced to TC-015, TC-035 and FR-023-AC-6. The new test builds one minimal projection with every revision and byte-offset member at 2^53 and asserts that it binds. It then sets each of the five AC-6 members in turn to 2^53+1 and to `u64::MAX`, and for each case asserts:
 
@@ -49,7 +49,7 @@ Mutation probes were run in a throwaway detached worktree at the same head, agai
 
 - **All five members and all three values.** Package source revision, package requirement revision, binding clause reference revision, expression source-identity revision and expression end byte offset are each tested at 2^53+1 and at `u64::MAX`. The 2^53 baseline is the same projection that each refusal case mutates, so "the same projection with that member at 9007199254740992 binds" holds literally. The baseline also sets the expression owner revision and the requirement and clause span revisions to 2^53, which keeps the identities consistent.
 - **No skippable assertions.** No `if let` guards an assertion. Every refusal goes through `expect_err`, and the baseline goes through `expect`.
-- **Registered codes absent.** All three registered codes are asserted absent. Given `len() == 1` and `code == InvalidWireFormat`, that check is redundant, but it does no harm.
+- **Registered codes absent.** All three registered codes are asserted absent. Given `len == 1` and `code == InvalidWireFormat`, that check is redundant, but it does no harm.
 - **Reaches the intended path.** Moving decode before the schema, removing the schema stage, using the wrong code or the wrong path each turns the test red. Dropping one member's schema bound turns it red for four of the five members (see FND-001).
 - **Matrix flips.** The FR-023 row in spec/model/matrix/tests.md and the FR-023-AC-6 clauses of the FR-011 and FR-012 rows in spec/core/matrix/tests.md changed from planned to implemented. Nothing else changed. No corpus file, probe `clause_resolutions` input or coverage trace input is touched or pinned. The computed matrix (`quoin matrix --json`, quoin 0.28.3) binds the new test to FR-023-AC-6 only, with static status `tagged`.
 - **Rust surface.** This is test-only code: no unsafe, and the `unwrap`s are on fixture pointers. fmt and clippy are clean.
@@ -72,7 +72,7 @@ scope:
 - id: tc_035_projection_revisions_and_offsets_obey_the_schema_boundary
   path: tests/it/executable_binding.rs
   role: examined
-  excerpt: "for value in [BOUND + 1, u64::MAX] { ... assert_eq!(diagnostics.len(), 1 ...); assert_eq!(diagnostics[0].code, DiagnosticCode::InvalidWireFormat ...); assert_eq!(diagnostics[0].path, \"projection\" ...); assert!(diagnostics.iter().all(|diagnostic| !matches!(diagnostic.code, InvalidSourceRevision | InvalidRequirementRevision | InvalidSourceSpan)) ...) }"
+  excerpt: "for value in [BOUND + 1, u64::MAX] {... assert_eq!(diagnostics.len, 1...); assert_eq!(diagnostics[0].code, DiagnosticCode::InvalidWireFormat...); assert_eq!(diagnostics[0].path, \"projection\"...); assert!(diagnostics.iter.all(|diagnostic| !matches!(diagnostic.code, InvalidSourceRevision | InvalidRequirementRevision | InvalidSourceSpan))...) }"
 - id: spec/model/matrix/tests.md#FR-023
   path: spec/model/matrix/tests.md
   role: examined
@@ -99,5 +99,5 @@ scope:
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Commit 98a73f8 asserts `diagnostics[0].message == "projection does not satisfy its normative schema"` for every member and value. Re-run in a throwaway worktree at 98a73f8: the mutant that removes the schema limit on the binding clause reference revision (conformance `requirementRef.revision`) now fails ("binding clause reference revision at 9007199254740993", left "invalid projection envelope"). `tc_035_` passes 14 of 14, and fmt and clippy are clean. |
-| FND-002 | fixed | Commit 98a73f8 removes `TC-015` from the test's trace; it is now `#[trace("TC-035", "FR-023-AC-6")]`. TC-015 keeps its own binder in tests/it/identity.rs. |
+| FND-001 | fixed | asserts `diagnostics[0].message == "projection does not satisfy its normative schema"` for every member and value. Re-run in a throwaway worktree: the mutant that removes the schema limit on the binding clause reference revision (conformance `requirementRef.revision`) now fails ("binding clause reference revision at 9007199254740993", left "invalid projection envelope"). `tc_035_` passes 14 of 14, and fmt and clippy are clean. |
+| FND-002 | fixed | removes `TC-015` from the test's trace; it is now `#[trace("TC-035", "FR-023-AC-6")]`. TC-015 keeps its own binder in tests/it/identity.rs. |

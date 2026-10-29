@@ -1,4 +1,4 @@
-<!-- reviewer repo=agent-ix/quire-contract-ir visibility=public quoin=0.28.4 module=spec-artifacts-process@b82e42e893612b4b4ee94127714b4577ee893502 id=SR-15315 method=spec-review/failure-domain lang=spec pr=quire-contract-ir#499 model=gpt-6.1-sol run=be712d1b-4313-4600-bcdd-879623058932 -->
+<!-- reviewer repo=agent-ix/quire-contract-ir visibility=public quoin=0.28.4 module=spec-artifacts-process id=SR-15315 method=spec-review/failure-domain lang=spec pr=quire-contract-ir#499 model=gpt-6.1-sol run=be712d1b-4313-4600-bcdd-879623058932 -->
 
 PASS: The external-command trust boundary is strict: missing executable, malformed input and coherence refusal cannot succeed. Duplicate-name and same-repository split cases are distinguished from malformed-input controls. The gate is read-only by CLI FR-027; no callback, recursion, runtime key authority or alternate graph algorithm is introduced. CG/driver inherited split remains a failing owner blocker, with no exception.
 

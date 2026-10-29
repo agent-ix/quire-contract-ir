@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-856. Diff-scoped review of PR 459 at b644efed1d4b648a74e4897fbbc7fa78be4c6480. The prose treats model ownership as an invariant, while the public type bound leaves ownership open.
+Ticket: IR-856. Diff-scoped review of PR 459. The prose treats model ownership as an invariant, while the public type bound leaves ownership open.
 
 ## Examined units
 

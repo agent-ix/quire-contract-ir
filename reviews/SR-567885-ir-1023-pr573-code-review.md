@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed quire-contract-ir PR #573 at 0cdf9473 against 9a84e65. The single added `WrongExport` arm matches the declared and existing `wrong-export` spelling; the match remains exhaustive and the PR changes no fixture or assertion.
+Reviewed quire-contract-ir PR #573. The single added `WrongExport` arm matches the declared and existing `wrong-export` spelling; the match remains exhaustive and the PR changes no fixture or assertion.
 
 ## Verdict
 

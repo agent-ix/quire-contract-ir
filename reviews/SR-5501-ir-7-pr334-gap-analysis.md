@@ -3,7 +3,7 @@ id: SR-5501
 title: gap-analysis of IR-7 PR 334 temporal refusal ordering
 type: SpecReview
 analysis: gap-analysis
-scope: agent-ix/quire-contract-ir@138df4fe52bc49856ca078a8c9a76aa688f124dd; crates/quire-contract-model/src/checked_package/v2/mod.rs;
+scope: agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/mod.rs;
   crates/quire-contract-model/src/checked_package/v2/temporal.rs; tests/it/checked_package_v2_temporal.rs;
   FR-038-AC-100 diagnostic-reference clause; FR-038-AC-102 temporal-placement ordering
   clause
@@ -40,7 +40,7 @@ Tool diagnostics: static tools emitted semantic.inline-data-schema, DuplicateArc
 
 Existing evidence read, with no builds or gates run by this reviewer: candidate make ci exits 2 at strict coverage. The authenticated continuation records candidate coverage exit 1, 43 baseline and candidate unbacked rows with the same full row set and zero contradictions, then deny, one-copy, audit and unsafe checks all exit 0. Candidate formatting, workspace lint, 443 integration tests, 191 model unit tests, 24 doc tests, corpus and 576/576 document validation passed; no ignored execution tests. This is not CI green. No Kani/replay run is claimed.
 
-The separate focused source counterfactual at f2391523a879f910d4d28f047759c650eeebdf76 reports exit 101: removing the early diagnostic scan yields UnknownProfile/UnsupportedSelection at the clause definition with a node locus, instead of IllTyped/OperatorIneligible at /diagnostics/entries/0/details/0 with no locus. Restoration passes the same test, exit 0. I independently compared the three reviewed paths at that focused revision and this frozen revision. This demonstrates an adverse source change can fail the new oracle; it is separate from the candidate gate evidence.
+The separate focused source counterfactual reports exit 101: removing the early diagnostic scan yields UnknownProfile/UnsupportedSelection at the clause definition with a node locus, instead of IllTyped/OperatorIneligible at /diagnostics/entries/0/details/0 with no locus. Restoration passes the same test, exit 0. I independently compared the three reviewed paths at that focused revision and this frozen revision. This demonstrates an adverse source change can fail the new oracle; it is separate from the candidate gate evidence.
 
 ## Examined Scope
 
@@ -65,12 +65,12 @@ scope:
 - id: validate_temporal::ordering
   path: crates/quire-contract-model/src/checked_package/v2/temporal.rs
   role: examined
-  excerpt: '    validate_diagnostic_references(nodes, kinds, diagnostics)?;'
+  excerpt: ' validate_diagnostic_references(nodes, kinds, diagnostics)?;'
 - id: validate_diagnostic_references::iteration
   path: crates/quire-contract-model/src/checked_package/v2/temporal.rs
   role: examined
-  excerpt: "    for (entry_index, entry) in diagnostics.iter().enumerate() {\n   \
-    \     for (detail_index, detail) in entry.details.iter().enumerate() {"
+  excerpt: " for (entry_index, entry) in diagnostics.iter.enumerate {\n \
+    \ for (detail_index, detail) in entry.details.iter.enumerate {"
 - id: forbidden_diagnostic_reference_precedes_unknown_temporal_profile
   path: tests/it/checked_package_v2_temporal.rs
   role: examined
@@ -80,7 +80,7 @@ scope:
 - id: tc_048_a_placement_defect_is_reported_ahead_of_every_other_defect
   path: tests/it/checked_package_v2_temporal.rs
   role: examined
-  excerpt: '    // Graph placement also precedes a forbidden diagnostic reference.'
+  excerpt: ' // Graph placement also precedes a forbidden diagnostic reference.'
 bindings:
 - test_id: forbidden_diagnostic_reference_precedes_unknown_temporal_profile
   ac_id: FR-038-AC-100

@@ -11,7 +11,7 @@ review_set: base
 
 ## Summary
 
-Ticket: IR-1033. Reviewed PR #590 at 8f7864cbc503275885f82b98a6a85599cf5aae18 against QSpec 9f10eddf044a08145a307379aae6fdedcaf69e30 (FR-464-AC-16, FR-322-AC-130, FR-375-AC-23 and both closed V2 schemas). Base checklist, EARS, integrity, object ownership and dependency semantics were checked over the diff. No applicable AssuranceProfile was found under IR spec/. No QSpec schema or fixture was copied.
+Ticket: IR-1033. Reviewed PR #590 against QSpec (FR-464-AC-16, FR-322-AC-130, FR-375-AC-23 and both closed V2 schemas). Base checklist, EARS, integrity, object ownership and dependency semantics were checked over the diff. No applicable AssuranceProfile was found under IR spec/. No QSpec schema or fixture was copied.
 
 ## Examined scope
 
@@ -39,7 +39,7 @@ Changes needed. FND-001 is a spec contradiction with QSpec and between AC-4 and 
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir@fa9fa4b5850e03a8fe0bb0afbbf50894229bbc84. The same-PR fix separates the source producer obligation from the typed encoder and strict reader obligations. QSpec FR-464 source equality remains explicit; the reader checks selected local model declaration, exact dependency, identity and class-catalog ownership without a source-level over comparison. No original adverse case was dropped; AC-4 retains non-model and unselected-model refusals and source producer A/B conformance.
+Round 1, reviewed at agent-ix/quire-contract-ir. The same-PR fix separates the source producer obligation from the typed encoder and strict reader obligations. QSpec FR-464 source equality remains explicit; the reader checks selected local model declaration, exact dependency, identity and class-catalog ownership without a source-level over comparison. No original adverse case was dropped; AC-4 retains non-model and unselected-model refusals and source producer A/B conformance.
 
 | FND | outcome | reason |
 | --- | --- | --- |

@@ -3,13 +3,13 @@ id: SR-611018
 title: "Base specification review — IR-874 PR #622"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; IR-874 PR #622 head 214cd092"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; IR-874 PR #622 "
 review_set: subset
 ---
 
 ## Summary
 
-FR-038 AC-285/324/327 and TC-048 items 3/7 state the distinct graph-shape and body-join failures. The new criterion is testable and preserves the existing wrong-form and membership obligations. Independent review of frozen PR head `214cd092defab2d2a8ebbc45d22265545944e8cc`.
+FR-038 AC-285/324/327 and TC-048 items 3/7 state the distinct graph-shape and body-join failures. The new criterion is testable and preserves the existing wrong-form and membership obligations. Independent review of frozen PR.
 
 ## Verdict
 

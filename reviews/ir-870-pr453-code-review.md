@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Diff-scoped code and Rust review of PR #453: 168 redundant Trace/Tracing doc lines and 41 empty doc lines removed across 18 integration files, with no executable line or substantive doc prose changed. All 251 removed ID occurrences remain in their same-test #[trace] attribute and no orphan empty doc line remains above an attribute. Coverage and computed matrix are unchanged. Ticket: IR-870. Frozen head: 135f969376eabd396c81052520618f869badfd47.
+Diff-scoped code and Rust review of PR #453: 168 redundant Trace/Tracing doc lines and 41 empty doc lines removed across 18 integration files, with no executable line or substantive doc prose changed. All 251 removed ID occurrences remain in their same-test #[trace] attribute and no orphan empty doc line remains above an attribute. Coverage and computed matrix are unchanged. Ticket: IR-870. Frozen head:.
 
 ## Reviewed Scope
 

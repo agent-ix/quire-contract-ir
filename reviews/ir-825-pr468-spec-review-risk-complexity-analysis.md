@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket IR-825. Diff-scoped spec-review/risk-complexity-analysis review of PR #468 at fa9613d6201fdb8d9d09b04a39e9f2a07d833142. Risk review: row completeness depends on exhausting the admitted graph; the independent traversal and observed-count checks cover omission and terminal-state risk.
+Ticket IR-825. Diff-scoped spec-review/risk-complexity-analysis review of PR #468. Risk review: row completeness depends on exhausting the admitted graph; the independent traversal and observed-count checks cover omission and terminal-state risk.
 
 ## Examined units
 

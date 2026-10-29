@@ -3,7 +3,7 @@ id: SR-814
 title: "evidence review of PR 257 quantity bound class (IR-450)"
 type: SpecReview
 analysis: evidence
-scope: "agent-ix/quire-contract-ir@10a17ec6b705ec88b5442a3367b826043d76ed2b; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/tests.md; spec/checked_package/matrix/TC-050-checked-package-v2-lowering.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/tests.md; spec/checked_package/matrix/TC-050-checked-package-v2-lowering.md"
 review_set: subset
 ---
 # SR-814: evidence review of PR 257 quantity bound class
@@ -29,8 +29,8 @@ needs either a test or removal.
 
 ## Dispositions
 
-Round 1 at 4b19dbe6da4c34665076d325b4d7d385d265fa50. FR-038-AC-8 is now byte-identical to origin/main, so TC-052's evidence covers it as before. AC-73's requested-compound_unit case stays under TC-050, where it is planned. `make spec`: grammar 312/313 (baseline 1), strict 23 unbacked, 0 contradicted. No new findings.
+Round 1. FR-038-AC-8 is now byte-identical to origin/main, so TC-052's evidence covers it as before. AC-73's requested-compound_unit case stays under TC-050, where it is planned. `make spec`: grammar 312/313 (baseline 1), strict 23 unbacked, 0 contradicted. No new findings.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | fixed 4b19dbe6da4c34665076d325b4d7d385d265fa50 |
+| FND-001 | fixed | fixed |

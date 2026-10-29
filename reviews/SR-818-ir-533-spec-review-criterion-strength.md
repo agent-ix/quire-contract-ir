@@ -3,7 +3,7 @@ id: SR-818
 title: "criterion-strength review of PR 258 canonical encoding (IR-533)"
 type: SpecReview
 analysis: criterion-strength
-scope: "agent-ix/quire-contract-ir@f3606b05780f22897c15fccc0eb2756ab284f14e; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (FR-038-AC-73 to FR-038-AC-78)"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (FR-038-AC-73 to FR-038-AC-78)"
 review_set: subset
 ---
 # SR-818: criterion-strength review of PR 258 canonical encoding
@@ -40,7 +40,7 @@ hardening.
 
 ## Dispositions
 
-Round 1 at 2f491e0a30bd3b29b9ae6f9abf81f28ba09bac81. The criteria are now AC-74 to AC-80
+Round 1. The criteria are now AC-74 to AC-80
 after the renumbering. The new AC-79 is read through the reader. It fails if the reader
 keeps the `serde_json` canonical check, which admits ±9007199254740993, admits `2.0`, and
 refuses UTF-16 order. It also fails if any grammar or `package_id` refusal decides first,
@@ -49,5 +49,5 @@ astral strings, ±2^53, 0, -1, and names ordered the same under UTF-8 and UTF-16
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | fixed 2f491e0a30bd3b29b9ae6f9abf81f28ba09bac81 |
-| FND-002 | fixed | fixed 2f491e0a30bd3b29b9ae6f9abf81f28ba09bac81 |
+| FND-001 | fixed | fixed |
+| FND-002 | fixed | fixed |

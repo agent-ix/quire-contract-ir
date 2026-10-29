@@ -3,7 +3,7 @@ id: SR-12960
 title: IR878 PR471 gap-analysis
 type: SpecReview
 analysis: gap-analysis
-scope: agent-ix/quire-contract-ir; PR471 head 6891f2967c22e3be09e79a17079b0fc4c298e0c7 vs merge-base 8ac25a0a; tests/it/public_interface.rs; spec/core/matrix/TC-456-public-name-portability.md; spec/core/non-functional/NFR-002-portability-independence.md
+scope: agent-ix/quire-contract-ir; PR471 vs merge-; tests/it/public_interface.rs; spec/core/matrix/TC-456-public-name-portability.md; spec/core/non-functional/NFR-002-portability-independence.md
 review_set: subset
 ---
 
@@ -13,7 +13,7 @@ Ticket: IR-878. Planless gap analysis of quire-contract-ir PR 471 against NFR-00
 
 ## Verdict
 
-PASS for this delta, with two low findings. The deviations from the code review (SR-12959) are recorded there. Re-measured with quire 0.36.2 (engine 0.50.2), `quire coverage --scope . --strict`. The base 8ac25a0a has 536/607 rows backed and 42 unbacked, with NFR-002-AC-1 and TC-456 unbacked and the AC untagged. The head 6891f296 has 538/607 backed, 40 unbacked and 0 contradicted. NFR-002-AC-1 is tagged by `tc_456_public_schema_and_model_names_are_portable` (tests/it/public_interface.rs:316), and TC-456 is backed. Strict mode still exits 1 on the 40 rows that were already unbacked, none of them from this PR.
+PASS for this delta, with two low findings. The deviations from the code review (SR-12959) are recorded there. Re-measured with quire 0.36.2 (engine 0.50.2), `quire coverage --scope. --strict`. The has 536/607 rows backed and 42 unbacked, with NFR-002-AC-1 and TC-456 unbacked and the AC untagged. The has 538/607 backed, 40 unbacked and 0 contradicted. NFR-002-AC-1 is tagged by `tc_456_public_schema_and_model_names_are_portable` (tests/it/public_interface.rs:316), and TC-456 is backed. Strict mode still exits 1 on the 40 rows that were already unbacked, none of them from this PR.
 
 No criterion was weakened. The test is a real check, not a stub: adverse and benign controls plus mutations prove it can fail (see SR-12959). The binding is correct.
 
@@ -50,5 +50,5 @@ scope:
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | deferred: IR-880 | This is a gap in the TC-456 procedure, now tracked as IR-880 (child of IR-878), https://linear.app/agent-ix/issue/IR-880. Head ec344121 changes no spec text: the diff against main is tests/it/public_interface.rs plus the two reviews/ files. The const mutation M5 still passes, as expected until IR-880 lands. |
+| FND-001 | deferred: IR-880 | This is a gap in the TC-456 procedure, now tracked as IR-880 (child of IR-878), https://linear.app/agent-ix/issue/IR-880. changes no spec text: the diff against main is tests/it/public_interface.rs plus the two reviews/ files. The const mutation M5 still passes, as expected until IR-880 lands. |
 | FND-002 | deferred: IR-880 | Whether the feature-gated `MappingAllocationPoint` export and the fields, variants and associated functions of public types are in scope is a procedure question, deferred to IR-880 (child of IR-878), https://linear.app/agent-ix/issue/IR-880. This PR changes no spec text. |

@@ -3,13 +3,13 @@ id: SR-610023
 title: "IR-1043 PR 599 gap-analysis review"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; PR #599 head 73909ecbc7030eecf5bb9c2bff3154879067d7c5; crates/quire-contract-model/src/checked_package/v2; tests/it; FR-065"
+scope: "agent-ix/quire-contract-ir; PR #599; crates/quire-contract-model/src/checked_package/v2; tests/it; FR-065"
 review_set: subset
 ---
 
 ## Summary
 
-Ticket: IR-1043. One frozen-head diff review at 73909ecbc7030eecf5bb9c2bff3154879067d7c5. All eight FR-065 criteria were examined for code and trace claims. AC-5 closed-wire cases are implemented; its well-formed unselected-pair exact oracle remains open on STD-500 and is not claimed. No applicable AssuranceProfile was found under spec/.
+Ticket: IR-1043. One frozen-head diff review. All eight FR-065 criteria were examined for code and trace claims. AC-5 closed-wire cases are implemented; its well-formed unselected-pair exact oracle remains open on STD-500 and is not claimed. No applicable AssuranceProfile was found under spec/.
 
 ## Examined units
 
@@ -40,12 +40,12 @@ FAIL: findings require a same-PR fix or a truthful unclaimed disposition.
 
 ## Dispositions
 
-Round 1, verified at PR #599 head bfc074a83096c19df35109c59e0ca5b93bce65ef. The original finding rows remain unchanged.
+Round 1, verified at PR #599. The original finding rows remain unchanged.
 
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | adding_another_object_type_does_not_add_another_model_root builds selected model documents with one and two distinct object types and asserts one admitted root for both. root_only_package_keeps_the_root_key_when_its_source_alias_changes now carries FR-065-AC-4 as well as AC-3. |
-| FND-002 | deferred | STD-506: QSpec b30710e3 has no model_root occurrence in its published checked-package V2 positive fixtures. The source producer is QSL S4/QSL-1128; the IR fixture helper cannot prove it. The PR expressly leaves AC-1 source-producer derivation unclaimed and retains the full requirement. |
+| FND-002 | deferred | STD-506: QSpec has no model_root occurrence in its published checked-package V2 positive fixtures. The source producer is QSL S4/QSL-1128; the IR fixture helper cannot prove it. The PR expressly leaves AC-1 source-producer derivation unclaimed and retains the full requirement. |
 
 ## Current verdict
 

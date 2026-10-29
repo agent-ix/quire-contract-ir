@@ -3,7 +3,7 @@ id: SR-12122
 title: "IR-840 gap analysis of IR PR #440"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@e1e0eddf3a0672be7648f3bcaf1804d944f548d9 (PR #440); git diff origin/main...HEAD: spec/checked_package/matrix/tests.md:32 (TC-048 Traces To cell); computed matrix (quire matrix --scope . --format tsv) and trace tags (#[trace(...)], /// Trace:) under tests/ and crates/ for the FR-038 criteria in and around the cell"
+scope: "agent-ix/quire-contract-ir (PR #440); git diff origin/main...HEAD: spec/checked_package/matrix/tests.md:32 (TC-048 Traces To cell); computed matrix (quire matrix --scope. --format tsv) and trace tags (#[trace(...)], /// Trace:) under tests/ and crates/ for the FR-038 criteria in and around the cell"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
@@ -27,7 +27,7 @@ engine 0.50.2):
 - Of the 188 ids in the cell, 184 compute `tagged`. AC-193, AC-194 and AC-201
   compute `method-without-symbol`, because they are Inspection. AC-195
   computes `untagged`.
-- `quire coverage --strict --scope .` reports 43 unbacked and 0 contradicted,
+- `quire coverage --strict --scope.` reports 43 unbacked and 0 contradicted,
   the same on origin/main, at the PR head, and in a scratch copy carrying the
   corrected 206-id cell. The cell is an index that coverage does not check.
 - Every id the PR added that has a TC id in its tags is tagged to TC-048. The
@@ -36,7 +36,7 @@ engine 0.50.2):
 - The ids the PR left out that have TC-048-tagged tests: AC-9
   (checked_package_v2_reader.rs:2120), AC-21 (:2615 and four more), AC-214
   (ir575_reader_memory.rs, checked_package_v2_canonical_encoding.rs:864),
-  AC-225..227 (conformance_qspec/main.rs:505, :563, checked_package_v2_union.rs)
+  AC-225..227 (conformance_qspec/main.rs:505,:563, checked_package_v2_union.rs)
   and AC-242..245 (checked_package_v2_operand_families.rs:230 and others). The
   cell omission is reported once, in SR-12120 FND-001..003.
 - AC-202..209 are tagged with no TC id, in checked_package_v2_comparison_operands.rs,
@@ -74,7 +74,7 @@ Plan completion: not assessed
 | AC-225 binding | examined | tests/conformance_qspec/main.rs:505 | #[trace("TC-048", "FR-038-AC-225")] |
 | AC-242/243 binding | examined | tests/it/checked_package_v2_operand_families.rs:230 | #[trace("TC-048", "FR-038-AC-242", "FR-038-AC-243")] |
 | AC-202..209 bindings | examined | tests/it/checked_package_v2_comparison_operands.rs | trace tags with FR-038-AC-20x and no TC id; TC-445 names this file |
-| AC-195 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4561 | IMPLEMENTED; final-head runtime/Clippy checks UNRUN ... The CODE slice passes the repository's model-consumer Clippy lane ... Test |
+| AC-195 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:4561 | IMPLEMENTED; final-head runtime/Clippy checks UNRUN... The CODE slice passes the repository's model-consumer Clippy lane... Test |
 | AC-177..182, 224, 228..231, 236..238 tags | examined | tests/it/checked_package_v2_composite_operands.rs, tests/it/checked_package_v2_recursive_leaves.rs, tests/it/checked_package_v2_model_members.rs | trace tags carrying only FR-038-AC ids |
 
 ## Findings
@@ -96,5 +96,5 @@ in SR-12120.
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | deferred | IR-862: tag the AC-195 lane evidence, or move AC-195 to a verification method that needs no symbol. This was pre-existing and is one of the 43 baseline unbacked criteria; the count is unchanged at f967d1e. |
+| FND-001 | deferred | IR-862: tag the AC-195 lane evidence, or move AC-195 to a verification method that needs no symbol. This was pre-existing and is one of the 43 baseline unbacked criteria; the count is unchanged. |
 | FND-002 | deferred | IR-862: add the TC-048 id to the trace tags of AC-177..182, 224, 228..231 and 236..238. This was pre-existing, and the PR changes no test. |

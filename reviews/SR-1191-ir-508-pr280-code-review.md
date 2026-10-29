@@ -3,7 +3,7 @@ id: SR-1191
 title: "code review of PR 280 (spec-only diff)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@f5bb9052b113d34353396cf8821c60c01c8140ed; git diff origin/main...HEAD (base 1117eba64f329fad9f7324b0ec9d2149be66f07f): spec/checked_package/functional/FR-345-admit-abstraction-relation-body.md, spec/checked_package/matrix/TC-224-checked-package-v2-abstraction-relation-body.md, spec/checked_package/matrix/tests.md, spec/core/matrix/tests.md, spec/spec.md, spec/tests.md"
+scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD : spec/checked_package/functional/FR-345-admit-abstraction-relation-body.md, spec/checked_package/matrix/TC-224-checked-package-v2-abstraction-relation-body.md, spec/checked_package/matrix/tests.md, spec/core/matrix/tests.md, spec/spec.md, spec/tests.md"
 review_set: base
 ---
 # SR-1191: code review of PR 280

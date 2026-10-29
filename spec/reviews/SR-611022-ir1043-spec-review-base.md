@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #624 head 25ae4409. FR-065 behavior and AC-5 now match merged QSpec FR-322-AC-135 and MR-04 at 792993ab. AC-2 is byte-for-byte unchanged and explicitly remains open in Status. No applicable AssuranceProfile or enforced review policy was found in the changed module.
+Reviewed PR #624. FR-065 behavior and AC-5 now match merged QSpec FR-322-AC-135 and MR-04. AC-2 is byte-for-byte unchanged and explicitly remains open in Status. No applicable AssuranceProfile or enforced review policy was found in the changed module.
 
 ## Findings
 

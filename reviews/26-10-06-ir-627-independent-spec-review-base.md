@@ -3,7 +3,7 @@ id: SR-1782
 title: "Independent base specification review — IR-627 FR-038"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@c3f83a41c4c00bca1a7b2ee1c5a81001a882be66; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; IR-627 AC-123 through AC-134"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; IR-627 AC-123 through AC-134"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
@@ -43,10 +43,10 @@ Base review of the changed FR-038 structural-key prose and AC-123 through AC-134
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 4d667e9f70e9d87be18bf5eedb1c9bee067179cc |
+| FND-001 | fixed | Fixed in the reviewed PR. |
 
 ## Disposition evidence
 
-**Current disposition: PASS** — every original finding is fixed at `4d667e9f70e9d87be18bf5eedb1c9bee067179cc`.
+**Current disposition: PASS** — every original finding is fixed.
 
-Rechecked at `4d667e9f70e9d87be18bf5eedb1c9bee067179cc` against original reviewed head `c3f83a41c4c00bca1a7b2ee1c5a81001a882be66`. FR-038-AC-125 now explicitly requires rejection of a rekeyed collection-bounds node typed at a non-collection, and names the allowed collection forms. `cargo test --workspace tc_226_` passed (19 integration and 2 unit tests; one named performance test ignored). Targeted FR-038 Quire validation, changed-file rustfmt check, and `git diff --check` passed. No new defect was found in this focused fix diff.
+Rechecked against original reviewed. FR-038-AC-125 now explicitly requires rejection of a rekeyed collection-bounds node typed at a non-collection, and names the allowed collection forms. `cargo test --workspace tc_226_` passed (19 integration and 2 unit tests; one named performance test ignored). Targeted FR-038 Quire validation, changed-file rustfmt check, and `git diff --check` passed. No new defect was found in this focused fix diff.

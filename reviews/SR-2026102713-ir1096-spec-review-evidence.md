@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #662 exact head 98c4c975db84499b7388de9aacacf3ae91318f82 against QSpec #485 merged at 81078f141e1de6a9d6560c5b6b95de5775956f77. spec-review/evidence examined FR-038-AC-342, its behavior, and TC-048; no applicable AssuranceProfile found. The earlier-stage control is weaker than the criterion. `quoin advise --json` did not finish after more than one minute and was stopped; this finding is a manual criterion-to-plan evidence check, not a deterministic advisor verdict.
+Reviewed PR #662 exact against QSpec #485 merged. spec-review/evidence examined FR-038-AC-342, its behavior, and TC-048; no applicable AssuranceProfile found. The earlier-stage control is weaker than the criterion. `quoin advise --json` did not finish after more than one minute and was stopped; this finding is a manual criterion-to-plan evidence check, not a deterministic advisor verdict.
 
 ## Scope
 
@@ -51,4 +51,4 @@ REVISE. 1 finding(s).
 
 ## Current verdict
 
-PASS at PR #662 head 3f04cba98b7649bea5d368b486c19e2f14e68aff. FND-001 is fixed in disposition round 2; the earlier still-open row remains as history.
+PASS at PR #662. FND-001 is fixed in disposition round 2; the earlier still-open row remains as history.

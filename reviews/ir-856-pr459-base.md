@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-856. Diff-scoped review of PR 459 at b644efed1d4b648a74e4897fbbc7fa78be4c6480. The changed FR-016 paragraph makes a universal public-input claim that the public generic canonical API does not support.
+Ticket: IR-856. Diff-scoped review of PR 459. The changed FR-016 paragraph makes a universal public-input claim that the public generic canonical API does not support.
 
 ## Examined units
 

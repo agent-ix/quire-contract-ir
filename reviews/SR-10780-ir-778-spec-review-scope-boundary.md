@@ -11,7 +11,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-778. Exact reviewed head: 495b823691402e40ad4a749410341866245680d6. The new type belongs in the cycle-free root Kani module and Codegen owns its QSL conversion. The event-to-constructor producer responsibility is unresolved.
+Ticket: IR-778. Exact reviewed head:. The new type belongs in the cycle-free root Kani module and Codegen owns its QSL conversion. The event-to-constructor producer responsibility is unresolved.
 
 ## Findings
 

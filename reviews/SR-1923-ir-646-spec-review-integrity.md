@@ -3,7 +3,7 @@ id: SR-1923
 title: IR-646 PR 304 spec-review/integrity review
 type: SpecReview
 analysis: integrity
-scope: agent-ix/quire-contract-ir@770969577284fc1b2b063805f1d20cf51e751125; spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
   spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/TC-228-checked-package-v2-wire-owner-and-lock-joins.md
 review_set: subset
 ---

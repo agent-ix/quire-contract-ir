@@ -24,17 +24,17 @@ The hotfix switches the owner join from a fictitious node field to the raw recor
 
 ## Coverage
 
-Exact scope: origin/main 2140725d0c522541f303853c0f07b4f8771cfc71 through raw-record head 77a5ae763cf39778c534169c5582cc5f5e9d4b39 (two changed files). Reviewed FR-038-AC-303/304 and TC-229. The actual agent-ix-semantic-ir PopulationRecord schema requires identity, kind, members, extent and origin; QSpec FR-154-AC-7 requires a population kind to resolve to a Quire population meaning. The IR selected-document reader authenticates digest and package identity but does not run that schema validator.
+Exact scope: origin/main through raw-record (two changed files). Reviewed FR-038-AC-303/304 and TC-229. The actual agent-ix-semantic-ir PopulationRecord schema requires identity, kind, members, extent and origin; QSpec FR-154-AC-7 requires a population kind to resolve to a Quire population meaning. The IR selected-document reader authenticates digest and package identity but does not run that schema validator.
 
 Rust review: no new unsafe, async/lock path, wire cast or production panic in the changed lines. Cargo gates were not rerun in this reviewer worktree because the assigned review excludes the shared heavy lane.
 
 ## Normative basis
 
-QSpec FR-322 “Model-owned members” step 1 requires this reader to admit each selected document under FR-154 before graph admission and to report the first FR-154 refusal. QSpec FR-154-AC-7 requires a population whose kind names no `constructs` entry, or resolves outside FR-208's meaning set, to refuse `invalid_model_binding`/`malformed-declaration`. IR FR-038's own “Model-owned members” step 1 (lines 810–833) states the same reader boundary. The locked `agent-ix-semantic-ir` PopulationRecord schema (`crates/semantic-ir/src/schema.rs:699–727` at filament-core-data rev 033e228) requires `identity` and `kind`. `admit_document` authenticates and parses bytes but does not run that schema validator; `read_semantic_ir` is the only changed population-declaration check on the selected-document path.
+QSpec FR-322 “Model-owned members” step 1 requires this reader to admit each selected document under FR-154 before graph admission and to report the first FR-154 refusal. QSpec FR-154-AC-7 requires a population whose kind names no `constructs` entry, or resolves outside FR-208's meaning set, to refuse `invalid_model_binding`/`malformed-declaration`. IR FR-038's own “Model-owned members” step 1 (lines 810–833) states the same reader boundary. The locked `agent-ix-semantic-ir` PopulationRecord schema (`crates/semantic-ir/src/schema.rs:699–727` at filament-core-data rev ) requires `identity` and `kind`. `admit_document` authenticates and parses bytes but does not run that schema validator; `read_semantic_ir` is the only changed population-declaration check on the selected-document path.
 
 ## Dispositions
 
-Round 1, exact hotfix head `a13f03a7c855f68c4e237fed4a938fc5e1d40460`:
+Round 1, exact hotfix:
 
 | FND | Outcome | Evidence |
 | --- | --- | --- |
@@ -45,11 +45,11 @@ Round 1, exact hotfix head `a13f03a7c855f68c4e237fed4a938fc5e1d40460`:
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-003 | high | A raw population entry containing a valid `identity` and an extra `node` is admitted because `read_semantic_ir` checks the identity and kind but never rejects `node`. Merged QSpec FR-322 requires any selected population entry with a `node` member to refuse `invalid_model_binding`/`malformed-declaration` at the selection row before graph checks; its new `with-node-member` adverse case isolates this input. | `crates/quire-contract-model/src/checked_package/v2/model_members.rs:2233`; QSpec `FR-322-AC-82` at merged #321 (`6ab82c5`); QSpec `adverse.json:90` |
+| FND-003 | high | A raw population entry containing a valid `identity` and an extra `node` is admitted because `read_semantic_ir` checks the identity and kind but never rejects `node`. Merged QSpec FR-322 requires any selected population entry with a `node` member to refuse `invalid_model_binding`/`malformed-declaration` at the selection row before graph checks; its new `with-node-member` adverse case isolates this input. | `crates/quire-contract-model/src/checked_package/v2/model_members.rs:2233`; QSpec `FR-322-AC-82` at merged #321; QSpec `adverse.json:90` |
 
 ## Dispositions, round 2
 
-Exact hotfix head `f05b6506726fdb92380ce9261153186392f20030`:
+Exact hotfix:
 
 | FND | Outcome | Evidence |
 | --- | --- | --- |
@@ -61,4 +61,4 @@ Exact hotfix head `f05b6506726fdb92380ce9261153186392f20030`:
 
 ## Final-head inspection
 
-At `a6558bcc6b7c2a7dda41713f646022a3c8873776`, the only change since the prior PASS head is `tests/it/checked_package_v2_abstraction_relation.rs`. Its shared selected-document fixture now declares a population construct and emits `identity`, `displayName`, `kind`, `members`, `extent` and `origin` for each population. Both identities match the existing `ModelOwner.node` values; no `node` member appears in the raw records. The production reader and FR-038 text are unchanged from the fixed head. No new finding.
+, the only change since the prior PASS head is `tests/it/checked_package_v2_abstraction_relation.rs`. Its shared selected-document fixture now declares a population construct and emits `identity`, `displayName`, `kind`, `members`, `extent` and `origin` for each population. Both identities match the existing `ModelOwner.node` values; no `node` member appears in the raw records. The production reader and FR-038 text are unchanged from the fixed head. No new finding.

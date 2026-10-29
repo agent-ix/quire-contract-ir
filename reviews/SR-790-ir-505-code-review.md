@@ -3,7 +3,7 @@ id: SR-790
 title: "code review of PR 250 against IR-505 (content-only ModelOwner)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@286dc707986d19f2d9a38f3b752be436d5b278ec; crates/quire-contract-model/src/checked_package/v2/{identity.rs,model_members.rs,operations.rs}; tests/it/checked_package_v2_{reader,model_members,frame_entries,dependency_reference}.rs; diff origin/main...HEAD (merge base db5ca1c)"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/{identity.rs,model_members.rs,operations.rs}; tests/it/checked_package_v2_{reader,model_members,frame_entries,dependency_reference}.rs; diff origin/main...HEAD (merge )"
 review_set: subset
 ---
 # SR-790: code review of PR 250 against IR-505
@@ -11,7 +11,7 @@ review_set: subset
 ## Summary
 
 Ticket: IR-505. Code review with the rust-review lane, scoped to `git diff origin/main...HEAD`.
-The merge base is db5ca1c. origin/main has since moved two commits (#246 KaniProfile, #245
+The merge base is. origin/main has since moved two commits (#246 KaniProfile, #245
 expression.rs). Neither touches a file in this diff, and GitHub reports the PR mergeable.
 
 What was checked independently, at the reviewed head:
@@ -27,7 +27,7 @@ What was checked independently, at the reviewed head:
   or a declaration key. That grep covered `src/`, `crates/`, `tests/`, `tests/fixtures`,
   `spec/` and `reviews/`. The only remaining versioned owner text is in the historical
   review `reviews/SR-730-ir-504-spec-review-base.md`, a record that stays as written.
-- The preimage bytes match QSpec. In quire-specification origin/main (c76c6ae),
+- The preimage bytes match QSpec. In quire-specification origin/main,
   `proposals/checked-package-v2/node-identity-preimage.schema.json` and `schema.json`
   define `ModelOwner` as exactly `kind`/`identity`/`node`, with
   `additionalProperties: false`. The schema's `ModelDeclarationNode` member set
@@ -54,7 +54,7 @@ Mutation probes (each reverted afterwards):
    `tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_version`
    fails on the `unknown_member` assertion, so the no-compatibility-layer rule is
    enforced.
-3. Remove the new `!identity.is_empty()` conjunct. All 102 tests still pass. That
+3. Remove the new `!identity.is_empty` conjunct. All 102 tests still pass. That
    conjunct cannot be observed: FR-038 lock class 4 refuses a selection with an empty
    identity, so an empty owner identity never joins. The behaviour test still holds
    (empty identity refuses `invalid_semantic_graph`). The guard is defensive, not
@@ -86,5 +86,5 @@ covers that cross-producer check. Two low findings, both cosmetic.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 90f6a3a33ceee1315cdea212aca8b4c503636bf5: identity.rs:527-529 now reads "the join is by package identity, and the owner's identity and node must each be nonempty (FR-038-AC-45)". |
-| FND-002 | fixed | 90f6a3a33ceee1315cdea212aca8b4c503636bf5: both cases (frame_entries.rs:1562, :1616) are relabelled "another domain package". |
+| FND-001 | fixed |: identity.rs:527-529 now reads "the join is by package identity, and the owner's identity and node must each be nonempty (FR-038-AC-45)". |
+| FND-002 | fixed |: both cases (frame_entries.rs:1562,:1616) are relabelled "another domain package". |

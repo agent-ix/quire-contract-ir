@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Diff-scoped code and Rust review of PR #556 at 6f8f2248. The private checked value has closed integer and rational variants carrying the same-kind concrete type and range. Typed binary operator operands preserve that pairing; unary negation matches a paired variant before using its range. The public checker signature and diagnostic paths remain unchanged.
+Diff-scoped code and Rust review of PR #556. The private checked value has closed integer and rational variants carrying the same-kind concrete type and range. Typed binary operator operands preserve that pairing; unary negation matches a paired variant before using its range. The public checker signature and diagnostic paths remain unchanged.
 
 ## Verdict
 

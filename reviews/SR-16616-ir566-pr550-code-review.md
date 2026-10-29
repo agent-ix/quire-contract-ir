@@ -3,7 +3,7 @@ id: SR-16616
 title: "IR-566 PR 550 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@0e65202439b00c264555db19e2a208964139211b; Cargo.toml, Makefile, tests/it/cycle_free_model.rs, spec/conformance/functional/FR-020-json-conformance-interface.md; FR-020-AC-18"
+scope: "agent-ix/quire-contract-ir; Cargo.toml, Makefile, tests/it/cycle_free_model.rs, spec/conformance/functional/FR-020-json-conformance-interface.md; FR-020-AC-18"
 review_set: subset
 ---
 
@@ -31,7 +31,7 @@ Ticket IR-566. Independent diff-scoped code and Rust review of PR 550. The optio
 
 ## Dispositions
 
-Same reviewer rechecked the fix at exact head `cb00e60720059e2445b48e57eeac660edf7c2396` against the original failing command.
+Same reviewer rechecked the fix at exact against the original failing command.
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
@@ -39,4 +39,4 @@ Same reviewer rechecked the fix at exact head `cb00e60720059e2445b48e57eeac660ed
 
 ## Final verdict
 
-**PASS** for the reviewed PR diff at `cb00e60720059e2445b48e57eeac660edf7c2396`; final aggregate gates remain the author's responsibility.
+**PASS** for the reviewed PR diff; final aggregate gates remain the author's responsibility.

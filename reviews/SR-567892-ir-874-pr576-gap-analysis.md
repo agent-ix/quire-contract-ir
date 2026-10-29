@@ -3,7 +3,7 @@ id: SR-567892
 title: "IR-874 PR 576 gap-analysis review"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, crates/quire-contract-model/src/checked_package/shared.rs, tests/it/checked_package_v2_protocol_body.rs; PR #576 frozen head 6ca1fa11517ad1e24aa4fd6011dd3835ae5b7fe2 against decf3725"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, crates/quire-contract-model/src/checked_package/shared.rs, tests/it/checked_package_v2_protocol_body.rs; PR #576 frozen "
 review_set: subset
 ---
 
@@ -39,4 +39,4 @@ Plan completion: not assessed. Computed Quire matrix inspected for the changed c
 
 ## Disposition verdict
 
-**PASS at 2c2dbab52186dac7e0ddcabba1fabecdc1a63714** — FND-001 is fixed in PR #576. No new finding in the fix diff; full FR-038-AC-284/289 remain Planned.
+**PASS ** — FND-001 is fixed in PR #576. No new finding in the fix diff; full FR-038-AC-284/289 remain Planned.

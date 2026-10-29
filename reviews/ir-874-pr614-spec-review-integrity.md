@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-The new FR-038-AC-292 clause gives an observable typed refusal and ordered stage placement for bare record reads; TC-048 supplies public-reader cases with a Boolean root to avoid an earlier non-Boolean-root refusal. The IR statement agrees with QSpec 9bcbc625 and does not narrow the existing field-projection, scope or model-state cases.
+The new FR-038-AC-292 clause gives an observable typed refusal and ordered stage placement for bare record reads; TC-048 supplies public-reader cases with a Boolean root to avoid an earlier non-Boolean-root refusal. The IR statement agrees with QSpec and does not narrow the existing field-projection, scope or model-state cases.
 
 ## Examined units
 

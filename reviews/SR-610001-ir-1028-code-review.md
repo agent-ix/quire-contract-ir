@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-1028. Reviewed the PR #585 Rust diff at frozen head 9c10bf965bc1360597f2c9452c8ee6a3d01a30d2, including the 100,000-node cyclic protocol test and affected key derivation call path.
+Ticket: IR-1028. Reviewed the PR #585 Rust diff at frozen, including the 100,000-node cyclic protocol test and affected key derivation call path.
 
 ## Verdict
 

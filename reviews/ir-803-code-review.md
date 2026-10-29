@@ -3,7 +3,7 @@ id: SR-11664
 title: "IR-803 typed composite operator code review (with Rust review)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; PR #410 diff 66e2a81...55154c5: crates/quire-contract-model/src/checked_package/v2/composite_operands.rs, crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/lib.rs, tests/it/checked_package_v2_composite_operands.rs, FR-038, TC-048, spec/checked_package/matrix/tests.md, FR-019"
+scope: "agent-ix/quire-contract-ir; PR #410 diff...: crates/quire-contract-model/src/checked_package/v2/composite_operands.rs, crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/lib.rs, tests/it/checked_package_v2_composite_operands.rs, FR-038, TC-048, spec/checked_package/matrix/tests.md, FR-019"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
@@ -18,7 +18,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-803. PR: quire-contract-ir#410 at 55154c5c296f1dbbd3fbe6331145027782f759b2 against base 66e2a812aacaa08bfa701ca7368f41cb18d43b51 (merge base equals origin/main). One pass of code-review with the rust-review lane folded in, scoped to `git diff origin/main...55154c5` (8 files). Authority: FR-038-AC-246 and the FR-038 accessor contract as merged by spec PR #407. Gates run in a throwaway worktree with QUIRE_SPEC_LANGUAGE_DIR at quire-spec-language origin/main 2eeee55bd: `cargo test --locked --workspace --test it checked_package_v2` 448 passed; `cargo test --locked -p quire-contract-model --lib v2` 171 passed (the author reported 170; the diff adds no unit test, so the difference is the filter, not the change); `cargo fmt --all -- --check` clean; `cargo clippy --locked --workspace --all-targets -- -D warnings` clean; `quire validate` 887/887 grammar-clean; `quire coverage --strict` 49 unbacked, 0 contradicted (main: 50; the only row removed is FR-038-AC-246).
+Ticket: IR-803. PR: quire-contract-ir#410 against (merge base equals origin/main). One pass of code-review with the rust-review lane folded in, scoped to `git diff origin/main...` (8 files). Authority: FR-038-AC-246 and the FR-038 accessor contract as merged by spec PR #407. Gates run in a throwaway worktree with QUIRE_SPEC_LANGUAGE_DIR at quire-spec-language origin/main: `cargo test --locked --workspace --test it checked_package_v2` 448 passed; `cargo test --locked -p quire-contract-model --lib v2` 171 passed (the author reported 170; the diff adds no unit test, so the difference is the filter, not the change); `cargo fmt --all -- --check` clean; `cargo clippy --locked --workspace --all-targets -- -D warnings` clean; `quire validate` 887/887 grammar-clean; `quire coverage --strict` 49 unbacked, 0 contradicted (main: 50; the only row removed is FR-038-AC-246).
 
 ## Verdict
 
@@ -27,7 +27,7 @@ Ticket: IR-803. PR: quire-contract-ir#410 at 55154c5c296f1dbbd3fbe6331145027782f
 - **Public type.** `CheckedCompositeOperator` is a closed `Eq | Ne` enum. It has no `#[non_exhaustive]` and derives `Clone, Copy, Debug, Eq, PartialEq`, the same derives as the fieldless sibling `CheckedUnsupportedCompositeOperand`. The type and both variants carry rustdoc.
 - **Re-exports.** The enum is re-exported from `v2/mod.rs` and from the crate root `lib.rs`, in alphabetical position like its siblings. The 12-line `lib.rs` hunk is a rustfmt reflow caused by one insertion. A sorted token diff of the `lib.rs` re-export list against main shows exactly one added identifier, `CheckedCompositeOperator`, and nothing removed or renamed.
 - **FR-019 table.** The FR-019 public-items row adds the name in sorted order (`Operands` < `Operator`), and nothing else changed in that row.
-- **Mapping.** The identity is still read from the node that was already resolved under the single `graph.node` charge. The read comes after the UnknownNode, NotApplication and MissingOccurrence checks, and the uncatalogued-identity UnknownOperator check stays ahead of it. The only `_` arm returns `IneligibleOperator`, so the mapping has no default value. No new lookup, `meter.charge` or index access was added. `consumed_work` is unchanged from main: the pre-existing exact-work oracles (tests/it/checked_package_v2_composite_operands.rs:632-633 for both eq and ne, :1087) are untouched by the diff and pass. A symmetric extra-charge mutant and a second-lookup mutant both fail them.
+- **Mapping.** The identity is still read from the node that was already resolved under the single `graph.node` charge. The read comes after the UnknownNode, NotApplication and MissingOccurrence checks, and the uncatalogued-identity UnknownOperator check stays ahead of it. The only `_` arm returns `IneligibleOperator`, so the mapping has no default value. No new lookup, `meter.charge` or index access was added. `consumed_work` is unchanged from main: the pre-existing exact-work oracles (tests/it/checked_package_v2_composite_operands.rs:632-633 for both eq and ne,:1087) are untouched by the diff and pass. A symmetric extra-charge mutant and a second-lookup mutant both fail them.
 - **Rust lane.** No `unwrap`, `expect`, indexing or `as` cast was added on wire data, no `#[allow]` was added, and there is no `unsafe`.
 - **CG consumer.** CG's composite builder can map `Eq` to `Equal` and `Ne` to `NotEqual` from the returned value through the crate-root re-export, with no JSON read and no second lookup. The type is `Copy` and exhaustively matchable. It does not derive `Hash`, which the builder does not need for a two-way map.
 
@@ -46,7 +46,7 @@ Mutants run against `cargo test --test it checked_package_v2_composite_operands`
 
 ## Evidence
 
-- Token diff: `diff <(git show origin/main:crates/quire-contract-model/src/lib.rs | tr -s ' ,\n' '\n' | sort) <(tr -s ' ,\n' '\n' < crates/quire-contract-model/src/lib.rs | sort)` prints only `> CheckedCompositeOperator`.
+- Token diff: `diff <(git show origin/main:crates/quire-contract-model/src/lib.rs | tr -s ',\n' '\n' | sort) <(tr -s ',\n' '\n' < crates/quire-contract-model/src/lib.rs | sort)` prints only `> CheckedCompositeOperator`.
 - Refusal order at composite_operands.rs:380-414 is: UnknownNode, NotApplication, MissingOccurrence, UnknownOperator (uncatalogued), IneligibleOperator (catalogued but not eq/ne). The wildcard-default mutant is killed by `tc_048_external_error_consumer_retains_authentic_node_and_application_loci`, which uses `boolean.and`.
 - The scratch mutant logs are kept outside the repo, and the review worktree was restored clean (`git status --porcelain` empty) after the run.
 
@@ -74,7 +74,7 @@ scope:
 
 ## Dispositions
 
-Round 1, against fix commit ce9e41e4d970ead68193df3225ad38142458574e (`git diff 55154c5..ce9e41e`, which changes only composite_operands.rs). Re-run gates: `cargo test --workspace --test it checked_package_v2` 448 passed, model `--lib v2` 171 passed, fmt and clippy clean, `quire validate` 887/887, strict coverage 49 unbacked / 0 contradicted. Mutants re-run on the new head and killed: swapped mapping and wildcard-default-to-Eq (by the AC-246 and boolean.and AC-181 tests), extra charge and second lookup (by the exact-work tests at :632-633 and :1087). The refusal order and `consumed_work` are unchanged, and the fix round adds no finding.
+Round 1, against fix (`git diff..`, which changes only composite_operands.rs). Re-run gates: `cargo test --workspace --test it checked_package_v2` 448 passed, model `--lib v2` 171 passed, fmt and clippy clean, `quire validate` 887/887, strict coverage 49 unbacked / 0 contradicted. Mutants re-run on the new head and killed: swapped mapping and wildcard-default-to-Eq (by the AC-246 and boolean.and AC-181 tests), extra charge and second lookup (by the exact-work tests at:632-633 and:1087). The refusal order and `consumed_work` are unchanged, and the fix round adds no finding.
 
 | FND | outcome | reason |
 | --- | --- | --- |

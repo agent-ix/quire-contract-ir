@@ -3,7 +3,7 @@ id: SR-702
 title: "spec review of PR 244 (IR-448 NFR-001 methods)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@e94752093bd5ed619945964b9a6a035e48af5597; spec/core/non-functional/NFR-001-determinism.md"
+scope: "agent-ix/quire-contract-ir; spec/core/non-functional/NFR-001-determinism.md"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/NFR-001
@@ -13,7 +13,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-448. Reviewed head e947520 against origin/main 968ba9b. The spec diff touches only
+Ticket: IR-448. Reviewed against origin/main. The spec diff touches only
 the Measurement and Evaluation table of NFR-001. The three Method cells now hold catalogue IDs.
 M-1 and M-2 use `golden-approval-testing`, and M-3 uses `integration-testing`. The M-2 Metric
 cell gains a planned note.
@@ -45,11 +45,11 @@ statement of how diagnostic order is measured. FND-002 to FND-004 are judgement 
 
 ## Dispositions
 
-Round 1, reviewed at 4941351784736182f05385b670f7860889f04cdf (fix commit 4941351).
+Round 1, reviewed (fix ).
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 4941351 |
-| FND-002 | fixed | 4941351 |
-| FND-003 | fixed | 4941351 |
-| FND-004 | fixed | 4941351 |
+| FND-001 | fixed |  |
+| FND-002 | fixed |  |
+| FND-003 | fixed |  |
+| FND-004 | fixed |  |

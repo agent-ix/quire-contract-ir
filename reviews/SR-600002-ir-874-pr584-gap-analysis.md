@@ -3,7 +3,7 @@ id: SR-600002
 title: "IR-874 PR 584 gap-analysis review"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; PR #584 at caeb6ee203989b33222ffcd74e188314b3a08b2f; changed model, tests and FR-019 inventory"
+scope: "agent-ix/quire-contract-ir; PR #584; changed model, tests and FR-019 inventory"
 review_set: subset
 ---
 

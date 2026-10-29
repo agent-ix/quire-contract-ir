@@ -3,7 +3,7 @@ id: SR-7302
 title: spec-review/base review of IR-703 PR 347
 type: SpecReview
 analysis: base
-scope: agent-ix/quire-contract-ir@8d59a9dac16e8a7d6940a67b1a1e80377ebc38ed; spec/model/functional/FR-019-rust-library-interface.md
+scope: agent-ix/quire-contract-ir; spec/model/functional/FR-019-rust-library-interface.md
 review_set: subset
 ---
 

@@ -3,7 +3,7 @@ id: SR-8083
 title: "Failure-domain review of IR-691 bounded record projection"
 type: SpecReview
 analysis: failure-domain
-scope: "agent-ix/quire-contract-ir@d2055f10f84cfa7a27b7d5fe0fdfe8c79e710657; FR-038-AC-232 through FR-038-AC-235, TC-048 bounded integer record section; IR-691"
+scope: "agent-ix/quire-contract-ir; FR-038-AC-232 through FR-038-AC-235, TC-048 bounded integer record section; IR-691"
 review_set: subset
 ---
 
@@ -39,10 +39,10 @@ The narrow record returns only the original GraphChild and Literal disposition, 
 
 ## Dispositions — round 1
 
-Reviewed fix revision `380bccef51abff270d9f960bcdfadfab2bfdbda6` against the original finding at `d2055f10f84cfa7a27b7d5fe0fdfe8c79e710657`. This was a focused two-document specification diff review; no code test or full gate was run.
+Reviewed fix against the original finding. This was a focused two-document specification diff review; no code test or full gate was run.
 
 | FND | Outcome | Evidence |
 | --- | --- | --- |
-| FND-001 | fixed 380bccef51abff270d9f960bcdfadfab2bfdbda6 | The FR now charges each present endpoint's full UTF-8 length once before validation or comparison, even when an early sign or digit decides order, and forbids a second charge on copying. AC-235 and TC-048 independently count examined endpoint bytes and require a private 4096-digit first-digit-decisive fixture at exact and one-less work limits. |
+| FND-001 | fixed | The FR now charges each present endpoint's full UTF-8 length once before validation or comparison, even when an early sign or digit decides order, and forbids a second charge on copying. AC-235 and TC-048 independently count examined endpoint bytes and require a private 4096-digit first-digit-decisive fixture at exact and one-less work limits. |
 
 No new finding arose from this fix diff. The original finding text and reviewed scope above remain the record of the first pass.

@@ -3,7 +3,7 @@ id: SR-819
 title: "evidence review of PR 258 canonical encoding (IR-533)"
 type: SpecReview
 analysis: evidence
-scope: "agent-ix/quire-contract-ir@f3606b05780f22897c15fccc0eb2756ab284f14e; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (FR-038-AC-73 to FR-038-AC-78), spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (FR-038-AC-73 to FR-038-AC-78), spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md"
 review_set: subset
 ---
 # SR-819: evidence review of PR 258 canonical encoding
@@ -31,7 +31,7 @@ The evidence methods are appropriate. FND-001 is a matrix-hygiene nit.
 
 ## Dispositions
 
-Round 1 at 2f491e0a30bd3b29b9ae6f9abf81f28ba09bac81. The author did not add an Inspection
+Round 1. The author did not add an Inspection
 test case. AC-80 is now "Test (TC-048)", backed by a test that reads the manifests,
 `deny.toml` and the crate source. It lists every `FixedShape` derive and every `Encode` and
 `FixedShape` impl, searches for `const DEPTH`, and runs `make deny`. I accept this. It is an
@@ -46,4 +46,4 @@ defect in this spec.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | fixed 2f491e0a30bd3b29b9ae6f9abf81f28ba09bac81 |
+| FND-001 | fixed | fixed |

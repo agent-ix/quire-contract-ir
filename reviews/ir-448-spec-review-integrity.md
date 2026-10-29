@@ -3,7 +3,7 @@ id: SR-991
 title: "integrity review of PR 232 (removed requirements and their references)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@122c21f6cacb25222b35b6629d19ed90e541d81a; spec/assurance/AD-001-*, spec/contract/FR-028-*, spec/contract/FR-031-*, spec/interface/FR-019-*, spec/decisions/ADR-0056-*; cross-repo citations in agent-ix/quire-specification and agent-ix/quire-contract-codegen origin/main"
+scope: "agent-ix/quire-contract-ir; spec/assurance/AD-001-*, spec/contract/FR-028-*, spec/contract/FR-031-*, spec/interface/FR-019-*, spec/decisions/ADR-0056-*; cross-repo citations in agent-ix/quire-specification and agent-ix/quire-contract-codegen origin/main"
 review_set: subset
 ---
 # SR-991: integrity review of PR 232
@@ -28,14 +28,14 @@ Ticket: IR-448. This review checks internal consistency after the removals, and 
   - AD-001:42-43: "Its crate root re-exports each public item by name from its module, and the items it re-exports are exactly FR-019's public item table". The model root has seven glob re-exports.
   - AD-001:47-49: "... and it re-exports no `quire-contract-model` item". `src/lib.rs:12` is `pub use quire_contract_model::*`. The PR edited this sentence to drop "(FR-039)" and left the false clause in place.
   - FR-031:58: "the root crate carries no family lowering". `src/kani/arithmetic.rs`, `collections.rs` and `objects.rs` exist.
-  - FR-031:73: "Contract IR defines no counterexample packet, witness, replay source ...". `src/kani/witness.rs` and `replay.rs` exist.
+  - FR-031:73: "Contract IR defines no counterexample packet, witness, replay source...". `src/kani/witness.rs` and `replay.rs` exist.
   - FR-028:28 says the root package "re-exports none of its items" as fact. FR-028's own Status admits AC-2 is planned.
-  - FR-019:53 now says only "The crate root re-exports them from their modules". AD-001:155-156 still requires "by name ... with no glob re-export", so the two documents disagree.
+  - FR-019:53 now says only "The crate root re-exports them from their modules". AD-001:155-156 still requires "by name... with no glob re-export", so the two documents disagree.
 
-  Fix: phrase these as target state, the way the PR's own AD-001 Replay ownership rewrite does ("target is to ..."), and restore the no-glob target to FR-019 as prose, not as an AC.
+  Fix: phrase these as target state, the way the PR's own AD-001 Replay ownership rewrite does ("target is to..."), and restore the no-glob target to FR-019 as prose, not as an AC.
 - FND-002: the citations were measured on each repo's origin/main.
   - quire-specification: FR-196:12 and ADR-005:9 (`depends_on`) point at `ix://agent-ix/quire-contract-ir/FR-036`. FR-197:12 points at `.../FR-037`.
-  - quire-contract-codegen: FR-014:12, FR-018:12 and FR-021:14 point at `ix://agent-ix/quire-contract-ir/FR-036`. FR-022:59 says "under the Contract IR FR-036 vocabulary". `src/kani_obligations.rs:5` cites it. `tests/it/kani_obligations.rs` has doc comments at :1, :487, :631, :834, :1129, :1271 and :1427, each reading "Upstream: agent-ix/quire-contract-ir FR-036-AC-n, TC-045".
+  - quire-contract-codegen: FR-014:12, FR-018:12 and FR-021:14 point at `ix://agent-ix/quire-contract-ir/FR-036`. FR-022:59 says "under the Contract IR FR-036 vocabulary". `src/kani_obligations.rs:5` cites it. `tests/it/kani_obligations.rs` has doc comments at:1,:487,:631,:834,:1129,:1271 and:1427, each reading "Upstream: agent-ix/quire-contract-ir FR-036-AC-n, TC-045".
   - QSL ADR-013:903 mentions "(IR FR-039)" as history, which is harmless.
 
   None of these fails this repo's CI, but after merge they point at nothing. FR-036's content, the per-item `supported`/`requires_bound`/`unsupported`/`invalid_request` disposition vocabulary, is the vocabulary codegen says it implements. It should be re-homed (codegen FR-019/FR-015 is the natural owner) and the links repointed. File Linear follow-ups for QSpec and codegen. The owner should approve removing a requirement that another repo's ADR `depends_on`.
@@ -56,10 +56,10 @@ Changes requested at medium. The removals are internally reachable-clean, but th
 
 ## Dispositions
 
-Round 1, reviewed at 276749f984690d9aad26b28347369e32e5845508. Every removal and cross-reference edit was reverted. AD-001, AD-003, FR-019, FR-028, FR-031, spec/index.md and the deleted FR/TC files are identical to origin/main. The findings below were caused by the removals, and they no longer apply.
+Round 1, reviewed. Every removal and cross-reference edit was reverted. AD-001, AD-003, FR-019, FR-028, FR-031, spec/index.md and the deleted FR/TC files are identical to origin/main. The findings below were caused by the removals, and they no longer apply.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 276749f |
-| FND-002 | fixed | 276749f |
-| FND-003 | fixed | 276749f |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |

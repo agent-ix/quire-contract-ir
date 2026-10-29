@@ -3,7 +3,7 @@ id: SR-983
 title: "code review of PR 228 (lower admitted state frame and state_clause nodes)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@7b4ad49ee00ce5537290a5c3cdce6208319623c4; tests/it/checked_package_v2_frame_entries.rs"
+scope: "agent-ix/quire-contract-ir; tests/it/checked_package_v2_frame_entries.rs"
 review_set: subset
 ---
 # SR-983: code review of PR 228
@@ -18,7 +18,7 @@ Measured at the reviewed sha:
 
 - `make fmt-check` and `make lint` pass.
 - The TC-056 tests pass, 14 of 14.
-- `make spec` fails with 22 unbacked rows. A clean origin/main 3e7935f fails with the same 22 rows. The only difference between the two outputs is one more bound evidence symbol (201 to 202).
+- `make spec` fails with 22 unbacked rows. A clean origin/main fails with the same 22 rows. The only difference between the two outputs is one more bound evidence symbol (201 to 202).
 
 Mutation results, run in a scratch copy:
 
@@ -52,12 +52,12 @@ The test is sound and adds real coverage. It is the only test that asserts a sta
 
 ## Dispositions
 
-Round 1, reviewed at 3edab7efea488e92b885c0af2c2ec053d1672c3d.
+Round 1, reviewed.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 3edab7e |
-| FND-002 | fixed | 3edab7e |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
 
 - FND-001: the test is now `tc_050_admitted_frame_and_state_clause_nodes_lower_under_a_state_profile`, tagged `#[trace("TC-050", "FR-038-AC-6")]`. `make spec` still reports the same 22 unbacked rows as origin/main, and 202 bound symbols.
-- FND-002: `operation_anchor` has been added to the lowered positions, so three of the five state forms are now lowered. Transition and postcondition would need new fixture nodes, and they stay optional. Mutation results at 3edab7e: a lower that refuses state_clause only fails this test alone (177 pass, 1 fails), and so does a lower that refuses operation_anchor only (177 pass, 1 fails).
+- FND-002: `operation_anchor` has been added to the lowered positions, so three of the five state forms are now lowered. Transition and postcondition would need new fixture nodes, and they stay optional. Mutation results: a lower that refuses state_clause only fails this test alone (177 pass, 1 fails), and so does a lower that refuses operation_anchor only (177 pass, 1 fails).

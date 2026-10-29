@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Code review and Rust test review of PR #617 at 66cca9fc; the changed tests use the public reader and have deterministic assertions, but leave two AC-283 identity cases unverified.
+Code review and Rust test review of PR #617; the changed tests use the public reader and have deterministic assertions, but leave two AC-283 identity cases unverified.
 
 ## Verdict
 
@@ -45,4 +45,4 @@ The role-target test changes a target and checks only the final semantic refusal
 
 ## Disposition verdict
 
-**PASS at f17fa5851fa7c6c7decf7306e3c6d0f370e9398c** — the two recorded test-coverage gaps are fixed. The fix diff changes tests only; the lead owns the aggregate gate.
+**PASS ** — the two recorded test-coverage gaps are fixed. The fix diff changes tests only; the lead owns the aggregate gate.

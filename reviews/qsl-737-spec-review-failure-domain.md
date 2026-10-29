@@ -3,14 +3,14 @@ id: SR-8684
 title: QSL-737 failure-domain review of operation-call argument record conformance
 type: SpecReview
 analysis: failure-domain
-scope: agent-ix/quire-contract-ir@70f0c54b97ab22981edf8bb0447e0fc59156a162; spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md,
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md,
   spec/checked_package/matrix/TC-448-checked-package-v2-operation-argument-conformance.md
 review_set: subset
 ---
 
 ## Summary
 
-Ticket: QSL-737. Edge cases of the FR-347 conformance walk were checked against the existing walk it reuses (`DomainModel::ancestors`, model_members.rs:826-847, at origin/main 6e45fd57): multi-parent and diamond ancestry, early stop, cycles, the work meter row, a foreign document, and source-owned lookalikes.
+Ticket: QSL-737. Edge cases of the FR-347 conformance walk were checked against the existing walk it reuses (`DomainModel::ancestors`, model_members.rs:826-847, at origin/main ): multi-parent and diamond ancestry, early stop, cycles, the work meter row, a foreign document, and source-owned lookalikes.
 
 ## Verdict
 
@@ -26,7 +26,7 @@ What holds. Cycles terminate, because the reused walk keeps a `reached` set. A f
 
 ## Coverage
 
-Examined the FR-347 behavior sections ("What the reader consults", "Exact kinds stay exact", "Refusals", "Work accounting", "Scope") and AC-3, AC-5, AC-6 and AC-8 for failure modes. The meter row is the declaring owner's selection (`Budget::new(meter, owner.selection, ...)`). The argument's record is in that same document, so FR-038-AC-30's `/lock/model_selections/<i>` pointer is fixed. No finding there. Review-only, no edits or builds.
+Examined the FR-347 behavior sections ("What the reader consults", "Exact kinds stay exact", "Refusals", "Work accounting", "Scope") and AC-3, AC-5, AC-6 and AC-8 for failure modes. The meter row is the declaring owner's selection (`Budget::new(meter, owner.selection...)`). The argument's record is in that same document, so FR-038-AC-30's `/lock/model_selections/<i>` pointer is fixed. No finding there. Review-only, no edits or builds.
 
 ## Examined units
 
@@ -57,11 +57,11 @@ bindings: []
 
 ## Dispositions
 
-Round 1; reviewed 66a261051c487bebfe2637e155d815f4d308f68d.
+Round 1; reviewed.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 66a261051c487bebfe2637e155d815f4d308f68d |
+| FND-001 | fixed | Fixed in the reviewed PR. |
 
 ## Disposition round 1 verdict
 
@@ -76,7 +76,7 @@ Round 1; reviewed 66a261051c487bebfe2637e155d815f4d308f68d.
 
 ## Dispositions round 2
 
-Round 2; reviewed 8a8cf551e52968fff3631ca733181ad1a89a6c49. No open findings from round 1: FND-001 was fixed in round 1.
+Round 2; reviewed. No open findings from round 1: FND-001 was fixed in round 1.
 
 ## Disposition round 2 verdict
 
@@ -84,12 +84,12 @@ Round 2; reviewed 8a8cf551e52968fff3631ca733181ad1a89a6c49. No open findings fro
 
 ## Dispositions round 3
 
-Round 3; reviewed 63626fac4a3d2ecb60e01e925a3f5cd000ce5f10.
+Round 3; reviewed.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-002 | fixed | 63626fac4a3d2ecb60e01e925a3f5cd000ce5f10 |
-| FND-003 | fixed | 63626fac4a3d2ecb60e01e925a3f5cd000ce5f10 |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |
 
 ## Disposition round 3 verdict
 

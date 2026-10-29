@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-896. Reviewed PR #483 at 9dd98dc7945c10dd6058b167b9832d17021797ea with the Rust review lane. The implementation rejects the removed cause spellings and retains the other pairing branches; the new test leaves one causeless-code edge unguarded.
+Ticket: IR-896. Reviewed PR #483 with the Rust review lane. The implementation rejects the removed cause spellings and retains the other pairing branches; the new test leaves one causeless-code edge unguarded.
 
 ## Scope
 
@@ -44,4 +44,4 @@ The changed loop now checks only `invalid-value`. A regression that erroneously 
 | --- | --- | --- |
 | FND-001 | fixed | The loop now supplies a recognized `invalid-value` cause for both reader codes and asserts the exact `invalid_package`/`invalid-value` refusal and `/feature_accounting/1/refusal/cause` pointer; see the after excerpt in the marked Linear disposition. |
 | FND-002 | still-open | Add both `unsupported-wire` and `unsupported-feature` cases back without removing the recognized-cause checks. |
-| FND-002 | fixed | The tagged test now retains the recognized-cause loop and adds exact refusal assertions for both named unsupported cause strings at head 5442aeb; see the after excerpt in the marked round-2 Linear disposition. |
+| FND-002 | fixed | The tagged test now retains the recognized-cause loop and adds exact refusal assertions for both named unsupported cause strings at; see the after excerpt in the marked round-2 Linear disposition. |

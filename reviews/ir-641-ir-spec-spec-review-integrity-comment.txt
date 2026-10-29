@@ -1,4 +1,4 @@
-<!-- reviewer repo=agent-ix/quire-contract-ir visibility=public quoin=0.28.4 module=spec-artifacts-process@b82e42e893612b4b4ee94127714b4577ee893502 id=SR-15314 method=spec-review/integrity lang=spec pr=quire-contract-ir#499 model=gpt-6.1-sol run=be712d1b-4313-4600-bcdd-879623058932 -->
+<!-- reviewer repo=agent-ix/quire-contract-ir visibility=public quoin=0.28.4 module=spec-artifacts-process id=SR-15314 method=spec-review/integrity lang=spec pr=quire-contract-ir#499 model=gpt-6.1-sol run=be712d1b-4313-4600-bcdd-879623058932 -->
 
 PASS: Consumer acceptance covers normal Make wiring, valid resolved-fragment adverse controls, explicit missing/malformed/refusal propagation, copy removal, and real committed-lock qualification. Delegated CLI FR-027 owns normalization, diagnostics and release/install contract; duplicating that algorithm or installation contract in IR is unnecessary. The source tree remains unimplemented by design, not falsely green.
 

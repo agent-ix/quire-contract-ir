@@ -3,7 +3,7 @@ id: SR-7300
 title: code-review review of IR-703 PR 347
 type: SpecReview
 analysis: code-review
-scope: agent-ix/quire-contract-ir@8d59a9dac16e8a7d6940a67b1a1e80377ebc38ed; crates/quire-contract-model/src/checked_package/v2/comparison_operands.rs,
+scope: agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/comparison_operands.rs,
   crates/quire-contract-model/src/checked_package/v2/model_fields.rs, crates/quire-contract-model/src/lib.rs,
   tests/it/checked_package_v2_comparison_operands.rs, tests/it/checked_package_v2_frame_entries.rs,
   Makefile

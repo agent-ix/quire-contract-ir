@@ -3,7 +3,7 @@ id: SR-734
 title: "evidence review of PR 249 (IR-504 content-only ModelOwner identity)"
 type: SpecReview
 analysis: evidence
-scope: "agent-ix/quire-contract-ir@fdad364d27f9e77c4525d06f2653eb2e69eca569; spec/checked_package/functional/FR-038-consume-checked-package-v2.md FR-038-AC-45 verification cell; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; spec/checked_package/matrix/tests.md TC-048 row"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md FR-038-AC-45 verification cell; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; spec/checked_package/matrix/tests.md TC-048 row"
 review_set: subset
 ---
 # SR-734: evidence review of PR 249
@@ -33,4 +33,4 @@ clauses.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | b091fe5 |
+| FND-001 | fixed | Fixed in the reviewed PR. |

@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Checked identity and causal clauses for internal consistency and correspondence to QSpec. Two criteria overstate accepted invariants. Ticket: IR-874. Frozen head: e3c91ccff561f7a80402c07d79c594e16957b978.
+Checked identity and causal clauses for internal consistency and correspondence to QSpec. Two criteria overstate accepted invariants. Ticket: IR-874. Frozen head:.
 
 ## Examined units
 
@@ -34,5 +34,5 @@ Checked identity and causal clauses for internal consistency and correspondence 
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Verified at PR #451 head bd0f2fdef5793d005952505b0e456a629eb76f70 against QSpec FR-464/466 and TC-946/948; the corresponding TC-048 control was updated. |
-| FND-002 | fixed | Verified at PR #451 head bd0f2fdef5793d005952505b0e456a629eb76f70 against QSpec FR-464/466 and TC-946/948; the corresponding TC-048 control was updated. |
+| FND-001 | fixed | Verified at PR #451 against QSpec FR-464/466 and TC-946/948; the corresponding TC-048 control was updated. |
+| FND-002 | fixed | Verified at PR #451 against QSpec FR-464/466 and TC-946/948; the corresponding TC-048 control was updated. |

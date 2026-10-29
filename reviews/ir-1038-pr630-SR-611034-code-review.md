@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #630 at f50631f0, including its Rust test, the QSpec vector shape, the production application candidate path, and the existing conformance harness. The added test reads selected QSpec data at runtime and compares both the independent canonical digest and production IR candidate to each published digest.
+Reviewed PR #630, including its Rust test, the QSpec vector shape, the production application candidate path, and the existing conformance harness. The added test reads selected QSpec data at runtime and compares both the independent canonical digest and production IR candidate to each published digest.
 
 ## Verdict
 

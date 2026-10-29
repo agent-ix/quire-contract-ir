@@ -3,7 +3,7 @@ id: SR-837
 title: "code review of PR 261 (IR-533 encode the v2 wire types through quire-canonical)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@82e60e791442a63426f7a739a8cb9256aa0aa8f8; Cargo.toml, Cargo.lock, deny.toml, Makefile, CLAUDE.md, crates/quire-contract-model/Cargo.toml, crates/quire-contract-model/src/checked_package/common.rs, crates/quire-contract-model/src/checked_package/shared.rs, crates/quire-contract-model/src/checked_package/v2/encode.rs, crates/quire-contract-model/src/checked_package/v2/identity.rs, crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/checked_package/v2/vocabulary.rs, tests/it/checked_package_v2_canonical_encoding.rs, tests/it/checked_package_v2_reader.rs, tests/it/main.rs, spec/checked_package/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir; Cargo.toml, Cargo.lock, deny.toml, Makefile, CLAUDE.md, crates/quire-contract-model/Cargo.toml, crates/quire-contract-model/src/checked_package/common.rs, crates/quire-contract-model/src/checked_package/shared.rs, crates/quire-contract-model/src/checked_package/v2/encode.rs, crates/quire-contract-model/src/checked_package/v2/identity.rs, crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/checked_package/v2/vocabulary.rs, tests/it/checked_package_v2_canonical_encoding.rs, tests/it/checked_package_v2_reader.rs, tests/it/main.rs, spec/checked_package/matrix/tests.md"
 review_set: subset
 ---
 # SR-837: code review of PR 261
@@ -11,21 +11,21 @@ review_set: subset
 ## Summary
 
 Ticket: IR-533. This is a code review with the rust-review lane folded in. It covers
-`git diff origin/main...HEAD` at 82e60e791442a63426f7a739a8cb9256aa0aa8f8. The PR was cut
-from a41c0e5f7360d37b8a3ce740108d8077329b36c8 (the spec merge, #258). Main is now
-1042762d (#260), one commit ahead. The merge conflicts on one matrix row (FND-002).
+`git diff origin/main...HEAD`. The PR was cut
+from (the spec merge, #258). Main is now
+ (#260), one commit ahead. The merge conflicts on one matrix row (FND-002).
 
 What was checked, and what holds:
 
 - **Dependency.** `quire-canonical` is a `branch = "main"` git dependency of the model crate
   and a root dev-dependency. Both carry `version = "=0.3.0"`. This is not an invented pin.
   IR's other first-party git dependencies use the same spelling (`ix-trace-rs` and
-  `quire-verification-contracts`, both `version = "=0.1.0", git = ..., branch = "main"`).
+  `quire-verification-contracts`, both `version = "=0.1.0", git =..., branch = "main"`).
   The repo's CLAUDE.md says package versions live in Cargo.toml and the lockfile. `version`
   is cargo's own field: it is checked against the fetched package and it is what
   `cargo publish` keeps. No finding.
 - **Lock and deny.** Cargo.lock has one `quire-canonical` entry and one
-  `quire-canonical-derive` entry, both from `git+https://github.com/agent-ix/quire-canonical?branch=main#59fe4f06370fbdbd8de4fa446ad78f3974926252`.
+  `quire-canonical-derive` entry, both from `git+https://github.com/agent-ix/quire-canonical?branch=main#`.
   `deny.toml` `allow-git` gains the source in the file's own format, sorted. I ran
   `make deny`: advisories, bans, licenses and sources are ok, and the one-copy gate passes.
 - **Makefile `LOCAL_PATCHES` and the CLAUDE.md `use-local` line.** These were not asked
@@ -34,7 +34,7 @@ What was checked, and what holds:
   dependencies. Without the entry, `make use-local` would leave quire-canonical on the
   remote. The derive crate needs its own entry because it comes from the same git source.
   I checked it: `make use-local` against a scratch siblings directory with quire-canonical
-  at 59fe4f06 wrote one `[patch]` table with both crates, and passed the unused-patch check.
+   wrote one `[patch]` table with both crates, and passed the unused-patch check.
   `make use-remote` restored the lock. Keep both hunks.
 - **`FixedShape`.** It is derived on exactly 25 structs and enums: the 24 that FR-038 names,
   plus `CheckedRevision`, as on main. The `closed_vocabulary!` macro derives it at depth 0
@@ -81,7 +81,7 @@ What was checked, and what holds:
   - Model unit tests: 101/101 pass.
   - Reader tests: 31/31 pass.
   - All `checked_package_v2` integration tests: 118/118 pass.
-  - The coder's `make -k ci` log ends `head=82e60e791442a63426f7a739a8cb9256aa0aa8f8
+  - The coder's `make -k ci` log ends `head=
     exit=2`, failing only `spec`, with 23 unbacked rows and 0 contradicted (main's strict
     baseline), in 85 s.
 - **Mutation probes.** The permission layer refused source edits in the review worktree,
@@ -104,10 +104,10 @@ What was checked, and what holds:
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | An integer token past `u64::MAX` passes the canonical-bytes check. FR-038 says "An integer whose magnitude exceeds 2^53 anywhere in the document ... refuses `noncanonical_wire`". `serde_json` parses a token outside the `i64`/`u64` range as `f64`, `write_number` sends it to `Writer::number`, and ryu-js writes whole doubles below 1e21 as plain integers. So `100000000000000000000`, `-100000000000000000000` and `18446744073709552000` round-trip byte-for-byte and are not refused at intake. Reproduced with a probe on this head. With a stale id and a non-term body, the document refuses `stale_dependency` at `/package_id/digest`. As a `literal` value with a recomputed id, it refuses `invalid_semantic_graph` at `/semantic_graph/nodes/0/body`. On main, `serde_json` spells these `1e+20`/`1.8446744073709552e+19`, so they refused `noncanonical_wire`. The code a document gets for this input has changed against the spec, and an encoder-independent grammar refusal now decides it. Fix: in the reader's check, refuse a number that is neither `i64` nor `u64` but is integral with magnitude > 2^53 (or state in FR-038 which tokens count as integers), and add the case to the AC-79 test | crates/quire-contract-model/src/checked_package/v2/encode.rs:146, crates/quire-contract-model/src/checked_package/common.rs:261 |
-| FND-002 | medium | The PR does not merge cleanly with main 1042762d (GitHub `mergeable: CONFLICTING`). #260 rewrote the FR-038 row of the checked-package matrix: it moved AC-73 into the implemented list ("AC-70 through AC-73") and deleted its planned sentence. This PR rewrites the same row to delete the AC-74..AC-80 planned sentence. To resolve, rebase and take main's row, then delete the AC-74..80 planned sentence, write "AC-70 through AC-80 implemented" (or "AC-70 through AC-73 and AC-74 through AC-80"), and keep the PR's added AC-74..80 evidence sentence. Rerun `make spec` | spec/checked_package/matrix/tests.md:15 |
+| FND-001 | medium | An integer token past `u64::MAX` passes the canonical-bytes check. FR-038 says "An integer whose magnitude exceeds 2^53 anywhere in the document... refuses `noncanonical_wire`". `serde_json` parses a token outside the `i64`/`u64` range as `f64`, `write_number` sends it to `Writer::number`, and ryu-js writes whole doubles below 1e21 as plain integers. So `100000000000000000000`, `-100000000000000000000` and `18446744073709552000` round-trip byte-for-byte and are not refused at intake. Reproduced with a probe on this head. With a stale id and a non-term body, the document refuses `stale_dependency` at `/package_id/digest`. As a `literal` value with a recomputed id, it refuses `invalid_semantic_graph` at `/semantic_graph/nodes/0/body`. On main, `serde_json` spells these `1e+20`/`1.8446744073709552e+19`, so they refused `noncanonical_wire`. The code a document gets for this input has changed against the spec, and an encoder-independent grammar refusal now decides it. Fix: in the reader's check, refuse a number that is neither `i64` nor `u64` but is integral with magnitude > 2^53 (or state in FR-038 which tokens count as integers), and add the case to the AC-79 test | crates/quire-contract-model/src/checked_package/v2/encode.rs:146, crates/quire-contract-model/src/checked_package/common.rs:261 |
+| FND-002 | medium | The PR does not merge cleanly with main (GitHub `mergeable: CONFLICTING`). #260 rewrote the FR-038 row of the checked-package matrix: it moved AC-73 into the implemented list ("AC-70 through AC-73") and deleted its planned sentence. This PR rewrites the same row to delete the AC-74..AC-80 planned sentence. To resolve, rebase and take main's row, then delete the AC-74..80 planned sentence, write "AC-70 through AC-80 implemented" (or "AC-70 through AC-73 and AC-74 through AC-80"), and keep the PR's added AC-74..80 evidence sentence. Rerun `make spec` | spec/checked_package/matrix/tests.md:15 |
 | FND-003 | low | The PR's edit reformatted the existing `serde` line to `serde ={ version = "=1.0.228", features = ["derive"] }` (missing space). It is valid TOML, but it is a stray whitespace change, unlike every other manifest line | crates/quire-contract-model/Cargo.toml:32 |
-| FND-004 | low | `tc_048_number_tokens_decode_identically_with_or_without_arbitrary_precision` now asserts only `canonical_value(..).is_ok() == canonical`. For `2.0` and `18446744073709551615` it accepts any refusal, not specifically `NoncanonicalWire`. Before the change it asserted the exact outcome (admitted). Assert `Err(ValidationFailure::refused_bytes(NoncanonicalWire))`, as the private-number case below it already does | crates/quire-contract-model/src/checked_package/common.rs:1406 |
+| FND-004 | low | `tc_048_number_tokens_decode_identically_with_or_without_arbitrary_precision` now asserts only `canonical_value(..).is_ok == canonical`. For `2.0` and `18446744073709551615` it accepts any refusal, not specifically `NoncanonicalWire`. Before the change it asserted the exact outcome (admitted). Assert `Err(ValidationFailure::refused_bytes(NoncanonicalWire))`, as the private-number case below it already does | crates/quire-contract-model/src/checked_package/common.rs:1406 |
 | FND-005 | low | Process: the lead reports that the coder ran a stray no-op `sed -i_unused 's/x/x/' /dev/null`, which breaches the Edit-only rule. No file changed: the diff holds only the 16 expected files, and no `/dev/null_unused` exists. Recorded for the coder lane, with no code action | - |
 
 ## Verdict
@@ -134,13 +134,13 @@ rebase.
 
 ## Dispositions
 
-Round 1 at 0c2508e107b480d51e8ddb718c89d29048253823, rebased onto main
-1042762d0d77e1774d6e3d1c5af1155917f8c8a1 (main has not moved since; GitHub reports
+Round 1, rebased onto main
+ (main has not moved since; GitHub reports
 MERGEABLE). Only the delta was reviewed:
 
-- The rebase commit e9c8838. `git range-diff` against 82e60e7 shows that only the FR-038
+- The rebase. `git range-diff` shows that only the FR-038
   matrix row changed.
-- The fix commit 0c2508e.
+- The fix.
 
 FND-001. `require_canonical_bytes` now runs `holds_float_integer_past_2_pow_53` before
 encoding. It walks the value with an explicit `Vec` stack and refuses `noncanonical_wire`
@@ -159,7 +159,7 @@ magnitude > 2^53.
     document is canonical". The reader test still asserts the integer-grammar refusal for
     `1.5`.
 - The check also refuses `1e+21`-style whole floats. That fits the whole-float bullet.
-- Mutation: the check removed is exactly the pre-fix head 82e60e7. My round-0 probe on that
+- Mutation: the check removed is exactly the pre-fix. My round-0 probe on that
   head measured `stale_dependency` for these inputs, so the new test fails without the
   check. No source edit was attempted, because the permission layer had refused one in
   round 0.
@@ -179,7 +179,7 @@ matrix-row change.
 
 Gate and tests:
 
-- The coder's log ends `head=0c2508e107b480d51e8ddb718c89d29048253823 exit=2`. Only
+- The coder's log ends `head= exit=2`. Only
   `spec` fails, with 23 unbacked rows and 0 contradicted, which is main's baseline.
 - I ran these myself and all pass: 15/15 encoding, 31/31 reader and 101/101 model unit
   tests, plus `make deny` with the one-copy gate.
@@ -188,8 +188,8 @@ No new findings.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 0c2508e107b480d51e8ddb718c89d29048253823 |
-| FND-002 | fixed | e9c8838 (rebase onto 1042762d0d77e1774d6e3d1c5af1155917f8c8a1) |
-| FND-003 | fixed | 0c2508e107b480d51e8ddb718c89d29048253823 |
-| FND-004 | fixed | 0c2508e107b480d51e8ddb718c89d29048253823 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | (rebase onto ) |
+| FND-003 | fixed | Fixed in the reviewed PR. |
+| FND-004 | fixed | Fixed in the reviewed PR. |
 | FND-005 | accepted-no-change | Process finding about the coder's tool use, acknowledged by the lead; no file was affected and the rebase diff holds only the intended matrix-row change |

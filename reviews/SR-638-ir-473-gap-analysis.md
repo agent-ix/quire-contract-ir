@@ -3,7 +3,7 @@ id: SR-638
 title: "gap analysis of PR 234 (range-set merge and cap, FR-014-AC-7)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@d8b1f16c424733c9e4d807e11ecc02ff52f6c6e0; spec/contract/FR-014-expression-semantics.md, crates/quire-contract-model/src/expression.rs, tests/it/expression.rs"
+scope: "agent-ix/quire-contract-ir; spec/contract/FR-014-expression-semantics.md, crates/quire-contract-model/src/expression.rs, tests/it/expression.rs"
 review_set: base
 ---
 # SR-638: gap analysis of PR 234
@@ -22,7 +22,7 @@ Ticket: IR-473. Planless gap analysis of FR-014-AC-7 against the tagged tests an
 ## Finding Detail
 
 - FND-001: add an integration test that mirrors `guarded_fold` for a rational input. Use `p >= -1 && p <= 1 && p != 0` with denominator maximum 1, and assert that a 120-leaf product checks. Without merging, it grows as 2^n and hits the cap at 7 leaves. Also add a rational sum that goes past 64 points and is refused with `rational range set exceeds the checked range-set limit`. Both would kill the surviving mutation.
-- FND-002: a rational guarded division such as `p != 0 && 1/p ...` over `p` in [-1, 1] with an assertion on the accepted result would kill it. Ticket it separately if it is not fixed here.
+- FND-002: a rational guarded division such as `p != 0 && 1/p...` over `p` in [-1, 1] with an assertion on the accepted result would kill it. Ticket it separately if it is not fixed here.
 
 ## Verdict
 
@@ -38,6 +38,6 @@ Approve with one medium test gap. Integer coverage is strong. The exhaustive sma
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 4b79f5f |
-| FND-002 | fixed | 4b79f5f |
-| FND-003 | fixed | 53c8d06 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |

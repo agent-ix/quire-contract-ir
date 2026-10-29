@@ -23,7 +23,7 @@ FR-349 states the wire-preserving ownership boundary and names its five verifica
 
 ## Coverage
 
-Exact reviewed head 00b1f915d2611f9fc1953fb2ed47e1e6b86e0de4. Reviewed only PR #509's changed code and FR-349/FR-019 spec delta. Plan completion: not assessed. Quire validation of the changed FR-349 and FR-019 artifacts passed. Reviewed FR-349 wording and its FR-019 public-inventory entry against the unchanged QSpec ownership statement in the draft.
+Exact reviewed. Reviewed only PR #509's changed code and FR-349/FR-019 spec delta. Plan completion: not assessed. Quire validation of the changed FR-349 and FR-019 artifacts passed. Reviewed FR-349 wording and its FR-019 public-inventory entry against the unchanged QSpec ownership statement in the draft.
 
 
 ## Reviewed units
@@ -40,4 +40,4 @@ Exact reviewed head 00b1f915d2611f9fc1953fb2ed47e1e6b86e0de4. Reviewed only PR #
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | At b8f3edbb39c99e6681ac777143f7b083c09e420c, the stray word is removed; the Behavior paragraph now reads “dependency-reference terms, and binding members nested under aggregates. The reader SHALL distinguish…” |
+| FND-001 | fixed |, the stray word is removed; the Behavior paragraph now reads “dependency-reference terms, and binding members nested under aggregates. The reader SHALL distinguish…” |

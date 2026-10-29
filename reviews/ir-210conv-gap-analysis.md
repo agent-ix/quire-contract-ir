@@ -3,7 +3,7 @@ id: SR-12111
 title: "IR-210 conversion slice gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@a773b9051c732d683b545017e973364a8d982cea; crates/quire-contract-model/src/canonical.rs, crates/quire-contract-model/src/decimal.rs, crates/quire-contract-model/src/expression.rs, tests/it/conformance.rs, tests/it/expression.rs, tests/it/identity.rs, spec/model/functional/FR-013-type-system.md, spec/model/functional/FR-016-canonicalization-digests.md, spec/model/functional/FR-019-rust-library-interface.md, spec/core/stakeholder"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/canonical.rs, crates/quire-contract-model/src/decimal.rs, crates/quire-contract-model/src/expression.rs, tests/it/conformance.rs, tests/it/expression.rs, tests/it/identity.rs, spec/model/functional/FR-013-type-system.md, spec/model/functional/FR-016-canonicalization-digests.md, spec/model/functional/FR-019-rust-library-interface.md, spec/core/stakeholder"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-013
@@ -16,9 +16,9 @@ relationships:
 
 ## Summary
 
-Ticket: IR-210 (conversion slice), PR quire-contract-ir#434. This is a planless gap analysis: plan completion was not assessed. Everything was measured with quire 0.36.2 (engine 0.50.2). Base is origin/main fabdbb4, checked out in a detached scratch worktree, and head is a773b90.
+Ticket: IR-210 (conversion slice), PR quire-contract-ir#434. This is a planless gap analysis: plan completion was not assessed. Everything was measured with quire 0.36.2 (engine 0.50.2). Base is origin/main, checked out in a detached scratch worktree, and head is.
 
-`quire coverage --scope . --strict --json` exits 1 on both trees, from the same pre-existing rows:
+`quire coverage --scope. --strict --json` exits 1 on both trees, from the same pre-existing rows:
 
 - **Matrix reference rows.** 43 unbacked and 0 status lies, on base and head alike.
 - **Totals.** Backed 508/565 on both. `minted_targets` is identical between base and head, and so is `groups`.
@@ -47,8 +47,8 @@ Ticket: IR-210 (conversion slice), PR quire-contract-ir#434. This is a planless 
 
 | Unit | Role | Excerpt |
 | --- | --- | --- |
-| FR-013-AC-5 | examined | Integer bounds and literals at `i128::MIN` and `i128::MAX` ... decode and serialize back to the same decimal strings. Each of the eight members given as a JSON number ... or a string outside the minimal-decimal grammar ... refuses `invalid_wire_format`. Each of the eight given `"170141183460469231731687303715884105728"` or `"-170141183460469231731687303715884105729"` refuses `invalid_numeric_bounds`; ... |
-| FR-016-AC-6 | examined | Every canonical byte sequence and digest of this crate comes from `quire-canonical`: ...; a byte limit of the exact length returns the bytes and one byte lower returns `canonicalization_resource_exhausted`; and the crate source holds no `CanonicalWriter` ... symbol ... |
+| FR-013-AC-5 | examined | Integer bounds and literals at `i128::MIN` and `i128::MAX`... decode and serialize back to the same decimal strings. Each of the eight members given as a JSON number... or a string outside the minimal-decimal grammar... refuses `invalid_wire_format`. Each of the eight given `"170141183460469231731687303715884105728"` or `"-170141183460469231731687303715884105729"` refuses `invalid_numeric_bounds`;... |
+| FR-016-AC-6 | examined | Every canonical byte sequence and digest of this crate comes from `quire-canonical`:...; a byte limit of the exact length returns the bytes and one byte lower returns `canonicalization_resource_exhausted`; and the crate source holds no `CanonicalWriter`... symbol... |
 | FR-019-AC-1 | examined | Compile-time/API fixtures plus public-source signature inspection show wire/request values are distinct from private-field validated values, unknown members are rejected consistently with the published schema, every conversion is fallible, canonical profiles are explicit, the fixed conformance registries, three semantic-limit constants, and wire-depth constant are stable public exports, and forbidden host/downstream/schema-library vocabulary is absent without requiring nightly rustdoc JSON. |
 | STD-001 canonicalization_resource_exhausted | context_only | Canonical byte allocation cannot be reserved without exceeding host resources |
 | StR-001-VC-1, StR-001-VC-2, StR-002-VC-1, StR-002-VC-2, StR-003-VC-1, StR-004-VC-1 | examined | Stakeholder validation criteria: backed status compared base against head |
@@ -84,7 +84,7 @@ Recommended follow-ups (not in this PR):
 
 ## Dispositions
 
-Round 1, head dae5d00. Coverage was re-measured: 43 unbacked and 0 status lies, 508/565 backed. `groups` and `minted_targets` are identical to origin/main. FR-013-AC-5 has 7 binders (main 6) and FR-016-AC-6 has 2 (main 2). Both follow-up tickets exist in Linear.
+Round 1. Coverage was re-measured: 43 unbacked and 0 status lies, 508/565 backed. `groups` and `minted_targets` are identical to origin/main. FR-013-AC-5 has 7 binders (main 6) and FR-016-AC-6 has 2 (main 2). Both follow-up tickets exist in Linear.
 
 | FND | Outcome | Reason |
 | --- | --- | --- |

@@ -3,13 +3,13 @@ id: SR-604102
 title: "IR-874 PR 604 spec-review/base review"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; PR #604 head 089f76b5cbb76c31c944e37ae234402ef3396584"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; PR #604 "
 review_set: subset
 ---
 
 ## Summary
 
-Reviewed the two-file IR-874 PR #604 spec diff at 089f76b5cbb76c31c944e37ae234402ef3396584 against QSpec 2b991805 FR-375-AC-26/27, FR-432-AC-16..19, FR-208-AC-18 and FR-154-AC-32. No AssuranceProfile applies.
+Reviewed the two-file IR-874 PR #604 spec diff against QSpec FR-375-AC-26/27, FR-432-AC-16..19, FR-208-AC-18 and FR-154-AC-32. No AssuranceProfile applies.
 
 ## Verdict
 
@@ -101,14 +101,14 @@ for `on origin` refuses that code at the extra entry.
 
 ## Coverage
 
-QSpec origin/main 2b991805 was read directly. This is spec-only: no Cargo, Make or build checks were run. The memory catalog key/order, activation node, on-origin exclusion, source supertype order, diamond deduplication and redefinition position match the named QSpec rules. This review does not claim FR-038-AC-325 implementation completion.
+QSpec origin/main was read directly. This is spec-only: no Cargo, Make or build checks were run. The memory catalog key/order, activation node, on-origin exclusion, source supertype order, diamond deduplication and redefinition position match the named QSpec rules. This review does not claim FR-038-AC-325 implementation completion.
 
 ## Dispositions
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At c314930b, the FR paragraph, FR-038-AC-325 and TC-048 all name the QSpec FR-432 catalog binder_types pointer; the original code and cause remain. |
+| FND-001 | fixed |, the FR paragraph, FR-038-AC-325 and TC-048 all name the QSpec FR-432 catalog binder_types pointer; the original code and cause remain. |
 
 ## Disposition verdict
 
-**PASS at c314930b6544017694f69d0549ad9549ae60e4d0** — The original finding is fixed. The full FR-038-AC-325 remains unclaimed pending code and upstream dependencies.
+**PASS ** — The original finding is fixed. The full FR-038-AC-325 remains unclaimed pending code and upstream dependencies.

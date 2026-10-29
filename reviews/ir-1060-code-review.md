@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #608 at 073d4a549eda432ce2979d2c6356f2e3e9bac590 against IR main bcbb4af99e191d20e9b113475263d2bbf73664ad and QSpec 02dfc7dd16551ccbd47c31e27a40a634e53791f1. Ticket: IR-1060. The production match arm correctly exposes the typed operation-anchor members; two new test traces overclaim their criterion evidence.
+Reviewed PR #608 against IR main and QSpec. Ticket: IR-1060. The production match arm correctly exposes the typed operation-anchor members; two new test traces overclaim their criterion evidence.
 
 ## Verdict
 
@@ -30,5 +30,5 @@ Examined IR FR-038-AC-318, FR-038-AC-322, FR-038-AC-323, FR-065-AC-1, FR-065-AC-
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At 7a24be8d, the tick test traces FR-038-AC-318 and FR-038-AC-322, while the existing TM-23..29 test retains FR-038-AC-323. The new writer/readback assertions also exercise AC-322. |
-| FND-002 | fixed | At 7a24be8d, both model-root conformance tests trace FR-065-AC-3 only; the existing typed external encoder integration test retains FR-065-AC-1. |
+| FND-001 | fixed |, the tick test traces FR-038-AC-318 and FR-038-AC-322, while the existing TM-23..29 test retains FR-038-AC-323. The new writer/readback assertions also exercise AC-322. |
+| FND-002 | fixed |, both model-root conformance tests trace FR-065-AC-3 only; the existing typed external encoder integration test retains FR-065-AC-1. |

@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-883. Reviewed head ee278f54fa576eac8a549add133e234173995048 against main ffd76b1. New FR-035-AC-18 and FR-038-AC-293 have tagged behavioral tests and direct-only reference coverage. The full repository retains the same 40 unbacked criteria as main, with zero contradictions; no new gap is attributed to this diff.
+Ticket: IR-883. Reviewed against main. New FR-035-AC-18 and FR-038-AC-293 have tagged behavioral tests and direct-only reference coverage. The full repository retains the same 40 unbacked criteria as main, with zero contradictions; no new gap is attributed to this diff.
 
 ## Verdict
 

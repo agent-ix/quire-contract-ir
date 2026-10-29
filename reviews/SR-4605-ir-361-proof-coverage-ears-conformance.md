@@ -3,7 +3,7 @@ id: SR-4605
 title: "EARS review of IR-361 proof coverage"
 type: SpecReview
 analysis: ears-conformance
-scope: "agent-ix/quire-contract-ir@0eca02b43bd14db1411abff447a45eacced9752f; StR-004 and FR-045 requirement statements"
+scope: "agent-ix/quire-contract-ir; StR-004 and FR-045 requirement statements"
 review_set: subset
 ---
 

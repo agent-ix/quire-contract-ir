@@ -3,7 +3,7 @@ id: SR-600005
 title: "IR-874 PR 586 gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; PR #586 at 4a322bb13c354c04ef2c79b35c5067a693a0b310; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, crates/quire-contract-model/src/checked_package/v2/refinement.rs, tests/it/checked_package_v2_refinement.rs"
+scope: "agent-ix/quire-contract-ir; PR #586; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, crates/quire-contract-model/src/checked_package/v2/refinement.rs, tests/it/checked_package_v2_refinement.rs"
 review_set: subset
 relationships:
   - { target: "ix://agent-ix/quire-contract-ir/FR-038", type: references }
@@ -31,7 +31,7 @@ Ticket: IR-874. Compared the frozen PR #586 early presence check with FR-038-AC-
 
 ## Coverage
 
-- Reconciliation: `quoin matrix --repo . --json` at frozen PR head; FR-038-AC-325 is `untagged` with zero binders, while FR-038-AC-9 is tagged by one public-reader test. The new `concrete_protocol_requires_catalog_without_protocol_target_or_memory_row` test has no `Trace:` or `#[trace]` annotation.
+- Reconciliation: `quoin matrix --repo. --json` at frozen PR head; FR-038-AC-325 is `untagged` with zero binders, while FR-038-AC-9 is tagged by one public-reader test. The new `concrete_protocol_requires_catalog_without_protocol_target_or_memory_row` test has no `Trace:` or `#[trace]` annotation.
 - The direct unit fixture calls `validate_catalog` without going through key, header, graph, protocol-body and public-read stages. It proves the helper returns a pointer, but cannot prove that an otherwise admitted checked package reaches that helper or preserves the specified earlier refusal.
 - Plan completion: not assessed.
 - Optional repository-wide semantic review was not requested; intent, test, and changed code were compared only for this PR diff.
@@ -40,8 +40,8 @@ Ticket: IR-874. Compared the frozen PR #586 early presence check with FR-038-AC-
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At fix head `83d1b4bdaa3ebe09f89b6d75307cc63fcd7a97c9`, `refinement_catalog_presence_precedes_declaration_backed_step_joins` calls the public reader and carries `Trace: FR-038-AC-325`. It asserts the absent concrete-protocol catalog pointer and code before a declaration-backed row join, demonstrates a present catalog reaches row joining, and checks model-only admission and extra-catalog refusal. The computed matrix now binds AC-325 to that test. |
-| FND-001 | still-open | Hosted Rust Checks on `83d1b4bdaa3ebe09f89b6d75307cc63fcd7a97c9` ran the new public-reader test and failed: the first case refused at `/semantic_graph/nodes/26/semantic_type` rather than the expected refinement `/semantic_graph/nodes/27/body/class_catalog`. The fixture has an earlier defect, so it does not yet verify the catalog precedence. |
+| FND-001 | fixed | At fix, `refinement_catalog_presence_precedes_declaration_backed_step_joins` calls the public reader and carries `Trace: FR-038-AC-325`. It asserts the absent concrete-protocol catalog pointer and code before a declaration-backed row join, demonstrates a present catalog reaches row joining, and checks model-only admission and extra-catalog refusal. The computed matrix now binds AC-325 to that test. |
+| FND-001 | still-open | Hosted Rust Checks on ran the new public-reader test and failed: the first case refused at `/semantic_graph/nodes/26/semantic_type` rather than the expected refinement `/semantic_graph/nodes/27/body/class_catalog`. The fixture has an earlier defect, so it does not yet verify the catalog precedence. |
 
 ## Disposition Verdict
 
@@ -55,7 +55,7 @@ Ticket: IR-874. Compared the frozen PR #586 early presence check with FR-038-AC-
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | still-open | The `a2b7b5b170744f96e045090153316cb27c3339ca` replacement fixture uses `OrderFlow::Closed` from `v2_all_families`, but that clause's `over` parameter is Boolean-typed and does not denote the selected `test/refinement/Machine` model. Its catalog refusal therefore does not verify FR-375's same-model presence rule. The new test's `Trace: FR-038-AC-325` still claims more than it proves. |
+| FND-001 | still-open | The replacement fixture uses `OrderFlow::Closed` from `v2_all_families`, but that clause's `over` parameter is Boolean-typed and does not denote the selected `test/refinement/Machine` model. Its catalog refusal therefore does not verify FR-375's same-model presence rule. The new test's `Trace: FR-038-AC-325` still claims more than it proves. |
 
 **CONDITIONAL** — the latest public-reader test is tagged but lacks an admitted same-model protocol subject. The full class graph join and memory behavior remain Planned.
 
@@ -63,6 +63,6 @@ Ticket: IR-874. Compared the frozen PR #586 early presence check with FR-038-AC-
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At fix head `4cd11e28da0161e6838d866493eb8a64c716cc44`, two `#[trace("TC-048")]` public-reader tests use an admitted protocol clause with a typed owner edge to the selected model. They assert missing-catalog refusal before a declaration-backed row join, same-model presence without a step row, foreign-clause admission without a catalog, extra-catalog refusal, and foreign-row binding refusal at `steps/0/source_node`. Focused refinement tests report 12 passed. This is slice evidence only; neither FR-038-AC-325 nor FR-064-AC-5 is claimed complete. |
+| FND-001 | fixed | At fix, two `#[trace("TC-048")]` public-reader tests use an admitted protocol clause with a typed owner edge to the selected model. They assert missing-catalog refusal before a declaration-backed row join, same-model presence without a step row, foreign-clause admission without a catalog, extra-catalog refusal, and foreign-row binding refusal at `steps/0/source_node`. Focused refinement tests report 12 passed. This is slice evidence only; neither FR-038-AC-325 nor FR-064-AC-5 is claimed complete. |
 
 **CONDITIONAL** — the slice-specific public-reader gap is closed. The full class catalog join, complete inventory and memory behavior remain unclaimed under FR-038-AC-325 and FR-064-AC-5; final gates belong to the code lead.

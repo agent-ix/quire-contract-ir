@@ -3,7 +3,7 @@ id: SR-15725
 title: "EARS review — IR-975 single-body V2 wire"
 type: SpecReview
 analysis: ears-conformance
-scope: "agent-ix/quire-contract-ir; PR #521 at f08265affe2165e852c2febd85659ef68da2e70d; changed FR-038/FR-051/FR-349 requirement statements"
+scope: "agent-ix/quire-contract-ir; PR #521; changed FR-038/FR-051/FR-349 requirement statements"
 review_set: subset
 ---
 
@@ -27,7 +27,7 @@ Examined changed FR-038 reader statements, FR-051 encoder statements, and FR-349
 
 ## Same-reviewer head confirmation
 
-At 8521036b21b13dd3057a34cd83e3fa54ff73a85b, the changed FR-038 wording passed `quire validate --strict --summary` with one grammar-clean document and zero grammar findings. The EARS verdict remains PASS.
+, the changed FR-038 wording passed `quire validate --strict --summary` with one grammar-clean document and zero grammar findings. The EARS verdict remains PASS.
 
 ## Custody correction
 

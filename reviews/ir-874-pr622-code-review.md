@@ -3,13 +3,13 @@ id: SR-611017
 title: "Spec-only code review — IR-874 PR #622"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; IR-874 PR #622 head 214cd092"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; IR-874 PR #622 "
 review_set: subset
 ---
 
 ## Summary
 
-No production code, fixtures, or copied upstream artifacts were added. The changed reader obligations use QSpec as an external oracle and TC-048 retains independent expected outcomes. Independent review of frozen PR head `214cd092defab2d2a8ebbc45d22265545944e8cc`.
+No production code, fixtures, or copied upstream artifacts were added. The changed reader obligations use QSpec as an external oracle and TC-048 retains independent expected outcomes. Independent review of frozen PR.
 
 ## Verdict
 

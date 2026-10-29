@@ -3,7 +3,7 @@ id: SR-612143
 title: IR-1103 FR-351 trace correction after rebase
 type: SpecReview
 analysis: code-review
-scope: 'agent-ix/quire-contract-ir; e9ed7669 FR-351 source and test trace retag, FR-019
+scope: 'agent-ix/quire-contract-ir; FR-351 source and test trace retag, FR-019
   inventory row; PR #681'
 review_set: subset
 relationships:
@@ -12,7 +12,7 @@ relationships:
 ---
 ## Summary
 
-Frozen PR #681 at 631f70f68f0c601563a619e14ef81c6a54efd43e retags the step-relation source, five test trace bindings and FR-019 public API inventory row to FR-351. Temporal FR-350 remains a separate requirement.
+Frozen PR #681 retags the step-relation source, five test trace bindings and FR-019 public API inventory row to FR-351. Temporal FR-350 remains a separate requirement.
 
 ## Verdict
 
@@ -30,4 +30,4 @@ SR-612139 through SR-612142 and their Linear comments are historical records of 
 
 ## Coverage
 
-The computed matrix at the frozen head tags FR-351-AC-1 through FR-351-AC-5. Current temporal FR-350 has eight distinct ACs and none was retagged by this PR. The e9ed7669 commit changes only the module doc header, five test trace annotations and the FR-019 owner cell. The accepted code and assertions from the prior review are otherwise unchanged. Plan completion: not assessed.
+The computed matrix at the frozen head tags FR-351-AC-1 through FR-351-AC-5. Current temporal FR-350 has eight distinct ACs and none was retagged by this PR. The commit changes only the module doc header, five test trace annotations and the FR-019 owner cell. The accepted code and assertions from the prior review are otherwise unchanged. Plan completion: not assessed.

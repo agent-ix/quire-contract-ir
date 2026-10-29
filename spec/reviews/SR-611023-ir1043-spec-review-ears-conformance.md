@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #624 head 25ae4409. The changed behavior statements have named reader/schema actors, observable refusal code, cause, pointer, and precedence. Scoped quire validation reports grammar-clean with no EARS finding.
+Reviewed PR #624. The changed behavior statements have named reader/schema actors, observable refusal code, cause, pointer, and precedence. Scoped quire validation reports grammar-clean with no EARS finding.
 
 ## Findings
 

@@ -3,13 +3,13 @@ id: SR-8346
 title: "spec-review/dependency review of IR-763 structural candidates"
 type: SpecReview
 analysis: dependency
-scope: "agent-ix/quire-contract-ir@47be2719a17f4f6ceaf2a59c959464593395d08d; spec/model/functional/FR-048, FR-019; spec/checked_package/matrix/TC-048; spec/model/matrix/TC-058, tests.md; spec/spec.md"
+scope: "agent-ix/quire-contract-ir; spec/model/functional/FR-048, FR-019; spec/checked_package/matrix/TC-048; spec/model/matrix/TC-058, tests.md; spec/spec.md"
 review_set: subset
 ---
 
 ## Summary
 
-PR #362 at 47be2719a17f4f6ceaf2a59c959464593395d08d; FR-048 depends on FR-038 reader rules, FR-046 application digest and FR-019 model exports; the links do not add a cycle.
+PR #362; FR-048 depends on FR-038 reader rules, FR-046 application digest and FR-019 model exports; the links do not add a cycle.
 
 ## Verdict
 

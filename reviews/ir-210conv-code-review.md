@@ -3,7 +3,7 @@ id: SR-12110
 title: "IR-210 conversion slice code review (rust lane)"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@a773b9051c732d683b545017e973364a8d982cea; crates/quire-contract-model/src/canonical.rs, crates/quire-contract-model/src/decimal.rs, crates/quire-contract-model/src/expression.rs, tests/it/conformance.rs, tests/it/expression.rs, tests/it/identity.rs"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/canonical.rs, crates/quire-contract-model/src/decimal.rs, crates/quire-contract-model/src/expression.rs, tests/it/conformance.rs, tests/it/expression.rs, tests/it/identity.rs"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-013
@@ -18,7 +18,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-210 (conversion slice), PR quire-contract-ir#434, head a773b90 over origin/main fabdbb4. The diff converts 15 tests in 6 files from the fully qualified `#[ix_trace_rs::trace(...)]` to `use ix_trace_rs::trace;` plus `#[trace(...)]`, and replaces the legacy `/// Tracing:` and bare-id doc lines with one `/// Trace:` line that mirrors the attribute. The rust-review lane is folded into this file; coverage accounting is in SR-12111. Measured with quire 0.36.2 (engine 0.50.2) and quoin 0.28.3.
+Ticket: IR-210 (conversion slice), PR quire-contract-ir#434, over origin/main. The diff converts 15 tests in 6 files from the fully qualified `#[ix_trace_rs::trace(...)]` to `use ix_trace_rs::trace;` plus `#[trace(...)]`, and replaces the legacy `/// Tracing:` and bare-id doc lines with one `/// Trace:` line that mirrors the attribute. The rust-review lane is folded into this file; coverage accounting is in SR-12111. Measured with quire 0.36.2 (engine 0.50.2) and quoin 0.28.3.
 
 Every id on every converted test was read against its criterion text in `spec/` and against the test body. The emphasis was on the three tests that gain credit with this PR, because on main their attribute ids were not read by quire at all (`quire trace --file` shows FR-016-AC-6 on `canonical.rs` as `evidence_near_miss`, and nothing for FR-013-AC-5 on `decimal.rs`):
 
@@ -30,21 +30,21 @@ Every id on every converted test was read against its criterion text in `spec/` 
 
 | Unit | Role | Excerpt |
 | --- | --- | --- |
-| FR-013-AC-5 | examined | Integer bounds and literals at `i128::MIN` and `i128::MAX` ... decode and serialize back to the same decimal strings. Each of the eight members given as a JSON number (`0`, `1`, `1.0`, `9223372036854775807` and `100000000000000000001`) or a string outside the minimal-decimal grammar (`""`, `"+1"`, `"01"`, `"-0"`, `"1.0"`, `"1e3"`, `" 1"`) refuses `invalid_wire_format`. Each of the eight given `"170141183460469231731687303715884105728"` or `"-170141183460469231731687303715884105729"` refuses `invalid_numeric_bounds`; ... |
-| FR-016-AC-6 | examined | Every canonical byte sequence and digest of this crate comes from `quire-canonical`: for one fixture of each of the five kinds the bytes returned equal an expected byte string written out in the test ...; a byte limit of the exact length returns the bytes and one byte lower returns `canonicalization_resource_exhausted`; and the crate source holds no `CanonicalWriter` ... symbol ... |
+| FR-013-AC-5 | examined | Integer bounds and literals at `i128::MIN` and `i128::MAX`... decode and serialize back to the same decimal strings. Each of the eight members given as a JSON number (`0`, `1`, `1.0`, `9223372036854775807` and `100000000000000000001`) or a string outside the minimal-decimal grammar (`""`, `"+1"`, `"01"`, `"-0"`, `"1.0"`, `"1e3"`, `" 1"`) refuses `invalid_wire_format`. Each of the eight given `"170141183460469231731687303715884105728"` or `"-170141183460469231731687303715884105729"` refuses `invalid_numeric_bounds`;... |
+| FR-016-AC-6 | examined | Every canonical byte sequence and digest of this crate comes from `quire-canonical`: for one fixture of each of the five kinds the bytes returned equal an expected byte string written out in the test...; a byte limit of the exact length returns the bytes and one byte lower returns `canonicalization_resource_exhausted`; and the crate source holds no `CanonicalWriter`... symbol... |
 | FR-016-AC-3 | context_only | A deterministic reservation-failure harness forces canonical byte allocation failure and verifies `canonicalization_resource_exhausted`, no partial public bytes, and no digest. |
-| FR-015-AC-8 | examined | At an `i128::MIN` endpoint, integer `reject` negation and division by `-1` report `potentially_undefined` ...; `saturate` negation returns the declared maximum ...; the singleton product `i128::MAX/(i128::MAX - 1) * (i128::MAX - 1)/i128::MAX` is admitted as normalized `1/1` ...; `i128::MAX/1 * 2/1` reports `potentially_undefined` ... None wraps or panics. |
-| FR-013-AC-6 | examined | Public `IntegerType` bounds/accessors, `RationalType` numerator bounds and maximum-denominator/accessors, and integer/rational literal payloads retain `i64::MAX + 1`, `u64::MAX`, and the permitted i128 endpoints without narrowing; ... |
-| FR-014-AC-8 | examined | With matching declared types, integer literal nodes at `i64::MAX + 1`, `u64::MAX`, `i128::MIN` and `i128::MAX` and rational literal nodes ... retain those exact values in typed output; ... A literal outside its declared type reports `invalid_numeric_bounds` at that literal's span. |
-| FR-019-AC-7 | examined | Public compile-time/API fixtures construct and read `IntegerType` bounds, `RationalType` numerator and denominator bounds, and integer/rational literal payloads at `i64::MAX + 1`, `u64::MAX` and the permitted i128 endpoints through signed 128-bit signatures without lossy casts; ... |
-| FR-018-AC-1 | examined | Running the corpus directory yields one matching row per input with non-empty trace targets, and the union of observed tokens equals the published inventory ... |
-| FR-019-AC-1 | examined | Compile-time/API fixtures plus public-source signature inspection show wire/request values are distinct from private-field validated values, ... the fixed conformance registries, three semantic-limit constants, and wire-depth constant are stable public exports, ... |
+| FR-015-AC-8 | examined | At an `i128::MIN` endpoint, integer `reject` negation and division by `-1` report `potentially_undefined`...; `saturate` negation returns the declared maximum...; the singleton product `i128::MAX/(i128::MAX - 1) * (i128::MAX - 1)/i128::MAX` is admitted as normalized `1/1`...; `i128::MAX/1 * 2/1` reports `potentially_undefined`... None wraps or panics. |
+| FR-013-AC-6 | examined | Public `IntegerType` bounds/accessors, `RationalType` numerator bounds and maximum-denominator/accessors, and integer/rational literal payloads retain `i64::MAX + 1`, `u64::MAX`, and the permitted i128 endpoints without narrowing;... |
+| FR-014-AC-8 | examined | With matching declared types, integer literal nodes at `i64::MAX + 1`, `u64::MAX`, `i128::MIN` and `i128::MAX` and rational literal nodes... retain those exact values in typed output;... A literal outside its declared type reports `invalid_numeric_bounds` at that literal's span. |
+| FR-019-AC-7 | examined | Public compile-time/API fixtures construct and read `IntegerType` bounds, `RationalType` numerator and denominator bounds, and integer/rational literal payloads at `i64::MAX + 1`, `u64::MAX` and the permitted i128 endpoints through signed 128-bit signatures without lossy casts;... |
+| FR-018-AC-1 | examined | Running the corpus directory yields one matching row per input with non-empty trace targets, and the union of observed tokens equals the published inventory... |
+| FR-019-AC-1 | examined | Compile-time/API fixtures plus public-source signature inspection show wire/request values are distinct from private-field validated values... the fixed conformance registries, three semantic-limit constants, and wire-depth constant are stable public exports... |
 | FR-019-AC-3 | examined | `expected_inventory` equals the five prefixed registries and nothing else, strictly ascending with no duplicate. |
 | FR-020-AC-1 | examined | A process test runs the published corpus twice without linking a test harness to the library and obtains byte-identical JSON Lines, non-empty observed trace ids per fixture input, empty stderr, and complete tool/schema/profile identity. |
 | FR-020-AC-3 | examined | The published fixture schema accepts `"-9223372036854775808"`, `"0"` and `"9223372036854775807"` in each of the eight integer members. |
 | FR-020-AC-4 | examined | The published package schema accepts a revision and a byte offset of `9007199254740992`. |
-| FR-020-AC-5 | examined | The fixture input schema refuses as `invalid_corpus` values above `9007199254740992` for each of these members: ... |
-| FR-020-AC-6 | examined | The fixture input schema passes the value `9007199254740992` for each of these members: ... |
+| FR-020-AC-5 | examined | The fixture input schema refuses as `invalid_corpus` values above `9007199254740992` for each of these members:... |
+| FR-020-AC-6 | examined | The fixture input schema passes the value `9007199254740992` for each of these members:... |
 | FR-020-AC-7 | examined | The runner returns `invalid_wire_format` when a decoder fixture supplies a JSON number in one of the eight integer members straight to the decoder. |
 | FR-020-AC-8 | examined | The expectation of a decoder fixture that supplies a JSON number in one of the eight integer members carries the code `invalid_wire_format`. |
 | FR-020-AC-9 | examined | The same number as the decoder fixture supplied to the decoder, placed in one of the eight integer members of a valid-operation input, is refused as `invalid_corpus` at the fixture schema check. |
@@ -54,9 +54,9 @@ Every id on every converted test was read against its criterion text in `spec/` 
 | FR-020-AC-13 | examined | The published fixture schema rejects `0`, `1.0`, `"+1"`, `"01"`, `"-0"` and `""` in each of the eight integer members. |
 | FR-020-AC-14 | examined | The published package schema rejects a revision and a byte offset of `9007199254740993`. |
 | FR-020-AC-15 | examined | A successful `document_json` expression document that the published schema rejects makes the runner exit 2 with the code `invalid_corpus`. |
-| FR-016-AC-5 | examined | The eight integer members are JSON strings of minimal base-ten digits in every canonical object: ...; no byte sequence of the form `"<one of the eight names>":` is followed by a digit or `-` in any recorded canonical fixture; ... |
-| FR-011-AC-3 | examined | ... zero source or requirement revisions and a revision above 9007199254740992 (`invalid_source_revision`, `invalid_requirement_revision`, through the constructors, the package decoder, ...) ... fail with their registered structured diagnostic codes. |
-| FR-012-AC-6 | examined | Source spans reject ... a byte offset above 9007199254740992 ... using `invalid_source_span`, through the constructors, the package decoder, ...; the probe and coverage inputs of the conformance corpus refuse it `invalid_corpus` at the fixture schema (FR-020-AC-5). |
+| FR-016-AC-5 | examined | The eight integer members are JSON strings of minimal base-ten digits in every canonical object:...; no byte sequence of the form `"<one of the eight names>":` is followed by a digit or `-` in any recorded canonical fixture;... |
+| FR-011-AC-3 | examined |... zero source or requirement revisions and a revision above 9007199254740992 (`invalid_source_revision`, `invalid_requirement_revision`, through the constructors, the package decoder...)... fail with their registered structured diagnostic codes. |
+| FR-012-AC-6 | examined | Source spans reject... a byte offset above 9007199254740992... using `invalid_source_span`, through the constructors, the package decoder...; the probe and coverage inputs of the conformance corpus refuse it `invalid_corpus` at the fixture schema (FR-020-AC-5). |
 | NFR-001-AC-1 | examined | Two complete corpus runs over fixed inputs and profiles produce byte-identical results. |
 | StR-003-VC-1 | examined | Malformed, ill-typed, undefined, unsupported, and orphaned inputs yield stable source-located diagnostic codes. |
 | TC-015, TC-016, TC-017, TC-018 | context_only | Test-case rows in spec/core/matrix/tests.md and spec/conformance/matrix/tests.md naming the FRs each test case verifies. |
@@ -97,9 +97,9 @@ Checked clean:
 
 ## Dispositions
 
-Round 1, head dae5d00, measured with quire 0.36.2 (engine 0.50.2). The fix commit changes only trace metadata on three tests, plus the two copied review files.
+Round 1,, measured with quire 0.36.2 (engine 0.50.2). The fix commit changes only trace metadata on three tests, plus the two copied review files.
 
-- **Coverage.** `quire coverage --scope . --strict --json` gives 43 unbacked and 0 status lies, with 508/565 backed. `groups` and `minted_targets` are identical to origin/main fabdbb4.
+- **Coverage.** `quire coverage --scope. --strict --json` gives 43 unbacked and 0 status lies, with 508/565 backed. `groups` and `minted_targets` are identical to origin/main.
 - **Binder changes.** The only row that differs from main is FR-013-AC-5, at 7 binders against 6 on main. The extra binder is `tc_016_range_is_decided_after_the_grammar`. FR-016-AC-6 is at 2, the same as main.
 - **Gates.** `cargo fmt --check` and `cargo clippy --workspace --all-targets -D warnings` are clean. The `decimal::tests` and `canonical::tests` unit tests pass 3/3.
 

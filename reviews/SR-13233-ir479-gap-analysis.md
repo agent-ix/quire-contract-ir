@@ -4,7 +4,7 @@ title: "IR PR 479 gap analysis: FR-035-AC-12 to AC-14 coverage delta"
 type: SpecReview
 analysis: gap-analysis
 review_set: subset
-scope: "agent-ix/quire-contract-ir@f5229f01c640aa772fe7ba1c109a3e94dfe75b26; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md, spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md, spec/checked_package/matrix/tests.md, tests/it/complete_v1_contract_package.rs, crates/quire-contract-model/src/checked_package/v2/contract_package.rs (diff origin/main...HEAD)"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md, spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md, spec/checked_package/matrix/tests.md, tests/it/complete_v1_contract_package.rs, crates/quire-contract-model/src/checked_package/v2/contract_package.rs (diff origin/main...HEAD)"
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-035
     type: reviews
@@ -14,7 +14,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-893. PR: agent-ix/quire-contract-ir#479 at f5229f0. Plan completion: not assessed.
+Ticket: IR-893. PR: agent-ix/quire-contract-ir#479. Plan completion: not assessed.
 
 Computed matrix delta, from `quire matrix --format tsv` (quire 0.36.2) at the merge-base and
 at the PR head:
@@ -34,7 +34,7 @@ the new criteria yet, as the PR states):
   `NoncanonicalWire` code. The tests-first PR must add the absent-path and absent-cause
   assertions.
 - AC-14: `reader_requires_total_source_correspondence_and_request_order` asserts the exact
-  fields. It uses `missing()`, which is requested item 3, without rehashing. AC-14 states
+  fields. It uses `missing`, which is requested item 3, without rehashing. AC-14 states
   "valid recomputed identity", which SR-13230 FND-002 covers.
 - AC-2 stale dependency: `selected_dependencies_are_bound_by_library_identity_before_graph_checks`
   asserts the code, the cause and the expected and actual identities, but not the

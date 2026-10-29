@@ -3,7 +3,7 @@ id: SR-8165
 title: spec-review/scope-boundary review of IR-743 ContractPackage
 type: SpecReview
 analysis: scope-boundary
-scope: agent-ix/quire-contract-ir@3d97f7250257e7d5f83ebe8855428ef9321b5e44; base b2008d3f50127bf033b5bae8fb302a482e536dbc;
+scope: agent-ix/quire-contract-ir;;
   spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md,
   spec/assurance/AD-001-contract-ir-architecture.md, spec/assurance/AD-004-checked-package-seam.md
 review_set: subset

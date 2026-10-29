@@ -3,14 +3,14 @@ id: SR-701
 title: "gap analysis of PR 244 (IR-448 unbacked rows)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@e94752093bd5ed619945964b9a6a035e48af5597; spec/core/non-functional/NFR-001-determinism.md, spec/core/matrix/tests.md, spec/kani/matrix/tests.md, spec/model/matrix/tests.md, spec/kani/functional/FR-036-exact-backend-negotiation-and-emission.md, spec/kani/functional/FR-037-canonical-backend-replay-and-qualification.md, spec/kani/functional/FR-039-root-crate-public-interface.md, spec/model/functional/FR-019-rust-library-interface.md, spec/kani/functional/FR-030-bounded-kani-domain-and-outcomes.md, tests/it/kani_shared.rs, tests/it/conformance.rs, tests/it/canonicalization.rs, tests/it/cycle_free_model.rs, src/lib.rs, crates/quire-contract-model/src/lib.rs"
+scope: "agent-ix/quire-contract-ir; spec/core/non-functional/NFR-001-determinism.md, spec/core/matrix/tests.md, spec/kani/matrix/tests.md, spec/model/matrix/tests.md, spec/kani/functional/FR-036-exact-backend-negotiation-and-emission.md, spec/kani/functional/FR-037-canonical-backend-replay-and-qualification.md, spec/kani/functional/FR-039-root-crate-public-interface.md, spec/model/functional/FR-019-rust-library-interface.md, spec/kani/functional/FR-030-bounded-kani-domain-and-outcomes.md, tests/it/kani_shared.rs, tests/it/conformance.rs, tests/it/canonicalization.rs, tests/it/cycle_free_model.rs, src/lib.rs, crates/quire-contract-model/src/lib.rs"
 review_set: subset
 ---
 # SR-701: gap analysis of PR 244
 
 ## Summary
 
-Ticket: IR-448. Reviewed head e947520 against origin/main 968ba9b. Quire 0.33.0 (engine
+Ticket: IR-448. Reviewed against origin/main. Quire 0.33.0 (engine
 0.47.1).
 
 I ran `make spec` myself at origin/main and at the head. Both runs exit 2. Both report
@@ -77,21 +77,21 @@ edits only, no row removed) or defer them to a ticket. Neither blocks this PR on
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-003 | low | `tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform` still carries an `NFR-001-AC-1.` tag. It canonicalizes a single package twice in process and never runs the corpus, so it does not witness "two complete corpus runs ... byte-identical". tc_018 now backs the AC honestly, so this tag only overstates the evidence. Drop it, or move it to the FR-016 rows the test does verify (it already carries FR-016-AC-1..4) | tests/it/canonicalization.rs:83 |
+| FND-003 | low | `tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform` still carries an `NFR-001-AC-1.` tag. It canonicalizes a single package twice in process and never runs the corpus, so it does not witness "two complete corpus runs... byte-identical". tc_018 now backs the AC honestly, so this tag only overstates the evidence. Drop it, or move it to the FR-016 rows the test does verify (it already carries FR-016-AC-1..4) | tests/it/canonicalization.rs:83 |
 
 ## Dispositions
 
-Round 1, reviewed at 4941351784736182f05385b670f7860889f04cdf (fix commit 4941351).
+Round 1, reviewed (fix ).
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | still-open | The `#[trace("TC-223")]` attribute and `Tracing:` line are gone, but the function is still named `tc_223_every_kani_outcome_kind_maps_to_its_one_fr331_result`, and quire's `rust-test-name-id` form binds that name to TC-223. At 4941351, `quire coverage --json` still reports TC-223 `backed: true`, and FR-030-AC-4/5 (`backed: false`) are still absent from the strict list. A scratch probe that renamed only the function (no `tc_223_` prefix) made TC-223, FR-030-AC-4 and FR-030-AC-5 unbacked, 23 rows in all. Rename the function |
-| FND-002 | fixed | 4941351 |
+| FND-001 | still-open | The `#[trace("TC-223")]` attribute and `Tracing:` line are gone, but the function is still named `tc_223_every_kani_outcome_kind_maps_to_its_one_fr331_result`, and quire's `rust-test-name-id` form binds that name to TC-223., `quire coverage --json` still reports TC-223 `backed: true`, and FR-030-AC-4/5 (`backed: false`) are still absent from the strict list. A scratch probe that renamed only the function (no `tc_223_` prefix) made TC-223, FR-030-AC-4 and FR-030-AC-5 unbacked, 23 rows in all. Rename the function |
+| FND-002 | fixed |  |
 | FND-003 | still-open | New this round; no fix yet |
 
-Round 2, reviewed at 632a7e4521cd536da952f7f2305dd82ff1e552ba (fix commit 632a7e4).
+Round 2, reviewed (fix ).
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 632a7e4 |
-| FND-003 | fixed | 632a7e4 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |

@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1096. Reviewed frozen PR #664 head 2b39685de747bc3b9566a4fd9adf0bf11e76dae6 against base 3e74887e and QSpec f8d636724af4e9e6b35fe5267b91c5815e8782cf. All four changed files were inspected.
+Ticket: IR-1096. Reviewed frozen PR #664 against and QSpec. All four changed files were inspected.
 
 ## Examined units
 
@@ -34,7 +34,7 @@ Ticket: IR-1096. Reviewed frozen PR #664 head 2b39685de747bc3b9566a4fd9adf0bf11e
 
 ## Coverage
 
-Plan completion: not assessed. `quire matrix --scope . --format json` reports AC-335, AC-339, AC-340 and AC-342 tagged; AC-336 remains untagged. The public AO cases provide real admission, refusal, and locus evidence, while the bindings listed in Findings overclaim broader criteria. Reverse trace of the changed source found FR-038 ownership; no stub or copied fixture was introduced.
+Plan completion: not assessed. `quire matrix --scope. --format json` reports AC-335, AC-339, AC-340 and AC-342 tagged; AC-336 remains untagged. The public AO cases provide real admission, refusal, and locus evidence, while the bindings listed in Findings overclaim broader criteria. Reverse trace of the changed source found FR-038 ownership; no stub or copied fixture was introduced.
 
 ## Verdict
 
@@ -44,11 +44,11 @@ FAIL: AC-335, AC-339, AC-340 and AC-342 have incomplete tagged evidence.
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Verified at head 193971a1: the selected-package test no longer claims planned AC-335, AC-339 or AC-340. |
-| FND-002 | fixed | Verified at head 193971a1: the selected-package test no longer claims planned AC-335, AC-339 or AC-340. |
-| FND-003 | fixed | Verified at head 193971a1: the selected-package test no longer claims planned AC-335, AC-339 or AC-340. |
-| FND-004 | fixed | Verified at head 193971a1: the new public-reader test confirms each AO order defect and independently reaches strict-wire, graph-shape and stale-key refusals at their earlier loci. |
+| FND-001 | fixed | Verified at: the selected-package test no longer claims planned AC-335, AC-339 or AC-340. |
+| FND-002 | fixed | Verified at: the selected-package test no longer claims planned AC-335, AC-339 or AC-340. |
+| FND-003 | fixed | Verified at: the selected-package test no longer claims planned AC-335, AC-339 or AC-340. |
+| FND-004 | fixed | Verified at: the new public-reader test confirms each AO order defect and independently reaches strict-wire, graph-shape and stale-key refusals at their earlier loci. |
 
 ## Disposition verdict
 
-All recorded findings are fixed at 193971a1781d4e9735f778c84d4c85812a5dba67. AC-335, AC-339 and AC-340 remain planned and untagged; AC-342 has the required public-reader precedence controls.
+All recorded findings are fixed. AC-335, AC-339 and AC-340 remain planned and untagged; AC-342 has the required public-reader precedence controls.

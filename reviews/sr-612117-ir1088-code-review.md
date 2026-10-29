@@ -3,7 +3,7 @@ id: SR-612117
 title: "IR-1088 PR 655 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; PR #655 at 0991926b; typed test operation fixtures, TC-058 and public feature boundary"
+scope: "agent-ix/quire-contract-ir; PR #655; typed test operation fixtures, TC-058 and public feature boundary"
 review_set: subset
 ---
 

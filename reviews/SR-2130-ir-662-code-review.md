@@ -3,13 +3,13 @@ id: SR-2130
 title: "IR-662 code-review of i128 model requirements"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@c5d7cca9fa3ed577c3578af2ea5d9a7c99ae4b75; spec/model/functional/FR-013-type-system.md, spec/model/functional/FR-014-expression-semantics.md, spec/model/functional/FR-015-definedness.md, spec/model/functional/FR-016-canonicalization-digests.md, spec/model/functional/FR-019-rust-library-interface.md; ticket IR-662"
+scope: "agent-ix/quire-contract-ir; spec/model/functional/FR-013-type-system.md, spec/model/functional/FR-014-expression-semantics.md, spec/model/functional/FR-015-definedness.md, spec/model/functional/FR-016-canonicalization-digests.md, spec/model/functional/FR-019-rust-library-interface.md; ticket IR-662"
 review_set: subset
 ---
 
 ## Summary
 
-Ticket IR-662, frozen PR #310 at c5d7cca9fa3ed577c3578af2ea5d9a7c99ae4b75. No production code changed. The five changed FRs introduce no copied upstream artifact, code implementation, or test binding to review in this method.
+Ticket IR-662, frozen PR #310. No production code changed. The five changed FRs introduce no copied upstream artifact, code implementation, or test binding to review in this method.
 
 ## Verdict
 

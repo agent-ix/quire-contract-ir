@@ -40,9 +40,9 @@ FAIL. AC-1 and AC-5 have hollow coverage despite their trace tags. This is a dif
 | FND | Outcome | Reason |
 | --- | --- | --- |
 | FND-001 | still-open | Its nonhost target-edge case remains valid. The path-sourced `quire-exact` example in the original row is rejected: `quire-exact` is a separate repository, not a QSL-owned package. The next review copy should carry only the target-edge case. |
-| FND-001 | fixed | Head e66c9d3 removes host filtering and adds a target-gated owner edge adverse control. The original path-owner clause remains rejected, as recorded above. |
-| FND-002 | fixed | Head e66c9d3 scans public callback aliases and adds two alias adverse controls, restoring AC-5's intended trace binding for the reviewed case. |
+| FND-001 | fixed | removes host filtering and adds a target-gated owner edge adverse control. The original path-owner clause remains rejected, as recorded above. |
+| FND-002 | fixed | scans public callback aliases and adds two alias adverse controls, restoring AC-5's intended trace binding for the reviewed case. |
 
 ## Disposition verdict
 
-Round 1 at e66c9d3: the two valid diff-scoped evidence gaps are fixed. The erroneous path-owner clause stays withdrawn. No repository-wide matrix or gate verdict is inferred.
+Round 1: the two valid diff-scoped evidence gaps are fixed. The erroneous path-owner clause stays withdrawn. No repository-wide matrix or gate verdict is inferred.

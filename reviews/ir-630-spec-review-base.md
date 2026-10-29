@@ -3,7 +3,7 @@ id: SR-7122
 title: "IR-630 PR 346 base review"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@f84b9b278b3547da072d2da7b63af2674725c00f; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/TC-227-checked-package-v2-model-object-fields-accessor.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/TC-227-checked-package-v2-model-object-fields-accessor.md"
 review_set: subset
 ---
 

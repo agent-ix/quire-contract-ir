@@ -3,7 +3,7 @@ id: SR-3404
 title: Evidence review of IR-690 Ne criteria
 type: SpecReview
 analysis: evidence
-scope: agent-ix/quire-contract-ir@71abb07c7bb23785edfccb0c2ac75ef3a64a32ad; crates/quire-contract-model/src/checked_package/v2/composite_operands.rs,
+scope: agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/composite_operands.rs,
   spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md,
   spec/checked_package/matrix/tests.md, tests/it/checked_package_v2_composite_operands.rs
 review_set: subset
@@ -16,7 +16,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-690. Exact frozen candidate 71abb07c7bb23785edfccb0c2ac75ef3a64a32ad. AC-197 through AC-200 are Test criteria backed by tagged reader-admitted tests and focused defensive probes; AC-201 is Inspection, so its method-without-symbol matrix state is expected. The status text names these distinct evidence forms and does not claim aggregate CI passed.
+Ticket: IR-690. Exact frozen candidate. AC-197 through AC-200 are Test criteria backed by tagged reader-admitted tests and focused defensive probes; AC-201 is Inspection, so its method-without-symbol matrix state is expected. The status text names these distinct evidence forms and does not claim aggregate CI passed.
 
 ## Examined units
 

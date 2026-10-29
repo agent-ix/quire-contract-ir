@@ -3,7 +3,7 @@ id: SR-612134
 title: "IR-1087 PR 660 FR-019 inventory spec review"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; PR 660 frozen e6af7a9e; typed operation views, authenticated V1 handoff, public inventory and tests"
+scope: "agent-ix/quire-contract-ir; PR 660 frozen; typed operation views, authenticated V1 handoff, public inventory and tests"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-035
@@ -16,7 +16,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1087. Reviewed only the two FR-019 Public items table edits at exact PR head e6af7a9e against crate-root exports, FR-035 and FR-038 ownership, and the TC-058 inventory rule. They change implemented public-item status and name the typed refusal without changing any acceptance criterion or upstream dependency edge.
+Ticket: IR-1087. Reviewed only the two FR-019 Public items table edits at exact PR against crate-root exports, FR-035 and FR-038 ownership, and the TC-058 inventory rule. They change implemented public-item status and name the typed refusal without changing any acceptance criterion or upstream dependency edge.
 
 ## Verdict
 

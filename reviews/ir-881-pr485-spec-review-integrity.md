@@ -13,7 +13,7 @@ Ticket: IR-881. Checked consistency of the new implemented-credit claims against
 
 ## Scope
 
-Examined: NFR-002-AC-1; NFR-002-AC-3; TC-456. PR diff 7c4367d..c98a2bc.
+Examined: NFR-002-AC-1; NFR-002-AC-3; TC-456. PR diff...
 
 ## Examined units
 
@@ -48,6 +48,6 @@ Plan completion: not assessed. Review limited to PR #485's changed obligations a
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At aaca360, all three stale credit-withheld claims are replaced with implemented-credit statements; the exact new spec/spec.md sentence reads: "The registered-code allowance is removed, and TC-456 backs NFR-002-AC-1 and NFR-002-AC-3." |
+| FND-001 | fixed |, all three stale credit-withheld claims are replaced with implemented-credit statements; the exact new spec/spec.md sentence reads: "The registered-code allowance is removed, and TC-456 backs NFR-002-AC-1 and NFR-002-AC-3." |
 | FND-002 | still-open | The new statement assigns AC-3 to TC-456. tests/it/public_interface.rs traces TC-456 to AC-1 only; tests/it/identity.rs traces TC-015 to AC-3, matching spec/core/matrix/tests.md:44,48. |
-| FND-002 | fixed | At 721ce60, all three summaries now attribute NFR-002-AC-1 to TC-456 and NFR-002-AC-3 to TC-015, matching the test trace tags and matrix rows. |
+| FND-002 | fixed |, all three summaries now attribute NFR-002-AC-1 to TC-456 and NFR-002-AC-3 to TC-015, matching the test trace tags and matrix rows. |

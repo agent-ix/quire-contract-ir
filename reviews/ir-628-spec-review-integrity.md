@@ -3,7 +3,7 @@ id: SR-1560
 title: "Integrity review of quire-contract-ir PR #296 (IR-628 typed model object fields accessor)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@7ffa956c25fe491767cb790d8168e958929000e4; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (section 'Typed accessor for a model object type's fields' items 1-15, FR-038-AC-136..143), spec/checked_package/matrix/TC-227-checked-package-v2-model-object-fields-accessor.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (section 'Typed accessor for a model object type's fields' items 1-15, FR-038-AC-136..143), spec/checked_package/matrix/TC-227-checked-package-v2-model-object-fields-accessor.md"
 review_set: subset
 ---
 
@@ -48,12 +48,12 @@ Changes requested: one high and two medium findings.
 
 ## Dispositions
 
-Round 1, reviewed at bd47f6aa58501e5d88afff2657f634f9f2b4f382.
+Round 1, reviewed.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | bd47f6aa58501e5d88afff2657f634f9f2b4f382 |
-| FND-002 | fixed | bd47f6aa58501e5d88afff2657f634f9f2b4f382 |
-| FND-003 | fixed | bd47f6aa58501e5d88afff2657f634f9f2b4f382 |
-| FND-004 | fixed | bd47f6aa58501e5d88afff2657f634f9f2b4f382 |
-| FND-005 | fixed | bd47f6aa58501e5d88afff2657f634f9f2b4f382 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |
+| FND-004 | fixed | Fixed in the reviewed PR. |
+| FND-005 | fixed | Fixed in the reviewed PR. |

@@ -3,7 +3,7 @@ id: SR-12086
 title: "IR-838 FR-014-AC-4 recheck test gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@313c53552ceaad178fde05ff1d9d91f99530ef42; tests/it/fr014_recheck.rs, tests/it/main.rs, spec/model/functional/FR-014-expression-semantics.md"
+scope: "agent-ix/quire-contract-ir; tests/it/fr014_recheck.rs, tests/it/main.rs, spec/model/functional/FR-014-expression-semantics.md"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-014
@@ -12,16 +12,16 @@ relationships:
 
 ## Summary
 
-Ticket: IR-838, PR quire-contract-ir#433, head 313c535. This is a planless gap analysis, so plan completion was not assessed. Everything was measured with quire 0.36.2 (engine 0.50.2) and quoin 0.28.3.
+Ticket: IR-838, PR quire-contract-ir#433. This is a planless gap analysis, so plan completion was not assessed. Everything was measured with quire 0.36.2 (engine 0.50.2) and quoin 0.28.3.
 
-`quire coverage --scope . --strict --format json` at head: 508/565 minted targets backed, 43 unbacked rows, 0 status lies. FR-014 is 8/9. This matches origin/main, because on main FR-014-AC-4 is already credited by three legacy doc lines.
+`quire coverage --scope. --strict --format json` at head: 508/565 minted targets backed, 43 unbacked rows, 0 status lies. FR-014 is 8/9. This matches origin/main, because on main FR-014-AC-4 is already credited by three legacy doc lines.
 
-Slice A (#432 at 5231586, open) removes those three `/// FR-014-AC-4.` lines from `tests/it/expression.rs`. Simulated by applying the #432 diff in a scratch worktree:
+Slice A (#432, open) removes those three `/// FR-014-AC-4.` lines from `tests/it/expression.rs`. Simulated by applying the #432 diff in a scratch worktree:
 
 | Tree | Coverage | FR-014 | FR-014-AC-4 in `quire matrix --format tsv` |
 | --- | --- | --- | --- |
 | origin/main | 508/565 | 8/9 | tagged, 3 legacy binders |
-| head 313c535 | 508/565 | 8/9 | tagged, 3 legacy binders plus `tests/it/fr014_recheck.rs:374` |
+| | 508/565 | 8/9 | tagged, 3 legacy binders plus `tests/it/fr014_recheck.rs:374` |
 | main + #432 | 507/565 | 7/9 | untagged |
 | head + #432 | 508/565 | 8/9 | tagged, only `tests/it/fr014_recheck.rs:374` |
 

@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-474. Diff-scoped trace and evidence review of `2699a8b...87070fd`. The changed `unknown field` role mutation reaches the public V2 reader, asserts `MalformedWire` at the exact role pointer, and sits beside genuine unknown-member and wrong-kind controls in the same traced test.
+Ticket: IR-474. Diff-scoped trace and evidence review of `...`. The changed `unknown field` role mutation reaches the public V2 reader, asserts `MalformedWire` at the exact role pointer, and sits beside genuine unknown-member and wrong-kind controls in the same traced test.
 
 ## Verdict
 
@@ -32,4 +32,4 @@ Ticket: IR-474. Diff-scoped trace and evidence review of `2699a8b...87070fd`. Th
 
 Plan completion: not assessed.
 
-`quoin matrix --repo . --json` was inspected for the changed criteria. The new mutation is inside `tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults`, tagged `FR-038-AC-2` and `FR-038-AC-24`; the test has exact code and pointer assertions through its refusal table. Existing nominal and structural controls retain their assertions. Optional repository-wide semantic review was not run; this review is scoped to the PR diff.
+`quoin matrix --repo. --json` was inspected for the changed criteria. The new mutation is inside `tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults`, tagged `FR-038-AC-2` and `FR-038-AC-24`; the test has exact code and pointer assertions through its refusal table. Existing nominal and structural controls retain their assertions. Optional repository-wide semantic review was not run; this review is scoped to the PR diff.

@@ -3,7 +3,7 @@ id: SR-8061
 title: IR-491 AC-180 correction base spec review
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@7d0adeb864110b696a568f8983f64e766ac0615c; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; IR-491"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; IR-491"
 review_set: subset
 ---
 

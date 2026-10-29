@@ -3,7 +3,7 @@ id: SR-11673
 title: IR-225 EARS conformance review of the catalogued member-result requirement text
 type: SpecReview
 analysis: ears-conformance
-scope: agent-ix/quire-contract-ir@39627960464edcc4138c29d20c18dbbcbefc603a (PR 408, diff vs origin/main c2b2a8b, merge-base 055ad1f); spec/checked_package/functional/FR-038-consume-checked-package-v2.md
+scope: agent-ix/quire-contract-ir (PR 408, diff vs origin/main, merge-); spec/checked_package/functional/FR-038-consume-checked-package-v2.md
 review_set: subset
 ---
 
@@ -42,7 +42,7 @@ bindings: []
 
 ## Dispositions
 
-Round 1; reviewed 9e608222751efbe09fe78c8260e3c5bcec143292 (diff 3962796..9e60822).
+Round 1; reviewed (diff ..).
 
 | FND | outcome | reason |
 | --- | --- | --- |
@@ -54,4 +54,4 @@ Round 1; reviewed 9e608222751efbe09fe78c8260e3c5bcec143292 (diff 3962796..9e6082
 
 ## Disposition round 2 verdict
 
-Round 2 reviewed 5918af852bbdbe600181906bd4b71be371902762 (9e60822 plus 05014ba plus a merge of origin/main c2b2a8b). **PASS**: the round-1 `fixed` outcome still holds on the merged tree, no row was added and there are no new findings.
+Round 2 reviewed ( plus plus a merge of origin/main ). **PASS**: the round-1 `fixed` outcome still holds on the merged tree, no row was added and there are no new findings.

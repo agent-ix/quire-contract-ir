@@ -3,14 +3,14 @@ id: SR-16454
 title: "gap-analysis of PR 531 (IR-992 structural timed model)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@b6e500b0481af5cc4ddd00106a3b87f089600a0d; crates/quire-contract-model/src/checked_package/v2; tests/conformance_qspec/timed_model.rs"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2; tests/conformance_qspec/timed_model.rs"
 review_set: subset
 ---
 # SR-16454: gap-analysis of PR 531
 
 ## Summary
 
-Ticket: IR-992. Exact reviewed head b6e500b0481af5cc4ddd00106a3b87f089600a0d on base 6815d7a. QSpec #425 head 1bb2fb47. This review covers only the PR diff. Full timed semantics remain IR-997. No Cargo aggregate or Kani gate was run by the reviewer.
+Ticket: IR-992. Exact reviewed on. QSpec #425. This review covers only the PR diff. Full timed semantics remain IR-997. No Cargo aggregate or Kani gate was run by the reviewer.
 
 ## Scope examined
 
@@ -38,4 +38,4 @@ Plan completion: not assessed. Incremental matrix inspection: the only new FR-03
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | At PR #531 exact head cbdda705620fb030f9616db6a7bfef29ab06aee5, The vocabulary-only test now has suite-only `TC-048` trace and no FR-038-AC-318 tag. The conformance tests remain suite-only; the full criterion is not claimed by this PR. |
+| FND-001 | fixed | At PR #531 exact, The vocabulary-only test now has suite-only `TC-048` trace and no FR-038-AC-318 tag. The conformance tests remain suite-only; the full criterion is not claimed by this PR. |

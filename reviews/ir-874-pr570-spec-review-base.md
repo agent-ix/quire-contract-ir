@@ -3,7 +3,7 @@ id: SR-567882
 title: "IR-874 PR 570 FR-019 public API row review"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; spec/model/functional/FR-019-rust-library-interface.md:186; FR-019-AC-5; PR #570 head 0acca5a0c8874294f1a42f6d323aa41a3c539c97"
+scope: "agent-ix/quire-contract-ir; spec/model/functional/FR-019-rust-library-interface.md:186; FR-019-AC-5; PR #570 "
 review_set: subset
 ---
 

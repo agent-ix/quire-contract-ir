@@ -3,7 +3,7 @@ id: SR-8041
 title: "Gap analysis of IR-491 residual leaf source evidence"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@a5f0d9c486b86185e0866d159e35b532d3911ffd; FR-038-AC-180, FR-038-AC-228 through FR-038-AC-231; crates/quire-contract-model/src/checked_package/v2/, tests/it/checked_package_v2_recursive_leaves.rs, tests/it/checked_package_v2_composite_operands.rs; IR-491"
+scope: "agent-ix/quire-contract-ir; FR-038-AC-180, FR-038-AC-228 through FR-038-AC-231; crates/quire-contract-model/src/checked_package/v2/, tests/it/checked_package_v2_recursive_leaves.rs, tests/it/checked_package_v2_composite_operands.rs; IR-491"
 review_set: subset
 ---
 
@@ -52,13 +52,13 @@ FND-004: `collection.contains` over IEEE runs with `leaves: []` only. A regressi
 
 ## Dispositions — round 1
 
-Reviewed fix revision: `b078e3f6647721530fb4363c09e83dbccd4f3a35` against the original findings at `a5f0d9c486b86185e0866d159e35b532d3911ffd`. Only `tests/it/checked_package_v2_recursive_leaves.rs` changed in this round. The focused receipt at `<receipt log>` reports 15 residual tests and the one structural-forwarding test passed; no full gate was rerun for this disposition.
+Reviewed fix revision: against the original findings. Only `tests/it/checked_package_v2_recursive_leaves.rs` changed in this round. The focused receipt at `<receipt log>` reports 15 residual tests and the one structural-forwarding test passed; no full gate was rerun for this disposition.
 
 | FND | Outcome | Evidence |
 | --- | --- | --- |
-| FND-001 | fixed b078e3f6647721530fb4363c09e83dbccd4f3a35 | The public reader now admits both `structural.eq` and `.ne` over integer and pinned-text records using value and direct-type references, and refuses omitted text leaves for both sources. Different declared record and comparison keys are asserted. |
-| FND-002 | fixed b078e3f6647721530fb4363c09e83dbccd4f3a35 | New public reads reach `operation.leaves` with unresolved `operand:0` and `inner:0` types for empty and supplied leaves. The tagged forwarding reader test measures exact and one-less work bounds and a Work refusal at the operation locus. |
-| FND-003 | fixed b078e3f6647721530fb4363c09e83dbccd4f3a35 | A public `collection.set` read reaches `operation.leaves` for its unresolved result element with empty and supplied leaves. The tagged forwarding reader test covers `result_inner` exact and one-less Work. |
-| FND-004 | fixed b078e3f6647721530fb4363c09e83dbccd4f3a35 | `collection.contains` now checks both empty and supplied text leaves for Float32 and Float64, admits an integer control, and separately admits each IEEE-bearing graph without the comparison. |
+| FND-001 | fixed | The public reader now admits both `structural.eq` and `.ne` over integer and pinned-text records using value and direct-type references, and refuses omitted text leaves for both sources. Different declared record and comparison keys are asserted. |
+| FND-002 | fixed | New public reads reach `operation.leaves` with unresolved `operand:0` and `inner:0` types for empty and supplied leaves. The tagged forwarding reader test measures exact and one-less work bounds and a Work refusal at the operation locus. |
+| FND-003 | fixed | A public `collection.set` read reaches `operation.leaves` for its unresolved result element with empty and supplied leaves. The tagged forwarding reader test covers `result_inner` exact and one-less Work. |
+| FND-004 | fixed | `collection.contains` now checks both empty and supplied text leaves for Float32 and Float64, admits an integer control, and separately admits each IEEE-bearing graph without the comparison. |
 
 No new finding arose from this fix diff. The original repository-wide strict-matrix result and review verdict above describe the first review revision; this disposition does not claim a new repository-wide matrix or full-gate result.

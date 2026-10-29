@@ -3,7 +3,7 @@ id: SR-16600
 title: "IR-9 PR 539 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@96916f52745a0256a71f761fbf45fa42e731454a; crates/quire-contract-model/src/checked_package/v2/mod.rs; FR-056-AC-3/6/7"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/mod.rs; FR-056-AC-3/6/7"
 review_set: subset
 relationships:
   - { target: "ix://agent-ix/quire-contract-ir/FR-056", type: references }
@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Independent diff-scoped review of the direct neutral `string_edge` import and argument-free marker on `decode_node_kind`. The reviewed base is `243d7ce6`; the exact head is `96916f5`. The prior owner source disposition on IR-9 was treated as evidence and checked against the function and its callers.
+Independent diff-scoped review of the direct neutral `string_edge` import and argument-free marker on `decode_node_kind`. The reviewed base is; the exact head is. The prior owner source disposition on IR-9 was treated as evidence and checked against the function and its callers.
 
 ## Findings
 
@@ -25,7 +25,7 @@ Independent diff-scoped review of the direct neutral `string_edge` import and ar
 - FR-056-AC-3: `decode_node_kind` checks the raw schema version, converts `node_tag` through `CheckedNodeTag::from_wire`, and converts the form through `CheckedNodeKind::decode`. Each failure returns `ValidationFailure` with the respective member pointer. The attribute has no arguments and names the neutral macro directly.
 - FR-056-AC-6: `quire-contract-model` already depends directly on `ix-trace-rs`. This PR changes neither its manifest nor the root lock, and adds no QSL dependency.
 - FR-056-AC-7: all four inspected callers use the returned closed kind or propagate its typed refusal. The adjacent `flat_wire::check` raw spelling branches and other post-intake decisions are not marked by this diff. No rules, gate, test, public API, or wire behavior changes were made.
-- Rust review: no altered control flow, unsafe code, allocation, panic path, or duplicate vocabulary. `git diff --check 243d7ce6..96916f5` passed. Aggregate gates belong to the final PR head and were not run for this review.
+- Rust review: no altered control flow, unsafe code, allocation, panic path, or duplicate vocabulary. `git diff --check..` passed. Aggregate gates belong to the final PR head and were not run for this review.
 
 ## Verdict
 

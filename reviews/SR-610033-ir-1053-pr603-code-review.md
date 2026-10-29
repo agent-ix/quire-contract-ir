@@ -3,7 +3,7 @@ id: SR-610033
 title: "IR-1053 PR #603 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir PR #603 at f50585f52177269bbeb7405b1846d02b6ba97c8d; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, refinement.rs; tests/it/checked_package_v2_protocol_body.rs, checked_package_v2_refinement.rs"
+scope: "agent-ix/quire-contract-ir PR #603; crates/quire-contract-model/src/checked_package/v2/protocol_body.rs, refinement.rs; tests/it/checked_package_v2_protocol_body.rs, checked_package_v2_refinement.rs"
 review_set: subset
 ---
 
@@ -40,4 +40,4 @@ No copied QSpec content, duplicate evaluator, public API addition, unsafe code, 
 
 ## Rebase and spec-delta check
 
-Compared PR #603 at 8f1f1c3b44d38fec4da3eb3e3914e6691bd75b7e with base d349db18 and QSpec FR-464-AC-20 at 000cd943. The changed FR-064 Behavior and AC-4 assign unselected `model`/`object_type` to the earlier target owner join; wrong-kind or missing local targets to the clause-edge check; and body defects to their respective earlier or later phases. TC-048 step 10 names the same phases. The source unchanged from the earlier reviewed owner recovery returns the now-specified unselected result. No new code defect found in this delta.
+Compared PR #603 with and QSpec FR-464-AC-20. The changed FR-064 Behavior and AC-4 assign unselected `model`/`object_type` to the earlier target owner join; wrong-kind or missing local targets to the clause-edge check; and body defects to their respective earlier or later phases. TC-048 step 10 names the same phases. The source unchanged from the earlier reviewed owner recovery returns the now-specified unselected result. No new code defect found in this delta.

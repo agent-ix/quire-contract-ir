@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed quantity, unit identity and namespace failure cases in PR #497 at head 069bbec05fa8373551c59f193e48d2e805bd8580. Examined FR-038-AC-21, FR-038-AC-299 through AC-302, and TC-230.
+Reviewed quantity, unit identity and namespace failure cases in PR #497 at. Examined FR-038-AC-21, FR-038-AC-299 through AC-302, and TC-230.
 
 ## Verdict
 

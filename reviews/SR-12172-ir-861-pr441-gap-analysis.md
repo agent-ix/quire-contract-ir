@@ -3,7 +3,7 @@ id: SR-12172
 title: "IR-861 gap analysis of IR PR #441"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@243009d0d25f271521b9a372fe30bfc4f8bde109 (PR #441); git diff origin/main...HEAD (spec only: FR-038 Verification cells, TC-048 'Selected variant types'); computed matrix (quire matrix --scope . --format tsv) and trace tags for the 38 edited FR-038 criteria, and the AC-236..238 tests in tests/it/checked_package_v2_model_members.rs and tests/it/checked_package_v2_enum_order.rs"
+scope: "agent-ix/quire-contract-ir (PR #441); git diff origin/main...HEAD (spec only: FR-038 Verification cells, TC-048 'Selected variant types'); computed matrix (quire matrix --scope. --format tsv) and trace tags for the 38 edited FR-038 criteria, and the AC-236..238 tests in tests/it/checked_package_v2_model_members.rs and tests/it/checked_package_v2_enum_order.rs"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038

@@ -3,7 +3,7 @@ id: SR-8683
 title: QSL-737 spec-review-base of operation-call argument record conformance
 type: SpecReview
 analysis: base
-scope: agent-ix/quire-contract-ir@70f0c54b97ab22981edf8bb0447e0fc59156a162; spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md,
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md,
   spec/checked_package/matrix/TC-448-checked-package-v2-operation-argument-conformance.md,
   spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/tests.md,
   spec/spec.md, spec/tests.md
@@ -12,7 +12,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: QSL-737 (QSL FR-359 cross-repo requirement 4). PR quire-contract-ir#375 adds FR-347 (eight ACs), TC-448, a pointer in FR-038 "Model-owned members" step 4, and index rows. The base checklist was run over the new and edited artifacts and checked against the reader code on origin/main 6e45fd57 (`check_model_member`, `DomainModel::ancestors`/`conforms_to`, `ModelOwners::recover`, `validate_owner_joins`).
+Ticket: QSL-737 (QSL FR-359 cross-repo requirement 4). PR quire-contract-ir#375 adds FR-347 (eight ACs), TC-448, a pointer in FR-038 "Model-owned members" step 4, and index rows. The base checklist was run over the new and edited artifacts and checked against the reader code on origin/main (`check_model_member`, `DomainModel::ancestors`/`conforms_to`, `ModelOwners::recover`, `validate_owner_joins`).
 
 ## Verdict
 
@@ -20,7 +20,7 @@ Ticket: QSL-737 (QSL FR-359 cross-repo requirement 4). PR quire-contract-ir#375 
 
 What holds. The rule matches QSL FR-359 item 6, AC-8 and cross-repo requirement 4, and the pending QSpec FR-322 rule (FR-322-AC-31 as amended, FR-322-AC-69): a record-typed parameter admits a conforming record, the count is checked before the types, and everything else stays exact. The ancestry source is sound and agrees with FR-359 item 3. The checked package carries no `supertypes`, and the relation is reached through the argument node's `ModelOwner` into the digest-pinned selected document. The reader already does this for receiver and reference conformance (`conforms_to` at operations.rs:1835/1880; `ancestors` at model_members.rs:826, whose walk covers record types through `field_owner`). The same-document test matches the `std::ptr::eq(package)` precedent. The refusal cause and locus match today's exact check: `ineligible(argument_at(position))` gives `/semantic_graph/nodes/{n}/body/arguments/{position}`, and arity is checked first at `arguments` (operations.rs:2127-2144). Owner recovery cannot fail for an argument that is a `model`/`record_value_type` node, because `validate_owner_joins` and derived-key checks admit every such node first. So the "exact otherwise" fallback does not conflict with the QSpec statement that a failed lookup carries step 2's refusal. The scope rule for event types matches FR-359 cross-repo requirement 7.
 
-Leaving the `Reference<P>` open question to FR-322 is the right call: FR-322 owns reference conformance, and the pending QSpec call rule keeps references exact. The coverage claim was measured, not inferred. `quire coverage --strict` reports 42 unbacked rows on main 6e45fd57 and 52 at the PR head. The 10 new rows are FR-347, TC-448 and FR-347-AC-1..8, all PLANNED. `quire validate` passes at the head: 749/749 documents are grammar-clean. FR-347 and TC-448 are unique across every origin branch and both open PRs (#368, #375). The PR adds no hash, digest, pin or tracking record. The public-repo leak check is clean: no private QSpec text appears in the diff, the commit message or the PR body.
+Leaving the `Reference<P>` open question to FR-322 is the right call: FR-322 owns reference conformance, and the pending QSpec call rule keeps references exact. The coverage claim was measured, not inferred. `quire coverage --strict` reports 42 unbacked rows on main and 52 at the PR head. The 10 new rows are FR-347, TC-448 and FR-347-AC-1..8, all PLANNED. `quire validate` passes at the head: 749/749 documents are grammar-clean. FR-347 and TC-448 are unique across every origin branch and both open PRs (#368, #375). The PR adds no hash, digest, pin or tracking record. The public-repo leak check is clean: no private QSpec text appears in the diff, the commit message or the PR body.
 
 ## Findings
 
@@ -32,9 +32,9 @@ Leaving the `Reference<P>` open question to FR-322 is the right call: FR-322 own
 
 ## Coverage
 
-Base checklist: ID formats, duplicates (checked across all origin refs and open PRs), link targets (FR-038, StR-001 and the QSpec/QSL FR references resolve by id), US/FR/TC quality, AC-to-TC coverage (TC-448 verifies all eight ACs, and the matrix row and TC row list them), and the hash/pin check. EARS: the FR-347 statement is a well-formed event-driven requirement ("When the reader checks ..., the reader SHALL admit ... and SHALL keep ..."). No EARS finding, so no separate ears-conformance document. Separate lenses were run for failure-domain (SR-8684) and scope-boundary (SR-8685).
+Base checklist: ID formats, duplicates (checked across all origin refs and open PRs), link targets (FR-038, StR-001 and the QSpec/QSL FR references resolve by id), US/FR/TC quality, AC-to-TC coverage (TC-448 verifies all eight ACs, and the matrix row and TC row list them), and the hash/pin check. EARS: the FR-347 statement is a well-formed event-driven requirement ("When the reader checks..., the reader SHALL admit... and SHALL keep..."). No EARS finding, so no separate ears-conformance document. Separate lenses were run for failure-domain (SR-8684) and scope-boundary (SR-8685).
 
-Review-only: no edits, no cargo builds or tests. `quire validate` and `quire coverage --strict` were run read-only in detached worktrees at origin/main 6e45fd57 and PR head 70f0c54b (quire 0.36.2, engine 0.50.2). The PR is based on current main (merge-base 6e45fd57).
+Review-only: no edits, no cargo builds or tests. `quire validate` and `quire coverage --strict` were run read-only in detached worktrees at origin/main and PR (quire 0.36.2, engine 0.50.2). The PR is based on current main (merge-).
 
 ## Examined units
 
@@ -103,18 +103,18 @@ bindings: []
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-004 | medium | The new "Field projection over a conforming operand" section says the field "is resolved by name among `P`'s effective members as before", and FR-347-AC-9 expects an exact `OrderPlaced` operand to be admitted. Today every model-owned record field read refuses at the member's `name` before resolution runs: `check_model_member` requires `owner.object_type()`, which reads only `object_types`, so a `record_value_type` declaring node returns `ineligible(member_at("name"))` (operations.rs:2108-2110, model_members.rs:1226-1228). No test on main admits a known field read over a model record; TC-056 tests only the unknown-field refusal. So "as before" is false, and the requirement does not state the second change it needs: for a `field` member, the object-type gate is lifted for a record declaring node. State that change in the section and in "It changes nothing else". QSL FR-359-AC-3's read-back depends on it. | spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md:118-129,174 |
+| FND-004 | medium | The new "Field projection over a conforming operand" section says the field "is resolved by name among `P`'s effective members as before", and FR-347-AC-9 expects an exact `OrderPlaced` operand to be admitted. Today every model-owned record field read refuses at the member's `name` before resolution runs: `check_model_member` requires `owner.object_type`, which reads only `object_types`, so a `record_value_type` declaring node returns `ineligible(member_at("name"))` (operations.rs:2108-2110, model_members.rs:1226-1228). No test on main admits a known field read over a model record; TC-056 tests only the unknown-field refusal. So "as before" is false, and the requirement does not state the second change it needs: for a `field` member, the object-type gate is lifted for a record declaring node. State that change in the section and in "It changes nothing else". QSL FR-359-AC-3's read-back depends on it. | spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md:118-129,174 |
 | FND-005 | low | Public-repo leak check: the "Function-call arguments" section says "QSpec FR-322 is adding that parameter list". That describes content of an unmerged private QSpec change (a `function` node parameter list) that no public source states. Cite the dependency by FR/AC id or ticket only, with no design description. | spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md:143-153 |
 
 ## Dispositions
 
-Round 1; reviewed 66a261051c487bebfe2637e155d815f4d308f68d (fix commit on top of 70f0c54b, merge-base origin/main 6e45fd57).
+Round 1; reviewed (fix commit on top of, merge-base origin/main ).
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 66a261051c487bebfe2637e155d815f4d308f68d |
-| FND-002 | fixed | 66a261051c487bebfe2637e155d815f4d308f68d |
-| FND-003 | fixed | 66a261051c487bebfe2637e155d815f4d308f68d |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |
 
 ## Disposition round 1 verdict
 
@@ -126,21 +126,21 @@ Round 1; reviewed 66a261051c487bebfe2637e155d815f4d308f68d (fix commit on top of
 | --- | --- | --- | --- |
 | FND-006 | high | "Result positions" and FR-347-AC-12 make the reader admit a function whose body root is not conforming: a `Voucher` body under declared `Money` is admitted "as before", and the text says this is "stated so that it stays true". QSpec FR-322-AC-69, which this requirement says it follows, refuses a non-conforming body root. So AC-12 pins a known divergence from the producer rule as tested behavior, and a reader fixed to conform would fail the test. The reader can now reach the function body's bindings, since the function-call rule reads the `parameters` binding, so the `body` binding is just as reachable. Either add the body-root check (exact, or conforming for a record result type) or drop AC-12's `Voucher` clause and record the gap as a tracked limit. | spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md:154-160,226 |
 | FND-007 | medium | The case-arm refusal locus is wrong. The text says a failing arm refuses "at the `case` application's arguments", but `union_arms` refuses at the `case` node itself, `/semantic_graph/nodes/{n}` (operations.rs:1341-1345). Fix the text, and pin the locus in FR-347-AC-10. | spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md:141-152,224 |
-| FND-008 | low | FR-347 says the callee's body `parameters` binding comes from QSpec FR-322-AC-70. That criterion's current text in the open QSpec change does not describe a body binding. The binding shape the reader reads is QSL FR-092's "Function nodes" body (`parameters` = `aggregate{[reference(p0), ...]}`). Cite QSL FR-092 as the shape's source and keep FR-322-AC-70 as a pending dependency. | spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md:174-201 |
+| FND-008 | low | FR-347 says the callee's body `parameters` binding comes from QSpec FR-322-AC-70. That criterion's current text in the open QSpec change does not describe a body binding. The binding shape the reader reads is QSL FR-092's "Function nodes" body (`parameters` = `aggregate{[reference(p0)...]}`). Cite QSL FR-092 as the shape's source and keep FR-322-AC-70 as a pending dependency. | spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md:174-201 |
 | FND-009 | low | The one-line summaries still describe only the operation-call position: spec/spec.md:93-94 ("admits a conforming record as an operation-call argument"), the FR-347 status in spec/checked_package/matrix/tests.md:15, and the TC-448 title. Update them to the five positions. | spec/spec.md:93-94 |
 
 ## Dispositions round 2
 
-Round 2; reviewed 8a8cf551e52968fff3631ca733181ad1a89a6c49 (commits 2bea0ab6 and 8a8cf551 on top of 66a26105).
+Round 2; reviewed (commits and on top of ).
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-004 | fixed | 2bea0ab6b2c4a745a10a1d3dd94c1455eb862fa2 |
-| FND-005 | fixed | 2bea0ab6b2c4a745a10a1d3dd94c1455eb862fa2 |
+| FND-004 | fixed | Fixed in the reviewed PR. |
+| FND-005 | fixed | Fixed in the reviewed PR. |
 
 ## Disposition round 2 verdict
 
-**CONDITIONAL**: FND-004 and FND-005 are fixed. FND-004: "Field projection over a record operand (two changes)" now states the record-owner change, which lifts the `owner.object_type()` check at operations.rs:2108-2110 for a `field` member, keeps it for `operation`, and resolves among `P`'s effective members as FR-038 step 3 does. AC-9 adds the exact control, an inherited read and the operation-on-record refusal. FND-005: the private design description is gone, and QSpec is cited by FR-322-AC-69/70 ids only. New: FND-006 (high), FND-007 (medium), FND-008 and FND-009 (low). `quire validate` passes 752/752. Strict coverage gives 57 unbacked rows: main's 42 plus 15 planned (FR-347, TC-448, AC-1..13). The matrix rows and TC-448 list AC-1..13 consistently. IDs are unique across origin refs and open PRs #368 and #375. The commit messages are clean.
+**CONDITIONAL**: FND-004 and FND-005 are fixed. FND-004: "Field projection over a record operand (two changes)" now states the record-owner change, which lifts the `owner.object_type` check at operations.rs:2108-2110 for a `field` member, keeps it for `operation`, and resolves among `P`'s effective members as FR-038 step 3 does. AC-9 adds the exact control, an inherited read and the operation-on-record refusal. FND-005: the private design description is gone, and QSpec is cited by FR-322-AC-69/70 ids only. New: FND-006 (high), FND-007 (medium), FND-008 and FND-009 (low). `quire validate` passes 752/752. Strict coverage gives 57 unbacked rows: main's 42 plus 15 planned (FR-347, TC-448, AC-1..13). The matrix rows and TC-448 list AC-1..13 consistently. IDs are unique across origin refs and open PRs #368 and #375. The commit messages are clean.
 
 ## New findings (disposition pass 3)
 
@@ -152,14 +152,14 @@ Round 2; reviewed 8a8cf551e52968fff3631ca733181ad1a89a6c49 (commits 2bea0ab6 and
 
 ## Dispositions round 3
 
-Round 3; reviewed 63626fac4a3d2ecb60e01e925a3f5cd000ce5f10 (one commit on top of 8a8cf551).
+Round 3; reviewed (one commit on top of ).
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-006 | fixed | 63626fac4a3d2ecb60e01e925a3f5cd000ce5f10 |
-| FND-007 | fixed | 63626fac4a3d2ecb60e01e925a3f5cd000ce5f10 |
-| FND-008 | fixed | 63626fac4a3d2ecb60e01e925a3f5cd000ce5f10 |
-| FND-009 | fixed | 63626fac4a3d2ecb60e01e925a3f5cd000ce5f10 |
+| FND-006 | fixed | Fixed in the reviewed PR. |
+| FND-007 | fixed | Fixed in the reviewed PR. |
+| FND-008 | fixed | Fixed in the reviewed PR. |
+| FND-009 | fixed | Fixed in the reviewed PR. |
 
 ## Disposition round 3 verdict
 

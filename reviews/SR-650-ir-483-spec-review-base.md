@@ -3,7 +3,7 @@ id: SR-650
 title: "spec review of PR 238 (FR-038 Operation leaves, FR-038-AC-43, TC-048)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@b696d0e8363f01fa63de82f4cd6cd521c8d97943; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md"
 review_set: base
 ---
 # SR-650: spec review of PR 238
@@ -26,7 +26,7 @@ Changes needed: FND-001 and FND-002 should be corrected together with the code f
 
 ## New findings (disposition pass 1)
 
-Reviewed at agent-ix/quire-contract-ir@7e10a1e3ec0d89d1d02bdf1e14f4b94dd99770b8.
+Reviewed at agent-ix/quire-contract-ir.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
@@ -37,8 +37,8 @@ Reviewed at agent-ix/quire-contract-ir@7e10a1e3ec0d89d1d02bdf1e14f4b94dd99770b8.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 7e10a1e: the prose now says "for a `set`, `bag` or `ordered_set` result only ... any other result, a `sequence` included, expects none" |
-| FND-002 | fixed | 7e10a1e: the prose now states the cycle/unresolved `operator-ineligible` refusal, the work budget, and the float and leaf-path limits |
-| FND-003 | fixed | 7e10a1e: the TC-048 matrix row now says AC-43 is verified by unit tests in `operations.rs` |
-| FND-004 | fixed | 0f45961: the TC-048 "Operation leaves" procedure now covers flatten to sequence vs set/bag/ordered_set, `collection.set`, the cycle and missing-node refusals, 40-deep and 2000-deep nesting, the 12x4 chain and both ordering cases |
-| FND-005 | fixed | 0f45961: FR-038 prose states that extra leaves are admitted where the reference refuses `operation-law-mismatch` |
+| FND-001 | fixed |: the prose now says "for a `set`, `bag` or `ordered_set` result only... any other result, a `sequence` included, expects none" |
+| FND-002 | fixed |: the prose now states the cycle/unresolved `operator-ineligible` refusal, the work budget, and the float and leaf-path limits |
+| FND-003 | fixed |: the TC-048 matrix row now says AC-43 is verified by unit tests in `operations.rs` |
+| FND-004 | fixed |: the TC-048 "Operation leaves" procedure now covers flatten to sequence vs set/bag/ordered_set, `collection.set`, the cycle and missing-node refusals, 40-deep and 2000-deep nesting, the 12x4 chain and both ordering cases |
+| FND-005 | fixed |: FR-038 prose states that extra leaves are admitted where the reference refuses `operation-law-mismatch` |

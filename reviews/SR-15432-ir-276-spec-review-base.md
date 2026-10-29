@@ -16,7 +16,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-276. Reviewed PR #510 at bfb5ba1aba9212f3290f307cd086d1cba4f2603c. The retained-adjacency and closure wording permits result-preserving memoized lowering. Its per-request node, term and edge charges, limit-stop consumed value, record contents and canonical bytes remain explicit obligations. The revised main-base measurement in Linear comment 36228c29 confirms the nine pre-change lowering counts K*(R+1): 10/18/34, 20/36/68 and 40/72/136 for K=2/4/8 and R=4/8/16.
+Ticket: IR-276. Reviewed PR #510. The retained-adjacency and closure wording permits result-preserving memoized lowering. Its per-request node, term and edge charges, limit-stop consumed value, record contents and canonical bytes remain explicit obligations. The revised main-base measurement in Linear comment confirms the nine pre-change lowering counts K*(R+1): 10/18/34, 20/36/68 and 40/72/136 for K=2/4/8 and R=4/8/16.
 
 ## Scope
 
@@ -48,6 +48,6 @@ The revised main-base measurement is a claimed test result in the Linear ticket,
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At 578ca1a, FR-038-AC-308 says: "Admission performs R+K body grammar validations for the R shared nodes and K distinct leaves, and lowering performs zero additional validations"; this matches the K distinct leaves and removes the impossible K-independent total. |
-| FND-002 | fixed | At 578ca1a, TC-050's Description names FR-038-AC-308, and the checked-package matrix adds a planned/unrun FR-038-AC-308 row and includes it in TC-050's trace list. |
-| FND-003 | fixed | At 578ca1a, the model matrix adds a planned/unrun FR-023-AC-7 row mapped to TC-035 while leaving AC-1 through AC-6 implemented credit intact. |
+| FND-001 | fixed |, FR-038-AC-308 says: "Admission performs R+K body grammar validations for the R shared nodes and K distinct leaves, and lowering performs zero additional validations"; this matches the K distinct leaves and removes the impossible K-independent total. |
+| FND-002 | fixed |, TC-050's Description names FR-038-AC-308, and the checked-package matrix adds a planned/unrun FR-038-AC-308 row and includes it in TC-050's trace list. |
+| FND-003 | fixed |, the model matrix adds a planned/unrun FR-023-AC-7 row mapped to TC-035 while leaving AC-1 through AC-6 implemented credit intact. |

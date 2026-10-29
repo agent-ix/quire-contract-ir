@@ -3,7 +3,7 @@ id: SR-627
 title: "PR #231 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@a567ba99e8601849c77984f19c723a000e664fca; crates/quire-contract-model/src/checked_package/v2/lower.rs, tests/it/checked_package_v2_require_bounds.rs, tests/it/complete_v1_contract_package.rs (git diff origin/main...HEAD)"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/lower.rs, tests/it/checked_package_v2_require_bounds.rs, tests/it/complete_v1_contract_package.rs (git diff origin/main...HEAD)"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
@@ -31,8 +31,8 @@ Measured by the reviewer:
 
 | Check | Result |
 | --- | --- |
-| `cargo test --test it` (require_bounds + complete_v1 filters) at a567ba9 | 16 passed |
-| QSL `tc_440*` (quire-spec-language origin/main a2837b6f, `-- --include-ignored`) with IR patched to this PR | Flags, Mixed, RangedTree now agree; `tc_440_an_unbounded_application_record_requires_a_bound_in_ir_pending_ir_283` still FAILS (outer `+` of `(x + 1) + n` lowers); Measure not compared (emitter omits it, pre-existing) |
+| `cargo test --test it` (require_bounds + complete_v1 filters) | 16 passed |
+| QSL `tc_440*` (quire-spec-language origin/main, `-- --include-ignored`) with IR patched to this PR | Flags, Mixed, RangedTree now agree; `tc_440_an_unbounded_application_record_requires_a_bound_in_ir_pending_ir_283` still FAILS (outer `+` of `(x + 1) + n` lowers); Measure not compared (emitter omits it, pre-existing) |
 | Mutation M1: position rule off | red: `tc_050_a_bound_over_the_shared_integer_does_not_cover_an_unbounded_field`, `tc_050_a_collection_of_unranged_integers_requires_a_bound` |
 | Mutation M2: recursion rule off | red: `tc_050_a_recursive_record_requires_a_bound` only |
 | Mutation M3a: closure-wide domain exemption off | red: 11 tests incl. `tc_050_x_plus_one_over_a_bounded_parameter_lowers_under_require_bounds`, `tc_050_bounded_collections_and_ranged_fields_lower` |
@@ -71,19 +71,19 @@ application fixture shows it.
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | high | Values and expressions keep the closure-wide rule, so a `bounded_domain` over the shared `integer` node still masks an unbounded value position. In `function f using v(x: Int[0,9], n: Integer): Integer pure { (x + 1) + n }`, the outer `+` is typed at `integer` and reaches parameter `n`, which is also typed at `integer`. `x`'s `integer_range` covers `integer`, so IR returns `Lowered`. QSL classifies that record `Unbounded` at `n`. Measured: QSL's `tc_440_an_unbounded_application_record_requires_a_bound_in_ir_pending_ir_283` fails with this PR patched in. This is the IR-283 defect on the value path, and a Kani request over an infinite `n` would read as supported. For `x + 1` to still lower, a `value`/`parameter` node's own `semantic_type` has to count as a position, while an application `result_type` and a literal annotation stay non-positions. | crates/quire-contract-model/src/checked_package/v2/lower.rs:464-468 |
-| FND-002 | low | `is_recursive_type` checks only `recursion_group.is_some()`. `validate_recursion` checks labels only on cyclic components, so the reader admits a label on an acyclic scalar or composite, and the lowerer then refuses it as recursive. The rule also fires for a labelled type that is reached only through a `literal.type` annotation, although FR-038 says `requires_bound` tests only a type some reachable node is typed at. QSL labels only real SCCs, so no current producer hits this. The assumption that a label means recursion is still undocumented and untested. | crates/quire-contract-model/src/checked_package/v2/lower.rs:461; crates/quire-contract-model/src/checked_package/v2/lower.rs:527-535; crates/quire-contract-model/src/checked_package/v2/mod.rs:1864-1869 |
+| FND-002 | low | `is_recursive_type` checks only `recursion_group.is_some`. `validate_recursion` checks labels only on cyclic components, so the reader admits a label on an acyclic scalar or composite, and the lowerer then refuses it as recursive. The rule also fires for a labelled type that is reached only through a `literal.type` annotation, although FR-038 says `requires_bound` tests only a type some reachable node is typed at. QSL labels only real SCCs, so no current producer hits this. The assumption that a label means recursion is still undocumented and untested. | crates/quire-contract-model/src/checked_package/v2/lower.rs:461; crates/quire-contract-model/src/checked_package/v2/lower.rs:527-535; crates/quire-contract-model/src/checked_package/v2/mod.rs:1864-1869 |
 | FND-003 | low | The `require_bounds` predicate is now a four-level nested boolean inside a `find` closure, with the O(n) `any` domain scan inlined. Two named helpers (`uncovered_position`, `uncovered_value_type`) or a precomputed `BTreeSet` of domain `semantic_type`s would make each rule readable, and each could be mutated separately. | crates/quire-contract-model/src/checked_package/v2/lower.rs:460-469 |
 | FND-004 | low | The rewritten tc_047 fixture turns `bbbb` into a self-typed `sequence` with no element type and no dependencies. No producer emits that shape. The test's intent holds, but a realistic element type (for example a `boolean` scalar) would keep the fixture on a shape the reader and QSL both produce. | tests/it/complete_v1_contract_package.rs:358-364 |
 
 ## Dispositions
 
-Round 1, reviewed at edb862819349fae5ba5bf2a19ea565ab1a3f96dd (c58e154 is
-a567ba9 rebased onto origin/main 7c70041; edb8628 is the fix round).
+Round 1, reviewed ( is
+ rebased onto origin/main; is the fix round).
 
-What the reviewer measured at edb8628, on a clean tree:
+What the reviewer measured, on a clean tree:
 
-- **QSL TC-440** (quire-spec-language origin/main e4ac2e8d, IR patched to
-  edb8628, `--include-ignored`). These pass, including the ignored ones:
+- **QSL TC-440** (quire-spec-language origin/main, IR patched to
+, `--include-ignored`). These pass, including the ignored ones:
   - `tc_440_an_unbounded_application_record_requires_a_bound_in_ir_pending_ir_283`,
     so `(x + 1) + n` now refuses;
   - `tc_440_operation_application_records_agree_with_ir_per_node`, so the
@@ -99,7 +99,7 @@ What the reviewer measured at edb8628, on a clean tree:
   - recursion off: only `tc_050_a_recursive_record_requires_a_bound`;
   - domain exemption off: 11 tests;
   - typed-at rule off: 3 tests.
-- **Gates:** `make fmt-check lint test corpus` at edb8628 exits 0.
+- **Gates:** `make fmt-check lint test corpus` exits 0.
 - **Let-bound parameter probe (informational).** For `let t = x + 1 in t * 2`,
   IR returns `RequiresBound` naming `integer`, while QSL says `Bounded`. IR
   origin/main returns the same, so this is not a regression from this PR, and
@@ -107,7 +107,7 @@ What the reviewer measured at edb8628, on a clean tree:
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | edb8628 |
-| FND-002 | fixed | edb8628 |
-| FND-003 | fixed | edb8628 |
-| FND-004 | fixed | edb8628 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |
+| FND-004 | fixed | Fixed in the reviewed PR. |

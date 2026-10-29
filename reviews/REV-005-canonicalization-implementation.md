@@ -41,7 +41,7 @@ a confirmed vulnerability.
 On 2026-08-30 the producer queried the real crates.io API over HTTPS. The first
 request without an identifying user agent returned HTTP 403 and is not used as
 evidence. Retrying with user agent
-`quire-contract-ir-review/0.1 (dependency verification)` succeeded:
+`quire-contract-ir-review/0.1 (dependency verification)` su:
 
 - [`serde_json` 1.0.151 dependencies](https://crates.io/api/v1/crates/serde_json/1.0.151/dependencies)
   returned normal dependency `crate_id: "zmij"`, requirement `^1.0`, dependency

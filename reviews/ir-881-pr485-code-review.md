@@ -13,7 +13,7 @@ Ticket: IR-881. Examined the registered-code rename, removal of the TC-456 allow
 
 ## Scope
 
-Examined: FR-044-AC-3; NFR-002-AC-1; NFR-002-AC-3. PR diff 7c4367d..c98a2bc.
+Examined: FR-044-AC-3; NFR-002-AC-1; NFR-002-AC-3. PR diff...
 
 ## Examined units
 

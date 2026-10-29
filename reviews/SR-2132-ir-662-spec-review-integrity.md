@@ -3,13 +3,13 @@ id: SR-2132
 title: "IR-662 spec-review/integrity of i128 model requirements"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@c5d7cca9fa3ed577c3578af2ea5d9a7c99ae4b75; spec/model/functional/FR-013-type-system.md, spec/model/functional/FR-014-expression-semantics.md, spec/model/functional/FR-015-definedness.md, spec/model/functional/FR-016-canonicalization-digests.md, spec/model/functional/FR-019-rust-library-interface.md; ticket IR-662"
+scope: "agent-ix/quire-contract-ir; spec/model/functional/FR-013-type-system.md, spec/model/functional/FR-014-expression-semantics.md, spec/model/functional/FR-015-definedness.md, spec/model/functional/FR-016-canonicalization-digests.md, spec/model/functional/FR-019-rust-library-interface.md; ticket IR-662"
 review_set: subset
 ---
 
 ## Summary
 
-Ticket IR-662, frozen PR #310 at c5d7cca9fa3ed577c3578af2ea5d9a7c99ae4b75. The widened numeric behavior is largely consistent, but the rational singleton normalization rule conflicts with the new AC-8 cross-product refusal.
+Ticket IR-662, frozen PR #310. The widened numeric behavior is largely consistent, but the rational singleton normalization rule conflicts with the new AC-8 cross-product refusal.
 
 ## Verdict
 
@@ -37,8 +37,8 @@ Ticket IR-662, frozen PR #310 at c5d7cca9fa3ed577c3578af2ea5d9a7c99ae4b75. The w
 
 | FND | Outcome | SHA / reason |
 | --- | --- | --- |
-| FND-001 | fixed | b9b3fb2d6ce19167ec0813ab46262d1e19e57b51 — FR-015 behavior now requires exact singleton normalization before bounds checking, and AC-8 admits the overflowing raw cross-products yielding 1/1 while refusing an out-of-bounds normalized result. |
+| FND-001 | fixed | — FR-015 behavior now requires exact singleton normalization before bounds checking, and AC-8 admits the overflowing raw cross-products yielding 1/1 while refusing an out-of-bounds normalized result. |
 
 ## Disposition Verdict
 
-**PASS at b9b3fb2d6ce19167ec0813ab46262d1e19e57b51.** FR-015 behavior now requires exact singleton normalization before bounds checking, and AC-8 admits the overflowing raw cross-products yielding 1/1 while refusing an out-of-bounds normalized result. The frozen original finding row is retained above.
+**PASS.** FR-015 behavior now requires exact singleton normalization before bounds checking, and AC-8 admits the overflowing raw cross-products yielding 1/1 while refusing an out-of-bounds normalized result. The frozen original finding row is retained above.

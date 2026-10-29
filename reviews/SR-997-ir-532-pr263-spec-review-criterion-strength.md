@@ -3,7 +3,7 @@ id: SR-997
 title: "criterion strength review of PR 263 (FR-038-AC-81 to AC-88)"
 type: SpecReview
 analysis: criterion-strength
-scope: "agent-ix/quire-contract-ir@376269e0d67ee1451ee9629dbe897c06a8a730de; spec/checked_package/functional/FR-038-consume-checked-package-v2.md FR-038-AC-81 to FR-038-AC-88; tests read in crates/quire-contract-model/src/checked_package/v2/operations.rs"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md FR-038-AC-81 to FR-038-AC-88; tests read in crates/quire-contract-model/src/checked_package/v2/operations.rs"
 review_set: subset
 ---
 # SR-997: criterion strength review of PR 263
@@ -48,7 +48,7 @@ application-node preimage and key check.
 
 ## New findings (disposition pass 1)
 
-Reviewed at agent-ix/quire-contract-ir@9d4379bea459d7a30bc277ecbdaa72bae08d9bac.
+Reviewed at agent-ix/quire-contract-ir.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
@@ -58,5 +58,5 @@ Reviewed at agent-ix/quire-contract-ir@9d4379bea459d7a30bc277ecbdaa72bae08d9bac.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 9d4379b |
-| FND-002 | fixed | cfb815d |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |

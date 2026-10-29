@@ -3,7 +3,7 @@ id: SR-8163
 title: spec-review/integrity review of IR-743 ContractPackage
 type: SpecReview
 analysis: integrity
-scope: agent-ix/quire-contract-ir@3d97f7250257e7d5f83ebe8855428ef9321b5e44; base b2008d3f50127bf033b5bae8fb302a482e536dbc;
+scope: agent-ix/quire-contract-ir;;
   spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md,
   spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md, spec/assurance/AD-001-contract-ir-architecture.md,
   spec/assurance/AD-004-checked-package-seam.md
@@ -39,7 +39,7 @@ Review limited to the candidate diff and named acceptance units. Full gate is ow
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 42c030299b5e735a7389339be030f1b2f357f545 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
 
 ## Disposition verdict
 

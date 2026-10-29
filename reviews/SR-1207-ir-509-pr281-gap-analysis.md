@@ -3,7 +3,7 @@ id: SR-1207
 title: "PR #281 FR-346 gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@98ed90df11a41f8c76aa1b4146b31916d56b4bf7; FR-346-AC-1..10, TC-225; tests/it/checked_package_v2_abstraction_relation.rs, crates/quire-contract-model/src/checked_package/v2/rust_spelling.rs (tests), crates/quire-contract-model/src/checked_package/v2/mod.rs (tests), crates/quire-contract-model/src/checked_package/v2/abstraction.rs"
+scope: "agent-ix/quire-contract-ir; FR-346-AC-1..10, TC-225; tests/it/checked_package_v2_abstraction_relation.rs, crates/quire-contract-model/src/checked_package/v2/rust_spelling.rs (tests), crates/quire-contract-model/src/checked_package/v2/mod.rs (tests), crates/quire-contract-model/src/checked_package/v2/abstraction.rs"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-346
@@ -51,7 +51,7 @@ test's oracle was read:
 - AC-9: four tests, one per ordering clause.
 - AC-10: `..._a_changed_binding_changes_the_node_key_and_the_package_id`.
 
-Coverage measured: `quire coverage --scope . --strict` gives 23 unbacked rows
+Coverage measured: `quire coverage --scope. --strict` gives 23 unbacked rows
 (35 at base) and 0 contradicted. FR-346 is 10/10. The ✅ on the TC-225 and
 FR-346 matrix rows is backed by these tests.
 
@@ -73,10 +73,10 @@ ACs are the ones the tests use.
 
 ## Dispositions
 
-Round 1 was reviewed at 0768afb609da09d3a82043b1fd63a1780b0a6afa.
+Round 1 was reviewed.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 0768afb. The two defective nodes are placed in descending key order. A guard assertion checks that the lower key sits at the later position, so the oracle now separates node-id order from position order. |
-| FND-002 | fixed | 0768afb. `tc_225_a_root_application_is_refused_by_the_step_that_places_it`: a temporal-class root is reported ahead of a lower-key member defect. An ordinary-class root is reported after a lower-key defect and before a higher-key one. This pins the temporal step against the abstraction shape check. |
-| FND-003 | fixed | 0768afb. Both pairs are now read back from the admitted package's graph. A negative control (an anchor for `rebase`) admits and shows the pair comparison can fail (`assert_ne`). |
+| FND-001 | fixed |. The two defective nodes are placed in descending key order. A guard assertion checks that the lower key sits at the later position, so the oracle now separates node-id order from position order. |
+| FND-002 | fixed |. `tc_225_a_root_application_is_refused_by_the_step_that_places_it`: a temporal-class root is reported ahead of a lower-key member defect. An ordinary-class root is reported after a lower-key defect and before a higher-key one. This pins the temporal step against the abstraction shape check. |
+| FND-003 | fixed |. Both pairs are now read back from the admitted package's graph. A negative control (an anchor for `rebase`) admits and shows the pair comparison can fail (`assert_ne`). |

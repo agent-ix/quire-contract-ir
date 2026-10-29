@@ -1,9 +1,9 @@
 ---
 id: SR-10821
-title: "IR-238 PR 384 gap-analysis at 2e739b5"
+title: "IR-238 PR 384 gap-analysis "
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; PR #384 at 2e739b5b7eef441766e72e69c7ad9dd371c304a8; FR-038 AC-215..218; checked_package v2 source and changed tests"
+scope: "agent-ix/quire-contract-ir; PR #384; FR-038 AC-215..218; checked_package v2 source and changed tests"
 review_set: subset
 ---
 
@@ -42,4 +42,4 @@ No source or test files were edited in this review. The PR diff changes only Rus
 
 ## Disposition verdict
 
-**PASS** for the three original findings at f49c37fba36dad96dbaa03d9a9a60e1a626df8f0. The reviewed fix delta changes only the stated spec, matrix row, and focused test files; no new review sweep or full gate was run.
+**PASS** for the three original findings. The reviewed fix delta changes only the stated spec, matrix row, and focused test files; no new review sweep or full gate was run.

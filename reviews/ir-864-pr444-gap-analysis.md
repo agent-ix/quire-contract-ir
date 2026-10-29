@@ -3,7 +3,7 @@ id: SR-12371
 title: "IR-864 gap-analysis of IR PR #444"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@5cdf2e9d755fcbaf12ce3b4bafd5712535799498; crates/quire-contract-model/src/canonical.rs, crates/quire-contract-model/src/decimal.rs, crates/quire-contract-model/src/expression.rs, crates/quire-contract-model/src/output_mapping.rs"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/canonical.rs, crates/quire-contract-model/src/decimal.rs, crates/quire-contract-model/src/expression.rs, crates/quire-contract-model/src/output_mapping.rs"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-013

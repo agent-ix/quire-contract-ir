@@ -3,7 +3,7 @@ id: SR-612132
 title: "IR-1081 PR 648 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; IR-1081; PR #648 head 318fe29ba05f8b9be2341dbd1aef1cbc3cc8559e; Cargo.toml, tests/tc019_determinism.rs; NFR-001-AC-2/3, TC-019"
+scope: "agent-ix/quire-contract-ir; IR-1081; PR #648; Cargo.toml, tests/tc019_determinism.rs; NFR-001-AC-2/3, TC-019"
 review_set: subset
 ---
 
@@ -32,5 +32,5 @@ CONDITIONAL. The capture's OS provenance can be mislabeled; the new Rust file al
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | At e3593b4e, `capture` refuses `os != env::consts::OS` before running the corpus; a self-test supplies a different supported OS and checks that refusal. |
-| FND-002 | fixed | At e3593b4e, the file begins with the repository's SPDX and copyright header. |
+| FND-001 | fixed |, `capture` refuses `os != env::consts::OS` before running the corpus; a self-test supplies a different supported OS and checks that refusal. |
+| FND-002 | fixed |, the file begins with the repository's SPDX and copyright header. |

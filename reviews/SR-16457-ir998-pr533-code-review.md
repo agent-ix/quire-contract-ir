@@ -3,14 +3,14 @@ id: SR-16457
 title: "IR-998 PR 533 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@e76875c2226178ef5d214b04d8b352491b3e51cf; crates/quire-contract-model/src/checked_package/v2/{flat_wire.rs,hybrid.rs,mod.rs}; tests/conformance_qspec/hybrid.rs"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/{flat_wire.rs,hybrid.rs,mod.rs}; tests/conformance_qspec/hybrid.rs"
 review_set: subset
 ---
 # SR-16457: IR-998 PR 533 code and Rust review
 
 ## Summary
 
-Independent diff-scoped review of the four changed files at e76875c2226178ef5d214b04d8b352491b3e51cf, stacked on IR #532 cc75d144. No public API, CI gate, dependency, or vendored artifact changed. The neutral marker applies only to the strict-wire integer intake.
+Independent diff-scoped review of the four changed files, stacked on IR #532. No public API, CI gate, dependency, or vendored artifact changed. The neutral marker applies only to the strict-wire integer intake.
 
 ## Findings
 

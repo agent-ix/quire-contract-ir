@@ -3,13 +3,13 @@ id: SR-16633
 title: "Code review — IR-9 PR 555 string-edge consumer"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; PR #555 origin/main...1970117b; spec/core/functional/FR-056-consume-authoritative-string-edge-scan.md, Makefile, Cargo.toml, string-edge-rules.json, changed src/ and crates/ sources, tests/it/string_edge_gate.rs"
+scope: "agent-ix/quire-contract-ir; PR #555 origin/main...; spec/core/functional/FR-056-consume-authoritative-string-edge-scan.md, Makefile, Cargo.toml, string-edge-rules.json, changed src/ and crates/ sources, tests/it/string_edge_gate.rs"
 review_set: subset
 ---
 
 ## Summary
 
-Reviewed the frozen PR #555 diff at 1970117b, including Rust semantics, markers, Make wiring and controlled scanner tests. Ticket: IR-9.
+Reviewed the frozen PR #555 diff, including Rust semantics, markers, Make wiring and controlled scanner tests. Ticket: IR-9.
 
 ## Verdict
 
@@ -53,7 +53,7 @@ Reviewed the frozen PR #555 diff at 1970117b, including Rust semantics, markers,
 
 ## Current review state
 
-**CONDITIONAL** — original high findings are fixed at c75c9c9f; the untagged new tests need a fix round. The installed scanner and full aggregate gate remain unqualified here.
+**CONDITIONAL** — original high findings are fixed; the untagged new tests need a fix round. The installed scanner and full aggregate gate remain unqualified here.
 
 ## Dispositions (round 2)
 
@@ -63,4 +63,4 @@ Reviewed the frozen PR #555 diff at 1970117b, including Rust semantics, markers,
 
 ## Current review state (round 2)
 
-**PASS for the PR diff** — all recorded findings have latest disposition `fixed` at 7eaa7fc0. Repository-wide pre-existing matrix gaps, installed scanner availability, and aggregate gate qualification are separate gates and remain unclaimed by this review.
+**PASS for the PR diff** — all recorded findings have latest disposition `fixed`. Repository-wide pre-existing matrix gaps, installed scanner availability, and aggregate gate qualification are separate gates and remain unclaimed by this review.

@@ -3,7 +3,7 @@ id: SR-4821
 title: "Gap analysis of IR-710 PR 329"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@bc3360fa2ec60ba1a256d2d44b2a44b15453923c; FR-017-AC-2, FR-018-AC-1, FR-018-AC-2, STD-001, crates/quire-contract-model/src/{coverage,conformance,identity}.rs, tests/it/{canonicalization,conformance}.rs, corpus/contract-v0.1, schemas/contract-conformance-fixture-v1.schema.json"
+scope: "agent-ix/quire-contract-ir; FR-017-AC-2, FR-018-AC-1, FR-018-AC-2, STD-001, crates/quire-contract-model/src/{coverage,conformance,identity}.rs, tests/it/{canonicalization,conformance}.rs, corpus/contract-v0.1, schemas/contract-conformance-fixture-v1.schema.json"
 review_set: subset
 ---
 # SR-4821: Gap analysis of IR-710 PR 329

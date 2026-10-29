@@ -3,7 +3,7 @@ id: SR-5690
 title: 'IR-484 PR #351 Code and Rust review'
 type: SpecReview
 analysis: code-review
-scope: agent-ix/quire-contract-ir@f070917847418b8db0522aab5712c5a8c71f693d; crates/quire-contract-model/src/checked_package/v2/operations.rs, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, tests/it/checked_package_v2_canonical_encoding.rs, tests/it/checked_package_v2_flat_wire.rs, tests/it/checked_package_v2_frame_entries.rs, tests/it/checked_package_v2_operand_families.rs, tests/it/checked_package_v2_reader.rs, tests/it/checked_package_v2_require_bounds.rs, tests/it/main.rs
+scope: agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/operations.rs, spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, tests/it/checked_package_v2_canonical_encoding.rs, tests/it/checked_package_v2_flat_wire.rs, tests/it/checked_package_v2_frame_entries.rs, tests/it/checked_package_v2_operand_families.rs, tests/it/checked_package_v2_reader.rs, tests/it/checked_package_v2_require_bounds.rs, tests/it/main.rs
 review_set: subset
 ---
 

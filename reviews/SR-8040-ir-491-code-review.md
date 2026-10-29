@@ -3,7 +3,7 @@ id: SR-8040
 title: "Code and Rust review of IR-491 residual leaf sources"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@a5f0d9c486b86185e0866d159e35b532d3911ffd; crates/quire-contract-model/src/checked_package/v2/composite_operands.rs, crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it/checked_package_v2_composite_operands.rs, tests/it/checked_package_v2_recursive_leaves.rs, spec/checked_package/functional/FR-038-consume-checked-package-v2.md; IR-491"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/composite_operands.rs, crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it/checked_package_v2_composite_operands.rs, tests/it/checked_package_v2_recursive_leaves.rs, spec/checked_package/functional/FR-038-consume-checked-package-v2.md; IR-491"
 review_set: subset
 ---
 

@@ -11,7 +11,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed frozen head `5d134ac253b0a5b96f3578e0c6d87900c80c83a1` against base `7f8c10cc91639dadb7172fec1e4a4d484f2086cc`. The changed root binary uses ix-cli-kit’s owner APIs, preserves caller-owned 0/1/2, buffers result serialization before stdout, handles partial diagnostic serialization, and keeps the model crate independent. New tests have trace tags, direct byte and failure assertions, and real Cargo metadata and Linux output-device controls. No defect found in the eight-path PR diff.
+Reviewed frozen against. The changed root binary uses ix-cli-kit’s owner APIs, preserves caller-owned 0/1/2, buffers result serialization before stdout, handles partial diagnostic serialization, and keeps the model crate independent. New tests have trace tags, direct byte and failure assertions, and real Cargo metadata and Linux output-device controls. No defect found in the eight-path PR diff.
 
 ## Scope
 
@@ -31,7 +31,7 @@ Changed paths examined: Cargo.lock, Cargo.toml, deny.toml, spec/conformance/matr
 
 ## Coverage
 
-Strict coverage measured with `quire coverage --scope . --strict --json` on exact trees: old main 030af33 exit 1, 45 unbacked/0 status lies; PR base 7f8c10c exit 1, 59/0; PR head 5d134ac exit 1, 55/0. Base→head removes only FR-020-AC-16, -17, -18, -19 from unbacked rows and adds zero. Old→base adds FR-020-AC-16..19, FR-056-AC-1..8, and core-matrix FR-056 and TC-460: 14 new unbacked rows, zero removed. This is an inherited strict-coverage FAIL, never a green gate.
+Strict coverage measured with `quire coverage --scope. --strict --json` on exact trees: old main exit 1, 45 unbacked/0 status lies; PR exit 1, 59/0; PR exit 1, 55/0. Base→head removes only FR-020-AC-16, -17, -18, -19 from unbacked rows and adds zero. Old→base adds FR-020-AC-16..19, FR-056-AC-1..8, and core-matrix FR-056 and TC-460: 14 new unbacked rows, zero removed. This is an inherited strict-coverage FAIL, never a green gate.
 
 ## Verdict
 

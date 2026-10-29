@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-824. PR agent-ix/quire-contract-ir#422 at 3a79b1f. Plan
+Ticket: IR-824. PR agent-ix/quire-contract-ir#422. Plan
 completion: not assessed (planless). Each criterion was traced to its tagged
 test and checked by mutation in a throwaway worktree.
 
@@ -41,4 +41,4 @@ refusal.
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Fix commit 6ec6ec9: the AC-257 test authors the `[1,3]` end's own navigation type (`set` for unique, `bag` for not unique, via `bounded_collection`, the same builder the navigate tests use) as `result_type`, re-keys the node and asserts `ill_typed`/`operator-ineligible` at `/semantic_graph/nodes/6/body/result_type`. Re-ran the surviving mutant (reader admits when `result_type` equals the `navigation_type` key): the AC-257 test now fails (the package is admitted), so the fixture key equals the reader's navigation key and the refusal is pinned. |
+| FND-001 | fixed | Fix: the AC-257 test authors the `[1,3]` end's own navigation type (`set` for unique, `bag` for not unique, via `bounded_collection`, the same builder the navigate tests use) as `result_type`, re-keys the node and asserts `ill_typed`/`operator-ineligible` at `/semantic_graph/nodes/6/body/result_type`. Re-ran the surviving mutant (reader admits when `result_type` equals the `navigation_type` key): the AC-257 test now fails (the package is admitted), so the fixture key equals the reader's navigation key and the refusal is pinned. |

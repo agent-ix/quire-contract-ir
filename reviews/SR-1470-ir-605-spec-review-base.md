@@ -3,7 +3,7 @@ id: SR-1470
 title: "spec review of PR 291 (typed STD-001 code, FR-044)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@c109f7eaba2d15f2d8d526f0b0f9dfdfc240a0dd; git diff origin/main...HEAD (base 6fb6e974efd6b9a9c74515ee7e07df250fa4aacf, current main): spec/core/functional/FR-044, STD-001, spec/core/matrix (TC-442, tests.md), spec/kani/functional (FR-030, FR-039), spec/kani/matrix (TC-223, tests.md), spec/model/functional/FR-019, spec/assurance/AD-006, spec/spec.md, spec/tests.md; checked against src/ and crates/quire-contract-model/src at the same sha and quire-contract-codegen origin/main f3ece43 (src and spec, read only)"
+scope: "agent-ix/quire-contract-ir; git diff origin/main...HEAD (, current main): spec/core/functional/FR-044, STD-001, spec/core/matrix (TC-442, tests.md), spec/kani/functional (FR-030, FR-039), spec/kani/matrix (TC-223, tests.md), spec/model/functional/FR-019, spec/assurance/AD-006, spec/spec.md, spec/tests.md; checked against src/ and crates/quire-contract-model/src at the same sha and quire-contract-codegen origin/main (src and spec, read only)"
 review_set: base
 ---
 # SR-1470: spec review of PR 291
@@ -69,9 +69,9 @@ FR-030 (`spec/kani/functional/FR-030-ir-outcome-terminal-map.md`) and NFR-005.
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | `Std001Code` states form, not membership, and FR-044 says codegen builds its own codes with it, yet FR-044's Dependencies says QSL's `DeclineCode` takes this type for its `Ir` arm, and the QSL ruling recorded in codegen's FR-030 says a `Declined` code is carried "in the registry that issued it". Codegen's `kani_profile_input_mismatch` and `kani_corpus_*` today, and the lowering codes (`kani_dispatch_unowned` etc.) after IR-347, ride `KaniOutcome.code` and would land in `DeclineCode::Ir`, attributed to IR's registry. The name `Std001Code` makes the same membership claim the type refuses to check. FR-044 must say what the `Ir` arm carries (an IR-family code from IR's or codegen's registry, told apart by `is_registered`) or carry the issuer; it cannot be left to QSL-351 | spec/core/functional/FR-044-typed-std001-code.md:73-87, 124-127 |
-| FND-002 | medium | The only way to build an unregistered code from a literal is the fallible `Std001Code::new`. Codegen's corpus refusals (`bounded_kani_corpus.rs:401,445,514,522`) and, until IR-347, IR's own lowering sites pass literals that are always valid, so each must either `.expect()` (codegen NFR-005 forbids generation panics) or carry an unreachable error path. FR-044 should specify a compile-time path, e.g. `new` as a `const fn` so a consumer declares `const` codes checked at build time | spec/core/functional/FR-044-typed-std001-code.md:60-71 |
+| FND-002 | medium | The only way to build an unregistered code from a literal is the fallible `Std001Code::new`. Codegen's corpus refusals (`bounded_kani_corpus.rs:401,445,514,522`) and, until IR-347, IR's own lowering sites pass literals that are always valid, so each must either `.expect` (codegen NFR-005 forbids generation panics) or carry an unreachable error path. FR-044 should specify a compile-time path, e.g. `new` as a `const fn` so a consumer declares `const` codes checked at build time | spec/core/functional/FR-044-typed-std001-code.md:60-71 |
 | FND-003 | medium | The Contract invariant "a registered code is spelled by one constant" and Stability's "a registry row has one constant and the reverse" are false for 45 of STD-001's 60 rows: the `DiagnosticCode` codes have no `Std001Code` constant and are spelled by `DiagnosticCode` variants via `From<DiagnosticCode>`. Restrict both statements to codes outside `DiagnosticCode`, or say a row has one constant or one `DiagnosticCode` variant | spec/core/functional/FR-044-typed-std001-code.md:29, 98-104 |
-| FND-004 | low | Order against IR-347 is not stated. If the IR-605 code change lands first, the lowerings still in IR emit their codes through `non_success`, which now takes `Std001Code`, and `KaniProviderRecord.cause: String` (`src/kani/outcome.rs:88`, cloned from `code` at :110) still exists; neither FR-044 nor FR-030 says how those are typed in the interim. One sentence naming the order (or the interim form) is enough | spec/core/functional/FR-044-typed-std001-code.md:106-111; spec/kani/functional/FR-030-bounded-kani-domain-and-outcomes.md:49-60 |
+| FND-004 | low | Order against IR-347 is not stated. If the IR-605 code change lands first, the lowerings still in IR emit their codes through `non_success`, which now takes `Std001Code`, and `KaniProviderRecord.cause: String` (`src/kani/outcome.rs:88`, cloned from `code` at:110) still exists; neither FR-044 nor FR-030 says how those are typed in the interim. One sentence naming the order (or the interim form) is enough | spec/core/functional/FR-044-typed-std001-code.md:106-111; spec/kani/functional/FR-030-bounded-kani-domain-and-outcomes.md:49-60 |
 
 ## Verdict
 
@@ -100,17 +100,17 @@ call-site edits are codegen's code PR.
 
 ## Dispositions
 
-Round 1, reviewed at cace2678410ee69ae71e656e26f80541ba2e31e4.
+Round 1, reviewed.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | cace267 |
-| FND-002 | fixed | cace267 |
-| FND-003 | fixed | cace267 |
-| FND-004 | fixed | cace267 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |
+| FND-004 | fixed | Fixed in the reviewed PR. |
 
-Round 2, reviewed at cf90862eda642d465b90d4cc13fa3f51bfbade57.
+Round 2, reviewed.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-005 | fixed | cf90862 |
+| FND-005 | fixed | Fixed in the reviewed PR. |

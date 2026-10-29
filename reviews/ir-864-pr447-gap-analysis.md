@@ -3,7 +3,7 @@ id: SR-12391
 title: "IR-864 gap-analysis of IR PR #447"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@b5282e850fbb56c6f3e8d218068ecbc41553cb8d; crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/checked_package/v2/model_members/tests/intake_retention.rs, crates/quire-contract-model/src/checked_package/v2/relationship_end.rs, crates/quire-contract-model/src/checked_package/v2/structural.rs, tests/it/checked_package_v2_model_members.rs"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/checked_package/v2/model_members/tests/intake_retention.rs, crates/quire-contract-model/src/checked_package/v2/relationship_end.rs, crates/quire-contract-model/src/checked_package/v2/structural.rs, tests/it/checked_package_v2_model_members.rs"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
@@ -16,7 +16,7 @@ relationships:
 
 ## Summary
 
-Ticket IR-864. Independent base 6869faf and head b5282e8 `quire coverage --scope . --strict` outputs are byte-for-byte identical: 527/584 backed, 39 unbacked, zero contradicted. The strict exit remains 1 solely on the same 39 existing unbacked rows. `quire matrix --scope . --format json` has 550 criterion rows at both revisions, with the same statements, methods, statuses and binders after source line and column positions are excluded. The 12 removed doc citations were already represented by adjacent `#[trace]` claims; no binder was lost.
+Ticket IR-864. Independent and `quire coverage --scope. --strict` outputs are byte-for-byte identical: 527/584 backed, 39 unbacked, zero contradicted. The strict exit remains 1 solely on the same 39 existing unbacked rows. `quire matrix --scope. --format json` has 550 criterion rows at both revisions, with the same statements, methods, statuses and binders after source line and column positions are excluded. The 12 removed doc citations were already represented by adjacent `#[trace]` claims; no binder was lost.
 
 ## Reviewed scope
 

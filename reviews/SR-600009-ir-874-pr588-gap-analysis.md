@@ -3,7 +3,7 @@ id: SR-600009
 title: IR-874 PR 588 gap analysis
 type: SpecReview
 analysis: gap-analysis
-scope: 'agent-ix/quire-contract-ir; PR #588 cf151429fe0965b4a9e93326983cdca9aee003c2;
+scope: 'agent-ix/quire-contract-ir; PR #588;
   crates/quire-contract-model/src/checked_package/shared.rs, crates/quire-contract-model/src/checked_package/v2/protocol_body.rs,
   crates/quire-contract-model/src/lib.rs, tests/it/checked_package_v2_protocol_body.rs,
   spec/model/functional/FR-019-rust-library-interface.md'
@@ -38,17 +38,17 @@ Plan completion: not assessed. Trace tags name FR-038-AC-292, and the new tests 
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | still-open | At da9239cb, new traced public-reader cases cover nested projection, another-role receive and ineligible commit; the earlier effect/send and finish-scope cases remain, and the finish case now asserts BinderScope detail. The protocol-input over path still has no resolved expected verdict: QSpec FR-466 prose and FR-464-AC-12 require ill_typed/operator-ineligible before decision facts, while QSpec FR-466-AC-14 and IR FR-038-AC-292 list it with wrong_snapshot cases. STD-496 is the owner decision; the criterion remains Planned with no narrowed claim. |
+| FND-001 | still-open |, new traced public-reader cases cover nested projection, another-role receive and ineligible commit; the earlier effect/send and finish-scope cases remain, and the finish case now asserts BinderScope detail. The protocol-input over path still has no resolved expected verdict: QSpec FR-466 prose and FR-464-AC-12 require ill_typed/operator-ineligible before decision facts, while QSpec FR-466-AC-14 and IR FR-038-AC-292 list it with wrong_snapshot cases. STD-496 is the owner decision; the criterion remains Planned with no narrowed claim. |
 | FND-001 | deferred | STD-496 is filed as the owner decision for conflicting protocol-input over verdicts and blocks IR-874. The independent decision-fact paths are covered by public-reader tests. No new PR #588 test asserts the disputed over verdict; FR-038-AC-292 remains Planned and the deferred case is unclaimed in PR and matrix. Finish remains scope-first with BinderScope detail. |
 
 ## Disposition verdict
 
-**CONDITIONAL at da9239cb** — the independent adverse test gaps are addressed, but FND-001 stays open on the protocol-input over conflict pending STD-496. Hosted full Rust Checks at this head remain in progress.
+**CONDITIONAL ** — the independent adverse test gaps are addressed, but FND-001 stays open on the protocol-input over conflict pending STD-496. Hosted full Rust Checks at this head remain in progress.
 
 ## Disposition verdict after owner routing
 
-**PASS for the independent safe slice at da9239cb, subject to hosted Rust Checks** — all actionable code and public-reader gaps are fixed; the contradictory protocol-input over verdict is deferred to STD-496 with FR-038-AC-292 still Planned. This disposition does not declare the whole criterion satisfied.
+**PASS for the independent safe slice, subject to hosted Rust Checks** — all actionable code and public-reader gaps are fixed; the contradictory protocol-input over verdict is deferred to STD-496 with FR-038-AC-292 still Planned. This disposition does not declare the whole criterion satisfied.
 
 ## Final exact-head integration review
 
-Hosted Rust Checks at exact code head da9239cbf5ab663037ad02b56e9764e2cf8af8a8 passed Format, Lint and Test; Supply-chain Checks, language-boundary guard and CLA passed at the same head. The final public-reader tests exercise admitted attempt, event and receive facts, owner refusal for attempt and receive, ineligible send/effect/commit, unlisted and composite facts, nested projection, repeat, and binder-scope precedence including finish. The latest disposition of FND-001 is deferred to STD-496 solely for the disputed protocol-input `over` verdict. PR #588 does not assert that verdict and does not claim full FR-038-AC-292 coverage; the criterion remains Planned. **Final gap-analysis verdict: PASS for the independent slice with the STD-496 deferral recorded.** Plan completion: not assessed.
+Hosted Rust Checks at exact code passed Format, Lint and Test; Supply-chain Checks, language-boundary guard and CLA passed at the same head. The final public-reader tests exercise admitted attempt, event and receive facts, owner refusal for attempt and receive, ineligible send/effect/commit, unlisted and composite facts, nested projection, repeat, and binder-scope precedence including finish. The latest disposition of FND-001 is deferred to STD-496 solely for the disputed protocol-input `over` verdict. PR #588 does not assert that verdict and does not claim full FR-038-AC-292 coverage; the criterion remains Planned. **Final gap-analysis verdict: PASS for the independent slice with the STD-496 deferral recorded.** Plan completion: not assessed.

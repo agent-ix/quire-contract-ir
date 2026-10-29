@@ -3,7 +3,7 @@ id: SR-1890
 title: "IR-648 CODE PR #306 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@221c680d1a0faba4fb53409405c0561bbc6bee73; Cargo.lock, crates/quire-contract-model/Cargo.toml, crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/checked_package/v2/scalar_operands.rs, tests/it/checked_package_v2_model_fields.rs"
+scope: "agent-ix/quire-contract-ir; Cargo.lock, crates/quire-contract-model/Cargo.toml, crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/checked_package/v2/scalar_operands.rs, tests/it/checked_package_v2_model_fields.rs"
 review_set: subset
 ---
 
@@ -31,6 +31,6 @@ CONDITIONAL. The typed accessor and Rust boundary checks match the six scoped cr
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 42492d0582b8392d4b2868920e1c331eefc85969 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
 
 The final-head comment now names the four catalogued operations `add`, `sub`, `mul` and `negate`. The fix delta adds the two original SR artifacts verbatim and has no executable change. No new finding arose from this delta.

@@ -3,14 +3,14 @@ id: SR-16271
 title: "IR-984 PR 528 code review with Rust lane"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@b56d43e6c3dbefc6d6433ced2a7e94a64f607a7a; crates/quire-contract-model/src/checked_package/{shared.rs,v2/{contract_package.rs,derived_keys.rs,flat_wire.rs,hybrid.rs,identity.rs,lower.rs,mod.rs,operations.rs,structural.rs,temporal.rs,vocabulary.rs}}, tests/conformance_qspec/{main.rs,hybrid.rs}, tests/it/checked_package_v2_temporal.rs; FR-038-AC-311..317; QSpec FR-481/TC-966@da44f70b1fb93eebd3e0fddd92efecf1b477643d"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/{shared.rs,v2/{contract_package.rs,derived_keys.rs,flat_wire.rs,hybrid.rs,identity.rs,lower.rs,mod.rs,operations.rs,structural.rs,temporal.rs,vocabulary.rs}}, tests/conformance_qspec/{main.rs,hybrid.rs}, tests/it/checked_package_v2_temporal.rs; FR-038-AC-311..317; QSpec FR-481/TC-966"
 review_set: subset
 ---
 # SR-16271: IR-984 PR 528 code review with Rust lane
 
 ## Summary
 
-Independent diff-scoped code and Rust review of IR-984 PR #528 at the exact head above. QSpec FR-481 and TC-966 at #415 head da44f70 govern the hybrid reader. The focused conformance test passed 16/16; focused library Clippy and rustfmt passed. The production reader has two material defects below.
+Independent diff-scoped code and Rust review of IR-984 PR #528 at the exact head above. QSpec FR-481 and TC-966 at #415 govern the hybrid reader. The focused conformance test passed 16/16; focused library Clippy and rustfmt passed. The production reader has two material defects below.
 
 ## Findings
 
@@ -42,7 +42,7 @@ CONDITIONAL while medium findings remain open.
 
 ## Dispositions
 
-At PR #528 head `48fb6f96e1b776f7a72835e498a6efc3f2665aea`, same-reviewer round 1 inspected the fix diff and reran the focused QSpec hybrid tests: 20 passed, 0 failed.
+At PR #528, same-reviewer round 1 inspected the fix diff and reran the focused QSpec hybrid tests: 20 passed, 0 failed.
 
 | FND | outcome | reason |
 | --- | --- | --- |
@@ -51,8 +51,8 @@ At PR #528 head `48fb6f96e1b776f7a72835e498a6efc3f2665aea`, same-reviewer round 
 
 ## Final head confirmation
 
-PR #528 head `d6292182a9a00f2f5a5c55fe26378fcb66f90b6b` adds a metered traversal rooted in this claim's formula and capture initializers. It checks reachable capture parameter types at the capture binding before the fairness step. The combined capture mismatch and fairness defect test asserts `IllTyped`/`TypeMismatch` at `/body/arguments/3/members/0`. This preserves the round-1 FND-001/002 fixes. Focused QSpec hybrid tests pass 20/20; `git diff --check` is clean. No new finding in this delta. Code/Rust review: PASS at this head. The author retains the final aggregate gate.
+PR #528 adds a metered traversal rooted in this claim's formula and capture initializers. It checks reachable capture parameter types at the capture binding before the fairness step. The combined capture mismatch and fairness defect test asserts `IllTyped`/`TypeMismatch` at `/body/arguments/3/members/0`. This preserves the round-1 FND-001/002 fixes. Focused QSpec hybrid tests pass 20/20; `git diff --check` is clean. No new finding in this delta. Code/Rust review: PASS at this head. The author retains the final aggregate gate.
 
 ## Gate-fix head confirmation
 
-PR #528 head `a3522ad7528d64f7f4d0c4f41331be462c463165` changes only six files over the reviewed custody head `2663d2968a8e2f837e101836d5e9023ca93dd224`. Hybrid claim work is charged after classification, restoring TC-226's exact work boundary. The flat-wire timed-null exception is limited to raw formula references reachable from a hybrid claim; a nonhybrid formula still refuses at its upper bound. `HybridForm` is exported from the model root and matched by FR-019's implemented inventory. The TC-226 boundary, TC-048 timed-bound, TC-058 inventory and 21 QSpec hybrid focused tests all pass. `git diff --check` is clean. No new code or Rust finding; PASS at this head. The final aggregate gate remains author-owned.
+PR #528 changes only six files over the reviewed custody. Hybrid claim work is charged after classification, restoring TC-226's exact work boundary. The flat-wire timed-null exception is limited to raw formula references reachable from a hybrid claim; a nonhybrid formula still refuses at its upper bound. `HybridForm` is exported from the model root and matched by FR-019's implemented inventory. The TC-226 boundary, TC-048 timed-bound, TC-058 inventory and 21 QSpec hybrid focused tests all pass. `git diff --check` is clean. No new code or Rust finding; PASS at this head. The final aggregate gate remains author-owned.

@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #615 exact head d61d8dc8320c9282e9d2e95f36cf1065fd0aa447 against IR base f543c24b and QSpec origin/main. Examined FR-068-AC-1 through AC-5, TC-463 and the spec index addition.
+Reviewed PR #615 exact against IR and QSpec origin/main. Examined FR-068-AC-1 through AC-5, TC-463 and the spec index addition.
 
 ## Verdict
 

@@ -3,7 +3,7 @@ id: SR-17130
 title: "Base review of IR-1014 terminal duplicate refusal spec"
 type: SpecReview
 analysis: base
-scope: "quire-contract-ir spec/checked_package/functional/FR-062-carry-terminal-duplicate-identities.md and spec/checked_package/matrix/TC-063-terminal-duplicate-refusal-identities.md at 50bf93f4fe690486ee68f2359a8e53f216b1aa21"
+scope: "quire-contract-ir spec/checked_package/functional/FR-062-carry-terminal-duplicate-identities.md and spec/checked_package/matrix/TC-063-terminal-duplicate-refusal-identities.md "
 review_set: base
 ---
 
@@ -11,7 +11,7 @@ review_set: base
 
 The proposed typed refusal covers QSpec FR-476's two duplicate forms, ordered
 node checks, primary locus and pointer, and earlier-error precedence. Targeted
-Quire validation passed. The one public API finding was fixed at 50bf93f4;
+Quire validation passed. The one public API finding was fixed;
 the reviewed spec has no remaining findings.
 
 ## Findings
@@ -22,7 +22,7 @@ the reviewed spec has no remaining findings.
 
 ## Disposition
 
-PASS at 50bf93f4. FR-062 now names the public
+PASS. FR-062 now names the public
 `quire_contract_model::CheckedTerminalDuplicate` enum and
 `CheckedPackageRefusal::terminal_duplicate` field. AC-4 and TC-063 import all
 four public types and require a match of both variants without a wildcard.

@@ -1,4 +1,4 @@
-<!-- reviewer repo=agent-ix/quire-contract-ir visibility=public quoin=0.28.4 module=spec-artifacts-process@b82e42e893612b4b4ee94127714b4577ee893502 id=SR-15313 method=spec-review/ears-conformance lang=spec pr=quire-contract-ir#499 model=gpt-6.1-sol run=be712d1b-4313-4600-bcdd-879623058932 -->
+<!-- reviewer repo=agent-ix/quire-contract-ir visibility=public quoin=0.28.4 module=spec-artifacts-process id=SR-15313 method=spec-review/ears-conformance lang=spec pr=quire-contract-ir#499 model=gpt-6.1-sol run=be712d1b-4313-4600-bcdd-879623058932 -->
 
 PASS: The deterministic engine reports 104/104 grammar-clean documents and zero grammar findings. FR-055 uses an event trigger for make invocation and concrete repository/command responses; behavior obligations have an explicit repository subject. The event/state and unwanted-condition distinctions do not change the required fail-closed behavior.
 

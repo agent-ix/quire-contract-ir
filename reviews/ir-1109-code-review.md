@@ -3,14 +3,14 @@ id: SR-2026102740
 title: IR-1109 PR 682 code-review review
 type: SpecReview
 analysis: code-review
-scope: 'agent-ix/quire-contract-ir; PR #682 head 146f5f36; spec/checked_package/functional/FR-038-consume-checked-package-v2.md;
+scope: 'agent-ix/quire-contract-ir; PR #682; spec/checked_package/functional/FR-038-consume-checked-package-v2.md;
   spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md'
 review_set: subset
 ---
 
 ## Summary
 
-Independent code-review review of IR-1109 PR #682 at exact head 146f5f36b6ec5edc4c65cae032fd283a158f53d7 against QSpec efc22316. Ticket: IR-1109. The diff is spec-only; implementation evidence remains Planned/Unrun.
+Independent code-review review of IR-1109 PR #682 at exact against QSpec. Ticket: IR-1109. The diff is spec-only; implementation evidence remains Planned/Unrun.
 
 ## Verdict
 

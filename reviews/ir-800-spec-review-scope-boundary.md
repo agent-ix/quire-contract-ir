@@ -19,4 +19,4 @@ Ticket IR-800. IR owns strict V2 vocabulary, operation-family checks, literal ad
 
 ## External contract
 
-QSpec FR-322-AC-31/67 at 9b6a84d is the normative external dependency. Its six native operation identities, scalar forms and canonical payload rules are checked against the proposed IR criteria. The branch adds no new `relationships:` edge, so the dependency-analysis lens is not applicable.
+QSpec FR-322-AC-31/67 is the normative external dependency. Its six native operation identities, scalar forms and canonical payload rules are checked against the proposed IR criteria. The branch adds no new `relationships:` edge, so the dependency-analysis lens is not applicable.

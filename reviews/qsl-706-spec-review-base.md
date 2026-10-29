@@ -3,7 +3,7 @@ id: SR-8469
 title: spec-review/base review of typed source selections
 type: SpecReview
 analysis: base
-scope: agent-ix/quire-contract-ir@a959c202e6414a76346ff494812d41fb25124ae5; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md,
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md,
   spec/checked_package/matrix/TC-044-complete-v1-contract-package-lowering.md
 review_set: base
 ---
@@ -89,11 +89,11 @@ scope:
   role: examined
   excerpt: "\n## Typed source-selection vectors\n\nUse these exact FR-322 `Selection`\
     \ rows (the short labels below denote typed\nvalues, never identifier-parsing\
-    \ rules):\n\n```json\n{\n  \"T\": {\"role\": \"temporal_profile\", \"definition\"\
+    \ rules):\n\n```json\n{\n \"T\": {\"role\": \"temporal_profile\", \"definition\"\
     : {\"authority\": \"agent-ix\", \"identity\": \"quire.temporal.infinite-trace/v1\"\
-    }},\n  \"D\": {\"role\": \"temporal_profile\", \"definition\": {\"authority\"\
+    }},\n \"D\": {\"role\": \"temporal_profile\", \"definition\": {\"authority\"\
     : \"agent-ix\", \"identity\": \"quire.temporal.event-position.false-extension/v1\"\
-    }},\n  \"U\": {\"role\": \"protocol_profile\", \"definition\": {\"authority\"\
+    }},\n \"U\": {\"role\": \"protocol_profile\", \"definition\": {\"authority\"\
     : \"agent-ix\", \"identity\": \"quire.protocol.finite-global/v1\"}}\n}\n```\n\n\
     Construct independently admitted FR-"
 - id: TC-044
@@ -135,18 +135,17 @@ Base checklist and language-independent code review only. No applicable Assuranc
 
 ## Dispositions
 
-Round 1 reviewed `17341112080f533448b79036a43a08fa3d50fd31`. The original findings above remain unchanged.
+Round 1 reviewed. The original findings above remain unchanged.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 17341112080f533448b79036a43a08fa3d50fd31 |
-| FND-002 | fixed | 17341112080f533448b79036a43a08fa3d50fd31 |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
 
 ```yaml
 dispositions:
 - fnd: FND-001
   outcome: fixed
-  fix_sha: 17341112080f533448b79036a43a08fa3d50fd31
   after_excerpt: '| FR-035-AC-9 | The typed profile exposes `required_source_selections:
     Vec<CheckedSelection>` and the IR adapter conforms to QSpec FR-330-AC-10 and TC-935:
     input refusals use `InvalidInput { node_id }`/`invalid_input`, work stops use
@@ -156,7 +155,6 @@ dispositions:
     requirement wire field or new refusal payload. | Test |'
 - fnd: FND-002
   outcome: fixed
-  fix_sha: 17341112080f533448b79036a43a08fa3d50fd31
   after_excerpt: 'QSpec FR-330''s "Typed source-selection compatibility" is the sole
     owner of
 

@@ -3,7 +3,7 @@ id: SR-8692
 title: "QSL-737 quire-contract-ir PR 376 spec review (base): FR-347 and FR-038 hunks"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@d0b83ff93fdea368f23de95da2b781fd9f7b9e6c; spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-448-checked-package-v2-operation-argument-conformance.md; spec/checked_package/matrix/tests.md; spec/spec.md; spec/tests.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-347-admit-conforming-records-as-operation-call-arguments.md; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-448-checked-package-v2-operation-argument-conformance.md; spec/checked_package/matrix/tests.md; spec/spec.md; spec/tests.md"
 review_set: base
 ---
 
@@ -23,7 +23,7 @@ review covers the hunks only. The hunks are:
 Checked:
 
 - Consistency with the upstream rule. Merged QSpec FR-322 "Record
-  conformance" (quire-specification main 65609b9) lets a parameter type be a
+  conformance" (quire-specification main ) lets a parameter type be a
   record type node P ("Calls") and lists the union member payload position as
   a slot ("Slots"). That requires both FR-038 sentences. Before them, FR-038
   restricted the binder type to `scalar_type`, `composite_type` and

@@ -3,7 +3,7 @@ id: SR-812
 title: "AC-shape review of PR 257 quantity bound class (IR-450)"
 type: SpecReview
 analysis: ears-conformance
-scope: "agent-ix/quire-contract-ir@10a17ec6b705ec88b5442a3367b826043d76ed2b; spec/checked_package/functional/FR-038-consume-checked-package-v2.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md"
 review_set: subset
 ---
 # SR-812: AC-shape review of PR 257 quantity bound class

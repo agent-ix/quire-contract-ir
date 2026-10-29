@@ -3,7 +3,7 @@ id: SR-15651
 title: "Gap analysis — IR-970 typed operation and identity evidence"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir PR #516 at 8b8d145; FR-349-AC-1/2/3/4, FR-038-AC-35/88, changed operations tests and existing integration controls"
+scope: "agent-ix/quire-contract-ir PR #516; FR-349-AC-1/2/3/4, FR-038-AC-35/88, changed operations tests and existing integration controls"
 review_set: subset
 ---
 
@@ -29,8 +29,8 @@ Plan completion: not assessed. Examined FR-349-AC-1/2/3/4 and FR-038-AC-35/88. T
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | At 3ab2a5e2, the test carries only `#[trace("FR-349-AC-2")]`; the unsupported FR-349-AC-4 claim is removed. |
+| FND-001 | fixed |, the test carries only `#[trace("FR-349-AC-2")]`; the unsupported FR-349-AC-4 claim is removed. |
 
 ## Current verdict
 
-**PASS** at exact head 3ab2a5e2d1e082b74baad7f8e1090602feb9fee2. The parent is the reviewed 8b8d145 head and the delta is one trace line, with no code or assertion change. `git diff --check` passed. SR-15650's code/Rust PASS carries unchanged; no aggregate gate was run in this reviewer lane.
+**PASS** at exact. The parent is the reviewed head and the delta is one trace line, with no code or assertion change. `git diff --check` passed. SR-15650's code/Rust PASS carries unchanged; no aggregate gate was run in this reviewer lane.

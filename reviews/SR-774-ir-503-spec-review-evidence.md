@@ -3,7 +3,7 @@ id: SR-774
 title: "evidence review of PR 254 (IR-503)"
 type: SpecReview
 analysis: evidence
-scope: "agent-ix/quire-contract-ir@731e307dc132975d3f3f6fac172c8c81bfe83b18; spec/checked_package/functional/FR-038-consume-checked-package-v2.md AC-65..68 verification column; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; spec/checked_package/matrix/tests.md; make spec coverage before/after"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md AC-65..68 verification column; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; spec/checked_package/matrix/tests.md; make spec coverage before/after"
 review_set: subset
 ---
 # SR-774: evidence review of PR 254 (IR-503)
@@ -18,7 +18,7 @@ AC-65..68 have no test, and both matrix cells name IR-503 code.
 
 `make spec` before and after:
 
-| | origin/main af733f2 | head |
+| | origin/main | head |
 | --- | --- | --- |
 | validate | passes | passes |
 | grammar findings | 1 | 1 |

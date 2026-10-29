@@ -14,7 +14,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1083. Reviewed exact draft PR #653 head 741e06852ef6b206ba6a558ae4440e1fb6f18671 against merged spec b712988b and QSpec STD-526 7d8d2090. Scope: all five changed files. Rust style, public-reader order, resource bounds, typed refusals, and vector semantics inspected.
+Ticket: IR-1083. Reviewed exact draft PR #653 against merged spec and QSpec STD-526. Scope: all five changed files. Rust style, public-reader order, resource bounds, typed refusals, and vector semantics inspected.
 
 ## Verdict
 
@@ -40,12 +40,12 @@ FAIL: resolved-path admission can accept a slot member type that is not the sele
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Head f1d31d0b repairs the recorded defect. |
+| FND-001 | fixed | repairs the recorded defect. |
 
 ## Disposition verdict
 
-Round 1 at f1d31d0bb6262b635b6ccf442de69570b7d6cb46: all recorded findings fixed. Full published public-reader vectors remain pending STD-541, and GD-03 exact locus remains pending STD-540. Aggregate gate belongs to the lead.
+Round 1: all recorded findings fixed. Full published public-reader vectors remain pending STD-541, and GD-03 exact locus remains pending STD-540. Aggregate gate belongs to the lead.
 
 ## Final-head scanner addendum
 
-Head 8a1aeb445e45ec733b9c5d230e8310ee3f07511c: The only source delta after the fixed disposition adds string_edge attributes to check_place_presence, terminal_clock and selector_fits. Their bodies and the repaired element-type join are unchanged. make string-edge reports no unmarked comparison. No new code/Rust finding. Full public-reader vectors remain pending STD-541; GD-03 exact locus remains pending STD-540.
+: The only source delta after the fixed disposition adds string_edge attributes to check_place_presence, terminal_clock and selector_fits. Their bodies and the repaired element-type join are unchanged. make string-edge reports no unmarked comparison. No new code/Rust finding. Full public-reader vectors remain pending STD-541; GD-03 exact locus remains pending STD-540.

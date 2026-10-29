@@ -3,7 +3,7 @@ id: SR-733
 title: "criterion strength review of PR 249 (IR-504 content-only ModelOwner identity)"
 type: SpecReview
 analysis: criterion-strength
-scope: "agent-ix/quire-contract-ir@fdad364d27f9e77c4525d06f2653eb2e69eca569; spec/checked_package/functional/FR-038-consume-checked-package-v2.md FR-038-AC-45"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md FR-038-AC-45"
 review_set: subset
 ---
 # SR-733: criterion strength review of PR 249

@@ -3,7 +3,7 @@ id: SR-639
 title: "spec review of PR 234 (FR-014 range-set paragraph, FR-014-AC-7, matrix, STD-001)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@d8b1f16c424733c9e4d807e11ecc02ff52f6c6e0; spec/contract/FR-014-expression-semantics.md, spec/contract-test-matrix.md, spec/contract/STD-001-diagnostic-registry.md"
+scope: "agent-ix/quire-contract-ir; spec/contract/FR-014-expression-semantics.md, spec/contract-test-matrix.md, spec/contract/STD-001-diagnostic-registry.md"
 review_set: base
 ---
 # SR-639: spec review of PR 234
@@ -16,7 +16,7 @@ Ticket: IR-473. Integrity review of the new FR-014 Behavior paragraph (lines 102
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | FR-014 says "checking never allocates in proportion to a product of interval counts", but `integer_ranges` and `rational_range_results` allocate `Vec::with_capacity(left.len() * right.len())` and compute every pair, up to 64 x 64, before merging: the claim contradicts the code | spec/contract/FR-014-expression-semantics.md:106-107 |
+| FND-001 | medium | FR-014 says "checking never allocates in proportion to a product of interval counts", but `integer_ranges` and `rational_range_results` allocate `Vec::with_capacity(left.len * right.len)` and compute every pair, up to 64 x 64, before merging: the claim contradicts the code | spec/contract/FR-014-expression-semantics.md:106-107 |
 | FND-002 | low | The same paragraph says "a non-zero or bound guard can split" a range, but bound guards only trim and only `!= 0` splits. It also says "every operator result is merged", but negation results are not re-canonicalized, which is harmless because negation never adds intervals | spec/contract/FR-014-expression-semantics.md:102-104 |
 
 ## Finding Detail
@@ -38,5 +38,5 @@ Approve with one medium wording fix. On reusing `potentially_undefined` / `check
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 4b79f5f |
-| FND-002 | fixed | 4b79f5f |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |

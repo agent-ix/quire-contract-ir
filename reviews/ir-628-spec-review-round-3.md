@@ -3,13 +3,13 @@ id: SR-1573
 title: "Round-3 spec review of quire-contract-ir PR #296 fix round (IR-628 supertype cycles and field read charge)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@265e08258548c8138d57e140f9b9cfeedad3ef43; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (FR-322 work-limit paragraph, section 'Typed accessor for a model object type's fields' items 1-37, 'Cost, stated', IR-628-Q2, FR-038-AC-136..144), spec/checked_package/matrix/TC-227-checked-package-v2-model-object-fields-accessor.md, spec/checked_package/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (FR-322 work-limit paragraph, section 'Typed accessor for a model object type's fields' items 1-37, 'Cost, stated', IR-628-Q2, FR-038-AC-136..144), spec/checked_package/matrix/TC-227-checked-package-v2-model-object-fields-accessor.md, spec/checked_package/matrix/tests.md"
 review_set: subset
 ---
 
 ## Summary
 
-Ticket: IR-628. These are the new findings of disposition pass 3, the cap round, over ca74e19..265e082
+Ticket: IR-628. These are the new findings of disposition pass 3, the cap round, over..
 (one commit).
 
 **Cycle handling.** I re-measured it against `DomainModel::ancestors` and `resolve`
@@ -42,7 +42,7 @@ change must re-measure exact-limit tests.
 **Counts.**
 - All 37 items carry exactly one `shall`, counted programmatically.
 - Numbering runs AC-136..144 and TC-227 with no collisions.
-- `make spec`: 37 unbacked rows at `bf36cda`, 47 at head, and the new rows are exactly AC-136..144
+- `make spec`: 37 unbacked rows, 47 at head, and the new rows are exactly AC-136..144
   and TC-227. There are no CI edits.
 
 ## Verdict
@@ -54,12 +54,12 @@ and the fix is one phrase.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | Item 10 gives the new field-resolution charge only for "a read, frame entry or state clause that resolves a field". Item 7 routes every field case of `resolve` through the table, and an abstraction relation's field entry also resolves a field (`abstraction.rs:599-604`, `resolve_member(.., MemberKind::Field, ..)`). Its charge is therefore left unstated. State clauses resolve only operations (`state.rs:205`). Smallest fix: replace the subject of item 10 with "Every resolution of a field through `DomainModel::resolve` (a read, including a relationship edge read, a frame entry, or an abstraction relation's field entry)". | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2057 |
+| FND-001 | low | Item 10 gives the new field-resolution charge only for "a read, frame entry or state clause that resolves a field". Item 7 routes every field case of `resolve` through the table, and an abstraction relation's field entry also resolves a field (`abstraction.rs:599-604`, `resolve_member(.., MemberKind::Field..)`). Its charge is therefore left unstated. State clauses resolve only operations (`state.rs:205`). Smallest fix: replace the subject of item 10 with "Every resolution of a field through `DomainModel::resolve` (a read, including a relationship edge read, a frame entry, or an abstraction relation's field entry)". | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:2057 |
 
 ## Dispositions
 
-Round 4, reviewed at 6082ac0c84ec0340a375dc90872fb98601e68d0c.
+Round 4, reviewed.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 6082ac0c84ec0340a375dc90872fb98601e68d0c |
+| FND-001 | fixed | Fixed in the reviewed PR. |

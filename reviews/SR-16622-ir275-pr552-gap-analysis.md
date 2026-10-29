@@ -3,7 +3,7 @@ id: SR-16622
 title: "IR-275 PR 552 incremental gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@558592b7cadd8ea9ed4fa8546240fb33465b29a5; PR #552 checked_package production and focused tests; IR-275 AC-2; FR-349-AC-4/5; FR-038-AC-2/97/117"
+scope: "agent-ix/quire-contract-ir; PR #552 checked_package production and focused tests; IR-275 AC-2; FR-349-AC-4/5; FR-038-AC-2/97/117"
 review_set: subset
 relationships:
   - { target: "ix://agent-ix/quire-contract-ir/FR-349", type: references }

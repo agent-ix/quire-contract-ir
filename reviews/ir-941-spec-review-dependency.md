@@ -11,7 +11,7 @@ review_set: subset
 
 ## Summary
 
-Exact head ba9c5d6a9d8742a12d6e5d8e7e0aaf6ad8cc8e8f. Examined FR-020 shared CLI boundary, AC-16 through AC-19, and both changed matrix declarations against ix-cli-kit main 7f3b58b6. The findings below need a same-PR fix.
+Exact. Examined FR-020 shared CLI boundary, AC-16 through AC-19, and both changed matrix declarations against ix-cli-kit main. The findings below need a same-PR fix.
 
 ## Scope
 
@@ -39,4 +39,4 @@ Findings open; PR is not ready to merge.
 
 ## Narrow re-review
 
-At PR head 2f60e12941a529d1387a34c1dd7e09b012287481 on main cbac029bf42e1ea06926298b197515f71b297c1c, the prior finding is fixed. The remaining FR-020 AC-16 through AC-19 text and planned matrix claims are unchanged relative to the reviewed patch, apart from these two repairs.
+At PR on main, the prior finding is fixed. The remaining FR-020 AC-16 through AC-19 text and planned matrix claims are unchanged relative to the reviewed patch, apart from these two repairs.

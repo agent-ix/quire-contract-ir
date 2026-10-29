@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Reviewed PR #624 head 25ae4409. The diff changes only one requirement document. No code, copied schema, fallback, or test implementation is introduced; existing FR-065-AC-5 trace and QSpec MR-04 remain the verification path. No applicable AssuranceProfile was found in the changed module.
+Reviewed PR #624. The diff changes only one requirement document. No code, copied schema, fallback, or test implementation is introduced; existing FR-065-AC-5 trace and QSpec MR-04 remain the verification path. No applicable AssuranceProfile was found in the changed module.
 
 ## Findings
 

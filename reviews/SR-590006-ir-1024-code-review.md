@@ -21,7 +21,7 @@ Reviewed the frozen Rust test diff in PR 577 against the repository's Rust conve
 - IR-1024 AC 3 (examined): Run the focused QSpec conformance target against the corrected pair and record all results.
 - FR-038-AC-316 (context only): Hybrid and protocol refusal order.
 - FR-038-AC-318 (context only): Timed-model published fixture admission and complete body round-trip.
-- Files examined: `tests/conformance_qspec/hybrid.rs`, `tests/conformance_qspec/timed_model.rs`; QSpec `positive-all-families.json` at the selected ccad669c fixture revision.
+- Files examined: `tests/conformance_qspec/hybrid.rs`, `tests/conformance_qspec/timed_model.rs`; QSpec `positive-all-families.json` at the selected fixture revision.
 
 ## Findings
 

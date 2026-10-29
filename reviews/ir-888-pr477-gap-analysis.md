@@ -3,7 +3,7 @@ id: SR-13142
 title: "IR-888 quire-contract-ir PR 477 gap analysis: FR-035 reader outcomes vs code"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir PR #477 head 09e3b19 vs origin/main; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md, spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md, spec/checked_package/matrix/tests.md; read-only: crates/quire-contract-model/src/checked_package/v2/contract_package.rs, crates/quire-contract-model/src/checked_package/common.rs, tests/it/complete_v1_contract_package.rs"
+scope: "agent-ix/quire-contract-ir PR #477 vs origin/main; spec/checked_package/functional/FR-035-complete-v1-contract-package-lowering.md, spec/checked_package/matrix/TC-047-complete-v1-contract-package-output.md, spec/checked_package/matrix/tests.md; read-only: crates/quire-contract-model/src/checked_package/v2/contract_package.rs, crates/quire-contract-model/src/checked_package/common.rs, tests/it/complete_v1_contract_package.rs"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-035
@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-888. Plan completion: not assessed. This is a planless gap analysis of the PR's new criteria against the computed matrix and the reader code. FR-035-AC-10 and FR-035-AC-11 are unbacked, as planned (`quire coverage --scope . --strict`: 42 unbacked against 40 on main, 0 contradicted). Existing tests in `tests/it/complete_v1_contract_package.rs` do not exercise `UnknownContractVersion` or any `Incomplete` outcome of `ContractPackageWireV1::read`. The tests-first follow-up PR must add them. A throwaway probe confirmed the code paths both criteria describe.
+Ticket: IR-888. Plan completion: not assessed. This is a planless gap analysis of the PR's new criteria against the computed matrix and the reader code. FR-035-AC-10 and FR-035-AC-11 are unbacked, as planned (`quire coverage --scope. --strict`: 42 unbacked against 40 on main, 0 contradicted). Existing tests in `tests/it/complete_v1_contract_package.rs` do not exercise `UnknownContractVersion` or any `Incomplete` outcome of `ContractPackageWireV1::read`. The tests-first follow-up PR must add them. A throwaway probe confirmed the code paths both criteria describe.
 
 ## Reviewed units
 

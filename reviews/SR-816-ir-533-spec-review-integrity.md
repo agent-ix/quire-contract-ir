@@ -3,7 +3,7 @@ id: SR-816
 title: "integrity review of PR 258 canonical encoding (IR-533)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@f3606b05780f22897c15fccc0eb2756ab284f14e; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md, spec/model/functional/FR-019-rust-library-interface.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md, spec/checked_package/matrix/tests.md, spec/model/functional/FR-019-rust-library-interface.md"
 review_set: subset
 ---
 # SR-816: integrity review of PR 258 canonical encoding
@@ -16,9 +16,9 @@ covers every clause. FR-038's Dependencies names quire-canonical as the encoder'
 The FR-019 paragraph defers to FR-038 for the assignment. `quire validate` passes.
 
 These checks measured the open PRs against this head with
-`git merge-tree <other> f3606b05780f22897c15fccc0eb2756ab284f14e`:
+`git merge-tree <other> `:
 
-- #257 (IR-450, head 10a17ec6b705ec88b5442a3367b826043d76ed2b) gives a conflict in FR-038
+- #257 (IR-450, ) gives a conflict in FR-038
   and in tests.md.
 - #250 (IR-505) and #253 (IR-530) each give a conflict in tests.md.
 - #243 (IR-274, held) gives no textual conflict in these files, but it overlaps in meaning
@@ -38,8 +38,8 @@ renumbering before merge. FND-002 is merge mechanics.
 
 ## Dispositions
 
-Round 1 at 2f491e0a30bd3b29b9ae6f9abf81f28ba09bac81, rebased on main
-7ed352beb994355413b9d7c572e45667aee229ba with #257 merged. FR-038 has 78 AC rows and no
+Round 1, rebased on main
+ with #257 merged. FR-038 has 78 AC rows and no
 duplicate id. AC-73 is #257's quantity rule, traced from TC-050. The new criteria are
 AC-74 to AC-80 in FR-038, TC-048 (description, procedure and traces), the Dependencies
 paragraph and both tests.md rows. The tests.md FR-038 row keeps main's status text
@@ -48,5 +48,5 @@ TC-048 row does the same.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | fixed 2f491e0a30bd3b29b9ae6f9abf81f28ba09bac81 |
-| FND-002 | fixed | fixed 2f491e0a30bd3b29b9ae6f9abf81f28ba09bac81 |
+| FND-001 | fixed | fixed |
+| FND-002 | fixed | fixed |

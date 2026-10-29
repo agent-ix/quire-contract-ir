@@ -23,7 +23,7 @@ The computed matrix reports the new population criteria tagged, but the only new
 
 ## Coverage
 
-Examined FR-038-AC-294 through FR-038-AC-298, TC-229, QSpec FR-322-AC-82/83, and the changed code/test/Makefile diff against aa01d0d...387dcf9. The computed Quire matrix was consulted for the changed criteria.
+Examined FR-038-AC-294 through FR-038-AC-298, TC-229, QSpec FR-322-AC-82/83, and the changed code/test/Makefile diff.... The computed Quire matrix was consulted for the changed criteria.
 
 Plan completion: not assessed. Optional whole-repository semantic review: not requested. This review checked the changed acceptance-criterion bindings.
 
@@ -37,10 +37,10 @@ Plan completion: not assessed. Optional whole-repository semantic review: not re
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Head 1bcdccc adds tc_229_population_owner_identity_is_joined_independently_of_node, which holds owner.node equal, asserts node_id differs when owner.identity changes, and checks missing-selection at the population node. |
+| FND-001 | fixed | adds tc_229_population_owner_identity_is_joined_independently_of_node, which holds owner.node equal, asserts node_id differs when owner.identity changes, and checks missing-selection at the population node. |
 | FND-002 | still-open | The new test is tagged only FR-038-AC-304; its key-change assertion also backs FR-038-AC-303 and needs that trace tag. |
-| FND-002 | fixed | `tc_229_population_owner_identity_is_joined_independently_of_node` now carries both FR-038-AC-303 and FR-038-AC-304 trace tags; the computed Quire matrix binds it to both criteria at head e362ed6. |
+| FND-002 | fixed | `tc_229_population_owner_identity_is_joined_independently_of_node` now carries both FR-038-AC-303 and FR-038-AC-304 trace tags; the computed Quire matrix binds it to both criteria at. |
 
 ## Final PR head inspection
 
-PR agent-ix/quire-contract-ir#494 is at 09a81408be067f85f2df6a1d63799a363c59b47d against aa01d0dddb9792ea016f30d1ca09d46c872a782b. `git range-diff` shows all 17 rebased commits patch-identical to the reviewed series. The final population criteria are FR-038-AC-303 through FR-038-AC-307; the computed matrix binds the owner-identity mutation to AC-303 and AC-304. Original finding wording and chronological dispositions above remain the review record.
+PR agent-ix/quire-contract-ir#494 is. `git range-diff` shows all 17 rebased commits patch-identical to the reviewed series. The final population criteria are FR-038-AC-303 through FR-038-AC-307; the computed matrix binds the owner-identity mutation to AC-303 and AC-304. Original finding wording and chronological dispositions above remain the review record.

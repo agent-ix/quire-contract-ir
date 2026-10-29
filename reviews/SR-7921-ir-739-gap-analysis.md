@@ -3,7 +3,7 @@ id: SR-7921
 title: IR-739 PR 355 gap analysis
 type: SpecReview
 analysis: gap-analysis
-scope: agent-ix/quire-contract-ir@0bd9041956f772ccb5c1b22b7ec969c40859b787; crates/quire-contract-model/src/checked_package/v2/derived_keys.rs, crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/conformance_qspec/main.rs, tests/it/checked_package_v2_composite_operands.rs, tests/it/checked_package_v2_structural_keys.rs, tests/it/checked_package_v2_union.rs, tests/it/support/checked_package.rs
+scope: agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/derived_keys.rs, crates/quire-contract-model/src/checked_package/v2/mod.rs, crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/conformance_qspec/main.rs, tests/it/checked_package_v2_composite_operands.rs, tests/it/checked_package_v2_structural_keys.rs, tests/it/checked_package_v2_union.rs, tests/it/support/checked_package.rs
 review_set: subset
 ---
 
@@ -30,7 +30,7 @@ Plan completion: not assessed. Quoin matrix 0.28.3 reports AC-225 bound to two t
 | Unit | Role | Excerpt |
 | --- | --- | --- |
 | FR-038-AC-225 | examined | PLANNED/UNRUN (IR-739). `CheckedPackageV2::read` admits QSpec's current `positive-union-nodes.json`, read directly from an authoritative checkout by `make conformance-qspec`, with both its payload-bearing `Shape::Rect` and nullary `Shape::Empty` aggregate-bodied `value`/`union_value` nodes keyed under `quire.application-node/v1`. The test compares each retained key with an independently fixed QSpec preimage/key vector, its exact aggregate body and the fixture's recorded `package_id`; an ordinary application still admits, while application-free `record_value` and `tuple_value` controls retain s |
-| FR-038-AC-226 | examined | PLANNED/UNRUN (IR-739). For each of the two authentic QSpec union values of AC-225, changing its retained key to the prior structural key, rewriting every reference and source-map occurrence of that key, mirroring the identity projection and recomputing only the package identity needed to reach node-key validation, yields `invalid_package`/`stale-node-key` at that node's `node_id`; `locus` is the supplied typed key and `expected_node_id()` is the distinct current application-derived typed key. The untampered package admits, so an earlier graph or package refusal cannot pass this control. Chang |
+| FR-038-AC-226 | examined | PLANNED/UNRUN (IR-739). For each of the two authentic QSpec union values of AC-225, changing its retained key to the prior structural key, rewriting every reference and source-map occurrence of that key, mirroring the identity projection and recomputing only the package identity needed to reach node-key validation, yields `invalid_package`/`stale-node-key` at that node's `node_id`; `locus` is the supplied typed key and `expected_node_id` is the distinct current application-derived typed key. The untampered package admits, so an earlier graph or package refusal cannot pass this control. Chang |
 | FR-038-AC-227 | examined | PLANNED/UNRUN (IR-739). In a reader-admissible recursion group containing a `union_value` and a nonapplication node, the union value's preimage uses the complete graph-order `{size, ordinal}` and rewrites each reference to an in-group member in its nested payload aggregate to `group_reference`, while an outside reference remains unchanged; the current keyed package admits and a retained stale key refuses with the distinct production-derived expected key. At the private key-stage seam, for the same preimage, a canonical byte ceiling equal to its independently measured byte length accepts its ke |
 | TC-048 | examined | ## Aggregate-bodied union value keys (FR-038-AC-225 through FR-038-AC-227)
 
@@ -47,7 +47,7 @@ a |
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 6ca9197974b24c4fb6a54b48334cda8d52e00580; the QSpec test now mutates one body member on each authentic Rect and Empty node, refreshes package identity, and asserts the typed stale key, locus, path and independent expected digest. |
-| FND-002 | fixed | 6ca9197974b24c4fb6a54b48334cda8d52e00580; nine public-reader controls each establish the control refusal and pair it with the union stale key, asserting earlier/later precedence. |
+| FND-001 | fixed |; the QSpec test now mutates one body member on each authentic Rect and Empty node, refreshes package identity, and asserts the typed stale key, locus, path and independent expected digest. |
+| FND-002 | fixed |; nine public-reader controls each establish the control refusal and pair it with the union stale key, asserting earlier/later precedence. |
 | FND-003 | still-open | The updated FR-038 rows and TC-048 say UNDER REVIEW and final review/repo gate pending; those transient statements will be false at merge. Use durable implemented/tested status without an in-progress gate claim. |
-| FND-003 | fixed | a08739a96e5a3522bf0a6e2f1c643bbd84c24823; FR-038 AC-225 through AC-227 and TC-048 now use durable implemented/tested language grounded in the focused reader and QSpec conformance receipts. |
+| FND-003 | fixed |; FR-038 AC-225 through AC-227 and TC-048 now use durable implemented/tested language grounded in the focused reader and QSpec conformance receipts. |

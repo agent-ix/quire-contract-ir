@@ -3,7 +3,7 @@ id: SR-558003
 title: "Spec EARS review of IR-1013 PR #558"
 type: SpecReview
 analysis: ears-conformance
-scope: "agent-ix/quire-contract-ir@c89dc3704e74117f08e4001e46ea4a2982e3baaa; spec/checked_package/functional/FR-058-admitted-clause-execution-point.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-058-admitted-clause-execution-point.md"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-058
@@ -14,15 +14,15 @@ relationships:
 ## Summary
 
 Ticket: IR-1013. This review checks the EARS grammar of the FR-058 requirement
-statements at `c89dc370`.
+statements.
 
 - The two Description statements are ubiquitous SHALL and SHALL NOT. Each has
   one subject and one response.
-- Behavior 2-4 use the unwanted-behaviour form correctly: "If ..., then
+- Behavior 2-4 use the unwanted-behaviour form correctly: "If..., then
   Contract IR SHALL refuse X".
 - Behavior 5 is event-driven, plus one ubiquitous SHALL NOT.
 - Behavior 6 and 7 are event-driven: "When resolving a point, Contract IR SHALL /
-  SHALL NOT ...".
+  SHALL NOT...".
 
 ## Verdict
 
@@ -32,7 +32,7 @@ statements at `c89dc370`.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | Behavior 1 mixes an event trigger with a trailing condition in one sentence: "When the accessor receives a clause id, Contract IR SHALL resolve it ... and refuse `UnknownClause` if absent". The refusal is an unwanted-behaviour response and should read "If the clause id is absent from the admitted package, then Contract IR SHALL refuse `UnknownClause`", matching Behavior 2-4 | spec/checked_package/functional/FR-058-admitted-clause-execution-point.md:52-53 |
+| FND-001 | low | Behavior 1 mixes an event trigger with a trailing condition in one sentence: "When the accessor receives a clause id, Contract IR SHALL resolve it... and refuse `UnknownClause` if absent". The refusal is an unwanted-behaviour response and should read "If the clause id is absent from the admitted package, then Contract IR SHALL refuse `UnknownClause`", matching Behavior 2-4 | spec/checked_package/functional/FR-058-admitted-clause-execution-point.md:52-53 |
 
 ## Examined scope
 
@@ -46,7 +46,7 @@ statements at `c89dc370`.
 
 ## Dispositions
 
-Round 1, checked against the repo at `095a9bdc` (diff `c89dc370..095a9bdc`).
+Round 1, checked against the repo (diff `..`).
 
 | FND | outcome | reason |
 | --- | --- | --- |

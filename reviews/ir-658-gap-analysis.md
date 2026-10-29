@@ -3,7 +3,7 @@ id: SR-2066
 title: "gap-analysis — IR-658 PR 314"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@9cd1f351693e24fa01d4407a0e802a9cd7d2fd80; crates/quire-contract-model/src/checked_package/v2/owner.rs, tests/it/checked_package_v2_owners.rs, tests/it/checked_package_v2_identity_digests.rs, tests/conformance_qspec/main.rs"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/owner.rs, tests/it/checked_package_v2_owners.rs, tests/it/checked_package_v2_identity_digests.rs, tests/conformance_qspec/main.rs"
 review_set: subset
 relationships:
   - { target: "ix://agent-ix/quire-contract-ir/FR-038", type: references }

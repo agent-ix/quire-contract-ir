@@ -3,7 +3,7 @@ id: SR-12133
 title: "IR-851 gap analysis of IR PR #435"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@dcd84d128d6ce891d555032cb9767a4301d55fbe (PR #435); spec/checked_package/functional/FR-038-consume-checked-package-v2.md (AC-262..267), crates/quire-contract-model/src/checked_package/v2/{operations.rs,model_members.rs,model_fields.rs,mod.rs,parameter_declaration.rs}, tests/it/checked_package_v2_model_members.rs; consumer agent-ix/quire-contract-codegen PR #417 spec/kani/functional/FR-015-bounded-kani-obligations.md"
+scope: "agent-ix/quire-contract-ir (PR #435); spec/checked_package/functional/FR-038-consume-checked-package-v2.md (AC-262..267), crates/quire-contract-model/src/checked_package/v2/{operations.rs,model_members.rs,model_fields.rs,mod.rs,parameter_declaration.rs}, tests/it/checked_package_v2_model_members.rs; consumer agent-ix/quire-contract-codegen PR #417 spec/kani/functional/FR-015-bounded-kani-obligations.md"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
@@ -29,12 +29,12 @@ What was verified:
 | --- | --- | --- | --- |
 | FR-038 measured-gap paragraph | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | RetainedModels keeps only the declaration index, the object types' field tables and the operation parameter types |
 | FR-038 admitted-claim paragraph | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | For every admitted reaches claim the accessor therefore returns ordered false, upper Some |
-| FR-038 UnresolvedEnd statement | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | or whose destination type has no model declaration node in the graph shall refuse UnresolvedEnd. Admission refuses each of those states ... no reader-admitted package returns it. |
+| FR-038 UnresolvedEnd statement | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | or whose destination type has no model declaration node in the graph shall refuse UnresolvedEnd. Admission refuses each of those states... no reader-admitted package returns it. |
 | FR-038-AC-262 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | source end is {1,1} and whose target end is {2,3} unique with role peer |
 | FR-038-AC-263 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | {0,3} unique, {0,3} not unique, {2,3}, {0,1} and {1,1} |
-| FR-038-AC-265 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | or removes the destination type's model declaration node from the graph index ... the same four defects in a package given to the reader are refused at admission as before |
+| FR-038-AC-265 | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | or removes the destination type's model declaration node from the graph index... the same four defects in a package given to the reader are refused at admission as before |
 | FR-038 population deferral | examined | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | Deriving a reaches claim's population is a separate decision (IR-852). |
-| CG FR-015-AC-105 | context_only | spec/kani/functional/FR-015-bounded-kani-obligations.md (quire-contract-codegen PR #417) | a Collection field or finite multi-valued relationship end a count in [lower, upper] (a unique end admits no repeated target ...) |
+| CG FR-015-AC-105 | context_only | spec/kani/functional/FR-015-bounded-kani-obligations.md (quire-contract-codegen PR #417) | a Collection field or finite multi-valued relationship end a count in [lower, upper] (a unique end admits no repeated target...) |
 | CG FR-015-AC-108 | context_only | spec/kani/functional/FR-015-bounded-kani-obligations.md (quire-contract-codegen PR #417) | While the population selection for the claim is Unavailable (no IR mapping from the claim to a population, IR-851), the claim settles unsupported naming it. |
 
 ## Findings
@@ -52,5 +52,5 @@ PASS WITH FINDINGS. The key claim (no relationship retention today; retention ou
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Round 1 (29f86c7): `destination_type` is the derived id, returned "whether or not the graph holds that node". The graph-presence cause is gone from UnresolvedEnd and AC-265. AC-263 and TC-048 add a subtype-operand case with a variant whose graph lacks the declared end type's node, expecting Ok. |
+| FND-001 | fixed | Round 1 : `destination_type` is the derived id, returned "whether or not the graph holds that node". The graph-presence cause is gone from UnresolvedEnd and AC-265. AC-263 and TC-048 add a subtype-operand case with a variant whose graph lacks the declared end type's node, expecting Ok. |
 | FND-002 | deferred | The defect is in quire-contract-codegen PR #417 (FR-015-AC-108, the Description sequence, TC-025 and its tests.md row), not in this PR. Deferred to titan's CG lane, which must re-point the population half to IR-852. This PR's text ("a separate decision (IR-852)") is correct. |

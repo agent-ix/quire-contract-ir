@@ -39,4 +39,4 @@ Quoin matrix reports FR-038-AC-283 statically tagged by 12 test functions with n
 
 ## Disposition verdict
 
-**PASS at f17fa5851fa7c6c7decf7306e3c6d0f370e9398c** — the two recorded test-coverage gaps are fixed. The fix diff changes tests only; the lead owns the aggregate gate.
+**PASS ** — the two recorded test-coverage gaps are fixed. The fix diff changes tests only; the lead owns the aggregate gate.

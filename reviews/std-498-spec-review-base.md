@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Independent spec-review/base of quire-contract-ir PR #600 at 48dd790dac48f36b526f6f47dfe3a0b4f2b2bbb1 against QSpec main 46c7a46582f86c177d339f7934db9919bc042cae. Ticket STD-498.
+Independent spec-review/base of quire-contract-ir PR #600 against QSpec main. Ticket STD-498.
 
 ## Examined scope
 
@@ -37,4 +37,4 @@ CONDITIONAL — one acceptance edge needs explicit refusal coverage.
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Round 1, PR head 5e2cde5d1e698c48f21b95fcf96f995b3a9b2b67: AC-4 now explicitly refuses a selected declaration's `state_machine` or `model_root` target, along with every non-`object_type` form. Original refusal precedence and source/reader separation remain. |
+| FND-001 | fixed | Round 1, PR: AC-4 now explicitly refuses a selected declaration's `state_machine` or `model_root` target, along with every non-`object_type` form. Original refusal precedence and source/reader separation remain. |

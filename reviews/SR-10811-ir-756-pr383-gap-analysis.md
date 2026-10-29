@@ -3,7 +3,7 @@ id: SR-10811
 title: IR-756 evidence insertion gap analysis
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; PR 383 at 6ecd464; FR-047-AC-1..6, TC-059, evidence.rs, and public integration tests"
+scope: "agent-ix/quire-contract-ir; PR 383; FR-047-AC-1..6, TC-059, evidence.rs, and public integration tests"
 review_set: subset
 ---
 

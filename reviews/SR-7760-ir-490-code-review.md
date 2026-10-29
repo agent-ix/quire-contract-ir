@@ -3,7 +3,7 @@ id: SR-7760
 title: "Code review of IR-490 structural forwarding work"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@e29d89390ca017d9ee6652464f8bf34cdd03b1f1; crates/quire-contract-model/src/checked_package/v2/operations.rs; FR-038-AC-224"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/operations.rs; FR-038-AC-224"
 review_set: subset
 ---
 

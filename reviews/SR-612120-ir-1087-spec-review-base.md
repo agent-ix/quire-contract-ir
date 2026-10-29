@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-IR-1087 PR #652 at 2df5c36ad6518438a95cfbcd57009b523f0491d6, base b712988b. Examined FR-035-AC-23..26, FR-038-AC-341, unchanged FR-035-AC-22 and TC-047/048 plus FR-019 inventory. Spec-only diff; no code or aggregate gate.
+IR-1087 PR #652. Examined FR-035-AC-23..26, FR-038-AC-341, unchanged FR-035-AC-22 and TC-047/048 plus FR-019 inventory. Spec-only diff; no code or aggregate gate.
 
 ## Verdict
 
@@ -23,7 +23,7 @@ FAIL: unchanged AC-22 conflicts with the new plain-reader case in AC-25.
 
 ## Coverage
 
-All changed files and the unchanged AC-22 equality requirement examined. `quire validate --scope .` on the five changed files: 5/5 grammar-clean. `quoin advise --json` checked all five new AC methods; no mismatch. No backing test tags were added in this spec-only diff; the new criteria are marked Planned/UNRUN. The full computed matrix was not run for this scoped review. Plan completion: not assessed.
+All changed files and the unchanged AC-22 equality requirement examined. `quire validate --scope.` on the five changed files: 5/5 grammar-clean. `quoin advise --json` checked all five new AC methods; no mismatch. No backing test tags were added in this spec-only diff; the new criteria are marked Planned/UNRUN. The full computed matrix was not run for this scoped review. Plan completion: not assessed.
 
 ## New findings (disposition pass 1)
 
@@ -33,14 +33,14 @@ All changed files and the unchanged AC-22 equality requirement examined. `quire 
 
 ## Dispositions
 
-Round 1, reviewed at ac26f2154a6a77f9010a176ce0977f59642258d2.
+Round 1, reviewed.
 
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Plain reading of operation-bearing bytes now refuses before returning an unequal term; unchanged AC-22 applies to admitted packages. The new refusal conflicts with existing reader obligations (FND-002). |
 | FND-002 | still-open | The new refusal is absent from FR-271 and rejects valid canonical operation packages under exact limits; no compatible repair is in this head. |
 
-Round 2, reviewed at 39062fe4407cefed326532dba06aa61e689a52b9.
+Round 2, reviewed.
 
 | FND | outcome | reason |
 | --- | --- | --- |

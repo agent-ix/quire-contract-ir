@@ -3,7 +3,7 @@ id: SR-12361
 title: "IR-864 gap analysis of IR PR 445"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir PR 445, 09bea8a..24261e0; changed tests/it evidence and computed traceability"
+scope: "agent-ix/quire-contract-ir PR 445..; changed tests/it evidence and computed traceability"
 review_set: subset
 ---
 
@@ -25,4 +25,4 @@ The removed trace documentation duplicates existing attributes on the same 55 te
 
 ## Coverage
 
-Independent `quire coverage --format json` runs at base `09bea8a` and head `24261e0` both report 515/584 rows backed, 39 unbacked, and 0 status lies. The computed matrix has 550 criteria; after source line and column fields are excluded, criterion IDs, statements, statuses, and binders match exactly. Every changed test function retains its ordered trace ID list through `#[trace]`, including the one old duplicate `TC-018` collapsed in the existing attribute.
+Independent `quire coverage --format json` runs at and both report 515/584 rows backed, 39 unbacked, and 0 status lies. The computed matrix has 550 criteria; after source line and column fields are excluded, criterion IDs, statements, statuses, and binders match exactly. Every changed test function retains its ordered trace ID list through `#[trace]`, including the one old duplicate `TC-018` collapsed in the existing attribute.

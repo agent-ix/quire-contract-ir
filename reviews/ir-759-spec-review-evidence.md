@@ -1,6 +1,6 @@
 ---
 id: SR-10893
-title: "Evidence review — IR-759 native census at 2cdac57"
+title: "Evidence review — IR-759 native census "
 type: SpecReview
 analysis: evidence
 scope: "agent-ix/quire-contract-ir; FR-052-AC-7, TC-452, tests/it/source_obligation.rs"
@@ -38,7 +38,7 @@ Examined FR-052-AC-7 and TC-452; read FR-052-AC-1 through AC-6 for context. The 
 
 ## Dispositions
 
-Reviewed uncommitted working-tree correction on base 2cdac572; no new commit head yet.
+Reviewed uncommitted working-tree correction on; no new commit head yet.
 
 | FND | outcome | reason |
 | --- | --- | --- |
@@ -46,7 +46,7 @@ Reviewed uncommitted working-tree correction on base 2cdac572; no new commit hea
 
 ## Dispositions — round 2
 
-Reviewed frozen IR-784 input-only head fc28070b40353ba249a4556d57804f32871e837f against the original finding.
+Reviewed frozen IR-784 input-only against the original finding.
 
 | FND | outcome | reason |
 | --- | --- | --- |

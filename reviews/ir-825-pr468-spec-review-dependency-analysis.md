@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket IR-825. Diff-scoped spec-review/dependency-analysis review of PR #468 at fa9613d6201fdb8d9d09b04a39e9f2a07d833142. Dependency review: the change adds no spec relationship edge or external owner dependency; the compiled module remains within the model crate.
+Ticket IR-825. Diff-scoped spec-review/dependency-analysis review of PR #468. Dependency review: the change adds no spec relationship edge or external owner dependency; the compiled module remains within the model crate.
 
 ## Examined units
 

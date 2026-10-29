@@ -3,7 +3,7 @@ id: SR-16616
 title: "IR-9 PR 542 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@15bcf93a8efec4e50b957ad84ac232497e387338; PR #542 comparison_operands.rs retained-kind dispatch and tests"
+scope: "agent-ix/quire-contract-ir; PR #542 comparison_operands.rs retained-kind dispatch and tests"
 review_set: subset
 relationships:
   - { target: "ix://agent-ix/quire-contract-ir/FR-056", type: references }
@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Independent diff-scoped code and Rust review of PR #542 against base `243d7ce6d024c1922c8292e27133d7ba05c816c4`. The changed file is `crates/quire-contract-model/src/checked_package/v2/comparison_operands.rs`. The review checked the retained kind lookup, existing error order, typed term checks, private mismatch controls, and the surrounding public accessor. No author files were edited.
+Independent diff-scoped code and Rust review of PR #542 against. The changed file is `crates/quire-contract-model/src/checked_package/v2/comparison_operands.rs`. The review checked the retained kind lookup, existing error order, typed term checks, private mismatch controls, and the surrounding public accessor. No author files were edited.
 
 ## Findings
 

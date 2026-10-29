@@ -3,7 +3,7 @@ id: SR-610048
 title: "IR-1034 PR 606 FR-019 inventory spec review"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; PR #606 head 5d0c5fab1f377f55d51b78b9fab76d0ca0c72630 against 453cc86f; spec/model/functional/FR-019-rust-library-interface.md, crates/quire-contract-model/src/lib.rs"
+scope: "agent-ix/quire-contract-ir; PR #606; spec/model/functional/FR-019-rust-library-interface.md, crates/quire-contract-model/src/lib.rs"
 review_set: subset
 ---
 
@@ -31,8 +31,8 @@ FR-019-AC-5 examined. The inventory row was updated in the same PR as the export
 
 ## Rebase verification
 
-**PASS at 34a31ea7f790043c94e417ebe7432485ef31d811** — range-diff against the reviewed 1894dee8 head keeps the refinement implementation and tests patch-equivalent. The only conflict resolution combines additive crate-root exports and FR-019 inventory rows from IR-1040 and IR-1034; both are retained. All earlier findings remain fixed.
+**PASS ** — range-diff against the reviewed head keeps the refinement implementation and tests patch-equivalent. The only conflict resolution combines additive crate-root exports and FR-019 inventory rows from IR-1040 and IR-1034; both are retained. All earlier findings remain fixed.
 
 ## Fixture correction verification
 
-**PASS at f0a06da4c79a63f642bbdd56e44d1774b1431d7a** — compared with 0de6f377, the sole change makes the typed-term roundtrip fixture use `memory_model: tso` for `memory flush`, the only admitted model of `RefinementTsoModel`. No production code, FR-061 acceptance test, public export or FR-019 inventory row changed; the prior dispositions remain fixed.
+**PASS ** — compared with, the sole change makes the typed-term roundtrip fixture use `memory_model: tso` for `memory flush`, the only admitted model of `RefinementTsoModel`. No production code, FR-061 acceptance test, public export or FR-019 inventory row changed; the prior dispositions remain fixed.

@@ -3,7 +3,7 @@ id: SR-1783
 title: "Independent integrity analysis — IR-627 FR-038"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@c3f83a41c4c00bca1a7b2ee1c5a81001a882be66; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; owner-free ungrouped structural-key obligations"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; owner-free ungrouped structural-key obligations"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038

@@ -3,7 +3,7 @@ id: SR-802
 title: "spec review of PR 256 matrix rows (IR-486)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@c832ea54d6528369ac8de8f554d8b0d0bcd5d51b; spec/checked_package/matrix/tests.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/matrix/tests.md"
 review_set: subset
 ---
 # SR-802: spec review of PR 256 matrix rows
@@ -36,8 +36,8 @@ also removes one recurring merge conflict with #250 and #253.
 
 ## Dispositions
 
-Round 1 at e44305c9dd30c38062d7bac75af5c2a7e2c223c0. The hand-kept count '(42 of 70 FR-038 rows)' is deleted from the FR-038 row and no other count was added. The word diff of tests.md is that one deletion only. No new findings.
+Round 1. The hand-kept count '(42 of 70 FR-038 rows)' is deleted from the FR-038 row and no other count was added. The word diff of tests.md is that one deletion only. No new findings.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | fixed e44305c9dd30c38062d7bac75af5c2a7e2c223c0 |
+| FND-001 | fixed | fixed |

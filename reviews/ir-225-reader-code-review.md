@@ -3,7 +3,7 @@ id: SR-11674
 title: code-review and rust-review of IR-225 catalogue-driven member-result admission
 type: SpecReview
 analysis: code-review
-scope: agent-ix/quire-contract-ir@9e44b4b21063e5ea2c5e6f25520a9bce0301e8b3; PR 409 branch code/ir-225-member-family; diff origin/main...9e44b4b (base ef4ab49);
+scope: agent-ix/quire-contract-ir; PR 409 branch code/ir-225-member-family; diff origin/main...;
   crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it/admitted_guard_context.rs, tests/it/admitted_result_context.rs, tests/it/checked_package_v2_ieee_admission.rs, tests/it/checked_package_v2_operand_families.rs, tests/it/checked_package_v2_recursive_leaves.rs, spec/checked_package (FR-038, TC-048, tests.md)
 review_set: subset
 ---
@@ -14,7 +14,7 @@ Ticket: IR-225. PR: quire-contract-ir#409. Method: code-review with the
 rust-review lane folded in. The authority is the merged spec (PR #408):
 FR-038-AC-247 through FR-038-AC-251 and the TC-048 IR-225 steps. The catalogue
 is `contracts/checked-operation-catalog-v1.json` in quire-verification-contracts,
-locked at e4195bd.
+locked.
 
 The catalogue has 21 entries with `result: member` and `member: type_argument`.
 19 of them carry a `member_family` constraint. `quire.op.collection.fold` and
@@ -22,8 +22,8 @@ The catalogue has 21 entries with `result: member` and `member: type_argument`.
 `bound_is_member`. Two further entries have `member: type_argument` and a
 different result form: `quire.op.model.lookup` (`result: absence`) and
 `quire.op.model.all_instances` (`result: set`). The QSL producer emits all four.
-See qsl-semantics/src/check/lowering.rs:3633-3667 and :3980-4000 at QSL main
-20b3254.
+See qsl-semantics/src/check/lowering.rs:3633-3667 and:3980-4000 at QSL main
+.
 
 Selection is driven by the entry's shape, not by a list of names. An entry is
 selected when `entry.member == type_argument`, or when `result == member` and
@@ -95,7 +95,7 @@ code. Typed refusal codes only. No new `#[allow]`. The removed IEEE allow-list
 leaves no dead code. Module docs are updated. Two low findings cover
 representation (FND-003, FND-004).
 
-Gates at 9e44b4b, CARGO_TARGET_DIR in the throwaway worktree, with
+Gates, CARGO_TARGET_DIR in the throwaway worktree, with
 QUIRE_SPEC_LANGUAGE_DIR set to a QSL main checkout:
 
 - `cargo test --locked --workspace --test it checked_package_v2`: 443 passed.
@@ -135,26 +135,26 @@ QUIRE_SPEC_LANGUAGE_DIR set to a QSL main checkout:
 - id: operations.rs/operation_defect
   path: crates/quire-contract-model/src/checked_package/v2/operations.rs
   role: examined
-  excerpt: 'OperationMemberKind::TypeArgument => { member.as_object().is_some_and(|fields| fields.len() == 2) && member_declaration(&operation).is_some() }'
+  excerpt: 'OperationMemberKind::TypeArgument => { member.as_object.is_some_and(|fields| fields.len == 2) && member_declaration(&operation).is_some }'
 - id: TC-048
   path: spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md
   role: context_only
-  excerpt: The catalogue's `result: member` entries with `member: type_argument` are `quire.op.quantity.convert`, ... `quire.op.collection.fold`, `quire.op.collection.reduce`, ... `quire.op.collection.size` and `quire.op.collection.convert`.
+  excerpt: The catalogue's `result: member` entries with `member: type_argument` are `quire.op.quantity.convert`... `quire.op.collection.fold`, `quire.op.collection.reduce`... `quire.op.collection.size` and `quire.op.collection.convert`.
 ```
 
 ## Findings
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | high | Selection arm `entry.member == type_argument` also selects `quire.op.model.lookup` (`result: absence`) and `quire.op.model.all_instances` (`result: set`), and the shape guard then refuses because `result != "member"`. Every such application is now refused `ill_typed`/`operator-ineligible` at `result_type`, whatever its content. Reproduced through `CheckedPackageV2::read`: admitted at main, refused at 9e44b4b. QSL lowering emits both identities with a `type_argument` member. Neither entry is a member-result entry, so AC-247 to AC-251 do not reach it. | crates/quire-contract-model/src/checked_package/v2/operations.rs:528-549 |
+| FND-001 | high | Selection arm `entry.member == type_argument` also selects `quire.op.model.lookup` (`result: absence`) and `quire.op.model.all_instances` (`result: set`), and the shape guard then refuses because `result != "member"`. Every such application is now refused `ill_typed`/`operator-ineligible` at `result_type`, whatever its content. Reproduced through `CheckedPackageV2::read`: admitted at main, refused. QSL lowering emits both identities with a `type_argument` member. Neither entry is a member-result entry, so AC-247 to AC-251 do not reach it. | crates/quire-contract-model/src/checked_package/v2/operations.rs:528-549 |
 | FND-002 | high | `quire.op.collection.fold` and `quire.op.collection.reduce` are catalogued `result: member`/`member: type_argument` but carry no `member_family`, so the missing-family guard refuses every application, including one whose `result_type` equals the declaration. AC-247 requires such an application to admit, and AC-248 applies the family check only "with `member_family`". Reproduced through the public reader: admitted at main, refused at HEAD. QSL lowering emits both identities. | crates/quire-contract-model/src/checked_package/v2/operations.rs:550-557 |
 | FND-003 | low | The deferred-family skip compares `node.semantic_form` strings although the typed `graph.kinds` (`CheckedNodeKind`) is available. Its `compound_unit` and `alias` arms are redundant: `operand_family` already returns `None` for both, and each form belongs to a single tag. The mutant that deletes those arms is equivalent and survives every test. The arms are not wrong, but nothing pins them. The next form deferred by FR-322 needs another string here, and nothing ties this list to the deferral list. | crates/quire-contract-model/src/checked_package/v2/operations.rs:572-580 |
 | FND-004 | low | The closed `type_argument` member shape (`kind` plus `declaration`, exactly two keys) is inlined in `operation_defect` behind a `_ =>` arm over the closed `OperationMemberKind`. Meanwhile `member_is_well_formed` (temporal.rs), the function whose doc says it owns each kind's closed shape, still returns `true` for `TypeArgument`. The same rule therefore has two homes, and the wildcard will silently route a new member kind to a function that accepts any shape. | crates/quire-contract-model/src/checked_package/v2/operations.rs:756-765; crates/quire-contract-model/src/checked_package/v2/temporal.rs:410-427 |
 
 ## Dispositions
 
-Round 1. Verified at 9e7fe57352f25477d3c7d4b359da450cb17ce529 by reviewing
-`git diff 9e44b4b..9e7fe57` (553b6fa, 0ac8f44, 9e7fe57) in a throwaway
+Round 1. Verified by reviewing
+`git diff..` (,, ) in a throwaway
 worktree.
 
 Public-reader probe table, rerun with the same scratch packages. At main,
@@ -173,7 +173,7 @@ Mutants rerun against the new tests:
 - Mutants M12 (extra keys accepted) and M13 (shape check removed in
   `member_is_well_formed`) are killed.
 
-Gates at 9e7fe57:
+Gates:
 - `checked_package_v2` integration tests: 446 passed.
 - `quire-contract-model` v2 library tests: 170 passed.
 - fmt and clippy: exit 0.
@@ -187,8 +187,8 @@ Gates at 9e7fe57:
 | FND-003 | fixed | The skip now compares the typed `CheckedNodeKind::BoundedDomain(ModelPopulation)` from `graph.kinds`. The redundant `compound_unit` and `alias` string arms are removed, and the old equivalent mutant no longer exists. |
 | FND-004 | fixed | The type-argument shape is now owned by `member_is_well_formed` (temporal.rs:410-435), through a `deny_unknown_fields` `TypeArgumentMember { kind, declaration: CheckedNodeId }`. The inline rule and the `_ =>` wildcard in `operation_defect` are gone. |
 
-Round 2. Re-verified at f30fd77bb53ef69a268dbbe0c8fbf92fa4ddc7fc
-(`git diff 9e7fe57..f30fd77`: 0ffce5d, f30fd77). The diff touches only tests
+Round 2. Re-verified
+(`git diff..`:, ). The diff touches only tests
 and spec, so the round-1 fixes in operations.rs and temporal.rs are
 unchanged. No finding in this file needed a new outcome.
 
@@ -196,7 +196,7 @@ All 18 mutants are killed. These include the round-1 set and three new
 ones: result check before the member-kind check, a broken `family_fits`
 for `ieee_float`/`decimal`, and dropped `collection.sum.*` equality.
 
-Gates at f30fd77:
+Gates:
 - `checked_package_v2` integration tests: 447 passed.
 - `quire-contract-model` v2 library tests: 170 passed.
 - fmt and clippy: exit 0.

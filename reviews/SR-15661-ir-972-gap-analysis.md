@@ -3,7 +3,7 @@ id: SR-15661
 title: "Gap analysis — IR-972 retained declaration terms"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir PR #519 at 798026771e43f0a9494fe2b5921f142b22fa3f70; FR-349 and FR-038 criteria, changed model-field, relationship and comparison tests and source"
+scope: "agent-ix/quire-contract-ir PR #519; FR-349 and FR-038 criteria, changed model-field, relationship and comparison tests and source"
 review_set: subset
 ---
 

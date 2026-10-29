@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-874. Planless, diff-scoped trace and reverse-gap audit of PR #611 at 76228ae301cca6da01f8c625a5b4699b96d3a7ac. Plan completion was not assessed. FR-038-AC-325 has six bound tests, but none tests the redefinition diamond with the redefining branch second.
+Ticket: IR-874. Planless, diff-scoped trace and reverse-gap audit of PR #611. Plan completion was not assessed. FR-038-AC-325 has six bound tests, but none tests the redefinition diamond with the redefining branch second.
 
 ## Examined units
 
@@ -24,7 +24,7 @@ Ticket: IR-874. Planless, diff-scoped trace and reverse-gap audit of PR #611 at 
 
 ## Coverage
 
-- Reconciliation: `quoin matrix --repo . --json` at PR #611 head, 749 criteria: 629 tagged, 100 untagged, 19 method-without-symbol, 1 tagged-by-ignored-test. FR-038-AC-325 is tagged by six tests.
+- Reconciliation: `quoin matrix --repo. --json` at PR #611 head, 749 criteria: 629 tagged, 100 untagged, 19 method-without-symbol, 1 tagged-by-ignored-test. FR-038-AC-325 is tagged by six tests.
 - Plan completion: not assessed
 - Reverse gap: changed field-order and activation code is owned by FR-038-AC-325 and TC-048; no new unowned behavior or stub found in the diff.
 - Optional semantic review: skipped as a separate repository-wide audit; changed intent, tests and code were inspected in SR-611001.
@@ -37,12 +37,12 @@ CONDITIONAL. FND-001 is a concrete missed adverse ordering case. Repository-wide
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | The same tagged public-reader test now reverses the diamond's supertype list for both redefinition states and requires the replacement at Top/t's earlier position; the reverse-diamond case passed 1/1 at 065dc191a7dafdf265103079e2e82b5737d8e810. The model-field unit test asserts the corresponding identity order. |
+| FND-001 | fixed | The same tagged public-reader test now reverses the diamond's supertype list for both redefinition states and requires the replacement at Top/t's earlier position; the reverse-diamond case passed 1/1. The model-field unit test asserts the corresponding identity order. |
 
 ## Current verdict
 
-PASS for the changed AC-325 trace and reverse-gap claims at PR #611 head 065dc191a7dafdf265103079e2e82b5737d8e810. The repository-wide strict-coverage backlog remains separate.
+PASS for the changed AC-325 trace and reverse-gap claims at PR #611. The repository-wide strict-coverage backlog remains separate.
 
 ## Integration check
 
-PASS at PR #611 merge head 46a1bcb88a4d0087a10ebd73e084af1ffa143a4a. The IR #603 owner-join source and its tagged public-reader tests are preserved, and the FR-038-AC-325 activation tests remain tagged. No new trace or reverse gap was introduced by the merge resolution. The final aggregate gate remains pending.
+PASS at PR #611 merge. The IR #603 owner-join source and its tagged public-reader tests are preserved, and the FR-038-AC-325 activation tests remain tagged. No new trace or reverse gap was introduced by the merge resolution. The final aggregate gate remains pending.

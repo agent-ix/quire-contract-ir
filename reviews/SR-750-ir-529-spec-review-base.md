@@ -3,7 +3,7 @@ id: SR-750
 title: "base spec review of PR 251 (IR-529 artifact references)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@0b106a64ea261a86c0f2f64eb9ab8f31f546d39d; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (Artifact references section, FR-038-AC-46 through FR-038-AC-64); spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; spec/checked_package/matrix/tests.md; spec/tests.md; spec/assurance/AD-004-checked-package-seam.md; spec/model/functional/FR-019-rust-library-interface.md"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md (Artifact references section, FR-038-AC-46 through FR-038-AC-64); spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; spec/checked_package/matrix/tests.md; spec/tests.md; spec/assurance/AD-004-checked-package-seam.md; spec/model/functional/FR-019-rust-library-interface.md"
 review_set: subset
 ---
 # SR-750: base spec review of PR 251
@@ -11,12 +11,12 @@ review_set: subset
 ## Summary
 
 Ticket: IR-529. Diff: `git diff origin/main...HEAD`. The merge base equals `origin/main`
-(e80ea70ab8874676de47ac1b7fb439497ced7991), so the base is current and GitHub reports
+, so the base is current and GitHub reports
 the PR as MERGEABLE.
 
 I checked the amendment against two sources, independently of the PR body:
 
-- **QSpec.** `agent-ix/quire-specification` origin/main c76c6aed683ee93eae04abcd26af1b5115f61b90,
+- **QSpec.** `agent-ix/quire-specification` origin/main,
   `proposals/checked-package-v2/schema.json` and FR-322.
   - `DefinitionRef` is closed `{authority, identity}` (Nonempty). It is used by
     `Selection.definition`, `PackageLock.definition_selections`,
@@ -73,12 +73,12 @@ reference sites. All of them are spec text fixes inside this PR.
 
 ## Dispositions
 
-Round 1, reviewed at agent-ix/quire-contract-ir@9f76810d4bfd9b6ac4590f49d15bc2484fdc6a5f (delta from 0b106a64ea261a86c0f2f64eb9ab8f31f546d39d; base origin/main e80ea70ab8874676de47ac1b7fb439497ced7991 unchanged).
+Round 1, reviewed at agent-ix/quire-contract-ir (delta from; base origin/main unchanged).
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 9f76810d4bfd9b6ac4590f49d15bc2484fdc6a5f |
-| FND-002 | fixed | 9f76810d4bfd9b6ac4590f49d15bc2484fdc6a5f |
-| FND-003 | fixed | 9f76810d4bfd9b6ac4590f49d15bc2484fdc6a5f |
-| FND-004 | fixed | 9f76810d4bfd9b6ac4590f49d15bc2484fdc6a5f |
-| FND-005 | fixed | 9f76810d4bfd9b6ac4590f49d15bc2484fdc6a5f |
+| FND-001 | fixed | Fixed in the reviewed PR. |
+| FND-002 | fixed | Fixed in the reviewed PR. |
+| FND-003 | fixed | Fixed in the reviewed PR. |
+| FND-004 | fixed | Fixed in the reviewed PR. |
+| FND-005 | fixed | Fixed in the reviewed PR. |

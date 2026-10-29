@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket IR-875. Review of PR #464 at fdfc07ee5670011dbfe790a28d3bdd605a7afdf3. Each changed AC has a falsifiable result or structural assertion; AC-4’s clauses can be checked independently within TC-451.
+Ticket IR-875. Review of PR #464. Each changed AC has a falsifiable result or structural assertion; AC-4’s clauses can be checked independently within TC-451.
 
 ## Examined units
 
@@ -31,7 +31,7 @@ IR-875 slice 2. QSL producer adoption remains separate.
 
 ## Coverage
 
-`quire validate` passes both changed documents. Review-head `quire coverage --scope . --strict` reports 533/603 backed, 40 unbacked and 0 contradicted; AC-4 remains planned in this spec-only PR. Existing AC-1/3 tags were checked against their revised wording.
+`quire validate` passes both changed documents. Review-head `quire coverage --scope. --strict` reports 533/603 backed, 40 unbacked and 0 contradicted; AC-4 remains planned in this spec-only PR. Existing AC-1/3 tags were checked against their revised wording.
 
 ## Verdict
 

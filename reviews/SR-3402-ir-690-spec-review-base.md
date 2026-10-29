@@ -3,7 +3,7 @@ id: SR-3402
 title: Base spec review of IR-690 implementation status
 type: SpecReview
 analysis: base
-scope: agent-ix/quire-contract-ir@71abb07c7bb23785edfccb0c2ac75ef3a64a32ad; crates/quire-contract-model/src/checked_package/v2/composite_operands.rs,
+scope: agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/composite_operands.rs,
   spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md,
   spec/checked_package/matrix/tests.md, tests/it/checked_package_v2_composite_operands.rs
 review_set: subset
@@ -16,7 +16,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-690. Exact frozen candidate 71abb07c7bb23785edfccb0c2ac75ef3a64a32ad. The FR-038, TC-048 and tests.md edits change the implementation/evidence status consistently and preserve the preexisting normative criteria. ID/link structure and explicit evidence methods remain valid; no new hash, pin, compatibility layer or copied artifact is introduced.
+Ticket: IR-690. Exact frozen candidate. The FR-038, TC-048 and tests.md edits change the implementation/evidence status consistently and preserve the preexisting normative criteria. ID/link structure and explicit evidence methods remain valid; no new hash, pin, compatibility layer or copied artifact is introduced.
 
 ## Examined units
 

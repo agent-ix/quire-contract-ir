@@ -3,14 +3,14 @@ id: SR-16267
 title: "Integrity review of IR-985 PR 527"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@6def8a01a612f586b0a226c606610923f1f1347d; FR-038-AC-311..317, TC-048 hybrid procedure, FR-019 HybridForm inventory; QSpec FR-481/TC-966@26582406e4d339916ef56f7562ffb5918c2d838c"
+scope: "agent-ix/quire-contract-ir; FR-038-AC-311..317, TC-048 hybrid procedure, FR-019 HybridForm inventory; QSpec FR-481/TC-966"
 review_set: subset
 ---
 # SR-16267: Integrity review of IR-985 PR 527
 
 ## Summary
 
-Ticket: IR-985. Exact IR head 6def8a01a612f586b0a226c606610923f1f1347d; QSpec #415 head 26582406e4d339916ef56f7562ffb5918c2d838c. FR-038-AC-313 groups HY-11 and the schema-invalid HY-18 relation case with model checks 1–4. QSpec assigns those refusals to earlier name and strict-wire stages.
+Ticket: IR-985. Exact IR; QSpec #415. FR-038-AC-313 groups HY-11 and the schema-invalid HY-18 relation case with model checks 1–4. QSpec assigns those refusals to earlier name and strict-wire stages.
 
 ## Findings
 
@@ -31,7 +31,7 @@ Changes requested on FR-038-AC-313: separate HY-11 name validation and HY-18 mal
 
 ## Dispositions
 
-Round 1, reviewed against IR PR #527 exact head `065b8d6c91ee9d46e355aca9422d463e8dfa1b6c`.
+Round 1, reviewed against IR PR #527 exact.
 
 | FND | outcome | reason |
 | --- | --- | --- |
@@ -39,4 +39,4 @@ Round 1, reviewed against IR PR #527 exact head `065b8d6c91ee9d46e355aca9422d463
 
 ## Upstream dependency
 
-At QSpec #415 head `26582406e4d339916ef56f7562ffb5918c2d838c`, FR-481 Reader order checks 3 and 4 require `ill_typed`/`non-boolean-root`. The published `proposals/checked-package-v2/schema.json` `Diagnostic.cause_tag` enum and `DiagnosticCausePairing` omit `non-boolean-root`. This is an upstream QSpec schema mismatch, not an IR normative wording change. IR-985's QSpec fixture verification depends on QSpec resolving it.
+At QSpec #415, FR-481 Reader order checks 3 and 4 require `ill_typed`/`non-boolean-root`. The published `proposals/checked-package-v2/schema.json` `Diagnostic.cause_tag` enum and `DiagnosticCausePairing` omit `non-boolean-root`. This is an upstream QSpec schema mismatch, not an IR normative wording change. IR-985's QSpec fixture verification depends on QSpec resolving it.

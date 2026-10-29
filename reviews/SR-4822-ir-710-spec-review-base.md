@@ -3,7 +3,7 @@ id: SR-4822
 title: "Base specification review of IR-710 PR 329"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@bc3360fa2ec60ba1a256d2d44b2a44b15453923c; spec/model/functional/FR-017-version-orphan-coverage.md, spec/conformance/functional/FR-018-conformance-corpus.md, spec/core/functional/STD-001-diagnostic-registry.md, spec/core/matrix/tests.md, plan/PLAN-002-contract-ir-v01/TASK-008-canonicalization.md"
+scope: "agent-ix/quire-contract-ir; spec/model/functional/FR-017-version-orphan-coverage.md, spec/conformance/functional/FR-018-conformance-corpus.md, spec/core/functional/STD-001-diagnostic-registry.md, spec/core/matrix/tests.md, plan/PLAN-002-contract-ir-v01/TASK-008-canonicalization.md"
 review_set: base
 ---
 # SR-4822: Base specification review of IR-710 PR 329

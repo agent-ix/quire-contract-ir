@@ -3,7 +3,7 @@ id: SR-5021
 title: "IR-347 PR 331 gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@4c749b2d2360f3ac05d3b712045e84ab6af3922b; FR-019, FR-028, FR-039, TC-041, TC-058, computed matrix and changed source"
+scope: "agent-ix/quire-contract-ir; FR-019, FR-028, FR-039, TC-041, TC-058, computed matrix and changed source"
 review_set: subset
 ---
 # SR-5021: IR-347 PR 331 gap analysis
@@ -33,9 +33,9 @@ CONDITIONAL. Correct the two stale status descriptions and the FR-039 trace issu
 
 ## Dispositions
 
-Reviewed the same PR at agent-ix/quire-contract-ir@794bf6ef3a6a0abaa5333d5bbc39e6372a26bd3c.
+Reviewed the same PR at agent-ix/quire-contract-ir.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 794bf6e — TC-058 `## Status`, both model matrix rows, and the global model row now describe the three tests and two doctest paths as implemented. |
-| FND-002 | fixed | 794bf6e — FR-028 `## Status`, TC-041 matrix rows, and case description no longer assert a root model re-export or cite the deleted bridge test; AC-2 and AC-5 are expressly unbacked. |
+| FND-001 | fixed | — TC-058 `## Status`, both model matrix rows, and the global model row now describe the three tests and two doctest paths as implemented. |
+| FND-002 | fixed | — FR-028 `## Status`, TC-041 matrix rows, and case description no longer assert a root model re-export or cite the deleted bridge test; AC-2 and AC-5 are expressly unbacked. |

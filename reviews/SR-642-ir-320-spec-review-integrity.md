@@ -3,7 +3,7 @@ id: SR-642
 title: "integrity review of PR 236 (IR-320 matrix split, TestMatrixIndex, registry)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@92945cd2e400cdd7940e68db7aab21c3291b7395; spec/*/matrix/tests.md (TM-002..TM-008), spec/tests.md (TM-009), spec/spec.md Subsystem Registry; compared against origin/main spec/contract-test-matrix.md"
+scope: "agent-ix/quire-contract-ir; spec/*/matrix/tests.md (TM-002..TM-008), spec/tests.md (TM-009), spec/spec.md Subsystem Registry; compared against origin/main spec/contract-test-matrix.md"
 review_set: subset
 ---
 # SR-642: integrity review of PR 236
@@ -26,4 +26,4 @@ Integrity holds: the rows, ids, counts and index agree. FND-001 is a summary-wor
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | 82d57ba |
+| FND-001 | fixed | Fixed in the reviewed PR. |

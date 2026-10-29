@@ -3,7 +3,7 @@ id: SR-8082
 title: "Integrity review of IR-691 bounded record projection"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@d2055f10f84cfa7a27b7d5fe0fdfe8c79e710657; FR-038-AC-232 through FR-038-AC-235, TC-048 bounded integer record section; IR-691"
+scope: "agent-ix/quire-contract-ir; FR-038-AC-232 through FR-038-AC-235, TC-048 bounded integer record section; IR-691"
 review_set: subset
 ---
 

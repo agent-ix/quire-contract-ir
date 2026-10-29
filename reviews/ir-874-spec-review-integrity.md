@@ -3,13 +3,13 @@ id: SR-611020
 title: "Specification integrity — IR-874 PR #622"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; IR-874 PR #622 head 214cd092"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; IR-874 PR #622 "
 review_set: subset
 ---
 
 ## Summary
 
-The new AC and revised ACs are consistent with QSpec FR-322, FR-464 and TC-946. The test design covers clause and member forms, omitted and extra dependencies, absent targets, precedence, and relation non-exposure. Independent review of frozen PR head `214cd092defab2d2a8ebbc45d22265545944e8cc`.
+The new AC and revised ACs are consistent with QSpec FR-322, FR-464 and TC-946. The test design covers clause and member forms, omitted and extra dependencies, absent targets, precedence, and relation non-exposure. Independent review of frozen PR.
 
 ## Verdict
 

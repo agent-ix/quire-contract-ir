@@ -3,7 +3,7 @@ id: SR-784
 title: "evidence review of PR 255 (IR-486)"
 type: SpecReview
 analysis: evidence
-scope: "agent-ix/quire-contract-ir@154fc38ef518b036ef68ca1bb25fd6911846750d; spec/checked_package/functional/FR-038-consume-checked-package-v2.md AC-43 and AC-69..71 verification column; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; spec/checked_package/matrix/tests.md; make spec coverage before/after"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md AC-43 and AC-69..71 verification column; spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; spec/checked_package/matrix/tests.md; make spec coverage before/after"
 review_set: subset
 ---
 # SR-784: evidence review of PR 255 (IR-486)
@@ -20,7 +20,7 @@ refusal, which both matrix cells state.
 
 `make spec` before and after:
 
-| | origin/main af733f2 | head |
+| | origin/main | head |
 | --- | --- | --- |
 | validate | passes | passes |
 | grammar findings | 1 | 1 |

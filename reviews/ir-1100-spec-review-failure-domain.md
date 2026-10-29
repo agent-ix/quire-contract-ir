@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-The new refusal and incomplete paths preserve the cycle, valuation, progress order and the nested-control work locus. The base review records the uncovered enumeration cases. Reviewed PR #671 at 2996c176452745d6fee32c2c85ab616c6ed10e32 against merged QSpec FR-464-AC-21 to 23 and TC-946 R13 to R24. No applicable AssuranceProfile was found in the changed module.
+The new refusal and incomplete paths preserve the cycle, valuation, progress order and the nested-control work locus. The base review records the uncovered enumeration cases. Reviewed PR #671 against merged QSpec FR-464-AC-21 to 23 and TC-946 R13 to R24. No applicable AssuranceProfile was found in the changed module.
 
 ## Examined units
 

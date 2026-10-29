@@ -3,14 +3,14 @@ id: SR-730
 title: "spec review of PR 249 (IR-504 content-only ModelOwner identity)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@fdad364d27f9e77c4525d06f2653eb2e69eca569; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/tests.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; compared with origin/main, crates/quire-contract-model/src/checked_package/v2/{identity.rs,model_members.rs,operations.rs,mod.rs}, and quire-specification origin/main c76c6ae proposals/checked-package-v2/{schema.json,node-identity-preimage.schema.json}, spec/objects/interfaces/FR-321 and FR-322"
+scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md, spec/checked_package/matrix/tests.md, spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md; compared with origin/main, crates/quire-contract-model/src/checked_package/v2/{identity.rs,model_members.rs,operations.rs,mod.rs}, and quire-specification origin/main proposals/checked-package-v2/{schema.json,node-identity-preimage.schema.json}, spec/objects/interfaces/FR-321 and FR-322"
 review_set: subset
 ---
 # SR-730: spec review of PR 249
 
 ## Summary
 
-Ticket: IR-504. Reviewed head fdad364 against origin/main. One commit, three spec files.
+Ticket: IR-504. Reviewed against origin/main. One commit, three spec files.
 
 Measured independently:
 
@@ -64,4 +64,4 @@ package version. Until then, `Closes IR-504` overclaims.
 
 | FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | b091fe5 |
+| FND-001 | fixed | Fixed in the reviewed PR. |

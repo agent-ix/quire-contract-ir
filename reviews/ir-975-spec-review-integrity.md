@@ -3,7 +3,7 @@ id: SR-15724
 title: "Integrity review — IR-975 single-body V2 wire"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir; PR #521 at f08265affe2165e852c2febd85659ef68da2e70d; FR-038/FR-051/FR-349/FR-019 consistency"
+scope: "agent-ix/quire-contract-ir; PR #521; FR-038/FR-051/FR-349/FR-019 consistency"
 review_set: subset
 ---
 
@@ -13,7 +13,7 @@ The seven-member wire description and canonical hash view have distinct, inspect
 
 ## Verdict
 
-**PASS at 8521036b21b13dd3057a34cd83e3fa54ff73a85b** — AC-123 and AC-133 reconcile with AC-310. The adjacent AC-113 type mismatch recorded in base review SR-15723 was fixed in the second documentation commit.
+**PASS ** — AC-123 and AC-133 reconcile with AC-310. The adjacent AC-113 type mismatch recorded in base review SR-15723 was fixed in the second documentation commit.
 
 ## Findings
 

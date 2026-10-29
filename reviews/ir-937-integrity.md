@@ -23,14 +23,14 @@ The acceptance-criterion table is inconsistent: AC-294 and AC-295 each have two 
 
 ## Coverage
 
-Examined FR-038-AC-294 through FR-038-AC-298, TC-229, QSpec FR-322-AC-82/83, and the changed code/test/Makefile diff against aa01d0d...387dcf9. The computed Quire matrix was consulted for the changed criteria.
+Examined FR-038-AC-294 through FR-038-AC-298, TC-229, QSpec FR-322-AC-82/83, and the changed code/test/Makefile diff.... The computed Quire matrix was consulted for the changed criteria.
 
 ## Dispositions
 
 | FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | Head 1bcdccc moves the five population criteria to unique FR-038-AC-303 through AC-307 IDs and updates TC-229, the handwritten matrix, and new test tags. FR-038 now has no duplicate acceptance-criterion table IDs. |
+| FND-001 | fixed | moves the five population criteria to unique FR-038-AC-303 through AC-307 IDs and updates TC-229, the handwritten matrix, and new test tags. FR-038 now has no duplicate acceptance-criterion table IDs. |
 
 ## Final PR head inspection
 
-PR agent-ix/quire-contract-ir#494 is at 09a81408be067f85f2df6a1d63799a363c59b47d against aa01d0dddb9792ea016f30d1ca09d46c872a782b. `git range-diff` shows all 17 rebased commits patch-identical to the reviewed series. The final population criteria are FR-038-AC-303 through FR-038-AC-307; the computed matrix binds the owner-identity mutation to AC-303 and AC-304. Original finding wording and chronological dispositions above remain the review record.
+PR agent-ix/quire-contract-ir#494 is. `git range-diff` shows all 17 rebased commits patch-identical to the reviewed series. The final population criteria are FR-038-AC-303 through FR-038-AC-307; the computed matrix binds the owner-identity mutation to AC-303 and AC-304. Original finding wording and chronological dispositions above remain the review record.

@@ -3,7 +3,7 @@ id: SR-612112
 title: IR-1077 frame seam base review
 type: SpecReview
 analysis: base
-scope: 'agent-ix/quire-contract-ir; PR #650 aeb07e6c; FR-040 and TC-056'
+scope: 'agent-ix/quire-contract-ir; PR #650; FR-040 and TC-056'
 review_set: subset
 relationships:
 - target: ix://agent-ix/quire-contract-ir/FR-040
@@ -14,7 +14,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1077. Reviewed PR #650 aeb07e6c against QSpec 18211795, FR-340-AC-12/19/20, FR-342-AC-2/7/8/9, FR-341-AC-11/12 and IR FR-061-AC-14/15/16.
+Ticket: IR-1077. Reviewed PR #650 against QSpec , FR-340-AC-12/19/20, FR-342-AC-2/7/8/9, FR-341-AC-11/12 and IR FR-061-AC-14/15/16.
 
 ## Verdict
 
@@ -49,5 +49,5 @@ No applicable AssuranceProfile identified for this spec-only seam.
 
 | FND | Outcome | Reason |
 | --- | --- | --- |
-| FND-001 | fixed | Verified in PR #650 head cb8e5f9b: corrected precedence and/or missing-context oracle matches QSpec. |
-| FND-002 | fixed | Verified in PR #650 head cb8e5f9b: corrected precedence and/or missing-context oracle matches QSpec. |
+| FND-001 | fixed | Verified in PR #650: corrected precedence and/or missing-context oracle matches QSpec. |
+| FND-002 | fixed | Verified in PR #650: corrected precedence and/or missing-context oracle matches QSpec. |

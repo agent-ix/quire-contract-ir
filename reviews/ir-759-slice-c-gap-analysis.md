@@ -3,7 +3,7 @@ id: SR-11817
 title: "IR-759 Slice C source-obligation census gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; PR #419 diff origin/main...32fd1e8: FR-052, FR-019, TC-452, spec/model/matrix/tests.md, crates/quire-contract-model/src/source_obligation.rs, tests/it/source_obligation.rs"
+scope: "agent-ix/quire-contract-ir; PR #419 diff origin/main...: FR-052, FR-019, TC-452, spec/model/matrix/tests.md, crates/quire-contract-model/src/source_obligation.rs, tests/it/source_obligation.rs"
 review_set: subset
 ---
 
@@ -11,13 +11,13 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-759. PR: quire-contract-ir#419 at 32fd1e8. Planless gap analysis of the census builder diff. It compares FR-052's construction rules and AC-15 and AC-17 to AC-23 with their tagged tests and the code. Plan completion: not assessed.
+Ticket: IR-759. PR: quire-contract-ir#419. Planless gap analysis of the census builder diff. It compares FR-052's construction rules and AC-15 and AC-17 to AC-23 with their tagged tests and the code. Plan completion: not assessed.
 
-Measured with `quire coverage --scope . --strict` (quire 0.36.2, engine 0.50.2), each run in its own checkout:
+Measured with `quire coverage --scope. --strict` (quire 0.36.2, engine 0.50.2), each run in its own checkout:
 
-- merge-base 73739f7: 55 unbacked rows, 0 contradicted.
-- origin/main 8b6e5d0: 55 unbacked rows, 0 contradicted.
-- head 32fd1e8: 47 unbacked rows, 0 contradicted.
+- merge-: 55 unbacked rows, 0 contradicted.
+- origin/main: 55 unbacked rows, 0 contradicted.
+-: 47 unbacked rows, 0 contradicted.
 - head merged with origin/main: 47 unbacked rows, 0 contradicted.
 
 The author's claim of 55 -> 47 with 0 contradicted is confirmed. The eight rows that became backed are FR-052-AC-15 and AC-17 through AC-23. AC-8 was already backed and is now deleted. FR-052-AC-1, 2, 3, 5, 6, 7, 9, 10, 11 and 16 are still unbacked and still Planned/UNRUN. `quire validate` is clean over `spec/**` and `reviews/**`.
@@ -49,8 +49,8 @@ What holds:
 scope:
 - {id: FR-052-AC-8, role: examined, path: spec/model/functional/FR-052-source-obligation-correspondence.md, excerpt: "FR-052-AC-8 is retired and its ID is not reused (ADR-0056). FR-052-AC-17 succeeds it."}
 - {id: FR-052-AC-15, role: examined, path: spec/model/functional/FR-052-source-obligation-correspondence.md, excerpt: "A missing, foreign or conflicting binding refuses a complete census with distinct typed causes"}
-- {id: FR-052-AC-17, role: examined, path: spec/model/functional/FR-052-source-obligation-correspondence.md, excerpt: "where the outcomes hold the AC-2 fixture shape plus a QSL outcome with at least one `RequirementRecord` row and one `PendingObligation` row ... a census equal to a hand-written expected census"}
-- {id: FR-052-AC-18, role: examined, path: spec/model/functional/FR-052-source-obligation-correspondence.md, excerpt: "The tested pairs are a foreign binding with an incomplete Quire outcome ... and an incomplete QSL outcome with a missing `quire-code-rs` outcome"}
+- {id: FR-052-AC-17, role: examined, path: spec/model/functional/FR-052-source-obligation-correspondence.md, excerpt: "where the outcomes hold the AC-2 fixture shape plus a QSL outcome with at least one `RequirementRecord` row and one `PendingObligation` row... a census equal to a hand-written expected census"}
+- {id: FR-052-AC-18, role: examined, path: spec/model/functional/FR-052-source-obligation-correspondence.md, excerpt: "The tested pairs are a foreign binding with an incomplete Quire outcome... and an incomplete QSL outcome with a missing `quire-code-rs` outcome"}
 - {id: FR-052-AC-19, role: examined, path: spec/model/functional/FR-052-source-obligation-correspondence.md, excerpt: "an assertion that is both foreign and dangling is rejected only with `ForeignSource`"}
 - {id: FR-052-AC-20, role: examined, path: spec/model/functional/FR-052-source-obligation-correspondence.md, excerpt: "permuting the assertion order and the row order of each outcome yields a census equal to the unpermuted one."}
 - {id: FR-052-AC-21, role: examined, path: spec/model/functional/FR-052-source-obligation-correspondence.md, excerpt: "both in the wrong position and incomplete yields `InventoryScopeMismatch`"}
@@ -61,7 +61,7 @@ scope:
 
 ## Dispositions
 
-Round 1, checked against fix commit aa0daad. `quire coverage --scope . --strict` at aa0daad still reports 47 unbacked rows and 0 contradicted. `quire validate` is clean over `spec/**` and `reviews/**`. No new findings.
+Round 1, checked against fix. `quire coverage --scope. --strict` still reports 47 unbacked rows and 0 contradicted. `quire validate` is clean over `spec/**` and `reviews/**`. No new findings.
 
 | FND | outcome | reason |
 | --- | --- | --- |

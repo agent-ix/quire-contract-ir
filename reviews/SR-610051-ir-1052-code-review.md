@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Independent code-review review of PR #607 at e52bde10a26c5a059b0814e14ff05e8acb13a4ed against QSpec 60383a35. Examined FR-067-AC-1 through AC-7.
+Independent code-review review of PR #607 against QSpec. Examined FR-067-AC-1 through AC-7.
 
 ## Verdict
 
