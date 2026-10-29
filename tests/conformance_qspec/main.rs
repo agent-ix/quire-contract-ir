@@ -304,20 +304,19 @@ fn read_package_with_document_and_extensions_at_limit(
                 .ok_or("a required feature is not a string")?,
         );
     }
-    // Each `model_root` owner selects a domain package by identity.
+    // Supply the one domain document this harness owns. Leave malformed or
+    // unselected root owners to the reader's own refusal path.
     let roots = package["semantic_graph"]["nodes"]
         .as_array()
         .ok_or_else(|| format!("{name}: semantic_graph.nodes is not an array"))?
         .iter()
         .filter(|node| node["semantic_form"] == "model_root");
     for root in roots {
-        let identity = root["owner"]["identity"]
-            .as_str()
-            .ok_or_else(|| format!("{name}: model root has no identity"))?;
+        let Some(identity) = root["owner"]["identity"].as_str() else {
+            continue;
+        };
         if identity != "acme/orders" {
-            return Err(format!(
-                "{name}: unknown selected model identity {identity}"
-            ));
+            continue;
         }
         let document = std::fs::read(domain_document)
             .map_err(|error| format!("{} cannot be read: {error}", domain_document.display()))?;
