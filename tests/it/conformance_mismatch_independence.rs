@@ -14,8 +14,6 @@ use serde_json::{json, Value};
 
 use crate::support::corpus::{read_json, rows, write_json, Scratch};
 
-const ZERO_DIGEST: &str = "0000000000000000000000000000000000000000000000000000000000000000";
-
 /// One mutation of one expectation: where it applies, how, and the single
 /// mismatch kind it must produce.
 struct Case {
@@ -61,12 +59,6 @@ const CASES: &[Case] = &[
         fixture: "package-constructs",
         mutate: |e| e["canonical"][0]["bytes_path"] = json!("canonical/package-constructs-1.json"),
         kind: "canonical_bytes",
-    },
-    Case {
-        label: "canonical-digest",
-        fixture: "package-constructs",
-        mutate: |e| e["canonical"][0]["digest"] = json!(ZERO_DIGEST),
-        kind: "canonical_digest",
     },
     Case {
         label: "dependencies",
@@ -171,12 +163,6 @@ fn tc_018_mismatch_canonical_bytes_alone_reports_only_its_kind() {
 
 #[trace("TC-018", "FR-018-AC-2")]
 #[test]
-fn tc_018_mismatch_canonical_digest_alone_reports_only_its_kind() {
-    run_case("canonical-digest");
-}
-
-#[trace("TC-018", "FR-018-AC-2")]
-#[test]
 fn tc_018_mismatch_dependencies_alone_reports_only_its_kind() {
     run_case("dependencies");
 }
@@ -196,15 +182,14 @@ fn tc_018_mismatch_coverage_reason_alone_reports_only_its_kind() {
 #[trace("TC-018", "FR-018-AC-2")]
 #[test]
 fn tc_018_the_case_table_produces_every_fr020_mismatch_kind() {
-    // FR-020 fixes six kinds. The runner exposes no public kind list, so this
-    // hand-typed set cannot notice a seventh runner kind; it only guards the
-    // table above against silently losing one of the six.
+    // FR-020 fixes five kinds. The runner exposes no public kind list, so this
+    // hand-typed set cannot notice a sixth runner kind; it only guards the
+    // table above against silently losing one of the five.
     let produced: BTreeSet<_> = CASES.iter().map(|case| case.kind).collect();
     assert_eq!(
         produced.into_iter().collect::<Vec<_>>(),
         [
             "canonical_bytes",
-            "canonical_digest",
             "coverage",
             "dependencies",
             "diagnostics",
